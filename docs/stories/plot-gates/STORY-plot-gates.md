@@ -1,10 +1,9 @@
 ---
 title: Rules that do not enforce themselves
 author: jwloka
-status: done
-archived: 2026-09-04
+status: active
 created: 2026-08-16
-updated: 2026-09-04
+updated: 2026-09-08
 ---
 
 # Rules that do not enforce themselves
@@ -103,3 +102,13 @@ are fine, and small work does not need one. The gate came out; a `no story`
 badge on the board card went in. The scar is worth keeping — the pull toward
 "there is no check here, therefore add one" was strong enough to survive two
 rounds of scrutiny that were otherwise finding real defects.
+
+## Re-opened — 2026-09-08
+
+**A rule this story exists to find was measured failing, in the delivery gate itself.**
+
+`/plot-deliver` verifies that every non-deferred branch's PR merged. It does not ask whether the PR carried the work — so a blocked agent's marker commit passes as a finished slice. Measured on one sprint: PR #821 merged a `PLOT-BLOCKED.md` and PR #811 merged **zero files**, and both plans read Delivered. 2.15.0 shipped and was announced with a Jenkins connector that does not exist.
+
+This is the story's own test answered wrong: *can you answer "did I complete this?" without doing the work?* For a slice, today, yes.
+
+`a-merged-pr-carried-work` is the plan. It reports rather than refuses — a plan may legitimately deliver with a slice deferred, and the annotation for that already exists; what was missing is that nobody is told a decision is due.

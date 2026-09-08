@@ -1,0 +1,87 @@
+# A probe reports and the domain judges
+
+> `plot-board-probe.sh`'s header says *"It DECIDES NOTHING"*, and seven lines below it decides that Node 20 is the floor. Six more thresholds sit in the adoption probe. Each is a decision no test can reach.
+
+## Status
+
+- **State:** Draft
+- **Type:** infra
+- **Sprint:** the-jenkins-team-sees-its-builds
+- **Story:** setup-asks-what-the-repo-already-knows
+- **Review:** pr
+- **Impl:** own branches
+
+## Changelog
+
+- Setup's decisions are domain rules a test can assert, so what adoption proposes is checkable rather than inferred from skill prose.
+
+<!-- Board impact: none. The board reads config, not the probes that propose it. -->
+
+## Motivation
+
+**Measured 2026-09-08 across the two collectors — seven thresholds, none of them a measurement:**
+
+| decision | where | what it decides |
+|---|---|---|
+| `node_ok` = major `>= 20` | `plot-board-probe.sh:61` | what Plot supports |
+| `>= 2` conventional | `plot-detect-repo.sh:92` | the commit style is conventional |
+| `>= 2` colon | `:93` | the style is arlo-colon |
+| `>= 2` dash | `:94` | the style is arlo-dash |
+| `>= 2` occurrences | `:82` | a ticket prefix is real, not a coincidence |
+| `>= 3` German words | `:127` | the repository's language |
+
+**AND THE FILE SAYS IT DOES NOT DO THIS.** `plot-board-probe.sh:13`:
+
+> *"It DECIDES NOTHING. Every field is a fact; which artifact to recommend, whether Jenkins keys are warranted, and what an empty board means are all judgments left to the skill (Manifesto Principle 3)."*
+
+`node_ok` is not a fact about the machine. `node --version` is; whether 20 is enough is a decision about Plot.
+
+**THE SETUP RULE HAS THE SAME PROBLEM IN THE OTHER DIRECTION.** `/plot-board-setup` step 2 states it plainly — *"One signal proposes, two signals ask. Where two signals point different ways, setup does not tie-break — it asks, naming what it found."* That is a good rule living as prose an agent is asked to follow. CLAUDE.md's own test: *can you answer "did I complete this?" without doing the work?* Yes — which makes it a rule, and rules are eventually violated.
+
+**THE PRECEDENT IS ALREADY STATED FOR RENDERING**, and it transfers without change:
+
+> *"a view state that cannot be asserted without a browser is a domain property that has not been extracted yet."*
+
+A setup decision that can only be checked by reading skill prose is the same thing.
+
+**THIS SPRINT IS WHERE THE NEXT ONE WOULD LAND.** `the-probe-reads-the-ci-system` adds `ci_system` to a collector, and *which signals justify `CI: jenkins`* is exactly such a judgement.
+
+## What this is not
+
+**NOT A MOVE OF THE PROBES INTO THE DOMAIN.** They reach the machine — `node --version`, `git rev-parse`, whether `jen` is authenticated, whether a `Jenkinsfile` exists. The domain takes readings as values and performs no I/O, and the layering rule points outward: a script sits at the outer edge and is reached only from an adapter. **The collectors keep collecting.**
+
+**Not a change to what adoption proposes.** The same words for the same signals. What changes is where the choice lives and whether a test can see it.
+
+**Not a gate on the thresholds.** No CI check counts them. The gate is the test that asserts the rule.
+
+## Slices
+
+### `proposeStack` decides what the readings propose (Branch: feature/a-probe-reports-and-the-domain-judges)
+
+A domain rule takes a probe's readings and returns proposals; the collectors report raw values.
+
+**THE READINGS GO IN AS VALUES.** `proposeStack({ nodeVersion, ciSignals, ticketPrefixCount, commitStyleCounts, … })` — the shape the domain already uses everywhere, so it needs no port and no mock.
+
+**`node_ok` LEAVES THE PROBE AND `node` STAYS.** The version is the reading; the floor is the rule. A collector that stops deciding must also stop reporting the decision, or the old field becomes a second answer.
+
+**Done when** the seven thresholds are domain rules with tests, the collectors report raw readings, `/plot-init` and `/plot-board-setup` read the proposals rather than recomputing them, and the domain package's branch coverage still holds at 100%.
+
+### Two signals ask rather than tie-break (Branch: feature/two-signals-ask-rather-than-tie-break) <!-- waits: feature/a-probe-reports-and-the-domain-judges -->
+
+The *one signal proposes, two signals ask* rule becomes a property of the proposal rather than a paragraph.
+
+**IT WAITS FOR THE RULE ABOVE**, which is where a proposal gains a shape that can carry *"ask, and here is what I found"* as a value.
+
+**A PROPOSAL AND A QUESTION ARE TWO ANSWERS, NOT ONE ANSWER WITH A FLAG.** A repository with both a `Jenkinsfile` and `.github/workflows/` has no proposed CI — it has a question naming two signals. A field holding `jenkins` plus `uncertain: true` invites a caller to read the first half.
+
+**Done when** two conflicting signals produce a question naming both, one signal produces a proposal with its evidence, no signal produces neither, and a test asserts each without rendering a skill.
+
+## Notes
+
+### Where the question came from — 2026-09-08
+
+Asked directly: *should `plot-board-probe.sh` move into the domain, given it is a setup workflow?*
+
+**The answer was no, and it was worth asking.** The probe measures the machine and cannot move inward. But the setup *workflow* is five steps in the skill — probe, propose, write, verify, summarise — and only the first is the script. The judgement in the middle is what has no home: partly prose in step 2, partly a threshold in the collector.
+
+**So the split is: the probe measures, the domain judges, the skill asks and writes.**
