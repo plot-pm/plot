@@ -113,6 +113,14 @@ describe('refsFixture: an absent reading FAILS rather than answering empty', () 
     const refs = refsFixture({ changedFiles: { 'feature/x': ['a.ts'] } });
     expect(answer<readonly string[]>(await refs.changedFiles('feature/x'))).toEqual(['a.ts']);
     expect(answer<readonly string[]>(await refs.changedFiles('feature/y'))).toEqual([]);
+    // The merge commit, keyed by sha — what a delivery reads when the branch
+    // ref is gone. An unnamed sha answers the empty list, which is what a
+    // commit that changed nothing looks like.
+    const commits = refsFixture({ commitFiles: { dab631d4: ['PLOT-BLOCKED.md'] } });
+    expect(answer<readonly string[]>(await commits.commitFiles('dab631d4'))).toEqual([
+      'PLOT-BLOCKED.md',
+    ]);
+    expect(answer<readonly string[]>(await commits.commitFiles('5d7644ec'))).toEqual([]);
   });
 });
 
@@ -286,6 +294,9 @@ describe('hostFixture: a connector the domain has never heard of', () => {
     expect(answer<MergedAnswer>(await host.prMerged('feature/landed'))).toBe('merged');
     expect(answer<MergedAnswer>(await host.prMerged('feature/open'))).toBe('not-merged');
     expect(answer<readonly Pr[]>(await host.prList('open')).map((pr) => pr.number)).toEqual([7]);
+    // The merge commit of a branch nothing merged is `''` — an ANSWER, not a
+    // silence, and the port's word for *no PR for this branch merged*.
+    expect(answer<string>(await host.prMergeCommit('feature/open'))).toBe('');
   });
 
   it('opens a PR, which is the one write the port allows', async () => {

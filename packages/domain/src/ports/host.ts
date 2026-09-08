@@ -163,6 +163,23 @@ export interface Host {
   prMerged(branch: string): Promise<PortResult<MergedAnswer>>;
 
   /**
+   * The merge commit of a branch's merged PR.
+   *
+   * THE COMMIT SURVIVES THE REF. A squash-merged branch loses its ref at merge,
+   * so a caller asking what the branch changed has nothing to diff against —
+   * measured on both slices that shipped empty on 2026-09-08. The merge commit
+   * is what it reads instead, and the host is the only thing that can name it:
+   * a squash rewrites the commits, so no subject, trailer or ancestry walk maps
+   * the branch to it.
+   *
+   * @param branch - the branch to ask about.
+   * @returns the sha, or `''` where no PR for this branch merged. `''` is an
+   *   ANSWER; a host that could not be asked fails the result instead, because
+   *   silence must not read as *carried nothing*.
+   */
+  prMergeCommit(branch: string): Promise<PortResult<string>>;
+
+  /**
    * Opens a PR for a branch.
    *
    * THE ONE WRITE ON THIS PORT, and the reason it is allowed here while

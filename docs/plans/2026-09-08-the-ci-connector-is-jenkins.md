@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** the-board-is-blank-where-it-matters
@@ -13,6 +13,7 @@
 - **Rounds:** 5
 - **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 - **Started:** 2026-09-08, Jan Wloka, `bug/the-run-ops-ask-the-ci-backend`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 
@@ -93,7 +94,7 @@ So the connector passes credentials to `jen` through the environment only — `J
 
 ## Slices
 
-### The run ops ask the CI backend (Branch: bug/the-run-ops-ask-the-ci-backend)
+### The run ops ask the CI backend (Branch: bug/the-run-ops-ask-the-ci-backend, PR: #837)
 
 `plot-host.sh`'s `runs` and `run-for-sha` branch on `ci_backend()` instead of calling `gh` unconditionally.
 

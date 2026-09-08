@@ -501,6 +501,32 @@ await esbuild.build({
 fs.copyFileSync(sprintScoreArtifact, shippedSprintScore);
 fs.chmodSync(shippedSprintScore, 0o755);
 
+// What an adoption probe's readings propose, for /plot-init and
+// /plot-board-setup.
+//
+// ONCE PER ADOPTION, which is the cheapest call this rule can have: a person
+// runs the command and waits for it. Its own bundle rather than a verb on
+// plot-ask.mjs — a caller asking what a repository proposes should not load the
+// fleet controller — and tracked in git like the other fourteen, so an adopting
+// repository that has the skills already has the bundle.
+const proposeStackArtifact = path.join(here, 'dist/plot-propose-stack.mjs');
+const shippedProposeStack = path.join(here, '../../skills/plot/scripts/board/plot-propose-stack.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/propose-stack.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: proposeStackArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(proposeStackArtifact, shippedProposeStack);
+fs.chmodSync(shippedProposeStack, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -608,6 +634,7 @@ const deltaKb = (fs.statSync(shippedDelta).size / 1024).toFixed(1);
 const standingKb = (fs.statSync(shippedStanding).size / 1024).toFixed(1);
 const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
+const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -622,4 +649,5 @@ console.log(`Built plot-delta.mjs (${deltaKb} KB) → skills/plot/scripts/board/
 console.log(`Built plot-standing.mjs (${standingKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

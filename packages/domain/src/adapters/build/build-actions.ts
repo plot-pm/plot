@@ -20,12 +20,17 @@ const SYSTEM = 'github-actions';
  * contract this layer reads, and a connector calling the CLI directly would be
  * a second implementation of the mapping the script exists to hold.
  *
- * ONE LIMIT IT INHERITS AND DOES NOT FIX. `plot-host.sh`'s `runs` and
- * `run-for-sha` arms gate on the GIT HOST backend, not on the CI system, so on
- * a repository whose code is not on GitHub they print nothing and this
- * connector answers an empty list. That gate is the conflation this port was
- * split out to make visible; moving it is the script's own question and not
- * this connector's.
+ * THE GATE IT INHERITED IS FIXED, AND ONE HALF OF IT REMAINS BY DESIGN.
+ * `plot-host.sh`'s `runs` and `run-for-sha` arms gated on the GIT HOST rather
+ * than the CI system until 2026-09-08, so on a repository whose code is not on
+ * GitHub they printed nothing and this connector answered an empty list. They
+ * now dispatch on the `CI` key this connector passes in `PLOT_CI`.
+ *
+ * A GITHUB REMOTE IS STILL REQUIRED, and that is a second condition rather
+ * than the old one surviving: `gh run list` reads the runs of the repository
+ * its remote names, so `CI: github-actions` on a Bitbucket remote names runs
+ * nothing can reach. The script exits 4 there and this connector answers
+ * `unaskable` — which is the true word, where the empty list was not.
  *
  * @param context - where the scripts and the repository are.
  * @returns a `BuildPort` backed by this vendor's connector.

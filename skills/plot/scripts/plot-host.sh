@@ -46,6 +46,15 @@
 #                                 deciding whether to REMOVE something and
 #                                 silence is never permission. A call that
 #                                 failed outright still exits 3.
+#   pr-merge-commit <branch>       the merge commit sha of a merged PR for this
+#                                 branch, or EMPTY (exit 0) where none merged.
+#                                 The same query `pr-merged` runs, reading a
+#                                 second field of the one response. A separate
+#                                 subcommand because `pr-merged` prints one word
+#                                 and its callers read one word.
+#                                 EXIT 3 is the question failing, and it is not
+#                                 the same as an empty answer: a diff that could
+#                                 not be read is not a diff that was empty.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch]
@@ -96,13 +105,25 @@
 #                                 and a real failure presents identically.
 #                                 Nothing here compares runs or concludes.
 #                                 METERED: ask only for a branch already known
-#                                 to be failing. Empty on bitbucket (bb has no
-#                                 run listing) — unavailable, never "never
-#                                 failed".
+#                                 to be failing.
+#                                 DISPATCHED ON THE `CI` KEY, never on the git
+#                                 host: a build is the CI system's fact, and the
+#                                 two keys are independent. A repository that
+#                                 declared no CI, or one Plot has no connector
+#                                 for, EXITS 4 — not being able to ask is not an
+#                                 empty history.
+#                                 On jenkins it reports ONE current state as a
+#                                 history of one, with `startedAt` and `url`
+#                                 empty: `jen job list` carries no history and
+#                                 no timestamps, and inventing them would be a
+#                                 collector reaching a verdict.
 #   run-for-sha <branch> <sha>    the run for ONE sha — else the branch's newest
 #                                 run, with `sha` saying which it is — as a
 #                                 single JSON object, or nothing when the branch
-#                                 has no runs at all:
+#                                 has no runs at all. Dispatched on the `CI` key
+#                                 like `runs`, and EXITS 4 on jenkins: `jen job
+#                                 list` names no commit, so there is nothing to
+#                                 match a sha against. Output:
 #                                   {"sha":"…","status":"queued|in_progress|
 #                                    completed|waiting|requested",
 #                                    "conclusion":"success|failure|…|null",
@@ -632,6 +653,56 @@ jenkins_build_map() {
                           job: (if $job == "" then $branch else "\($job)/\($branch)" end) } }]
             | from_entries) }
   '
+}
+
+# Where this repository's Jenkins lives — the `Jenkins instance` key, else
+# `JENKINS_INSTANCE`. Prints nothing when neither is set.
+#
+# Read through ONE function because three ops now ask it. `pr-list --rich` read
+# it inline first; `runs` and `run-for-sha` ask the same question and must get
+# the same answer and the same refusal, or a repository would be configured for
+# one op and not the others.
+jenkins_instance() {
+  local instance
+  instance=$(bash "$here/plot-config.sh" get "Jenkins instance" "" 2>/dev/null || echo "")
+  [ -n "$instance" ] || instance="${JENKINS_INSTANCE:-}"
+  printf '%s' "$instance"
+}
+
+# The refusal a Jenkins op prints when it has no instance to ask, naming the
+# three repairs. Exit 3 — the op itself cannot proceed, which is a config error
+# only a person can fix, and deliberately NOT exit 4: a `CI: jenkins` repository
+# CAN be asked about builds, it just has not said where.
+jenkins_no_instance() {
+  echo "plot-host: CI is jenkins but no Jenkins instance is configured" >&2
+  echo "  Add a 'Jenkins instance' key to the ## Plot Config section of CLAUDE.md," >&2
+  echo "  naming the instance \`jen\` knows, or set JENKINS_INSTANCE." >&2
+  echo "  Or drop the 'CI: jenkins' key to read build status from the git host." >&2
+  exit 3
+}
+
+# NOT BEING ABLE TO ASK IS NOT AN EMPTY ANSWER, and exit 4 is where the two are
+# kept apart. An empty run list means *this branch has no runs*; a repository
+# that declared no CI system has nothing that could hold one, and a caller
+# reading `[]` for that would report *nothing has ever failed here* about a
+# question nobody asked.
+#
+# `ci-limit`'s `*)` arm already draws this line for a connector nobody wrote an
+# estimate for. This draws it one step earlier, for a connector that does not
+# exist at all — and `resultOf` (`adapters/run-script.ts:211`) maps exit 4 onto
+# `unaskable`, which is the word the build port already answers with.
+ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
+  local ci_word="${2:-}"
+  if [ -z "$ci_word" ] || [ "$ci_word" = none ]; then
+    echo "plot-host: $1 — this repository declares no CI system, so there is nothing to ask" >&2
+    echo "  Add a 'CI' key to the ## Plot Config section of CLAUDE.md naming the" >&2
+    echo "  system that builds this repository — \`github-actions\` or \`jenkins\`." >&2
+  else
+    echo "plot-host: $1 — no connector for CI system '$ci_word'" >&2
+    echo "  Plot answers this op for \`github-actions\` and \`jenkins\`. An unknown" >&2
+    echo "  system cannot be asked, which is not the same as having no runs." >&2
+  fi
+  exit 4
 }
 
 # A LOOKUP MISS AND A TRANSPORT FAILURE ARE TWO ANSWERS, AND THE CLI GIVES ONE
@@ -2163,6 +2234,73 @@ case "$op" in
     fi
     ;;
 
+  pr-merge-commit)
+    # THE MERGE COMMIT OF A BRANCH'S MERGED PR, and nothing else.
+    #
+    # A SECOND SUBCOMMAND RATHER THAN A FIELD ON `pr-merged`, because that one
+    # prints ONE WORD and eleven callers read it as one — `plot-reap.sh`,
+    # `plot-release-refs.sh` and `plot-dispatch.sh` among them, each deciding
+    # whether to remove something. Widening its output to carry a sha would
+    # rewrite a contract those callers depend on, to serve a question none of
+    # them asks.
+    #
+    # THE QUERY IS `pr-merged`'s, so a caller asking both spends TWO calls where
+    # one would do — and that is a cost this path does not pay: delivery asks
+    # this only for a branch it has already been told merged, and the plan it
+    # serves budgets one host call per branch either way.
+    #
+    # `--state all` and `--limit 100` for `pr-merged`'s own two reasons: a
+    # merged PR reports CLOSED, and the newest PR is not the merge.
+    #
+    # PRINTS NOTHING AND EXITS 0 where no PR merged — an ANSWER, the same shape
+    # `pr-state` gives for a missing PR. Exit 3 is the question failing.
+    ref="${1:?pr-merge-commit needs a branch}"; shift || true
+    repo_args=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        *) die "pr-merge-commit: unknown arg $1" ;;
+      esac
+    done
+    if [ "$be" = "github" ]; then
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,mergeCommit 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        # The FIRST merged PR carrying a sha. A branch may hold several merged
+        # PRs; each names its own merge commit, and any of them is a commit that
+        # landed this branch's work.
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null))
+               | map(.mergeCommit.oid) | first // empty' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        # A lookup miss is an answer: no PR, so no merge commit. Anything else
+        # is the question failing, and silence must not read as "carried
+        # nothing" — the caller distinguishes the two by the exit code.
+        if [ -z "$err" ] || is_lookup_miss "$err"; then
+          :
+        else
+          echo "plot-host: $err" >&2
+          exit 3
+        fi
+      fi
+    else
+      bb_require_json
+      # Bitbucket names the merge commit `merge_commit.hash` on a merged PR.
+      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        jq -r --arg b "$ref" 'map(select(.source.branch.name==$b))
+               | map(.merge_commit.hash // empty) | first // empty' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        if [ -z "$err" ] || is_lookup_miss "$err"; then
+          :
+        else
+          echo "plot-host: $err" >&2
+          exit 3
+        fi
+      fi
+    fi
+    ;;
+
   pr-create)
     title=""; body=""; base=""; head=""; draft=0
     while [ $# -gt 0 ]; do
@@ -2280,15 +2418,8 @@ case "$op" in
     jen_map=""
     jen_status=""
     if [ "$ci" = "jenkins" ] && [ "$rich" = 1 ]; then
-      jen_instance=$(bash "$here/plot-config.sh" get "Jenkins instance" "" 2>/dev/null || echo "")
-      [ -n "$jen_instance" ] || jen_instance="${JENKINS_INSTANCE:-}"
-      if [ -z "$jen_instance" ]; then
-        echo "plot-host: CI is jenkins but no Jenkins instance is configured" >&2
-        echo "  Add a 'Jenkins instance' key to the ## Plot Config section of CLAUDE.md," >&2
-        echo "  naming the instance \`jen\` knows, or set JENKINS_INSTANCE." >&2
-        echo "  Or drop the 'CI: jenkins' key to read build status from the git host." >&2
-        exit 3
-      fi
+      jen_instance="$(jenkins_instance)"
+      [ -n "$jen_instance" ] || jenkins_no_instance
       jen_payload=$(jenkins_build_map "$jen_instance")
       jen_status=$(printf '%s' "$jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
       jen_map=$(printf '%s' "$jen_payload" | jq -c '.map // {}' 2>/dev/null || echo "{}")
@@ -2543,9 +2674,13 @@ case "$op" in
     # and failing branches are rare by construction; a caller that asked for
     # every branch would spend a budget the board has already exhausted once.
     #
-    # Bitbucket reports nothing here rather than something invented. `bb` has no
-    # run listing, and an empty history renders as "unavailable" — never as
-    # "this branch has never failed before".
+    # IT DISPATCHES ON THE CI SYSTEM, NEVER ON THE GIT HOST. This arm gated on
+    # `be` until 2026-09-08, which made this repository's accident — GitHub is
+    # both — the shape of the op: a Bitbucket team building on Jenkins got
+    # silence, and a GitHub team building on Jenkins got GitHub Actions runs
+    # for a repository whose CI is not GitHub Actions. `CI` and `Git host` are
+    # independent `## Plot Config` keys, and this is the op that reads the
+    # first of them.
     branch="${1:?runs needs a branch}"; shift
     limit=10
     while [ $# -gt 0 ]; do
@@ -2554,13 +2689,61 @@ case "$op" in
         *) die "runs: unknown arg $1" ;;
       esac
     done
-    if [ "$be" = "github" ]; then
-      gh run list --branch "$branch" --limit "$limit" \
-        --json workflowName,conclusion,status,startedAt,url 2>/dev/null \
-        | jq -c '.[] | {workflow:.workflowName,
-                        conclusion:(if (.conclusion // "") == "" then .status else .conclusion end),
-                        startedAt:.startedAt, url:.url}' 2>/dev/null || true
-    fi
+    _ci="$(ci_backend)"
+    case "$_ci" in
+      github-actions)
+        # THE GIT HOST STILL HAS TO BE GITHUB, and that is a second condition
+        # rather than the same one. `gh run list` reads the runs of the
+        # repository the CWD's remote names, so a repository declaring
+        # `CI: github-actions` on a Bitbucket remote has declared something
+        # `gh` cannot reach — an unaskable configuration, not an empty history.
+        if [ "$be" != "github" ]; then
+          echo "plot-host: runs — CI is github-actions but the git host is '$be'" >&2
+          echo "  \`gh run list\` reads the runs of the repository its remote names," >&2
+          echo "  so there is no GitHub repository here to ask about." >&2
+          exit 4
+        fi
+        gh run list --branch "$branch" --limit "$limit" \
+          --json workflowName,conclusion,status,startedAt,url 2>/dev/null \
+          | jq -c '.[] | {workflow:.workflowName,
+                          conclusion:(if (.conclusion // "") == "" then .status else .conclusion end),
+                          startedAt:.startedAt, url:.url}' 2>/dev/null || true
+        ;;
+      jenkins)
+        # ONE STATE PER BRANCH, REPORTED AS A HISTORY OF ONE — and the PR says
+        # so, because it is the honest limit of the transport this arm has.
+        # `jenkins_build_map` answers `{color, checks, job}` for every branch in
+        # one call: a CURRENT state, with no timestamps, no URL and no earlier
+        # runs. A history is what Jenkins holds and what its REST API answers;
+        # reading it is `the-ci-connector-is-jenkins`'s own slice, and inventing
+        # entries here to fill the shape would be the collector reaching a
+        # verdict (Principle 3).
+        #
+        # SO THE FIELDS THIS CANNOT MEASURE ARE EMPTY, never guessed. `workflow`
+        # names the Jenkins job, which is the one thing the map does carry and
+        # the detail a reader opens; `conclusion` is the `checks` word the
+        # colour table already settled; `startedAt` and `url` are empty,
+        # because a timestamp this arm invented would read as measurement.
+        _jen_instance="$(jenkins_instance)"
+        [ -n "$_jen_instance" ] || jenkins_no_instance
+        _jen_payload=$(jenkins_build_map "$_jen_instance")
+        _jen_status=$(printf '%s' "$_jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
+        if [ "$_jen_status" != "ok" ]; then
+          # UNREACHABLE IS NOT EMPTY EITHER. `pr-list --rich` can mark its rows
+          # `unknown` and keep them; this op has no row to carry the word, so
+          # the only way to say *cannot verify* is the exit code. Printing
+          # nothing at exit 0 would read as *this branch has never run*.
+          echo "plot-host: runs — jenkins unreachable ($_jen_status)" >&2
+          exit 4
+        fi
+        printf '%s' "$_jen_payload" | jq -c --arg branch "$branch" \
+          '.map[$branch] // empty
+           | {workflow:(.job // ""), conclusion:(.checks // ""), startedAt:"", url:""}' 2>/dev/null || true
+        ;;
+      *)
+        ci_unaskable runs "$_ci"
+        ;;
+    esac
     ;;
 
   run-for-sha)
@@ -2606,39 +2789,80 @@ case "$op" in
         *) die "run-for-sha: unknown arg $1" ;;
       esac
     done
-    if [ "$be" = "github" ]; then
-      # `headSha` is the field that makes this answerable at all; `runs` omits
-      # it, which is why that op cannot be reused here.
-      #
-      # NEWEST FIRST, then the FIRST match is taken: `gh run list` returns runs
-      # newest-first, and a sha can carry several (a rerun, or several
-      # workflows). The newest is the live answer; older ones for the same sha
-      # are superseded by the same argument that superseded runs for older shas.
-      # THE SHA ASKED ABOUT IF THERE IS ONE, ELSE THE NEWEST RUN ON THE BRANCH —
-      # and `sha` in the output says WHICH, because a caller that could not tell
-      # the two apart would be back to the branch-scoped guessing this op exists
-      # to end.
-      #
-      # WHY IT FALLS BACK AT ALL, rather than reporting nothing. Filtering to
-      # the asked-for sha and stopping makes the most important case invisible:
-      # a run IN FLIGHT for a commit the branch has already moved past reports
-      # identically to no run at all, so a caller cannot distinguish *CI has not
-      # started yet* from *CI is busy answering about the past*. The second is
-      # the state that had two merge waiters reporting on superseded runs on
-      # 2026-08-30, and it is exactly what a caller needs to see.
-      #
-      # IT STILL DECIDES NOTHING (Principle 3). It reports the run it found and
-      # the sha that run is for; whether that sha being different from the one
-      # asked about means "superseded" is the caller's rule. This collects.
-      gh run list --branch "$branch" --limit "$limit" \
-        --json headSha,conclusion,status,startedAt,url 2>/dev/null \
-        | jq -c --arg sha "$sha" \
-            '(map(select(.headSha == $sha)) | .[0]) // .[0]
-             | select(. != null)
-             | {sha:.headSha, status:.status,
-                conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
-                url:.url, startedAt:.startedAt}' 2>/dev/null || true
+    # DISPATCHED ON THE CI SYSTEM, for the reason `runs` above states: the git
+    # host is a separate key, and a build is the CI system's fact.
+    _ci="$(ci_backend)"
+    case "$_ci" in
+      jenkins)
+        # JENKINS CANNOT ANSWER THIS THROUGH `jen`, AND THAT IS A MEASUREMENT
+        # RATHER THAN A GAP LEFT OPEN. `jenkins_build_map` — the only Jenkins
+        # reader this script has — answers `{color, checks, job}` per BRANCH and
+        # carries no commit at all, so there is nothing here to match a sha
+        # against.
+        #
+        # THE ANSWER EXISTS AND THIS TRANSPORT DOES NOT REACH IT. Measured
+        # 2026-09-08 against a live instance, a build names its commit at
+        # `actions[].BuildData.lastBuiltRevision.SHA1`, paired with its branch —
+        # over the REST API, which `the-ci-connector-is-jenkins` reads. Until
+        # that lands, `unaskable` is the true word: this connector cannot be
+        # asked, which is not the same as the branch having no run for the sha.
+        #
+        # FALLING BACK TO THE BRANCH'S CURRENT STATE WOULD BE THE ONE ANSWER
+        # THAT COSTS A MERGE. This op exists because a run for a superseded
+        # commit reads identically to a run for the current one, and reporting
+        # a branch-scoped state with no sha in it is exactly the guessing it was
+        # written to end — two merge waiters were stopped for it on 2026-08-30.
+        echo "plot-host: run-for-sha — jenkins has no sha-scoped answer through \`jen\`" >&2
+        echo "  \`jen job list\` reports one state per branch and names no commit." >&2
+        echo "  A build's sha is in Jenkins and reached over its REST API, which" >&2
+        echo "  the Jenkins build connector reads. Until then this cannot be asked." >&2
+        exit 4
+        ;;
+      github-actions) : ;;
+      *) ci_unaskable run-for-sha "$_ci" ;;
+    esac
+    if [ "$be" != "github" ]; then
+      # SAME SECOND CONDITION AS `runs`: `gh run list` reads the repository its
+      # remote names, so `CI: github-actions` on a non-GitHub remote names runs
+      # that cannot be reached from here.
+      echo "plot-host: run-for-sha — CI is github-actions but the git host is '$be'" >&2
+      echo "  \`gh run list\` reads the runs of the repository its remote names," >&2
+      echo "  so there is no GitHub repository here to ask about." >&2
+      exit 4
     fi
+    # From here the CI system is `github-actions` and the git host is GitHub;
+    # both were established above, so nothing guards the call.
+    # `headSha` is the field that makes this answerable at all; `runs` omits
+    # it, which is why that op cannot be reused here.
+    #
+    # NEWEST FIRST, then the FIRST match is taken: `gh run list` returns runs
+    # newest-first, and a sha can carry several (a rerun, or several
+    # workflows). The newest is the live answer; older ones for the same sha
+    # are superseded by the same argument that superseded runs for older shas.
+    # THE SHA ASKED ABOUT IF THERE IS ONE, ELSE THE NEWEST RUN ON THE BRANCH —
+    # and `sha` in the output says WHICH, because a caller that could not tell
+    # the two apart would be back to the branch-scoped guessing this op exists
+    # to end.
+    #
+    # WHY IT FALLS BACK AT ALL, rather than reporting nothing. Filtering to
+    # the asked-for sha and stopping makes the most important case invisible:
+    # a run IN FLIGHT for a commit the branch has already moved past reports
+    # identically to no run at all, so a caller cannot distinguish *CI has not
+    # started yet* from *CI is busy answering about the past*. The second is
+    # the state that had two merge waiters reporting on superseded runs on
+    # 2026-08-30, and it is exactly what a caller needs to see.
+    #
+    # IT STILL DECIDES NOTHING (Principle 3). It reports the run it found and
+    # the sha that run is for; whether that sha being different from the one
+    # asked about means "superseded" is the caller's rule. This collects.
+    gh run list --branch "$branch" --limit "$limit" \
+      --json headSha,conclusion,status,startedAt,url 2>/dev/null \
+      | jq -c --arg sha "$sha" \
+          '(map(select(.headSha == $sha)) | .[0]) // .[0]
+           | select(. != null)
+           | {sha:.headSha, status:.status,
+              conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
+              url:.url, startedAt:.startedAt}' 2>/dev/null || true
     ;;
 
   issue-list)

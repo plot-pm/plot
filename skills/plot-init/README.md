@@ -51,8 +51,10 @@ Where a signal is ambiguous the field is empty and the skill asks.
 ## The stack is proposed, not defaulted
 
 Adoption reads two signals about a team's stack and turns each into a config
-key: a recurring `ticket_prefix` proposes `Tracker:`, and `ci_system` proposes
-`CI:`.
+key: a recurring ticket prefix proposes `Tracker:`, and `ci_system` proposes
+`CI:`. **Whether a prefix recurs often enough is `proposeTicket`'s answer**, in
+`@plot-pm/domain`, reached through `board/plot-propose-stack.mjs` — the probe
+reports the prefix and its count and decides neither.
 
 **The silent default was the defect.** A repository that declares no tracker
 gets `trackerNone`, which answers `unaskable` on every issue operation —
@@ -150,7 +152,7 @@ siblings.
 **The signal is read in the skill, not added to the probe.** The probe's
 contract has other callers, and interpreting *where do this repo's worktrees
 live* into a proposal is judgment rather than collection — Manifesto Principle
-3, the same argument that keeps `ticket_prefix` out of `plot-board-probe.sh`.
+3, the same argument that keeps the ticket prefix out of `plot-board-probe.sh`.
 
 **Relocating is never adoption's.** `/plot-dispatch --migrate` moves existing
 worktrees on a person's say; adoption is additive and moves nothing.
@@ -205,8 +207,8 @@ step 2's existing confirmation gate rather than a new mechanism.
   run. Confirming that is the adopter's first real use of the workflow.
 - **`plot-detect-repo.sh` does not emit `ci_system` yet.** The `CI:` proposal
   above reads a field the probe is specified to report and does not, so it is
-  inert until that slice lands: the tracker half works today because
-  `ticket_prefix` already exists. Measured 2026-09-08 — the sibling slice
+  inert until that slice lands: the tracker half works today because the
+  ticket prefix already exists. Measured 2026-09-08 — the sibling slice
   `feature/the-probe-reads-the-ci-system` merged as PR #811 carrying **zero
   files**, its claim commit only. The signal itself is already read next door,
   as `ci_signals.{jenkinsfile,gh_workflows}` in `plot-board-probe.sh`, which is

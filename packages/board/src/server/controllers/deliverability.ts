@@ -1,5 +1,5 @@
 import { deliver, refused, type DeliverBranchReading } from '@plot-pm/domain';
-import type { Host, PlanStore } from '@plot-pm/domain';
+import type { Host, PlanStore, Refs } from '@plot-pm/domain';
 
 /**
  * What the shell asks about, and the shape it gets back.
@@ -24,6 +24,13 @@ export interface DeliverabilityAnswer {
   deferred: number;
   /** Branches still outstanding — empty when `deliverable`. */
   unmerged: string[];
+  /**
+   * Branches whose merged PR carried no implementation.
+   *
+   * A FINDING, NOT A REFUSAL. `deliverable` stays true beside a non-empty list:
+   * the caller prints it and delivers. See the domain's `emptySlices`.
+   */
+  emptySlices: string[];
 }
 
 /**
@@ -83,6 +90,55 @@ const mergedBranches = async (
 };
 
 /**
+ * Whether a merged branch's PR carried anything but a marker or a claim.
+ *
+ * THE MERGE COMMIT, NOT THE BRANCH. A squash-merged branch loses its ref, so
+ * `origin/main...branch` cannot run for the population this is asked about —
+ * measured on both slices that shipped empty. The host names the commit and git
+ * reads it.
+ *
+ * TWO EXCLUSIONS AND NO OTHERS. `PLOT-BLOCKED*` is a worker's question to a
+ * person rather than work, and the claim commit is empty so it contributes no
+ * path — the same pair `plot-reconcile-scan.sh`'s section 17 excludes when it
+ * asks whether a branch holds work. A documentation-only PR carried work: it is
+ * a slice that wrote documentation.
+ *
+ * `unknown` WHERE EITHER READING FAILED, and never `false`. A host that could
+ * not name the commit, and a commit git could not read, are both *cannot
+ * verify*.
+ *
+ * @param ports - the host that names the merge commit, and the refs that read it
+ * @param branch - the merged branch to ask about
+ * @returns whether it carried work, or `'unknown'` where that could not be read
+ */
+const carriedWorkOf = async (
+  ports: { host: Host; refs: Refs },
+  branch: string,
+): Promise<boolean | 'unknown'> => {
+  const sha = await ports.host.prMergeCommit(branch);
+  if (!sha.ok) return 'unknown';
+  // NO MERGE COMMIT IS NOT NO WORK. The host answered that it holds no merged
+  // PR for this name, while `prMerged` said the branch merged — the two
+  // disagree, and a disagreement is exactly what `unknown` is for.
+  if (sha.value === '') return 'unknown';
+
+  const files = await ports.refs.commitFiles(sha.value);
+  if (!files.ok) return 'unknown';
+  return files.value.some((path) => !isMarker(path));
+};
+
+/**
+ * Whether a path is a blocked marker rather than work.
+ *
+ * `PLOT-BLOCKED*` at the repository root, the spelling the fleet scan looks for
+ * and the worker writes.
+ *
+ * @param path - a path a commit changed, relative to the repository root
+ * @returns true where the path is a marker
+ */
+const isMarker = (path: string): boolean => path.startsWith('PLOT-BLOCKED');
+
+/**
  * Whether a plan's work has landed — the question `plot-deliver.sh` used to
  * answer for itself.
  *
@@ -107,6 +163,8 @@ export interface DeliverabilityPorts {
   planStore: PlanStore;
   /** Answers whether the host merged a branch. */
   host: Host;
+  /** Reads what a merge commit changed. */
+  refs: Refs;
 }
 
 export const deliverabilityOf = async (
@@ -114,7 +172,14 @@ export const deliverabilityOf = async (
   slug: string,
   planFile: string,
 ): Promise<DeliverabilityAnswer> => {
-  const empty = { slug, file: planFile, merged: 0, deferred: 0, unmerged: [] as string[] };
+  const empty = {
+    slug,
+    file: planFile,
+    merged: 0,
+    deferred: 0,
+    unmerged: [] as string[],
+    emptySlices: [] as string[],
+  };
 
   // THE CONTROLLER ASKS PORTS AND NEVER SPAWNS. It ran `plot-plan-meta.sh` and
   // `plot-impl-status.sh` itself until 2026-09-01, which is the layering rule
@@ -138,11 +203,18 @@ export const deliverabilityOf = async (
 
   const named = branchesOf(plan);
   const merged = await mergedBranches(ports.host, named.map((b) => b.branch));
-  const branches: DeliverBranchReading[] = named.map((b) => ({
-    branch: b.branch,
-    deferred: b.deferred,
-    merged: merged.has(b.branch),
-  }));
+  const branches: DeliverBranchReading[] = [];
+  for (const b of named) {
+    const didMerge = merged.has(b.branch);
+    // ASKED ONLY WHERE IT COULD REPORT. A deferred branch is silent by rule and
+    // an unmerged one refuses the delivery outright, so neither is worth a host
+    // call — which is what keeps this inside the per-branch budget delivery
+    // already spends.
+    const carriedWork = didMerge && !b.deferred
+      ? await carriedWorkOf(ports, b.branch)
+      : 'unknown';
+    branches.push({ branch: b.branch, deferred: b.deferred, merged: didMerge, carriedWork });
+  }
 
   // Only the branch rule is asked for. The phase is the script's own refusal
   // and stays there until the refusals slice moves it, so `approved` is passed
@@ -183,5 +255,8 @@ export const deliverabilityOf = async (
     refusal: '',
     merged: branches.length - deferred,
     deferred,
+    // THE FINDING RIDES OUT WITH A SUCCESSFUL VERDICT, which is what makes it a
+    // report rather than a gate: `deliverable` is true beside it.
+    emptySlices: [...outcome.detail.emptySlices],
   };
 };

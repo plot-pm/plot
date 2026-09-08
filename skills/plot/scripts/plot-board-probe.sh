@@ -16,8 +16,17 @@
 #
 # Fields:
 #   node            `node --version` output, or "" when node is absent
-#   node_ok         true when node's major version is >= 20 (the artifact's
-#                   esbuild target, and what its shipped README requires)
+#   node_floor      the major the repository pins in `.nvmrc`, or null when it
+#                   pins none. THE FLOOR IS A READING, NOT A VERDICT: whether
+#                   the node found meets it is `proposeNode`'s decision, in
+#                   `packages/domain/src/rules/stack.ts`, reached through
+#                   `board/plot-propose-stack.mjs`.
+#
+#                   It replaced `node_ok`, which hardcoded 20 seven lines below
+#                   the header sentence beneath this list, had NO reader on the
+#                   whole estate, and disagreed with `plot-fleetctl.sh`, which
+#                   reads `.nvmrc` and refuses a mismatched major. One answer
+#                   where there were three.
 #   bash            always true if this ran, but reported for completeness
 #   git_root        `git rev-parse --show-toplevel`
 #   cwd_is_root     true when CWD *is* the repo root. The board requires
@@ -50,15 +59,33 @@ git rev-parse --git-dir >/dev/null 2>&1 || {
 }
 
 # --- runtime ------------------------------------------------------------
+# The version found, and the floor the repository states. Both raw: parsing the
+# one and comparing it against the other are the rule's, not this file's.
 node_ver=""
-node_ok=false
 if command -v node >/dev/null 2>&1; then
   node_ver=$(node --version 2>/dev/null || true)
-  major=${node_ver#v}
-  major=${major%%.*}
-  case "$major" in
-    ''|*[!0-9]*) node_ok=false ;;
-    *) [ "$major" -ge 20 ] && node_ok=true ;;
+fi
+
+# `.nvmrc` is the one place a repository pins its major. `plot-fleetctl.sh`
+# reads the same file for the same reason — the two `engines` blocks say
+# `>=24`, which is a floor rather than a pin — and `null` is what a repository
+# pinning nothing reports, never a number invented here.
+#
+# READ BEFORE `git_root` IS RESOLVED, so it uses the repo root the same way:
+# the file sits at the top of the checkout, not in whatever directory the
+# probe was started from.
+node_floor=null
+_nvmrc_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -n "$_nvmrc_root" ] && [ -f "$_nvmrc_root/.nvmrc" ]; then
+  _pin=$(tr -d ' \tv\n\r' < "$_nvmrc_root/.nvmrc" 2>/dev/null)
+  _pin=${_pin%%.*}
+  # A digits-only major, or nothing. `lts/iron` is a valid `.nvmrc` and names
+  # no number this can compare — reporting `null` there says the floor could
+  # not be read, which the rule answers *cannot verify* for rather than
+  # inventing a major from an alias table that would go stale.
+  case "$_pin" in
+    ''|*[!0-9]*) node_floor=null ;;
+    *) node_floor=$_pin ;;
   esac
 fi
 
@@ -239,7 +266,7 @@ fi
 cat <<JSON
 {
   "node": "$(j "$node_ver")",
-  "node_ok": $node_ok,
+  "node_floor": $node_floor,
   "bash": true,
   "git_root": "$(j "$git_root")",
   "cwd_is_root": $cwd_is_root,

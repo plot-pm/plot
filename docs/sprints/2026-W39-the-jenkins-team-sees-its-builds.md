@@ -55,20 +55,29 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 ## MoSCoW
 
-### Must
+### Must Have
 
 - [ ] [the-probe-reads-the-ci-system] `plot-detect-repo.sh` emits `ci_system` as signals, shaped after `plot-board-probe.sh`'s `ci_signals`. The `CI:` proposal in `/plot-init` is specified against this field and is inert without it. **Waits on `a-probe-reports-and-the-domain-judges`** — both change the same collector, and the word `ci_system` proposes belongs in the domain rather than written here and moved a week later. Re-filed: PR #811 merged zero files.
-- [ ] [the-ci-connector-is-jenkins] `build-jenkins.ts` answers the three port operations through `plot-host.sh`. Re-filed: PR #821 merged a marker and no code.
+- [x] [the-ci-connector-is-jenkins] `build-jenkins.ts` answers the three port operations through `plot-host.sh`. Re-filed: PR #821 merged a marker and no code.
 - [ ] [the-run-ops-ask-the-ci-backend] `runs` and `run-for-sha` branch on `ci_backend()` rather than calling `gh` unconditionally. Without this the connector above has nothing to call.
-- [ ] [a-merged-pr-carried-work] `/plot-deliver` distinguishes a slice whose PR carried work from one whose PR carried a marker. Two slices passed that gate in one sprint and nothing reported it.
+- [x] [a-merged-pr-carried-work] `/plot-deliver` distinguishes a slice whose PR carried work from one whose PR carried a marker. Two slices passed that gate in one sprint and nothing reported it.
+- [ ] [the-master-agent-uses-the-controllers] A lifecycle action goes through its controller, and a refusal ends it. Measured 2026-09-08: four of five actions in one session had a controller and none was used — a sprint activated with `sed` while `setSprintState` sat there with nine refusals and zero callers.
+- [ ] [a-sprint-transition-is-performed] `/plot-sprint` start, commit and close call `setSprintState`. The rule is written, tested, exported and dead.
+- [ ] [the-registry-sweeps-what-it-did-not-start] The supervisor reports registered worktrees nobody dispatched. Measured 2026-09-08: twelve hand-made trees in `/private/tmp` made `git worktree list` report 34 where 22 were real, and the fleet scan timed out at 90 s — the board fell back to a stale pulse and showed no PRs.
 
-### Should
+### Should Have
+
+- [ ] [a-rejection-is-a-controller-command] `/plot-reject` moves Delivered → Approved through an endpoint. The one backwards move, and it has no rule at all today.
+- [ ] [a-release-is-a-controller-command] `/plot-release` asks a controller for its verdict. The facts are collected; the judgement is still skill prose in front of the one action nobody can undo.
+- [ ] [adoption-is-a-controller-command] `/plot-init` writes its config through an endpoint asking `proposeStack`. The only command that writes into a repository Plot does not own.
+- [ ] [a-pr-is-opened-by-a-controller] A slice's PR is opened by a controller. No skill, no rule, done by hand three times today and fifteen branches went unseen last sprint.
+- [ ] [a-lifecycle-field-has-one-writer] A hook refuses a commit editing a `State:` line outside the scripts that own it. Last, because a gate refusing the only available method stops work.
 
 - [ ] [the-connector-is-read-against-a-real-instance] Run two `jen` subcommands against `jenkins-ci-webbloqs.internal.quatico.dev` and record what they print. The instance answers (HTTP 403 — present, refusing) and the job `quaweb` exists; what is missing is `jen` and a token. Whether a build history and a build's commit sha are askable at all is the open question the connector's shape rests on.
 - [ ] [a-probe-reports-and-the-domain-judges] `proposeStack` in the domain decides what a probe's readings propose. **Runs before the CI slice**, which reports into it. Seven thresholds live inside the two collectors today — `node >= 20`, three commit-style counts, the ticket-prefix floor and the language count — and each is a decision a test cannot reach.
 - [ ] [two-signals-ask-rather-than-tie-break] `/plot-board-setup`'s stated rule — *one signal proposes, two signals ask* — becomes a domain property rather than a paragraph an agent is asked to follow.
 
-### Could
+### Could Have
 
 - [ ] [the-board-says-which-ci-answered] The board names the CI system behind a check state, so an empty column on a Jenkins team reads as *Jenkins said nothing* rather than as *no CI*.
 

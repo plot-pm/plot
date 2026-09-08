@@ -49,14 +49,26 @@ describe('the three stories say a status the domain admits', () => {
     expect(StoryStatusSchema.safeParse(card!.status).success).toBe(true);
   });
 
-  it.each(STORIES)('%s is done AND carries an archived: date', (slug) => {
+  it.each(STORIES)('%s pairs its status with its archived: date, or neither', (slug) => {
     // The two writes `archivalIsConsistent` requires. Either alone is the
     // half-archived story `plot-story-lint.sh` reports as S3, which is why the
     // repair ran `archiveStory` rather than editing the status word.
+    //
+    // IT ASSERTS THE PAIRING, NOT THE WORD. Pinning `done` outlived the repair
+    // it was written for: all three of these were re-opened on 2026-09-08, each
+    // for a stated reason — every one had been archived with its Phase 2 marked
+    // unstarted, and one carried a measurement that had since become false. A
+    // test that fails when a story is legitimately re-opened is asserting the
+    // estate's shape on the day it was written, and would be answered by
+    // reverting a deliberate decision.
+    //
+    // What must hold in both directions is that the two writes agree: `done`
+    // carries an `archived:` date, and anything else carries none.
     const rel = path.join('docs/stories', slug, `STORY-${slug}.md`);
     const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-    expect(storyCard(slug)!.status).toBe('done');
-    expect(content).toMatch(/^archived: \d{4}-\d{2}-\d{2}$/m);
+    const status = storyCard(slug)!.status;
+    const archived = /^archived: \d{4}-\d{2}-\d{2}$/m.test(content);
+    expect(archived).toBe(status === 'done');
   });
 });
 

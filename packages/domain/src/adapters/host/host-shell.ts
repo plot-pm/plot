@@ -283,6 +283,15 @@ export const hostShell = (context: ShellContext): Host => {
       });
     },
 
+    prMergeCommit: async (branch): Promise<PortResult<string>> => {
+      const run = await runProcess('bash', [host, 'pr-merge-commit', branch], inRepo);
+      // EMPTY IS AN ANSWER AND A FAILURE IS NOT. `pr-merge-commit` exits 0
+      // printing nothing where no PR merged; exit 3 is the question failing,
+      // and `record` carries that through as a failed result so no caller reads
+      // an unreachable host as a branch that carried nothing.
+      return record(run, (stdout) => asText(stdout));
+    },
+
     prCreate: async (request): Promise<PortResult<string>> => {
       // THE BODY GOES THROUGH ARGV, not a heredoc or a temp file. It is
       // markdown holding backticks and newlines, and `plot-host.sh` passes

@@ -186,6 +186,12 @@ export const refsGit = (context: ShellContext): Refs => {
       );
     },
 
+    commitFiles: (sha) =>
+      // `--format=` empties the header so only the name-status body remains,
+      // and the default first-parent diff is what a squash merge needs: its one
+      // parent is the default branch before it landed.
+      runScript('git', ['show', '--name-only', '--format=', sha], asLines, inRepo),
+
     pulse: async () => {
       const run = await runProcess('bash', [scan, '--json'], {
         ...inRepo,
