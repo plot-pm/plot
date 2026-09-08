@@ -11,7 +11,7 @@ Four conditions, all of which must hold: **adopted**, **connected**, **legible**
 | suite | files | result |
 |---|---|---|
 | `@plot-pm/domain` | 96 | **2226 pass, 0 fail** |
-| `test/reconcile` | 71 | run before cutting |
+| `test/reconcile` | 71 | **1432 pass, 0 fail** |
 | board vitest | 158 | run before cutting |
 | `packages/domain/corpus` | 8 | **43 pass** — adapters vs production, live estate |
 | `test/e2e` | 12 | CI's gate, not a local run |
@@ -127,14 +127,14 @@ pnpm build:board && pnpm board
 
 - [ ] §0 decided explicitly, in writing, in the release note
 - [ ] `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board`, `pnpm run typecheck` green
-- [ ] `packages/domain`: 2226 pass, 0 fail — run twice; a moving failure set is load, not a regression
+- [ ] `packages/domain`: 2226 pass, 0 fail; `test/reconcile`: 1432 pass, 0 fail — run twice; a moving failure set is load, not a regression
 - [ ] `./scripts/check-changeset-packages.sh` passes over all 7
 - [ ] `plot-reconcile-scan.sh` → `attention=0`
 - [ ] Sprint items: 14 of 14 ticked, and §0 says one is overstated
 
 ## What this list deliberately omits
 
-- **Anything a test already decides.** 2226 domain assertions and 43 corpus comparisons pass on this candidate; re-checking them by hand would find nothing.
+- **Anything a test already decides.** 2226 domain assertions, 1432 reconcile assertions and 43 corpus comparisons pass on this candidate; re-checking them by hand would find nothing.
 - **`pnpm run test:e2e`.** CI's gate, not a local one — it dispatches real workers into sandbox repositories. Measured 2026-08-31: two agents running it produced **53 concurrent `node --test` processes** and a board that could not answer a request in 25 seconds.
 - **The five double-claimed branches** the reconcile scan reports. All five belong to plans that are Delivered or Released; they are finished bookkeeping, and the scan reports without gating for exactly this reason.
 - **`2026-W36-a-half-landed-workflow-says-so`**, which the scan reports as outliving its release. Its train shipped as v2.13.0; closing it is a person's call about a past sprint, not a condition of this one.
