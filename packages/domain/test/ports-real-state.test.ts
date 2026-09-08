@@ -195,7 +195,10 @@ describe('Refs reads this repository’s git state', () => {
     ['682349a6b4877b62526414114a91926250915fa5', ['packages/domain/src/entities/build.ts']],
   ])('reads what merge commit %s changed', async (sha, expected) => {
     const refs = refsGit(context);
-    const present = await refs.resolve(sha);
+    // `rev-parse <full sha>` ECHOES THE ARGUMENT AND EXITS 0 whether or not the
+    // object is there — measured 2026-09-08 on a sha of all zeroes. So the guard
+    // has to ask for the commit, which `^{commit}` does and a bare sha does not.
+    const present = await refs.resolve(`${sha}^{commit}`);
     if (!isAnswered(present)) return;
     const files = await refs.commitFiles(sha);
     expect(files.ok).toBe(true);
