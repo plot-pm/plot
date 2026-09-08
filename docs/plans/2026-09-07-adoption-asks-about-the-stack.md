@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-domain-knows-what-plot-knows
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #781 merged
 - **Started:** 2026-09-07, Jan Wloka, `feature/the-probe-reads-the-ci-system`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 
@@ -54,7 +55,7 @@
 
 **Done when** the probe emits `ci_system` with the evidence behind it, both signals present is reported as both, `none` is a value rather than a blank, and the probe still needs no credential.
 
-### Adoption proposes the tracker and the CI system (Branch: feature/adoption-proposes-the-stack) <!-- waits: feature/the-probe-reads-the-ci-system -->
+### Adoption proposes the tracker and the CI system (Branch: feature/adoption-proposes-the-stack, PR: #824) <!-- waits: feature/the-probe-reads-the-ci-system -->
 
 `/plot-init` turns both readings into `Tracker:` and `CI:` proposals.
 

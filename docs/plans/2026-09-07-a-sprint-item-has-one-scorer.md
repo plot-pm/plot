@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #791 merged
+- **Delivered:** 2026-09-08
 
 ## Changelog
 
@@ -44,7 +45,7 @@
 
 ## Slices
 
-### One scorer, called by both (Branch: bug/a-sprint-item-has-one-scorer) <!-- waits: infra/a-shell-script-asks-the-domain -->
+### One scorer, called by both (Branch: bug/a-sprint-item-has-one-scorer, PR #827) <!-- waits: infra/a-shell-script-asks-the-domain -->
 
 `scoreItem` becomes the only implementation, and `plot-sprint-release.sh` calls it.
 

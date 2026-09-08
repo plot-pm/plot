@@ -4,7 +4,7 @@
 - **Branch:** carries this slice; base `main`
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR
-- **Waits on:** `bug/a-sprint-item-has-one-scorer` — do not start before it lands. The plan says why.
+- **Waited on:** `bug/a-sprint-item-has-one-scorer`. It **has landed** — merged as PR #825 and its plan is Delivered, so `scoreItem` is on `main`. Start.
 - **Sprint:** `the-board-serves-a-team`
 
 **READ THE PLAN AND ITS ROUNDS FIRST.** Every plan here was interrogated and most changed; the Notes record what was cut and why. A slice re-adding it wastes the round.
