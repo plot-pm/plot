@@ -267,7 +267,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // its shipped-release case has its own fixture.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -2965,4 +2965,213 @@ test('scan: section 16 sits below the blocking marker', () => {
   assert.ok(marker > 0, 'the fixture report carries the marker');
   assert.ok(section > marker,
     'section 16 must sit below the marker, like every other advisory section');
+});
+
+// --- Section 18: a merged ref that outlived its PR --------------------------
+//
+// A SECOND FIXTURE, and it needs a git host. Every assertion above runs against
+// a local bare origin, which is deliberately `degraded` — but section 18's whole
+// predicate is the host's merged-PR list, so the shared fixture can only prove
+// the suppression case. This repo therefore copies the scripts into a shim, puts
+// a stubbed `plot-host.sh` beside them, and points `origin` at a github.com URL
+// after the push so `--no-fetch` never touches the network.
+//
+// Measured on the estate this section was written for: nine merged PRs whose
+// refs survived, none of them reported by anything.
+
+const shimScripts = (shim) => {
+  const realScripts = path.dirname(scan);
+  const dest = path.join(shim, 'scripts');
+  fs.mkdirSync(dest, { recursive: true });
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(dest, f));
+  }
+  const board = path.join(realScripts, 'board');
+  if (fs.existsSync(board)) {
+    fs.mkdirSync(path.join(dest, 'board'), { recursive: true });
+    for (const f of fs.readdirSync(board)) {
+      if (!f.endsWith('.mjs')) continue;
+      const to = path.join(dest, 'board', f);
+      fs.copyFileSync(path.join(board, f), to);
+      fs.chmodSync(to, 0o755);
+    }
+  }
+  return dest;
+};
+
+let mrTmp, mrRepo, mrReport, mrSections, mrShim;
+
+before(() => {
+  mrTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-mergedref-'));
+  const origin = path.join(mrTmp, 'origin.git');
+  mrRepo = path.join(mrTmp, 'repo');
+  git(mrTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(mrTmp, 'clone', '-q', origin, mrRepo);
+  git(mrRepo, 'config', 'user.email', 'test@example.invalid');
+  git(mrRepo, 'config', 'user.name', 'Plot Test');
+  git(mrRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(mrRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+  const status = (phase) => `## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n\n`;
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  // A DELIVERED plan claiming a merged branch → the ref sweep is the tool.
+  w('plans/2026-01-01-shipped.md', `# Shipped
+
+${status('Delivered')}## Branches
+
+- \`feature/sweepable\` — impl
+`);
+  // A LIVE plan claiming a merged branch → the delivery comes first.
+  w('plans/2026-01-02-live.md', `# Live
+
+${status('Approved')}## Branches
+
+- \`feature/live-claim\` — impl
+`);
+  // A file with no phase is not a claimant (section 17's rule).
+  w('plans/2026-01-03-notaplan.md', '# Worker report\n\nIt mentions `feature/ownerless` in passing.\n');
+
+  git(mrRepo, 'add', '-A');
+  git(mrRepo, 'commit', '-q', '-m', 'merged-ref fixture');
+  git(mrRepo, 'push', '-q', 'origin', 'main');
+
+  // Four remote branches. Three carry merged PRs in the stub; the fourth does
+  // not, and is the control that proves the section reads the host rather than
+  // enumerating every ref.
+  for (const b of ['feature/sweepable', 'feature/live-claim', 'feature/ownerless', 'feature/unmerged']) {
+    git(mrRepo, 'checkout', '-q', '-b', b);
+    fs.writeFileSync(path.join(mrRepo, `${b.replace('/', '-')}.txt`), 'work\n');
+    git(mrRepo, 'add', '-A');
+    git(mrRepo, 'commit', '-q', '-m', `work on ${b}`);
+    git(mrRepo, 'push', '-q', '-u', 'origin', b);
+    git(mrRepo, 'checkout', '-q', 'main');
+  }
+
+  mrShim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-mergedref-shim-'));
+  shimScripts(mrShim);
+  fs.writeFileSync(path.join(mrShim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
+# Stub: three merged PRs, no open ones. \`--state merged\` and \`--state open\`
+# are the two calls the scan makes, and they must answer differently.
+state=""
+for a in "$@"; do [ "$prev" = "--state" ] && state="$a"; prev="$a"; done
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list)
+    if [ "$state" = merged ]; then
+      echo '{"number":600,"state":"MERGED","head":"feature/sweepable"}'
+      echo '{"number":577,"state":"MERGED","head":"feature/live-claim"}'
+      echo '{"number":683,"state":"MERGED","head":"feature/ownerless"}'
+    fi ;;
+  *) echo "{}" ;;
+esac
+`);
+  fs.chmodSync(path.join(mrShim, 'scripts', 'plot-host.sh'), 0o755);
+
+  // Origin must LOOK like GitHub for the scan to route to the adapter — it reads
+  // the remote URL, not the config key, because it joins the PR list against
+  // `origin/*` refs. `--no-fetch` is what keeps that URL from being dialled.
+  git(mrRepo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+
+  mrReport = execFileSync('bash', [path.join(mrShim, 'scripts', 'plot-reconcile-scan.sh'), '--no-fetch'],
+    { encoding: 'utf8', cwd: mrRepo });
+  mrSections = splitSections(mrReport);
+});
+
+after(() => {
+  if (mrTmp) fs.rmSync(mrTmp, { recursive: true, force: true });
+  if (mrShim) fs.rmSync(mrShim, { recursive: true, force: true });
+});
+
+test('scan: section 18 names a merged ref no plan claims', () => {
+  // The finding's real subject. `plot-release-refs.sh` is plan-scoped, so
+  // nothing reaches a merged ref that no plan names — nine accumulated.
+  assert.match(mrSections['18'], /feature\/ownerless/,
+    `an unclaimed merged ref must be named:\n${mrSections['18']}`);
+  assert.match(mrSections['18'], /#683 merged/,
+    'and the PR number the host reported is the evidence');
+  assert.match(mrSections['18'], /no plan names it/,
+    'the ownerless case says so in words');
+  assert.match(mrSections['18'], /git push origin --delete feature\/ownerless/,
+    'and names the deletion a person may run');
+});
+
+test('scan: section 18 routes a delivered plan\'s merged ref to the ref sweep', () => {
+  // Already licensed for exactly this ref, and plan-scoped. The finding says so
+  // rather than proposing a bare `git push --delete`.
+  const line = mrSections['18'].split('\n').filter((l) => l.includes('feature/sweepable') || l.includes('shipped'));
+  assert.match(mrSections['18'], /feature\/sweepable/,
+    `a delivered plan's merged ref must be named:\n${mrSections['18']}`);
+  assert.match(mrSections['18'], /2026-01-01-shipped\.md \(delivered\)/,
+    `the claiming plan and its phase are the finding:\n${line.join('\n')}`);
+  assert.match(mrSections['18'], /plot-release-refs\.sh shipped --yes/,
+    'and the plan-scoped tool is what it names');
+});
+
+test('scan: section 18 sends a live plan to its delivery, not to the ref sweep', () => {
+  // The ref sweep runs AFTER the delivery. Proposing it on a live plan would
+  // propose deleting a ref whose plan has not finished with it.
+  assert.match(mrSections['18'], /feature\/live-claim/,
+    `a live plan's merged ref is still a finding:\n${mrSections['18']}`);
+  assert.match(mrSections['18'], /2026-01-02-live\.md \(approved\)/,
+    'and its phase is named');
+  assert.match(mrSections['18'], /\/plot-deliver live/,
+    'the delivery is the next step');
+  assert.doesNotMatch(mrSections['18'], /plot-release-refs\.sh live/,
+    `the ref sweep must not be proposed for an undelivered plan:\n${mrSections['18']}`);
+});
+
+test('scan: section 18 is silent on a ref with no merged PR', () => {
+  // The control. The section reads the HOST's merged list; a ref the host never
+  // merged is not a finding, however old the branch is.
+  assert.doesNotMatch(mrSections['18'], /feature\/unmerged/,
+    `an unmerged ref is not a merged one:\n${mrSections['18']}`);
+});
+
+test('scan: section 18 counts in the footer and gates nothing', () => {
+  const footer = mrReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bmerged_refs=3\b/,
+    `three merged refs, one counter:\n${footer}`);
+  // A leftover ref is a tidiness gap, not a broken pointer. An advisory finding
+  // that can stop a delivery is a gate nobody agreed to.
+  assert.match(footer, /\battention=0\b/,
+    `section 18 must not reach attention=:\n${footer}`);
+});
+
+test('scan: section 18 sits below the blocking marker', () => {
+  const marker = mrReport.indexOf('== blocking sections end ==');
+  const section = mrReport.indexOf('== 18. ');
+  assert.ok(marker > 0, 'the fixture report carries the marker');
+  assert.ok(section > marker,
+    'section 18 must sit below the marker, like every other advisory section');
+});
+
+test('scan: section 18 reports nothing when the host cannot be asked', () => {
+  // AN UNREACHABLE HOST REPORTS NOTHING, NOT EVERYTHING. Without the merged-PR
+  // list every ref reads as unmerged, so a section that fell back to ancestry
+  // would turn an outage into a list of deletion candidates — and squash-merge
+  // makes ancestry wrong about a merged branch anyway (ten of ten, 2026-09-04).
+  const offline = execFileSync('bash', [path.join(mrShim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
+    { encoding: 'utf8', cwd: mrRepo });
+  const sections = splitSections(offline);
+  assert.match(sections['18'], /not evaluated/,
+    `an unaskable host must say so:\n${sections['18']}`);
+  assert.doesNotMatch(sections['18'], /feature\/ownerless/,
+    'and must name no ref at all');
+  assert.match(offline.trim().split('\n').at(-1), /\bmerged_refs=0\b/,
+    'the count stays 0 rather than counting an unevaluated section');
 });

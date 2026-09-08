@@ -276,7 +276,11 @@ while [ $# -gt 0 ]; do
 done
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; exit 1; }
-[ -n "$slug" ] || [ "$mode" != dispatch ] || { echo "plot-dispatch: need a plan slug" >&2; exit 1; }
+[ -n "$slug" ] || [ "$mode" != dispatch ] || {
+  echo "plot-dispatch: need a plan slug (usage: plot-dispatch.sh [--dry-run] <slug>)" >&2
+  echo "  Which plans could be dispatched: /plot-pulse" >&2
+  exit 1
+}
 
 # ---------------------------------------------------------------------------
 # Worker launch, and the identity it records
@@ -1168,14 +1172,38 @@ if [ "$mode" = "stop" ]; then
     echo "  Refusing to guess — stopping the wrong worker discards its work." >&2
     exit 1
   fi
-  wt="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
-  [ -d "$wt" ] || { echo "plot-dispatch: no worktree for '$stop_branch' at $wt" >&2; exit 1; }
+  # ASK GIT WHICH WORKTREE HOLDS THE BRANCH, then fall back to the dispatch
+  # path. `--restart` below already asks, and this did not: it rebuilt one path
+  # from the branch name and reported that single path as though it were the
+  # only place a desk could be. On 2026-09-07 the desk existed elsewhere — a
+  # worktree made by hand, which is the population that never follows
+  # dispatch's naming — and the refusal sent a reader to `kill`.
+  #
+  # A refusal that is confidently wrong is worse than one that is terse, so the
+  # path-guess survives only as the LAST candidate and the refusal below says
+  # which places were looked in.
+  wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$stop_branch" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  wt_guess="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
+  [ -n "$wt" ] && [ -d "$wt" ] || wt="$wt_guess"
+  if [ ! -d "$wt" ]; then
+    echo "plot-dispatch: no worktree holds '$stop_branch' — nothing to stop." >&2
+    echo "  Asked git for every worktree, and looked at $wt_guess." >&2
+    echo "  If a worker is running somewhere this cannot see, that machine is" >&2
+    echo "  where to stop it: /plot-dispatch --status names the desks here." >&2
+    echo "  Nothing was killed." >&2
+    exit 1
+  fi
   st=$(worker_state "$wt" "$stop_branch")
   case "$st" in
     running*)
       pid=${st#running }
       kill "$pid" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
-        || { echo "plot-dispatch: could not stop pid $pid" >&2; exit 1; }
+        || { echo "plot-dispatch: could not stop pid $pid — it may have exited between the read and the signal, or belong to another user." >&2
+             echo "  Check it: ps -p $pid -o pid=,stat=,command=" >&2
+             echo "  Nothing else was written; the worktree and the claim stand." >&2
+             exit 1; }
       # The worktree and its claim are left in place: the branch is still taken,
       # and deleting either would be the kind of write this design avoids.
       echo "  worktree kept at $wt — the claim stands until you release it"
@@ -1884,6 +1912,7 @@ fi
 if [ -z "$plan_path" ]; then
   if [ "$allow_local" = 1 ]; then
     echo "plot-dispatch: no plan found for '$slug' — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+    echo "  Check the slug: ls $PLAN_DIR_CFG | grep -i '$slug'" >&2
   else
     echo "plot-dispatch: no plan for '$slug' on $gate_ref — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
     echo "  A plan that exists only in this working tree has not been shared yet: push it first." >&2
@@ -1944,6 +1973,7 @@ case "$gate_phase" in
     exit 1 ;;
   delivered|released)
     echo "plot-dispatch: plan '$slug' is already $gate_phase — its work is done." >&2
+    echo "  Nothing to dispatch. To start new work: /plot-idea" >&2
     exit 1 ;;
   "")
     echo "plot-dispatch: cannot read the phase of '$slug' ($gate_source)." >&2
@@ -1951,6 +1981,8 @@ case "$gate_phase" in
     exit 1 ;;
   *)
     echo "plot-dispatch: plan '$slug' is in phase '$gate_phase', not Approved." >&2
+    echo "  Correct the 'State:' line in the plan and push it, or approve it:" >&2
+    echo "  /plot-approve $slug" >&2
     exit 1 ;;
 esac
 
@@ -1962,6 +1994,7 @@ case "$gate_impl" in
   same-branch)
     echo "plot-dispatch: plan '$slug' records 'Impl: same branch' — plan and code" >&2
     echo "  travel on one branch, so there is nothing to fan out." >&2
+    echo "  Implement on that branch instead: /plot-implement $slug" >&2
     exit 1 ;;
   other-repo)
     echo "plot-dispatch: plan '$slug' records 'Impl: other repo' — implementation" >&2
@@ -1974,6 +2007,8 @@ case "$gate_impl" in
   *)
     echo "plot-dispatch: plan '$slug' records an unrecognised 'Impl:' answer" >&2
     echo "  ('$gate_impl'). Refusing rather than guessing." >&2
+    echo "  Set the plan's 'Impl:' line to one of: own branches, same branch," >&2
+    echo "  other repo, none — then push it." >&2
     exit 1 ;;
 esac
 
@@ -2403,7 +2438,8 @@ write_started_record() { # $@ = branches
   # would carry the symlink and leave the record behind.
   rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
   if [ -z "$rel" ]; then
-    echo "plot-dispatch: $plan_file is outside the repository root" >&2
+    echo "plot-dispatch: $plan_file is outside the repository root ($repo_root)." >&2
+    echo "  Move the plan under $PLAN_DIR_CFG inside this checkout and re-run." >&2
     return 1
   fi
 
@@ -2419,6 +2455,9 @@ write_started_record() { # $@ = branches
   # one. It is disposable by construction — created here, pushed, deleted.
   if ! git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null; then
     echo "plot-dispatch: could not prepare a booking worktree at $tmpwt" >&2
+    echo "  Most often origin/$MAIN is not fetched, or '$bookbr' is checked out in" >&2
+    echo "  another worktree. Check both: git fetch origin $MAIN && git worktree list" >&2
+    echo "  The branches were dispatched; only the plan's Started record is missing." >&2
     return 1
   fi
 
@@ -2442,6 +2481,7 @@ write_started_record() { # $@ = branches
       fi
       append_started_line "$tmpwt/$rel" "$date" "$who" "$br" || {
         echo "plot-dispatch: $rel has no '## Status' section — nowhere to record" >&2
+        echo "  Add one to the plan (see .plot/templates/plan.md) and push it." >&2
         rc=1
         break
       }
@@ -2463,6 +2503,7 @@ write_started_record() { # $@ = branches
     fi
   else
     echo "plot-dispatch: $rel is not on origin/$MAIN" >&2
+    echo "  Push the plan to $MAIN first; the fleet reads plans from the shared ref." >&2
     rc=1
   fi
 
