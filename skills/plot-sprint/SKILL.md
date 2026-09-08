@@ -70,7 +70,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Create, commit, start | Small | Git commands, templates, file ops |
 | Status | Small | File existence checks for delivery state are mechanical; no judgment needed |
 | Reconcile checkboxes (close step 2a) | Small | `plot-plan-meta.sh` to read phase; tick if `delivered` or `released`; mechanical |
-| False-positive check (close step 2b) | Mid | `plot-plan-meta.sh` to read phase; a checked box over an undelivered plan needs resolution |
+| False-positive check (close step 2b) | Mid | `plot-plan-meta.sh` to read phase; a checked box over an undelivered plan needs resolution, while a `rejected`/`superseded` phase is a withdrawal that is reported and never held |
 | Release state (close step 2c) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
 | Propose plans from the goal (create step 4) | **Frontier** | Reading a goal against each plan's title, story and changelog is semantic, not lexical: the measured case — goal *"the board tells the truth"*, plan *"none printed before the first fetch"* — shares no word and is the same subject, and word overlap ranks it last. **Fallback below Frontier:** list everything grouped by story and say that is what happened; a fallback that does not announce itself is read as a ranking |
 
@@ -243,18 +243,28 @@ Item format: `- [ ] [slug] description` (plan reference) or `- [ ] description` 
 Plan-backed items carry HTML comment annotations for automation tracking:
 
 ```markdown
-- [ ] [slug] description <!-- pr: #N, status: draft, branch: feature/slug -->
+- [ ] [slug] description <!-- pr: #N, branch: feature/slug -->
 ```
 
 | Field | Set by | Values |
 |-------|--------|--------|
 | `pr` | `/plot-approve` | PR number (`#N`) or `none` |
-| `status` | `/plot-approve`, `/plot-deliver`, `/plot-reject` | `not-started`, `draft`, `open`, `merged`, `delivered`, `rejected` |
 | `branch` | `/plot-approve` | Implementation branch name |
 | `reviewed_at` | Review tracking | ISO 8601 timestamp |
 | `review_sha` | Review tracking | HEAD SHA at time of review |
 
 Annotations are created by `/plot-approve` and updated by `/plot-deliver`. The status subcommand reads them for enriched output.
+
+**There is no `status:` field, and removing it was the point.** It was a second
+record of the plan's own `State:`, and dead in both directions — measured
+2026-09-08, **67 lines carried one, none carried a value any reader acted on,
+and `plot-sprint-release.sh` read the field nowhere.** The plan file is the
+source of truth: it carries `State:` and a dated transition record, and the
+estate-outranks-the-checkbox rule this workflow already argues points at those.
+A cache nobody refreshes and nobody reads is a second answer waiting to
+contradict the first.
+
+`pr` and `branch` stay because they name things no plan field holds.
 
 #### Review Tracking
 
@@ -497,6 +507,10 @@ incomplete even though the work is done. Reconciling at close time is the
 moment the tally stops being recomputed and becomes the record — the ONE place
 it matters that the checkbox reflects what actually happened.
 
+**A withdrawn plan is not reconciled either.** `rejected` and `superseded` are
+not `delivered`, so step 2a leaves the box exactly as it found it; step 2b names
+the item as withdrawn. Ticking it would claim work that never shipped.
+
 **An item with no resolvable plan is left alone and named.** These sprints
 carry bare prose lines — "Decide PR #57…", "A release window: dispatch
 refuses…" — with no phase to read. A step that ticks what it cannot verify is
@@ -530,9 +544,29 @@ reference:
 ../plot/scripts/plot-plan-meta.sh docs/plans/*/<slug>.md 2>/dev/null
 ```
 
-Read the plan's `phase` field. If the phase is anything OTHER than `delivered`
-or `released` (i.e., `draft`, `design`, `approved`, or `NONE` for missing
-files), this is a **false-positive completion**.
+Read the plan's `phase` field.
+
+**A `rejected` or `superseded` phase is a WITHDRAWAL, not a false positive.**
+Somebody decided the plan will not deliver, and the box — ticked or unticked —
+does not disagree with that. Report it under its own heading and let the close
+proceed:
+
+```
+Withdrawn from this sprint:
+  - [the-board-answers-while-it-scans] — plan is Rejected
+```
+
+**This is the same answer the release gate gives**, and the two agree by
+construction: `plot-sprint-release.sh` scores such an item `withdrawn`, and
+`/plot-release` step 0 reports it without blocking. The existing comment in that
+script records why they must — if the release gate were the lenient one, two
+commands would disagree about one line and the release would be the lenient
+one, *"and that is the wrong way round."* Here neither is lenient: both report
+a decision as a decision.
+
+If the phase is anything else OTHER than `delivered` or `released` (i.e.,
+`draft`, `design`, `approved`, or `NONE` for missing files), this is a
+**false-positive completion**.
 
 **Both directions now read the phase, not the directory.** The existing guard
 used to check `docs/plans/active/<slug>.md` vs `docs/plans/delivered/<slug>.md`.
@@ -741,5 +775,5 @@ Read the sprint file and display:
 
 | Mistake | Effect | Prevention |
 |---------|--------|------------|
-| Closing a sprint with `[x] [slug]` items whose plans' phase is not `delivered` or `released` | Sprint reads as complete but plans remain undelivered; `/plot-deliver` later reverts the plan to Draft | Step 2b of close runs a false-positive check via `plot-plan-meta.sh`; resolve via `/plot-deliver` or uncheck before closing |
+| Closing a sprint with `[x] [slug]` items whose plans' phase is not `delivered` or `released` | Sprint reads as complete but plans remain undelivered; `/plot-deliver` later reverts the plan to Draft | Step 2b of close runs a false-positive check via `plot-plan-meta.sh`; resolve via `/plot-deliver` or uncheck before closing. A `rejected`/`superseded` phase is exempt — that is a withdrawal, reported and never held |
 | Squash-merging a sprint planning PR | Readiness/defer/dates collapse into one commit; reasoning lost | Default to `--merge` (matches `plot-approve` for plan PRs) — squash is for messy WIP, not planning |

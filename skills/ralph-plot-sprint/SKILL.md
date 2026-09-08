@@ -106,7 +106,7 @@ cat docs/definition-of-done.md 2>/dev/null || echo "(no DoD file)"
 | Check | Command | Result |
 |-------|---------|--------|
 | Unchecked items | grep `- [ ]` in sprint file | List or "none" |
-| Plan branch progress | For each unchecked `[slug]` item: read plan file, find heading containing "Branches" (skip lines with `<!-- deferred: ... -->`), cross-reference with `gh pr list --state all`. Also check sprint item annotation — if `status: rejected`, report as "REJECTED (M/N branches merged, K remaining)" | e.g., "prod-config: 1/5 branches merged (2 deferred)" or "prod-config: REJECTED (2/7 merged, 5 remaining)" or "no branches section" |
+| Plan branch progress | For each unchecked `[slug]` item: read plan file, find heading containing "Branches" (skip lines with `<!-- deferred: ... -->`), cross-reference with `gh pr list --state all`. Also run `plot-plan-meta.sh` on the plan — if its phase is `rejected` or `superseded`, report as "WITHDRAWN (M/N branches merged, K remaining)" | e.g., "prod-config: 1/5 branches merged (2 deferred)" or "prod-config: REJECTED (2/7 merged, 5 remaining)" or "no branches section" |
 | Open PRs | `gh pr list --state open` | List or "none" |
 | Failing CI | `gh pr checks <n>` per open PR | List or "all green" |
 | Unresolved comments | For each open PR: query review threads via GraphQL `reviewThreads` with `isResolved` field (see Step 1 for query). Count threads where `isResolved == false`. For those, check if the agent already replied claiming a fix ("Fixed in"). Report: "N unresolved (M have fix replies but thread not resolved)" | Count or "none" |
@@ -287,7 +287,7 @@ These become Step 1 work in the next iteration.
 For each merged code feature without a demo in `docs/demos/`:
 
 **Identify plan-only items** — these do NOT need demos:
-- Sprint items annotated `status: merged` with a `docs/plans/` PR (no implementation code)
+- Sprint items whose only PR is against `docs/plans/` (no implementation code)
 - Items explicitly marked plan-only in the sprint file
 
 **For each code feature needing a demo:**

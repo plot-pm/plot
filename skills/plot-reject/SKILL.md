@@ -126,15 +126,23 @@ If the plan has a `Sprint:` field in its Status section, find the corresponding 
 
 **Uncheck the item:** `[x]` → `[ ]`
 
-**Update the HTML comment annotation** with rejection metadata:
+**Update the HTML comment annotation** with what the plan file does not hold:
 
 ```markdown
-- [ ] [slug] description <!-- status: rejected, reason: <reason>, merged: #54 #55, remaining: branch-a branch-b branch-c -->
+- [ ] [slug] description <!-- reason: <reason>, merged: #54 #55, remaining: branch-a branch-b branch-c -->
 ```
 
 Where:
 - `merged:` lists the PR numbers that were successfully completed
 - `remaining:` lists the branch names that were never built
+
+**No `status:` key.** The plan file carries `State: Rejected` and a dated
+`Rejected:` record, and that is what every reader now asks:
+`plot-sprint-release.sh` reads the phase through `plot-plan-meta.sh` and scores
+the item `withdrawn`. Writing the word here as well would be a second answer to
+one question — and measured 2026-09-08 it was never even written: 67 annotated
+lines on the estate and **zero** carried `status: rejected`, so the reader
+looking for it found nothing while the plan file said so plainly.
 
 If the plan has no `Sprint:` field, skip this step.
 
