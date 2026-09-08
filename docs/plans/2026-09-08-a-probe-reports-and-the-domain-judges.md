@@ -10,6 +10,7 @@
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -29,6 +30,16 @@
 | `>= 2` dash | `:94` | the style is arlo-dash |
 | `>= 2` occurrences | `:82` | a ticket prefix is real, not a coincidence |
 | `>= 3` German words | `:127` | the repository's language |
+
+**AND THE NODE FLOOR HAS THREE ANSWERS ON THIS ESTATE.** Measured 2026-09-08:
+
+| who asks | what it says |
+|---|---|
+| `plot-board-probe.sh:61` | `>= 20`, hardcoded |
+| `plot-fleetctl.sh:87` | the major `.nvmrc` pins — today 24 |
+| `plot-boardctl.sh` | **nothing** — `--start` runs whatever `node` resolves to |
+
+**`node_ok` HAS NO READER AT ALL.** Searched the whole tree: outside the probe that writes it, the only mention is `boardprobe.test.mjs:66` asserting the field exists. No skill reads the value, no code branches on it. So a decision is hardcoded, never consulted, and disagrees with the one place that does check — while the command it would protect checks nothing.
 
 **AND THE FILE SAYS IT DOES NOT DO THIS.** `plot-board-probe.sh:13`:
 
@@ -64,7 +75,9 @@ A domain rule takes a probe's readings and returns proposals; the collectors rep
 
 **`node_ok` LEAVES THE PROBE AND `node` STAYS.** The version is the reading; the floor is the rule. A collector that stops deciding must also stop reporting the decision, or the old field becomes a second answer.
 
-**Done when** the seven thresholds are domain rules with tests, the collectors report raw readings, `/plot-init` and `/plot-board-setup` read the proposals rather than recomputing them, and the domain package's branch coverage still holds at 100%.
+**AND THE RULE IS WIRED UP RATHER THAN LEFT UNREAD**, which is the difference between an extraction and a repair. Deleting a field nobody reads would be honest and would leave `plot-boardctl.sh --start` running under any `node` at all — the failure `/plot-fleet` refuses precisely because *"the unit bakes `$NODE` in permanently"*. So the rule takes its floor from `.nvmrc`, the one place that states it, and board setup reads it: **one answer where there were three, and it is consulted.**
+
+**Done when** the seven thresholds are domain rules with tests; the collectors report raw readings (`node`, not `node_ok`; counts, not styles); the Node floor comes from `.nvmrc` rather than a literal, so `plot-board-probe.sh`, `plot-fleetctl.sh` and the rule give one answer; `/plot-board-setup` acts on it where it acted on nothing; `/plot-init` reads the proposals rather than recomputing them; and the domain package's branch coverage still holds at 100%.
 
 ### Two signals ask rather than tie-break (Branch: feature/two-signals-ask-rather-than-tie-break) <!-- waits: feature/a-probe-reports-and-the-domain-judges -->
 

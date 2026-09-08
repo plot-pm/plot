@@ -10,6 +10,7 @@
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
