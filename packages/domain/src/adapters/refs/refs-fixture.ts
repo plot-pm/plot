@@ -34,6 +34,8 @@ export interface RefsFixture {
   shas?: Readonly<Record<string, string>>;
   /** Branch name to the files it changed. */
   changedFiles?: Readonly<Record<string, readonly string[]>>;
+  /** Files each commit changed, keyed by sha — what `commitFiles` answers. */
+  commitFiles?: Readonly<Record<string, readonly string[]>>;
   /** `<ref>:<path>` to that file's content at that ref. */
   files?: Readonly<Record<string, string>>;
   /**
@@ -141,6 +143,7 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
   const unknownMerge = new Set(fixture.unknownMerge ?? []);
   const shas = fixture.shas ?? {};
   const changedFiles = fixture.changedFiles ?? {};
+  const commitFiles = fixture.commitFiles ?? {};
   const files = fixture.files ?? {};
   const trees = fixture.trees ?? {};
   const blobs = fixture.blobs ?? {};
@@ -194,6 +197,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     },
 
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),
+
+    commitFiles: async (sha) => answered(commitFiles[sha] ?? []),
 
     pulse: async () =>
       fixture.pulse === undefined ? unaskable<FleetReading>() : answered(fixture.pulse),

@@ -121,6 +121,22 @@ export interface Refs {
   changedFiles(branch: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Lists the files ONE COMMIT changed against its first parent.
+   *
+   * THE MERGE COMMIT, NOT THE BRANCH, and that is the whole reason this sits
+   * beside {@link changedFiles} rather than being expressed through it. A
+   * squash-merged branch loses its ref at merge — measured on both slices that
+   * shipped empty on 2026-09-08 — so `origin/main...branch` cannot run for the
+   * population this question is asked about. The merge commit survives.
+   *
+   * @param sha - the commit to read; any revision git accepts.
+   * @returns the paths it changed, relative to the repository root. An empty
+   *   list is an ANSWER: a commit that changed nothing. A commit that cannot be
+   *   read is a failed result, never an empty one.
+   */
+  commitFiles(sha: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Reads the fleet's whole state in one pass.
    *
    * The expensive operation on this port, and deliberately one call: the scan
