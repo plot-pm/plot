@@ -1,0 +1,1 @@
+../2026-09-07-the-build-pipeline-is-its-own-connector.md

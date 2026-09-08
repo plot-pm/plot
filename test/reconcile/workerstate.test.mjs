@@ -211,7 +211,14 @@ test('worker-state: `elsewhere` stays the scan\'s alone', () => {
     { encoding: 'utf8', cwd: f.repo });
   assert.equal(f.scanState().state, 'elsewhere', 'without one, the scan says so');
 
-  assert.doesNotMatch(fs.readFileSync(shared, 'utf8').replace(/^#.*$/gm, ''),
+  // THE STRIPPER ALLOWS LEADING WHITESPACE, and that is the whole of the fix
+  // this line once needed. Anchored at column 0 it kept only top-level
+  // comments, so an INDENTED comment inside a function still counted as code —
+  // and on 2026-09-08 a comment explaining that `elsewhere` is decided in
+  // `plot-fleet-scan.sh`, which is the very split this test protects, failed
+  // it. The guard is about what the classifier ANSWERS, so prose about the
+  // state can never be the thing that breaks it.
+  assert.doesNotMatch(fs.readFileSync(shared, 'utf8').replace(/^\s*#.*$/gm, ''),
     /elsewhere/, 'the shared classifier must not learn a state only one caller has');
   f.cleanup();
 });

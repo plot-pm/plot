@@ -368,3 +368,261 @@ export const readMainBranch = (estate: Estate): string => {
   return 'main';
 };
 
+
+/**
+ * One MoSCoW item, as `plot-sprint-release.sh` reports it.
+ *
+ * BOTH THE READINGS AND THE VERDICT. `checked`, `slug` and `delivered` are what
+ * `item_state` was given; `state` is what it answered. A rule comparison needs
+ * both halves from the same side, or it compares the domain against readings it
+ * assembled itself.
+ */
+export interface SprintItemRow {
+  /** The `[slug]` plan reference, or `''` when the line names no plan. */
+  slug: string;
+  /** The item's own wording, annotation stripped. */
+  text: string;
+  /** Whether the sprint file's checkbox is ticked. */
+  checked: boolean;
+  /**
+   * Whether the plan it names is in the Delivered index.
+   *
+   * `'none'` where the line names no plan, so nothing was looked up — a THIRD
+   * reading the domain has no way to express today.
+   */
+  delivered: boolean | 'none';
+  /** What `item_state` answered. */
+  state: string;
+}
+
+/** One sprint's items, tier by tier, as the script reports them. */
+export interface SprintRow {
+  /** The sprint's slug — the filename without its week prefix. */
+  sprint: string;
+  /** The sprint file's path, relative to the root. */
+  file: string;
+  /** The Must Have items. */
+  must: SprintItemRow[];
+  /** The Should Have items. */
+  should: SprintItemRow[];
+  /** The Could Have items. */
+  could: SprintItemRow[];
+}
+
+/**
+ * Lists the sprint files, the way `plot-sprint-release.sh` resolves one.
+ *
+ * EVERY sprint, not the active one. `--- no argument` gives the single active
+ * sprint, which on this estate is one file of ten; a corpus of one sprint's
+ * items exercises whichever states that sprint happens to hold, and the two
+ * `disputed` items live in a closed one.
+ *
+ * @param estate - the repository to read.
+ * @returns the slugs, in `LC_ALL=C` filename order.
+ */
+export const listSprintSlugs = (estate: Estate): string[] => {
+  const dir = execFileSync(
+    'bash',
+    [scriptIn(estate, 'plot-config.sh'), 'get', 'Sprint directory', 'docs/sprints/'],
+    { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER },
+  ).trim().replace(/\/$/, '');
+  return execFileSync(
+    'bash',
+    ['-c', `find ${JSON.stringify(dir)} -maxdepth 1 -name '*.md' -type f | LC_ALL=C sort`],
+    { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER },
+  )
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    // `2026-W38-the-board-serves-a-team.md` → `the-board-serves-a-team`, the
+    // script's own derivation, because that is the name it takes as an argument.
+    .map((path) => path.replace(/^.*\//, '').replace(/\.md$/, '').replace(/^\d{4}-W?\d{2}(-\d{2})?-/, ''));
+};
+
+/**
+ * Reads one sprint through `plot-sprint-release.sh`, which is the shell's own
+ * scoring.
+ *
+ * @param estate - the repository to read.
+ * @param slug - the sprint's slug.
+ * @returns the sprint's rows, or null when the script named no sprint file.
+ */
+export const readSprintRelease = (estate: Estate, slug: string): SprintRow | null => {
+  const raw = JSON.parse(
+    execFileSync('bash', [scriptIn(estate, 'plot-sprint-release.sh'), slug], {
+      cwd: estate.root,
+      encoding: 'utf8',
+      maxBuffer: MAX_BUFFER,
+      timeout: TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }),
+  ) as Record<string, unknown>;
+  if (typeof raw.file !== 'string' || raw.file === '') return null;
+  const tier = (key: string): SprintItemRow[] =>
+    Array.isArray(raw[key]) ? (raw[key] as SprintItemRow[]) : [];
+  return {
+    sprint: String(raw.sprint ?? ''),
+    file: raw.file,
+    must: tier('must'),
+    should: tier('should'),
+    could: tier('could'),
+  };
+};
+
+/*
+ * TWO DESK READERS, AND THEY READ DIFFERENT THINGS.
+ *
+ * Both landed in the same week and both were called `DeskRow`, which is why
+ * they collided: `readDesks` asks `plot-worker-state.sh` what STATE every desk
+ * on the machine is in, and `readDesk` asks `plot-worker-loop.sh` what it
+ * MEASURED of one desk and what it REFUSED on. Different scripts, different
+ * cardinality, no field in common.
+ *
+ * So each is named for what it holds rather than for the noun they share.
+ */
+
+/**
+ * One desk, as `plot-worker-state.sh` reads and then classifies it.
+ *
+ * BOTH HALVES FROM THE SAME SIDE. `readings` is the line
+ * `plot_worker_readings` printed; `state` is what `plot_worker_state` answered
+ * over the same desk in the same pass. A comparison that parsed the desk here
+ * to build the domain's input would compare the rule against this file rather
+ * than against the shell.
+ */
+export interface AgentStateRow {
+  /** The worktree's path. */
+  worktree: string;
+  /** The desk's basename, for a report a person can find. */
+  name: string;
+  /** The tab-separated readings line, verbatim. */
+  readings: string;
+  /** What `plot_worker_state` answered. */
+  state: string;
+}
+
+/**
+ * Reads every desk on this machine, both ways, in ONE bash process.
+ *
+ * ONE PASS, AND THAT IS THE WHOLE OF WHY THIS IS ONE FUNCTION. A desk is live
+ * state: a worker exits, a marker lands, a file is committed. Asking for the
+ * readings in one process and the states in another compares two moments and
+ * reports the difference as a disagreement — the flake that would teach a
+ * reader to distrust the test. Both are printed from one `plot_worker_state.sh`
+ * sourcing, per desk, before the loop moves on.
+ *
+ * The PR fact is empty on BOTH sides, which is the registry's own contract:
+ * *a caller that cannot know says nothing, and a branch with work on the floor
+ * then reads `stalled`*. A host call here would be one `gh` per desk.
+ *
+ * @param estate - the repository to read.
+ * @returns one row per worktree git lists, the main checkout included.
+ */
+export const readDesks = (estate: Estate): AgentStateRow[] => {
+  const program = [
+    '. "$1"; shift',
+    'git worktree list --porcelain | awk \'/^worktree /{print $2}\' | while read -r wt; do',
+    '  printf \'%s\\t%s\\t%s\\n\' "$wt" "$(plot_worker_state "$wt" "" | cut -f1)" "$(plot_worker_readings "$wt")"',
+    'done',
+  ].join('\n');
+  const out = execFileSync(
+    'bash',
+    ['-c', program, 'bash', scriptIn(estate, 'plot-worker-state.sh')],
+    {
+      cwd: estate.root,
+      encoding: 'utf8',
+      maxBuffer: MAX_BUFFER,
+      timeout: TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    },
+  );
+  return out
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) => {
+      const [worktree, state, ...readings] = line.split('\t');
+      return {
+        worktree: worktree ?? '',
+        name: (worktree ?? '').replace(/^.*\//, ''),
+        // The readings are themselves tab-separated, so they are rejoined
+        // rather than re-split — the seven fields are the entry point's to
+        // parse, not this reader's.
+        readings: readings.join('\t'),
+        state: state ?? '',
+      };
+    });
+};
+
+/**
+ * What `plot-worker-loop.sh` measured of one desk, and what it decided.
+ *
+ * BOTH HALVES COME FROM THE SHELL, which is what makes this a comparison rather
+ * than a restatement. `desk_readings` prints the three readings its own
+ * `plot-worker-state.sh` took; `desk_reset_refusal` prints the verdict it
+ * reached from them. Assembling the readings here — running `git status`
+ * ourselves — would compare the domain against this file's idea of a dirty
+ * tree, and `plot_worker_dirty` drops editor leftovers and Plot's own
+ * `.plot-worker.*` records for measured reasons this file does not know.
+ */
+export interface DeskResetRow {
+  /** The desk's path — the identity, which git enforces as unique. */
+  path: string;
+  /** Whether `plot_worker_blocked` found a `PLOT-BLOCKED*` marker. */
+  blockedMarker: boolean;
+  /** The first uncommitted path `plot_worker_dirty` reported, or `''`. */
+  dirtyPath: string;
+  /**
+   * How far ahead of its upstream the branch is, or `'unknown'`.
+   *
+   * `'unknown'` is what the shell's `rev-list --count '@{upstream}..HEAD'`
+   * failing means — no upstream to count against — and it is a reading rather
+   * than a zero, because the loop does not refuse on it.
+   */
+  ahead: number | 'unknown';
+  /** What `desk_reset_refusal` answered, or `''` when nothing held the desk. */
+  refusal: string;
+}
+
+/**
+ * Reads one desk through the loop's own functions, sourced rather than run.
+ *
+ * `PLOT_WORKER_LOOP_SOURCED=1` stops the loop above its body, which is the
+ * idiom `test/reconcile/deskreset.test.mjs` already uses: the definitions
+ * without a worker. Driving a whole loop per desk would spend a two-minute
+ * fixture to observe one `if`.
+ *
+ * @param estate - the repository whose scripts to run.
+ * @param desk - the worktree to measure, as an absolute path.
+ * @returns the readings the shell took and the verdict it reached.
+ */
+export const readDesk = (estate: Estate, desk: string): DeskResetRow => {
+  const scripts = `${estate.root}/skills/plot/scripts`;
+  const out = execFileSync(
+    'bash',
+    [
+      '-c',
+      `set -uo pipefail
+export PLOT_WORKER_LOOP_SOURCED=1
+script_dir=${JSON.stringify(scripts)}
+main_branch=main
+. ${JSON.stringify(`${scripts}/plot-worker-loop.sh`)}
+wt=${JSON.stringify(desk)}
+blocked=false; plot_worker_blocked "$wt" && blocked=true
+dirty=$(plot_worker_dirty "$wt" | head -1)
+ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=unknown
+refusal=$(desk_reset_refusal "$wt") || refusal=
+printf '%s\\t%s\\t%s\\t%s\\n' "$blocked" "$dirty" "$ahead" "$refusal"`,
+    ],
+    { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER },
+  );
+  // The trailing NEWLINE only. `trim()` would eat the empty fourth field on a
+  // resettable desk, and `refusal === ''` is that desk's whole answer.
+  const [blocked = '', dirty = '', ahead = '', refusal = ''] = out.replace(/\n$/, '').split('\t');
+  return {
+    path: desk,
+    blockedMarker: blocked.trim() === 'true',
+    dirtyPath: dirty.trim(),
+    ahead: ahead.trim() === 'unknown' ? 'unknown' : Number(ahead.trim()),
+    refusal: refusal.trim(),
+  };
+};

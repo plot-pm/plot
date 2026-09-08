@@ -79,18 +79,37 @@ export interface Sprint {
 }
 
 /**
+ * What the plan estate says about the plan an item names.
+ *
+ * `true`            the plan it names has been delivered.
+ * `false`           it has not.
+ * `'no-plan-named'` the line names no plan, so nothing was looked up.
+ *
+ * The third value is not "unknown". An item naming no plan is a lightweight
+ * task with one source of truth, and that is a stated limit rather than a
+ * failed lookup — a plan that could not be read would be a different reading
+ * with a different answer.
+ */
+export type PlanDelivery = boolean | 'no-plan-named';
+
+/**
  * Scores one item against what the plan estate says actually happened.
  *
  * The estate outranks the checkbox in ONE direction only: a checked box over an
  * undelivered plan is `disputed`, while an unchecked box over a delivered one
  * is `done`, because delivering a plan moves it and nobody re-ticks the box.
  *
+ * An item naming NO plan has only its checkbox, so it is taken at face value
+ * and can never be `disputed`: a dispute is a disagreement between two sources
+ * and such an item has one.
+ *
  * @param item - the sprint item to score.
- * @param planIsDelivered - whether the plan it names has been delivered.
+ * @param delivered - what the estate says about the plan it names.
  * @returns the item's status.
  */
-export const scoreItem = (item: SprintItem, planIsDelivered: boolean): ItemStatus => {
-  if (planIsDelivered) return 'done';
+export const scoreItem = (item: SprintItem, delivered: PlanDelivery): ItemStatus => {
+  if (delivered === 'no-plan-named') return item.checked ? 'done' : 'open';
+  if (delivered) return 'done';
   return item.checked ? 'disputed' : 'open';
 };
 

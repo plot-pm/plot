@@ -48,6 +48,40 @@ dressed up as a fact costs trust. Two rules follow:
 
 Where a signal is ambiguous the field is empty and the skill asks.
 
+## The stack is proposed, not defaulted
+
+Adoption reads two signals about a team's stack and turns each into a config
+key: a recurring `ticket_prefix` proposes `Tracker:`, and `ci_system` proposes
+`CI:`.
+
+**The silent default was the defect.** A repository that declares no tracker
+gets `trackerNone`, which answers `unaskable` on every issue operation —
+correct for a repo with no tracker, and a lie about a team that has Jira.
+Nothing distinguished the two: `unaskable` reads the same whether there is no
+tracker or nobody asked. Measured 2026-09-07, `jira` and `jenkins` appeared
+zero times across the whole adoption path.
+
+**The evidence travels with each proposal.** `jira (QUACDS in 38 of 80
+subjects)` is confirmable in one read; a bare `jira` is indistinguishable from
+a guess, and one unexplained proposal costs the whole block its credibility.
+
+**One signal proposes, two signals ask.** Where a `Jenkinsfile` and
+`.github/workflows/` are both present, adoption does not tie-break on the git
+host — a team on GitHub running Jenkins is common, and a wrong `CI:` sends
+every build-status lookup to the wrong system.
+
+**The base URL is the only question added.** A prefix gives `QUACDS` and no
+host, and `tracker-jira.ts` needs one. Rather than guessing it from a remote or
+leaving the tracker unset, adoption proposes the scheme it measured and asks
+for the one thing it cannot read — the smallest honest shape, and the one that
+keeps *propose, don't interrogate* intact.
+
+**Unattended, the proposal survives and the question does not.** A measured
+prefix still proposes `Tracker: jira` with the URL unset and says the URL is
+missing. A half-configured tracker that announces its gap beats one that fails
+later saying nothing. Two CI signals refuse the key outright, because a wrong
+`CI:` is worse than an absent one.
+
 ## Additive, always
 
 Adoption never moves, rewrites, or deletes anything. A repo with four
@@ -169,3 +203,11 @@ step 2's existing confirmation gate rather than a new mechanism.
   like ordinary repos.
 - The skill writes the config but does not verify the DoD commands actually
   run. Confirming that is the adopter's first real use of the workflow.
+- **`plot-detect-repo.sh` does not emit `ci_system` yet.** The `CI:` proposal
+  above reads a field the probe is specified to report and does not, so it is
+  inert until that slice lands: the tracker half works today because
+  `ticket_prefix` already exists. Measured 2026-09-08 — the sibling slice
+  `feature/the-probe-reads-the-ci-system` merged as PR #811 carrying **zero
+  files**, its claim commit only. The signal itself is already read next door,
+  as `ci_signals.{jenkinsfile,gh_workflows}` in `plot-board-probe.sh`, which is
+  where the probe's field should derive its shape from.

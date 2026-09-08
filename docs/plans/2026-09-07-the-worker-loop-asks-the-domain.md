@@ -4,13 +4,15 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #789 merged
+- **Started:** 2026-09-07, Jan Wloka, `bug/the-worker-loop-asks-the-domain`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 
@@ -61,7 +63,7 @@ desk_is_resettable() {
 
 **THE MARKER IS THE MEASURED GAP AND MUST BE IN THE READINGS.** A desk holding an agent's own question to a person is not a desk to reset. The loop does not look today; the rule does.
 
-**IT MUST NOT COST A `node` HOP PER PASS.** [`an-agent-state-has-one-deriver`](2026-09-07-an-agent-state-has-one-deriver.md) measured `node` at **39 ms**, and this loop runs per agent on every pass. **The answer is the same one that plan reached**: `plot-pr-merged.sh` is sourced by four scripts while `reapable.ts` answers in TypeScript, and what keeps them honest is a test. If the hop is affordable here, take it; if not, the corpus test is the deliverable and the plan says which was measured.
+**IT MUST NOT COST A `node` HOP PER PASS.** [`a-shell-script-asks-the-domain`](2026-09-07-a-shell-script-asks-the-domain.md) settles this, and `docs/shell-and-domain.md` is where the rule now lives: a script running once per operator command calls the domain, one running once per agent per pass duplicates the rule and a corpus comparison holds the pair. **This loop is the second case** — it runs per agent on every pass — so it keeps its own implementation and the comparison is the deliverable. The contract also says where a call goes and how a disagreement reports; this slice uses those rather than restating them.
 
 **THE VERDICT NAMES THE CONDITION THAT REFUSED.** `finishedWith` returns a refusal reason, and the loop logs a bare failure today. A reset refused because of a marker reads differently from one refused because of unpushed commits.
 

@@ -29,6 +29,37 @@ export interface Disagreement {
 }
 
 /**
+ * What the two sides of a comparison are called in its report.
+ *
+ * THE WORDS ARE THE PARAMETER, and that is the whole of what a rule-versus-shell
+ * comparison needed beyond the adapter one. `adapter=` and `production=` name
+ * the pair the first four corpus files compare; a rule against its shell
+ * duplicate is a different pair, and `rule=disputed shell=done` is what sends a
+ * reader to the right file while `adapter=` sends them looking for one that is
+ * not involved.
+ */
+export interface Sides {
+  /** What the left-hand reading is called — the one `Disagreement.adapter` holds. */
+  left: string;
+  /** What the right-hand reading is called — the one `Disagreement.production` holds. */
+  right: string;
+}
+
+/** The pair the adapter tier compares, and `describeDisagreement`'s wording. */
+export const ADAPTER_AND_PRODUCTION: Sides = { left: 'adapter', right: 'production' };
+
+/**
+ * Renders a disagreement with the two sides named.
+ *
+ * @param sides - what to call each reading.
+ * @returns a renderer over one disagreement, for `found.map(...)`.
+ */
+export const describingAs =
+  (sides: Sides) =>
+  (one: Disagreement): string =>
+    `${one.subject} :: ${one.field} :: ${sides.left}=${one.adapter} ${sides.right}=${one.production}`;
+
+/**
  * Renders a disagreement as one line naming the field, the subject and both
  * readings — the three things `PLOT-BLOCKED` has to carry.
  *
@@ -36,7 +67,7 @@ export interface Disagreement {
  * @returns a single line, safe to read in CI output.
  */
 export const describeDisagreement = (one: Disagreement): string =>
-  `${one.subject} :: ${one.field} :: adapter=${one.adapter} production=${one.production}`;
+  describingAs(ADAPTER_AND_PRODUCTION)(one);
 
 /**
  * Compares one field of one subject, appending a disagreement when they differ.

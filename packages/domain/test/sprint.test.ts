@@ -66,6 +66,29 @@ describe('the plan estate outranks the checkbox, in one direction only', () => {
   });
 });
 
+describe('an item naming no plan has only its checkbox', () => {
+  // `plot-sprint-release.sh` has always read such an item at face value, and
+  // said why: a lightweight task has one source of truth. `scoreItem` took a
+  // boolean until 2026-09-08 and could not express the case, which is the
+  // divergence `corpus/sprint-score.corpus.test.ts` declared.
+
+  it('scores a checked plan-less item as done', () => {
+    expect(scoreItem(item({ checked: true, plan: '' }), 'no-plan-named')).toBe('done');
+  });
+
+  it('scores an unchecked plan-less item as open', () => {
+    expect(scoreItem(item({ checked: false, plan: '' }), 'no-plan-named')).toBe('open');
+  });
+
+  it('never disputes a plan-less item, because there is nothing to dispute', () => {
+    // A dispute is a disagreement between two sources and this item has one.
+    // The checked case is the whole risk: pass `false` instead of
+    // `'no-plan-named'` and it reads `disputed`, which is the bug.
+    expect(scoreItem(item({ checked: true, plan: '' }), 'no-plan-named')).not.toBe('disputed');
+    expect(scoreItem(item({ checked: true, plan: '' }), false)).toBe('disputed');
+  });
+});
+
 describe('a sprint’s membership is its distinct plans', () => {
   it('counts a plan once however many slices name it', () => {
     // 22 item lines, 19 distinct members: a plan cut into slices is listed once

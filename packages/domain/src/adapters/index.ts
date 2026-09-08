@@ -38,6 +38,15 @@ export { trackerNone } from './tracker/tracker-none.js';
 export { trackerFor, trackerShell } from './tracker/tracker-resolve.js';
 export { trackerFixture, type TrackerFixture } from './tracker/tracker-fixture.js';
 
+// THE BUILD PIPELINE'S CONNECTORS, and the same rule holds: each owns its own
+// account, token and window. `buildNone` beside them is not a fixture — it is a
+// repository that declared no CI, and an unaskable CI is a different fact from
+// an empty run list.
+export { buildActions } from './build/build-actions.js';
+export { buildNone } from './build/build-none.js';
+export { buildFor, buildShell } from './build/build-resolve.js';
+export { buildFixture, type BuildFixture } from './build/build-fixture.js';
+
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 
@@ -46,6 +55,20 @@ export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 
 export { refsGit } from './refs/refs-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
+
+export {
+  agentsFs,
+  parseManifest,
+  firstMarkerLine,
+  QUESTION_MAX,
+  type AgentsFsOptions,
+} from './agents/agents-fs.js';
+export {
+  agentsFixture,
+  agentManifest,
+  agentDesk,
+  type AgentsFixture,
+} from './agents/agents-fixture.js';
 
 export { treesGit } from './trees/trees-git.js';
 export { treesFixture, type TreesFixture } from './trees/trees-fixture.js';

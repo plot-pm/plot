@@ -180,4 +180,17 @@ describe('the promises a sprint has still to keep', () => {
     const sprint = sprintWith({ items: [item({ checked: true })] });
     expect(openPromises(sprint, new Set())).toEqual(['a-lifecycle-is-enforced-by-a-test']);
   });
+
+  it('takes a ticked Must naming no plan at its checkbox', () => {
+    // A plan-less item has one source of truth. `delivered.has('')` is false
+    // for every estate, so scoring it as a plan would hold the sprint open on
+    // a ticked box that nothing can ever deliver.
+    const sprint = sprintWith({ items: [item({ checked: true, plan: '' })] });
+    expect(openPromises(sprint, new Set())).toEqual([]);
+  });
+
+  it('keeps an unticked Must naming no plan open', () => {
+    const sprint = sprintWith({ items: [item({ checked: false, plan: '' })] });
+    expect(openPromises(sprint, new Set())).toEqual(['']);
+  });
 });

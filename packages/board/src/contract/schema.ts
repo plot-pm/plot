@@ -11,6 +11,8 @@ import {
   AgentStateSchema as DomainAgentStateSchema,
   BOARD_PHASES,
   SprintStateSchema,
+  ChecksSchema,
+  MergeabilitySchema,
   type Phase,
   type SprintState,
 } from '@plot-pm/domain';
@@ -246,8 +248,8 @@ export const SliceSummarySchema = z.preprocess(readEitherSpelling, z.object({
 export type SliceSummary = z.infer<typeof SliceSummarySchema>;
 
 /**
- * A pull request as a card names it: the number the plan wrote down, and the
- * link the HOST gave us for it.
+ * A pull request as a card names it: the number the plan wrote down, the link
+ * the HOST gave us for it, and what the host said about its build.
  *
  * `url` is empty whenever the board does not know one — the PR data has not
  * landed yet, or the host CLI reported none. The board never fills that gap:
@@ -260,6 +262,43 @@ export type SliceSummary = z.infer<typeof SliceSummarySchema>;
 export const CardPrSchema = z.object({
   number: z.number(),
   url: z.string().default(''),
+  /**
+   * The build, summarized onto this PR — the five states of `ChecksSchema`.
+   *
+   * `none` AND `unknown` ARE DIFFERENT ANSWERS AND MUST NOT RENDER THE SAME.
+   * `none` means this PR has no CI; `unknown` means the board could not find
+   * out. On a GitHub repo the difference is academic. On a Jenkins team, where
+   * `runs()` reaches `gh` alone, EVERY PR is `unknown` — and until 2026-09-07
+   * this field did not exist, so the board showed what looked like a fleet with
+   * no CI at all.
+   *
+   * The reading was already fetched and already held: `plot-host.sh pr-list
+   * --rich` branches on backend and Jenkins to produce it and `fleet.ts`'s
+   * `PrRecord` carries it. It was computed at four layers and dropped at this
+   * one.
+   *
+   * What a reader SEES for each state is not decided here. `checksVerdict` in
+   * the domain owns the label, the sentence and the prominence, so the pairing
+   * is asserted in a unit test rather than re-derived in a component.
+   *
+   * Defaults to `unknown` so an older payload still validates, and because
+   * unknown is the honest answer for one that predates the field — absent is
+   * not clean, the rule every other reading on this contract obeys.
+   */
+  checks: ChecksSchema.default('unknown'),
+  /**
+   * Whether the branch merges cleanly — the reading that DISAMBIGUATES `checks`,
+   * and which therefore travels with it rather than beside it.
+   *
+   * GitHub starts no workflow for a PR that does not merge, so a conflicting PR
+   * reports an empty rollup: `checks: 'none'`, indistinguishable from a bot PR
+   * whose run waits for a human to approve it (`fleet.ts`'s `PrRecord` records
+   * the same reason). Carrying `checks` without this ships a known ambiguity.
+   *
+   * Defaults to `unknown` — every host that cannot answer, and every payload
+   * written before the field existed. A consumer must not read it as clean.
+   */
+  mergeable: MergeabilitySchema.default('unknown'),
 });
 export type CardPr = z.infer<typeof CardPrSchema>;
 

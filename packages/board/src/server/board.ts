@@ -32,13 +32,25 @@ import {
   timeboxLabel,
   timeboxStanding,
   planStatus as decidePlanStatus,
+  type BuildPort,
+  ChecksSchema,
+  MergeabilitySchema,
+  type Checks,
+  type Mergeability,
   type Host,
   type PlanStore,
   type Refs,
   type Scripts,
   type Trees,
 } from '@plot-pm/domain';
-import { hostShell, planStoreShell, refsGit, scriptsShell, treesGit } from '@plot-pm/domain/adapters';
+import {
+  buildShell,
+  hostShell,
+  planStoreShell,
+  refsGit,
+  scriptsShell,
+  treesGit,
+} from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
 import { extractTopics } from './topics.js';
@@ -112,6 +124,15 @@ export interface BuildBoardOptions {
    * the same confusion in a new place.
    */
   hostAdapter?: Host;
+  /**
+   * What answers the build questions — the CI connector, or a fixture.
+   *
+   * SEPARATE FROM `hostAdapter` BECAUSE THE SERVICES ARE SEPARATE. `CI` is a
+   * `## Plot Config` key declared independently of `Git host`, so a board
+   * handed a fixture host and a real CI connector is a valid, testable
+   * configuration — and a single field could not express it.
+   */
+  buildAdapter?: BuildPort;
 }
 
 /**
@@ -194,10 +215,57 @@ export const hostFor = (opts: BuildBoardOptions): Host =>
   opts.hostAdapter ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
+ * The CI reader for these options — the caller's, or this repository's.
+ *
+ * A SECOND CONNECTOR, resolved from the `CI` config key rather than from the
+ * git host. A team's builds and its pull requests are two remote services, and
+ * this repository's being GitHub for both is an accident of this repository.
+ *
+ * ASYNC WHERE {@link hostFor} IS NOT, because the connector cannot be chosen
+ * without reading which system the repository declared — and reading that is a
+ * `plot-config.sh` call. A repository that declared none gets `buildNone`,
+ * which answers `unaskable` rather than an empty list.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected CI reader, or the connector the config names.
+ */
+export const buildPortFor = async (opts: BuildBoardOptions): Promise<BuildPort> =>
+  opts.buildAdapter ?? buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so
  * the root must be resolved the same way for `path.relative` to come out
  * repo-relative (and for the /plan allowlist basenames to match card.path).
  */
+/**
+ * Narrows the PR cache's `checks` string to one of the five states.
+ *
+ * THE UNRECOGNISED VALUE BECOMES `unknown`, NEVER AN ANSWER. `PrRecord.checks`
+ * is typed `string` because it comes off `plot-host.sh`'s wire, and a word this
+ * board does not recognise is a word it could not interpret — which is what
+ * `unknown` means. Reading it as `none` would claim the host reported an empty
+ * rollup, and reading it as `green` would claim a build passed.
+ *
+ * `undefined` lands here the same way and for the same reason: no PR map yet,
+ * a number the host does not know, or a record predating the field.
+ */
+const asChecks = (value: string | undefined): Checks => {
+  const parsed = ChecksSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'unknown';
+};
+
+/**
+ * Narrows the PR cache's `mergeable` string the same way, for the same reason.
+ *
+ * The reading DISAMBIGUATES `checks` — an empty rollup on a conflicting branch
+ * is a symptom rather than a fact — so a wrong answer here silently mislabels
+ * the other field. `unknown` is the only safe default: absent is not clean.
+ */
+const asMergeability = (value: string | undefined): Mergeability => {
+  const parsed = MergeabilitySchema.safeParse(value);
+  return parsed.success ? parsed.data : 'unknown';
+};
+
 function resolvedRepoRoot(opts: BuildBoardOptions): string {
   try {
     return fs.realpathSync(opts.repoRoot);
@@ -1847,10 +1915,24 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       type: meta.type || 'unknown',
       phase,
       path: relPath,
-      prs: meta.prs.map((number): CardPr => ({
-        number,
-        url: prLinks?.get(number)?.url ?? '',
-      })),
+      // THE READING WAS ALWAYS HERE AND WAS ALWAYS DROPPED. `prsByNumber` hands
+      // back a whole `PrRecord` — `checks` and `mergeable` among them — and
+      // this map took `url` and discarded the rest, so the board computed a
+      // build state at four layers and lost it at the wire.
+      //
+      // BOTH DEFAULT TO `unknown`, NEVER TO AN ANSWER. No PR map yet, a number
+      // the host does not know, or a record from a server too old to carry the
+      // fields: each is *the board did not find out*, which is a different fact
+      // from `none` and must not be rendered as one. That is the whole plan.
+      prs: meta.prs.map((number): CardPr => {
+        const record = prLinks?.get(number);
+        return {
+          number,
+          url: record?.url ?? '',
+          checks: asChecks(record?.checks),
+          mergeable: asMergeability(record?.mergeable),
+        };
+      }),
       // Read from the record this card's OWN column measures recency by. Always
       // present (possibly "") rather than conditionally attached like the fields
       // below: "" is a real answer here — this plan records no date for its

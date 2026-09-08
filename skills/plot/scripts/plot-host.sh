@@ -8,6 +8,17 @@
 #
 # Ops (the ~6 operations plot actually needs):
 #   backend                       print the resolved backend: github|bitbucket
+#                                 REPORTS WHAT THE REPO DECLARED. An
+#                                 unrecognised `Git host` word is NOT silently
+#                                 defaulted to github — that drove a repo
+#                                 declaring `gitlab` through `gh` until
+#                                 2026-09-08. A backend this script has no arm
+#                                 for exits 4 and names the word on stderr:
+#                                 exit 4 is "this backend has no answer at
+#                                 all", a configuration a person fixes rather
+#                                 than a transient to retry. Adding a host is
+#                                 an edit to `HOST_DRIVES` and the arms below,
+#                                 and to nothing in `packages/domain`.
 #   default-branch                print the repo's default branch name
 #   pr-state <number|branch> [--repo <owner/repo>]   one JSON object:
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
@@ -366,6 +377,52 @@ host_failure_kind() { # $1=stderr text → throttled|secondary|failed
   fi
 }
 
+# --- the connector names its own repair -------------------------------------
+#
+# THE TEXT COMES FROM THE CONNECTOR THAT FAILED, never from a caller branching
+# on the stack. A refusal saying `gh auth login` is wrong advice on a Bitbucket
+# team, and it is wrong in the direction that costs most: a teammate who has not
+# read this repository runs the command they were given, it does nothing, and
+# the next step is to find a person. This connector already resolved its vendor
+# — `backend` above — so it is the one place that can name a CLI that exists.
+#
+# ONE FUNCTION RATHER THAN A TABLE AT EACH CALL SITE, and it is the connector
+# contract CLAUDE.md already states applied to words instead of budgets: only a
+# connector knows its account, its transport and its login command, so only a
+# connector may name them.
+#
+# A BACKEND THIS DOES NOT KNOW GETS NO ADVICE. Inventing a login command for an
+# unrecognised vendor is the same failure as naming the wrong one, so it says
+# what it does not know rather than guessing — the direction `host_failure_kind`
+# refuses in too.
+#
+# $1 = the backend word, as `backend` reported it.
+host_cli() { # → the CLI this backend drives, or '' where none is known
+  case "$1" in
+    github)    echo "gh" ;;
+    bitbucket) echo "bb" ;;
+    *)         echo "" ;;
+  esac
+}
+
+# The repair line for a host call that failed, on stderr, in this connector's
+# own words. Prints nothing where the vendor is unknown — see above.
+host_repair() { # $1=backend
+  local cli; cli="$(host_cli "$1")"
+  if [ -z "$cli" ]; then
+    echo "  Plot does not know which CLI drives '$1', so it cannot name the fix." >&2
+    echo "  Set 'Git host' in CLAUDE.md to a host Plot drives (github, bitbucket)." >&2
+    return
+  fi
+  if ! command -v "$cli" >/dev/null 2>&1; then
+    echo "  '$cli' is not on PATH, and this backend is driven through it." >&2
+    echo "  Install it, then: $cli auth login" >&2
+    return
+  fi
+  echo "  Check the CLI can answer: $cli auth status" >&2
+  echo "  If it is not logged in: $cli auth login" >&2
+}
+
 # A failed `pr-list`, reported and never swallowed.
 #
 # THREE OUTCOMES, KEPT APART — the rule `issue-list` states in full and this
@@ -380,13 +437,28 @@ pr_list_failed() { # $1=stderr text
   local err="$1"
   case "$(host_failure_kind "$err")" in
     secondary)
-      die6 "pr-list: host refused a burst — ${err:-the host refused the request and said nothing}"
+      # NO REPAIR NAMED, AND THAT IS THE ANSWER. A burst refusal clears in
+      # seconds and nothing is broken, so `$cli auth login` here would send a
+      # reader to fix a login that is already fine. The decision is the wait.
+      echo "plot-host: pr-list: host refused a burst — ${err:-the host refused the request and said nothing}" >&2
+      echo "  Nothing is wrong and nothing needs fixing: this limit bounds calls at" >&2
+      echo "  once, not per hour. Retry shortly, with fewer at a time." >&2
+      exit 6
       ;;
     throttled)
-      die5 "pr-list: host throttled — ${err:-the host refused the request and said nothing}"
+      echo "plot-host: pr-list: host throttled — ${err:-the host refused the request and said nothing}" >&2
+      echo "  The window's quota is spent. Wait for the reset the message names," >&2
+      echo "  or run against an account with quota left. No login will help." >&2
+      exit 5
       ;;
   esac
-  die3 "pr-list: ${err:-the host failed the request and said nothing}"
+  # THE ONE KIND A COMMAND FIXES. An auth gap and a DNS blip both land here, and
+  # the repair for the first is a login this connector can name — see
+  # `host_repair`, which asks the CLI this backend drives rather than assuming
+  # one. A failure that is neither costs the reader one `auth status`.
+  echo "plot-host: pr-list: ${err:-the host failed the request and said nothing}" >&2
+  host_repair "$(backend)"
+  exit 3
 }
 
 # Run one `pr-list` host call, or die reporting which failure it was.
@@ -1225,7 +1297,10 @@ jira_require_config() {
     die3 "Tracker is jira but no base URL is configured (write 'Tracker: jira https://your.atlassian.net' or set PLOT_JIRA_BASE_URL)"
   fi
   if [ -z "${JIRA_EMAIL:-}" ] || [ -z "${JIRA_API_TOKEN:-}" ]; then
-    die3 "Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment — an unauthenticated Jira must not read as an empty inbox"
+    echo "plot-host: Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment — an unauthenticated Jira must not read as an empty inbox" >&2
+    echo "  Create a token at https://id.atlassian.com/manage-profile/security/api-tokens" >&2
+    echo "  then export JIRA_EMAIL=<your account email> and JIRA_API_TOKEN=<the token>." >&2
+    exit 3
   fi
 }
 
@@ -1348,19 +1423,62 @@ pr_list_report_truncation() {
   echo "plot-host: $be pr-list state=$state possibly truncated ($count rows, requested limit $limit unprovable) — a join against this page may read older branches as 'no PR' (#333)" >&2
 }
 
-backend() {
+# The backends this script has an arm for, which is what "drivable" means here.
+#
+# THE LIST LIVES IN THE SCRIPT BECAUSE THE SCRIPT IS WHAT WOULD CHANGE. Adding a
+# host means teaching the ops below its CLI; this array is the record of which
+# have been taught, and it sits beside the arms it describes. `packages/domain`
+# holds no copy — `HostBackend` is any string, and `host-shell.ts` passes
+# through whatever this prints — so a third host is an edit here and nowhere in
+# the domain.
+HOST_DRIVES="github bitbucket"
+
+# Is this a backend the ops below can actually drive?
+host_drivable() { # $1=backend word
+  case " $HOST_DRIVES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# The backend this repository declared, in the word it used.
+#
+# REPORTS WHAT IT WAS TOLD, AND DEFAULTS ONLY WHERE NOTHING WAS SAID. A repo
+# declaring `Git host: gitlab` was answered `github` until 2026-09-08 — the
+# unrecognised word was discarded and the default returned in its place, so a
+# GitLab team was driven through `gh` and every refusal named a host they had
+# not configured. An absent key still defaults to github, which is the same
+# answer for the same reason: nothing was said, so nothing was discarded.
+#
+# `bb` is an ALIAS rather than an unknown word, and it normalises to bitbucket.
+backend_declared() {
   if [ -n "${PLOT_HOST:-}" ]; then
-    case "$PLOT_HOST" in
-      github|bitbucket) echo "$PLOT_HOST"; return ;;
-      *) die "unknown PLOT_HOST '$PLOT_HOST' (github|bitbucket)" ;;
-    esac
+    printf '%s\n' "$PLOT_HOST" | tr '[:upper:]' '[:lower:]'
+    return
   fi
   local v
   v="$(bash "$here/plot-config.sh" get "Git host" "github" | tr '[:upper:]' '[:lower:]')"
   case "$v" in
-    bitbucket|bb) echo "bitbucket" ;;
-    *) echo "github" ;;
+    bb) echo "bitbucket" ;;
+    "") echo "github" ;;
+    *) printf '%s\n' "$v" ;;
   esac
+}
+
+# The resolved backend, refused where this script has no arm for it.
+#
+# THE REFUSAL IS THIS LAYER'S, AND IT NAMES THE WORD. Every op below dispatches
+# on this answer, so a word with no arm must stop here rather than fall into
+# whichever branch happens to be last — that is how `gitlab` became a Bitbucket
+# call. Exit 4 says the question cannot be asked of this backend AT ALL, which
+# is what an unknown host is: not a broken call to retry, but a configuration a
+# person must fix. `host-shell.ts` reads that code as `unaskable` and reads the
+# sentence below for the name.
+backend() {
+  local v
+  v="$(backend_declared)" || return 1
+  if ! host_drivable "$v"; then
+    echo "plot-host: cannot drive '$v' — this script drives ${HOST_DRIVES// /, }; set the 'Git host' key in CLAUDE.md (or \$PLOT_HOST) to one of them" >&2
+    return 4
+  fi
+  printf '%s\n' "$v"
 }
 
 
@@ -1802,7 +1920,11 @@ jen() {
 
 op="${1:-}"; [ -n "$op" ] || die "usage: plot-host.sh <op> [args...] (see header)"
 shift
-be="$(backend)" || exit 1
+# THE BACKEND'S REFUSAL IS PASSED THROUGH, NOT FLATTENED. `backend` exits 4 for
+# a host it has no arm for, and exit 4 is the contract's "this backend has no
+# answer at all" — the one code every caller reads as permanent rather than
+# transient. Collapsing it to 1 here would tell a GitLab repo to retry forever.
+be="$(backend)" || exit $?
 
 # EVERY GITHUB OP CONSULTS THE ROUTER, ONCE, HERE. `gh_route` is asked before
 # the op runs and its answer is read from `$route` by whichever arm needs it —
@@ -2161,7 +2283,11 @@ case "$op" in
       jen_instance=$(bash "$here/plot-config.sh" get "Jenkins instance" "" 2>/dev/null || echo "")
       [ -n "$jen_instance" ] || jen_instance="${JENKINS_INSTANCE:-}"
       if [ -z "$jen_instance" ]; then
-        die3 "CI is jenkins but no Jenkins instance is configured (set a 'Jenkins instance' key)"
+        echo "plot-host: CI is jenkins but no Jenkins instance is configured" >&2
+        echo "  Add a 'Jenkins instance' key to the ## Plot Config section of CLAUDE.md," >&2
+        echo "  naming the instance \`jen\` knows, or set JENKINS_INSTANCE." >&2
+        echo "  Or drop the 'CI: jenkins' key to read build status from the git host." >&2
+        exit 3
       fi
       jen_payload=$(jenkins_build_map "$jen_instance")
       jen_status=$(printf '%s' "$jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
