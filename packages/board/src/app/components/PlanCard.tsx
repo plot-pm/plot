@@ -3,6 +3,7 @@ import type { Card, DispatchInfo, Phase, StoryCard } from '../../contract/schema
 import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
 import { planHref, storyHref } from '../lib/plan.js';
+import { checksVerdict } from '@plot-pm/domain';
 import { StartWorkButton } from './StartWorkButton.js';
 import { ApproveButton } from './ApproveButton.js';
 
@@ -143,6 +144,45 @@ export function roundsBadgeText(card: Card): string {
   if (card.rounds === undefined) return '';
   return card.rounds === 1 ? '1 round' : `${card.rounds} rounds`;
 }
+
+/**
+ * What one PR's build says, or nothing at all.
+ *
+ * NOTHING IS DECIDED HERE. `shown`, `label`, `detail` and `prominence` arrive
+ * from `checksVerdict` in the domain, asserted in
+ * `packages/domain/test/checks-reading.test.ts` with no browser. This maps
+ * `prominence` to two class strings and renders the words it was given — the
+ * supervisor badge's shape in `FleetControls.tsx`, reused rather than
+ * reinvented.
+ *
+ * `warn` is amber, matching its neighbours. `note` — the `unknown` state — is
+ * deliberately NOT amber: a board that could not ask must render neither an
+ * alarm nor an all-clear. And a `green` PR renders nothing, because a check
+ * that passed is not a finding.
+ *
+ * The `data-` attributes are what a browser test reads. It asserts `none` and
+ * `unknown` render differently, which is a claim about two rendered rows and
+ * therefore the one thing the unit test above cannot make.
+ */
+const ChecksNote = ({ pr }: { pr: Card['prs'][number] }) => {
+  const verdict = checksVerdict({ checks: pr.checks, mergeable: pr.mergeable });
+  if (!verdict.shown) return null;
+  return (
+    <span
+      data-pr-checks
+      data-pr-checks-state={verdict.state}
+      data-pr-checks-prominence={verdict.prominence}
+      className={`text-xs ${
+        verdict.prominence === 'warn'
+          ? 'text-amber-600 dark:text-amber-500'
+          : 'text-slate-400 dark:text-slate-500'
+      }`}
+      title={verdict.detail}
+    >
+      {verdict.label}
+    </span>
+  );
+};
 
 export interface PlanCardProps {
   card: Card;
@@ -326,27 +366,28 @@ export function PlanCard({
             the only thing that knows what a PR address looks like; guessing one
             here would render a confident link that is wrong on GitHub
             Enterprise and on every self-hosted Bitbucket. */}
-        {card.prs.map((pr) =>
-          pr.url ? (
-            <a
-              key={pr.number}
-              href={pr.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-            >
-              #{pr.number}
-            </a>
-          ) : (
-            <span
-              key={pr.number}
-              className="text-xs text-slate-400 dark:text-slate-500"
-              title="No link — the host has not reported a URL for this PR"
-            >
-              #{pr.number}
-            </span>
-          ),
-        )}
+        {card.prs.map((pr) => (
+          <span key={pr.number} className="inline-flex items-center gap-1">
+            {pr.url ? (
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                #{pr.number}
+              </a>
+            ) : (
+              <span
+                className="text-xs text-slate-400 dark:text-slate-500"
+                title="No link — the host has not reported a URL for this PR"
+              >
+                #{pr.number}
+              </span>
+            )}
+            <ChecksNote pr={pr} />
+          </span>
+        ))}
         {/* The button sits on the PLAN card, not on an agent row, and that is
             not cosmetic: plot-dispatch.sh takes a SLUG, then asks
             plot-fleet-scan.sh --next which branch is eligible. A button on a

@@ -1,4 +1,3 @@
-import type { BuildRun } from '../../entities/build.js';
 import {
   correctForRefusal,
   LimitBasisSchema,
@@ -17,17 +16,6 @@ import type {
 } from '../../ports/host.js';
 import { asJson, asJsonLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-
-/**
- * The backends this adapter can drive, which is what `plot-host.sh` implements.
- *
- * The list lives here because this is the layer that could do something about a
- * backend it cannot drive: adding one means teaching the script its CLI, and
- * this array is the record of which have been taught. The domain holds no such
- * list — {@link HostBackend} is any string — so a new host is an edit to this
- * file and the script beside it.
- */
-const DRIVES: readonly string[] = ['github', 'bitbucket'];
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
 interface RawPr {
@@ -54,14 +42,6 @@ interface RawLimit {
   remaining?: number | null;
   reset?: number | null;
   basis?: string;
-}
-
-/** One run as `plot-host.sh runs` reports it. */
-interface RawRun {
-  workflow?: string;
-  conclusion?: string;
-  startedAt?: string;
-  url?: string;
 }
 
 const PR_STATES: readonly string[] = ['OPEN', 'MERGED', 'CLOSED'];
@@ -98,24 +78,6 @@ const prOf = (raw: RawPr): Pr => ({
   review: oneOf<ReviewVerdict>(raw.review, REVIEWS, ''),
   checks: oneOf<Checks>(raw.checks, CHECKS, 'unknown'),
   failingChecks: raw.failing_checks ?? [],
-  url: raw.url ?? '',
-});
-
-/**
- * Reads one run-history line as the domain's entity.
- *
- * The conclusion is passed THROUGH rather than read against a set — the one
- * mapper here that does not narrow. `BuildRun.conclusion` is documented as
- * verbatim, and `oneOf`'s degrade-to-unknown rule would turn every outcome the
- * host adds next into the same word as the ones it already has.
- *
- * @param raw - the script's JSON object.
- * @returns the run, with every unstated field empty.
- */
-const runOf = (raw: RawRun): BuildRun => ({
-  workflow: raw.workflow ?? '',
-  conclusion: raw.conclusion ?? '',
-  startedAt: raw.startedAt ?? '',
   url: raw.url ?? '',
 });
 
@@ -264,36 +226,32 @@ export const hostShell = (context: ShellContext): Host => {
   let lastRead: readonly LimitReading[] = [];
 
   return {
+    // THIS ADAPTER JUDGES NO VENDOR. It asks, and it passes on the word the
+    // script printed — `HostBackend` is any string, and there is no list here
+    // to check it against.
+    //
+    // DRIVABILITY IS THE SCRIPT'S FACT, NOT A COPY OF IT. `plot-host.sh` either
+    // has an arm for a backend or it does not; it exits 4 for one it has no arm
+    // for and NAMES the word it was told on stderr. A list here would be a
+    // second record of that, and the two would drift in the direction that
+    // matters: this file would refuse a host the script had already been
+    // taught. Adding a third host is an edit to the script and to nothing in
+    // `packages/domain`.
+    //
+    // SO THE REFUSAL DID NOT DISAPPEAR — IT MOVED, AND IT STILL NAMES THE HOST.
+    // `unaskable` is the right answer (no wait fixes an untaught host) but it
+    // carries no sentence, and the name is the whole of what a person needs.
+    // `record` clears the refusal on exit 4 deliberately — a Bitbucket repo
+    // with no tracker is answering, not refusing — so this op sets it after,
+    // rather than teaching `record` a distinction only this op can draw.
     backend: async (): Promise<PortResult<HostBackend>> => {
-      // The word the script reported, kept so the refusal below can name it.
-      // `resultOf` maps a throw to `failed` and discards the message, which is
-      // right for every parse failure and loses the only fact this one has.
-      let reported = '';
-      const answer = await ask(['backend'], (stdout) => {
-        const value = asText(stdout);
-        reported = value;
-        if (!DRIVES.includes(value)) {
-          throw new Error(`plot-host: cannot drive ${value}`);
-        }
-        return value;
-      });
-      // THE ONE REFUSAL THIS ADAPTER MAKES ON ITS OWN JUDGEMENT, so it is the
-      // one `record` cannot see. Every other refusal on this port is the
-      // script's, read off an exit code; this one happens on exit 0 — the
-      // script answered, and the adapter is what says the answer names a host
-      // it was never taught. `record` clears `refusal` on a zero exit, exactly
-      // right for the calls it was written for and wrong for this one.
-      //
-      // IT MUST NAME THE HOST. Removing `HostBackend`'s union moved the refusal
-      // from the type to this layer, and a refusal that says only `failed` is a
-      // worse answer than the type gave: a compiler error named the vendor. The
-      // sentence is where the name survives, and `lastRefusal` is the only
-      // place a caller can read one.
-      if (!answer.ok && refusal === null) {
-        refusal = {
-          kind: 'failed',
-          said: `plot-host: cannot drive ${reported} — this adapter drives ${DRIVES.join(', ')}`,
-        };
+      const run = await runProcess('bash', [host, 'backend'], inRepo);
+      const answer = record(run, asText);
+      if (run.code === 4) {
+        // Falls back to the code because a script that refused without a word
+        // still refused. `failed` is the honest kind of the three: `throttled`
+        // and `secondary` both promise a wait that would fix it.
+        refusal = { kind: 'failed', said: run.stderr.trim() || 'plot-host.sh exited 4' };
       }
       return answer;
     },
@@ -355,37 +313,16 @@ export const hostShell = (context: ShellContext): Host => {
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
       ),
 
-    runs: (branch, limit) =>
-      ask(
-        ['runs', branch, ...(limit === undefined ? [] : ['--limit', String(limit)])],
-        (stdout) => asJsonLines<RawRun>(stdout).map(runOf),
-      ),
-
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
-      // TWO CONNECTORS, ASKED SEPARATELY, because they are separate axes. The
-      // git host and CI are chosen independently — this repo is GitHub +
-      // Actions, `ekzweb` is Bitbucket + Jenkins — and GitHub Actions minutes
-      // are a quota distinct from the API's, so "the connector is github" does
-      // not identify the bucket.
+      // THE GIT HOST'S BUCKETS, AND ONLY THOSE. CI used to be asked here in the
+      // same call, on the grounds that the two are separate axes — which is
+      // true, and is why the CI connector now answers for itself. A port that
+      // reported another service's headroom beside its own left a caller
+      // pacing GitHub calls against a Jenkins estimate it never measured.
       const git = await runProcess('bash', [host, 'limit'], inRepo);
-      const gitReadings = record(git, (stdout) =>
-        asJsonLines<RawLimit>(stdout).map(limitOf),
-      );
-      // The git host is the one that must answer. A CI connector that cannot be
-      // asked contributes nothing rather than failing the whole reading: a
-      // Jenkins that is down says nothing about the GitHub budget the caller
-      // came for.
-      if (!gitReadings.ok) return gitReadings;
-      const ci = await runProcess('bash', [host, 'ci-limit'], inRepo);
-      // NOT through `record`. A CI connector that cannot be asked says nothing
-      // about the git host's budget, and letting it overwrite the refusal would
-      // report a Jenkins outage as the reason a GitHub call was throttled.
-      const ciReadings = resultOf(ci, (stdout) =>
-        asJsonLines<RawLimit>(stdout).map(limitOf),
-      );
-      const all = [...gitReadings.value, ...(ciReadings.ok ? ciReadings.value : [])].map(
-        withCorrections,
-      );
+      const readings = record(git, (stdout) => asJsonLines<RawLimit>(stdout).map(limitOf));
+      if (!readings.ok) return readings;
+      const all = readings.value.map(withCorrections);
       lastRead = all;
       return answered(all);
     },

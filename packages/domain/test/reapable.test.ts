@@ -8,6 +8,9 @@ import {
   finishedWith,
   treeIsThere,
   treeHasVanished,
+  resetRefusals,
+  firstResetRefusal,
+  deskIsResettable,
   type TreeReadings,
   type RefReadings,
   type FinishedWithReadings,
@@ -318,6 +321,7 @@ const desk = (over: Partial<FinishedWithReadings> = {}): FinishedWithReadings =>
   openPr: false,
   checkedOut: false,
   tree: 'present',
+  ahead: 0,
   ...over,
 });
 
@@ -340,6 +344,7 @@ describe('finishedWith — one rule, and each caller decides', () => {
       'onDefaultBranch',
       'openPr',
       'uncommittedChanges',
+      'unpushedCommits',
     ]);
   });
 
@@ -353,6 +358,7 @@ describe('finishedWith — one rule, and each caller decides', () => {
       liveWorker: 'false',
       uncommittedChanges: 'false',
       blockedMarker: 'false',
+      unpushedCommits: 'false',
       vanished: 'false',
     });
   });
@@ -531,6 +537,7 @@ describe('finishedWith — one rule, and each caller decides', () => {
     const every = desk({
       givenUp: true, merge: 'not-merged', openPr: true, checkedOut: true,
       branch: 'main', workerPid: '7', dirtyPath: 'a', blockedMarker: true,
+      ahead: 3,
     });
     // Every CONDITION holds; `vanished` is false because this desk's tree is
     // present — which is what makes the eight answerable in the first place.
@@ -546,5 +553,90 @@ describe('finishedWith — one rule, and each caller decides', () => {
       'given-up', 'no-merged-pr', 'open-pr', 'checked-out',
       'on-default-branch', 'live-worker', 'uncommitted-changes', 'blocked-marker',
     ]);
+  });
+});
+
+/**
+ * THE THIRD CALLER: `plot-worker-loop.sh:desk_is_resettable`, which keeps the
+ * checkout and puts a different branch in it.
+ *
+ * The loop DUPLICATES this rule rather than calling it — `docs/shell-and-domain.md`
+ * settles that, because the loop runs once per agent per pass and a `node` hop
+ * there is paid by every agent forever. `corpus/desk-reset.corpus.test.ts` holds
+ * the pair. What is asserted here is the domain half on its own.
+ */
+describe('resetRefusals — what holds an agent’s own desk', () => {
+  const conditionsOf = (over: Partial<FinishedWithReadings> = {}) => finishedWith(desk(over));
+
+  it('holds nothing against a clean, pushed desk', () => {
+    expect(resetRefusals(conditionsOf())).toEqual([]);
+    expect(deskIsResettable(conditionsOf())).toBe(true);
+    expect(firstResetRefusal(conditionsOf())).toBe(null);
+  });
+
+  it('refuses a desk carrying a question for a person', () => {
+    // THE MEASURED GAP THIS SLICE EXISTS FOR. A desk holding an agent's own
+    // `PLOT-BLOCKED` marker is not a desk to reset — the marker is the whole
+    // reason the agent stopped.
+    expect(resetRefusals(conditionsOf({ blockedMarker: true }))).toEqual(['blocked-marker']);
+  });
+
+  it('refuses work on the floor', () => {
+    expect(resetRefusals(conditionsOf({ dirtyPath: 'src/a.ts' }))).toEqual([
+      'uncommitted-changes',
+    ]);
+  });
+
+  it('refuses commits that exist only on this machine', () => {
+    expect(resetRefusals(conditionsOf({ ahead: 2 }))).toEqual(['unpushed-commits']);
+  });
+
+  it('names the marker first, because it is the one a person answers', () => {
+    // The other two an agent fixes by committing or pushing. This one it
+    // cannot, and an operator reading `.plot-worker.log` acts differently.
+    const held = conditionsOf({ blockedMarker: true, dirtyPath: 'a', ahead: 1 });
+    expect(resetRefusals(held)).toEqual([
+      'blocked-marker', 'uncommitted-changes', 'unpushed-commits',
+    ]);
+    expect(firstResetRefusal(held)).toBe('blocked-marker');
+  });
+
+  it('does not read the four conditions that are about somewhere else', () => {
+    // A branch whose PR is open but whose work is pushed has left NOTHING on
+    // the desk. Merge state, an open PR, being checked out and the default
+    // branch are all facts about elsewhere, and borrowing them would make the
+    // reset depend on the host.
+    const elsewhere = conditionsOf({
+      merge: 'not-merged', openPr: true, checkedOut: true, givenUp: true,
+    });
+    expect(resetRefusals(elsewhere)).toEqual([]);
+    // And the reaper's verdict on the same readings is the opposite, which is
+    // the asymmetry stated rather than implied.
+    expect(reapProblems(desk({ merge: 'not-merged' }))).not.toEqual([]);
+  });
+
+  it('does not refuse on an unanswerable upstream', () => {
+    // A branch with no upstream reaches the loop only when its claim push
+    // never happened, and that desk's own commits are the claim commit the
+    // next reset would rewrite. A failure to observe is not evidence.
+    expect(conditionsOf({ ahead: 'unknown' }).unpushedCommits).toBe('unknown');
+    expect(resetRefusals(conditionsOf({ ahead: 'unknown' }))).toEqual([]);
+  });
+
+  it('does not refuse on a tree that could not be read', () => {
+    // `unknown` permits here for the same reason it permits in the
+    // ref-deleter: refusing on silence would strand desks the loop must reuse,
+    // and the reset uses plain `git checkout`, so git refuses what the
+    // conditions missed rather than overwriting it.
+    const unread = conditionsOf({ tree: 'absent', blockedMarker: true, dirtyPath: 'a' });
+    expect(unread.blockedMarker).toBe('unknown');
+    expect(unread.unpushedCommits).toBe('unknown');
+    expect(resetRefusals(unread)).toEqual([]);
+  });
+
+  it('reads a live worker as no reason at all', () => {
+    // The agent asking is the live worker. `liveWorker` is true of every desk
+    // this question is asked about, so reading it would refuse every reset.
+    expect(resetRefusals(conditionsOf({ workerPid: '4242' }))).toEqual([]);
   });
 });

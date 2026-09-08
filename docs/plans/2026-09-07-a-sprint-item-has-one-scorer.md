@@ -52,9 +52,9 @@
 
 **THE SEAM IS NOT THIS PLAN'S TO CHOOSE.** [`a-shell-script-asks-the-domain`](2026-09-07-a-shell-script-asks-the-domain.md) states when a shell script calls the domain and where the call goes; this slice waits on it and uses what it says. **An earlier draft named `plot-ask.mjs` here** — written before `node` startup was measured at 39 ms, and before two sibling plans reached a different answer for scripts that run per pass.
 
-**`plot-sprint-release.sh` IS THE AFFORDABLE CASE**, whichever way the contract lands: it runs once per operator command, like `plot-approve.sh`, which already pays a hop through `plot-transition.mjs`.
+**`plot-sprint-release.sh` IS THE AFFORDABLE CASE**, and the contract landed saying so: `docs/shell-and-domain.md` puts a script that runs once per operator command on the calling side, like `plot-approve.sh`, which already pays a hop through `plot-transition.mjs`. Where the call goes is that document's second question — a shipped bundle under `skills/plot/scripts/board/`, not `plot-ask.mjs`, which runs the fleet scan.
 
-**A TEST COMPARES THE TWO ANSWERS ACROSS THE LIVE ESTATE.** The corpus tier exists for exactly this — `packages/domain/corpus/` compares adapters against production over the real repository. Every sprint item on the estate, scored both ways, asserted equal. That is what makes a fourth state a one-line change rather than a four-site hunt.
+**THE TEST ALREADY EXISTS AND THIS SLICE INHERITS IT.** `corpus/sprint-score.corpus.test.ts` was built by [`a-shell-script-asks-the-domain`](2026-09-07-a-shell-script-asks-the-domain.md) as the contract's first comparison — every sprint item on the estate scored both ways, 134 items in 10 sprints, all three answers exercised. **It carries this slice's own defect as a declared divergence:** the five plan-less items where `item_state` reads the checkbox and `scoreItem` cannot, named in the test and asserted as an exact set. **So this slice does not write a comparison; it empties that list**, and the assertion that the list is exactly those five is what fails when it does.
 
 **`release.ts` KEEPS TAKING A STATUS AND STOPS BEING THE ONLY WAY TO GET ONE.** Its input shape is right — readings as values, per the domain's stated shape. What it must not remain is the sole typed description of a lifecycle nothing computes.
 

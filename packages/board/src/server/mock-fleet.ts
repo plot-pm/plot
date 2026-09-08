@@ -456,7 +456,17 @@ export function mockCards(): Column[] {
           title: 'Opus 5 long-horizon hardening',
           path: 'docs/plans/2026-07-25-opus5-longhorizon-hardening.md',
           started: true,
-          prs: [{ number: 57, url: 'https://example.invalid/pull/57' }],
+          // THREE PRs BECAUSE THE DISTINCTION IS THE POINT. This file exists
+          // so a reader can see what the board renders for each case, and
+          // `none` versus `unknown` is exactly the pair that rendered
+          // identically until 2026-09-07. One green PR needs no annotation,
+          // one has no CI configured, and one the board could not ask about —
+          // and a mock showing only the first would hide the whole feature.
+          prs: [
+            { number: 57, url: 'https://example.invalid/pull/57', checks: 'green', mergeable: 'mergeable' },
+            { number: 58, url: 'https://example.invalid/pull/58', checks: 'none', mergeable: 'mergeable' },
+            { number: 59, url: 'https://example.invalid/pull/59', checks: 'unknown', mergeable: 'unknown' },
+          ],
         }),
       ],
     },

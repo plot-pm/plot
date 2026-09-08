@@ -666,7 +666,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
-n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0; n_unclaimed=0
+n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0; n_unclaimed=0; n_merged_refs=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -2158,6 +2158,139 @@ else
 fi
 echo
 
+# ---------------------------------------------------------------------------
+# 18. Merged refs
+#
+# A remote branch whose PR MERGED and whose ref still exists. The work is
+# finished; the ref is litter, and until now nothing named it.
+#
+# MEASURED 2026-09-07. After section 17 reported `unclaimed_work=8` and all
+# eight were resolved, the estate still held 15 remote branches. NINE had
+# merged PRs — `feature/the-scan-reads-a-fleet-reading` (#600, 56 files),
+# `feature/the-shell-stops-parsing-plans` (#577), `feature/the-board-reads-the-
+# quiet-kinds` (#683), and six more. They were found because somebody listed
+# every remote branch by hand, not because anything reported them.
+#
+# SECTION 17 SKIPS THEM EXPLICITLY. Its predicate is *no plan names it AND no
+# open PR carries it*, and its last guard is `if branch_merged "$b"; then
+# continue; fi` — a merged ref fails the test on purpose, because unclaimed
+# WORK is unfinished work and a merged branch is finished. So this is a second
+# question rather than a widening of that one: *no PR ever* and *PR merged, ref
+# still here* have different actions, and one counter answering both is one a
+# reader must re-derive the split from.
+#
+# `plot-release-refs.sh` IS THE RIGHT TOOL AND IT IS PLAN-SCOPED, deliberately:
+# a sweep over every merged ref on the estate would satisfy "a delivered plan's
+# merged branches lose their refs" and destroy unlanded work belonging to plans
+# nobody delivered. That argument holds and this section does not touch it —
+# but it means a merged branch whose plan was never delivered, or which no plan
+# names at all, is reached by nothing. Nine accumulated.
+#
+# THE SCAN IS THE RIGHT PLACE BECAUSE IT REPORTS AND NEVER DELETES. The
+# blast-radius argument that keeps the ref sweep plan-scoped does not apply to
+# a finding: naming a ref costs nothing and un-naming it is free.
+#
+# IT ASKS THE HOST, THROUGH THE ONE ANSWER, and never ancestry. This reads
+# `merged_pr_for_branch` — the scan's bundled merged-PR list, which is
+# `plot-pr-merged.sh`'s rule applied to a list already fetched: read the merge,
+# never the state, never ancestry. Squash-merge leaves a merged branch ahead of
+# main forever, and `git merge-base` disagreed with the host on TEN OF TEN
+# branches measured here on 2026-09-04. `branch_merged` is deliberately NOT
+# used: its ancestry fallback would name a branch whose work reached main by
+# some other route as a merged PR, and this finding prints the PR number.
+#
+# AN UNREACHABLE HOST REPORTS NOTHING, NOT EVERYTHING. Without the merged list
+# the predicate cannot be evaluated at all, and the failure mode that matters
+# is the opposite of section 3's: a silence that reported every ref would turn
+# an outage into a list of deletion candidates. So `pr_reliable` gates the
+# section, the count stays 0, and the reason is stated.
+#
+# IT NAMES WHETHER A PLAN CLAIMS IT, because that decides who acts:
+#   * a DELIVERED or RELEASED plan claims it → `plot-release-refs.sh <slug>`
+#     is the tool, plan-scoped and already licensed for exactly this ref;
+#   * a LIVE plan claims it → the plan has not been delivered yet, so the
+#     delivery is the next step and the ref sweep follows from it;
+#   * NO plan names it → the case that has no owner, and the finding's real
+#     subject. Nothing is plan-scoped enough to reach it, so a person decides.
+#
+# THE CLAIM SET IS THE PARSER'S, never a second grep — the rule sections 12 and
+# 17 state, for the same reason: two in three backticked branch names in a plan
+# are citations rather than claims.
+#
+# REPORTS AND NEVER GATES. A leftover ref is a tidiness gap, not a broken
+# pointer. It carries its own footer counter (`merged_refs=`), stays OUT of
+# `attention=`, and sits below the `== blocking sections end ==` marker, which
+# is what keeps it out of /plot-deliver's gate.
+echo "== 18. Merged refs (a branch whose PR merged, ref still here — a person decides) =="
+merged_ref_out=""
+if [ "$pr_reliable" != 1 ]; then
+  # Silence is not permission and it is not a finding either. Without the
+  # merged-PR list every ref reads as unmerged, so the section would print
+  # nothing; saying so is the difference between a check that found nothing and
+  # a check that never ran.
+  echo "  (not evaluated — merged-PR list unavailable: pr_source=$PR_SOURCE${PR_ERROR:+ — $PR_ERROR})"
+  echo "  Whether a branch's PR merged is the host's answer, never ancestry's."
+  echo "  Re-run once the git host answers."
+else
+  # branch, plan file and phase — one $US-separated line per claimed branch.
+  # Phase-less files are skipped for section 17's reason: a decision log naming
+  # a branch is not a claimant.
+  claim_rows=""
+  if [ -n "$plan_json" ]; then
+    claim_rows=$(printf '%s\n' "$plan_json" \
+      | jq -r 'select(.phase != "NONE")
+               | . as $p | .waves[]?.branches[]?.branch
+               | [., $p.file, $p.phase] | join("\u001f")' 2>/dev/null)
+  fi
+
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    case "$b" in
+      "$MAIN"|release/*) continue ;;   # protected set, as sections 3 and 17 have it
+    esac
+
+    pr_num=$(merged_pr_for_branch "$b")
+    [ -n "$pr_num" ] || continue
+
+    claim_row=""
+    [ -n "$claim_rows" ] && claim_row=$(printf '%s\n' "$claim_rows" \
+      | awk -F"$US" -v b="$b" '$1 == b { print; exit }')
+
+    if [ -z "$claim_row" ]; then
+      merged_ref_out+="  origin/$b — PR #$pr_num merged, ref still here; no plan names it\n"
+      merged_ref_out+="    inspect: git diff --stat origin/$MAIN...origin/$b\n"
+      # THE ONE CASE WITH NO OWNER. `plot-release-refs.sh` is plan-scoped and
+      # there is no plan, so a person deletes the ref or writes the plan that
+      # would have claimed it.
+      merged_ref_out+="    decide: delete the ref (git push origin --delete $b), or write the plan that claims it\n"
+    else
+      claim_file=$(printf '%s' "$claim_row" | awk -F"$US" '{ print $2 }')
+      claim_phase=$(printf '%s' "$claim_row" | awk -F"$US" '{ print $3 }')
+      claim_base=$(basename "$claim_file")
+      claim_slug=$(echo "$claim_base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+      claim_slug=${claim_slug%.md}
+      merged_ref_out+="  origin/$b — PR #$pr_num merged, ref still here; claimed by $claim_base ($claim_phase)\n"
+      case "$claim_phase" in
+        delivered|released)
+          merged_ref_out+="    fix: skills/plot/scripts/plot-release-refs.sh $claim_slug --yes\n" ;;
+        *)
+          # The plan is still live, so its own delivery is the next step and the
+          # ref sweep follows from it. Naming the sweep here would propose
+          # deleting a ref whose plan has not finished with it.
+          merged_ref_out+="    consider: /plot-deliver $claim_slug — the ref sweep runs after the delivery\n" ;;
+      esac
+    fi
+    n_merged_refs=$((n_merged_refs + 1))
+  done <<< "$all_branches"
+
+  if [ -n "$merged_ref_out" ]; then printf '%b' "$merged_ref_out"; else echo "  (none — no remote ref outlives its merged PR)"; fi
+  if [ "$MERGED_PR_TRUNCATED" = 1 ]; then
+    echo "  note: merged-PR list hit its limit of $MERGED_PR_LIMIT — older merged PRs were"
+    echo "        not examined; a ref whose PR merged long ago may still be missed here."
+  fi
+fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs pr_source=$PR_SOURCE main=$MAIN"
 exit 0

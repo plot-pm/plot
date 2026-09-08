@@ -72,13 +72,13 @@ describe('a host that refuses', () => {
   it('reads exit 4 as unaskable — this backend has no answer at all', async () => {
     // A capability this backend structurally lacks. Distinct from exit 3 on
     // purpose: a caller told to retry an unaskable source retries forever.
-    const answer = await hostShell(hostThat('exit 4')).runs('some/branch');
+    const answer = await hostShell(hostThat('exit 4')).prList('open');
     expect(answer).toEqual({ ok: false, why: 'unaskable' });
   });
 
   it('keeps a broken host apart from a host with no answer', async () => {
-    const broke = await hostShell(hostThat('exit 3')).runs('some/branch');
-    const cannot = await hostShell(hostThat('exit 4')).runs('some/branch');
+    const broke = await hostShell(hostThat('exit 3')).prList('open');
+    const cannot = await hostShell(hostThat('exit 4')).prList('open');
     expect(broke).not.toEqual(cannot);
   });
 
@@ -97,37 +97,45 @@ describe('a host that refuses', () => {
     expect(answer).toEqual({ ok: false, why: 'failed' });
   });
 
-  it('refuses a backend it cannot drive', async () => {
-    // THE ADAPTER'S REFUSAL, NOT THE TYPE'S. `HostBackend` is any string — the
-    // domain holds no vendor list — so this is the layer that says no, and it
-    // is the right one: driving a host means a CLI this adapter has been taught,
-    // and it is the only layer that could be taught it.
+  it('reports a backend it has never heard of, because the script drove it', async () => {
+    // THE ADAPTER JUDGES NO VENDOR. It held `DRIVES = ['github', 'bitbucket']`
+    // until 2026-09-08 and refused anything outside it — a second copy of a
+    // fact `plot-host.sh` owns, and the copy that goes stale first: a host
+    // taught to the script would have been refused here anyway.
     //
-    // `gitlab` is refused for the same reason it always was, one layer down.
-    const answer = await hostShell(hostThat('echo gitlab')).backend();
-    expect(answer).toEqual({ ok: false, why: 'failed' });
+    // So a script that exits 0 with a word is believed. `quokka-forge` is not
+    // a real host and that is the point — this file cannot tell, and no longer
+    // pretends to.
+    const answer = await hostShell(hostThat('echo quokka-forge')).backend();
+    expect(answer).toEqual({ ok: true, value: 'quokka-forge' });
   });
 
-  it('names the host it could not drive, and what it drives instead', async () => {
-    // THE REFUSAL HAS TO SAY WHICH HOST. Removing the union moved this refusal
-    // from the compiler to here, and the compiler named the vendor — a `failed`
-    // with no sentence is a worse answer than the type used to give.
-    //
-    // `PortResult` carries no sentence, so `lastRefusal` is the only place the
-    // name can survive. Asserted separately from the refusal above because the
-    // two failed independently: the guard threw from the day the union went,
-    // and the message it threw was discarded by `resultOf` until 2026-09-02 —
-    // `lastRefusal()` answered `null`, since the script exited 0 and `record`
-    // clears the refusal on a zero exit.
-    const host = hostShell(hostThat('echo quokka-forge'));
-    await host.backend();
+  it('refuses a backend the SCRIPT cannot drive, and names the word it reported', async () => {
+    // THE REFUSAL MOVED RATHER THAN DISAPPEARING, and it still has to say which
+    // host. `plot-host.sh` exits 4 for a backend it has no arm for and names
+    // the word on stderr; `unaskable` is the right result — no wait fixes a
+    // host the script was never taught — and `PortResult` carries no sentence,
+    // so `lastRefusal` is the only place the name can survive.
+    const host = hostShell(
+      hostThat("echo \"plot-host: cannot drive 'gitlab' — this script drives github, bitbucket\" >&2; exit 4"),
+    );
+    const answer = await host.backend();
+    expect(answer).toEqual({ ok: false, why: 'unaskable' });
     const refusal = host.lastRefusal();
     expect(refusal?.kind).toBe('failed');
-    expect(refusal?.said).toContain('quokka-forge');
-    expect(refusal?.said).toContain('github');
+    expect(refusal?.said).toContain('gitlab');
   });
 
-  it('holds no refusal once it drives a host it was taught', async () => {
+  it('still refuses where the script said nothing at all', async () => {
+    // A script that exits 4 silently still refused, and a caller reading
+    // `lastRefusal` after it must not read `null` and conclude the call
+    // answered. The sentence falls back to the code.
+    const host = hostShell(hostThat('exit 4'));
+    expect(await host.backend()).toEqual({ ok: false, why: 'unaskable' });
+    expect(host.lastRefusal()?.said).toContain('4');
+  });
+
+  it('holds no refusal once the script names a host it drove', async () => {
     // The other half: a refusal that never clears would report the last
     // unknown host forever, and every caller reading `lastRefusal` after a
     // good call would back off for a reason that no longer exists.
@@ -136,10 +144,9 @@ describe('a host that refuses', () => {
     expect(host.lastRefusal()).toBeNull();
   });
 
-  it('drives a backend it was taught, and the domain never sees the list', async () => {
-    // The other half of the refusal above: the guard admits what it can drive
-    // and passes the word through unnarrowed. Asserting only the refusal would
-    // pass against a guard that refused everything.
+  it('passes the word through unnarrowed', async () => {
+    // Asserting only the refusal above would pass against an adapter that
+    // refused everything.
     const answer = await hostShell(hostThat('echo bitbucket')).backend();
     expect(answer).toEqual({ ok: true, value: 'bitbucket' });
   });
@@ -260,14 +267,13 @@ describe('a host that answers', () => {
     // to reach the script is how a truncated page reads as a complete one.
     const echoArgs = hostThat('printf "%s\\n" "$*" >&2; exit 0');
     await hostShell(echoArgs).prList('open', 25);
-    await hostShell(echoArgs).runs('some/branch', 10);
     const withLimit = await hostShell(
       hostThat('[ "$*" = "pr-list --state open --limit 25" ] || exit 1; exit 0'),
     ).prList('open', 25);
     expect(withLimit).toEqual({ ok: true, value: [] });
     const withoutLimit = await hostShell(
-      hostThat('[ "$*" = "runs some/branch" ] || exit 1; exit 0'),
-    ).runs('some/branch');
+      hostThat('[ "$*" = "pr-list --state open" ] || exit 1; exit 0'),
+    ).prList('open');
     expect(withoutLimit).toEqual({ ok: true, value: [] });
   });
 });
@@ -370,17 +376,19 @@ describe('the host’s words are read against what the entity allows', () => {
  * The connector answering for its own limit.
  *
  * The script is faked the same way everything above is: a real `plot-host.sh`
- * on disk, spawned by the real adapter, printing what a real one prints. Two
- * ops are asked — `limit` for the git host and `ci-limit` for CI, which is a
- * separate axis — so each body below branches on `$1`.
+ * on disk, spawned by the real adapter, printing what a real one prints.
+ *
+ * ONE OP IS ASKED, `limit`, and that is the whole of what this port meters.
+ * `ci-limit` used to be asked in the same call on the grounds that CI is a
+ * separate axis — which is true, and is why the build connector now answers it.
+ * See `build-shell.test.ts`.
  */
 describe('a connector answers for its limit', () => {
-  /** A script answering `limit` with one body and `ci-limit` with another. */
-  const limitsOf = (git: string, ci = '') =>
+  /** A script answering `limit` with the given body. */
+  const limitsOf = (git: string) =>
     hostThat(
       `case "$1" in\n` +
         `  limit) ${git === '' ? ':' : `printf '%s\\n' '${git}'`} ;;\n` +
-        `  ci-limit) ${ci === '' ? ':' : `printf '%s\\n' '${ci}'`} ;;\n` +
         `esac\nexit 0`,
     );
 
@@ -415,17 +423,16 @@ describe('a connector answers for its limit', () => {
     // an honest answer as an outage.
     const answer = await hostShell(
       limitsOf(
-        '',
-        '{"connector":"jenkins","bucket":"","limit":60,"remaining":null,"reset":null,"basis":"predicted"}',
+        '{"connector":"bitbucket","bucket":"api","limit":1000,"remaining":null,"reset":null,"basis":"predicted"}',
       ),
     ).limit();
     expect(answer).toEqual({
       ok: true,
       value: [
         {
-          connector: 'jenkins',
-          bucket: '',
-          limit: 60,
+          connector: 'bitbucket',
+          bucket: 'api',
+          limit: 1000,
           remaining: null,
           resetAt: null,
           basis: 'predicted',
@@ -479,19 +486,21 @@ describe('a connector answers for its limit', () => {
     expect(spent).toMatchObject({ ok: true, value: [{ remaining: 0 }] });
   });
 
-  it('gathers the git host and CI, which are separate axes', async () => {
-    // This repo is GitHub + Actions; `ekzweb` is Bitbucket + Jenkins. And
-    // Actions minutes are a quota distinct from the API's 5000/hr, so "the
-    // connector is github" does not identify the bucket.
+  it('reports every bucket THIS connector meters, and no other service’s', async () => {
+    // One connector metering two pools is the normal case — GitHub's REST and
+    // GraphQL buckets refill independently. What is NOT here is CI: this repo
+    // is GitHub + Actions and `ekzweb` is Bitbucket + Jenkins, so a caller
+    // pacing against a reading from the wrong axis spends a budget it never
+    // measured. That reading comes from the build connector now.
     const answer = await hostShell(
       limitsOf(
-        '{"connector":"bitbucket","bucket":"api","limit":1000,"basis":"predicted"}',
-        '{"connector":"jenkins","bucket":"","limit":60,"basis":"predicted"}',
+        '{"connector":"github","bucket":"core","limit":5000,"basis":"actual"}\n' +
+          '{"connector":"github","bucket":"graphql","limit":5000,"basis":"actual"}',
       ),
     ).limit();
     expect(answer).toMatchObject({
       ok: true,
-      value: [{ connector: 'bitbucket' }, { connector: 'jenkins' }],
+      value: [{ bucket: 'core' }, { bucket: 'graphql' }],
     });
   });
 
@@ -508,28 +517,32 @@ describe('a connector answers for its limit', () => {
     expect(answer).toEqual({ ok: false, why: 'failed' });
   });
 
-  it('still answers for the git host when CI cannot be asked', async () => {
-    // A Jenkins that is down says nothing about the GitHub budget the caller
-    // came for.
+  it('asks ci-limit nowhere — a CI outage is not this connector’s refusal', async () => {
+    // THE MEASURED SEPARATION. A script that dies on `ci-limit` must not affect
+    // this answer at all, because this port no longer asks it: a Jenkins that
+    // is down says nothing about the GitHub budget the caller came for, and it
+    // used to be able to overwrite the refusal that explained one.
     const script = hostThat(
       `case "$1" in\n` +
         `  limit) echo '{"connector":"github","bucket":"graphql","limit":5000,"basis":"actual"}' ;;\n` +
         `  ci-limit) exit 3 ;;\n` +
         `esac\nexit 0`,
     );
-    expect(await hostShell(script).limit()).toMatchObject({
+    const host = hostShell(script);
+    expect(await host.limit()).toMatchObject({
       ok: true,
       value: [{ connector: 'github' }],
     });
+    expect(host.lastRefusal()).toBeNull();
   });
 });
 
 describe('a refusal corrects the prediction for the rest of the session', () => {
   /** A script whose `limit` answer never changes, so only the adapter can learn. */
-  const stubbornJenkins = () =>
+  const stubbornHost = () =>
     hostThat(
       `case "$1" in\n` +
-        `  ci-limit) echo '{"connector":"jenkins","bucket":"","limit":60,"basis":"predicted"}' ;;\n` +
+        `  limit) echo '{"connector":"bitbucket","bucket":"api","limit":60,"basis":"predicted"}' ;;\n` +
         `esac\nexit 0`,
     );
 
@@ -541,14 +554,14 @@ describe('a refusal corrects the prediction for the rest of the session', () => 
     // THE DISCRIMINATING ASSERTION. The script answers 60 every time, so if the
     // second read still says 60 the adapter learnt nothing — and a test that
     // only checked the basis was still `predicted` would have passed.
-    const host = hostShell(stubbornJenkins());
+    const host = hostShell(stubbornHost());
     expect(limitIn(await host.limit())).toBe(60);
     host.observe('throttled');
     expect(limitIn(await host.limit())).toBe(30);
   });
 
   it('keeps correcting across refusals rather than resetting each read', async () => {
-    const host = hostShell(stubbornJenkins());
+    const host = hostShell(stubbornHost());
     await host.limit();
     host.observe('throttled');
     await host.limit();
@@ -557,7 +570,7 @@ describe('a refusal corrects the prediction for the rest of the session', () => 
   });
 
   it('learns nothing from a call that succeeded', async () => {
-    const host = hostShell(stubbornJenkins());
+    const host = hostShell(stubbornHost());
     await host.limit();
     host.observe('ok');
     expect(limitIn(await host.limit())).toBe(60);
@@ -583,18 +596,18 @@ describe('a refusal corrects the prediction for the rest of the session', () => 
     // The correction is the SESSION's. Two adapters over the same script are
     // two sessions, and a correction leaking between them would be a persisted
     // record wearing a session's clothes — which is another slice's question.
-    const learned = hostShell(stubbornJenkins());
+    const learned = hostShell(stubbornHost());
     await learned.limit();
     learned.observe('throttled');
     expect(limitIn(await learned.limit())).toBe(30);
-    expect(limitIn(await hostShell(stubbornJenkins()).limit())).toBe(60);
+    expect(limitIn(await hostShell(stubbornHost()).limit())).toBe(60);
   });
 
   it('records nothing from a refusal observed before anything was read', async () => {
     // An observation is evidence about a reading. With no reading in hand there
     // is nothing to lower, and inventing one would be the adapter predicting a
     // connector it has not asked.
-    const host = hostShell(stubbornJenkins());
+    const host = hostShell(stubbornHost());
     host.observe('throttled');
     expect(limitIn(await host.limit())).toBe(60);
   });

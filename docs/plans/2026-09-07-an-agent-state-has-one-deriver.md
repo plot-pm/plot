@@ -51,6 +51,8 @@ The domain derives the eight states from readings, and a corpus test proves it a
 
 **THE DERIVATION LANDS IN THE DOMAIN AND THE SHELL KEEPS ITS OWN.** This is the shape `plot-pr-merged.sh` already has and it is not a compromise: **four scripts source it** — `plot-reap.sh`, `plot-release-refs.sh`, `plot-dispatch.sh`, `plot-quiet-stretch.sh` — while `rules/reapable.ts` and `rules/queue.ts` answer the same question in TypeScript. **One question, two implementations, and the estate's most consequential refusal rides on it.** What makes that safe is not that one of them is authoritative; it is that they are held together.
 
+**THE MECHANISM IS NOT THIS PLAN'S TO STATE.** [`a-shell-script-asks-the-domain`](2026-09-07-a-shell-script-asks-the-domain.md) states when a shell script may keep a duplicate, where a call goes when it does not, and how a corpus comparison holds the pair — `docs/shell-and-domain.md`. This slice builds its comparison to that contract rather than restating it; the paragraph above records why this rule is a duplicate, which is the one fact the contract cannot know.
+
 **SO THE TEST IS THE DELIVERABLE, NOT THE MOVE.** What is missing today is not one implementation — it is **any assertion that the two agree**. The shell's eight words and the domain's eight are the same eight, and nothing enforces that. A corpus test over every desk turns a coincidence into a contract, and it lands without touching a hot path.
 
 **READINGS AS VALUES, NO I/O.** The pid, its liveness, the exit code, the desk's dirtiness, a `PLOT-BLOCKED` marker, whether a worktree exists on this machine. The shell keeps reading them; the rule decides from the same values.
