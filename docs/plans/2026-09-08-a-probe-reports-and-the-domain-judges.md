@@ -10,7 +10,7 @@
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 3
 
 ## Changelog
 
@@ -55,7 +55,7 @@
 
 A setup decision that can only be checked by reading skill prose is the same thing.
 
-**THIS SPRINT IS WHERE THE NEXT ONE WOULD LAND.** `the-probe-reads-the-ci-system` adds `ci_system` to a collector, and *which signals justify `CI: jenkins`* is exactly such a judgement.
+**THIS SPRINT IS WHERE THE NEXT ONE WOULD LAND, AND THAT SETTLED THE ORDER.** `the-probe-reads-the-ci-system` adds `ci_system` to the same collector, and *which signals justify `CI: jenkins`* is exactly such a judgement. Its first draft carried the derived word beside the booleans; **it now waits on this plan instead**, so the seventh threshold is never written rather than written and removed. The price is that Jenkins adoption waits on a refactor, and it is paid because `plot-detect-repo.sh` is read by two skills and two test files — the file where doing it twice costs most.
 
 ## What this is not
 
@@ -72,6 +72,12 @@ A setup decision that can only be checked by reading skill prose is the same thi
 A domain rule takes a probe's readings and returns proposals; the collectors report raw values.
 
 **THE READINGS GO IN AS VALUES.** `proposeStack({ nodeVersion, ciSignals, ticketPrefixCount, commitStyleCounts, … })` — the shape the domain already uses everywhere, so it needs no port and no mock.
+
+**THE SKILLS REACH IT THROUGH ITS OWN BUNDLE**, `board/plot-propose-stack.mjs`, the way `a-shell-script-asks-the-domain` settled this seam earlier in the sprint: one bundle per question, and adoption runs once per operator command. A verb on `plot-ask.mjs` would put an adoption question inside the master agent's entry point, which is a different job.
+
+**A BUNDLE IS NOT SMALL, AND THE PLAN SHOULD NOT PRETEND OTHERWISE.** Measured 2026-09-08: `plot-sprint-score.mjs`, the precedent, is **321 KB**; `plot-ask.mjs` is 491 KB. Bundling the domain costs a third of a megabyte whatever the question, so the argument for a separate artifact is not size — it is that a caller asking about adoption should not load the fleet controller to get an answer. The cost rule `docs/shell-and-domain.md` states is the one that licenses it: `node` starts in 34 ms and a shipped bundle answers in 39 ms, which a once-per-adoption call can pay.
+
+**THE OLD FIELDS GO IN THE SAME PR.** `commit_style`, `language_hint` and `node_ok` are replaced by the counts they were computed from, not kept beside them — a field left behind is exactly the second answer this plan exists to remove. **Two skills read the probe**, `/plot-init` and `/plot-board-setup`, plus two test files; all four move together, and the blast radius is the four of them.
 
 **`node_ok` LEAVES THE PROBE AND `node` STAYS.** The version is the reading; the floor is the rule. A collector that stops deciding must also stop reporting the decision, or the old field becomes a second answer.
 

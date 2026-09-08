@@ -10,7 +10,7 @@
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -51,7 +51,7 @@ assert.match(proposal, /`ci_system` proposes `CI:`/, …)
 
 ## Slices
 
-### The adoption probe reports the CI system (Branch: feature/the-probe-reads-the-ci-system)
+### The adoption probe reports the CI system (Branch: feature/the-probe-reads-the-ci-system) <!-- waits: feature/a-probe-reports-and-the-domain-judges -->
 
 `plot-detect-repo.sh` emits `ci_system`, shaped after `plot-board-probe.sh`'s `ci_signals`.
 
@@ -61,7 +61,11 @@ assert.match(proposal, /`ci_system` proposes `CI:`/, …)
 "ci_system": { "jenkinsfile": true, "gh_workflows": false, "reading": "jenkins" }
 ```
 
-**`reading` IS A DERIVATION, NOT A JUDGEMENT**, and the difference is what keeps this out of `a-probe-reports-and-the-domain-judges`'s way. It applies no threshold and weighs nothing: two booleans map onto four words, and `both` is the honest name for a repository carrying both files rather than a tie-break between them. **The tie-break is the skill's**, and `SKILL.md` already states it — *do not tie-break on the git host; ask.* When `reading` moves into the domain later, the booleans stay here and nothing about the measurement changes.
+**`reading` IS DERIVED IN THE DOMAIN, NOT IN THE COLLECTOR, AND THAT IS WHY THIS SLICE WAITS.** The first draft put the word beside the booleans in `plot-detect-repo.sh`, reasoning that mapping two flags onto four names applies no threshold and is therefore not a judgement. **It is still a derivation in a file whose header says it decides nothing**, and `a-probe-reports-and-the-domain-judges` removes six of those from the same file in the same sprint. Adding a seventh and taking it out a week later is work done twice, in a file two skills and two test files read.
+
+So `proposeStack` lands first and this slice reports the booleans into it. **The tie-break was never in question** — `SKILL.md` already states it, *do not tie-break on the git host; ask* — and it becomes a property in `two-signals-ask-rather-than-tie-break`.
+
+**THE COST IS THAT JENKINS ADOPTION WAITS ON A REFACTOR**, which is a real price and worth naming. It is paid because the alternative writes `ci_system` twice into the file with the most readers in the adoption path.
 
 **THE EVIDENCE TRAVELS WITH THE SIGNAL**, because the skill prints it: a proposal that says *`CI: jenkins`* without *`Jenkinsfile at the repository root`* asks the reader to trust it. The booleans are that evidence — `reading: "jenkins"` alone cannot say which file was found.
 
@@ -85,7 +89,7 @@ assert.match(proposal, /`ci_system` proposes `CI:`/, …)
 
 **THE PROSE TESTS ARE REPLACED, NOT JOINED.** The three `ci_system` tests in `init-stack.test.mjs` are deleted and rewritten against the probe's output. Keeping them beside behaviour tests would keep a suite that reported a missing feature as covered — and a test whose failure mode is *the documentation was edited* answers a question nobody asked. The tracker tests beside them stay: `ticket_prefix` exists, so those assert against a field that is really emitted.
 
-**Done when** `plot-detect-repo.sh` emits `ci_system` with both booleans and a derived `reading` for a repository with a root `Jenkinsfile`, one whose only Jenkinsfiles are nested (the `quaweb-website` shape, `.build/pipelines/*/*/Jenkinsfile`), one with `.github/workflows/`, one with both, and one with neither; `reading` is `both` where both are found rather than either word; the extra paths are stated as an unmeasured assumption in the PR; the three prose-matching `ci_system` tests are gone and their replacements run the script; and each new test fails when the field is removed.
+**Done when** `plot-detect-repo.sh` emits `ci_system` as booleans alone — the word is `proposeStack`'s — for a repository with a root `Jenkinsfile`, one whose only Jenkinsfiles are nested (the `quaweb-website` shape, `.build/pipelines/*/*/Jenkinsfile`), one with `.github/workflows/`, one with both, and one with neither; `proposeStack` answers `both` where both are found rather than either word; the extra paths are stated as an unmeasured assumption in the PR; the three prose-matching `ci_system` tests are gone and their replacements run the script; and each new test fails when the field is removed.
 
 ## Notes
 
