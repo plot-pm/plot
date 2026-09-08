@@ -56,8 +56,15 @@ and changes nothing.
 
 Read-only. It reports the git host, Definition-of-Done candidates from
 `package.json`, a ticket prefix (only if one recurs), the commit-subject
-style, planning directories that already exist, which hub docs are present,
-and whether a `## Plot Config` is already there.
+style, the CI system it found evidence for, planning directories that already
+exist, which hub docs are present, and whether a `## Plot Config` is already
+there.
+
+**`ticket_prefix` and `ci_system` are the stack's two signals**, and step 2
+turns each into a config key. They are readings, not answers: a recurring
+prefix says a ticket scheme is in use, and a `Jenkinsfile` says a Jenkins
+pipeline is described here. Neither says which system a team actually uses,
+which is why both are proposed and neither is written unconfirmed.
 
 **If `has_plot_config` is true, stop and say so.** Offer to show what is
 configured and what could be added, but do not re-run adoption over a working
@@ -68,13 +75,14 @@ setup.
 Turn the probe into a **complete proposal** and present it in one block, so
 the user corrects rather than composes:
 
-> Detected: GitHub · gates `test`, `lint`, `typecheck` · no ticket scheme ·
-> conventional commits · `docs/plans/` and `.omc/` already present · hub
-> `CLAUDE.md`.
+> Detected: GitHub · gates `test`, `lint`, `typecheck` · `QUACDS` in 38 of 80
+> commit subjects · conventional commits · a `Jenkinsfile` · `docs/plans/` and
+> `.omc/` already present · hub `CLAUDE.md`.
 >
 > Proposed Plot Config: plan directory `docs/plans/`, branch prefixes
 > `idea/ feature/ bug/ docs/ infra/`, Definition of Done = those three gates,
-> tracker `plot`, git host `github`, worktree root `.worktrees` (with the
+> tracker `jira` (from `QUACDS` in 38 of 80 subjects), CI `jenkins` (from the
+> `Jenkinsfile`), git host `github`, worktree root `.worktrees` (with the
 > matching `.gitignore` line).
 
 Then ask only what the probe **could not** answer:
@@ -82,6 +90,15 @@ Then ask only what the probe **could not** answer:
 - **Definition of Done** — the probe finds candidate scripts, not which of
   them gates a merge. Always confirm; this is the one answer worth asking for
   every time.
+- **The tracker's base URL** — and only that. A recurring prefix says the
+  scheme is Jira; **the base URL is nowhere in git history**, and
+  `tracker-jira.ts` takes one. So adoption proposes `Tracker: jira` from what
+  it measured and asks for the single thing it has no way to read. See *The
+  tracker* below.
+
+- **Which CI runs the PRs** — only when both signals are present. See *The CI
+  system* below; one signal proposes and never asks.
+
 - **Ticket scheme** — only when the probe found none *and* the repo looks
   like it might have one elsewhere (e.g. a Jira URL in the hub doc).
 - **What is canonical** — only when `existing_systems` shows other planning
@@ -116,6 +133,75 @@ Then ask only what the probe **could not** answer:
   printed, and no file is touched, the `.gitignore` write least of all. A
   second declaration here would be a second disclosure for one stop.
 
+#### The tracker
+
+**A recurring ticket prefix proposes `Tracker: jira`, and the evidence travels
+with it.** When `ticket_prefix` is non-empty, say what was found and what it
+proposes in one line:
+
+> Found `QUACDS` in 38 of 80 commit subjects → propose `Tracker: jira`.
+
+A bare `jira` teaches nothing; the count is what lets a reader confirm or
+reject in one read. `/plot-init` already prints the ticket scheme this way.
+
+**The prefix is one-directional.** `ABC-123` is Jira's convention, and Linear
+and GitHub issues carry prefixed keys too — so it proposes and a person
+confirms. **Absence proves nothing:** an empty `ticket_prefix` is not evidence
+against a tracker, so it falls to the *Ticket scheme* question above and
+**never proposes `Tracker: none` from silence**.
+
+**Then ask for the base URL, and nothing else.** `tracker-jira.ts` takes a base
+URL, and no commit subject carries one. That question is the only one this
+proposal adds:
+
+> Which Jira instance? (e.g. `https://acme.atlassian.net`)
+
+**Write it beside the key**, as `plot-config.sh` documents (`Tracker: jira
+(+ URL)`):
+
+```markdown
+- **Tracker:** jira https://acme.atlassian.net
+```
+
+> **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
+> *question* does not. A measured prefix is a structural signal, so propose
+> `Tracker: jira` with the URL unset — and **say the URL is missing**. A
+> half-configured tracker that announces its gap beats `trackerNone` answering
+> `unaskable` for a reason nobody can see.
+> `PLOT-UNASKED: Which Jira base URL? — proposed Tracker: jira from QUACDS in 38 of 80 subjects; URL unset — issue operations stay unavailable until it is added`
+>
+> The refusal is for the *absence* of a signal, never for its presence. With no
+> `ticket_prefix` there is nothing to propose, and step 2's own stop covers it.
+
+#### The CI system
+
+**`ci_system` proposes `CI:`, with its evidence.** The probe reports which
+signals it found; adoption turns one signal into a key:
+
+| `ci_system` | Proposal | Evidence to print |
+|---|---|---|
+| `jenkins` | `CI: jenkins` | a `Jenkinsfile` |
+| `github-actions` | `CI: github-actions` | `.github/workflows/` |
+| `both` | **ask** | both were found |
+| `none` | write no key | no CI evidence in the tree |
+
+**One signal proposes, two signals ask.** Where the probe reports both, do
+**not** tie-break on the git host — a team on GitHub running Jenkins is common,
+and a silently wrong `CI:` sends every build-status lookup to the wrong system:
+
+> Found a `Jenkinsfile` and `.github/workflows/`. Which runs your PRs?
+
+**`none` is a reading, not a key.** The probe says `none` where it found no
+evidence, and adoption writes nothing rather than recording a `CI: none` the
+repo never chose. Say what was read.
+
+**It reads files and asks nothing about credentials.** Whether `jen`
+authenticates is `/plot-board-setup`'s question, and it already asks it.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** a single signal still proposes; two
+> signals refuse rather than guess, for the reason above.
+> `PLOT-UNASKED: Which CI runs the PRs? — refused — both signals found, no CI key written`
+
 Do not ask about anything the probe answered confidently. A user who is asked
 to confirm their own git host learns that the tool is not paying attention.
 
@@ -126,6 +212,11 @@ to confirm their own git host learns that the tool is not paying attention.
 > gates a merge. Print the proposal in full so a person can accept it in one
 > pass, and write no files.
 > `PLOT-UNASKED: Confirm the proposed Plot Config (Definition of Done, ticket scheme, what stays canonical)? — stopped — proposal printed; no files created`
+>
+> **The tracker and CI disclosures above are part of what that stop prints**,
+> not a second stop. The proposal a person accepts must carry its own gaps, so
+> a `Tracker: jira` with no base URL and a refused `CI:` are named in the block
+> rather than discovered when an issue operation answers `unaskable`.
 
 ### 3. Write the config and skeleton
 
@@ -144,6 +235,11 @@ exists, create `CLAUDE.md` with just this section.
 - **Tracker:** plot
 - **Worktree root:** .worktrees
 ```
+
+**Write the confirmed `Tracker:` and `CI:` values**, not the defaults shown
+here. `Tracker: plot` is the fallback for a repo whose plans *are* its tracker;
+a confirmed `jira` replaces it and carries its base URL. A `CI:` line appears
+only where a signal was found and confirmed — the probe's `none` writes no key.
 
 Add the posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`) only
 where the answers are not the default — an adopting repo should not start
@@ -368,6 +464,17 @@ prerequisite is a fact a reader can act on; silence is not.
   it does not decide whether the command is mentioned.
 - **Never claim a detected value is certain.** Everything from the probe is a
   proposal.
+- **Never propose `Tracker` or `CI` without the evidence behind it.** A bare
+  `jira` teaches nothing and cannot be checked; `jira (QUACDS in 38 of 80
+  subjects)` is confirmable in one read.
+- **Never write `Tracker: none` from silence.** An absent `ticket_prefix` is
+  not evidence against a tracker — half of repositories carry no prefix. Ask,
+  or leave the default.
+- **Never tie-break the CI system on the git host.** A team on GitHub running
+  Jenkins is common, and a wrong `CI:` key sends every build-status lookup to
+  the wrong system. Two signals ask.
+- **Never guess the Jira base URL.** It is nowhere in git history. Ask for it,
+  or — unattended — write the key without it and say the URL is missing.
 - **Never install a git hook without an answer.** `post-commit` runs on every
   commit on the operator's machine, and git ships no hooks on clone for that
   reason. The record is offered; it is never a side effect of adoption.
@@ -403,3 +510,9 @@ prerequisite is a fact a reader can act on; silence is not.
 | Rewriting `.gitignore` rather than appending | Silently drops rules the team depends on | Append a block; create the file only when absent |
 | Writing an ignore line for an absolute worktree root | The line matches nothing — the desks are outside the repository | Say no rule is needed and write none |
 | Naming the board and the supervisor only where the artifact is present | The two processes a user must start stay invisible in exactly the fresh repository this command runs in | Print both lines always; the probe writes the prerequisite, not the line |
+| Leaving `Tracker` at the default when a prefix recurs | The team gets `trackerNone`, which answers `unaskable` on every issue operation and reads the same as having no tracker | Propose `Tracker: jira` from the measured prefix, with its count |
+| Proposing `Tracker: jira` as a bare word | A reader cannot tell a measurement from a guess, so the whole proposal loses trust | Print the evidence: `jira (QUACDS in 38 of 80 subjects)` |
+| Asking which tracker when the prefix already recurs | Interrogates the user about something the probe read | Propose from the signal; ask only for the base URL |
+| Guessing the Jira base URL from the git remote | A wrong URL fails later saying nothing about adoption | Ask; unattended, write the key and name the gap |
+| Choosing a CI system when both signals are present | A wrong `CI:` key sends every build-status lookup to the wrong system | Ask, naming both; refuse the key unattended |
+| Writing `CI: none` because the probe said `none` | Records a choice the repo never made | `none` is a reading; write no key and say what was read |
