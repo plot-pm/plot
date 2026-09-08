@@ -4,7 +4,7 @@ import { readingsFrom } from '../../board/src/server/entry/agent-state.js';
 import { agentState } from '../src/rules/agent-state.js';
 import { AgentStateSchema } from '../src/entities/agent.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
-import { readDesks, type DeskRow, type Estate } from './production.js';
+import { readDesks, type AgentStateRow, type Estate } from './production.js';
 
 /**
  * DOES `agentState` ANSWER WHAT `plot_worker_state` ANSWERS, on every desk on
@@ -48,7 +48,7 @@ const estate: Estate = { root: ROOT };
 const SIDES: Sides = { left: 'rule', right: 'shell' };
 const report = describingAs(SIDES);
 
-let desks: DeskRow[];
+let desks: AgentStateRow[];
 
 beforeAll(() => {
   desks = readDesks(estate);

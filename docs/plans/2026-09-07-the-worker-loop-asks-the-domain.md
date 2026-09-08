@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-domain-knows-what-plot-knows
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #789 merged
 - **Started:** 2026-09-07, Jan Wloka, `bug/the-worker-loop-asks-the-domain`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 

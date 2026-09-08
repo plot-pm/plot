@@ -8,6 +8,17 @@
 #
 # Ops (the ~6 operations plot actually needs):
 #   backend                       print the resolved backend: github|bitbucket
+#                                 REPORTS WHAT THE REPO DECLARED. An
+#                                 unrecognised `Git host` word is NOT silently
+#                                 defaulted to github — that drove a repo
+#                                 declaring `gitlab` through `gh` until
+#                                 2026-09-08. A backend this script has no arm
+#                                 for exits 4 and names the word on stderr:
+#                                 exit 4 is "this backend has no answer at
+#                                 all", a configuration a person fixes rather
+#                                 than a transient to retry. Adding a host is
+#                                 an edit to `HOST_DRIVES` and the arms below,
+#                                 and to nothing in `packages/domain`.
 #   default-branch                print the repo's default branch name
 #   pr-state <number|branch> [--repo <owner/repo>]   one JSON object:
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
@@ -1412,19 +1423,62 @@ pr_list_report_truncation() {
   echo "plot-host: $be pr-list state=$state possibly truncated ($count rows, requested limit $limit unprovable) — a join against this page may read older branches as 'no PR' (#333)" >&2
 }
 
-backend() {
+# The backends this script has an arm for, which is what "drivable" means here.
+#
+# THE LIST LIVES IN THE SCRIPT BECAUSE THE SCRIPT IS WHAT WOULD CHANGE. Adding a
+# host means teaching the ops below its CLI; this array is the record of which
+# have been taught, and it sits beside the arms it describes. `packages/domain`
+# holds no copy — `HostBackend` is any string, and `host-shell.ts` passes
+# through whatever this prints — so a third host is an edit here and nowhere in
+# the domain.
+HOST_DRIVES="github bitbucket"
+
+# Is this a backend the ops below can actually drive?
+host_drivable() { # $1=backend word
+  case " $HOST_DRIVES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# The backend this repository declared, in the word it used.
+#
+# REPORTS WHAT IT WAS TOLD, AND DEFAULTS ONLY WHERE NOTHING WAS SAID. A repo
+# declaring `Git host: gitlab` was answered `github` until 2026-09-08 — the
+# unrecognised word was discarded and the default returned in its place, so a
+# GitLab team was driven through `gh` and every refusal named a host they had
+# not configured. An absent key still defaults to github, which is the same
+# answer for the same reason: nothing was said, so nothing was discarded.
+#
+# `bb` is an ALIAS rather than an unknown word, and it normalises to bitbucket.
+backend_declared() {
   if [ -n "${PLOT_HOST:-}" ]; then
-    case "$PLOT_HOST" in
-      github|bitbucket) echo "$PLOT_HOST"; return ;;
-      *) die "unknown PLOT_HOST '$PLOT_HOST' — set it to github or bitbucket, or unset it to read the 'Git host' key from CLAUDE.md" ;;
-    esac
+    printf '%s\n' "$PLOT_HOST" | tr '[:upper:]' '[:lower:]'
+    return
   fi
   local v
   v="$(bash "$here/plot-config.sh" get "Git host" "github" | tr '[:upper:]' '[:lower:]')"
   case "$v" in
-    bitbucket|bb) echo "bitbucket" ;;
-    *) echo "github" ;;
+    bb) echo "bitbucket" ;;
+    "") echo "github" ;;
+    *) printf '%s\n' "$v" ;;
   esac
+}
+
+# The resolved backend, refused where this script has no arm for it.
+#
+# THE REFUSAL IS THIS LAYER'S, AND IT NAMES THE WORD. Every op below dispatches
+# on this answer, so a word with no arm must stop here rather than fall into
+# whichever branch happens to be last — that is how `gitlab` became a Bitbucket
+# call. Exit 4 says the question cannot be asked of this backend AT ALL, which
+# is what an unknown host is: not a broken call to retry, but a configuration a
+# person must fix. `host-shell.ts` reads that code as `unaskable` and reads the
+# sentence below for the name.
+backend() {
+  local v
+  v="$(backend_declared)" || return 1
+  if ! host_drivable "$v"; then
+    echo "plot-host: cannot drive '$v' — this script drives ${HOST_DRIVES// /, }; set the 'Git host' key in CLAUDE.md (or \$PLOT_HOST) to one of them" >&2
+    return 4
+  fi
+  printf '%s\n' "$v"
 }
 
 
@@ -1866,7 +1920,11 @@ jen() {
 
 op="${1:-}"; [ -n "$op" ] || die "usage: plot-host.sh <op> [args...] (see header)"
 shift
-be="$(backend)" || exit 1
+# THE BACKEND'S REFUSAL IS PASSED THROUGH, NOT FLATTENED. `backend` exits 4 for
+# a host it has no arm for, and exit 4 is the contract's "this backend has no
+# answer at all" — the one code every caller reads as permanent rather than
+# transient. Collapsing it to 1 here would tell a GitLab repo to retry forever.
+be="$(backend)" || exit $?
 
 # EVERY GITHUB OP CONSULTS THE ROUTER, ONCE, HERE. `gh_route` is asked before
 # the op runs and its answer is read from `$route` by whichever arm needs it —

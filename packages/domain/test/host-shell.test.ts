@@ -97,37 +97,45 @@ describe('a host that refuses', () => {
     expect(answer).toEqual({ ok: false, why: 'failed' });
   });
 
-  it('refuses a backend it cannot drive', async () => {
-    // THE ADAPTER'S REFUSAL, NOT THE TYPE'S. `HostBackend` is any string — the
-    // domain holds no vendor list — so this is the layer that says no, and it
-    // is the right one: driving a host means a CLI this adapter has been taught,
-    // and it is the only layer that could be taught it.
+  it('reports a backend it has never heard of, because the script drove it', async () => {
+    // THE ADAPTER JUDGES NO VENDOR. It held `DRIVES = ['github', 'bitbucket']`
+    // until 2026-09-08 and refused anything outside it — a second copy of a
+    // fact `plot-host.sh` owns, and the copy that goes stale first: a host
+    // taught to the script would have been refused here anyway.
     //
-    // `gitlab` is refused for the same reason it always was, one layer down.
-    const answer = await hostShell(hostThat('echo gitlab')).backend();
-    expect(answer).toEqual({ ok: false, why: 'failed' });
+    // So a script that exits 0 with a word is believed. `quokka-forge` is not
+    // a real host and that is the point — this file cannot tell, and no longer
+    // pretends to.
+    const answer = await hostShell(hostThat('echo quokka-forge')).backend();
+    expect(answer).toEqual({ ok: true, value: 'quokka-forge' });
   });
 
-  it('names the host it could not drive, and what it drives instead', async () => {
-    // THE REFUSAL HAS TO SAY WHICH HOST. Removing the union moved this refusal
-    // from the compiler to here, and the compiler named the vendor — a `failed`
-    // with no sentence is a worse answer than the type used to give.
-    //
-    // `PortResult` carries no sentence, so `lastRefusal` is the only place the
-    // name can survive. Asserted separately from the refusal above because the
-    // two failed independently: the guard threw from the day the union went,
-    // and the message it threw was discarded by `resultOf` until 2026-09-02 —
-    // `lastRefusal()` answered `null`, since the script exited 0 and `record`
-    // clears the refusal on a zero exit.
-    const host = hostShell(hostThat('echo quokka-forge'));
-    await host.backend();
+  it('refuses a backend the SCRIPT cannot drive, and names the word it reported', async () => {
+    // THE REFUSAL MOVED RATHER THAN DISAPPEARING, and it still has to say which
+    // host. `plot-host.sh` exits 4 for a backend it has no arm for and names
+    // the word on stderr; `unaskable` is the right result — no wait fixes a
+    // host the script was never taught — and `PortResult` carries no sentence,
+    // so `lastRefusal` is the only place the name can survive.
+    const host = hostShell(
+      hostThat("echo \"plot-host: cannot drive 'gitlab' — this script drives github, bitbucket\" >&2; exit 4"),
+    );
+    const answer = await host.backend();
+    expect(answer).toEqual({ ok: false, why: 'unaskable' });
     const refusal = host.lastRefusal();
     expect(refusal?.kind).toBe('failed');
-    expect(refusal?.said).toContain('quokka-forge');
-    expect(refusal?.said).toContain('github');
+    expect(refusal?.said).toContain('gitlab');
   });
 
-  it('holds no refusal once it drives a host it was taught', async () => {
+  it('still refuses where the script said nothing at all', async () => {
+    // A script that exits 4 silently still refused, and a caller reading
+    // `lastRefusal` after it must not read `null` and conclude the call
+    // answered. The sentence falls back to the code.
+    const host = hostShell(hostThat('exit 4'));
+    expect(await host.backend()).toEqual({ ok: false, why: 'unaskable' });
+    expect(host.lastRefusal()?.said).toContain('4');
+  });
+
+  it('holds no refusal once the script names a host it drove', async () => {
     // The other half: a refusal that never clears would report the last
     // unknown host forever, and every caller reading `lastRefusal` after a
     // good call would back off for a reason that no longer exists.
@@ -136,10 +144,9 @@ describe('a host that refuses', () => {
     expect(host.lastRefusal()).toBeNull();
   });
 
-  it('drives a backend it was taught, and the domain never sees the list', async () => {
-    // The other half of the refusal above: the guard admits what it can drive
-    // and passes the word through unnarrowed. Asserting only the refusal would
-    // pass against a guard that refused everything.
+  it('passes the word through unnarrowed', async () => {
+    // Asserting only the refusal above would pass against an adapter that
+    // refused everything.
     const answer = await hostShell(hostThat('echo bitbucket')).backend();
     expect(answer).toEqual({ ok: true, value: 'bitbucket' });
   });

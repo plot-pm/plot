@@ -599,6 +599,46 @@ session_flag() { # → --session-id | --resume
 # ---------------------------------------------------------------------------
 # THE DESK — create or reset, decided from the tree
 # ---------------------------------------------------------------------------
+. "$script_dir/plot-worker-state.sh"
+
+# WHAT HOLDS THE DESK — the domain's condition names, in the domain's order.
+#
+# THIS IS A DUPLICATE OF `resetRefusals` IN `packages/domain/src/rules/reapable.ts`,
+# AND THE DUPLICATION IS DECLARED. `docs/shell-and-domain.md` settles which side
+# of the cost rule this falls on: a script running once per operator command
+# calls the domain, one running once per agent per pass duplicates the rule and
+# a corpus comparison holds the pair. This loop is the second case, so the rule
+# lives twice and `packages/domain/corpus/desk-reset.corpus.test.ts` asserts the
+# two answer alike over a desk in every state a desk can be in.
+#
+# THE COST IS MEASURED, on this machine on 2026-09-08 at load 11, 20 passes per
+# desk:
+#
+#   76 ms   the whole decision, clean desk — all three conditions asked
+#   44 ms   a dirty desk — short-circuits before the `rev-list`
+#    2 ms   a desk with a marker — the first condition answers
+#   94 ms   ONE `node` hop through a shipped bundle, for comparison
+#
+# So the hop ALONE costs more than the decision it would replace, and more than
+# doubles the clean-desk pass. `docs/shell-and-domain.md` measures 34 ms for
+# bare `node -e ''` on an idle machine; a fleet host is not idle, which is the
+# condition every agent actually runs under.
+#
+# ON A DISAGREEMENT THE BRANCH STOPS. Adjusting either side to make that
+# comparison pass is the one move forbidden.
+#
+# THREE MEASUREMENTS, NEVER A JUDGEMENT — the shape every refusal in
+# `plot-reap.sh` takes. It answers *is there anything here nobody has accounted
+# for?* and nothing about whether the work was any good:
+#
+#   blocked-marker       a person owes this desk an answer
+#   uncommitted-changes  work on the floor
+#   unpushed-commits     work that exists only here
+#
+# THE ORDER IS THE ARGUMENT, and it is `resetRefusals`'s. The marker is first
+# because it is the only one an agent cannot clear itself: the other two it
+# fixes by committing or pushing, and an operator reading `.plot-worker.log`
+# acts on this one differently.
 #
 # THE READINGS COME FROM `plot-worker-state.sh` AND ARE NOT REWRITTEN HERE.
 # `plot_worker_blocked` reads the marker file and `plot_worker_dirty` reads the
@@ -608,66 +648,82 @@ session_flag() { # → --session-id | --resume
 # implementation of either would drift, and the two would then disagree about
 # the same desk: the scan would call it `stalled` while this guard called it
 # clean, and the guard is the one that acts.
-. "$script_dir/plot-worker-state.sh"
-
-# WHY THE DESK IS NAMED — the reason it could not be reset, for the log.
 #
-# A refusal that says only "unlanded work" sends its reader to go looking. This
-# names which of the three readings held the desk, in the order the guard asks
-# them, so an operator reading `.plot-worker.log` knows whether to answer a
-# question, commit something, or push it.
-desk_hold_reason() { # $1=worktree → a phrase naming what holds it
-  local wt="$1" marker dirty
-  if marker=$(plot_worker_blocked_file "$wt"); then
-    printf 'a %s marker asking a person a question' "$marker"
-    return 0
-  fi
-  dirty=$(plot_worker_dirty "$wt")
-  if [ -n "$dirty" ]; then
-    printf 'uncommitted changes in %s file(s)' "$(printf '%s\n' "$dirty" | wc -l | tr -d ' ')"
-    return 0
-  fi
-  printf 'commits not pushed to its upstream'
-}
-
-# May this desk be taken over for the next slice?
-#
-# THREE MEASUREMENTS, NEVER A JUDGEMENT — the shape every refusal in
-# `plot-reap.sh` takes. The guard answers *is there anything here nobody has
-# accounted for?* and nothing about whether the work was any good:
-#
-#   a PLOT-BLOCKED marker      a person owes this desk an answer
-#   uncommitted changes        work on the floor
-#   commits above the upstream work that exists only here
-#
-# THE BRANCH BEING MERGED IS NOT ASKED, and that is deliberate. The question
-# this block answers is what the DESK holds, and merge state does not bear on
-# it: a branch whose PR is open but whose work is fully pushed has left nothing
-# behind, and one whose PR merged with uncommitted changes still has. What the
-# desk holds is the question; where the branch stands in review is the sweep's.
+# THE FOUR CONDITIONS THE RULE STATES AND THIS DOES NOT READ. `finishedWith`
+# answers `noMergedPr`, `openPr`, `checkedOut` and `onDefaultBranch`, and none
+# of them bears on what the DESK holds: a branch whose PR is open but whose work
+# is fully pushed has left nothing behind, and one whose PR merged with
+# uncommitted changes still has. Where the branch stands in review is the
+# sweep's question.
 #
 # (The hop's `--next` does ask the host, since 2026-09-04 — see
 # `plot-fleet-scan.sh`, `HOST_LOOKUP_OK`. That answer decides what may be
 # CLAIMED, which is a different question from what this desk still owes, and
 # borrowing it here would make the reset depend on a fact about somewhere else.)
 #
-# AN UNANSWERABLE UPSTREAM YIELDS NO VERDICT, the same rule
-# `plot_worker_task_state` reaches: with no `@{upstream}` the count cannot be
-# taken, and a failure to observe is not evidence of something to see. A branch
-# with no upstream reaches here only when its claim push never happened, and
-# that desk's own commits are the claim commit the next reset would rewrite.
-desk_is_resettable() { # $1=worktree → 0 when the desk may be taken over
+# `liveWorker` IS NOT READ EITHER, and for a sharper reason: the agent asking is
+# the live worker. The condition is true of every desk this question is ever put
+# about, so reading it would refuse every reset.
+#
+# AN UNANSWERABLE READING DOES NOT REFUSE, which is `resetRefusals`'s own
+# decision about `unknown` and matches what a reset costs. With no `@{upstream}`
+# the count cannot be taken, and a failure to observe is not evidence of
+# something to see. A branch with no upstream reaches here only when its claim
+# push never happened, and that desk's own commits are the claim commit the next
+# reset would rewrite. `reset_desk` uses plain `git checkout` throughout, so a
+# file these conditions missed makes git REFUSE rather than overwrite.
+desk_reset_refusal() { # $1=worktree → the condition holding it, or "" (exit 1)
   local wt="$1" ahead
-  [ -n "$wt" ] && [ -d "$wt" ] || return 1
-  plot_worker_blocked "$wt" && return 1
-  [ -n "$(plot_worker_dirty "$wt")" ] && return 1
+  [ -n "$wt" ] && [ -d "$wt" ] || { printf 'no-desk'; return 0; }
+  if plot_worker_blocked "$wt"; then printf 'blocked-marker'; return 0; fi
+  [ -n "$(plot_worker_dirty "$wt")" ] && { printf 'uncommitted-changes'; return 0; }
   if ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null); then
     case "$ahead" in
       ''|0|*[!0-9]*) ;;
-      *) return 1 ;;
+      *) printf 'unpushed-commits'; return 0 ;;
     esac
   fi
-  return 0
+  return 1
+}
+
+# WHY THE DESK IS NAMED — the reason it could not be reset, for the log.
+#
+# RENDERING, NOT DECIDING, and the split is `plot-reap.sh:492`'s. The condition
+# above names the measurement; this names what it means to somebody reading
+# `.plot-worker.log`, which is the caller's half because only the caller knows
+# it is writing prose. A refusal that says only "unlanded work" sends its reader
+# to go looking; this tells them whether to answer a question, commit something,
+# or push it.
+desk_hold_reason() { # $1=worktree → a phrase naming what holds it
+  local wt="$1" refusal marker dirty
+  refusal=$(desk_reset_refusal "$wt") || { printf 'nothing'; return 0; }
+  case "$refusal" in
+    blocked-marker)
+      marker=$(plot_worker_blocked_file "$wt")
+      printf 'a %s marker asking a person a question' "$marker"
+      ;;
+    uncommitted-changes)
+      dirty=$(plot_worker_dirty "$wt")
+      printf 'uncommitted changes in %s file(s)' "$(printf '%s\n' "$dirty" | wc -l | tr -d ' ')"
+      ;;
+    unpushed-commits)
+      printf 'commits not pushed to its upstream'
+      ;;
+    *)
+      printf 'no desk at %s' "$wt"
+      ;;
+  esac
+}
+
+# May this desk be taken over for the next slice?
+#
+# `deskIsResettable` in the domain: no condition holds it. The verdict is the
+# refusal's absence rather than a second walk over the same readings, which is
+# what keeps the guard and the log's reason from ever disagreeing about one
+# desk — they were two functions asking the same three questions until this
+# slice, and a third condition added to one of them would have drifted.
+desk_is_resettable() { # $1=worktree → 0 when the desk may be taken over
+  ! desk_reset_refusal "$1" >/dev/null
 }
 
 # Take the desk over for a new branch.
@@ -1740,7 +1796,10 @@ while true; do
   wt_root=$(dirname "$PLOT_WORKTREE")
   suffix=$(printf '%s' "$next_branch" | tr '/' '-')
 
-  if desk_is_resettable "$PLOT_WORKTREE"; then
+  # ASKED ONCE, and the answer drives both arms. `desk_is_resettable` is the
+  # same question and stays for its callers; here the refusal itself is wanted,
+  # because the log names the condition and the prose reads off it.
+  if ! desk_refusal=$(desk_reset_refusal "$PLOT_WORKTREE"); then
     hop_wt="$PLOT_WORKTREE"
     if ! reset_desk "$hop_wt" "$next_branch"; then
       echo "plot-worker-loop: could not reset the desk at $hop_wt onto $next_branch — leaving it as it is and creating a new one" >&2
@@ -1752,7 +1811,12 @@ while true; do
     # THE DESK HOLDS SOMETHING NOBODY HAS ACCOUNTED FOR, so it is left exactly
     # as it is and a new one is cut. `feature/the-sweep-names-every-leftover`
     # owns what happens to it next; this loop's job is to not destroy it.
-    echo "plot-worker-loop: the desk at $PLOT_WORKTREE holds unlanded work ($(desk_hold_reason "$PLOT_WORKTREE")) — creating a new desk for $next_branch and leaving this one for the sweep" >&2
+    # THE CONDITION IS NAMED, not just its prose. `blocked-marker` is the word
+    # `rules/reapable.ts` uses, `plot-reap.sh` renders and an operator can
+    # grep `.plot-worker.log` for — and a reset refused because a person owes
+    # this desk an answer reads differently from one refused because a push
+    # never happened. The loop said only "unlanded work" until this slice.
+    echo "plot-worker-loop: the desk at $PLOT_WORKTREE is held by $desk_refusal ($(desk_hold_reason "$PLOT_WORKTREE")) — creating a new desk for $next_branch and leaving this one for the sweep" >&2
     hop_wt="$wt_root/plot-wt-$suffix"
     git worktree add -b "$next_branch" "$hop_wt" "origin/$main_branch" 2>/dev/null || \
       git worktree add "$hop_wt" "$next_branch" 2>/dev/null || break

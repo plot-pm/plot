@@ -469,6 +469,18 @@ export const readSprintRelease = (estate: Estate, slug: string): SprintRow | nul
   };
 };
 
+/*
+ * TWO DESK READERS, AND THEY READ DIFFERENT THINGS.
+ *
+ * Both landed in the same week and both were called `DeskRow`, which is why
+ * they collided: `readDesks` asks `plot-worker-state.sh` what STATE every desk
+ * on the machine is in, and `readDesk` asks `plot-worker-loop.sh` what it
+ * MEASURED of one desk and what it REFUSED on. Different scripts, different
+ * cardinality, no field in common.
+ *
+ * So each is named for what it holds rather than for the noun they share.
+ */
+
 /**
  * One desk, as `plot-worker-state.sh` reads and then classifies it.
  *
@@ -478,7 +490,7 @@ export const readSprintRelease = (estate: Estate, slug: string): SprintRow | nul
  * to build the domain's input would compare the rule against this file rather
  * than against the shell.
  */
-export interface DeskRow {
+export interface AgentStateRow {
   /** The worktree's path. */
   worktree: string;
   /** The desk's basename, for a report a person can find. */
@@ -506,7 +518,7 @@ export interface DeskRow {
  * @param estate - the repository to read.
  * @returns one row per worktree git lists, the main checkout included.
  */
-export const readDesks = (estate: Estate): DeskRow[] => {
+export const readDesks = (estate: Estate): AgentStateRow[] => {
   const program = [
     '. "$1"; shift',
     'git worktree list --porcelain | awk \'/^worktree /{print $2}\' | while read -r wt; do',
@@ -539,4 +551,78 @@ export const readDesks = (estate: Estate): DeskRow[] => {
         state: state ?? '',
       };
     });
+};
+
+/**
+ * What `plot-worker-loop.sh` measured of one desk, and what it decided.
+ *
+ * BOTH HALVES COME FROM THE SHELL, which is what makes this a comparison rather
+ * than a restatement. `desk_readings` prints the three readings its own
+ * `plot-worker-state.sh` took; `desk_reset_refusal` prints the verdict it
+ * reached from them. Assembling the readings here — running `git status`
+ * ourselves — would compare the domain against this file's idea of a dirty
+ * tree, and `plot_worker_dirty` drops editor leftovers and Plot's own
+ * `.plot-worker.*` records for measured reasons this file does not know.
+ */
+export interface DeskResetRow {
+  /** The desk's path — the identity, which git enforces as unique. */
+  path: string;
+  /** Whether `plot_worker_blocked` found a `PLOT-BLOCKED*` marker. */
+  blockedMarker: boolean;
+  /** The first uncommitted path `plot_worker_dirty` reported, or `''`. */
+  dirtyPath: string;
+  /**
+   * How far ahead of its upstream the branch is, or `'unknown'`.
+   *
+   * `'unknown'` is what the shell's `rev-list --count '@{upstream}..HEAD'`
+   * failing means — no upstream to count against — and it is a reading rather
+   * than a zero, because the loop does not refuse on it.
+   */
+  ahead: number | 'unknown';
+  /** What `desk_reset_refusal` answered, or `''` when nothing held the desk. */
+  refusal: string;
+}
+
+/**
+ * Reads one desk through the loop's own functions, sourced rather than run.
+ *
+ * `PLOT_WORKER_LOOP_SOURCED=1` stops the loop above its body, which is the
+ * idiom `test/reconcile/deskreset.test.mjs` already uses: the definitions
+ * without a worker. Driving a whole loop per desk would spend a two-minute
+ * fixture to observe one `if`.
+ *
+ * @param estate - the repository whose scripts to run.
+ * @param desk - the worktree to measure, as an absolute path.
+ * @returns the readings the shell took and the verdict it reached.
+ */
+export const readDesk = (estate: Estate, desk: string): DeskResetRow => {
+  const scripts = `${estate.root}/skills/plot/scripts`;
+  const out = execFileSync(
+    'bash',
+    [
+      '-c',
+      `set -uo pipefail
+export PLOT_WORKER_LOOP_SOURCED=1
+script_dir=${JSON.stringify(scripts)}
+main_branch=main
+. ${JSON.stringify(`${scripts}/plot-worker-loop.sh`)}
+wt=${JSON.stringify(desk)}
+blocked=false; plot_worker_blocked "$wt" && blocked=true
+dirty=$(plot_worker_dirty "$wt" | head -1)
+ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=unknown
+refusal=$(desk_reset_refusal "$wt") || refusal=
+printf '%s\\t%s\\t%s\\t%s\\n' "$blocked" "$dirty" "$ahead" "$refusal"`,
+    ],
+    { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER },
+  );
+  // The trailing NEWLINE only. `trim()` would eat the empty fourth field on a
+  // resettable desk, and `refusal === ''` is that desk's whole answer.
+  const [blocked = '', dirty = '', ahead = '', refusal = ''] = out.replace(/\n$/, '').split('\t');
+  return {
+    path: desk,
+    blockedMarker: blocked.trim() === 'true',
+    dirtyPath: dirty.trim(),
+    ahead: ahead.trim() === 'unknown' ? 'unknown' : Number(ahead.trim()),
+    refusal: refusal.trim(),
+  };
 };
