@@ -4,7 +4,7 @@
 - **Branch:** carries this slice; base `main`
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR
-- **Waits on:** `feature/the-probe-reads-the-ci-system` — do not start before it lands. This slice fires where `CI: jenkins` is proposed.
+- **Waited on:** `feature/the-probe-reads-the-ci-system`. It **has landed** — merged and on `main`, so `ci_system` is emitted and `CI: jenkins` can be proposed. Start.
 
 **AND READ WHAT YOU WAIT ON.** Its PR is the input to yours.
 - **Sprint:** `the-jenkins-team-sees-its-builds`

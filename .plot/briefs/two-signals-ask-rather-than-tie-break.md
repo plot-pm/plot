@@ -4,7 +4,7 @@
 - **Branch:** carries this slice; base `main`
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR
-- **Waits on:** `feature/a-probe-reports-and-the-domain-judges` — do not start before it lands. It creates the proposal shape this needs.
+- **Waited on:** `feature/a-probe-reports-and-the-domain-judges`. It **has landed** — merged and on `main`, so `proposeStack` exists and the proposal shape is there to extend. Start.
 
 **AND READ WHAT YOU WAIT ON.** Its PR is the input to yours.
 - **Sprint:** `the-jenkins-team-sees-its-builds`
