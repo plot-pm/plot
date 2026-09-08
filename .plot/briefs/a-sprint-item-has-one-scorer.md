@@ -4,7 +4,7 @@
 - **Branch:** carries this slice; base `main`
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR
-- **Waits on:** `infra/a-shell-script-asks-the-domain` — do not start before it lands. The plan says why.
+- **Waited on:** `infra/a-shell-script-asks-the-domain`. It **has landed** — merged as PR #805 and its plan is Delivered, so the seam, the corpus readers and the comparison test are all on `main`. Start.
 - **Sprint:** `the-board-serves-a-team`
 
 **READ THE PLAN AND ITS ROUNDS FIRST.** Every plan here was interrogated and most changed; the Notes record what was cut and why. A slice re-adding it wastes the round.
