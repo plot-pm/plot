@@ -623,12 +623,6 @@ update_sprint_annotation() { # $1=worktree root → prints none|updated|already|
       if (match(line, /[ \t]*-->[ \t]*$/)) { tail = substr(line, RSTART); line = substr(line, 1, RSTART - 1) }
       if (line ~ /pr:[ \t]*#?[0-9a-z]+/) sub(/pr:[ \t]*#?[0-9a-z]+/, "pr: #" pr, line)
       else sub(/<!--/, "<!-- pr: #" pr ",", line)
-      # A `status:` ALREADY THERE IS REMOVED, not merely no longer written.
-      # Leaving one behind keeps the stale value on every annotation written
-      # before today — `status: draft` beside an approved plan — which is the
-      # contradiction the field was dropped to prevent.
-      sub(/,[ \t]*status:[ \t]*[a-z-]*/, "", line)
-      sub(/status:[ \t]*[a-z-]*[ \t]*,[ \t]*/, "", line)
       if (br != "") {
         if (line ~ /branch:[ \t]*[^,]/) sub(/branch:[ \t]*[^,]*/, "branch: " br, line)
         else line = line ", branch: " br

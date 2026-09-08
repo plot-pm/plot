@@ -186,6 +186,20 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
     expect(text).toContain('<!-- pr: #42, branch: feature/x -->');
   });
 
+  it('omits the key it was given nothing for', () => {
+    // EACH KEY STANDS ALONE. A dispatch records a branch before any PR exists,
+    // and a plan whose PR is known can name no branch yet — so an item gaining
+    // its first annotation may carry either key without the other, and neither
+    // may print an empty `pr: #` or `branch: `.
+    const prOnly = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', false, 42, '');
+    expect(prOnly.text).toContain('<!-- pr: #42 -->');
+    expect(prOnly.text).not.toContain('branch:');
+
+    const branchOnly = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', false, null, 'feature/x');
+    expect(branchOnly.text).toContain('<!-- branch: feature/x -->');
+    expect(branchOnly.text).not.toContain('pr:');
+  });
+
   it('ticks the box when asked, and only then', () => {
     const delivered = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', true, null, '');
     expect(delivered.text).toContain('- [x]');

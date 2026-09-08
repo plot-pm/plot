@@ -340,12 +340,16 @@ test('approve: updates the sprint annotation the sprint view reads', () => {
   const sprint = git(repo, 'show', 'origin/main:docs/sprints/2026-W33-ship-it.md');
   assert.match(sprint, /pr: #42/, `the annotation must be updated:\n${sprint}`);
   assert.match(sprint, /branch: feature\/alpha/);
-  // `status:` IS GONE, since 2026-09-08 — `a-withdrawn-item-is-not-open`
-  // measured it dead in both directions: 67 lines carried one and no reader
-  // acted on the value. The plan file's `State:` and dated `Approved:` record
-  // are the answer, and a cache nobody refreshes is a second answer waiting to
-  // contradict the first.
-  assert.doesNotMatch(sprint, /status:/, `the annotation must not carry status:\n${sprint}`);
+  // `status:` IS NO LONGER WRITTEN, since 2026-09-08 —
+  // `a-withdrawn-item-is-not-open` measured it dead in both directions: 67
+  // lines carried one and no reader acted on the value. The plan file's
+  // `State:` and dated `Approved:` record are the answer.
+  //
+  // AN EXISTING ONE IS LEFT ALONE, which is `rendering.ts:167`'s rule and the
+  // reason this asserts nothing about the old key: rewriting somebody's file to
+  // delete a field this no longer writes is a change nobody asked for, and the
+  // sweep that cleared the estate's copies was a one-off a person ran.
+  assert.doesNotMatch(sprint, /status: approved/, `an approval must not write status:\n${sprint}`);
   // THE COMMENT SURVIVES THE REWRITE. The substitution that replaces `branch:`
   // has to stop before ` -->`; the first attempt ate the `--` and left a bare
   // `>`, which no reader of these annotations would parse.
