@@ -64,7 +64,7 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [x] [the-board-says-what-it-could-not-ask] A capability the board cannot reach renders as *not asked*, never as an empty result. The supervisor badge shipped in 2.14.0 is the shape: three states, `unknown` first-class, and the prominence rule keyed on consequence <!-- pr: #785, status: delivered, branch: bug/the-board-says-what-it-could-not-ask>
 
-- [ ] [a-dispatch-stop-finds-the-desk] `plot-dispatch.sh:1171` rebuilds the desk path from the branch name, so `--stop` refuses every agent `--start` creates. A teammate whose first fleet stop refuses will reach for `kill`, which is the guess the one stop rule exists to prevent. Plan filed 2026-09-07
+- [x] [a-dispatch-stop-finds-the-desk] `plot-dispatch.sh:1171` rebuilds the desk path from the branch name, so `--stop` refuses every agent `--start` creates. A teammate whose first fleet stop refuses will reach for `kill`, which is the guess the one stop rule exists to prevent. Plan filed 2026-09-07
 
 - [x] [the-outer-boundary-is-a-port] Every external dependency reaches the world through a port named for **the domain concept it holds**, not for the API it uses. Measured 2026-09-07 in `packages/board/src` outside `adapters/`: **132 filesystem calls, 19 spawn sites, 7 files naming a `plot-*.sh` directly** — and the spawn ratchet reads healthy at 19/28 because a script reached through a helper is one spawn line. The paths are not generic: 21 sites spell `PLOT-BLOCKED`, whose concept is `Agent`. **A `Files` port would move all 132 and name nothing.** The four DDD patterns appear **zero times** in the domain and all four shapes are in use — `plan-store` is a repository, `host`/`tracker` are services, `prCreate`/`trees.add` are factories, `Plan`→`Slice` is an aggregate — so the plan names them rather than introducing them. Plan filed 2026-09-07 <!-- pr: #787,, branch: feature/the-agent-gets-a-repository -->
 
@@ -80,9 +80,9 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 ### Could Have
 
-- [ ] [an-agent-learns-its-pr-failed] An agent whose PR fails CI is told. Three PRs sat red in one session while their agents slept. On a team this is worse: the person who would notice is not the person who dispatched. Plan filed 2026-09-07
+- [x] [an-agent-learns-its-pr-failed] An agent whose PR fails CI is told. Three PRs sat red in one session while their agents slept. On a team this is worse: the person who would notice is not the person who dispatched. Plan filed 2026-09-07
 
-- [ ] [a-merged-ref-is-reported-too] The scan reports a remote ref whose PR merged. Nine accumulated unseen on this estate; a team generates them faster. Plan filed 2026-09-07
+- [x] [a-merged-ref-is-reported-too] The scan reports a remote ref whose PR merged. Nine accumulated unseen on this estate; a team generates them faster. Plan filed 2026-09-07
 
 ## Can this sprint reach its goal?
 
