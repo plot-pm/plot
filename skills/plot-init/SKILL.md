@@ -168,7 +168,7 @@ proposal adds:
 > `Tracker: jira` with the URL unset — and **say the URL is missing**. A
 > half-configured tracker that announces its gap beats `trackerNone` answering
 > `unaskable` for a reason nobody can see.
-> `PLOT-UNASKED: Which Jira base URL? — proposed Tracker: jira from QUACDS in 38 of 80 subjects; URL unset — issue operations stay unavailable until it is added`
+> `PLOT-UNASKED: Which Jira base URL? — default — proposed Tracker: jira from QUACDS in 38 of 80 subjects, URL unset; issue operations stay unavailable until it is added`
 >
 > The refusal is for the *absence* of a signal, never for its presence. With no
 > `ticket_prefix` there is nothing to propose, and step 2's own stop covers it.
@@ -197,6 +197,11 @@ repo never chose. Say what was read.
 
 **It reads files and asks nothing about credentials.** Whether `jen`
 authenticates is `/plot-board-setup`'s question, and it already asks it.
+
+**An absent `ci_system` writes no key and says so.** The field is a proposal
+like every other, so a probe that does not report it leaves adoption with
+nothing to propose — which is not the same as `none`. Say the CI system was not
+read, and continue; every other step is independent of it.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** a single signal still proposes; two
 > signals refuse rather than guess, for the reason above.
