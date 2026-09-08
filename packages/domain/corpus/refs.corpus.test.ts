@@ -552,10 +552,29 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     // Every comparison above passes if both sides read the same emptiness.
     const branches = pulse.plans.flatMap((plan) => plan.slices.flatMap((slice) => slice.branches));
     expect(branches.length).toBeGreaterThan(0);
-    expect(new Set(branches.map((branch) => branch.state)).size).toBeGreaterThan(1);
-    expect(new Set(pulse.plans.flatMap((plan) => plan.slices.map((slice) => slice.verdict))).size)
-      .toBeGreaterThan(1);
     expect(pulse.summary.branches).toBeGreaterThan(0);
+
+    // VARIETY IS A PROPERTY OF THE ESTATE, NOT OF THE CODE — the rule stated at
+    // :468 above, applied to the two counts below it.
+    //
+    // Both demanded MORE THAN ONE distinct value, which asks the estate to hold
+    // work in more than one condition at once. Measured 2026-09-08, on the
+    // commit that closed `the-board-serves-a-team`: every plan was delivered and
+    // every branch merged or deferred, so the estate offered ONE verdict —
+    // `complete` — and the release PR's own CI failed on `expected 1 to be
+    // greater than 1`. A finished estate is the success case, and a guard that
+    // fails on it reports the opposite of what happened.
+    //
+    // The vacuity these lines exist to catch is BOTH SIDES READING THE SAME
+    // EMPTINESS, and `branches.length` above already refuses that. What remains
+    // is that every branch carries a state and every slice a verdict, which
+    // holds however uniform the estate is. Both are parsed unions that exclude
+    // the empty string, so the check is that each set is populated — asserting
+    // the values are non-empty is dead code the compiler already rejects.
+    const states = new Set(branches.map((branch) => branch.state));
+    const verdicts = new Set(pulse.plans.flatMap((plan) => plan.slices.map((slice) => slice.verdict)));
+    expect(states.size).toBeGreaterThan(0);
+    expect(verdicts.size).toBeGreaterThan(0);
     // The legacy spelling is what the scan emits, so the schema's rename is
     // load-bearing rather than defensive.
     expect(asArray(raw.plans).some((plan) => Array.isArray(plan.waves))).toBe(true);

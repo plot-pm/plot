@@ -203,11 +203,24 @@ describe('--next and the board offer the same branches', () => {
     // counts branches of NON-TERMINAL plans, which is the backlog — it falls
     // every time work is delivered. Measured 2026-09-02: it reached exactly 20
     // and failed a branch that had not touched the scan, the same way the plan
-    // floor above it did earlier the same day. Zero is the failure this guard
-    // is named for, and the estate's size is not this test's subject —
-    // `refs.corpus.test.ts:468` states the rule: whether a case was exercised
-    // is a property of the estate, not of the code.
-    expect(compared).toBeGreaterThan(0);
+    // floor above it did earlier the same day.
+    //
+    // AND IT REACHES ZERO, which this guard did not allow for. Measured
+    // 2026-09-08, on the commit that closed `the-board-serves-a-team`: every
+    // plan was delivered, so NO plan was non-terminal, `compared` was 0, and the
+    // release PR's own CI failed. An empty backlog is the success case — a
+    // sprint that finished — and a floor that fails on it reports the opposite
+    // of what happened.
+    //
+    // So the rule at `refs.corpus.test.ts:468` applies here too: whether a case
+    // was exercised is a property of the estate, not of the code. The vacuity
+    // worth refusing is a backlog that EXISTS and compared nothing — plans that
+    // failed to parse would report zero branches and agree perfectly — and that
+    // is what this now says.
+    const backlog = pulse.plans.filter((plan) => !TERMINAL_PHASES.has(plan.phase));
+    if (backlog.some((plan) => plan.slices.some((slice) => slice.branches.length > 0))) {
+      expect(compared).toBeGreaterThan(0);
+    }
     expect(found.map(describeDisagreement)).toEqual([]);
   });
 
