@@ -87,8 +87,12 @@ jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g';
 # the bundle absent or the module throwing leaves this script refusing, not
 # proceeding. Silence is never permission — and the permissive direction here
 # reports an unfinished Must Have as done to the release gate.
+# node's own stack trace is silenced because it is not the reason a reader
+# needs: a missing bundle, a missing `node` and a throwing module all mean the
+# same thing here, and `emit_tier` says it in one line. The exit status is what
+# carries the refusal, not the noise.
 score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state per line
-  node "$HERE/board/plot-sprint-score.mjs"
+  node "$HERE/board/plot-sprint-score.mjs" 2>/dev/null
 }
 
 # Is <slug> in the Delivered index? File or symlink, either is delivery.

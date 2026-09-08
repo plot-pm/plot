@@ -63,11 +63,13 @@ the-scripts-say-slice :: state :: shell=open rule=withdrawn
 
 ## The first comparison
 
-`corpus/sprint-score.corpus.test.ts` compares `scoreItem` (`entities/sprint.ts`) against `item_state` (`plot-sprint-release.sh`) over every MoSCoW item in every sprint file on the estate — 134 items across 10 sprints, exercising `done`, `open` and `disputed`.
+`corpus/sprint-score.corpus.test.ts` compares `scoreItem` (`entities/sprint.ts`) against what `plot-sprint-release.sh` reports over every MoSCoW item in every sprint file on the estate — 134 items across 10 sprints, exercising `done`, `open` and `disputed`.
 
-It is the smallest case on purpose: 12 lines of bash, one function. **Proving the contract on the smallest case is the point.**
+It was the smallest case on purpose: 12 lines of bash, one function. **Proving the contract on the smallest case is the point** — and the case was small enough to go the whole way, so the 12 lines are gone and the script now asks.
 
-It already carries a declared divergence. `item_state` takes a third reading the domain does not have — `delivered: "none"`, meaning the item names no plan — and takes such an item at its checkbox. `scoreItem` has no way to say *no plan named*, so it reads the same item as `disputed`. Five items on this estate are in that case. [`a-sprint-item-has-one-scorer`](plans/2026-09-07-a-sprint-item-has-one-scorer.md) is the plan that closes it; until then the five are named in the test.
+It carried a declared divergence until 2026-09-08, and that divergence is now closed rather than described. `item_state` takes a third reading — `delivered: "none"`, meaning the item names no plan — and takes such an item at its checkbox; `scoreItem` had no way to say *no plan named*, so it read the same item as `disputed`. [`a-sprint-item-has-one-scorer`](plans/2026-09-07-a-sprint-item-has-one-scorer.md) gave the domain `PlanDelivery`, and the comparison now skips no item.
+
+**AND `plot-sprint-release.sh` STOPPED BEING THE SECOND IMPLEMENTATION.** The same plan made it CALL `scoreItem` through `board/plot-sprint-score.mjs` — section 1's first case, a script that runs once per operator command — so the pair this file compares is now a rule against the shipped shell that asks for it. The comparison is worth no less for that: it is what proves the wire carries the shell's readings unchanged, and it is what fails if the two ever part again.
 
 ## The second comparison, and what a constructed corpus is for
 
