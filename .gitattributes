@@ -54,6 +54,7 @@ skills/plot/scripts/board/plot-prompt.mjs -merge
 skills/plot/scripts/board/plot-propose-stack.mjs -merge
 skills/plot/scripts/board/plot-registryd.mjs -merge
 skills/plot/scripts/board/plot-sprint-score.mjs -merge
+skills/plot/scripts/board/plot-sprint-transition.mjs -merge
 skills/plot/scripts/board/plot-standing.mjs -merge
 skills/plot/scripts/board/plot-task.mjs -merge
 skills/plot/scripts/board/plot-transition.mjs -merge
