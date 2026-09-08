@@ -15,11 +15,16 @@ import {
  * `item_state` answers, over every MoSCoW item on this repository's estate?
  *
  * A DIFFERENT PAIR FROM THE OTHER CORPUS FILES, and the same shape. Those
- * compare an ADAPTER against production, where the rule has one implementation
- * and cannot disagree with itself. This compares two implementations of one
- * RULE — `entities/sprint.ts:scoreItem` and `plot-sprint-release.sh:item_state`
- * — which exist on purpose, because the shell needs an answer where a `node`
- * hop is not worth paying and the domain needs one to reason with.
+ * compare an ADAPTER against production. This compared two implementations of
+ * one RULE — `entities/sprint.ts:scoreItem` and the shell's own `item_state` —
+ * until 2026-09-08, when `a-sprint-item-has-one-scorer` deleted the second and
+ * made the script ASK for the answer.
+ *
+ * SO WHAT THIS NOW HOLDS IS THE WIRE. The shell's readings reach `scoreItem`
+ * through `board/plot-sprint-score.mjs`, and this reads the JSON the shell
+ * printed and re-scores it here. A field dropped or transposed on that wire
+ * shows up as a disagreement, which is the failure the comparison was always
+ * for — the two can still part, just at the seam rather than in the rule.
  *
  * NEITHER SIDE IS AUTHORITATIVE. The test says they agree. `docs/shell-and-domain.md`
  * is the contract this is built to; on a disagreement the branch stops, and
