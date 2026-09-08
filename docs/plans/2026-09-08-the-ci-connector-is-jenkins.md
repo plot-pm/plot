@@ -43,6 +43,43 @@
 
 **Not a claim that Jenkins is verified.** `jen` is not installed on the machine that ships this code, measured 2026-09-07 and again 2026-09-08. This slice is built against stubs the way the Jira connector was, and `the-connector-is-read-against-a-real-instance` is the separate slice that reads a real answer.
 
+**AND THE MAP DOES NOT FIT THE PORT, WHICH IS THE PLAN'S CENTRAL RISK.** `jenkins_build_map()` answers ONE state per branch — `{color, checks, job}`, the shape a board row needs. The port asks for two other things:
+
+| port operation | what it needs | what the map has |
+|---|---|---|
+| `runs(branch, limit)` | a history: `BuildRun{workflow, conclusion, startedAt, url}` | one current state, no history, no timestamps, no URL |
+| `runForSha(branch, sha)` | the run for a COMMIT | no commit at all |
+
+**MEASURED AGAINST THE LIVE INSTANCE, 2026-09-08 — BOTH ANSWERS EXIST, AND THE REST API HAS THEM.** `jenkins-ci-webbloqs.internal.quatico.dev`, authenticated, reading the `quaweb` folder that builds `quaweb-website`:
+
+| what the port needs | where it is | measured value |
+|---|---|---|
+| the job tree | `quaweb` is a `Folder`; `continuous-build` a `WorkflowMultiBranchProject` | 5 children, one multibranch |
+| a branch's identity | branch jobs are percent-encoded | `bug%2Fkarussell-dreifach`, 92 of them |
+| **a history** | `.../job/<branch>/api/json` → `builds[]` | present |
+| `conclusion` | `lastBuild` → `result` | `SUCCESS` |
+| `startedAt` | `timestamp` | epoch ms, converts to ISO-8601 |
+| `url` | `url` | the build's address |
+| **the commit sha** | `actions[]` → `BuildData.lastBuiltRevision.SHA1` | `10edd32d…`, paired with `branch[].name` = `bug/karussell-dreifach` |
+
+**So `runForSha` is answerable and `runs` is a real history**, not one state dressed as a list. The shape mismatch above is a mismatch with `jenkins_build_map`'s *output*, not with Jenkins.
+
+**AND THE `jen` CLI IS THE PART THAT IS NOT ATTESTED.** Exactly two subcommands appear anywhere in this estate — `jen auth status` and `jen job list`, both inside `jenkins_build_map`. The binary is in no PATH, at none of the usual install locations, and no npm global; `quaweb-website`, the repository this instance builds, does not mention `jen` at all and documents the web UI instead. A build history and a build's commit sha are attested nowhere **for the CLI** — while the REST API answers both.
+
+**THIS IS THE ONE PLACE A STUB CANNOT STAND IN FOR THE INSTANCE.** A stub proves *given this output, the connector does X*; it cannot say the command exists or that its output looks like that. The Jira connector had the same shape of risk and the same answer — but Jira's operations were already driven by `plot-host.sh` arms somebody had run.
+
+**THE INSTANCE WAS READ, SO THE OPEN QUESTION IS THE TRANSPORT, NOT THE DATA.** Everything the port needs is in Jenkins and was measured through its REST API. What no longer needs deciding: whether a history exists, whether a build names its commit, how a multibranch job is addressed.
+
+**`jen` STAYS THE PRIMARY TRANSPORT AND REST IS ITS FALLBACK**, which is a shape this script already has rather than a new idea: `plot-host.sh:850` records `pr-state` as *"the only op with a REST fallback written"*, and the same two-transport arrangement applies here for the same reason — the CLI is the intended route, and the fallback exists for where it cannot go.
+
+**AND THE FALLBACK IS NOT SPECULATIVE, WHICH IS WHAT SEPARATES IT FROM A SECOND IMPLEMENTATION NOBODY NEEDS.** `jen` is in no PATH here, at none of the usual install locations, and no npm global; nothing in this estate says where it comes from; and `quaweb-website` — the repository this very instance builds — does not mention it, documenting the web UI instead. **An agent on a machine without `jen` is the normal case, not the edge one.** Without the fallback that agent reports `unaskable` while a reachable Jenkins holds the answer.
+
+**IT FALLS BACK ON ABSENCE, NEVER ON A BAD ANSWER.** `command -v jen` failing, or `jen` reporting `NOT reachable`, routes to REST. A `jen` that answers something unrecognised does not: that is the `unknown` case `jenkins_build_map` already degrades to failure-shaped, and retrying it over a second transport would turn *cannot verify* into a guess.
+
+**THE FALLBACK NEEDS ONE MORE FACT THAN THE PATH IT REPLACES**, the same way the GitHub one does. `gh pr view` infers its repository from the remote while `gh api` must be told; likewise `jen -I <slug>` resolves an instance the REST path must be given in full, plus credentials. `JENKINS_USER` and `JENKINS_TOKEN` are read from the environment exactly as `JIRA_EMAIL` and `JIRA_API_TOKEN` already are at `plot-host.sh:1299` — **and an unauthenticated Jenkins must refuse rather than report an empty build list**, which is the failure direction that section states for Jira and that the 2026-08-17 GitHub outage established for the whole script.
+
+**A stub cannot prove a CLI's output, and now it does not have to for REST.** The shapes above are recorded: `builds[]`, `result`, `timestamp`, `url`, and `actions[].BuildData.lastBuiltRevision.SHA1` paired with its branch name.
+
 **Not a rate-limit implementation.** Jenkins reports no limit and `ci-limit` already answers `predicted`. An absent limit is an answer.
 
 ## Slices
@@ -67,7 +104,7 @@ The connector implements `BuildPort` through `plot-host.sh`, and `buildFor` gain
 
 **WHAT THE STUB CANNOT PROVE IS THE ANSWER'S SHAPE**, and the PR must say so rather than implying coverage it does not have.
 
-**Done when** `build-jenkins.ts` answers `runs`, `runForSha` and `limit`; `limit()` reports `predicted`; an unreachable Jenkins refuses rather than returning an empty list; `buildFor('jenkins')` returns it; and the PR states what a stub proved and what it could not.
+**Done when** `build-jenkins.ts` answers `runs`, `runForSha` and `limit`; `limit()` reports `predicted`; `buildFor('jenkins')` returns it; the REST fallback fires when `jen` is absent or reports unreachable and NOT when it answers something unrecognised; an unauthenticated Jenkins refuses rather than returning an empty list; credentials come from `JENKINS_USER`/`JENKINS_TOKEN` and appear in no command line a process table would show; and the PR states what a stub proved and what it could not.
 
 ## Notes
 

@@ -44,9 +44,13 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 **`build-shell.ts` is already generic** — it takes the CI system as a parameter and `build-actions.ts` is a thin cap on it. `build-jenkins.ts` is small for the same reason the tracker split was.
 
-### A real instance exists, and that changes one condition
+### A real instance exists, is reachable, and disproved an assumption already
 
-`ekzweb` runs Bitbucket + Jenkins, and `plot-host.sh`'s own comments cite measurements taken against it. **`jen` is not installed on the machine that ships this code** (measured 2026-09-07, and again 2026-09-08). So the connector is built against stubs the way the Jira connector was, and one slice exists solely to run it against the real instance and record what the stub could not prove: the shape of the answer.
+**`quaweb-website` is the stack this sprint is for**, measured 2026-09-08: a `bitbucket.org` remote built by `jenkins-ci-webbloqs.internal.quatico.dev`, whose job `quaweb` is nested (`job/quaweb/job/release`) — the folder-inside-folder shape `plot-host.sh:541` already describes. The host answers **HTTP 403** on `/api/json`: present and refusing, not absent.
+
+**It disproved a guess before a line was written.** Its three Jenkinsfiles live at `.build/pipelines/<project>/<pipeline>/Jenkinsfile` — none of the four paths reasoned from convention, root included. A root-only probe reads this repository as having no CI, so `the-probe-reads-the-ci-system` now searches `git ls-files` instead of a guessed list.
+
+**What is missing is `jen` and a token, not a Jenkins.** The binary is in no PATH, at none of the usual install locations, and no npm global; nothing in this estate records where it comes from. So the connector is still built against stubs the way the Jira connector was — but the verification slice is now a **measurement with a named target**, not an aspiration: two subcommands against a job that exists.
 
 ## MoSCoW
 
@@ -60,7 +64,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 ### Should
 
 - [ ] [adoption-proposes-the-jenkins-instance] Where the probe proposes `CI: jenkins`, `/plot-init` asks for the instance — the one fact no file in the repository carries — and writes `Jenkins instance` with it.
-- [ ] [the-connector-is-read-against-a-real-instance] Run the connector against `ekzweb` and record what the stub could not prove. Needs somebody with `jen` installed and access.
+- [ ] [the-connector-is-read-against-a-real-instance] Run two `jen` subcommands against `jenkins-ci-webbloqs.internal.quatico.dev` and record what they print. The instance answers (HTTP 403 — present, refusing) and the job `quaweb` exists; what is missing is `jen` and a token. Whether a build history and a build's commit sha are askable at all is the open question the connector's shape rests on.
 - [ ] [a-probe-reports-and-the-domain-judges] `proposeStack` in the domain decides what a probe's readings propose. Seven thresholds live inside the two collectors today — `node >= 20`, three commit-style counts, the ticket-prefix floor and the language count — and each is a decision a test cannot reach.
 - [ ] [two-signals-ask-rather-than-tie-break] `/plot-board-setup`'s stated rule — *one signal proposes, two signals ask* — becomes a domain property rather than a paragraph an agent is asked to follow.
 
