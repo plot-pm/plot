@@ -338,9 +338,18 @@ test('approve: updates the sprint annotation the sprint view reads', () => {
 
   refreshMain();
   const sprint = git(repo, 'show', 'origin/main:docs/sprints/2026-W33-ship-it.md');
-  assert.match(sprint, /status: approved/, `the annotation must be updated:\n${sprint}`);
-  assert.match(sprint, /pr: #42/);
+  assert.match(sprint, /pr: #42/, `the annotation must be updated:\n${sprint}`);
   assert.match(sprint, /branch: feature\/alpha/);
+  // `status:` IS GONE, since 2026-09-08 — `a-withdrawn-item-is-not-open`
+  // measured it dead in both directions: 67 lines carried one and no reader
+  // acted on the value. The plan file's `State:` and dated `Approved:` record
+  // are the answer, and a cache nobody refreshes is a second answer waiting to
+  // contradict the first.
+  assert.doesNotMatch(sprint, /status:/, `the annotation must not carry status:\n${sprint}`);
+  // THE COMMENT SURVIVES THE REWRITE. The substitution that replaces `branch:`
+  // has to stop before ` -->`; the first attempt ate the `--` and left a bare
+  // `>`, which no reader of these annotations would parse.
+  assert.match(sprint, /branch: feature\/alpha -->/, `the closing marker must survive:\n${sprint}`);
 });
 
 test('approve: a plan in no sprint is a no-op, not a failure', () => {

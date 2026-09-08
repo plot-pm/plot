@@ -607,16 +607,33 @@ update_sprint_annotation() { # $1=worktree root → prints none|updated|already|
     {
       line = $0
       if (index(line, "<!--") == 0) {
-        line = line " <!-- pr: #" pr (br != "" ? ", branch: " br : "") " -->"
-      } else {
-        if (line ~ /pr:[ \t]*#?[0-9a-z]+/) sub(/pr:[ \t]*#?[0-9a-z]+/, "pr: #" pr, line)
-        else sub(/<!--/, "<!-- pr: #" pr ",", line)
-        if (br != "") {
-          if (line ~ /branch:[ \t]*[^,>]+/) sub(/branch:[ \t]*[^,>]*[^,> \t]/, "branch: " br, line)
-          else sub(/-->/, ", branch: " br " -->", line)
-        }
+        print line " <!-- pr: #" pr (br != "" ? ", branch: " br : "") " -->"
+        next
       }
-      print line
+      # THE CLOSING MARKER IS SPLIT OFF BEFORE ANY FIELD IS TOUCHED.
+      # A value pattern that has to avoid `-->` cannot be written safely:
+      # `[^,>]*[^,> \t]` excluded the `>` and still swallowed the `--`, turning
+      # ` -->` into a bare `>` and corrupting the comment — measured 2026-09-08,
+      # `approve: updates the sprint annotation the sprint view reads` failed on
+      # exactly that. Excluding `-` as well is worse: it rewrites `bug/a-b` as
+      # `feature/new-b`, and hyphens are in most branch names here.
+      # With the marker held aside, every field ends at a comma or at
+      # end-of-string, and none can reach it.
+      tail = ""
+      if (match(line, /[ \t]*-->[ \t]*$/)) { tail = substr(line, RSTART); line = substr(line, 1, RSTART - 1) }
+      if (line ~ /pr:[ \t]*#?[0-9a-z]+/) sub(/pr:[ \t]*#?[0-9a-z]+/, "pr: #" pr, line)
+      else sub(/<!--/, "<!-- pr: #" pr ",", line)
+      # A `status:` ALREADY THERE IS REMOVED, not merely no longer written.
+      # Leaving one behind keeps the stale value on every annotation written
+      # before today — `status: draft` beside an approved plan — which is the
+      # contradiction the field was dropped to prevent.
+      sub(/,[ \t]*status:[ \t]*[a-z-]*/, "", line)
+      sub(/status:[ \t]*[a-z-]*[ \t]*,[ \t]*/, "", line)
+      if (br != "") {
+        if (line ~ /branch:[ \t]*[^,]/) sub(/branch:[ \t]*[^,]*/, "branch: " br, line)
+        else line = line ", branch: " br
+      }
+      print line (tail != "" ? tail : " -->")
     }
   ' "$found")
   if [ "$before" = "$after" ]; then printf 'already'; return 0; fi
