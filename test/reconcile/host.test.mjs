@@ -733,6 +733,28 @@ test('host: runs declaring github-actions on a bitbucket remote exits 4, never e
   assert.equal(argvOf(stubs.ghArgv), null, 'gh is not asked about a repository it cannot see');
 });
 
+// A repository that declares NO `CI` key at all. `PLOT_CI: ''` cannot express
+// this: `ci_backend()` reads an empty override as *not set* and falls through to
+// the config — which, run from this repo's own root, is this repo's `CI` key.
+// Measured 2026-09-08: the two tests below passed until Plot declared its own,
+// and then read `github-actions` from the checkout they were running in. The
+// absence has to be a real repository saying nothing.
+function makeNoCiRepo() {
+  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-nocI-'));
+  writeFileSync(path.join(repo, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** github\n');
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  return repo;
+}
+
+const runInRepo = (args, { repo, stubs, env = {} }) => {
+  const res = spawnSync('bash', [adapter, ...args], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, ...budgetEnvFor(stubs), ...env },
+  });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+};
+
 test('host: runs on a repository that declared no CI exits 4, not an empty list', () => {
   // NOT BEING ABLE TO ASK IS NOT AN EMPTY ANSWER. An empty run list means *this
   // branch has no runs*; a repository with no CI system has nothing that could
@@ -740,7 +762,7 @@ test('host: runs on a repository that declared no CI exits 4, not an empty list'
   // build port answers with — and `[]` would report *nothing has ever failed
   // here* about a question nobody asked.
   const stubs = makeStubs({ ghJson: '[]' });
-  const res = runAllowFail(['runs', 'feature/x'], { env: { PLOT_HOST: 'github', PLOT_CI: '' }, stubs });
+  const res = runInRepo(['runs', 'feature/x'], { repo: makeNoCiRepo(), stubs, env: { PLOT_HOST: 'github' } });
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /declares no CI system/);
@@ -774,8 +796,8 @@ test('host: run-for-sha on a repository that declared no CI exits 4', () => {
   // created yet* signal. A repository with no CI answering that would poll
   // forever waiting for a build nothing will start.
   const stubs = makeStubs({ ghJson: '[]' });
-  const res = runAllowFail(['run-for-sha', 'feature/x', 'abc123'],
-    { env: { PLOT_HOST: 'github', PLOT_CI: '' }, stubs });
+  const res = runInRepo(['run-for-sha', 'feature/x', 'abc123'],
+    { repo: makeNoCiRepo(), stubs, env: { PLOT_HOST: 'github' } });
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /declares no CI system/);
