@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 6
 - **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
+- **Started:** 2026-09-08, Jan Wloka, `feature/a-probe-reports-and-the-domain-judges`
 
 ## Changelog
 
