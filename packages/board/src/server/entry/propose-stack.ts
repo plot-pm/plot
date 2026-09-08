@@ -1,5 +1,6 @@
-import { proposeStack, type StackProposal, type StackReadings }
+import { proposeStack, type StackProposal }
   from '@plot-pm/domain/rules/stack';
+import { readingsFrom } from './stack-readings.js';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -46,7 +47,7 @@ import { pathToFileURL } from 'node:url';
  * entries import it. Re-exported here because that is where every caller and
  * the existing test already reach for it.
  */
-export { readingsFrom } from './stack-readings.js';
+export { readingsFrom };
 
 /**
  * Judge one probe report.
