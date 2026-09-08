@@ -10,6 +10,7 @@
 - **Story:** plot-gates
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
@@ -46,6 +47,24 @@
 
 **Four of five had a controller and none was used.** Calling the script a controller wraps is not the same as calling the controller: the endpoint is where a refusal lives, and the script is what runs after it passed.
 
+**AND THE ENDPOINTS ARE NOT ALIKE, WHICH THIS PLAN'S FIRST DRAFT TREATED AS IF THEY WERE.** Measured 2026-09-08, per endpoint:
+
+| endpoint | rule calls before it spawns |
+|---|---|
+| `deliver` | **16** — `deliverable` and the branch-state rules |
+| `approve` | **0** — it spawns `plot-approve.sh` and nothing else |
+| `dispatch` | **0** |
+
+**An endpoint that only spawns is a shell, not a controller.** It does not move the decision into the domain; it puts HTTP in front of the same script and makes the routing look done. So *"has an endpoint"* is the wrong condition, and this plan does not use it.
+
+**AND THE SCRIPTS ALREADY REFUSE, WHICH CHANGES THE DIAGNOSIS.** `plot-approve.sh:81` refuses a plan whose phase is not `draft`, a `Review:` that is not `pr`, and a PR that is draft, closed **or absent**. The four plans approved by hand that afternoon had their plan-PR merged already — **the script would have refused every one of them.**
+
+**So the failure was not a missing rule. It was that nothing was called.** `sed`, `python re.sub`, `ln -s`: no endpoint, no script, no rule — an editor on a markdown line. There was no invocation to check, which is why every refusal in the estate stayed silent while three lifecycle states were written wrong.
+
+**THAT MAKES `a-lifecycle-field-has-one-writer` THE SLICE THAT ANSWERS THE INCIDENT**, and the routing slices the ones that make it survivable. A hook refusing a hand edit is the only thing that can see an action nobody invoked; the controllers are what a person reaches for once the shortcut is closed.
+
+**THE CONDITION IS THAT A REFUSAL CAN FIRE.** An action is routed when the endpoint asks a rule and stops on its answer — which `deliver` does today and `approve` does not, though both appear on the board as `{"available":true}`. **Ten endpoints exist and one of them meets this bar**, so the work is larger than the count suggests: each slice below wires a rule, not a URL.
+
 **THIS IS THE `a-sprint-item-has-one-scorer` DEFECT, ONE LAYER UP.** That plan found `scoreItem` with no production caller while `plot-sprint-release.sh` computed the same thing in twelve lines of shell — and the two had already drifted. Here the shell computes nothing at all: it just writes, and the rule watches.
 
 ## What this is not
@@ -66,7 +85,9 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **THE READING IS THE DIFF, AND THE OWNERS ARE A SHORT LIST.** `plot-approve.sh`, `plot-deliver.sh` and the new sprint command write these lines; a commit touching `- **State:**` in `docs/plans/` or `docs/sprints/` from anywhere else is the case this refuses. Measured 2026-09-08: three such edits in one session, all by hand, all by `sed`.
 
-**IT IS A GATE BECAUSE THE RULE FAILED TODAY.** *Can you answer "did I complete this?" without doing the work?* For "did I use the transition", yes — and the answer was wrong three times in an afternoon, by the agent that wrote the rules.
+**IT IS A GATE BECAUSE NOTHING ELSE CAN SEE THE ACTION.** Every other refusal in this estate fires when something is invoked — a script, an endpoint, a rule. A `sed` over a markdown line invokes none of them, so no amount of routing reaches it. *Can you answer "did I complete this?" without doing the work?* For "did I use the transition", yes — and the answer was wrong three times in one afternoon, by the agent that wrote the rules.
+
+**IT REFUSES THE SHORTCUT AND NAMES THE ROUTE.** `plot-phase-gate.sh` is the precedent: it blocks a commit and names the approval that would let it through. This blocks the edit and names the command that owns that write.
 
 **Done when** a commit editing a `State:` line outside the owning scripts is refused with the command that would have done it, the owning scripts pass, and a plan or sprint created from a template passes.
 
@@ -80,7 +101,9 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **THE PHASE WORD COMES FROM THE SCHEMA.** `SprintStateSchema.options` is the list, so a fifth cannot be invented by whoever writes the next skill.
 
-**Done when** start, commit and close perform their transition through `setSprintState`; a refusal prints its sentence and writes nothing; `State: Planned` is refused by name; a sprint with no Must cannot be committed; and the skill's prose describes the call rather than the file edit.
+**THE TEST REPRODUCES 2026-09-08.** A sprint file carrying `State: Planned`, started with `/plot-sprint <slug> start`, must be refused naming the four states — that is the exact sequence a master agent ran by hand, and a slice claiming to fix it should fail before the fix and pass after. Two more from the same afternoon: a sprint whose Musts parse to nothing cannot be committed, and `Planned → Active` is unreachable.
+
+**Done when** start, commit and close perform their transition through `setSprintState`; the endpoint asks the rule and stops on its answer rather than spawning past it; a refusal prints its sentence and writes nothing; the three refusals measured on 2026-09-08 are each a test replaying that day's input; and the skill's prose describes the call rather than the file edit.
 
 ### Rejecting a delivery is a controller command (Branch: feature/a-rejection-is-a-controller-command) <!-- waits: feature/a-sprint-transition-is-performed -->
 
