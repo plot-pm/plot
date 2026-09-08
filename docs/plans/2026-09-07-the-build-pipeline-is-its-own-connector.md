@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-domain-knows-what-plot-knows
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #782 merged
 - **Started:** 2026-09-07, Jan Wloka, `bug/a-pipeline-address-is-not-the-host`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 

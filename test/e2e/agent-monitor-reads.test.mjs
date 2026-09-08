@@ -270,15 +270,29 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
   const run = dispatchOne('agent-has-pr', {
     stub,
     monitorInterval: '3',
-    // `sleep 20` AFTER THE PUSH, AND THE MONITOR'S ORDER IS WHY.
+    // THE DESK IS HELD UNTIL THE MONITOR ASKS, NOT FOR A FIXED TIME.
     // `sample_finding` returns at the `blocked`, `dirty` and `unpushed` arms
-    // before it ever reaches `gh pr list` (`plot-agent-monitor.sh:391-413`), so
-    // the only pass that asks the host is one taken while the desk is clean AND
-    // pushed. A worker that exits the instant it pushes gives the monitor no
-    // such pass: the desk is gone before the next poll. Measured on CI
-    // 2026-09-01 — the assertion burned all 30 s and failed, on three PRs at
-    // once. The sleep holds the desk in that state long enough to be sampled.
-    workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD && sleep 20'",
+    // before it ever reaches the host (`plot-agent-monitor.sh:391-413`), so the
+    // only pass that asks is one taken while the desk is clean AND pushed. A
+    // worker that exits the instant it pushes gives the monitor no such pass:
+    // the desk is gone before the next poll.
+    //
+    // A `sleep 20` against a 3 s poll held that window open for about six
+    // chances, and that was enough until it was not: measured on CI 2026-09-08,
+    // four e2e jobs ran at once and this test burned all 30 s on FOUR PRs
+    // (#810, #815, #818, #819) with an empty call log. A sleep prices the
+    // window in seconds when what it needs is a number of polls, and under load
+    // those are not the same unit.
+    //
+    // So the worker waits for the EVENT it exists to make observable — the
+    // stub's own call log, which is the same file the assertions read. It polls
+    // for a `pr view` and exits as soon as one lands, which is both faster than
+    // the sleep in the common case and unbounded in the loaded one. The 60 s
+    // ceiling is a backstop that keeps a broken monitor from hanging the suite,
+    // and it is below the 30 s the assertion allows only in the sense that it
+    // outlives it deliberately: a test that fails should fail on the assertion's
+    // message, not on a worker that vanished first.
+    workerCommand: `sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n"plot": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD && for i in $(seq 1 240); do grep -q "pr view" "${stub.dir}/calls.log" 2>/dev/null && break; sleep 0.25; done'`,
   });
   try {
     // WAIT FOR THE POLL, DO NOT GUESS AT IT. The two assertions below want
