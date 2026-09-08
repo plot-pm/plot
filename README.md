@@ -153,6 +153,18 @@ Plot hardcodes no paths. It reads a `## Plot Config` section in your `CLAUDE.md`
 
 The keys cover plan and sprint directories, branch prefixes, git host and CI, the tracker you read issues from, and how the fleet runs its workers. **The full reference lives in [`plot-config.sh`](skills/plot/scripts/plot-config.sh)**, beside the parser that reads it, so it cannot drift from what is actually supported.
 
+### Which stacks Plot drives
+
+`Git host`, `Tracker` and `CI` are declared independently — a repository whose code lives with one vendor and whose tickets live with another is the normal case, not an exception.
+
+| Key | Values that reach a service | What an undeclared or unsupported value does |
+|---|---|---|
+| `Git host` | `github`, `bitbucket` | An unrecognised word **refuses** (exit 4) and names itself. It is never silently treated as GitHub. |
+| `Tracker` | `github`, `jira` | No tracker declared answers `unaskable` on every operation, including the one write. |
+| `CI` | `github-actions` | Anything else — **`jenkins` included** — resolves to a connector that reaches nothing and says so. |
+
+**`CI: jenkins` has no connector yet.** Build state on a Jenkins team is *absent and declared*, not wrong: the board shows no check state rather than another vendor's runs under Jenkins' name. `build-jenkins.ts` is the missing file, and `buildFor` is the one line that changes when it exists.
+
 ---
 
 ## Skills
