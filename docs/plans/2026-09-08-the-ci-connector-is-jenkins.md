@@ -10,7 +10,7 @@
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 5
 
 ## Changelog
 
@@ -76,6 +76,10 @@
 **AND THE FALLBACK IS NOT SPECULATIVE, WHICH IS WHAT SEPARATES IT FROM A SECOND IMPLEMENTATION NOBODY NEEDS.** `jen` is in no PATH here, at none of the usual install locations, and no npm global; nothing in this estate says where it comes from; and `quaweb-website` — the repository this very instance builds — does not mention it, documenting the web UI instead. **An agent on a machine without `jen` is the normal case, not the edge one.** Without the fallback that agent reports `unaskable` while a reachable Jenkins holds the answer.
 
 **IT FALLS BACK ON ABSENCE, NEVER ON A BAD ANSWER.** `command -v jen` failing, or `jen` reporting `NOT reachable`, routes to REST. A `jen` that answers something unrecognised does not: that is the `unknown` case `jenkins_build_map` already degrades to failure-shaped, and retrying it over a second transport would turn *cannot verify* into a guess.
+
+**NO SECRET REACHES `jen`'s ARGUMENT LIST, AND THE REASON IS THAT NOBODY HERE CAN CHECK IT.** `curl --user` is safe — measured 2026-09-08: with a connection held open, `ps -o args=` shows the flag with an **empty value**, because curl overwrites it in memory, which is what `plot-host.sh:1315` already claims for the Jira path. **`jen` cannot be measured the same way**: it is not installed, and its argv handling is a property of a binary this estate cannot inspect.
+
+So the connector passes credentials to `jen` through the environment only — `JENKINS_USER` and `JENKINS_TOKEN`, which `jen auth status` already relies on — and never as a flag. A process table on a shared build machine is readable by every user on it, and *"the CLI probably blanks it"* is not a property to assume on a binary nobody here has run.
 
 **THE FALLBACK NEEDS ONE MORE FACT THAN THE PATH IT REPLACES**, the same way the GitHub one does. `gh pr view` infers its repository from the remote while `gh api` must be told; likewise `jen -I <slug>` resolves an instance the REST path must be given in full, plus credentials. `JENKINS_USER` and `JENKINS_TOKEN` are read from the environment exactly as `JIRA_EMAIL` and `JIRA_API_TOKEN` already are at `plot-host.sh:1299` — **and an unauthenticated Jenkins must refuse rather than report an empty build list**, which is the failure direction that section states for Jira and that the 2026-08-17 GitHub outage established for the whole script.
 

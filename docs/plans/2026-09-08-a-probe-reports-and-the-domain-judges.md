@@ -10,7 +10,7 @@
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 4
+- **Rounds:** 6
 
 ## Changelog
 
@@ -75,7 +75,11 @@ A domain rule takes a probe's readings and returns proposals; the collectors rep
 
 **THE SKILLS REACH IT THROUGH ITS OWN BUNDLE**, `board/plot-propose-stack.mjs`, the way `a-shell-script-asks-the-domain` settled this seam earlier in the sprint: one bundle per question, and adoption runs once per operator command. A verb on `plot-ask.mjs` would put an adoption question inside the master agent's entry point, which is a different job.
 
+**A MISSING BUNDLE REFUSES AND NAMES ITS REPAIR**, the way `plot-deliver.sh:36` already does — *"cannot find … run 'pnpm build:board'"*. That reads like the wrong answer for `/plot-init`, which runs in a foreign repository where `pnpm build:board` builds nothing; measuring settles it. **All 15 bundles are tracked in git** under `skills/plot/scripts/board/`, so they arrive with every clone and every plugin install: an adopting repository that has the skills has the bundle. The refusal therefore fires only on a broken installation, where naming the build command is exactly right — and never on the normal first run, which is the case that made the question worth asking.
+
 **A BUNDLE IS NOT SMALL, AND THE PLAN SHOULD NOT PRETEND OTHERWISE.** Measured 2026-09-08: `plot-sprint-score.mjs`, the precedent, is **321 KB**; `plot-ask.mjs` is 491 KB. Bundling the domain costs a third of a megabyte whatever the question, so the argument for a separate artifact is not size — it is that a caller asking about adoption should not load the fleet controller to get an answer. The cost rule `docs/shell-and-domain.md` states is the one that licenses it: `node` starts in 34 ms and a shipped bundle answers in 39 ms, which a once-per-adoption call can pay.
+
+**ONE PR MEANS ONE REVERT, AND THAT IS THE STRONGEST ARGUMENT FOR THE HARD CUT.** This slice touches `plot-detect-repo.sh`, `plot-board-probe.sh`, two skills and 43 tests across three files — the widest diff in the sprint, and the one most worth being able to undo. Moving everything together makes the way back a single `git revert`. **A transitional period with both field shapes would be worse in exactly this respect**: spread over two PRs, half-reverted it leaves the collector reporting a field nothing reads and a rule nothing calls, which is a state neither shape describes.
 
 **THE OLD FIELDS GO IN THE SAME PR.** `commit_style`, `language_hint` and `node_ok` are replaced by the counts they were computed from, not kept beside them — a field left behind is exactly the second answer this plan exists to remove. **Two skills read the probe**, `/plot-init` and `/plot-board-setup`, plus two test files; all four move together, and the blast radius is the four of them.
 

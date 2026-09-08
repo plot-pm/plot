@@ -84,6 +84,14 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 **A Should that every Must depends on is a Must.** It sits in `the-probe-reads-the-ci-system`, because it is an adoption question: the instance is proposed from the same signal as `CI: jenkins`, in the same breath, and a slice cannot wait on two branches. The connector plan names it as the thing it is not done without.
 
+### Each plan stands alone, and the waits are about order rather than survival — 2026-09-08
+
+**Three slices start with no wait, and they touch four disjoint sets of files.** `a-merged-pr-carried-work` reaches `plot-deliver.sh` and `rules/branch-state.ts`; `the-run-ops-ask-the-ci-backend` reaches `plot-host.sh`; `a-probe-reports-and-the-domain-judges` reaches the two collectors. None of them needs another to be correct.
+
+**So a failure is partial rather than total.** If the verification slice found that `jen` reports no build history *and* the REST API were closed to ordinary accounts, `connected` would be out of reach — and the delivery gate, the judgements and the run-op routing would still be worth having. There is no single finding that stops this sprint, which is the property the four-condition split was chosen for.
+
+**The waits exist because two slices would otherwise write the same field twice**, not because either cannot ship without the other.
+
 ### Why the delivery gate is in Must and not Could — 2026-09-08
 
 **Two slices of one sprint merged carrying no work, and every counter on the estate read them as delivered.** `/plot-deliver` asks whether each branch's PR merged; a blocked agent commits its marker, the marker is a commit, the PR merges, and the slice is indistinguishable from a finished one.
