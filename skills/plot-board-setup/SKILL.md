@@ -12,9 +12,9 @@ metadata:
   repo: https://github.com/plot-pm/plot
   version: 0.4.0
 compatibility: >-
-  Designed for Claude Code and Cursor. Requires git, bash, curl, and Node
-  >= 20. Git-host and CI CLIs are optional — the board works without any of
-  them. The plugin start route is Claude Code-specific; on Cursor the probe
+  Designed for Claude Code and Cursor. Requires git, bash, curl, and the Node
+  major the repository pins in `.nvmrc`. Git-host and CI CLIs are optional —
+  the board works without any of them. The plugin start route is Claude Code-specific; on Cursor the probe
   finds no plugin directory and falls through to the npm or checkout route.
 ---
 
@@ -60,8 +60,8 @@ a start: it proves the board serves and leaves nothing running. `/plot-board
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 1. Probe | Small | Two script calls, JSON out; merge without transforming |
-| 2. Propose and confirm | Mid | Turning signals into proposals — and reading a one-directional signal (prefix proposes, silence asks) — is judgment |
+| 1. Probe | Small | Three script calls, JSON out; merge without transforming, then ask the rule what it proposes |
+| 2. Propose and confirm | Mid | Wording the proposals and reading a one-directional signal (prefix proposes, silence asks) is judgment; the thresholds behind them are not — `proposeStack` answers those |
 | 3. Write config | Small | Append known keys to a known section |
 | 4. Verify | Small | Run commands, compare to documented output shapes |
 | 5. Diagnose an empty board | Mid | Mapping a parse failure to a human cause |
@@ -88,18 +88,44 @@ Both are read-only. Merge their reports; **neither script grows the other's
 field** — the composition lives here, in the skill, because interpreting two
 collectors into one proposal is the skill's job (Manifesto Principle 3: scripts
 collect and report, skills interpret and adapt). The probe's contract has other
-callers, so it must not be asked to carry a `ticket_prefix` it never had.
+callers, so it must not be asked to carry a ticket prefix it never had.
 
-`plot-board-probe.sh` reports the Node version, whether the CWD is the repo
-root, where a board artifact lives, whether a `## Plot Config` exists, how many
-plan files there are, the CI signals present (`ci_signals.jenkinsfile`,
-`ci_signals.gh_workflows`), and the install/auth state of `gh`, `bb`, and `jen`.
-Its `git_host` is the **configured** `Git host` key, not an inference — empty
-until something writes it.
+`plot-board-probe.sh` reports the Node version and the major `.nvmrc` pins,
+whether the CWD is the repo root, where a board artifact lives, whether a
+`## Plot Config` exists, how many plan files there are, the CI signals present
+(`ci_signals.jenkinsfile`, `ci_signals.gh_workflows`), and the install/auth
+state of `gh`, `bb`, and `jen`. Its `git_host` is the **configured** `Git host`
+key, not an inference — empty until something writes it.
 
 `plot-detect-repo.sh` answers what the probe cannot: the git host **inferred**
-from origin's URL, and a `ticket_prefix` inferred from the commit log. These are
-the structural signals setup proposes from.
+from origin's URL, and the ticket prefix and its count from the commit log.
+These are the structural signals setup proposes from.
+
+**Then ask the domain what the readings propose.** Both probes report
+measurements; which of them clears a threshold is one rule, in
+`packages/domain/src/rules/stack.ts`, reached through its own bundle:
+
+```bash
+# merge the two reports into one JSON object, then:
+../plot/scripts/board/plot-propose-stack.mjs < merged.json
+```
+
+It answers four questions, each carrying its evidence: `node` (the major found,
+the floor pinned, and whether the first meets the second), `commitStyle`,
+`ticket`, and `language`. **The thresholds are not restated here and must not
+be recomputed** — a threshold written in two places is the second answer this
+seam removes. A missing bundle names its repair (`pnpm build:board`), and since
+all fifteen are tracked in git it can only be missing from a broken install.
+
+**If `node.supported` is false, stop and say which two numbers disagree.** This
+is the check the command did not make: `plot-fleetctl.sh` refuses to write a
+unit under a `node` that is not the pinned major, and board setup ran under
+anything at all. Report the major found and the major pinned; the repair is
+`nvm use`, not a change to Plot.
+
+> A `node.supported` of **`null`** is *cannot verify*, never *fine*. It means
+> no `node` on `PATH`, or a repository pinning no major. Say which, and carry
+> on — the board may still start, and an unverifiable reading is not a refusal.
 
 **If `has_plot_config` is false, stop.** Board setup presupposes adoption —
 point at `/plot-init` and do not re-implement it here.
@@ -135,16 +161,22 @@ Turn the merged signals into proposals:
 - **CI** — see the both-signals rule below. A lone `Jenkinsfile` proposes
   `CI: jenkins`; a lone `.github/workflows/` proposes `CI: github-actions`.
 - **Tracker** — a repeated ticket prefix is strong evidence **for** a Jira
-  tracker. When `plot-detect-repo.sh` reports a non-empty `ticket_prefix`,
-  propose `Tracker: jira` **with the evidence named**:
+  tracker. When the proposal carries a `ticket.prefix`, propose `Tracker: jira`
+  **with the evidence named**:
 
   > Found `QUACDS-*` in 6 of 80 commit subjects → propose `Tracker: jira`.
+
+  **Read `ticket.prefix` from the proposal, not `ticket_prefix` from the
+  probe.** The probe reports every prefix it saw with its count, including a
+  single stray `ONEOFF-1`; whether that count makes a scheme is
+  `proposeTicket`'s answer. A `null` prefix there means *no scheme was
+  proposed*, and `ticket.matched` / `ticket.outOf` are the numbers to print.
 
   The prefix is one-directional. `ABC-123` is Jira's convention, but Linear and
   GitHub issues carry prefixed keys too — perfect correlation in this
   population, a proposal never an assertion anywhere else. So it *proposes*, and
   a human confirms. **Absence proves nothing** (half of Bitbucket repos carry no
-  prefix): an empty `ticket_prefix` is not evidence against a tracker, so it
+  prefix): a `null` `ticket.prefix` is not evidence against a tracker, so it
   **asks** the open question below and **never proposes `Tracker: none`** from
   silence.
 
@@ -166,7 +198,7 @@ every build-status lookup to the wrong system.
 
 Ask only what the merged probes could not answer:
 
-- **The tracker** — when no `ticket_prefix` was found, ask which tracker the
+- **The tracker** — when `ticket.prefix` is `null`, ask which tracker the
   repo uses (`plot` · `jira` · `github-issues` · `linear`). Silence is not a
   proposal, and it is never `none` by default.
 
@@ -179,7 +211,7 @@ Ask only what the merged probes could not answer:
   >
   > `PLOT-UNASKED: which tracker — refused — no Tracker key written; inbox source unverified`
   >
-  > A found `ticket_prefix` is a structural signal, so `Tracker: jira` may still
+  > A proposed `ticket.prefix` is a structural signal, so `Tracker: jira` may still
   > be **proposed** unattended and recorded as such — the refusal is for the
   > *absence* of a signal, not for its presence.
 
@@ -249,7 +281,7 @@ failure this whole command is built to avoid.
 
 `Tracker` records which system holds the repo's tickets, confirmed from the
 proposed prefix or answered outright. Write it only when confirmed or proposed
-from a `ticket_prefix` — **never `Tracker: none` from an unanswered question**,
+from a `ticket.prefix` — **never `Tracker: none` from an unanswered question**,
 because absence of a prefix is not absence of a tracker.
 
 **Warn when the key has no backend.** `plot-host.sh issue-list` resolves issues
@@ -382,12 +414,13 @@ nothing about whether a supervisor is loaded.
 |---|---|
 | No `## Plot Config` | Stop; point at `/plot-init` |
 | No artifact anywhere | Stop; report the plugin and npm routes |
-| A repeated `ticket_prefix` | Propose `Tracker: jira`, name the evidence; a human confirms |
-| No `ticket_prefix` | Ask which tracker; never propose `Tracker: none` from silence |
+| A proposed `ticket.prefix` | Propose `Tracker: jira`, name the evidence; a human confirms |
+| A `null` `ticket.prefix` | Ask which tracker; never propose `Tracker: none` from silence |
 | Both CI signals present | Ask which runs the PRs; do not tie-break on the git host |
 | Tracker unresolved, unattended | Refuse the key; a wrong tracker serves an empty inbox reading as *no tickets* |
 | Tracker has no backend | Write the key with a warning: *recorded; no backend reads this yet* — the inbox will be empty until the backend lands |
-| Node < 20 | Report the requirement, still write config, skip 4b |
+| `node.supported` false | Stop; name the major found and the major `.nvmrc` pins. The repair is `nvm use` |
+| `node.supported` null | Say which reading was missing — no `node`, or no pin — and carry on |
 | CWD is not the repo root | Warn prominently — the board compares realpaths, and branch-staged plans silently vanish otherwise |
 | A CLI is absent | Skip its check; absence is not failure |
 | Auth output unrecognised | Report *cannot verify*; never authenticated |

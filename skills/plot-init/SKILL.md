@@ -55,16 +55,37 @@ and changes nothing.
 ```
 
 Read-only. It reports the git host, Definition-of-Done candidates from
-`package.json`, a ticket prefix (only if one recurs), the commit-subject
-style, the CI system it found evidence for, planning directories that already
-exist, which hub docs are present, and whether a `## Plot Config` is already
-there.
+`package.json`, the most frequent ticket prefix and how often it occurred, how
+many subjects match each commit notation, the CI system it found evidence for,
+planning directories that already exist, which hub docs are present, whether a
+`## Plot Config` is already there, and how many German words the hub docs
+carry.
 
-**`ticket_prefix` and `ci_system` are the stack's two signals**, and step 2
-turns each into a config key. They are readings, not answers: a recurring
-prefix says a ticket scheme is in use, and a `Jenkinsfile` says a Jenkins
-pipeline is described here. Neither says which system a team actually uses,
-which is why both are proposed and neither is written unconfirmed.
+**Every count is a measurement and none is an answer.** The probe reports a
+prefix seen once as a prefix seen once; whether that is a scheme is a rule's
+decision, not a collector's.
+
+**Then ask the domain what the readings propose:**
+
+```bash
+../plot/scripts/plot-detect-repo.sh | ../plot/scripts/board/plot-propose-stack.mjs
+```
+
+It answers four questions, each carrying its evidence: `commitStyle` (the
+notation and how many of how many subjects carried it), `ticket` (the prefix or
+`null`, with the same two numbers), `language`, and `node`. **The thresholds
+live in `packages/domain/src/rules/stack.ts` and must not be recomputed here**
+— *two matching subjects make a style*, *two occurrences make a scheme*, *three
+German words make a German repository* were prose an agent was asked to follow
+until 2026-09-08, and a rule an agent is asked to follow is eventually
+violated. A missing bundle names its repair (`pnpm build:board`); all fifteen
+are tracked in git, so it can only be missing from a broken install.
+
+**`ticket` and `ci_system` are the stack's two signals**, and step 2 turns each
+into a config key. They are readings, not answers: a recurring prefix says a
+ticket scheme is in use, and a `Jenkinsfile` says a Jenkins pipeline is
+described here. Neither says which system a team actually uses, which is why
+both are proposed and neither is written unconfirmed.
 
 **If `has_plot_config` is true, stop and say so.** Offer to show what is
 configured and what could be added, but do not re-run adoption over a working
@@ -136,17 +157,22 @@ Then ask only what the probe **could not** answer:
 #### The tracker
 
 **A recurring ticket prefix proposes `Tracker: jira`, and the evidence travels
-with it.** When `ticket_prefix` is non-empty, say what was found and what it
-proposes in one line:
+with it.** When the proposal carries a `ticket.prefix`, say what was found and
+what it proposes in one line:
 
 > Found `QUACDS` in 38 of 80 commit subjects → propose `Tracker: jira`.
 
 A bare `jira` teaches nothing; the count is what lets a reader confirm or
 reject in one read. `/plot-init` already prints the ticket scheme this way.
 
+**Read `ticket.prefix`, never the probe's `ticket_prefix`.** The probe reports
+every prefix it saw, a lone `ONEOFF-1` included, with the count beside it;
+`ticket.prefix` is `null` where no count cleared the bar, and `ticket.matched` /
+`ticket.outOf` are the two numbers to print.
+
 **The prefix is one-directional.** `ABC-123` is Jira's convention, and Linear
 and GitHub issues carry prefixed keys too — so it proposes and a person
-confirms. **Absence proves nothing:** an empty `ticket_prefix` is not evidence
+confirms. **Absence proves nothing:** a `null` `ticket.prefix` is not evidence
 against a tracker, so it falls to the *Ticket scheme* question above and
 **never proposes `Tracker: none` from silence**.
 
@@ -170,8 +196,9 @@ proposal adds:
 > `unaskable` for a reason nobody can see.
 > `PLOT-UNASKED: Which Jira base URL? — default — proposed Tracker: jira from QUACDS in 38 of 80 subjects, URL unset; issue operations stay unavailable until it is added`
 >
-> The refusal is for the *absence* of a signal, never for its presence. With no
-> `ticket_prefix` there is nothing to propose, and step 2's own stop covers it.
+> The refusal is for the *absence* of a signal, never for its presence. With a
+> `null` `ticket.prefix` there is nothing to propose, and step 2's own stop
+> covers it.
 
 #### The CI system
 
@@ -295,7 +322,9 @@ touch docs/plans/active/.gitkeep docs/plans/delivered/.gitkeep
 
 **Plan template** at `.plot/templates/plan.md`, copied from
 `skills/plot/templates/plan.md` and adapted: the Definition of Done from step
-2, and the repo's own content language if `language_hint` says so.
+2, and the repo's own content language if `language.language` says so. A
+`null` there means there was no hub doc to sample, which is not the same
+reading as English — leave the template's wording alone.
 
 **Worker prompt** at `.plot/worker-prompt.sh`, written by the script rather
 than by hand:
@@ -345,7 +374,7 @@ justify**, and say what triggered the offer:
 |---|---|---|
 | `git_host: bitbucket` | A `bb`-not-`gh` note in the hub | Plot's host adapter handles both, but agents reach for `gh` by habit |
 | `existing_systems` non-empty | A `docs/plans/README.md` recording what stays frozen and what is canonical now | Several planning systems without a written boundary is where drift starts |
-| `commit_style` detected | Record it in the Plot Config | A reviewer agent aligned to the wrong notation flags correct commits |
+| `commitStyle.style` proposed | Record it in the Plot Config, with its count | A reviewer agent aligned to the wrong notation flags correct commits |
 | `has_settings: false` and Plot is used as a plugin | The `.claude/settings.json` block enabling the plugin | Merge into an existing file, never overwrite |
 | Repo has `docs/stories/` | Note that `story-tracking` pairs with it | It is a companion, not a spoke — it works standalone |
 | Repo has `docs/sessionlogs/` (or a session-wrap tool is in use) | A `## Session Wrap Up` section in the hub | Session-scoped tools write the log; Plot only supplies the plot-shaped facts |
@@ -472,9 +501,12 @@ prerequisite is a fact a reader can act on; silence is not.
 - **Never propose `Tracker` or `CI` without the evidence behind it.** A bare
   `jira` teaches nothing and cannot be checked; `jira (QUACDS in 38 of 80
   subjects)` is confirmable in one read.
-- **Never write `Tracker: none` from silence.** An absent `ticket_prefix` is
+- **Never write `Tracker: none` from silence.** A `null` `ticket.prefix` is
   not evidence against a tracker — half of repositories carry no prefix. Ask,
   or leave the default.
+- **Never recompute a threshold the rule owns.** *Two occurrences make a
+  scheme* is `proposeTicket`'s, and a second copy in an agent's head is the
+  defect this seam removed.
 - **Never tie-break the CI system on the git host.** A team on GitHub running
   Jenkins is common, and a wrong `CI:` key sends every build-status lookup to
   the wrong system. Two signals ask.
