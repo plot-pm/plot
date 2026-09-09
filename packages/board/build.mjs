@@ -743,6 +743,14 @@ const vendoredScripts = [
   // `Worker bound` alone, silently, which is exactly the degradation the
   // comment above says the vendoring exists to prevent.
   'plot-transcript-quiet.sh',
+  // Sourced BY plot-approve.sh, plot-deliver.sh and plot-dispatch.sh as a
+  // `$script_dir` sibling — they spend their controller receipt through it on
+  // their own exit 0. Missing, all three ABORT: the source line is
+  // unconditional and `set -u` is on, so unlike the monitors above this is a
+  // crash rather than a silent degradation. Listed by hand for the same reason
+  // the monitors are — the server never spawns it, so no gate derived from the
+  // server's own spawns can see it.
+  'plot-state-receipt.sh',
 ];
 for (const name of vendoredScripts) {
   const src = path.join(here, '../../skills/plot/scripts', name);
