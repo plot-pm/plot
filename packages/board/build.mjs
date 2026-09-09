@@ -553,6 +553,35 @@ await esbuild.build({
 fs.copyFileSync(sprintTransitionArtifact, shippedSprintTransition);
 fs.chmodSync(shippedSprintTransition, 0o755);
 
+// The one lifecycle move that runs backwards, for /plot-reject.
+//
+// ONCE PER REVERSAL, the same call site the sprint transition answers at. Its
+// own bundle for the same reason: plot-ask.mjs answers `board` and `fleet` by
+// RUNNING plot-fleet-scan.sh, so a script asking it for a transition would call
+// an artifact that calls the script. This one spawns nothing — the plan file
+// arrives on stdin.
+//
+// Returning a Delivered plan to Approved had NO script owning its write, where
+// every forward move has one, so it was done by editing the `State:` line. That
+// is the shortcut this slice closes.
+const planUndeliverArtifact = path.join(here, 'dist/plot-plan-undeliver.mjs');
+const shippedPlanUndeliver = path.join(here, '../../skills/plot/scripts/board/plot-plan-undeliver.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/plan-undeliver.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: planUndeliverArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(planUndeliverArtifact, shippedPlanUndeliver);
+fs.chmodSync(shippedPlanUndeliver, 0o755);
+
 // What adoption writes into a repository, for /plot-init.
 //
 // ONCE PER ADOPTION, the same call site plot-propose-stack.mjs answers at, and
@@ -712,6 +741,7 @@ const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
 const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
+const planUndeliverKb = (fs.statSync(shippedPlanUndeliver).size / 1024).toFixed(1);
 const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
@@ -730,6 +760,7 @@ console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/s
 console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-plan-undeliver.mjs (${planUndeliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

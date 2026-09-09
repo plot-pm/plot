@@ -116,13 +116,21 @@ export type {
  * to a caller. An alias in the other direction is what this repo already has
  * one of, and one is enough.
  *
- * `reject` and `supersede` keep their plain names, and the rule is the same
+ * `reject`, `supersede` and `undeliver` keep their plain names, and the rule is
+ * the same
  * one: `scripts/count-domain-aliases.sh` counts a rename whose original name is
  * exported from exactly one module, and both are. Nothing collides with either,
  * so a `…Transition` suffix on them would buy no clarity and would be residue —
  * the three above are suffixed because two live functions genuinely collide.
  * There are no rejection or supersession workflows to collide with, because
- * this slice deliberately makes neither verb reachable from a script.
+ * that slice deliberately makes neither verb reachable from a script.
+ *
+ * `undeliver` is the third, and it collides with nothing for a different
+ * reason: it is the one lifecycle move that runs backwards, so no forward
+ * workflow shares its name. It is NOT `reject` — that verb writes the terminal
+ * `rejected` state and refuses a delivered plan, while this returns a Delivered
+ * plan to Approved. The two are exported side by side precisely so a caller
+ * reaching for the wrong one is refused by the other rather than served.
  */
 export {
   approve as approveTransition,
@@ -130,11 +138,13 @@ export {
   release as releaseTransition,
   reject,
   supersede,
+  undeliver,
   approvable,
   deliverable,
   releasable,
   rejectable,
   supersedable,
+  undeliverable,
   isDecision,
   isRefusal,
 } from './transitions/plan.js';
@@ -152,6 +162,7 @@ export type {
   ReleaseInput as ReleaseTransitionInput,
   RejectInput,
   SupersedeInput,
+  UndeliverInput,
 } from './transitions/plan.js';
 
 /**
