@@ -18,7 +18,7 @@ Board impact: yes. The inbox is a board section, and this changes which issues r
 
 ## Motivation
 
-**Reported from a real instance, and the cause is one line.** `plot-host.sh:3036`:
+**Reported from a real instance, and the cause is one line.** `plot-host.sh:3025`:
 
 ```sh
 jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY ORDER BY created DESC}"
@@ -77,6 +77,8 @@ So the detected prefix **seeds** a list and never constitutes one:
 
 They coincide on the reported repository and they are not the same thing. `Ticket prefixes` is documented as **Jira project keys** — what `project IN (…)` takes — so the JQL is exact and no mapping step exists. The name is close to `Branch prefixes`, which is an unrelated structural key holding `idea/, feature/, bug/`, and the docstring must say so where somebody reads the two together.
 
+**The name was challenged and kept, 2026-09-09.** Two alternatives were weighed and both cost more than the ambiguity they remove. `Jira projects` names exactly what the JQL takes and can never be read as a branch prefix — but it puts a vendor in the config key and severs the word it shares with the probe, whose `TicketProposal.prefix` is what seeds the value. `Tracker projects` is vendor-neutral and pairs with `Tracker:` — but no second tracker has project scoping today, so it generalises over a set of one. **`Ticket prefixes` keeps adoption's vocabulary in one word from probe to key**, and the collision with `Branch prefixes` is answered by a docstring rather than by a rename. That docstring is a slice deliverable, not a nicety: the two keys will sit adjacent in every adopting repo's config.
+
 The probe's reading is a *commit-subject* prefix, which is why it seeds rather than answers: it is evidence that a key exists, not proof of which keys the JQL needs.
 
 ### Adoption proposes it, seeded and confirmed
@@ -100,6 +102,8 @@ No such JQL function exists. Jira has no notion of the repository the board is s
 
 ## Slices
 
+**THIS PLAN COLLIDES WITH `every-issue-renders-as-open-issue` (#849), and this plan lands FIRST.** Both edit `plot-host.sh`'s `issue-list` Jira arm: the Scoped slice below rewrites the `jql=` line at `:3025`, and #849's Reading slice adds a field to the request and a key to the `jq` projection twenty lines below. This one goes first because its change is one line and self-contained, while #849's touches the projection this query feeds — so #849 rebases onto this rather than the other way round. Neither plan mentioned the other until both were challenged together.
+
 ### Scoped
 
 - `feature/the-jira-jql-scopes-by-project` — a `tracker_projects()` helper reading `Ticket prefixes`, and `issue-list`'s default JQL gaining `AND project IN (…)` when it answers non-empty. <!-- builds: tracker_projects, the helper reading a repository's Jira project keys -->
@@ -114,6 +118,6 @@ No such JQL function exists. Jira has no notion of the repository the board is s
 
 ## Notes
 
-Written 2026-09-09 from issue #850. Every claim the issue makes about the code was re-measured before the plan was written, and all of them held: the JQL at `plot-host.sh:3036`, the `head -1` at `plot-detect-repo.sh:97`, and `TicketProposal.prefix` as `string | null`. The issue's warning about the obvious seed is the most valuable thing in it — a fix that filtered on the single detected prefix would have shipped, looked correct on a single-project repository, and hidden two thirds of the reporter's real work.
+Written 2026-09-09 from issue #850. Every claim the issue makes about the code was re-measured before the plan was written, and all of them held: the JQL at `plot-host.sh:3025`, the `head -1` at `plot-detect-repo.sh:97`, and `TicketProposal.prefix` as `string | null`. The issue's warning about the obvious seed is the most valuable thing in it — a fix that filtered on the single detected prefix would have shipped, looked correct on a single-project repository, and hidden two thirds of the reporter's real work.
 
 The deliverable search found no existing `tracker_projects` and no existing prefix-list proposal; the near hits are `Branch prefixes` (an unrelated structural key) and `projectSlug` (a transcript path helper).
