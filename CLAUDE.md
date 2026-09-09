@@ -464,7 +464,9 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **Four of five actions had a controller and none was used.** The sprint one cost an hour: `State: Planned` is a word `SprintStateSchema` does not contain, the file was written by hand instead of from `templates/sprint.md` so the board parsed none of its nine items, and `commitment-empty` — the refusal for exactly that — never ran.
 
-**Where no controller exists, the gap is the finding.** Opening a PR has none, and that is worth filing rather than working around silently. **Where a rule exists and nothing calls it, that is a defect to report** — never a licence to write the field by hand.
+**Where no controller exists, the gap is the finding.** **Where a rule exists and nothing calls it, that is a defect to report** — never a licence to write the field by hand.
+
+**Opening a slice's PR was that gap, and it is closed.** `skills/plot/scripts/plot-open-pr.sh` asks `board/plot-slice-pr.mjs`, which asks `openSlicePr`. This paragraph read *"Opening a PR has none, and that is worth filing rather than working around silently"* until 2026-09-09 — amended rather than quietly broken, the way the `plot-host.sh` line above it was. **`gh pr create` is not the route**, and the reason is a measurement rather than a preference: three slice PRs were opened that way on 2026-09-08 and each took its title from the last commit subject, which on this estate is routinely `plot: build the board artifact`. A sprint PR is not a slice PR and still goes through `plot-host.sh pr-create` — the adapter, not the controller, because no plan names a sprint branch under a wave heading.
 
 **This binds the master agent specifically**, because a dispatched worker's changes are reviewed as code and a master agent's hand edits are not. Every mistake above was invisible to review: no diff of a script, no test, no PR.
 
