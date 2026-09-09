@@ -7,13 +7,19 @@
 #   --status    is the supervisor alive, how many agents are running, how long
 #               each has been idle — with pids. Starts nothing. Exit 0 when the
 #               supervisor is loaded, 1 when it is not, so a caller can gate on
-#               it without parsing prose.
+#               it without parsing prose. Where it is NOT loaded it names which
+#               of two failures this is — a machine with no unit, or a unit
+#               launchd was never told about — and prints that state's own
+#               repair. The two read identically and cost differently.
 #   --once      one supervisor tick against the live estate, then exit. THE
 #               GATE: the tick decides and performs nothing, so this is free and
 #               proves the daemon works before any unit is installed.
 #   --start [N] probe, fill the unit, load it, then bring up N free agents
 #               through `plot-dispatch.sh --start`. N is optional and passed
-#               through: the count and its default live there.
+#               through: the count and its default live there. It RECORDS THAT
+#               IT FINISHED, in `.plot/state/fleet-start.done` — a completion
+#               marker and not a lock, so absence is the signal and no timer
+#               tells a kill from a crash.
 #   --stop      stop every dispatched agent through `plot-dispatch.sh --stop`,
 #               reporting each branch as it goes, then unload the supervisor.
 #               The supervisor goes LAST — it is what would notice a desk
@@ -119,6 +125,67 @@ supervisor_pid() {
 }
 
 # ---------------------------------------------------------------------------
+# The completion marker — did the LAST `--start` finish?
+# ---------------------------------------------------------------------------
+#
+# A COMPLETION MARKER, NOT A LOCK FILE. A lock says *a run is in progress* and
+# answers wrongly for a run that died: nothing removes it, so every later reader
+# sees a run that is still going. The question here is *did the last run
+# finish*, and for that ABSENCE IS THE SIGNAL — no timer, no heuristic, and
+# nothing that has to tell a kill from a crash.
+#
+# `plot-estate-changed.sh` draws the same distinction: "a clock would answer
+# 'was it recent?' when the question is 'did it change?'".
+#
+# The measured failure, 2026-09-09: `--start` fills the unit, verifies it,
+# bootstraps, then cuts agent desks — and cutting desks is the slow part, one
+# `git worktree add` each. A run interrupted there leaves unit present, launchd
+# unaware, agents partly started. That state had no name, so `--status` printed
+# `not loaded` and an operator read it as *never installed*.
+#
+# MACHINE-LOCAL, under `.plot/state/`, for `plot-boardctl.sh:83`'s reason: it
+# records what one laptop did, and a checked-in copy would tell another clone
+# that its fleet was started.
+start_marker() { printf '%s' "$repo_root/.plot/state/fleet-start.done"; }
+
+# Where the unit for this label WOULD live, per platform. Read rather than
+# written: `--status` asks whether a file is there and must install nothing.
+unit_target() {
+  case "$(platform)" in
+    launchd) printf '%s' "$HOME/Library/LaunchAgents/$LABEL.plist" ;;
+    systemd) printf '%s' "$HOME/.config/systemd/user/plot-registryd.service" ;;
+  esac
+}
+
+# THE TWO READINGS, RESOLVED TOGETHER — which is what settles the fresh-clone
+# case. `.plot/state/` is machine-local and gitignored, so a machine that never
+# ran `--start` has no marker either; the marker ALONE cannot tell that machine
+# from an interrupted one. The unit file separates them:
+#
+#   unit file   marker    state
+#   absent      absent    not-installed   → /plot-fleet --start
+#   present     absent    interrupted     → one launchctl bootstrap
+#   present     present   installed
+#   loaded      —         running
+#
+# LOADED IS TESTED FIRST and the marker is not consulted for it. A fleet that is
+# running is running whatever the last run recorded — this machine's own
+# supervisor was loaded on 2026-09-09 with no marker beside it, and a reading
+# that took the marker as authoritative would have called a healthy fleet
+# interrupted.
+fleet_install_state() {
+  supervisor_loaded && { echo running; return; }
+  local unit
+  unit=$(unit_target)
+  if [ -n "$unit" ] && [ -f "$unit" ]; then
+    [ -f "$(start_marker)" ] && { echo installed; return; }
+    echo interrupted
+    return
+  fi
+  echo not-installed
+}
+
+# ---------------------------------------------------------------------------
 # The fleet's worktrees — where --stop and --status learn which agents exist
 # ---------------------------------------------------------------------------
 #
@@ -206,8 +273,35 @@ if [ "$mode" = "status" ]; then
     pid=$(supervisor_pid)
     echo "supervisor: running${pid:+ (pid $pid)} — $LABEL"
   else
-    echo "supervisor: not loaded ($LABEL)"
-    echo "  start it: /plot-fleet --start"
+    # THREE STATES WHERE THERE WERE TWO, AND THE REPAIR IS PRINTED. The two
+    # failures read identically to a person and cost differently: an operator
+    # who reads *not loaded* and runs `--start` on a machine whose unit is
+    # already filled pays for the wrong repair, and on one already running
+    # agents may add more. Measured 2026-09-09 — the fleet was stopped for
+    # hours, `launchctl list` showed no job, the plist sat on disk correct at
+    # 5344 bytes, and one `launchctl bootstrap` restored it.
+    #
+    # THE EXIT CODE AND THE `summary:` LINE ARE UNCHANGED. Both are the board's
+    # contract (`rules/supervisor-reading.ts`: 0 loaded, 1 not, the summary line
+    # proving the code was the script's), so this widens the PROSE and nothing a
+    # machine reads. What renders the third state on the board belongs to
+    # `bug/the-board-says-the-fleet-is-stopped`.
+    case "$(fleet_install_state)" in
+      interrupted)
+        unit=$(unit_target)
+        echo "supervisor: NOT LOADED ($LABEL) — the unit is installed and launchd does not know it"
+        echo "  A --start filled this unit and did not finish. Tell launchd about it:"
+        case "$plat" in
+          launchd) echo "    launchctl bootstrap gui/\$(id -u) $unit" ;;
+          systemd) echo "    systemctl --user enable --now plot-registryd" ;;
+        esac
+        echo "  Nothing needs re-cutting: /plot-fleet --start also does this, and starts agents too."
+        ;;
+      *)
+        echo "supervisor: not installed ($LABEL) — no unit on this machine"
+        echo "  start it: /plot-fleet --start"
+        ;;
+    esac
   fi
 
   n_run=0 n_other=0
@@ -302,6 +396,7 @@ if [ "$mode" = "start" ]; then
   fi
 
   if [ "$dry_run" = 1 ]; then
+    echo "state: $(fleet_install_state)"
     echo "would fill and load $LABEL ($plat)"
     echo "  node:      $node_bin (major $have, pinned $want)"
     echo "  registryd: $registryd"
@@ -311,6 +406,14 @@ if [ "$mode" = "start" ]; then
   fi
 
   mkdir -p "$repo_root/.plot/logs"
+  mkdir -p "$repo_root/.plot/state"
+
+  # THE MARKER IS CLEARED BEFORE THE WORK, NOT AFTER IT. It records that a run
+  # FINISHED, so one left over from a previous run would survive this run's
+  # interruption and report the very state this exists to catch. Between here
+  # and the write at the end, every reading is `interrupted` — which is the
+  # truth for exactly that window.
+  rm -f "$(start_marker)"
 
   case "$plat" in
     launchd)
@@ -387,7 +490,25 @@ if [ "$mode" = "start" ]; then
   else
     "$script_dir/plot-dispatch.sh" --start
   fi
-  exit $?
+  start_rc=$?
+
+  # THE RECORD THAT THE RUN FINISHED — the whole point of this file. Everything
+  # above it can be interrupted, and cutting desks is where a run measurably
+  # was: each is a `git worktree add`, twice in one session on 2026-09-09. Any
+  # exit before this line leaves no marker, so `--status` names `interrupted`
+  # and prints the one-line bootstrap instead of collapsing it into *not
+  # installed*.
+  #
+  # WRITTEN ON THE DISPATCH'S OWN EXIT CODE. A dispatch that refused did not
+  # finish, and a marker written regardless would say a run completed that did
+  # not — the lie is in the direction nobody checks.
+  if [ "$start_rc" = 0 ]; then
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$(start_marker)" 2>/dev/null || true
+  else
+    echo "  agents did not start cleanly — no completion marker written" >&2
+    echo "  /plot-fleet --status will report this run as interrupted." >&2
+  fi
+  exit "$start_rc"
 fi
 
 # ---------------------------------------------------------------------------
@@ -484,6 +605,12 @@ EOF
       echo "  supervisor did NOT unload — $LABEL is still loaded"
     else
       echo "  supervisor unloaded"
+      # THE MARKER GOES WITH THE SUPERVISOR, and only once it is actually gone.
+      # It records that a `--start` finished; a deliberate stop ends the run it
+      # described, so leaving it would report `installed` over a fleet somebody
+      # chose to end. A unit that did NOT unload keeps its marker, because the
+      # run it recorded is still the live one.
+      rm -f "$(start_marker)"
     fi
   else
     echo "  supervisor was not loaded"
