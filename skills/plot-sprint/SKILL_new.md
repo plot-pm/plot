@@ -339,7 +339,7 @@ Workflow:
 
 1. `git checkout -b sprint/<slug> origin/main`
 2. Refine the sprint file on the branch (one commit per substantive change — readiness, defer X, set dates)
-3. `gh pr create --draft --title "Sprint: <goal>" --body "..."` — keep as draft while in Planning phase
+3. `../plot/scripts/plot-host.sh pr-create --draft --title "Sprint: <goal>" --body "..."` — keep as draft while in Planning phase. A sprint PR is not a slice PR, so `plot-open-pr.sh` does not open it; the host is still reached only through the adapter
 4. Phase stays `Planning` throughout. Do NOT change the phase here.
 5. When the team agrees: run `/plot-sprint <slug> commit` (see Commit subcommand for PR-aware behavior).
 

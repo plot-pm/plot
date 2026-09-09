@@ -78,7 +78,7 @@
 
 ## Slices
 
-### A master agent cannot write a lifecycle field by hand (Branch: infra/a-lifecycle-field-has-one-writer) <!-- waits: feature/a-sprint-transition-is-performed -->
+### A master agent cannot write a lifecycle field by hand (Branch: infra/a-lifecycle-field-has-one-writer, PR: #851) <!-- waits: feature/a-sprint-transition-is-performed -->
 
 A gate refuses a commit that edits a `State:` line outside the scripts that own it.
 
@@ -92,7 +92,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** a commit editing a `State:` line outside the owning scripts is refused with the command that would have done it, the owning scripts pass, and a plan or sprint created from a template passes.
 
-### The sprint transitions are reachable from a controller (Branch: feature/a-sprint-transition-is-performed)
+### The sprint transitions are reachable from a controller (Branch: feature/a-sprint-transition-is-performed, PR: #839)
 
 `/plot-sprint`'s start, commit and close call `setSprintState` instead of describing the write.
 
@@ -116,7 +116,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** `/plot-reject` runs through an endpoint, refuses a plan that is not Delivered, refuses one whose refs are already deleted, names each refusal, and leaves the file untouched on a refusal.
 
-### Releasing asks the controller for its verdict (Branch: feature/a-release-is-a-controller-command) <!-- waits: feature/a-rejection-is-a-controller-command -->
+### Releasing asks the controller for its verdict (Branch: feature/a-release-is-a-controller-command, PR: #848) <!-- waits: feature/a-rejection-is-a-controller-command -->
 
 `/plot-release` reaches its gate through an endpoint, so the release decision is made where a refusal can stop it.
 
@@ -126,7 +126,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** `/plot-release` asks an endpoint for its verdict, an open Must refuses with the item named, the operator's approval is still required and still separate, and the skill's prose states the call rather than restating the rule.
 
-### Adoption writes its config through a controller (Branch: feature/adoption-is-a-controller-command) <!-- waits: feature/a-release-is-a-controller-command -->
+### Adoption writes its config through a controller (Branch: feature/adoption-is-a-controller-command, PR: #840) <!-- waits: feature/a-release-is-a-controller-command -->
 
 `/plot-init` writes `## Plot Config` through an endpoint that asks `proposeStack` what the readings propose.
 
@@ -136,7 +136,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** `/plot-init` writes its config through an endpoint, the proposals come from `proposeStack` rather than from skill prose, a repository that already carries a `## Plot Config` is refused by name, and an unattended run reports `PLOT-UNASKED` rather than writing a guess.
 
-### A slice's PR is opened by the fleet, not by hand (Branch: feature/a-pr-is-opened-by-a-controller) <!-- waits: feature/adoption-is-a-controller-command -->
+### A slice's PR is opened by the fleet, not by hand (Branch: feature/a-pr-is-opened-by-a-controller, PR: #846) <!-- waits: feature/adoption-is-a-controller-command -->
 
 Opening a slice's pull request is a controller command.
 

@@ -67,7 +67,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| Create, commit, start | Small | Git commands, templates, file ops |
+| Create | Small | Git commands, templates, file ops |
+| Commit, start, close transitions | Small | `plot-sprint-state.sh` asks `setSprintState` and performs what it decided. The judgement is the rule's; this step runs it and prints its sentence. A refusal ends the action — it is not advice to weigh |
 | Status | Small | File existence checks for delivery state are mechanical; no judgment needed |
 | Reconcile checkboxes (close step 2a) | Small | `plot-plan-meta.sh` to read phase; tick if `delivered` or `released`; mechanical |
 | False-positive check (close step 2b) | Mid | `plot-plan-meta.sh` to read phase; a checked box over an undelivered plan needs resolution, while a `rejected`/`superseded` phase is a withdrawal that is reported and never held |
@@ -349,7 +350,7 @@ Workflow:
 
 1. `git checkout -b sprint/<slug> origin/main`
 2. Refine the sprint file on the branch (one commit per substantive change — readiness, defer X, set dates)
-3. `gh pr create --draft --title "Sprint: <goal>" --body "..."` — keep as draft while in Planning phase
+3. `../plot/scripts/plot-host.sh pr-create --draft --title "Sprint: <goal>" --body "..."` — keep as draft while in Planning phase. A sprint PR is not a slice PR, so `plot-open-pr.sh` does not open it; the host is still reached only through the adapter
 4. Phase stays `Planning` throughout. Do NOT change the phase here.
 5. When the team agrees: run `/plot-sprint <slug> commit` (see Commit subcommand for PR-aware behavior).
 
@@ -393,8 +394,11 @@ Update phase **on the PR branch**, push, mark ready, merge:
 # Should already be on sprint/<slug> branch — confirm with: git branch --show-current
 # If not, check it out worktree-safe: git checkout -b sprint/<slug> origin/sprint/<slug>
 
-# Bump phase in the sprint file
-# **State:** Planning → **State:** Committed
+# The transition is PERFORMED, not described. plot-sprint-state.sh asks
+# setSprintState and writes only what it decided; on a refusal it prints the
+# rule's own sentence and leaves the file exactly as it was found.
+bash skills/plot/scripts/plot-sprint-state.sh <slug> Committed
+
 git add docs/sprints/*-<slug>.md
 git commit -m "sprint: commit <slug>"
 git push
@@ -403,6 +407,12 @@ gh pr ready <number>          # if currently draft
 gh pr merge <number> --merge --delete-branch
 ```
 
+**A refusal ends the commit.** `commitment-empty` means the sprint's Must Haves
+parsed to nothing — check the headings are `### Must Have`, which is what the
+parser matches and what `templates/sprint.md` writes. `release-unnamed` means
+no `Release:` line, and a commitment nothing is judged at is not one. Print the
+sentence the script printed; do not restate it.
+
 Default to **merge commits** (`--merge`) to preserve granular planning history (readiness, deferrals, scope changes are valuable context). If the project's `CLAUDE.md` specifies a different merge strategy, follow that instead. Do NOT default to `--squash` — it collapses the planning trail.
 
 The merge itself is the "scope locked" transition. No follow-up commit on main needed.
@@ -410,8 +420,8 @@ The merge itself is the "scope locked" transition. No follow-up commit on main n
 #### 4b. Direct Main Commit (no PR)
 
 ```bash
-# Bump phase in the sprint file
-# **State:** Planning → **State:** Committed
+bash skills/plot/scripts/plot-sprint-state.sh <slug> Committed
+
 git add docs/sprints/*-<slug>.md
 git commit -m "sprint: commit <slug>"
 git push
@@ -434,22 +444,28 @@ Begin the sprint. Creates the active symlink.
 
 **Pacing:** ⚡ automate ASAP (mechanical transition)
 
-#### 1. Find and Validate Sprint File
-
-Find sprint file, check Phase is `Committed`.
-
-#### 2. Create Active Symlink
+#### 1. Perform the Transition
 
 ```bash
-mkdir -p docs/sprints/active
-ln -s ../${WEEK_PREFIX}-<slug>.md docs/sprints/active/<slug>.md
+bash skills/plot/scripts/plot-sprint-state.sh <slug> Active
 ```
 
-#### 3. Update Phase
+**The script does the whole move.** It asks `setSprintState`, flips the state
+and creates the active symlink — the symlink follows the decided state rather
+than being a second decision. Do not check the phase first and do not make the
+link by hand: the rule reads the file and answers, and both were done by hand
+on 2026-09-08 with a state no rule admits.
 
-Change `**State:** Committed` → `**State:** Active`
+**A refusal ends the start**, and its sentence names the repair:
 
-#### 4. Commit
+- `state-unrecognised` — the file carries a word the lifecycle does not have.
+  The four are `Planning`, `Committed`, `Active`, `Closed`; ask for them with
+  `plot-sprint-state.sh --states`.
+- `state-unreachable` — a sprint is committed to before it runs. Take
+  `/plot-sprint <slug> commit` first.
+- `state-unchanged` — it is already Active. Nothing to do.
+
+#### 2. Commit
 
 ```bash
 git add docs/sprints/*-<slug>.md docs/sprints/active/<slug>.md
@@ -657,13 +673,21 @@ If yes, prompt for:
 
 Fill the `## Retrospective` section using the template from `skills/plot/templates/retrospective.md`. Include the Metrics subsection with actual counts from step 2.
 
-#### 4. Update Phase and Remove Symlink
-
-Change `**State:** Active` → `**State:** Closed`
+#### 4. Perform the Transition
 
 ```bash
-git rm docs/sprints/active/<slug>.md
-git add docs/sprints/*-<slug>.md
+bash skills/plot/scripts/plot-sprint-state.sh <slug> Closed --on $(date +%F)
+```
+
+**A close carries the date the timebox ended**, which is not its `End:`. A
+sprint past its planned end is late rather than closed, and only a person says
+it closed — so the date is passed in, recorded beside the state as
+`- **Actual End:**`, and `close-date-missing` refuses a close nobody can place.
+The script also removes the active symlink, so the state and the link cannot
+disagree.
+
+```bash
+git add -A docs/sprints
 git commit -m "sprint: close <slug>"
 git push
 ```

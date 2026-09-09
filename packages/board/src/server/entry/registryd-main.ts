@@ -21,9 +21,20 @@ import type { PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
 import { readFleetSettings } from '../fleet-settings.js';
-import { fileOrNull, worldFrom, type SupervisorWorld } from '../supervisor.js';
+import {
+  fileOrNull,
+  worldFrom,
+  type SupervisorWorld,
+  type TreeReading,
+} from '../supervisor.js';
 import type { QueueWorld } from '../queue-reading.js';
-import { tick, tickLine, TICK_INTERVAL_MS, type TickReport } from './registryd.js';
+import {
+  tick,
+  tickLine,
+  unclaimedLines,
+  TICK_INTERVAL_MS,
+  type TickReport,
+} from './registryd.js';
 import { QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 
 /**
@@ -290,6 +301,42 @@ export const worldForRepo = (repoRoot: string, scriptsDir: string): SupervisorWo
       const pid = Number(text.trim());
       return Number.isInteger(pid) && pid > 0 ? pid : null;
     },
+    worktrees: async () => {
+      const listed = await trees.list();
+      // AN UNREADABLE LIST REPORTS NOTHING, never an empty estate. Every other
+      // reading here fails toward the answer that acts least, and this one's
+      // least action is to name no leftover — a git that could not be asked
+      // must not produce a report telling a person to remove directories.
+      if (!listed.ok) return [];
+      const lines = await planLinesThisTick();
+      // AN EMPTY PLAN MAP REPORTS NOTHING, and this is the one caller that
+      // needs the guard. `planLinesFor` returns an empty map both for *the
+      // plans could not be read* and for *no plan names a branch*, and the
+      // supervision gate reads the pair harmlessly — a missing line drops one
+      // gate. Here the same emptiness would make EVERY tree read `planNamed:
+      // false`, so a plan store that failed to answer would print a list of
+      // removal commands for the whole estate.
+      if (lines.size === 0) return [];
+      const readings: TreeReading[] = [];
+      for (const tree of listed.value) {
+        // THE DIRT IS ASKED OF A TREE THAT IS THERE. A prunable entry has no
+        // directory to read, so `git status` in it answers about whatever the
+        // path now holds — and its disposition is `prune` whatever the count.
+        const dirty = await dirtyCountOf(trees, tree.path, tree.prunable);
+        readings.push({
+          path: tree.path,
+          branch: tree.branch,
+          isMain: tree.isMain,
+          prunable: tree.prunable,
+          // A DETACHED TREE NAMES NO BRANCH, so no plan can name it. The empty
+          // string is the reading rather than a lookup that would match the
+          // plan line of whatever branch sorts first.
+          planNamed: tree.branch !== '' && lines.has(tree.branch),
+          dirtyCount: dirty,
+        });
+      }
+      return readings;
+    },
   });
 };
 
@@ -484,6 +531,34 @@ export const fleetCapForRepo = async (
     spawnCostMs,
     desks: Array.from({ length: DESKS_PER_TICK }, () => ''),
   };
+};
+
+/**
+ * How many uncommitted paths one worktree carries.
+ *
+ * **UNREADABLE DIRT COUNTS AS DIRT.** A tree that could not be measured may
+ * hold work, and the finding for that tree is *a person reads it* rather than
+ * *here is the removal command* — so a refused reading answers one, not zero.
+ *
+ * **A PRUNABLE ENTRY IS NOT ASKED AND CARRIES NO DIRT.** There is nothing at
+ * the path to read, and `git status` there would answer about whatever now
+ * occupies it. Zero is honest of a directory that is gone; the disposition is
+ * `prune` whatever this returns, so the number is only ever what the report
+ * prints.
+ *
+ * @param trees - the trees port.
+ * @param path - the worktree's absolute path.
+ * @param prunable - git's own view that the directory is gone.
+ * @returns the count, or 1 where the reading was refused.
+ */
+const dirtyCountOf = async (
+  trees: ReturnType<typeof treesGit>,
+  path: string,
+  prunable: boolean,
+): Promise<number> => {
+  if (prunable) return 0;
+  const answer = await trees.dirtyPaths(path);
+  return answer.ok ? answer.value.length : 1;
 };
 
 /**
@@ -760,6 +835,12 @@ export const reportTick = (
     if (row.supervision.verdict === 'leave') continue;
     write(`  ${row.branch}: ${row.supervision.verdict} (${row.supervision.cause})\n`);
   }
+  // NAMED ON EVERY TICK, unlike the held slices below, and the difference is
+  // how many there are. The holds run to hundreds on this estate and are a
+  // `--once` inspection; the unclaimed trees were twelve at their worst and
+  // are zero on a healthy estate, so a looping daemon can name each one
+  // without ever writing a line nobody wants.
+  for (const line of unclaimedLines(report)) write(`${line}\n`);
   // THE HAND-OVER IS NAMED PER SLICE, where supervision is named per agent.
   // A tick that handed nothing over prints its counts and no rows, the same
   // way a quiet estate prints `left=3` and nothing else.

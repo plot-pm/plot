@@ -17,6 +17,7 @@ import {
 } from '@plot-pm/domain/rules/gates';
 import type { MergeReading } from '@plot-pm/domain/rules/reapable';
 import type { SupervisionReadings } from '@plot-pm/domain/rules/supervision';
+import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import type { SuperviseReadings } from '@plot-pm/domain/workflows/supervise';
 
 import { type AgentEntry } from './registry.js';
@@ -71,6 +72,47 @@ export interface SupervisorWorld {
   deskFile(worktree: string, name: string): string | null;
   /** Whether a transcript exists for a session id, from this desk. */
   transcriptFound(worktree: string, sessionId: string): boolean;
+  /**
+   * Every worktree git lists, with what the machine can say about each — or
+   * absent where this world does not read them.
+   *
+   * **ASKED ONCE PER TICK, NOT PER AGENT.** It is a property of the machine
+   * rather than of an agent, the same rule {@link SupervisorWorld.headroom}
+   * follows, and the population it reports is precisely the one no agent entry
+   * names.
+   *
+   * **IT DOES NOT ANSWER `registered`.** That is the registry's fact and
+   * {@link readTick} already holds the list, so a world that answered it would
+   * be a second reader of the manifests — able to disagree with the pass that
+   * supervises them, within one tick.
+   *
+   * OPTIONAL, so a world built before the finding existed still supervises
+   * every desk. An absent member reports no unclaimed tree rather than an
+   * estate with none.
+   */
+  trees?(): Promise<readonly TreeReading[]>;
+}
+
+/**
+ * What the machine can say about one registered worktree.
+ *
+ * {@link RegisteredTreeReadings} without `registered`, which the tick fills
+ * from the registry it already read. Named rather than derived with `Omit`
+ * because a reader of a world member should see its fields.
+ */
+export interface TreeReading {
+  /** The absolute path — git's own identity for the entry. */
+  path: string;
+  /** The branch it holds, or `''` when HEAD is detached. */
+  branch: string;
+  /** Whether this is the main checkout. */
+  isMain: boolean;
+  /** Git's own view that the directory is gone. */
+  prunable: boolean;
+  /** Whether any plan names the branch it holds. */
+  planNamed: boolean;
+  /** How many uncommitted paths it carries. */
+  dirtyCount: number;
 }
 
 /**
@@ -102,7 +144,19 @@ export const readTick = async (
     agents.push(await readAgent(entry, world, headroom, workspacePackages));
   }
 
-  return { agents };
+  // THE REGISTRY LIST IS THE ONE THE AGENTS WERE SUPERVISED FROM. Reading the
+  // manifests again here would let one tick supervise one set of desks and
+  // judge another set unclaimed — which is the disagreement that would name a
+  // live worker's desk as a leftover.
+  const registered = new Set(entries.map((entry) => entry.worktree));
+  const trees =
+    world.trees === undefined
+      ? undefined
+      : (await world.trees()).map(
+          (tree): RegisteredTreeReadings => ({ ...tree, registered: registered.has(tree.path) }),
+        );
+
+  return { agents, trees };
 };
 
 /**
@@ -234,6 +288,13 @@ export interface WorldOptions {
   recordedPid(worktree: string): number | null;
   /** The home directory transcripts are looked for under. */
   home?: string;
+  /**
+   * Every worktree git lists, or absent where this world does not read them.
+   *
+   * Passed through untouched: the join is {@link readTick}'s, and adding the
+   * registry's answer here would put it behind an option a caller can forget.
+   */
+  worktrees?(): Promise<readonly TreeReading[]>;
 }
 
 /** The prefix a blocked marker's filename carries. */
@@ -250,6 +311,11 @@ const BLOCKED_PREFIX = 'PLOT-BLOCKED';
  * @returns the world the tick reads through.
  */
 export const worldFrom = (options: WorldOptions): SupervisorWorld => ({
+  // OMITTED RATHER THAN STUBBED when the caller gave none. A member answering
+  // an empty list would report an estate carrying no worktree at all, which is
+  // false of every machine — `readTick` reads the member's ABSENCE as *nobody
+  // asked*, and a stub would take that distinction away from it.
+  ...(options.worktrees === undefined ? {} : { trees: options.worktrees }),
   beginTick: () => options.beginTick?.(),
   workerAlive: async (worktree) => {
     const pid = options.recordedPid(worktree);
