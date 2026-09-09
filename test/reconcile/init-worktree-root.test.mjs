@@ -1,11 +1,15 @@
 // Contract test for skills/plot-init/SKILL.md — the `Worktree root` proposal
 // and the `.gitignore` line that comes with it.
 //
-// THE SUBJECT IS AN INSTRUCTION, NOT A SCRIPT, so this file asserts what the
-// skill SAYS. That is the same shape `dispatch.test.mjs` uses on this very
-// file ("plot-init: never raises the worker question"), and it is the only
-// surface there is: no script proposes a config key, because turning signals
-// into a proposal is the skill's job (Manifesto Principle 3).
+// THE SUBJECT WAS AN INSTRUCTION AND IS NOW THREE THINGS, and that split is
+// itself the property. Until 2026-09-09 step 3 stated the whole config block as
+// prose and this file could only assert what the skill SAID. `composeAdoption`
+// now decides the keys and `plot-write-config.sh` performs the write, so each
+// assertion below sits where its property actually lives: the DEFAULT in the
+// rule, the APPEND in the performer, and what a person is TOLD in the skill.
+//
+// Turning signals into a proposal is still the skill's job (Manifesto Principle
+// 3). What moved is the write it proposed — which was never a judgement.
 //
 // WHAT IS BEING PROTECTED IS A PAIR. `Worktree root: .worktrees` with no
 // ignore rule turns every dispatched desk into untracked files in
@@ -25,15 +29,25 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
 const skillPath = path.join(repoRoot, 'skills', 'plot-init', 'SKILL.md');
 const readmePath = path.join(repoRoot, 'skills', 'plot-init', 'README.md');
+const rulePath = path.join(repoRoot, 'packages', 'domain', 'src', 'rules', 'adoption.ts');
+const performerPath = path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-write-config.sh');
 const skill = fs.readFileSync(skillPath, 'utf8');
+const rule = fs.readFileSync(rulePath, 'utf8');
+const performer = fs.readFileSync(performerPath, 'utf8');
 
 // ── Case 1: a fresh repository is offered the key AND the line ───────────────
 
 test('init: proposes Worktree root with its default', () => {
   assert.match(skill, /Worktree root/,
     'adoption must name the key it is proposing');
-  assert.match(skill, /- \*\*Worktree root:\*\* \.worktrees/,
-    'the config block must show the proposed key');
+  // THE KEY IS THE RULE'S, and the assertion moved with it. Step 3 stated the
+  // whole `## Plot Config` block as prose until 2026-09-09; `composeAdoption`
+  // now composes it and `DEFAULT_WORKTREE_ROOT` holds this value, so a markdown
+  // block in the skill would be a second answer rather than the contract.
+  assert.match(rule, /export const DEFAULT_WORKTREE_ROOT = '\.worktrees';/,
+    'the rule must hold the proposed default');
+  assert.match(skill, /An empty `worktreeRoot` takes `\.worktrees`/,
+    'the skill must say what an unanswered root proposes');
   // In the proposal block, so a user sees it before confirming rather than
   // discovering it in a diff afterwards.
   const proposal = skill.slice(0, skill.indexOf('### 3.'));
@@ -57,20 +71,28 @@ test('init: writes the .gitignore line rather than printing it to paste', () => 
   // that does not get added, and then every desk is untracked work.
   assert.match(skill, /Do not print it for the user to paste/,
     'the skill must forbid handing the line to the user');
-  assert.match(skill, /\.worktrees\/$/m,
-    'the ignore line itself must appear, so there is something to write');
+  // THE LINE AND ITS COMMENT MOVED INTO THE PERFORMER. An agent no longer
+  // composes them, so asserting them against the skill would assert prose that
+  // writes nothing; `plot-write-config.sh` is what appends them.
+  assert.match(performer, /printf '%s\\n' "\$ignore_line"/,
+    'the performer must write the line it was given');
   // The wording is this repo's own, copied deliberately.
-  assert.match(skill, /gathered here by the `Worktree root` key rather than/,
+  assert.match(performer, /gathered here by the `Worktree root` key rather than/,
     "the comment above the line must explain what it is");
 });
 
 test('init: .gitignore is appended, never rewritten', () => {
-  assert.match(skill, /Append it; never rewrite the\nfile/,
+  assert.match(skill, /It appends and never\nrewrites/,
     'the write must be an append');
   assert.match(skill, /Never write `\.gitignore` without the confirmation from step 2/,
     'the guardrail must tie the write to the confirmation');
-  assert.match(skill, /Where no `\.gitignore` exists, create one/,
+  // AN APPEND TO AN ABSENT FILE IS A CREATE, and `>>` is what makes that true
+  // without a branch — the property is the shell's redirection rather than a
+  // sentence an agent has to follow.
+  assert.match(performer, /\} >> \.gitignore/,
     'an absent file is a create, not a failure');
+  assert.match(performer, /grep -qxF "\$ignore_line" \.gitignore/,
+    'a line already there is not written twice');
 });
 
 test('init: says plainly that .gitignore is a new write surface', () => {
@@ -166,8 +188,13 @@ test('init: the skill and plot-config.sh agree about the default', () => {
 test('init: an absolute worktree root needs no ignore line', () => {
   // It resolves outside the repository, so a line would match nothing. Writing
   // one anyway is a rule nobody can explain later.
-  assert.match(skill, /An absolute root lies outside\nthe repository and needs no ignore rule at all/,
-    'the skill must handle the absolute case rather than writing a dead rule');
+  // THE RULE ANSWERS IT, and the skill states the answer. `ignoreLineFor`
+  // returns `''` for an absolute root, and the performer writes nothing on `''`
+  // — so the dead rule cannot be written even by a caller that wanted one.
+  assert.match(rule, /root\.startsWith\('\/'\) \? '' :/,
+    'the rule must answer no line for an absolute root');
+  assert.match(skill, /writes none at all for an absolute\nroot/,
+    'the skill must state the absolute case rather than writing a dead rule');
 });
 
 // ── The dev notes carry the reasoning ───────────────────────────────────────

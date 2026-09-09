@@ -64,6 +64,7 @@ export * from './rules/checks-reading.js';
 export * from './rules/task.js';
 export * from './rules/landed.js';
 export * from './rules/stack.js';
+export * from './rules/adoption.js';
 /**
  * The BranchState producer, beside the three rules that consume it.
  *

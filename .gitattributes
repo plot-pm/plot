@@ -44,6 +44,7 @@
 # side, then rebuild" is safe only where the rebuild overwrites what was kept.
 # Marking it would assert a rebuild that does not exist.
 skills/plot/scripts/board/board-server.mjs -merge
+skills/plot/scripts/board/plot-adopt.mjs -merge
 skills/plot/scripts/board/plot-agent-state.mjs -merge
 skills/plot/scripts/board/plot-ask.mjs -merge
 skills/plot/scripts/board/plot-branch-state.mjs -merge
