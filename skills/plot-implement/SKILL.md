@@ -258,8 +258,27 @@ because none were rejected. What must never happen is a brief that only
 restates the plan's headings — that is the shape that gets skipped, and a
 skipped brief is why the mechanics get re-asked.
 
-The brief also carries the bookkeeping duties for the implementing session:
-**when the PR is created, append `→ #<number>`** (from another repo:
+The brief also carries the bookkeeping duties for the implementing session.
+**The PR is opened through the controller:**
+
+```bash
+../plot/scripts/plot-open-pr.sh          # the current branch
+../plot/scripts/plot-open-pr.sh --draft  # while the work is still moving
+```
+
+It reads which plan names the branch and opens the PR with that plan's wave
+heading as the title, the plan and the brief in the body, and a notice where
+the branch carries nothing outside a `PLOT-BLOCKED` marker. It refuses a
+branch no plan names, a plan naming it under no heading, a branch a PR
+already carries — by number — and a branch holding no commit its base does
+not. `--dry-run` prints the decision and opens nothing.
+
+**Do not run `gh pr create`.** Measured 2026-09-08, three slice PRs were
+opened that way because no command offered it, and each took its title from
+the last commit subject; the sprint before, fifteen branches carried finished
+work nobody could see because no PR was raised at all.
+
+**When the PR is created, append `→ #<number>`** (from another repo:
 `→ <owner>/<repo>#<number>`) to this branch's line in the plan's
 `## Branches` section — `/plot-deliver` back-fills missed ones via the
 host adapter, but written-at-creation keeps the plan current. Where a
@@ -298,9 +317,10 @@ started branch's PR to "Ready" once it exists:
 ```
 
 At this point the PR usually does not exist yet — the implementing session
-creates it. The hand-off brief (step 4) carries this as bookkeeping alongside
-the `→ #<number>` annotation, so the status is set when the PR appears rather
-than guessed here. Skip if no project board is configured.
+opens it with `plot-open-pr.sh` (step 4). The hand-off brief carries this as
+bookkeeping alongside the `→ #<number>` annotation, so the status is set when
+the PR appears rather than guessed here. Skip if no project board is
+configured.
 
 ### 6. Summary — orient
 
