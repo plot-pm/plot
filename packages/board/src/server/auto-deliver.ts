@@ -6,6 +6,7 @@ import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
 import type { PlanMeta, FleetReading } from '../contract/schema.js';
 import { scriptsFor } from './board.js';
+import { recordActionReceipt } from './action-receipt.js';
 
 /**
  * A finished plan delivers itself, and its desks are cleared behind it.
@@ -352,6 +353,13 @@ export function runAutoDeliver(
     };
     const onError = (err: Error): void =>
       console.error('auto-deliver failed to spawn:', err);
+    // ABOVE BOTH ARMS, because both are this controller acting. The agent arm
+    // is the one that needs it most: a spawned `claude -p` inherits these same
+    // plugin hooks and runs from the REPOSITORY ROOT, not a desk, so its own
+    // `plot-deliver.sh` call reaches the gate exactly as a master agent's does.
+    // Without a receipt written before it starts, the board's legitimate
+    // delivery route would be refused by the gate the board itself installs.
+    recordActionReceipt(opts.repoRoot, 'deliver', plan.slug);
     if (command) {
       const child = spawn(
         'sh',

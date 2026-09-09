@@ -12,6 +12,7 @@ import {
 } from './implement.js';
 import { usableCommand } from './idea.js';
 import { localCapability } from './controllers/caller.js';
+import { recordActionReceipt } from './action-receipt.js';
 
 /**
  * The board's ONE state-changing route.
@@ -430,6 +431,12 @@ export async function handleDispatch(
   // exists once the run has finished. That is not a gap to paper over — it is
   // the same shape as start_worker's own detached spawn, and it is why the row
   // moving is the answer rather than the reply being one.
+  // THE RECEIPT, IMMEDIATELY BEFORE THE SPAWN. `plot-controller-gate.sh`
+  // refuses `plot-dispatch.sh` invoked with no receipt, and this route is the
+  // legitimate caller it must not refuse — a gate that broke the legitimate
+  // path is worse than no gate. Written here rather than inside `start` so it
+  // sits beside the decision to act, which is what the gate is asking about.
+  recordActionReceipt(opts.repoRoot, 'dispatch', slug);
   scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', MAX_PER_CLICK, slug], {
     log: out,
     onError: (err) => console.error('dispatch failed to spawn:', err),

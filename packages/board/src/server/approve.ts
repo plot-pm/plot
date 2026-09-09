@@ -11,6 +11,7 @@ import {
   type DispatchAvailability,
 } from './dispatch.js';
 import { scriptsFor } from './board.js';
+import { recordActionReceipt } from './action-receipt.js';
 
 /**
  * The board's SECOND state-changing route — and the one that acts on the git
@@ -284,6 +285,12 @@ export async function handleApprove(
       /* nothing further to do */
     }
   };
+  // ABOVE BOTH ARMS, because both are this controller acting.
+  // `plot-controller-gate.sh` refuses `plot-approve.sh` invoked with no
+  // receipt, and the agent arm reaches it too: a spawned `claude -p` inherits
+  // these same plugin hooks and runs from the repository root, so the approve
+  // agent's own script call is gated exactly as a master agent's is.
+  recordActionReceipt(opts.repoRoot, 'approve', slug);
   if (command) {
     const child = spawn(
       'sh',
