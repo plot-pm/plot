@@ -271,7 +271,7 @@ once. Whichever lands first, the other rebases.
 The board shows it. Depends on Reading: there is nothing to render until the
 payload carries it.
 
-- `feature/the-inbox-shows-a-real-status` <!-- builds: the inbox row status cell, read from the issue rather than assumed --> — carry the two fields through `IssueRowSchema` and the fleet payload, and replace `tupleFromIssue`'s `status: 'open'` literal with the issue's own status, rewriting the justification comment that made the literal defensible.
+- `feature/the-inbox-shows-a-real-status` <!-- builds: the inbox row status cell, read from the issue rather than assumed --> — carry the two fields through `IssueRowSchema` and the fleet payload, and replace `tupleFromIssue`'s `status: 'open'` literal with the issue's own status, rewriting the justification comment that made the literal defensible. → #868
 
 ## Notes
 
