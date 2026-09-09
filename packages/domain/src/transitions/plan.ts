@@ -93,6 +93,7 @@ export type RefusalReason =
   | 'version-missing'
   | 'reason-missing'
   | 'successor-missing'
+  | 'refs-swept'
   | 'precondition-unmet';
 
 /**
@@ -357,6 +358,148 @@ export const deliver = (plan: TransitionPlan, input: DeliverInput): TransitionRe
     field: 'Delivered',
     record: written === '' ? input.on : written,
     alreadyRecorded: plan.phase === 'delivered' && written !== '',
+  };
+};
+
+/** What `undeliver` needs beyond the plan. */
+export interface UndeliverInput {
+  /** The date to record, ISO-8601. */
+  on: string;
+  /**
+   * Why the delivery is being reversed.
+   *
+   * Required, and the field this verb exists for. A delivery that was recorded
+   * and then withdrawn leaves two dated claims in one file, and the reason is
+   * the only thing that tells a reader which one to believe.
+   */
+  why: string;
+  /** Readings an adapter measured, such as whether the branches' refs survive. */
+  preconditions?: readonly Precondition[];
+}
+
+/**
+ * Whether a plan is in a state where Undeliver should be offered.
+ *
+ * Callable alone, because a board must know whether to offer the action before
+ * anyone takes it. Tested with a placeholder reason, so it answers about the
+ * state rather than the input.
+ *
+ * @param plan - the plan to test.
+ * @returns true when the mechanical gates would pass.
+ */
+export const undeliverable = (plan: TransitionPlan): boolean =>
+  !isRefusal(undeliver(plan, { on: '', why: 'placeholder' }));
+
+/**
+ * Decides the write that reversing a delivery calls for.
+ *
+ * THE ONE LIFECYCLE MOVE THAT RUNS BACKWARDS. Every other transition here
+ * advances a plan or takes it out of the lifecycle; this returns a Delivered
+ * plan to Approved so its remaining work can be built. It is `deliver`'s
+ * inverse, and it is a separate verb rather than a flag on `deliver` for the
+ * reason `notLeavable` gives about its own pair: the gates differ. `deliver`
+ * refuses a Draft as too early; this refuses one as never delivered, which is a
+ * different sentence about a different mistake.
+ *
+ * **IT IS NOT `reject`.** That verb writes the terminal `rejected` state — a
+ * verdict that a plan will not be built — and refuses a delivered plan outright.
+ * This one moves Delivered → Approved and keeps the plan live. The two share the
+ * `Rejected:` record field because a plan file has one line for *somebody said
+ * no, on this date, for this reason*, and both write it; they do not share a
+ * state, and a caller reaching for the wrong one is refused by the other.
+ *
+ * **`released` IS TERMINAL HERE, AND THAT IS THE POINT.** A released plan's work
+ * is tagged and published. Returning it to Approved would claim the release did
+ * not happen, which no edit to a phase field can make true.
+ *
+ * **WHETHER THE BRANCHES' REFS SURVIVE IS A READING.** A delivered plan's merged
+ * refs are deleted by `plot-release-refs.sh`, and a plan returned to Approved
+ * whose refs are gone has nowhere to put the remaining work — the reversal would
+ * produce a live plan naming branches that no longer exist. Resolving a ref needs
+ * a git remote the domain cannot reach, so the caller supplies it as a
+ * precondition named `refs`, and this refuses on it by its own name rather than
+ * through the generic `precondition-unmet` — a reader repairing swept refs acts
+ * differently from one repairing an unmet reading they have never seen.
+ *
+ * `approved` is not refused: it is the idempotent case, where a phase flipped
+ * without its record is still repairable.
+ *
+ * @param plan - the plan whose delivery is being reversed.
+ * @param input - the date and reason to record, plus any readings.
+ * @returns a decision carrying `approved` and its `Rejected:` record, or a
+ *   refusal naming the gate that fired: `state-terminal`, `state-too-early`,
+ *   `state-wrong`, `state-unreadable`, `reason-missing`, `refs-swept` or
+ *   `precondition-unmet`.
+ */
+export const undeliver = (plan: TransitionPlan, input: UndeliverInput): TransitionResult => {
+  switch (plan.phase) {
+    case 'delivered':
+    case 'approved':
+      break;
+    case 'released':
+      return refuse(
+        plan.slug,
+        'state-terminal',
+        `plan '${plan.slug}' is released — a tag is public and a published package cannot be recalled, so its delivery cannot be reversed. Write a new plan for what should change.`,
+      );
+    case 'draft':
+    case 'design':
+      return refuse(
+        plan.slug,
+        'state-too-early',
+        `plan '${plan.slug}' is still '${plan.phase}' — it was never delivered, so there is no delivery to reverse.`,
+      );
+    case 'none':
+      return refuse(
+        plan.slug,
+        'state-unreadable',
+        `cannot read the state of '${plan.slug}' — refusing rather than guessing.`,
+      );
+    default:
+      return refuse(
+        plan.slug,
+        'state-wrong',
+        `plan '${plan.slug}' is in state '${plan.phase}' — it left the lifecycle, and only a Delivered plan has a delivery to reverse.`,
+      );
+  }
+
+  const written = (plan.rejectedRecord ?? '').trim();
+  const why = input.why.trim();
+  // Asked only where a record would be written: a plan already carrying one is
+  // being repaired, and its reason was recorded when the delivery was reversed.
+  if (written === '' && why === '') {
+    return refuse(
+      plan.slug,
+      'reason-missing',
+      `plan '${plan.slug}' cannot have its delivery reversed without a reason — a plan that was delivered and then was not, with nothing saying why, is a file nobody can act on.`,
+    );
+  }
+
+  // NAMED RATHER THAN GENERIC, and asked before the other readings. A caller
+  // whose refs were swept has one repair — restore them, or write a new plan —
+  // and a refusal spelling `precondition-unmet` sends it looking for which
+  // reading it forgot to supply.
+  const swept = (input.preconditions ?? []).find((p) => p.name === 'refs' && !p.met);
+  if (swept) {
+    return refuse(
+      plan.slug,
+      'refs-swept',
+      swept.detail
+        ? `plan '${plan.slug}' has branches whose refs are already deleted: ${swept.detail}. Returning it to Approved would name work that no longer exists anywhere.`
+        : `plan '${plan.slug}' has branches whose refs are already deleted — returning it to Approved would name work that no longer exists anywhere.`,
+    );
+  }
+
+  const blocked = unmet(plan.slug, input.preconditions ?? []);
+  if (blocked) return blocked;
+
+  return {
+    outcome: 'decided',
+    slug: plan.slug,
+    phase: 'approved',
+    field: 'Rejected',
+    record: written === '' ? `${input.on}, ${why}` : written,
+    alreadyRecorded: plan.phase === 'approved' && written !== '',
   };
 };
 
