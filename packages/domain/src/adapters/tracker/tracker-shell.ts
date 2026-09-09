@@ -11,6 +11,8 @@ interface RawIssue {
   url?: string;
   createdAt?: string;
   body?: string;
+  status?: string;
+  statusCategory?: string;
 }
 
 /** One limit reading as `plot-host.sh` reports it. */
@@ -33,6 +35,11 @@ const MS_PER_SECOND = 1000;
  * key, and comparing them as numbers is what makes a filter silently
  * always-false.
  *
+ * `status` and `statusCategory` degrade to `''` rather than to a guess: an
+ * op that reports no status (`issue-view`) and a tracker whose vocabulary has
+ * no category for a state both mean *nothing was said*, and a default of
+ * `To Do` would state a stage the tracker never claimed.
+ *
  * @param raw - the script's JSON object.
  * @returns the issue; a null `body` means it was not fetched.
  */
@@ -42,6 +49,8 @@ export const issueOf = (raw: RawIssue): Issue => ({
   url: raw.url ?? '',
   createdAt: raw.createdAt !== undefined && raw.createdAt !== '' ? raw.createdAt : null,
   body: raw.body ?? null,
+  status: raw.status ?? '',
+  statusCategory: raw.statusCategory ?? '',
 });
 
 /**

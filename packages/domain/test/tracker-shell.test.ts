@@ -390,6 +390,8 @@ describe('the fixture stands in for a tracker that is there', () => {
     url: 'https://quokka.invalid/issue/QF-1',
     createdAt: '2026-09-01T00:00:00Z',
     body: null,
+    status: 'open',
+    statusCategory: 'To Do',
   };
 
   it('answers every read the port defines', async () => {

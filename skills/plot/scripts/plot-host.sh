@@ -159,7 +159,26 @@
 #                                 unavailable, never "no run".
 #   issue-list [--limit N]        open tracker issues as JSON lines:
 #                                 {"number":N,"title":"…","url":"…",
-#                                  "createdAt":"…"}
+#                                  "createdAt":"…","status":"…",
+#                                  "statusCategory":"…"}
+#                                 `status` is the tracker's OWN word for the
+#                                 stage — per-workflow, possibly localised
+#                                 (*Internal Approving*). `statusCategory` is
+#                                 the stable three-value vocabulary (To Do /
+#                                 In Progress / Done) a board may group on.
+#                                 BOTH, because neither substitutes for the
+#                                 other: the name is what a person reads, the
+#                                 category is what a board decides on. EVERY
+#                                 backend answers both — GitHub derives them
+#                                 from the `--state` this op asks for, jira
+#                                 reads .fields.status, and bitbucket maps the
+#                                 state badge it already parses. A Jira-only
+#                                 field is what this adapter exists to prevent.
+#                                 `statusCategory` is "" where the tracker's
+#                                 vocabulary has no word for it — bitbucket's
+#                                 ON HOLD/INVALID/DUPLICATE/WONTFIX. Empty is
+#                                 an honest answer; an invented category files
+#                                 abandoned work beside finished work.
 #                                 READ-ONLY. Plot writes no label, no assignee
 #                                 and no close-on-merge, because a copy of
 #                                 tracker state ages into a lie. The one write
@@ -3110,7 +3129,7 @@ case "$op" in
       raw="$(jira_curl "/rest/api/2/search/jql" \
                -G \
                --data-urlencode "jql=$jql" \
-               --data-urlencode "fields=summary,created" \
+               --data-urlencode "fields=summary,created,status" \
                --data-urlencode "maxResults=$max")"; curl_rc=$?
       body="$(jira_check "$raw" "$curl_rc")" || exit $?
       # `number` is the Jira KEY (PROJ-123), a string — #447 taught the parser to
@@ -3118,21 +3137,39 @@ case "$op" in
       # search payload carries no browse URL, and the base is ours to know
       # (Principle 3: this script is the one place that knows a host URL's shape).
       base="$(tracker_base_url)"
+      # `status` is the workflow's own word (*Internal Approving*) and may be
+      # localised; `statusCategory` is Jira's stable three-value vocabulary
+      # (To Do / In Progress / Done). BOTH are carried because neither
+      # substitutes for the other: the name is what a person reads, the
+      # category is what a board groups on. A board grouping on the name
+      # fragments across projects that spell the same stage differently.
       printf '%s' "$body" | jq -c --arg base "$base" '.issues[]? | {
           number: .key,
           title: (.fields.summary // ""),
           url: ($base + "/browse/" + .key),
-          createdAt: (.fields.created // "")
+          createdAt: (.fields.created // ""),
+          status: (.fields.status.name // ""),
+          statusCategory: (.fields.status.statusCategory.name // "")
         }'
     elif [ "$be" = "github" ]; then
       # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
       # so the REST endpoint returns both, and every open PR would arrive here
       # as a signal nobody had planned. The `gh` subcommand filters PRs out;
       # this note exists because that trap is invisible while it works.
-      if out="$(gh issue list --state open ${limit_args[@]+"${limit_args[@]}"} \
+      # `status` is DERIVED from the state this call asks for, never written
+      # twice. GitHub has no workflow states: an issue is open or closed, and
+      # this op asks for open ones only. So the state passed to `gh` is the
+      # answer, and `$gh_state` is read by both the flag and the projection —
+      # a second literal would be a copy that a widened filter silently
+      # outdates. `To Do` is the category because an open GitHub issue is
+      # unstarted by the only vocabulary GitHub has.
+      gh_state="open"
+      if out="$(gh issue list --state "$gh_state" ${limit_args[@]+"${limit_args[@]}"} \
                   --json number,title,url,createdAt 2>/tmp/plot-host-err.$$)"; then
         rm -f "/tmp/plot-host-err.$$"
-        jq -c '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // "")}' <<<"$out"
+        jq -c --arg status "$gh_state" \
+          '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
+                  status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end)}' <<<"$out"
       else
         err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
         # NO empty-list fallback. `host_miss_or_fail` exists for a lookup whose
@@ -3172,15 +3209,37 @@ case "$op" in
         [[ "$line" =~ ^#0*([0-9]+)[[:space:]]+(.*)$ ]] || continue
         num="${BASH_REMATCH[1]}"
         rest="${BASH_REMATCH[2]}"
-        # Strip the leading state badge word (NEW/OPEN/RESOLVED/…) and its
-        # padding; the title starts after it.
-        rest="$(sed -E 's/^(NEW|OPEN|ON HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+//' <<<"$rest")"
+        # Lift the leading state badge word (NEW/OPEN/RESOLVED/…), then strip
+        # it and its padding; the title starts after it. The badge was parsed
+        # here before and THROWN AWAY to recover the title — it is captured
+        # now rather than fetched, so this costs no extra call. ONE
+        # vocabulary, matched once: a second copy in a mapping table is a list
+        # that drifts from the one that strips.
+        state=""
+        if [[ "$rest" =~ ^(NEW|OPEN|ON\ HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+(.*)$ ]]; then
+          state="${BASH_REMATCH[1]}"
+          rest="${BASH_REMATCH[2]}"
+        fi
+        # Map the badge onto the three-value category the board groups on.
+        # NEW/OPEN are unstarted; RESOLVED/CLOSED are finished. The rest —
+        # ON HOLD, INVALID, DUPLICATE, WONTFIX — get "" DELIBERATELY: they are
+        # terminal-without-being-done or started-without-progressing, and
+        # neither is a Jira category. Empty says *this vocabulary has no word
+        # for it*, which a board can render; inventing `Done` for WONTFIX
+        # would file abandoned work beside finished work.
+        case "$state" in
+          NEW|OPEN) category="To Do" ;;
+          RESOLVED|CLOSED) category="Done" ;;
+          *) category="" ;;
+        esac
         # Drop the trailing reporter: bb prints three spaces then `by <name>`.
         title="$(sed -E 's/[[:space:]]{2,}by [^[:space:]].*$//' <<<"$rest")"
         # `url` is "" — bb issue list prints none; a consumer renders the number
         # as plain text, the rule the header states.
         jq -cn --argjson number "$num" --arg title "$title" \
-          '{number:$number,title:$title,url:"",createdAt:""}'
+          --arg status "$state" --arg category "$category" \
+          '{number:$number,title:$title,url:"",createdAt:"",
+            status:$status,statusCategory:$category}'
         count=$((count + 1))
         # Honour the caller's --limit HERE: bb has no --limit, so a bound the
         # caller asked for is enforced by the adapter after parsing (Done-when 7).
