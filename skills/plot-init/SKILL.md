@@ -202,33 +202,44 @@ proposal adds:
 
 #### The CI system
 
-**`ci_system` proposes `CI:`, with its evidence.** The probe reports which
-signals it found; adoption turns one signal into a key:
+**`ci_system` proposes `CI:`, with its evidence — and `proposeCi` decides
+which.** The probe reports which signals it found; the domain turns them into
+one of three answers, and adoption reads `ci` from the proposal rather than
+re-deriving it:
 
-| `ci_system` | Proposal | Evidence to print |
+| `ci.answer` | Proposal | Evidence to print |
 |---|---|---|
-| `jenkins` | `CI: jenkins` | a `Jenkinsfile` |
-| `github-actions` | `CI: github-actions` | `.github/workflows/` |
-| `both` | **ask** | both were found |
-| `none` | write no key | no CI evidence in the tree |
+| `propose`, `proposed: 'jenkins'` | `CI: jenkins` | a `Jenkinsfile` |
+| `propose`, `proposed: 'github-actions'` | `CI: github-actions` | `.github/workflows/` |
+| `ask` | **ask**, naming every string in `ci.found` | both were found |
+| `silent` | write no key | no CI evidence in the tree |
 
-**One signal proposes, two signals ask.** Where the probe reports both, do
-**not** tie-break on the git host — a team on GitHub running Jenkins is common,
-and a silently wrong `CI:` sends every build-status lookup to the wrong system:
+**One signal proposes, two signals ask, and the rule holds it.** Where both
+signals are present, do **not** tie-break on the git host — a team on GitHub
+running Jenkins is common, and a silently wrong `CI:` sends every build-status
+lookup to the wrong system:
 
 > Found a `Jenkinsfile` and `.github/workflows/`. Which runs your PRs?
 
-**`none` is a reading, not a key.** The probe says `none` where it found no
+**A question carries no proposed word.** An `ask` has no `proposed` field, so
+there is nothing to read past the question — which is why the rule is a value
+rather than a `jenkins` beside an `uncertain: true`. The thresholds and this
+rule both live in `packages/domain/src/rules/stack.ts` and must not be
+recomputed here.
+
+**`none` is a reading, not a key.** The rule answers `silent` where it found no
 evidence, and adoption writes nothing rather than recording a `CI: none` the
 repo never chose. Say what was read.
 
 **It reads files and asks nothing about credentials.** Whether `jen`
 authenticates is `/plot-board-setup`'s question, and it already asks it.
 
-**An absent `ci_system` writes no key and says so.** The field is a proposal
-like every other, so a probe that does not report it leaves adoption with
-nothing to propose — which is not the same as `none`. Say the CI system was not
-read, and continue; every other step is independent of it.
+**An absent `ci_system` writes no key and says so.** Where the probe reports no
+`ci_signals` at all, `ci` is `null` — a fourth answer, and not the `silent` the
+rule gives for a tree that shows neither signal. A probe that did not look
+leaves adoption with nothing to propose — which is not the same as `none`. Say
+the CI system was not read, and continue; every other step is independent of
+it.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** a single signal still proposes; two
 > signals refuse rather than guess, for the reason above.

@@ -8,13 +8,12 @@ import {
   type AdoptionInput,
   type AdoptionReadings,
 } from '../src/rules/adoption.js';
-import { proposeStack, type StackProposal } from '../src/rules/stack.js';
+import { proposeCi, proposeStack, type StackProposal } from '../src/rules/stack.js';
 
 const readings = (over: Partial<AdoptionReadings> = {}): AdoptionReadings => ({
   hasPlotConfig: false,
   hubDocs: ['CLAUDE.md'],
   gitHost: 'github',
-  ciSystem: 'none',
   ...over,
 });
 
@@ -39,8 +38,36 @@ const bare = (): StackProposal =>
     subjectsRead: 80,
     germanWordCount: 0,
     hasHubDoc: true,
+    ciSignals: CI_SIGNALS.map((signal) => ({ ...signal, present: false })),
     ciHost: '',
+    instanceKeyedCi: '',
   });
+
+/**
+ * The CI signals a collector looks for, as it would report them.
+ *
+ * THE VENDOR NAMES ARE THE COLLECTOR'S. `proposeCi` holds no list, so a test
+ * that wants a CI answer supplies the signals — which is also what lets the
+ * `buildkite` case below need no production edit.
+ */
+const CI_SIGNALS = [
+  { proposes: 'jenkins', evidence: 'a `Jenkinsfile`' },
+  { proposes: 'github-actions', evidence: '`.github/workflows/`' },
+];
+
+/** The proposal a repository showing exactly these systems produces. */
+const showing = (...present: string[]): StackProposal => ({
+  ...bare(),
+  ci: proposeCi(
+    (present.length === 0 ? CI_SIGNALS : present.map((proposes) => ({
+      proposes,
+      evidence: `evidence for ${proposes}`,
+    }))).map((signal) => ({ ...signal, present: present.includes(signal.proposes) })),
+  ),
+});
+
+/** The proposal a collector that never looked for CI at all produces. */
+const unread = (): StackProposal => ({ ...bare(), ci: null });
 
 const input = (over: Partial<AdoptionInput> = {}): AdoptionInput => ({
   readings: readings(),
@@ -172,7 +199,7 @@ describe('composeAdoption — the keys', () => {
     if (isAdoptionRefusal(result)) throw new Error(result.detail);
     expect(valueOf(result, 'Tracker')).toBe('plot');
     // No tracker gap — a fallback announces nothing. The one gap here is the
-    // fixture's `ciSystem: 'none'`, which the CI tests own.
+    // fixture's CI signals, all absent, which the CI tests own.
     expect(result.gaps.filter((g) => g.startsWith('Tracker'))).toEqual([]);
   });
 
@@ -188,9 +215,10 @@ describe('composeAdoption — the keys', () => {
           subjectsRead: 80,
           germanWordCount: 0,
           hasHubDoc: true,
+          ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
           ciHost: '',
+          instanceKeyedCi: '',
         }),
-        readings: readings({ ciSystem: 'jenkins' }),
         answers: answers({ tracker: 'jira', trackerUrl: 'https://acme.atlassian.net' }),
       }),
     );
@@ -205,7 +233,7 @@ describe('composeAdoption — the keys', () => {
   it('writes a confirmed tracker with no URL, and announces the gap', () => {
     const result = composeAdoption(
       input({
-        readings: readings({ ciSystem: 'jenkins' }),
+        proposal: showing('jenkins'),
         answers: answers({ tracker: 'jira' }),
       }),
     );
@@ -226,16 +254,16 @@ describe('composeAdoption — the CI key', () => {
     // gate refused it — a rule that knows which systems exist needs editing when
     // the next one arrives.
     for (const named of ['jenkins', 'github-actions', 'buildkite'] as const) {
-      const result = composeAdoption(input({ readings: readings({ ciSystem: named }) }));
+      const result = composeAdoption(input({ proposal: showing(named) }));
       if (isAdoptionRefusal(result)) throw new Error(result.detail);
       expect(valueOf(result, 'CI')).toBe(named);
-      expect(result.keys.find((k) => k.key === 'CI')?.evidence).toBe('evidence in the tree');
+      expect(result.keys.find((k) => k.key === 'CI')?.evidence).toBe(`evidence for ${named}`);
       expect(result.gaps).toEqual([]);
     }
   });
 
   it('writes no key on two signals, and never tie-breaks on the host', () => {
-    const result = composeAdoption(input({ readings: readings({ ciSystem: 'both' }) }));
+    const result = composeAdoption(input({ proposal: showing('jenkins', 'github-actions') }));
     if (isAdoptionRefusal(result)) throw new Error(result.detail);
     expect(result.keys.map((k) => k.key)).not.toContain('CI');
     expect(result.gaps[0]).toContain('two CI systems left evidence');
@@ -243,18 +271,32 @@ describe('composeAdoption — the CI key', () => {
   });
 
   it('separates `none` from a reading nobody took', () => {
-    const none = composeAdoption(input({ readings: readings({ ciSystem: 'none' }) }));
+    const none = composeAdoption(input({ proposal: showing() }));
     if (isAdoptionRefusal(none)) throw new Error(none.detail);
     expect(none.gaps).toEqual(['no CI key written — no CI evidence in the tree']);
 
-    const unread = composeAdoption(input({ readings: readings({ ciSystem: '' }) }));
-    if (isAdoptionRefusal(unread)) throw new Error(unread.detail);
-    expect(unread.gaps).toEqual(['no CI key written — the CI system was not read']);
+    const notRead = composeAdoption(input({ proposal: unread() }));
+    if (isAdoptionRefusal(notRead)) throw new Error(notRead.detail);
+    expect(notRead.gaps).toEqual(['no CI key written — the CI system was not read']);
+  });
+
+  it('reads a proposal that carries no `ci` at all as not read', () => {
+    // NOT DEAD CODE. `/plot-adopt` takes a proposal the caller already has, so
+    // a client that never asked about CI sends an object with no `ci` field —
+    // measured by `adopt.test.ts`'s own wire fixture. Absent and `null` are one
+    // answer, and neither may read as *no CI evidence in the tree*.
+    const { ci: _dropped, ...withoutCi } = bare();
+    const result = composeAdoption(input({ proposal: withoutCi as StackProposal }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.gaps).toEqual(['no CI key written — the CI system was not read']);
   });
 
   it('takes a confirmed answer over every reading', () => {
     const result = composeAdoption(
-      input({ readings: readings({ ciSystem: 'both' }), answers: answers({ ci: 'jenkins' }) }),
+      input({
+        proposal: showing('jenkins', 'github-actions'),
+        answers: answers({ ci: 'jenkins' }),
+      }),
     );
     if (isAdoptionRefusal(result)) throw new Error(result.detail);
     expect(valueOf(result, 'CI')).toBe('jenkins');
@@ -297,7 +339,9 @@ describe('composeAdoption — the commit style', () => {
           subjectsRead: 80,
           germanWordCount: 0,
           hasHubDoc: true,
-          ciHost: '',
+                  ciSignals: null,
+                  ciHost: '',
+                  instanceKeyedCi: '',
         }),
       }),
     );
