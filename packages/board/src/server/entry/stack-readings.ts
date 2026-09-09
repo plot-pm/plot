@@ -66,6 +66,6 @@ export const readingsFrom = (report: Record<string, unknown>): StackReadings => 
     subjectsRead: numberOr(report.subjects_read, 0),
     germanWordCount: numberOr(report.german_words, 0),
     hasHubDoc: stringOr(report.hub_docs) !== '',
-    jenkinsHost: stringOr(report.jenkins_host),
+    ciHost: stringOr(report.jenkins_host),
   };
 };

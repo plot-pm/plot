@@ -5,7 +5,7 @@ import {
   TICKET_OCCURRENCES,
   nodeMajor,
   proposeCommitStyle,
-  proposeJenkins,
+  proposeCiInstance,
   proposeLanguage,
   proposeNode,
   proposeStack,
@@ -30,7 +30,7 @@ const readings = (over: Partial<StackReadings> = {}): StackReadings => ({
   subjectsRead: 30,
   germanWordCount: 0,
   hasHubDoc: false,
-  jenkinsHost: '',
+  ciHost: '',
   ...over,
 });
 
@@ -178,12 +178,12 @@ describe('proposeLanguage', () => {
   });
 });
 
-describe('proposeJenkins', () => {
+describe('proposeCiInstance', () => {
   it('proposes the measured slug and asks only the container path', () => {
     // The slug is measurable and the path is not: `quaweb/continuous-build` is
     // a fact about the Jenkins job tree, and reading it would need credentials
     // adoption does not have.
-    const p = proposeJenkins('jenkins-ci-webbloqs.internal.quatico.dev', true);
+    const p = proposeCiInstance('jenkins-ci-webbloqs.internal.quatico.dev', true);
     expect(p.slug).toBe('jenkins-ci-webbloqs.internal.quatico.dev');
     expect(p.ask).toBe('path');
   });
@@ -191,13 +191,13 @@ describe('proposeJenkins', () => {
   it('writes the slug alone when the path goes unanswered', () => {
     // `plot-host.sh:566` lists at the root scope for a bare-host instance —
     // wrong but visible, which beats a connector refusing invisibly.
-    expect(proposeJenkins('jenkins.example.dev', true).key).toBe('jenkins.example.dev');
+    expect(proposeCiInstance('jenkins.example.dev', true).key).toBe('jenkins.example.dev');
   });
 
   it('asks for both where the repository names no Jenkins', () => {
     // The normal case, not the edge one: a `Jenkinsfile` says Jenkins builds
     // this without saying which Jenkins.
-    const p = proposeJenkins('', true);
+    const p = proposeCiInstance('', true);
     expect(p.slug).toBeNull();
     expect(p.ask).toBe('both');
   });
@@ -205,11 +205,11 @@ describe('proposeJenkins', () => {
   it('writes no key where the slug went unanswered', () => {
     // NEVER A DEFAULT. An invented slug answers `NOT reachable`, which a reader
     // cannot tell from a Jenkins that is down.
-    expect(proposeJenkins('', true).key).toBeNull();
+    expect(proposeCiInstance('', true).key).toBeNull();
   });
 
   it('reads whitespace as no slug at all', () => {
-    const p = proposeJenkins('   ', true);
+    const p = proposeCiInstance('   ', true);
     expect(p.slug).toBeNull();
     expect(p.ask).toBe('both');
   });
@@ -217,7 +217,7 @@ describe('proposeJenkins', () => {
   it('asks nothing where the CI is not Jenkins', () => {
     // A GitHub Actions repository is not missing this key, so it is not asked
     // — and a host named in its docs is still not its question.
-    const p = proposeJenkins('jenkins.example.dev', false);
+    const p = proposeCiInstance('jenkins.example.dev', false);
     expect(p.slug).toBeNull();
     expect(p.ask).toBe('none');
     expect(p.key).toBeNull();

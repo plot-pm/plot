@@ -91,7 +91,7 @@ export interface StackReadings {
    * against Jenkins; a `Jenkinsfile` says *Jenkins builds this* without saying
    * *which Jenkins*, so an empty reading asks rather than proposing.
    */
-  jenkinsHost: string;
+  ciHost: string;
 }
 
 /** What the readings propose about the Node on this machine. */
@@ -146,10 +146,10 @@ export interface LanguageProposal {
  * `path` — the slug was measured, so only the container path is missing.
  * `both` — Jenkins builds this and no doc says which, so both halves are asked.
  */
-export type JenkinsAsk = 'none' | 'path' | 'both';
+export type CiInstanceAsk = 'none' | 'path' | 'both';
 
 /** What the readings propose about this repository's Jenkins instance. */
-export interface JenkinsProposal {
+export interface CiInstanceProposal {
   /**
    * The instance slug proposed, or `null` where no doc named one.
    *
@@ -160,7 +160,7 @@ export interface JenkinsProposal {
    */
   slug: string | null;
   /** Which halves of the key are still missing. */
-  ask: JenkinsAsk;
+  ask: CiInstanceAsk;
   /**
    * The key to write from the answers already in hand, or `null` for none.
    *
@@ -186,7 +186,7 @@ export interface StackProposal {
   /** Which language its hub docs are written in. */
   language: LanguageProposal;
   /** Which Jenkins builds it, where Jenkins does. */
-  jenkins: JenkinsProposal;
+  ciInstance: CiInstanceProposal;
 }
 
 /**
@@ -343,16 +343,16 @@ export const proposeLanguage = (
  * key's format, which the goal — *sees real build status without being told
  * which keys to set* — rules out.
  *
- * @param jenkinsHost the host a self-describing doc named, or `''`.
+ * @param ciHost the host a self-describing doc named, or `''`.
  * @param isJenkins whether the CI proposal is `jenkins`.
  * @returns the slug proposed, what is still asked, and the key writable now.
  */
-export const proposeJenkins = (
-  jenkinsHost: string,
+export const proposeCiInstance = (
+  ciHost: string,
   isJenkins: boolean,
-): JenkinsProposal => {
+): CiInstanceProposal => {
   if (!isJenkins) return { slug: null, ask: 'none', key: null };
-  const slug = jenkinsHost.trim();
+  const slug = ciHost.trim();
   return slug === ''
     ? { slug: null, ask: 'both', key: null }
     : { slug, ask: 'path', key: slug };
@@ -387,5 +387,5 @@ export const proposeStack = (readings: StackReadings): StackProposal => ({
   // IT IS WIRED RATHER THAN OMITTED so the arrival of `ci.reading` is a
   // one-line change here and nothing else: the rule, its tests, the entry's
   // mapping and the skill's prose are all in place and asserted.
-  jenkins: proposeJenkins(readings.jenkinsHost, false),
+  ciInstance: proposeCiInstance(readings.ciHost, false),
 });
