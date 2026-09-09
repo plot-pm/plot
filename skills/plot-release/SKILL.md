@@ -41,7 +41,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 0. Sprint Gate | Small | The four states come from `plot-sprint-release.sh`; applying the rule is mechanical, including reporting `withdrawn` without gating on it. The Should-Have question needs a person, not a bigger model |
+| 0. Sprint Gate | Small | `plot-release-gate.sh` decides; this step reads its exit code and prints its sentence. The Should-Have question needs a person, not a bigger model |
 | 1. Determine Version | Mid | Heuristic: plan types → bump suggestion |
 | 2A. RC Path | Small | Git tag, template generation |
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
@@ -57,67 +57,39 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 ### 0. The Sprint Gate
 
-**Run this before anything else.** A release that has already been tagged
-cannot be un-cut, so the sprint's claim has to be checked while refusing is
-still cheap.
+**Run this before anything else.** A release that has been tagged cannot be
+un-cut, so the sprint's claim is checked while refusing is still cheap.
 
-**The gate applies to the final cut, not to an RC.** `/plot-release rc` proceeds
-past open Must Haves — report them, do not refuse. A release candidate is how a
-sprint's remaining work gets verified, so gating it would take away the tool
-operators use to finish the very items being gated on. The gate fires when the
-version becomes real.
-
-> Neither the plan nor the brief settled the RC case; this is the reading that
-> keeps the gate from blocking its own remedy. Worth confirming in review.
+**ASK THE GATE. IT DECIDES; THIS STEP REPORTS WHAT IT SAID.**
 
 ```bash
-../plot/scripts/plot-sprint-release.sh 2>/dev/null
+../plot/scripts/plot-release-gate.sh [--candidate] [--ignore-sprint] [--unattended]
 ```
 
-The script reports facts and decides nothing: the sprint's declared `Release:`
-target, and every Must/Should/Could item as `done`, `open`, `disputed` or
-`withdrawn`. Read its JSON and apply the rule below. It never exits non-zero for
-an unfinished item — a script that refused would be making this call itself.
+It collects the sprint's facts and asks `workflows/release.ts` for its verdict.
+The rule lives there — which tiers refuse, what `disputed` counts as, whether a
+`withdrawn` item gates — and this skill states none of it. **A rule restated here
+is a second copy that can drift from the one that fires.**
 
-**No active sprint, or an active sprint with no `Release:` field → the gate
-does not apply.** Say so in one line and go to step 1. This is the majority
-case and must stay silent-ish: a sprint that groups work without shipping a
-version is still a sprint, and a repo that never declares one sees no change
-at all.
+Pass `--candidate` for `/plot-release rc`, `--ignore-sprint` when the operator
+gave it, and `--unattended` under `PLOT_UNATTENDED=1`.
 
-**Otherwise, the two tiers get two different treatments**, because they are two
-different promises. A Must Have is the commitment; a Should Have is what the
-sprint hoped to reach.
+**Exit 0 the sprint permits the cut; exit 1 it refuses; exit 2 the facts could
+not be read**, which is a broken installation and not a sprint's state.
 
-#### A withdrawn item is reported and never gates
+The verdict is JSON on stdout:
 
-**Do this before reading the tiers**, because a withdrawal is not a degree of
-unfinished and answering the tier question first hides it.
-
-An item reading `withdrawn` names a plan at `State: Rejected` or `Superseded` —
-somebody decided it will not deliver. It does not block, in any tier, and it is
-not `done`: nothing shipped. Name it, whichever tier it sits in:
-
-```
-Withdrawn from this sprint:
-  [the-board-answers-while-it-scans] — Must Have, plan is Rejected
+```json
+{"pass":false,"reason":"must-haves-open",
+ "detail":"1 unfinished Must Have(s): [one-place-for-what-a-row-can-do] — not delivered (sprint the-board-tells-the-truth). Deliver them, move them to Deferred, or pass --ignore-sprint.",
+ "openShoulds":["plot-board-setup"],"openCoulds":[],"withdrawn":[]}
 ```
 
-**Naming it is the point.** A cutter reading this sees that something the sprint
-promised was dropped, and can open the plan to find who dropped it and why.
-Filtering it out silently would lose that; blocking on it is the defect the
-status exists to fix — a release held forever over work nobody is doing.
+#### On a refusal, stop and print the sentence
 
-**The checkbox does not change this answer.** Ticked or unticked, a withdrawn
-plan is withdrawn. That is the estate-outranks-the-checkbox rule the script
-already argues, applied in both directions rather than one: for delivery the
-box can lag the estate, and here the estate carries a decision no box
-contradicts.
-
-#### Must Haves refuse
-
-If any Must Have is `open` or `disputed`, **refuse and stop.** Name every one,
-and say what clears it:
+**Print `detail` whole.** It names every open Must, the sprint each came from,
+whether the item is undelivered or checked-but-not-delivered, and what clears it.
+A message reading *"the sprint refuses"* throws away the half a person acts on.
 
 ```
 plot-release: sprint the-board-tells-the-truth targets 2.5.2 and has
@@ -126,108 +98,72 @@ plot-release: sprint the-board-tells-the-truth targets 2.5.2 and has
               Deliver it, move it to Deferred, or pass --ignore-sprint.
 ```
 
-A `disputed` item is a checked box whose plan is not delivered — the same
-false-positive completion `/plot-sprint close` refuses on. Report it as what it
-is, not as merely unfinished:
+**Change nothing and cut nothing.** The refusal is the end of the action.
+
+#### On a pass, report what it named
+
+`withdrawn` lists items whose plan is `Rejected` or `Superseded`, in every tier.
+They do not gate, and **naming them is the point**: a cutter reading this sees
+that something the sprint promised was dropped and can open the plan to find who
+dropped it and why.
 
 ```
-                [alpha] — checked in the sprint, but the plan is not delivered
+Withdrawn from this sprint:
+  [the-board-answers-while-it-scans] — must, plan withdrawn (sprint the-board-tells-the-truth)
 ```
 
-**`withdrawn` is NOT one of these**, and the two must not be conflated: a
-dispute is two records disagreeing, and a withdrawal is both records saying the
-same thing. It is reported above and it does not reach this gate.
+`openCoulds` goes in the step 6 summary if it is non-empty. Nothing more.
 
-**`--ignore-sprint` is the named escape**, in the tradition of `--allow-local`
-and `--during-release`. A gate with no exit is one people route around by never
-declaring a release at all, which would cost the field its adoption.
+#### Should Haves are the operator's question, and it is asked here
 
-**It clears the sprint gate and nothing else.** Not the phase guardrails, not
-the delivered-plan checks, not step 5b's sweep. If you find yourself reaching
-for it to get past something else, that is a different problem.
+**The gate reports `openShoulds` and refuses on none of them.** There is no flag
+for this tier, deliberately: a hard gate on stretch goals is one operators learn
+to force past, and a flag typed reflexively has stopped being a gate. But silence
+is the failure this step exists to fix — a release cut with three Should Haves
+open is a decision, and a decision made without being asked is one nobody made.
+**The confirmation is the record that a person looked.**
 
-#### Should Haves prompt
-
-If the Must Haves are clear and any Should Have is `open` or `disputed`, **ask**
-— naming them — and take yes or no in the moment:
+So when `openShoulds` is non-empty, **ask** — naming them — and take yes or no in
+the moment:
 
 ```
 Sprint the-board-tells-the-truth targets 2.5.2. All Must Haves are done.
 3 Should Haves are open:
   [the-board-answers-agents] — wave 1 delivered, wave 2 open
   [plot-board-setup] — not delivered
-  Set the 32 delivered-but-unreleased plans to Released
 Cut 2.5.2 anyway?
 ```
 
 **Answering no cuts nothing** — stop, changing no files.
 
-**There is no flag for this tier, deliberately.** A hard gate on stretch goals
-is one operators learn to force past, and a flag typed reflexively has stopped
-being a gate. But silence is the failure this whole step exists to fix: a
-release cut with three Should Haves open is a decision, and a decision made
-without being asked is one nobody made. **The confirmation is the record that a
-person looked.**
+Under `PLOT_UNATTENDED=1` the prompt becomes a warning: name the open items,
+state that nobody was asked, and proceed. `PLOT_UNATTENDED` answers *may I ask?*
+and never *may I proceed?* — **the Must-Have gate still refuses, in both modes**,
+which is the gate's own behaviour and not this skill's to soften.
 
-#### Could Haves neither block nor prompt
+#### `--ignore-sprint` is the named escape
 
-Report them in the summary if any are open. Nothing more.
+It is passed to the gate and clears the Must-Have refusal. **It clears that and
+nothing else** — not the phase guardrails, not the delivered-plan checks, not
+step 5b's sweep. If you find yourself reaching for it to get past something else,
+that is a different problem.
 
-#### When nobody is there to answer
+A gate with no exit is one people route around by never declaring a release at
+all, which would cost the field its adoption.
 
-Under `PLOT_UNATTENDED=1` — a release cut from CI rather than a terminal — the
-Should-Have **prompt becomes a warning**: name the open items, state that
-nobody was asked, and proceed. The Must-Have gate still **refuses**, in both
-modes.
+**When it is used, remember the open Musts the gate named** — step 5c writes them
+into the sprint file, after the tag exists. Until then no version has been
+released, and a note claiming one is the same defect step 5b guards against. If
+the release is abandoned between here and the tag, nothing was written and
+nothing needs undoing.
 
-`PLOT_UNATTENDED` answers *may I ask?*, never *may I proceed?*. A variable set
-in the least-supervised environment must have strictly less power than the
-operator, so it never converts a refusal into a pass.
+#### The operator's approval is separate, and it stays
 
-> This clause is the local half of a wider fix. `PLOT_UNATTENDED` is defined
-> once, for the fifteen skills that tell an agent to ask, by
-> `docs/plans/2026-08-18-a-question-nobody-can-answer-is-a-hang.md`. That
-> branch had not landed when this gate was written, so the degradation is
-> implemented here and stated here; when the shared reference lands, this
-> section should point at it rather than restate it.
-
-#### The override writes itself into the sprint
-
-**When `--ignore-sprint` is used, record it in the sprint file's `## Notes`** —
-the version, the date, and the Must Haves that were open:
-
-```markdown
-## Notes
-
-- 2.5.2 cut 2026-08-18 with `--ignore-sprint`; 1 Must Have open:
-  [one-place-for-what-a-row-can-do]
-```
-
-**Write it directly under `## Notes`, not inside `### Scope Changes`.** That
-subsection logs what the sprint decided about its own contents; a release cut
-over its objection is something that happened *to* the sprint. Filing it there
-would bury the record under a scope log nobody reads for release facts.
-
-**Write it after the tag exists, in step 5c — not here.** Until then no version
-has been released, and a note claiming one is the same defect step 5b's
-"only run this once the tag exists" guards against. The gate's job in step 0 is
-to decide and to remember the open items; the writing happens once the thing
-being recorded is true.
-
-If the release is abandoned between step 0 and the tag, nothing was written and
-nothing needs undoing — which is the point of deferring it.
-
-Commit it with the release's other sprint-side changes.
-
-This couples a release command to a sprint file, and the coupling is accepted
-deliberately: the retrospective asks what the timebox changed, and this is
-exactly the fact it cannot reconstruct from a shell history nobody rereads. It
-is the same reason `Approved:` and `Delivered:` are records in the plan rather
-than lines in a log.
-
-**Two active sprints may target one release** — two teams, one train. That is
-legitimate and is not refused; the gate answers to both, and the message names
-which sprint each unfinished item came from.
+A pass is the sprint's answer and not a release. **A release is the one action
+nobody can undo** — a tag is public and a published package cannot be recalled —
+so the version is still named by a person, and step 4 still hands off to the
+project's own release process. This gate is the refusal in front of that
+approval, never a replacement for it.
 
 ### 1. Determine Version
 
