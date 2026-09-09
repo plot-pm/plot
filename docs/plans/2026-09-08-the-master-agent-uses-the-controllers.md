@@ -136,7 +136,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** `/plot-init` writes its config through an endpoint, the proposals come from `proposeStack` rather than from skill prose, a repository that already carries a `## Plot Config` is refused by name, and an unattended run reports `PLOT-UNASKED` rather than writing a guess.
 
-### A slice's PR is opened by the fleet, not by hand (Branch: feature/a-pr-is-opened-by-a-controller) <!-- waits: feature/adoption-is-a-controller-command -->
+### A slice's PR is opened by the fleet, not by hand (Branch: feature/a-pr-is-opened-by-a-controller, PR: #846) <!-- waits: feature/adoption-is-a-controller-command -->
 
 Opening a slice's pull request is a controller command.
 
