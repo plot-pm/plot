@@ -126,13 +126,21 @@ watching.
 
 ### The board says FLEET STOPPED, not `supervisor unknown`
 
-**"Supervisor" is implementation vocabulary and it has leaked into the UI.**
-`supervisorVerdict` renders `supervised` and `supervisor unknown`; a person
-reading the board does not have a supervisor, they have a **fleet**, and what
-they need to know is whether it is running. The launchd label, the daemon and
-the word *supervisor* are all correct in `plot-fleetctl.sh` and in
-`DESIGN-process.md` — they are machine-side vocabulary, and the board is the one
-surface where a person reads instead of a machine.
+**FLEET IS THE WORD THE ESTATE ALREADY TEACHES, and that settles it.** A user
+types `/plot-fleet` to start it, `/plot-fleet --status` to ask about it, and
+`/plot-fleet --stop` to end it. **There is no supervisor command** — no
+`/plot-supervisor`, no skill by that name, nothing a person can address.
+
+So the badge names a component the user has no way to act on, while the repair
+it prints in the same breath — `/plot-fleet --start` — uses the right word.
+Three of this repository's own terms (`plot-registryd.mjs`, the launchd label
+`com.plot-pm.registryd`, and the verdict `supervised`) describe one process, and
+the board is where a reader should meet **none** of them.
+
+The internal words stay internal and stay correct: `plot-fleetctl.sh` and
+`DESIGN-process.md` are machine-side, where *supervisor* names a role precisely.
+The board is the one surface where a person reads instead of a machine, and it
+should use the vocabulary its own command line taught them.
 
 **The logic is already right, and only the words and the prominence are wrong.**
 `supervisorVerdict` (`rules/supervisor-reading.ts:188`) already answers three
@@ -234,7 +242,7 @@ about could never report an absence."*
 
 - `bug/the-board-says-the-fleet-is-stopped` <!-- builds: the fleet-stopped reading and its prominent alert, distinct from cannot-ask --> — the board asks launchd for the label, and where it renders `supervisor unknown` today it renders **FLEET STOPPED** prominently, naming the consequence and the repair. Waits on `bug/a-fleet-start-records-that-it-finished`, which defines the states.
 
-  **Asserted: the word `supervisor` does not appear in the rendered UI** — it is machine-side vocabulary, correct in `plot-fleetctl.sh` and wrong on the one surface a person reads. **Asserted: `unknown` and `stopped` are different words** — one means *I could not ask*, the other *I asked and it is not there*, and collapsing them is what made this outage silent. **Asserted: only `stopped` is prominent** — `unknown` stays a quiet chip, or an operator learns to dismiss the alert that matters. **Asserted: the alert names the consequence and the repair**, not the component. **Asserted: the board starts nothing** — it reports, and acting stays the operator's, since a page load must never become a lifecycle action.
+  **Asserted: the rendered UI says FLEET and never `supervisor`, `registryd` or `unsupervised`** — `/plot-fleet` is the command a user types and no supervisor command exists, so the board must not name a component a person cannot address. **Asserted: the label matches the repair it prints** — the detail already says `/plot-fleet --start`, and a badge naming one thing while its fix names another is the inconsistency this removes. **Asserted: `unknown` and `stopped` are different words** — one means *I could not ask*, the other *I asked and it is not there*, and collapsing them is what made this outage silent. **Asserted: only `stopped` is prominent** — `unknown` stays a quiet chip, or an operator learns to dismiss the alert that matters. **Asserted: the alert names the consequence and the repair**, not the component. **Asserted: the board starts nothing** — it reports, and acting stays the operator's, since a page load must never become a lifecycle action.
 
 ## Notes
 
