@@ -157,12 +157,21 @@ sprint_verb() { # $1=lowercase state
   esac
 }
 
-# The slug: a plan file is <date>-<slug>.md, a sprint file <week>-<slug>.md.
-# Both cut the same way, which is how plot-sprint-state.sh:68 finds a sprint.
-slug_of() { # $1=path
-  local base="${1##*/}"
+# The slug, and the two kinds do NOT cut the same way: a plan is
+# `YYYY-MM-DD-<slug>.md` and a sprint is `YYYY-Www-<slug>.md`, so the prefix is
+# three dashes on one and two on the other. Cutting both at three turns sprint
+# `2026-W01-s` into `2026-W01-s` — the whole basename — and the refusal then
+# names a command nothing answers to. Measured while writing this gate's test.
+#
+# The sprint cut is plot-sprint-state.sh:71's: it finds a file by `*-<slug>.md`,
+# so the slug is what follows the week.
+slug_of() { # $1=kind $2=path
+  local base="${2##*/}"
   base="${base%.md}"
-  printf '%s\n' "${base#*-*-*-}"
+  case "$1" in
+    sprint) printf '%s\n' "${base#*-*-}" ;;
+    *) printf '%s\n' "${base#*-*-*-}" ;;
+  esac
 }
 
 blocked=0
@@ -188,7 +197,7 @@ while IFS= read -r f; do
     echo "plot state gate: a lifecycle field has one writer, and this commit is not it." >&2
     blocked=1
   fi
-  slug="$(slug_of "$f")"
+  slug="$(slug_of "$kind" "$f")"
   echo "" >&2
   echo "  $f" >&2
   echo "    $before -> $after, written by hand." >&2
