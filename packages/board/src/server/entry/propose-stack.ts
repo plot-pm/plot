@@ -1,4 +1,4 @@
-import { proposeStack, type StackProposal, type StackReadings }
+import { proposeStack, type CiSignals, type StackProposal, type StackReadings }
   from '@plot-pm/domain/rules/stack';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
  *
  * ```
  * plot-detect-repo.sh | node plot-propose-stack.mjs
- * {"node":{...},"commitStyle":{...},"ticket":{...},"language":{...}}
+ * {"node":{...},"commitStyle":{...},"ticket":{...},"language":{...},"ci":{...}}
  * ```
  *
  * **ITS OWN BUNDLE, NOT A VERB ON `plot-ask.mjs`.** One bundle per question is
@@ -51,6 +51,28 @@ const numberOr = (value: unknown, fallback: number): number =>
 const stringOr = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /**
+ * Read the CI signals from a probe's report.
+ *
+ * **AN ABSENT `ci_signals` IS `null`, NEVER `{false, false}`.** The two say
+ * different things — *the collector did not look* against *the collector looked
+ * and the tree shows nothing* — and only the second licenses writing no `CI:`
+ * key on the repository's behalf. `plot-detect-repo.sh` does not report the
+ * field yet, so `null` is the answer on this estate today.
+ *
+ * @param value what the `ci_signals` field held
+ * @returns the two signals, or `null` where the field was absent or not an
+ *   object
+ */
+const ciSignalsFrom = (value: unknown): CiSignals | null => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const signals = value as Record<string, unknown>;
+  return {
+    jenkinsfile: signals.jenkinsfile === true,
+    ghWorkflows: signals.gh_workflows === true,
+  };
+};
+
+/**
  * Turn a merged probe report into the readings the rule takes.
  *
  * **AN ABSENT FIELD IS A READING NOBODY TOOK, and it is read that way.** A
@@ -80,6 +102,7 @@ export const readingsFrom = (report: Record<string, unknown>): StackReadings => 
     subjectsRead: numberOr(report.subjects_read, 0),
     germanWordCount: numberOr(report.german_words, 0),
     hasHubDoc: stringOr(report.hub_docs) !== '',
+    ciSignals: ciSignalsFrom(report.ci_signals),
   };
 };
 

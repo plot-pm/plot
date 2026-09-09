@@ -3,13 +3,18 @@ import {
   GERMAN_WORDS,
   STYLE_SUBJECTS,
   TICKET_OCCURRENCES,
+  fromSignals,
+  isProposal,
+  isQuestion,
   nodeMajor,
+  proposeCi,
   proposeCommitStyle,
   proposeLanguage,
   proposeNode,
   proposeStack,
   proposeTicket,
   type CommitStyleCounts,
+  type Signal,
   type StackReadings,
 } from '../src/rules/stack.js';
 
@@ -29,6 +34,7 @@ const readings = (over: Partial<StackReadings> = {}): StackReadings => ({
   subjectsRead: 30,
   germanWordCount: 0,
   hasHubDoc: false,
+  ciSignals: null,
   ...over,
 });
 
@@ -176,6 +182,91 @@ describe('proposeLanguage', () => {
   });
 });
 
+describe('fromSignals', () => {
+  const signal = (
+    proposes: 'a' | 'b' | 'c',
+    present: boolean,
+  ): Signal<'a' | 'b' | 'c'> => ({ proposes, evidence: `evidence for ${proposes}`, present });
+
+  it('proposes what a lone present signal proposes, with its evidence', () => {
+    const answer = fromSignals([signal('a', true), signal('b', false)]);
+    expect(answer.answer).toBe('propose');
+    expect(isProposal(answer)).toBe(true);
+    if (!isProposal(answer)) throw new Error('unreachable');
+    expect(answer.proposed).toBe('a');
+    expect(answer.evidence).toBe('evidence for a');
+  });
+
+  it('asks rather than tie-breaking when two signals are present', () => {
+    // The rule the plan exists to make assertable. The rejected design ranked
+    // the signals and picked one, which is silently wrong for every repository
+    // whose two signals disagree.
+    const answer = fromSignals([signal('a', true), signal('b', true)]);
+    expect(answer.answer).toBe('ask');
+    expect(isQuestion(answer)).toBe(true);
+    expect(isProposal(answer)).toBe(false);
+  });
+
+  it('names every present signal in the question', () => {
+    // A question that says only *two signals disagree* leaves the person doing
+    // the probe's work again. The evidence is what makes it answerable.
+    const answer = fromSignals([signal('a', true), signal('b', false), signal('c', true)]);
+    if (!isQuestion(answer)) throw new Error('expected a question');
+    expect(answer.found).toEqual(['evidence for a', 'evidence for c']);
+  });
+
+  it('carries no proposed word on a question', () => {
+    // THE POINT OF THE UNION. `jenkins` plus `uncertain: true` invites a caller
+    // to read the first half; there is no first half to read here.
+    const answer = fromSignals([signal('a', true), signal('b', true)]);
+    expect(Object.hasOwn(answer, 'proposed')).toBe(false);
+    expect(Object.hasOwn(answer, 'evidence')).toBe(false);
+  });
+
+  it('is silent where no signal is present', () => {
+    // Not a proposal of the absent word, and not a question either. There is
+    // nothing to ask about.
+    expect(fromSignals([signal('a', false), signal('b', false)]).answer).toBe('silent');
+    expect(fromSignals<'a'>([]).answer).toBe('silent');
+  });
+
+  it('carries no found list on a silence', () => {
+    const answer = fromSignals([signal('a', false)]);
+    expect(isQuestion(answer)).toBe(false);
+    expect(isProposal(answer)).toBe(false);
+  });
+});
+
+describe('proposeCi', () => {
+  it('proposes jenkins from a lone Jenkinsfile', () => {
+    const answer = proposeCi({ jenkinsfile: true, ghWorkflows: false });
+    if (!isProposal(answer)) throw new Error('expected a proposal');
+    expect(answer.proposed).toBe('jenkins');
+    expect(answer.evidence).toBe('a `Jenkinsfile`');
+  });
+
+  it('proposes github-actions from lone workflows', () => {
+    const answer = proposeCi({ jenkinsfile: false, ghWorkflows: true });
+    if (!isProposal(answer)) throw new Error('expected a proposal');
+    expect(answer.proposed).toBe('github-actions');
+    expect(answer.evidence).toBe('`.github/workflows/`');
+  });
+
+  it('asks, naming both, where the tree shows both', () => {
+    // A team on GitHub running Jenkins is this sprint's own user, and a
+    // silently wrong `CI:` sends every build-status lookup to the wrong system.
+    const answer = proposeCi({ jenkinsfile: true, ghWorkflows: true });
+    if (!isQuestion(answer)) throw new Error('expected a question');
+    expect(answer.found).toEqual(['a `Jenkinsfile`', '`.github/workflows/`']);
+  });
+
+  it('is silent where the tree shows neither', () => {
+    // `none` is a reading, not a key: adoption writes nothing rather than
+    // recording a `CI: none` the repository never chose.
+    expect(proposeCi({ jenkinsfile: false, ghWorkflows: false }).answer).toBe('silent');
+  });
+});
+
 describe('proposeStack', () => {
   it('answers all four questions from one set of readings', () => {
     const p = proposeStack(readings({
@@ -192,6 +283,21 @@ describe('proposeStack', () => {
     expect(p.commitStyle.style).toBe('conventional');
     expect(p.ticket.prefix).toBe('QUACDS');
     expect(p.language.language).toBe('de');
+  });
+
+  it('answers the CI question where the readings carried the signals', () => {
+    const p = proposeStack(readings({ ciSignals: { jenkinsfile: true, ghWorkflows: false } }));
+    if (p.ci === null || !isProposal(p.ci)) throw new Error('expected a proposal');
+    expect(p.ci.proposed).toBe('jenkins');
+  });
+
+  it('leaves the CI question unanswered where the collector did not look', () => {
+    // `null` IS NOT SILENCE. A collector that never reported `ci_signals` did
+    // not look; one that reported two falses looked and found nothing. Only the
+    // second licenses writing no `CI:` key on the repository's behalf.
+    expect(proposeStack(readings({ ciSignals: null })).ci).toBeNull();
+    expect(proposeStack(readings({ ciSignals: { jenkinsfile: false, ghWorkflows: false } })).ci)
+      .toEqual({ answer: 'silent' });
   });
 
   it('proposes nothing from a repository that shows nothing', () => {

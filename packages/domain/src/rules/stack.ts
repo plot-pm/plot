@@ -79,6 +79,16 @@ export interface StackReadings {
   germanWordCount: number;
   /** Whether any hub doc was found to sample at all. */
   hasHubDoc: boolean;
+  /**
+   * What the tree shows about CI, or `null` where the collector did not look.
+   *
+   * `null` IS NOT `{false, false}`. A collector that reports neither signal
+   * looked and found nothing, which proposes no `CI:` key; a collector that
+   * reports nothing at all was never asked, and saying *no CI evidence* on its
+   * behalf is a reading nobody took. `/plot-init` already draws the same line
+   * for the field it reads — *"which is not the same as `none`"*.
+   */
+  ciSignals: CiSignals | null;
 }
 
 /** What the readings propose about the Node on this machine. */
@@ -136,6 +146,18 @@ export interface StackProposal {
   ticket: TicketProposal;
   /** Which language its hub docs are written in. */
   language: LanguageProposal;
+  /**
+   * Which CI runs its PRs — a proposal, a question, or silence.
+   *
+   * THE ONE FIELD OF THE FIVE THAT CAN BE A QUESTION, because it is the one
+   * read from two independent signals. The other four each come from a single
+   * count, where more evidence sharpens the same answer rather than raising a
+   * second one.
+   *
+   * `null` where the readings carried no `ciSignals` at all — an unasked
+   * question, distinct from all three of its answers.
+   */
+  ci: SignalAnswer<CiSystem> | null;
 }
 
 /**
@@ -279,6 +301,167 @@ export const proposeLanguage = (
 };
 
 /**
+ * One structural signal a repository shows, and what it would propose.
+ *
+ * THE EVIDENCE TRAVELS WITH THE SIGNAL rather than beside it. A caller that
+ * has to look up why `jenkins` was proposed will print the word alone, which is
+ * the failure `stack.ts`'s header already names for the counts — *"`QUACDS` in
+ * 38 of 80 subjects"* rather than *"jira"*.
+ */
+export interface Signal<T extends string> {
+  /** What this signal proposes when it is the only one present. */
+  proposes: T;
+  /** What was found, in the words a person reads — `a \`Jenkinsfile\``. */
+  evidence: string;
+  /** Whether the repository shows it. */
+  present: boolean;
+}
+
+/**
+ * One signal was found, and here is what it proposes.
+ *
+ * @typeParam T the vocabulary the question is answered in.
+ */
+export interface SignalProposal<T extends string> {
+  /** Discriminates this arm. A caller cannot read {@link SignalProposal.proposed} off a question. */
+  answer: 'propose';
+  /** The word to write. */
+  proposed: T;
+  /** What was found, ready to print beside it. */
+  evidence: string;
+}
+
+/**
+ * Two or more signals were found, and the rule declines to pick between them.
+ *
+ * IT CARRIES NO PROPOSED WORD, and that absence is the whole point. The plan
+ * settles it: *"A field holding `jenkins` plus `uncertain: true` invites a
+ * caller to read the first half."* There is no first half here — the type has
+ * no field to read, so a caller that wants a word has to handle the question.
+ */
+export interface SignalQuestion {
+  /** Discriminates this arm. */
+  answer: 'ask';
+  /** What each conflicting signal was, in the order the caller declared them. */
+  found: string[];
+}
+
+/**
+ * No signal was found, so there is nothing to propose and nothing to ask.
+ *
+ * NOT THE SAME AS A PROPOSED `none`. A repository showing no CI evidence has
+ * not chosen to have no CI — `/plot-init` states it directly: *"`none` is a
+ * reading, not a key"* — so this arm says *nothing was read* and the caller
+ * writes no key.
+ */
+export interface SignalSilence {
+  /** Discriminates this arm. */
+  answer: 'silent';
+}
+
+/**
+ * What a set of structural signals answers: a proposal, a question, or nothing.
+ *
+ * THREE ARMS RATHER THAN ONE SHAPE WITH A FLAG. The three are different answers
+ * a caller acts on differently — write the key, ask the person, write nothing —
+ * and only the first has a word to write.
+ *
+ * @typeParam T the vocabulary a proposal is made in.
+ */
+export type SignalAnswer<T extends string> =
+  | SignalProposal<T>
+  | SignalQuestion
+  | SignalSilence;
+
+/** Narrows an answer to the proposal it makes. */
+export const isProposal = <T extends string>(
+  answer: SignalAnswer<T>,
+): answer is SignalProposal<T> => answer.answer === 'propose';
+
+/** Narrows an answer to the question it asks. */
+export const isQuestion = <T extends string>(
+  answer: SignalAnswer<T>,
+): answer is SignalQuestion => answer.answer === 'ask';
+
+/**
+ * One signal proposes, two signals ask.
+ *
+ * THE RULE WAS A PARAGRAPH UNTIL 2026-09-09. `/plot-board-setup` step 2 and
+ * `/plot-init` both stated it — *"Where two signals point different ways, setup
+ * does not tie-break — it asks, naming what it found"* — and CLAUDE.md's own
+ * test says what that made it: *can you answer "did I complete this?" without
+ * doing the work?* Yes, so it was a rule, and rules are eventually violated.
+ * Here it is a value a test can assert.
+ *
+ * NO TIE-BREAK EXISTS TO REACH FOR. The rejected design ranked the signals — on
+ * the git host, in the CI case — and a team on GitHub running Jenkins is common
+ * enough to be this sprint's own user; a silently wrong `CI:` sends every
+ * build-status lookup to the wrong system. So the second signal removes the
+ * answer rather than losing to the first.
+ *
+ * ABSENCE IS NOT EVIDENCE AGAINST. Two signals ask even where a caller could
+ * guess, and no signal proposes nothing rather than proposing the absent word.
+ *
+ * @param signals every signal the collector looked for, present or not.
+ * @returns the proposal the lone present signal makes, a question naming every
+ *   present signal where more than one is, or silence where none is.
+ */
+export const fromSignals = <T extends string>(
+  signals: readonly Signal<T>[],
+): SignalAnswer<T> => {
+  const present = signals.filter((signal) => signal.present);
+  if (present.length === 0) return { answer: 'silent' };
+  if (present.length > 1) {
+    return { answer: 'ask', found: present.map((signal) => signal.evidence) };
+  }
+  return {
+    answer: 'propose',
+    proposed: present[0].proposes,
+    evidence: present[0].evidence,
+  };
+};
+
+/** A CI system a repository's tree can propose. */
+export type CiSystem = 'jenkins' | 'github-actions';
+
+/**
+ * What the tree shows about which CI runs this repository's PRs.
+ *
+ * The two `plot-board-probe.sh` already reports as `ci_signals`, which is where
+ * the shape comes from rather than from a new invention.
+ */
+export interface CiSignals {
+  /** Whether a `Jenkinsfile` sits at the repository root. */
+  jenkinsfile: boolean;
+  /** Whether `.github/workflows/` exists. */
+  ghWorkflows: boolean;
+}
+
+/**
+ * Which CI the tree proposes, or the question it raises.
+ *
+ * A `Jenkinsfile` alone proposes `jenkins`; `.github/workflows/` alone proposes
+ * `github-actions`; both ask, naming both; neither is silent and no `CI:` key
+ * is written.
+ *
+ * WHAT IT DOES NOT DO IS DECIDE WHICH CI A REPOSITORY SHOULD USE. It reads what
+ * the tree shows. Whether the described pipeline is the one that gates a merge
+ * is a person's answer, and this asks for it whenever the tree gives two.
+ *
+ * @param signals what the collector found in the tree.
+ * @returns the proposal, the question, or silence.
+ */
+export const proposeCi = (signals: CiSignals): SignalAnswer<CiSystem> =>
+  fromSignals<CiSystem>([
+    { proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: signals.jenkinsfile },
+    {
+      proposes: 'github-actions',
+      evidence: '`.github/workflows/`',
+      present: signals.ghWorkflows,
+    },
+  ]);
+
+/**
  * Everything a probe's readings propose.
  *
  * THE ONE ENTRY POINT THE SKILLS CALL, through `plot-propose-stack.mjs`. The
@@ -298,4 +481,5 @@ export const proposeStack = (readings: StackReadings): StackProposal => ({
     readings.subjectsRead,
   ),
   language: proposeLanguage(readings.germanWordCount, readings.hasHubDoc),
+  ci: readings.ciSignals === null ? null : proposeCi(readings.ciSignals),
 });
