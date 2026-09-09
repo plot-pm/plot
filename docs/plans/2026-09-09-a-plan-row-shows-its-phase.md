@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #866 merged

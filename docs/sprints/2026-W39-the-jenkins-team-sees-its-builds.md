@@ -80,6 +80,11 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 ### Could Have
 
 - [ ] [the-board-says-which-ci-answered] The board names the CI system behind a check state, so an empty column on a Jenkins team reads as *Jenkins said nothing* rather than as *no CI*.
+- [ ] [a-lifecycle-action-needs-a-controller-receipt] A hook refuses a lifecycle script invoked without a controller receipt. Measured 2026-09-09: five dispatches in one session went to `plot-dispatch.sh` directly, by the agent that had read the rule with the board answering. It surfaced because a person asked.
+- [ ] [an-adopting-repo-installs-its-gates] `/plot-init` installs Plot's hooks and proves the install by firing a gate. Measured: `plot-state-gate.sh` is registered at repo HEAD and in **no shipped plugin version** — it has never enforced anything on any machine, including the one that wrote it.
+- [ ] [the-supervisor-is-loaded-or-it-is-reported] `--start` cannot leave a written-but-unloaded unit behind, and a stopped fleet is announced in a person's words. The fleet was down for hours on 2026-09-09 with a correct plist on disk that launchd was never told about.
+- [ ] [reconcile-is-a-controller-action] Reconcile becomes the tenth endpoint, scoped to a plan, a sprint or the workspace. Nine actions are controller endpoints; this one runs a shell script from skill prose.
+- [ ] [a-plan-row-shows-its-phase] A plan row reports its phase whichever path renders it. Two arms of one projection disagree, so a Draft awaiting approval reports `green` — its PR's CI, on a row about a decision nobody has taken.
 
 ### Won't
 
