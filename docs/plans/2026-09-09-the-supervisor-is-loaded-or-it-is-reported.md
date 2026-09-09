@@ -134,11 +134,24 @@ the word *supervisor* are all correct in `plot-fleetctl.sh` and in
 `DESIGN-process.md` — they are machine-side vocabulary, and the board is the one
 surface where a person reads instead of a machine.
 
-| today | what a person needs |
+**The logic is already right, and only the words and the prominence are wrong.**
+`supervisorVerdict` (`rules/supervisor-reading.ts:188`) already answers three
+states, already keeps *down* apart from *could not ask* — its own detail says
+*"This is not the same fact as one being down"* — and already names the
+consequence and the repair:
+
+> No supervisor is loaded, and 3 agents are running. Nothing reaps a finished
+> desk or marks a spent one. Start it: `/plot-fleet --start`
+
+That is the correct sentence, in the wrong vocabulary, at the wrong size. An
+earlier draft of this plan asserted the board collapsed *down* into *unknown*;
+it does not, and the slice is smaller for it.
+
+| verdict today | what a person needs |
 |---|---|
-| `supervised` | **Fleet running** |
+| `supervised` (silent) | **Fleet running** — stays silent, correctly |
 | `supervisor unknown` | **Fleet status unknown** — I could not ask |
-| *(no state)* | **FLEET STOPPED** — nothing is picking up work |
+| `unsupervised` | **FLEET STOPPED** — and loud |
 
 **The estate already draws this line and this is the same one.** `CLAUDE.md`
 splits Machine-side vocabulary (`worker`, the six process states) from
@@ -150,9 +163,10 @@ appear.
 
 **The current rendering is a status chip, and a stopped fleet is not a status —
 it is work not happening.** Measured 2026-09-09: three agents idle 44–57 minutes
-with merged PRs, an eligible slice nobody took, and a board whose only signal
-was the word `unknown` in a chip. Every one of those facts was rendered
-correctly and none of them said *nothing will move until somebody acts*.
+with merged PRs, an eligible slice nobody took, and a board carrying the correct
+sentence in a chip an operator scanned past for an hour. The words were right;
+their weight was not, and `unsupervised` is not a word that reads as *your work
+has stopped*.
 
 The badge already carries a `prominence` field, so the mechanism exists. What
 this slice adds is the **state that earns the top of it**:
