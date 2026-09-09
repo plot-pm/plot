@@ -8,10 +8,11 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- `/plot-init` offers to install Plot's hooks, reports what is already there, and proves the install by firing a gate rather than by writing a file. A repository whose gates are absent is told so instead of discovering it when a guarded write lands unguarded.
+- `/plot-init` offers to install Plot's hooks, reports what is already there, and proves the install by firing a gate rather than by writing a file. A repository whose gates are absent is told so instead of discovering it when a guarded write lands unguarded — the state that `plot-state-gate.sh` has been in on every machine since it merged, because no plugin release has carried it.
 
 Board impact: no. Adoption writes files; nothing renders.
 
@@ -28,6 +29,36 @@ Board impact: no. Adoption writes files; nothing renders.
 | commit record | `plot-install-commit-record.sh` — **offered**, gated on a probe signal |
 | `.claude/settings.json` | merged, never overwritten; prints and continues if blocked |
 | **the hooks** | **nothing** |
+
+### The state gate has never fired, on any machine
+
+**Measured 2026-09-09, and it is worse than the plan first argued.** The repo's
+`hooks/hooks.json` at HEAD registers two gates. Every cached plugin version
+registers one:
+
+| where | registers |
+|---|---|
+| repo HEAD | `plot-phase-gate.sh`, `plot-state-gate.sh` |
+| plugin 2.15.0 | `plot-phase-gate.sh` |
+| plugin 2.14.0 | `plot-phase-gate.sh` |
+| plugin 2.10.0 | `plot-phase-gate.sh` |
+
+`plot-state-gate.sh` shipped on 2026-09-09 and **no release has carried it
+since**. So the gate that refuses a hand-written `State:` line — written,
+tested, merged, and documented in `CLAUDE.md` as the thing that closes the
+four measured hand edits — **has never enforced anything anywhere**, including
+on the machine that wrote it.
+
+**That is the disease and the missing installer is a symptom.** A gate reaches a
+machine by two routes: a plugin release, or a repository's own settings. The
+first has a lag nobody is watching, and the second does not exist. The plan
+covers the second; the first is named here because a reader who fixes only
+adoption will still be running a repo whose newest gate is unshipped.
+
+**It also explains a defect this session took hours to notice.** Five lifecycle
+actions routed past their controller, four `State:` lines written by hand in an
+earlier session — every one of them on a machine where the gate that would have
+refused them was present in the source tree and absent from the running plugin.
 
 ### The failure is silent, and that is the whole problem
 
@@ -46,6 +77,24 @@ A gate that is *installed only sometimes* is worse than a rule: it is a rule tha
 A hook is the same shape. Writing `hooks.json` proves the file exists; it does not prove Claude Code loaded it, that the paths resolve in this repository, or that a guarded write is actually refused. **An install that reports success without firing the gate is the failure this plan exists to prevent**, and the same failure the supervisor plan measured: a unit file on disk that launchd was never told about.
 
 ## Design
+
+### The route is PROVED before the installer is built
+
+**`PreToolUse` from a repository's own `.claude/settings.json` is unverified,
+and this plan will not assume it.** Measured: this repository has no
+`.claude/settings.json` at all, and the user-level settings register only
+`Notification` and `Stop`. **Nothing on this machine demonstrates that a
+settings-registered `PreToolUse` hook fires**, that a repo-relative path
+resolves, or that a plugin hook and a settings hook coexist.
+
+So the first thing the slice does is register one hook from a settings file,
+fire it, and read the refusal. **If the route does not work, the installer has
+nothing to install** — and building it first would produce a script that writes
+a file and proves nothing, which is the exact failure the second slice exists to
+prevent.
+
+This is `/plot-fleet --once` applied to adoption: *prove it works before
+installing anything*, because the tick is free and the install is not.
 
 ### `plot-install-hooks.sh`, shaped exactly like the commit-record installer
 
@@ -96,7 +145,11 @@ A `pre-commit` hook would cover every contributor and every tool, not just Claud
 
 ### Installing
 
-- `feature/an-adopting-repo-installs-its-gates` <!-- builds: plot-install-hooks.sh and its verification, and the /plot-init step that offers it --> — `plot-install-hooks.sh` with the `written`/`current`/`present` contract and a `--check` mode, registering Plot's `PreToolUse` gates in the adopting repository's own `.claude/settings.json`, plus the `/plot-init` step that offers it.
+- `feature/an-adopting-repo-installs-its-gates` <!-- builds: plot-install-hooks.sh and its verification, and the /plot-init step that offers it --> — **first prove the route, then build the installer.** Register one hook from a `.claude/settings.json`, fire it, read the refusal; only then write `plot-install-hooks.sh` with the `written`/`current`/`present` contract and a `--check` mode, plus the `/plot-init` step that offers it.
+
+  **Asserted: a settings-registered `PreToolUse` hook FIRES, with a repo-relative path** — measured before anything is built, because nothing on this estate demonstrates it. **Asserted: if it does not fire, the slice reports that and stops** — an installer for a route that does not work is worse than none.
+
+  **Asserted: a plugin-registered gate reports `current` and adds nothing** — the plugin and the repository must not both register one, because the state gate spends a receipt and a spent receipt will not clear a second reader. Which fires first is not the installer's to control, so the duplicate is prevented by not creating it.
 
   **Asserted: an existing `PreToolUse` hook is never overwritten** — `present`, exit 3, naming the entry to add and keeping the rest. **Asserted: a plugin-registered gate reports `current`, not a duplicate** — the state gate spends a receipt, and a second reader would find it spent. **Asserted: `--check` writes nothing** and reports the same three words, so the offer can be made before anything changes. **Asserted: declining installs nothing and adoption still succeeds**, since a repository without gates works and being told is the deliverable. **Asserted: a blocked settings file does not fail adoption** — it prints the block and continues, `/plot-init`'s own rule.
 
