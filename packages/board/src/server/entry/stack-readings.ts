@@ -1,4 +1,4 @@
-import type { StackReadings } from '@plot-pm/domain/rules/stack';
+import type { Signal, StackReadings } from '@plot-pm/domain/rules/stack';
 
 /**
  * The probe report → `StackReadings` mapping, shared by the two entries that
@@ -48,6 +48,41 @@ const stringOr = (value: unknown): string => (typeof value === 'string' ? value 
  * @param report the merged JSON the two collectors printed
  * @returns the readings, with every absent field read as *nothing was found*
  */
+/**
+ * Read the CI signals from a probe's report.
+ *
+ * **AN ABSENT `ci_signals` IS `null`, NEVER A LIST OF ABSENT SIGNALS.** The two
+ * say different things — *the collector did not look* against *the collector
+ * looked and the tree shows nothing* — and only the second licenses writing no
+ * `CI:` key on the repository's behalf. `plot-detect-repo.sh` does not report
+ * the field yet, so `null` is the answer on this estate today.
+ *
+ * **THE VENDOR NAMES LIVE HERE AND NOT IN THE RULE.** Which file means which CI
+ * is what a collector knows; `proposeCi` counts how many signals are present
+ * and never learns their names, so a third CI system is one entry added here.
+ * The domain names no vendor, and CI gates exactly that.
+ *
+ * @param value what the `ci_signals` field held
+ * @returns one entry per signal the collector looks for, or `null` where the
+ *   field was absent or not an object
+ */
+const ciSignalsFrom = (value: unknown): readonly Signal<string>[] | null => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const signals = value as Record<string, unknown>;
+  return [
+    {
+      proposes: 'jenkins',
+      evidence: 'a `Jenkinsfile`',
+      present: signals.jenkinsfile === true,
+    },
+    {
+      proposes: 'github-actions',
+      evidence: '`.github/workflows/`',
+      present: signals.gh_workflows === true,
+    },
+  ];
+};
+
 export const readingsFrom = (report: Record<string, unknown>): StackReadings => {
   const styles = (report.commit_style_counts ?? {}) as Record<string, unknown>;
   return {
@@ -66,6 +101,13 @@ export const readingsFrom = (report: Record<string, unknown>): StackReadings => 
     subjectsRead: numberOr(report.subjects_read, 0),
     germanWordCount: numberOr(report.german_words, 0),
     hasHubDoc: stringOr(report.hub_docs) !== '',
+    ciSignals: ciSignalsFrom(report.ci_signals),
     ciHost: stringOr(report.jenkins_host),
+    // THE WORD LIVES HERE BECAUSE THE FIELD ABOVE DOES. `jenkins_host` is one
+    // CI system's reading -- the probe finds it by that system's own marker --
+    // so this is where the estate already knows which word the CI proposal has
+    // to carry before the host is worth asking about. The domain names no
+    // vendor, and takes the word as a value instead.
+    instanceKeyedCi: report.jenkins_host === undefined ? '' : 'jenkins',
   };
 };

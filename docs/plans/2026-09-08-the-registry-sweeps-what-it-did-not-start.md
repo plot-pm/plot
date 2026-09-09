@@ -46,13 +46,13 @@
 
 ## Slices
 
-### The supervisor counts the trees it did not start (Branch: bug/the-registry-sweeps-what-it-did-not-start)
+### The supervisor counts the trees it did not start (Branch: bug/the-registry-sweeps-what-it-did-not-start → #845)
 
 The tick reports registered worktrees that hold no claim, and names what a person can do about each.
 
 **IT REPORTS AND DOES NOT REMOVE**, for the same reason the reaper refuses on a dirty tree: the supervisor cannot know why a directory exists. What it can say is that the estate is carrying it — and that the carrying is what costs.
 
-**THE READING IS THE REGISTRATION, NOT THE DIRECTORY.** `git worktree list --porcelain` is the one authority, and it already reports `detached` and `prunable`. A tree is unclaimed when the registry names no agent for it and no plan names its branch; a detached tree can never be claimed, so it is unclaimed by construction.
+**THE READING IS THE REGISTRATION, NOT THE DIRECTORY.** `git worktree list --porcelain` is the one authority, and it already reports `detached` and `prunable`. A tree is unclaimed when the registry names no agent for it and no plan names its branch — and the HEAD shape says nothing about either. **The clause that read *a detached tree can never be claimed, so it is unclaimed by construction* was measured false and is removed, 2026-09-09:** two of six registered agents on this estate held a DETACHED desk, because `plot-dispatch.sh --start` cuts a free agent's tree detached at `origin/<main>` on purpose. Deriving the claim from the HEAD would have named both of them leftovers while their workers ran.
 
 **IT SAYS WHAT EACH COSTS.** *"12 worktrees nobody dispatched — the scan walks all of them"* is actionable where *"12 unclaimed worktrees"* is trivia. The number the reader needs is the one that connects the finding to the timeout they just saw.
 

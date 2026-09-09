@@ -579,6 +579,35 @@ await esbuild.build({
 fs.copyFileSync(releaseGateArtifact, shippedReleaseGate);
 fs.chmodSync(shippedReleaseGate, 0o755);
 
+// The one lifecycle move that runs backwards, for /plot-reject.
+//
+// ONCE PER REVERSAL, the same call site the sprint transition answers at. Its
+// own bundle for the same reason: plot-ask.mjs answers `board` and `fleet` by
+// RUNNING plot-fleet-scan.sh, so a script asking it for a transition would call
+// an artifact that calls the script. This one spawns nothing — the plan file
+// arrives on stdin.
+//
+// Returning a Delivered plan to Approved had NO script owning its write, where
+// every forward move has one, so it was done by editing the `State:` line. That
+// is the shortcut this slice closes.
+const planUndeliverArtifact = path.join(here, 'dist/plot-plan-undeliver.mjs');
+const shippedPlanUndeliver = path.join(here, '../../skills/plot/scripts/board/plot-plan-undeliver.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/plan-undeliver.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: planUndeliverArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(planUndeliverArtifact, shippedPlanUndeliver);
+fs.chmodSync(shippedPlanUndeliver, 0o755);
+
 // What adoption writes into a repository, for /plot-init.
 //
 // ONCE PER ADOPTION, the same call site plot-propose-stack.mjs answers at, and
@@ -603,6 +632,31 @@ await esbuild.build({
 
 fs.copyFileSync(adoptArtifact, shippedAdopt);
 fs.chmodSync(shippedAdopt, 0o755);
+
+// What opening a slice's pull request writes, for the fleet and /plot-implement.
+//
+// ONCE PER SLICE PR, which is once per branch — the cheapest call site on the
+// estate. Its own bundle for the reason the two above give: a shell asking
+// plot-ask.mjs would call an artifact that runs plot-fleet-scan.sh, and opening
+// a PR needs neither the fleet nor the board. This asks openSlicePr and spawns
+// nothing; the readings arrive on stdin from the shell that took them.
+const slicePrArtifact = path.join(here, 'dist/plot-slice-pr.mjs');
+const shippedSlicePr = path.join(here, '../../skills/plot/scripts/board/plot-slice-pr.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/slice-pr.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: slicePrArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(slicePrArtifact, shippedSlicePr);
+fs.chmodSync(shippedSlicePr, 0o755);
 
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
@@ -714,7 +768,9 @@ const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
 const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
 const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
+const planUndeliverKb = (fs.statSync(shippedPlanUndeliver).size / 1024).toFixed(1);
 const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
+const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -732,5 +788,7 @@ console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/s
 console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-plan-undeliver.mjs (${planUndeliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

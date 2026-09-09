@@ -148,18 +148,38 @@ Present one block the user corrects rather than composes:
 > `Git host: bitbucket`, `CI: jenkins`, `Tracker: jira` and
 > `Jenkins instance: apps` to Plot Config.
 
-**One signal proposes, two signals ask.** Every inferred field is a *proposal*
-built from a single structural signal. Where two signals point different ways,
-setup does not tie-break — it asks, naming what it found. This is the general
-rule below, not a special case for any one field.
+**One signal proposes, two signals ask, and `proposeCi` answers it.** Every
+inferred field is a *proposal* built from a single structural signal. Where two
+signals point different ways, setup does not tie-break — it asks, naming what
+it found.
+
+**Read `ci` from the proposal rather than re-deriving it from `ci_signals`.**
+The rule lives in `packages/domain/src/rules/stack.ts` and it answers one of
+three ways:
+
+| `ci.answer` | What it means | What setup does |
+|---|---|---|
+| `propose` | one signal was found | propose `CI: ${ci.proposed}`, printing `ci.evidence` |
+| `ask` | two signals were found | ask, naming every string in `ci.found` |
+| `silent` | the tree showed neither | write no `CI:` key |
+
+**A question carries no proposed word**, which is the shape rather than an
+oversight: a field holding `jenkins` beside an `uncertain: true` invites a
+caller to read the first half. There is no first half here — an `ask` has no
+`proposed` field to read.
+
+**A `null` `ci` is a fourth answer and not a `silent`.** It means the merged
+probes reported no `ci_signals` at all, so nothing was looked for. Say the CI
+system was not read and carry on; every other proposal is independent of it.
 
 Turn the merged signals into proposals:
 
 - **Git host** — propose `plot-detect-repo.sh`'s inferred `git_host`
   (`bitbucket` from a `bitbucket.org` origin). It is a proposal, not a config
   read: the probe's `git_host` is empty until this write.
-- **CI** — see the both-signals rule below. A lone `Jenkinsfile` proposes
-  `CI: jenkins`; a lone `.github/workflows/` proposes `CI: github-actions`.
+- **CI** — read `ci` from the proposal. A lone `Jenkinsfile` proposes
+  `CI: jenkins`; a lone `.github/workflows/` proposes `CI: github-actions`;
+  both ask. See the both-signals rule below.
 - **Tracker** — a repeated ticket prefix is strong evidence **for** a Jira
   tracker. When the proposal carries a `ticket.prefix`, propose `Tracker: jira`
   **with the evidence named**:
@@ -180,9 +200,8 @@ Turn the merged signals into proposals:
   **asks** the open question below and **never proposes `Tracker: none`** from
   silence.
 
-**The CI both-signals rule (Item 1b).** Where `ci_signals.jenkinsfile` **and**
-`ci_signals.gh_workflows` are both true, setup **does not propose** — it asks,
-naming both:
+**The CI both-signals rule (Item 1b).** Where `ci.answer` is `ask` — both
+signals present — setup **does not propose**. It asks, naming both:
 
 > Found a `Jenkinsfile` and 3 workflow files. Which runs your PRs?
 

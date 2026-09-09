@@ -1,4 +1,4 @@
-import type { StackProposal } from './stack.js';
+import { isProposal, isQuestion, type StackProposal } from './stack.js';
 
 /**
  * What adoption writes into a repository, and the four refusals that stop it.
@@ -136,8 +136,6 @@ export interface AdoptionReadings {
   readonly hubDocs: readonly string[];
   /** The git host the probe read, or `''` where it read none. */
   readonly gitHost: string;
-  /** Which CI systems left evidence: `jenkins`, `github-actions`, `both`, `none` or `''`. */
-  readonly ciSystem: string;
 }
 
 /** What a person confirmed, and what they have not been asked. */
@@ -252,48 +250,53 @@ const trackerKey = (input: AdoptionInput): { key: ConfigKey; gap: string } => {
  * written, and the *domain names no vendor* gate refused it — correctly. A rule
  * that knows which systems exist is a rule that needs editing when the third one
  * arrives, which is the property `ports/host.ts` opened its `HostBackend` to keep.
- *
- * These two are ANSWERS ABOUT THE READING rather than systems: `both` says two
- * signals disagree, `none` says nothing was found. Neither can be a config value,
- * so the rule must recognise them — and every other word is a system it passes
- * through without knowing.
- */
-const AMBIGUOUS_CI = 'both';
-const NO_CI = 'none';
-
 /**
  * The CI key adoption writes, and the gap it announces.
  *
- * ONE SIGNAL PROPOSES, TWO SIGNALS ASK. `both` never tie-breaks — a team on one
- * vendor's host running another's CI is common, and a silently wrong `CI:` sends
- * every build-status lookup to the wrong system. `none` is a reading and not a
- * key: writing `CI: none` records a choice the repository never made.
+ * ONE SIGNAL PROPOSES, TWO SIGNALS ASK, AND `proposeCi` IS WHERE THAT LIVES.
+ * This reads {@link StackProposal.ci} rather than a word: an `ask` never
+ * tie-breaks — a team on one vendor's host running another's CI is common, and
+ * a silently wrong `CI:` sends every build-status lookup to the wrong system —
+ * and a `silent` is a reading rather than a key, because writing `CI: none`
+ * records a choice the repository never made.
  *
- * ANY OTHER WORD IS A SYSTEM, AND THIS DOES NOT KNOW WHICH. The collector reads
- * the evidence and names what it found; the rule decides only whether that name
- * identifies one system, so a third CI system needs no edit here. The EVIDENCE
- * sentence stays the collector's for the same reason — naming the file that said
- * so would mean holding a file name per vendor.
+ * IT READS THE UNION AND NOT `readings.ciSystem`. That field packs four
+ * different answers into one string, where `both` and `none` are statements
+ * about the reading sitting beside `jenkins`, which is a system — so a caller
+ * holding the string cannot tell a config value from a verdict without knowing
+ * the two magic words. The union has an arm per answer, and only the `propose`
+ * arm has a word to write.
+ *
+ * THE FOUR CASES ARE THE COLLECTOR'S FOUR, unchanged. A `null` proposal is the
+ * probe never reporting `ci_signals` at all, which is *not read* and not the
+ * `silent` a tree showing neither signal gives.
  */
 const ciKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => {
   const confirmed = input.answers.ci;
   if (confirmed !== '') {
     return { key: { key: 'CI', value: confirmed, evidence: 'confirmed' }, gap: '' };
   }
-  const read = input.readings.ciSystem;
-  if (read === AMBIGUOUS_CI) {
+  // `?? null` BECAUSE THE PROPOSAL CAN ARRIVE FROM THE WIRE. `/plot-adopt` takes
+  // one the caller already has rather than recomputing it, and a client that
+  // never asked about CI sends an object with no `ci` at all. Absent and `null`
+  // are one answer here — *nobody looked* — and neither may read as no evidence.
+  const read = input.proposal.ci ?? null;
+  if (read === null) {
+    return { key: null, gap: 'no CI key written — the CI system was not read' };
+  }
+  if (isQuestion(read)) {
     return {
       key: null,
       gap: 'no CI key written — two CI systems left evidence in the tree, and the git host does not decide which runs the PRs',
     };
   }
-  if (read === NO_CI) {
+  if (!isProposal(read)) {
     return { key: null, gap: 'no CI key written — no CI evidence in the tree' };
   }
-  if (read === '') {
-    return { key: null, gap: 'no CI key written — the CI system was not read' };
-  }
-  return { key: { key: 'CI', value: read, evidence: 'evidence in the tree' }, gap: '' };
+  return {
+    key: { key: 'CI', value: read.proposed, evidence: read.evidence },
+    gap: '',
+  };
 };
 
 /**
