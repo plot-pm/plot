@@ -276,7 +276,11 @@ const ciKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => 
   if (confirmed !== '') {
     return { key: { key: 'CI', value: confirmed, evidence: 'confirmed' }, gap: '' };
   }
-  const read = input.proposal.ci;
+  // `?? null` BECAUSE THE PROPOSAL CAN ARRIVE FROM THE WIRE. `/plot-adopt` takes
+  // one the caller already has rather than recomputing it, and a client that
+  // never asked about CI sends an object with no `ci` at all. Absent and `null`
+  // are one answer here — *nobody looked* — and neither may read as no evidence.
+  const read = input.proposal.ci ?? null;
   if (read === null) {
     return { key: null, gap: 'no CI key written — the CI system was not read' };
   }

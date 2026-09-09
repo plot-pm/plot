@@ -276,6 +276,17 @@ describe('composeAdoption — the CI key', () => {
     expect(notRead.gaps).toEqual(['no CI key written — the CI system was not read']);
   });
 
+  it('reads a proposal that carries no `ci` at all as not read', () => {
+    // NOT DEAD CODE. `/plot-adopt` takes a proposal the caller already has, so
+    // a client that never asked about CI sends an object with no `ci` field —
+    // measured by `adopt.test.ts`'s own wire fixture. Absent and `null` are one
+    // answer, and neither may read as *no CI evidence in the tree*.
+    const { ci: _dropped, ...withoutCi } = bare();
+    const result = composeAdoption(input({ proposal: withoutCi as StackProposal }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.gaps).toEqual(['no CI key written — the CI system was not read']);
+  });
+
   it('takes a confirmed answer over every reading', () => {
     const result = composeAdoption(
       input({
