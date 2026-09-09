@@ -67,10 +67,15 @@ zero times across the whole adoption path.
 subjects)` is confirmable in one read; a bare `jira` is indistinguishable from
 a guess, and one unexplained proposal costs the whole block its credibility.
 
-**One signal proposes, two signals ask.** Where a `Jenkinsfile` and
-`.github/workflows/` are both present, adoption does not tie-break on the git
-host — a team on GitHub running Jenkins is common, and a wrong `CI:` sends
-every build-status lookup to the wrong system.
+**One signal proposes, two signals ask — and `proposeCi` is where that lives.**
+Where a `Jenkinsfile` and `.github/workflows/` are both present, adoption does
+not tie-break on the git host — a team on GitHub running Jenkins is common, and
+a wrong `CI:` sends every build-status lookup to the wrong system. The rule
+answers `propose`, `ask` or `silent`, and **an `ask` carries no proposed word**:
+a field holding `jenkins` beside an `uncertain: true` invites a caller to read
+the first half, so there is no half to read. It was prose in two skills until
+2026-09-09, which by CLAUDE.md's own test made it a rule rather than a gate —
+you could answer *did I complete this?* without doing the work.
 
 **The base URL is the only question added.** A prefix gives `QUACDS` and no
 host, and `tracker-jira.ts` needs one. Rather than guessing it from a remote or
@@ -212,4 +217,8 @@ step 2's existing confirmation gate rather than a new mechanism.
   `feature/the-probe-reads-the-ci-system` merged as PR #811 carrying **zero
   files**, its claim commit only. The signal itself is already read next door,
   as `ci_signals.{jenkinsfile,gh_workflows}` in `plot-board-probe.sh`, which is
-  where the probe's field should derive its shape from.
+  where the probe's field should derive its shape from. **The judgement half
+  landed 2026-09-09**: `proposeCi` decides what the two signals answer, and the
+  entry reads `ci_signals` when a probe reports it. Until this probe does, `ci`
+  is `null` here — *nobody looked*, which the skill states rather than reading
+  as `silent`.
