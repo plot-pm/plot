@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #863 merged
 - **Started:** 2026-09-09, Jan Wloka, `feature/a-controller-action-leaves-a-receipt`
+- **Delivered:** 2026-09-10
 
 ## Changelog
 
@@ -114,7 +115,7 @@ That is today's design. `/plot-dispatch`'s prose names the script, and a skill i
 
 ### Refusing
 
-- `feature/a-controller-action-leaves-a-receipt` <!-- builds: the controller-action receipt and the gate that refuses an unreceipted lifecycle script --> — `plot-state-receipt.sh` gains the action-receipt kind, the three endpoints write one before spawning, and `plot-controller-gate.sh` refuses a gated script invoked without one.
+- `feature/a-controller-action-leaves-a-receipt` <!-- builds: the controller-action receipt and the gate that refuses an unreceipted lifecycle script --> — `plot-state-receipt.sh` gains the action-receipt kind, the three endpoints write one before spawning, and `plot-controller-gate.sh` refuses a gated script invoked without one. → #867
 
   **Asserted: a direct `plot-dispatch.sh` call is REFUSED and names the endpoint** — the exact invocation measured five times on 2026-09-09. **Asserted: the same call through `/api/dispatch` succeeds**, since a gate that broke the legitimate path is worse than no gate.
 

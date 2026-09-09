@@ -1494,10 +1494,10 @@ wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
   # says so rather than printing an empty list.
   case "$outlook" in
     not-yet)
-      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — nothing handed over yet, and $(printf '%s' "$blockers" | tr "$tab" ' ') has still to land. Reading the manifest every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
+      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — nothing handed over yet, and $(printf '%s' "$blockers" | tr "$tab" ' ') has still to land. Reading the manifest every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with /plot-fleet --stop" >&2
       ;;
     *)
-      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — nothing handed over yet. Waiting to be handed work: reading the manifest every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
+      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — nothing handed over yet. Waiting to be handed work: reading the manifest every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with /plot-fleet --stop" >&2
       ;;
   esac
 
@@ -1680,7 +1680,7 @@ while true; do
     write_ending "${PLOT_WORKTREE:-$PWD}" unstarted agent "${PLOT_BRANCH:-}" \
       "the worker prompt exited $_prompt_status without running, on $START_ATTEMPT_BUDGET attempts"
     write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
-      "PLOT-BLOCKED: the worker prompt for \`${PLOT_BRANCH:-?}\` exited $_prompt_status without running, $START_ATTEMPT_BUDGET times. Nothing was implemented and the slice is still claimed by this agent. Read \`.plot-worker.log\` for what the runtime said, fix the invocation in the prompt file, then restart this agent with \`plot-dispatch.sh --restart ${PLOT_BRANCH:-<branch>}\`."
+      "PLOT-BLOCKED: the worker prompt for \`${PLOT_BRANCH:-?}\` exited $_prompt_status without running, $START_ATTEMPT_BUDGET times. Nothing was implemented and the slice is still claimed by this agent. Read \`.plot-worker.log\` for what the runtime said, fix the invocation in the prompt file, then restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
     exit 1
   fi
 
