@@ -553,6 +553,32 @@ await esbuild.build({
 fs.copyFileSync(sprintTransitionArtifact, shippedSprintTransition);
 fs.chmodSync(shippedSprintTransition, 0o755);
 
+// The sprint's verdict on a release, for /plot-release's step 0.
+//
+// ONCE PER RELEASE, the cheapest call site a rule can have: a person types
+// `/plot-release 2.16.0` and waits for it. Its own bundle rather than a verb on
+// plot-ask.mjs, for the reason entry/sprint-transition.ts gives — that artifact
+// answers `board` and `fleet` by RUNNING plot-fleet-scan.sh, so a script asking
+// it for a verdict would call an artifact that calls a script. This one spawns
+// nothing: plot-sprint-release.sh's JSON arrives on stdin.
+const releaseGateArtifact = path.join(here, 'dist/plot-release-gate.mjs');
+const shippedReleaseGate = path.join(here, '../../skills/plot/scripts/board/plot-release-gate.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/release-gate.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: releaseGateArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(releaseGateArtifact, shippedReleaseGate);
+fs.chmodSync(shippedReleaseGate, 0o755);
+
 // The one lifecycle move that runs backwards, for /plot-reject.
 //
 // ONCE PER REVERSAL, the same call site the sprint transition answers at. Its
@@ -741,6 +767,7 @@ const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
 const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
+const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
 const planUndeliverKb = (fs.statSync(shippedPlanUndeliver).size / 1024).toFixed(1);
 const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
@@ -760,6 +787,7 @@ console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/s
 console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-plan-undeliver.mjs (${planUndeliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
