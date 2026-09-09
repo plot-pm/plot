@@ -39,6 +39,7 @@ const bare = (): StackProposal =>
     subjectsRead: 80,
     germanWordCount: 0,
     hasHubDoc: true,
+    ciHost: '',
   });
 
 const input = (over: Partial<AdoptionInput> = {}): AdoptionInput => ({
@@ -187,6 +188,7 @@ describe('composeAdoption — the keys', () => {
           subjectsRead: 80,
           germanWordCount: 0,
           hasHubDoc: true,
+          ciHost: '',
         }),
         readings: readings({ ciSystem: 'jenkins' }),
         answers: answers({ tracker: 'jira', trackerUrl: 'https://acme.atlassian.net' }),
@@ -295,6 +297,7 @@ describe('composeAdoption — the commit style', () => {
           subjectsRead: 80,
           germanWordCount: 0,
           hasHubDoc: true,
+          ciHost: '',
         }),
       }),
     );
