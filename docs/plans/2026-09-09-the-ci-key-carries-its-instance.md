@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #852 merged
+- **Started:** 2026-09-09, Jan Wloka, `bug/the-ci-key-splits-into-scheme-and-instance`
 
 ## Changelog
 
