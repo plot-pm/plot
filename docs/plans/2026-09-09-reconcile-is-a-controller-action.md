@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -25,9 +26,29 @@ Board impact: yes. The reconcile action becomes a tenth endpoint beside the nine
 
 This plan is that finding, filed rather than worked around.
 
-### The reach is an accident of one script, and it showed
+### The reach is a naming disagreement, and it is one line
 
-**Measured 2026-09-09 on this estate: 18 worktrees, of which 11 held merged PRs — finished desks nobody removed.** The reaper's dry run reported `kept=3`. It enumerates every worktree (`plot-reap.sh:553`, no slug filter), and still examined three, because a desk reaches its five refusals only when a manifest, a branch and a claim line up. A desk whose plan was delivered, or whose agent died before registering, falls out of the loop rather than being refused by it.
+**Measured 2026-09-09 on this estate: 18 worktrees, of which 11 held merged PRs — finished desks nobody removed.** The reaper's dry run reported `kept=3`.
+
+The cause is a **path-name filter that no longer matches what dispatch cuts**:
+
+```sh
+# plot-reap.sh, inside the worktree loop
+case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+```
+
+Against `plot-dispatch.sh`, which names desks two other ways:
+
+| site | name it cuts |
+|---|---|
+| `:1576` | `${wt_prefix}free-<session-id>` |
+| `:3068` | `${wt_prefix}<branch-suffix>` |
+
+**Neither contains `/plot-wt-`.** So 15 of 18 desks were skipped before a single refusal ran — not refused, not reported, not counted. The producer and the consumer disagree about what a dispatch desk is called, and nothing tests the pair.
+
+**The reaper is NOT slug-scoped**, and two earlier readings of this said otherwise. `plot-reap.sh:553` enumerates every worktree with no filter; the loop then discards most of them on the line above.
+
+**And the domain already holds the same question, unwired.** `reap.ts:27` declares `isDispatchTree: boolean` and `:136` skips any tree where it is false — but nothing computes it. The shell never supplies it, so the field is dead and the `case` statement is the real decision. Two filters for one question, one of them unreachable by any test, which is exactly how it drifted from dispatch's naming unnoticed.
 
 Ten of those desks were removed **by hand** after checking three facts per desk: a merged PR, no live pid, a clean tree. Those are the reaper's own conditions, applied by an operator because the tool that holds them never looked.
 
@@ -63,15 +84,27 @@ That names **one** of the 74 files. A contributor reading either doc has no way 
 
 `reconcile(readings, input)` in the domain, reached by a tenth endpoint. Input carries the scope — `{ kind: 'plan', slug }`, `{ kind: 'sprint', slug }`, or `{ kind: 'workspace' }` — and the readings carry what the shell measured. The rule returns **findings**, each naming its subject, its evidence and the command that repairs it.
 
-**It decides nothing and performs nothing**, which is the property `/plot-reconcile` already has and must keep:
+**It decides nothing and performs nothing — strictly, with no `--yes`**, which is the property `/plot-reconcile` already has and must keep:
 
 > It is **read-only**: it prints the exact remediating command for every finding but never runs it. The judgment — is this branch still relevant, should this plan be delivered or rejected — stays yours.
 
 That sentence is the contract. A controller that reaped on its own would be a different tool with a different blast radius, and the reaper's `--dry-run` default exists for the same reason.
 
+**`reap()` returns `writes: Write[]` and reconcile discards them.** That is deliberate rather than wasteful: the same rule serves `/plot-reap --yes`, which performs them, and reconcile, which reports what they would have been. Taking the decision without taking the writes is what keeps one condition set serving two blast radii — and it is why reconcile can afford to sweep the whole estate while the reaper stays per-invocation.
+
+**No `--yes`, at any scope.** A gated apply was considered and refused: the value of a sweep an operator runs casually is that running it cannot cost anything, and a flag that sometimes acts turns every invocation into a decision. Acting stays with the tools that already own each repair — `/plot-reap --yes`, `/plot-deliver`, `/plot-reslice` — each of which the findings name.
+
+### Reconcile composes existing rules and adds none
+
+**`packages/domain/src/workflows/reap.ts` already answers the desk half.** `reap(readings, input): Decision<ReapDetail>` holds the refusals, the kept-reasons and the writes; `rules/reapable.ts` states the conditions. So the reconcile rule **calls it** and contributes zero new conditions of its own.
+
+What reconcile adds is the **scope** and the **composition**: it gathers findings from `reap()` for desks and from the sweep's sections for plans, branches, refs and sprints, and answers as one list for one scope. A condition that exists in two places is the drift this estate has already paid for twice — `ci_backend` matched four ways, and `isDispatchTree` declared once and decided somewhere else.
+
+**Its own value is therefore small and specific**, which is the argument for building it: one question (*what has drifted, here?*), one answer, three scopes, and no rule that is not already written and tested.
+
 ### Desks become a finding, not a separate tool
 
-A desk is reported when it is **finished**: a merged PR, no live worker, a clean tree and no `PLOT-BLOCKED` marker. Those are `plot-reap.sh`'s conditions and `rules/reapable.ts` already holds them — this adds no sixth rule, it gives the existing one a reader that sweeps.
+A desk is reported when it is **finished**: a merged PR, no live worker, a clean tree and no `PLOT-BLOCKED` marker. Those come from `reap()` unchanged.
 
 **A dirty desk whose agent died is NOT free, and that is the case the rule must keep separate.** `uncommitted-changes` is its own refusal (`plot-reap.sh:77` — *"work that exists nowhere else"*), and it outranks the absence of a worker: a dead agent with unpushed work is the shape that strands finished code. Measured twice on 2026-09-09 — one desk held 75 lines of correct tests with no PR, and a second held 324 finished lines earlier in the estate's history. **Both were rescued by a person reading the tree.** So the finding for that desk says *needs a person*, never *free*.
 
@@ -112,9 +145,13 @@ Tempting, and refused for the reason quoted above. The sweep's value is that it 
 
 ### Sweeping
 
-- `feature/a-finished-desk-is-a-finding` <!-- builds: the reconcile finding for a desk whose work has landed --> — desks join the sweep: a desk with a merged PR, no live worker, a clean tree and no marker is reported as free, with the `git worktree remove` that repairs it. Waits on `feature/reconcile-is-a-controller-action`, which is where a finding is defined.
+- `feature/a-finished-desk-is-a-finding` <!-- builds: the dispatch-desk reading and the reconcile finding for a desk whose work has landed --> — **first the filter, then the finding.** `plot-reap.sh`'s `case "$wt" in *"/plot-wt-"*` skips 15 of 18 desks on this estate because dispatch names them `free-<id>` and `<branch-suffix>`; the shell stops deciding and instead **supplies `isDispatchTree`**, the field `reap.ts:27` already declares and `:136` already acts on. Then desks join the sweep, each finding naming the `git worktree remove` that repairs it. Waits on `feature/reconcile-is-a-controller-action`, which is where a finding is defined.
 
-  **Asserted: a dirty desk whose agent died is reported as NEEDS A PERSON, never as free** — the case that strands finished code, measured twice on this estate. **Asserted: a desk with a live worker is not reported at all**, since a finding an operator cannot act on is noise. **Asserted: the conditions come from `rules/reapable.ts`** rather than a second copy — a corpus test holds the pair if they are ever expressed twice. **Asserted: the finding names the desk path**, because the repair is per-directory and an operator should not have to derive it from a branch name.
+  **Asserted: the filter fix is measured before the finding is built** — re-run the reaper after the shell reports the field and count what it now examines. If 18 of 18 reach a refusal, the finding is reporting a population the reaper already handles, and the slice says so rather than adding a section nobody needs.
+
+  **Asserted: a desk dispatch cut under EVERY naming reaches a refusal** — `free-<id>`, `<branch-suffix>` and the legacy `plot-wt-<suffix>` alike, since the bug is precisely that one of three was privileged. **Asserted: a hand-made worktree is still skipped** — `isDispatchTree: false` is the population boundary `reap.ts:136` states, and widening the filter must not widen the blast radius to trees a person made. **Asserted: no `case` statement decides it** — the shell measures and the rule judges, which is the split that would have caught this drift.
+
+  **Asserted: a dirty desk whose agent died is reported as NEEDS A PERSON, never as free** — the case that strands finished code, measured twice on this estate. **Asserted: a desk with a live worker is not reported at all**, since a finding an operator cannot act on is noise. **Asserted: the conditions come from `reap()`** rather than a second copy. **Asserted: the finding names the desk path**, because the repair is per-directory.
 
 ## Notes
 
@@ -122,6 +159,8 @@ Written 2026-09-09 after a session in which the estate reached 18 worktrees, 11 
 
 **The word means three things in this repo** — the controller action this plan adds, the `plot-reconcile-scan.sh` sweep, and 74 shell contract tests that merely live in a directory called `reconcile`. Two of the three are addressed here; the sweep keeps its name because it is what the action will call.
 
-**The reaper is not slug-scoped**, and an earlier draft of this plan said it was. `plot-reap.sh:553` enumerates every worktree with no filter. The reach problem is real and its cause is different: a desk reaches the five refusals only when a manifest, a branch and a claim line up, so an unregistered or delivered-plan desk falls out of the loop rather than being refused by it. The slice should measure which of the two it is before fixing either.
+**Three explanations of the reach problem were proposed and two were wrong**, both of them mine. It is not slug scoping (`plot-reap.sh:553` enumerates every worktree with no filter), and it is not a manifest/branch/claim alignment. It is one `case` statement matching `/plot-wt-` against desks dispatch names `free-<id>` and `<branch-suffix>` — found by reading the loop rather than the summary, after two readings that stopped at the enumeration.
+
+**That is also the argument for the plan.** A one-line filter drifted from its producer's naming, cost 15 of 18 desks, sat in a shell `case` where no test reaches it, and shadowed a domain field declared for the same question. The layering rule this repo already states — scripts collect, rules judge — is what would have caught it, and the Sweeping slice applies it rather than fixing the line in place.
 
 Definition of Done: docs/definition-of-done.md
