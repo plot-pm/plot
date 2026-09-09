@@ -273,7 +273,7 @@ the signal to stop.
   so a repo that answered adoption's question keeps its nested job rather than
   degrading to root-scope listing. **Asserted: `PLOT_CI` is split like the
   config value** — `build-actions.ts:39` passes it in production, so a bare
-  `SYSTEM` word and a person's prose must reach the same comparison.
+  `SYSTEM` word and a person's prose must reach the same comparison. → #853
 
 ### Asking the scheme
 
