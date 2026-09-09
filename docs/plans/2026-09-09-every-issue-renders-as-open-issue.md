@@ -6,12 +6,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Issue:** #849
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-09-09, Jan Wloka, plan-PR #856 merged
 
 ## Changelog
 
