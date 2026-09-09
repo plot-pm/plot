@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** setup-asks-what-the-repo-already-knows
@@ -13,6 +13,8 @@
 - **Rounds:** 6
 - **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 - **Started:** 2026-09-08, Jan Wloka, `feature/a-probe-reports-and-the-domain-judges`
+- **Started:** 2026-09-09, Jan Wloka, `feature/two-signals-ask-rather-than-tie-break`
+- **Delivered:** 2026-09-09
 
 ## Changelog
 
@@ -91,7 +93,7 @@ A domain rule takes a probe's readings and returns proposals; the collectors rep
 
 **Done when** the seven thresholds are domain rules with tests; the collectors report raw readings (`node`, not `node_ok`; counts, not styles); the Node floor comes from `.nvmrc` rather than a literal, so `plot-board-probe.sh`, `plot-fleetctl.sh` and the rule give one answer; `/plot-board-setup` acts on it where it acted on nothing; `/plot-init` reads the proposals rather than recomputing them; and the domain package's branch coverage still holds at 100%.
 
-### Two signals ask rather than tie-break (Branch: feature/two-signals-ask-rather-than-tie-break) <!-- waits: feature/a-probe-reports-and-the-domain-judges -->
+### Two signals ask rather than tie-break (Branch: feature/two-signals-ask-rather-than-tie-break, PR: #842) <!-- waits: feature/a-probe-reports-and-the-domain-judges -->
 
 The *one signal proposes, two signals ask* rule becomes a property of the proposal rather than a paragraph.
 

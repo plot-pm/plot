@@ -203,6 +203,26 @@ export const sprintStateSettable = (sprint: Sprint, to: string): boolean =>
  *   `close-date-missing`, `close-date-before-start` or `precondition-unmet`.
  */
 export const setSprintState = (sprint: Sprint, input: SetSprintStateInput): TransitionResult => {
+  // THE SPRINT'S OWN STATE IS CHECKED FIRST, because it is read from a file and
+  // the file can be wrong — `entities/sprint.ts:58`, *"stated in the file, so it
+  // can be wrong"*. Every gate below indexes `NEXT` by it, and an unadmitted
+  // word indexes to `undefined`.
+  //
+  // Measured 2026-09-08: a sprint carrying `State: Planned` — a word the
+  // lifecycle does not have — was started by hand. Wired to this rule on
+  // 2026-09-09, that input threw `Cannot read properties of undefined (reading
+  // 'length')` instead of refusing, so the refusal a person acts on arrived as
+  // a stack trace. The rule's own tests could not reach it: their helper types
+  // the current state as `SprintState`, which is exactly the guarantee a parsed
+  // file does not carry.
+  if (!known(sprint.state)) {
+    return refuse(
+      sprint.slug,
+      'state-unrecognised',
+      `sprint '${sprint.slug}' carries '${sprint.state}', which is not a sprint state — the four are ${SprintStateSchema.options.join(', ')}.`,
+    );
+  }
+
   if (!known(input.to)) {
     return refuse(
       sprint.slug,

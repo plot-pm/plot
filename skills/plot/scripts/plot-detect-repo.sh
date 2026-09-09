@@ -29,6 +29,10 @@
 #   hub_docs          CLAUDE.md and/or AGENTS.md, comma-separated; "" if neither
 #   has_plot_config   true when a hub already carries a `## Plot Config`
 #   has_settings      true when .claude/settings.json exists
+#   jenkins_host      the Jenkins host a tracked doc names, e.g.
+#                     jenkins-ci-webbloqs.internal.example.dev; "" when no
+#                     doc names one. The SLUG half of `Jenkins instance` —
+#                     the job path is not in any file and is asked.
 #   german_words      how many German words the hub docs' sample carried; 0
 #                     when there was no doc to sample
 #
@@ -130,6 +134,48 @@ done
 has_settings=false
 [ -f .claude/settings.json ] && has_settings=true
 
+# --- the Jenkins instance a doc names ------------------------------------
+# WHICH Jenkins, read from what the repository already writes down. A
+# `Jenkinsfile` says *Jenkins builds this* without saying *which Jenkins*, and
+# the connector refuses without the instance — so this looks for the host a doc
+# already carries and reports it as a reading, never as a key.
+#
+# IT REPORTS THE HOST AND NOTHING ELSE. The `Jenkins instance` value is
+# `<slug>/<job/path>`, and the container path is a fact about the Jenkins job
+# tree that no file in the repository states — reading it would need
+# credentials adoption does not have. So the path is asked and this measures
+# only the half that can be measured, which is the split adoption already makes
+# for Jira's base URL.
+#
+# BOUNDED BY GIT, never a tree walk, for the reason the Jenkinsfile search is:
+# `git ls-files` sees only tracked files, so a hostname inside `node_modules`
+# or an unstaged fixture cannot answer for the repository.
+#
+# THE CORPUS IS FOUR NAMED FILES, not every markdown in the tree, and that is
+# a measurement rather than a preference. A README, a hub doc and a Jenkinsfile
+# are the repository DESCRIBING ITSELF; every other markdown quotes hostnames
+# as evidence. Measured 2026-09-09 on this repository: a corpus of `*.md`
+# reported `jenkins-ci-webbloqs.internal.quatico.dev` for Plot itself, read out
+# of a plan file that cites the host as another repository's example. Plot runs
+# no Jenkins. A proposal built from that reading configures the connector to
+# ask a stranger's server, which answers `NOT reachable` — indistinguishable,
+# to a reader, from a Jenkins that is down.
+#
+# BOUNDED BY GIT, never a tree walk, for the reason the Jenkinsfile search is:
+# `git ls-files` sees only tracked files, so a hostname inside `node_modules`
+# or an unstaged fixture cannot answer for the repository.
+jenkins_host=""
+if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]; then
+  # Every occurrence, most frequent first: a doc naming two hosts is reporting
+  # the one it repeats. `-o` so a line carrying two counts twice.
+  jenkins_host=$(git ls-files -z -- \
+      'README*' 'CLAUDE.md' 'AGENTS.md' 'Jenkinsfile*' 2>/dev/null \
+    | xargs -0 grep -hoiE '\b[a-z0-9._-]*jenkins[a-z0-9._-]*\.[a-z0-9-]+\.[a-z]{2,}\b' 2>/dev/null \
+    | tr '[:upper:]' '[:lower:]' \
+    | sort | uniq -c | sort -rn | head -1 \
+    | awk '{print $2}')
+fi
+
 # --- language sample ----------------------------------------------------
 # How many German words the hub docs carry, and nothing about what that means.
 # `proposeLanguage` decides, and it reads `hub_docs` too: no doc at all is a
@@ -155,6 +201,7 @@ cat <<JSON
   "hub_docs": "$(j "$hubs")",
   "has_plot_config": $has_cfg,
   "has_settings": $has_settings,
+  "jenkins_host": "$(j "$jenkins_host")",
   "german_words": ${de:-0}
 }
 JSON

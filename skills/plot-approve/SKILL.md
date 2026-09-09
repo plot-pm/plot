@@ -214,7 +214,20 @@ did all of this** — repeating it by hand is how the two paths drift.
 The record lives in the plan file — the file is the truth in every flow;
 a merge commit merely coincides with it in the `pr` flow.
 
-1. Change `**State:** Draft` → `**State:** Approved`
+1. Change `**State:** Draft` → `**State:** Approved`, then declare the write:
+
+   ```bash
+   bash ../plot/scripts/plot-state-receipt.sh --unowned <plan file> Approved \
+     "Review: in-session — plot-approve.sh refuses this channel by name"
+   ```
+
+   **`plot-state-gate.sh` refuses a `State:` line changed by anything but the
+   script that owns it**, and this channel has no script: `plot-approve.sh:190`
+   refuses `in-session` and `ballot` by name, because a script cannot stand in
+   for a human reviewer or read a ballot. The line above is the named escape, and
+   it is recorded — each use counts a routing gap rather than turning the gate
+   off. Under `Review: pr` you are not here at all; the script did this write and
+   left its own receipt.
 2. Set the `Review:`/`Impl:` Status fields if they're missing (ask the
    two ceremony questions — see `/plot-idea` step 4 — rather than
    guessing; pre-Plot-2 plans land here)

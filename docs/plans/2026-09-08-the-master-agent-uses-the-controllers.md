@@ -92,7 +92,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** a commit editing a `State:` line outside the owning scripts is refused with the command that would have done it, the owning scripts pass, and a plan or sprint created from a template passes.
 
-### The sprint transitions are reachable from a controller (Branch: feature/a-sprint-transition-is-performed)
+### The sprint transitions are reachable from a controller (Branch: feature/a-sprint-transition-is-performed, PR: #839)
 
 `/plot-sprint`'s start, commit and close call `setSprintState` instead of describing the write.
 
@@ -126,7 +126,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** `/plot-release` asks an endpoint for its verdict, an open Must refuses with the item named, the operator's approval is still required and still separate, and the skill's prose states the call rather than restating the rule.
 
-### Adoption writes its config through a controller (Branch: feature/adoption-is-a-controller-command) <!-- waits: feature/a-release-is-a-controller-command -->
+### Adoption writes its config through a controller (Branch: feature/adoption-is-a-controller-command, PR: #840) <!-- waits: feature/a-release-is-a-controller-command -->
 
 `/plot-init` writes `## Plot Config` through an endpoint that asks `proposeStack` what the readings propose.
 
