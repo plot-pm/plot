@@ -6,10 +6,12 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #864 merged
+- **Started:** 2026-09-09, Jan Wloka, `bug/a-fleet-start-records-that-it-finished`
 
 ## Changelog
 
