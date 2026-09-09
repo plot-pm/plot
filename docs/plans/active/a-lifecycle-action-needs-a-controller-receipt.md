@@ -1,0 +1,1 @@
+../2026-09-09-a-lifecycle-action-needs-a-controller-receipt.md
