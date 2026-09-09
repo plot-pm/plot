@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 3
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #852 merged
 - **Started:** 2026-09-09, Jan Wloka, `bug/the-ci-key-splits-into-scheme-and-instance`
+- **Delivered:** 2026-09-09
 
 ## Changelog
 
