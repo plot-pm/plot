@@ -66,7 +66,22 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
 
-LABEL="com.plot-pm.registryd"
+# THE LABEL IS OVERRIDABLE, AND THE DEFAULT IS UNCHANGED. `supervisor_loaded`
+# asks launchd about the label, which is MACHINE-GLOBAL: no `HOME` override
+# reaches it, so a sandbox on a machine whose fleet is loaded reads that fleet
+# as its own. Measured here — a test asserting an unloaded supervisor got
+# `supervisor: running` from the operator's live registryd, and the four-state
+# reading this file exists to add could not be tested at all.
+#
+# The brief settles the shape: test "under a different label, never by
+# unloading the running one" — `--stop` ends work in flight and is a person's
+# call. That instruction is unfollowable while the label is a constant.
+#
+# AN OPERATOR SEES NO CHANGE. Unset is the default and the only value any skill
+# passes; the override exists so a test can name a label launchd does not hold.
+# `skills/plot/units/README.md` already documents a second checkout relabelling
+# its own unit, so the variable is that documented case made reachable.
+LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.registryd}"
 UNIT_DIR="$script_dir/../units"
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }
@@ -105,12 +120,24 @@ running_major() {
 
 # Is the label loaded? Answered by the init system, never by a pidfile: a
 # pidfile outlives its process, and this question has an authoritative answer.
+#
+# IT RETURNS 0 OR 1 AND NEVER THE INIT SYSTEM'S OWN CODE. `launchctl print`
+# answers 113 for a label it does not hold, and this function's status was the
+# `case`'s last command — so `--status`, whose last two lines are
+# `supervisor_loaded; exit $?`, exited 113 where the board reads 1. Measured
+# here against a spare label: `rules/supervisor-reading.ts` gates on 0 loaded
+# and 1 not, and anything else renders as a run it could not interpret.
+#
+# The default label masked it. `launchctl print` answers 1 for some absences
+# and 113 for others, so the bug was reachable only from a label this machine
+# had never held — which is exactly the shape a test must use, and why it
+# survived until the label became overridable.
 supervisor_loaded() {
   case "$(platform)" in
-    launchd) launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 ;;
-    systemd) systemctl --user is-active --quiet plot-registryd ;;
-    *) return 1 ;;
+    launchd) launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 && return 0 ;;
+    systemd) systemctl --user is-active --quiet plot-registryd && return 0 ;;
   esac
+  return 1
 }
 
 # The supervisor's pid, or empty. Asked separately from liveness because a
