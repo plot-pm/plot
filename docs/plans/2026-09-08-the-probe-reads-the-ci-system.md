@@ -93,7 +93,7 @@ So `proposeStack` lands first and this slice reports the booleans into it. **The
 
 **Done when** `plot-detect-repo.sh` emits `ci_system` as booleans alone — the word is `proposeStack`'s — for a repository with a root `Jenkinsfile`, one whose only Jenkinsfiles are nested (the `quaweb-website` shape, `.build/pipelines/*/*/Jenkinsfile`), one with `.github/workflows/`, one with both, and one with neither; `proposeStack` answers `both` where both are found rather than either word; the extra paths are stated as an unmeasured assumption in the PR; the three prose-matching `ci_system` tests are gone and their replacements run the script; and each new test fails when the field is removed.
 
-### Adoption writes the instance the connector refuses without (Branch: feature/adoption-proposes-the-jenkins-instance) <!-- waits: feature/the-probe-reads-the-ci-system -->
+### Adoption writes the instance the connector refuses without (Branch: feature/adoption-proposes-the-jenkins-instance, PR: #841) <!-- waits: feature/the-probe-reads-the-ci-system -->
 
 Where the probe proposes `CI: jenkins`, adoption proposes `Jenkins instance` too — the slug from what the repository shows, the container path asked.
 
