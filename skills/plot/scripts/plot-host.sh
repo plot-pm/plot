@@ -540,28 +540,10 @@ pr_list_call() { # "$@"=the host command → payload on stdout, or dies
 # per row rather than blanking the entire list, and exit 3 is reserved for
 # when the operation itself cannot proceed.
 
-# Resolve CI backend: $PLOT_CI (for tests), then `CI` key, default "".
-# Non-jenkins values (github-actions, none, "") mean "no separate CI fetch".
-# The CI system this repo runs its builds on: `jenkins`, `github-actions`, or
-# `none`. Independent of the Git host — a Bitbucket repo can build on Jenkins,
-# and this key is what pairs the two. `PLOT_CI` overrides for tests.
-#
-# IT RETURNS THE WHOLE VALUE, and its four callers match that against a bare
-# word — the defect `ci_scheme()` below exists for. It survives this slice with
-# its callers unchanged so the split lands green on its own; the slice that
-# moves them deletes it.
-ci_backend() {
-  if [ -n "${PLOT_CI:-}" ]; then
-    printf '%s\n' "$PLOT_CI" | tr '[:upper:]' '[:lower:]'
-    return
-  fi
-  bash "$here/plot-config.sh" get "CI" "" | tr '[:upper:]' '[:lower:]'
-}
-
 # The raw `CI` declaration: `$PLOT_CI`, then the `CI` key, else empty.
 #
-# `PLOT_CI` IS A PRODUCTION CONTRACT, not a test override. `ci_backend()`'s
-# comment above calls it *"overrides for tests"* and that has been false since
+# `PLOT_CI` IS A PRODUCTION CONTRACT, not a test override. The function this
+# replaced called it *"overrides for tests"*, and that had been false since
 # the build connectors landed: `build-actions.ts:39` passes
 # `buildReads({ context, system: SYSTEM }, { PLOT_CI: SYSTEM })` as the dispatch
 # contract the arm reads. It keeps its precedence and is split the same way, so
@@ -576,12 +558,19 @@ ci_raw() {
 
 # The CI system this repository declares — the FIRST token, lowercased.
 #
-# Every caller of `ci_backend()` compares its answer against a bare word
-# (`jenkins`, `github-actions`), and `ci_backend()` returns the whole value. So
-# a repository declaring `` CI: Jenkins at `jenkins-ci-ewz…` `` missed every arm
-# and read `basis: unknown` where the Jenkins connector had `predicted: 60`
-# ready. Measured 2026-09-09 against a reachable instance: only the bare word
-# matched, and no repository on the estate writes it.
+# THE ONE READER OF THE `CI` KEY'S SCHEME, and every arm that dispatches on the
+# CI system compares this. The function it replaced returned the WHOLE value
+# while its four callers each matched a bare word (`jenkins`,
+# `github-actions`), so a repository declaring
+# `` CI: Jenkins at `jenkins-ci-ewz…` `` missed every arm and read
+# `basis: unknown` where the Jenkins connector had `predicted: 60` ready.
+# Measured 2026-09-09 against a reachable instance: only the bare word matched,
+# and no repository on the estate writes it.
+#
+# THE PAYLOAD WAS THE SECOND HALF OF THAT COST. `ci-limit` reported the prose
+# value as its `connector`, and `build-shell.ts` filters readings by equality
+# against the connector's bare system word — so the reading was discarded before
+# any caller saw it, and a metered Jenkins reported as metering nothing.
 #
 # Shaped after `tracker_scheme()` (`:1340`) — the same key packing a scheme
 # ahead of its detail, split the same way. Empty when nothing is declared, and
@@ -2549,7 +2538,7 @@ case "$op" in
     #     the board rejects a non-zero pr-list and keeps its last good map; one
     #     dead Jenkins must not darken every row. This reconciles Done-when 4's
     #     "exits 3" with the brief's "prefer unknown on the affected rows".
-    ci="$(ci_backend)"
+    ci="$(ci_scheme)"
     jen_map=""
     jen_status=""
     if [ "$ci" = "jenkins" ] && [ "$rich" = 1 ]; then
@@ -2824,7 +2813,7 @@ case "$op" in
         *) die "runs: unknown arg $1" ;;
       esac
     done
-    _ci="$(ci_backend)"
+    _ci="$(ci_scheme)"
     case "$_ci" in
       github-actions)
         # THE GIT HOST STILL HAS TO BE GITHUB, and that is a second condition
@@ -2926,7 +2915,7 @@ case "$op" in
     done
     # DISPATCHED ON THE CI SYSTEM, for the reason `runs` above states: the git
     # host is a separate key, and a build is the CI system's fact.
-    _ci="$(ci_backend)"
+    _ci="$(ci_scheme)"
     case "$_ci" in
       jenkins)
         # JENKINS CANNOT ANSWER THIS THROUGH `jen`, AND THAT IS A MEASUREMENT
@@ -3461,14 +3450,14 @@ case "$op" in
   ci-limit)
     # The CI connector's limit, which is a THIRD axis and does not follow the
     # git host. This repo runs GitHub Actions on a GitHub remote; `ekzweb` runs
-    # Jenkins against Bitbucket. `ci_backend()` already resolves it separately.
+    # Jenkins against Bitbucket. `ci_scheme()` already resolves it separately.
     #
     # JENKINS IS THE `predicted` CASE THE DESIGN NAMES. A Jenkins instance
     # reports no rate limit — there is no header and no endpoint to ask — so the
     # ceiling is this adapter's estimate of what a shared controller tolerates,
     # tagged for what it is. It is NOT unlimited: a Jenkins that is hammered
     # refuses, and the refusal is what corrects the estimate.
-    _ci="$(ci_backend)"
+    _ci="$(ci_scheme)"
     case "$_ci" in
       jenkins)
         echo '{"connector":"jenkins","bucket":"","limit":60,"remaining":null,"reset":null,"basis":"predicted"}'
@@ -3478,9 +3467,15 @@ case "$op" in
         # answer, not a limit of zero.
         ;;
       *)
-        # `ci_backend()` validates nothing, and neither does this — the list is
+        # `ci_scheme()` validates nothing, and neither does this — the list is
         # open, and GitLab and Trello are named as next. A connector nobody has
         # written an estimate for answers `unknown`, which is the honest word.
+        #
+        # IT REPORTS THE SCHEME, never the whole `CI:` value. `build-shell.ts`
+        # filters readings by `reading.connector === shell.system`, and the
+        # system is a bare word — so a prose connector here is discarded before
+        # any caller sees it, and the port defines that empty answer as *a
+        # connector that meters nothing*.
         echo "{\"connector\":\"$_ci\",\"bucket\":\"\",\"limit\":null,\"remaining\":null,\"reset\":null,\"basis\":\"unknown\"}"
         ;;
     esac

@@ -718,6 +718,55 @@ test('host: runs reports an in-flight run by its status, never as a conclusion',
   assert.equal(out.conclusion, 'in_progress');
 });
 
+test('host: runs matches a github-actions arm carrying a trailing note', () => {
+  // ALL FOUR CALL SITES HAD THE BUG, not three. This arm matched a bare
+  // `github-actions)` and missed `github-actions (see …)` exactly as the
+  // Jenkins arms missed theirs — this repository escaped only because it writes
+  // the word alone. So the GitHub arm moves with the others rather than being
+  // left as the one that appeared to work.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { workflowName: 'CI', conclusion: 'success', status: 'completed', startedAt: '2026-09-09T10:00:00Z', url: 'u1' },
+    ]),
+  });
+  const out = JSON.parse(run(['runs', 'feature/x'], {
+    env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions (see .github/workflows/ci.yml)' },
+    stubs,
+  }).trim());
+  assert.equal(out.conclusion, 'success');
+  assert.ok(argvOf(stubs.ghArgv), 'the arm ran — gh was asked');
+});
+
+test('host: runs reaches the jenkins arm through a prose CI value', () => {
+  // The Jenkins arm reports one state per branch as a history of one. What is
+  // asserted here is that a prose `CI:` value REACHES it at all — before the
+  // scheme split it fell past every arm and printed nothing, which reads as a
+  // branch that has never run.
+  const stubs = makeStubs();
+  const res = runAllowFail(['runs', 'feature/x'], {
+    env: {
+      PLOT_HOST: 'github',
+      PLOT_CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`',
+      JENKINS_INSTANCE: '',
+    },
+    stubs,
+  });
+  assert.notEqual(res.code, 0, 'the jenkins arm was reached, and it refuses without an instance');
+  assert.doesNotMatch(res.stderr, /github-actions/, 'it did not fall through to the GitHub arm');
+});
+
+test('host: run-for-sha reaches the jenkins arm through a prose CI value', () => {
+  // `run-for-sha` has no sha-scoped Jenkins answer through `jen`, and says so
+  // on stderr. Falling past the arm instead would answer `null` — a branch with
+  // no run for the sha, which is the guess this op exists to end.
+  const stubs = makeStubs();
+  const res = runAllowFail(['run-for-sha', 'feature/x', 'abc123'], {
+    env: { PLOT_HOST: 'github', PLOT_CI: 'Jenkins (e.g. continuous-build, quaweb)' },
+    stubs,
+  });
+  assert.match(res.stderr, /no sha-scoped answer/, 'the jenkins arm was reached');
+});
+
 test('host: runs declaring github-actions on a bitbucket remote exits 4, never empty', () => {
   // THE SECOND CONDITION THE OLD GATE CONFLATED WITH THE FIRST. `gh run list`
   // reads the runs of the repository its remote names, so a repository that
@@ -2852,6 +2901,69 @@ test('host: ci-limit reports a connector it has no estimate for as unknown', () 
   assert.equal(out.connector, 'gitlab');
   assert.equal(out.basis, 'unknown');
   assert.equal(out.limit, null);
+});
+
+test('host: ci-limit reads the SCHEME of a prose CI value, for all three spellings', () => {
+  // THE DEFECT THIS PLAN WAS OPENED FOR. A `CI:` key is prose in every
+  // repository that declares one, and `ci_backend()` handed the whole value to
+  // a `case` matching a bare word — so a Jenkins with a `predicted` ceiling of
+  // 60 fell into the `*)` arm and reported `basis: unknown`. Measured
+  // 2026-09-09 against a reachable instance: only the bare word matched.
+  const stubs = makeStubs();
+  for (const spelling of [
+    'jenkins',
+    'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`',
+    'Jenkins (e.g. continuous-build, quaweb)',
+  ]) {
+    const out = JSON.parse(
+      run(['ci-limit'], { env: { PLOT_HOST: 'github', PLOT_CI: spelling }, stubs }).trim(),
+    );
+    assert.equal(out.basis, 'predicted', `${spelling} is a configured Jenkins`);
+    assert.equal(out.limit, 60);
+    assert.equal(out.connector, 'jenkins', 'the payload carries the scheme, not the prose');
+  }
+});
+
+test('host: ci-limit reports the scheme as the connector, never the whole value', () => {
+  // A SECOND DEFECT, not a rendering nicety. `build-shell.ts` filters readings
+  // by `reading.connector === shell.system`, and the system is a bare word — so
+  // a prose connector is discarded before any caller sees it, and the port
+  // defines that empty answer as "a connector that meters nothing".
+  const stubs = makeStubs();
+  const out = JSON.parse(
+    run(['ci-limit'], {
+      env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions (see .github/workflows/ci.yml)' },
+      stubs,
+    }).trim(),
+  );
+  assert.equal(out.connector, 'github-actions');
+});
+
+test('host: ci-limit still answers unknown for a connector nobody estimated', () => {
+  // The `*)` arm SURVIVES — it means "no estimate written for this connector",
+  // which is a different answer from "the value did not parse". The fix is that
+  // Jenkins stops falling into it, not that it goes away.
+  const stubs = makeStubs();
+  const out = JSON.parse(
+    run(['ci-limit'], {
+      env: { PLOT_HOST: 'github', PLOT_CI: 'GitLab CI at `gitlab.acme.dev`' },
+      stubs,
+    }).trim(),
+  );
+  assert.equal(out.connector, 'gitlab');
+  assert.equal(out.basis, 'unknown');
+  assert.equal(out.limit, null);
+});
+
+test('host: no ci_backend survives — the split left one reader of the CI key', () => {
+  // A STRUCTURAL ASSERTION, because this is what a behavioural one cannot say.
+  // `ci_backend()` returned the WHOLE `CI:` value and every caller compared it
+  // against a bare word. After the split it has no callers, and a function
+  // retained for a hypothetical reader invites the next caller to match on the
+  // prose value again — which is the bug this fixed.
+  const src = readFileSync(adapter, 'utf8');
+  const hits = src.match(/ci_backend/g) ?? [];
+  assert.equal(hits.length, 0, `ci_backend is deleted; found ${hits.length} reference(s)`);
 });
 
 test('host: ci-limit prints nothing where no CI connector is configured', () => {
