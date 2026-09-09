@@ -2955,6 +2955,20 @@ export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
  * mirrors tracker state. No labels, no assignee, no status: those age into lies
  * the moment the tracker moves, and Plot never writes them back.
  */
+/**
+ * One issue identity, normalised so two sides cannot disagree about it.
+ *
+ * THE COMPARISON IS THE REASON THIS EXISTS. `referencedIssues` builds a set
+ * from what plans record and the inbox filters against what the host reported;
+ * a plan writing `#849` and a host sending `849` must land on one value, and a
+ * Jira plan writing `PROJ-123` must survive untouched. Passing both sides
+ * through here is what makes `has()` answer truthfully.
+ *
+ * @param n - the identity as its source spelled it.
+ * @returns the same identity as a string.
+ */
+export const issueKey = (n: string | number): string => String(n);
+
 export const IssueRowSchema = z.object({
   /**
    * `ticket`, always — and stated rather than assumed, for the same reason
@@ -2967,7 +2981,22 @@ export const IssueRowSchema = z.object({
    * kind, and a wider type here would invite a caller to say so.
    */
   kind: z.literal('ticket').default('ticket'),
-  number: z.number(),
+  /**
+   * The issue's identity, as the tracker spells it — `849` from GitHub, or
+   * `PROJ-123` from Jira.
+   *
+   * A STRING, and the entity said so first: `Issue` documents identity as "a
+   * natural key — an opaque string, which fails by the source lying." Four
+   * consumers declared `number` anyway, and `plot-host.sh` puts `.key` on the
+   * wire, so a Jira arm sent `PROJ-123` through a `z.number()` that could only
+   * reject it.
+   *
+   * COERCED FROM A NUMBER, never the reverse. `849` and `"849"` name one issue
+   * and stringify losslessly; `PROJ-123` has no integer form at all, so
+   * narrowing to a number would mean inventing an identity the tracker does not
+   * use. Both sides of a comparison pass through {@link issueKey}.
+   */
+  number: z.union([z.string(), z.number()]).transform((n) => String(n)),
   title: z.string(),
   /**
    * The tracker address, or "" when the host reported none. The consumer then
