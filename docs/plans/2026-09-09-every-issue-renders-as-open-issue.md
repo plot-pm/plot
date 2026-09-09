@@ -252,7 +252,7 @@ that #850's query feeds. A slice here rebases onto #850 rather than racing it.
 The fact reaches the domain. Both reads gain the two keys across all three
 backends, and the entity carries them.
 
-- `feature/an-issue-carries-its-status` <!-- builds: Issue.status and Issue.statusCategory, the tracker read path's status fields --> — add `status` to the Jira request and projection, source GitHub's from `--state`, map Bitbucket's parsed badge, and widen `Issue` + `RawIssue` with `status` and `statusCategory` — amending the entity's *deliberately absent* sentence to name what is carried and why.
+- `feature/an-issue-carries-its-status` <!-- builds: Issue.status and Issue.statusCategory, the tracker read path's status fields --> — add `status` to the Jira request and projection, source GitHub's from `--state`, map Bitbucket's parsed badge, and widen `Issue` + `RawIssue` with `status` and `statusCategory` — amending the entity's *deliberately absent* sentence to name what is carried and why. → #857
 
 ### Identity
 
