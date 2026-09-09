@@ -545,12 +545,147 @@ pr_list_call() { # "$@"=the host command → payload on stdout, or dies
 # The CI system this repo runs its builds on: `jenkins`, `github-actions`, or
 # `none`. Independent of the Git host — a Bitbucket repo can build on Jenkins,
 # and this key is what pairs the two. `PLOT_CI` overrides for tests.
+#
+# IT RETURNS THE WHOLE VALUE, and its four callers match that against a bare
+# word — the defect `ci_scheme()` below exists for. It survives this slice with
+# its callers unchanged so the split lands green on its own; the slice that
+# moves them deletes it.
 ci_backend() {
   if [ -n "${PLOT_CI:-}" ]; then
     printf '%s\n' "$PLOT_CI" | tr '[:upper:]' '[:lower:]'
     return
   fi
   bash "$here/plot-config.sh" get "CI" "" | tr '[:upper:]' '[:lower:]'
+}
+
+# The raw `CI` declaration: `$PLOT_CI`, then the `CI` key, else empty.
+#
+# `PLOT_CI` IS A PRODUCTION CONTRACT, not a test override. `ci_backend()`'s
+# comment above calls it *"overrides for tests"* and that has been false since
+# the build connectors landed: `build-actions.ts:39` passes
+# `buildReads({ context, system: SYSTEM }, { PLOT_CI: SYSTEM })` as the dispatch
+# contract the arm reads. It keeps its precedence and is split the same way, so
+# a connector's bare `SYSTEM` word and a person's prose reach one comparison.
+ci_raw() {
+  if [ -n "${PLOT_CI:-}" ]; then
+    printf '%s\n' "$PLOT_CI"
+    return
+  fi
+  bash "$here/plot-config.sh" get "CI" ""
+}
+
+# The CI system this repository declares — the FIRST token, lowercased.
+#
+# Every caller of `ci_backend()` compares its answer against a bare word
+# (`jenkins`, `github-actions`), and `ci_backend()` returns the whole value. So
+# a repository declaring `` CI: Jenkins at `jenkins-ci-ewz…` `` missed every arm
+# and read `basis: unknown` where the Jenkins connector had `predicted: 60`
+# ready. Measured 2026-09-09 against a reachable instance: only the bare word
+# matched, and no repository on the estate writes it.
+#
+# Shaped after `tracker_scheme()` (`:1340`) — the same key packing a scheme
+# ahead of its detail, split the same way. Empty when nothing is declared, and
+# ABSENT IS NOT FALSE: `ci_unaskable()` reads an empty scheme as *this
+# repository named no CI system*, which is a different answer from *this system
+# has no connector*.
+ci_scheme() {
+  ci_raw | awk '{print tolower($1)}'
+}
+
+# Whether a candidate token is a host `jen -I` could be given.
+#
+# A URL passes whole. Otherwise it must be dot-separated labels ending in an
+# alphabetic TLD, carrying no path separator and no `@`.
+#
+# THE FINAL FILTER IS THE FILE EXTENSION, and that is a measurement rather than
+# a preference. `ci.yml` and `package.json` both match the dotted-label pattern,
+# while `.ch` and `.io` are real two-letter TLDs — so TLD LENGTH cannot separate
+# a host from a filename in either direction, and a `CI:` value naming a
+# workflow file (`github-actions (see .github/workflows/ci.yml)`) is the
+# measured case that would otherwise be read as a server.
+ci_looks_like_host() {
+  case "$1" in
+    https://*|http://*) return 0 ;;
+    */*|*@*) return 1 ;;
+  esac
+  printf '%s\n' "$1" \
+    | grep -qE '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$' || return 1
+  case "$1" in
+    *.yml|*.yaml|*.json|*.md|*.sh|*.js|*.ts|*.mjs|*.cjs|*.toml|*.xml|*.txt|*.lock|*.gradle) return 1 ;;
+  esac
+  return 0
+}
+
+# Where this repository's CI lives: the `Jenkins instance` key, then
+# `$JENKINS_INSTANCE`, then a host read out of the `CI` value. Empty when none
+# of the three names one.
+#
+# THE ORDER IS NOT THE TRACKER'S, and the reason is information content.
+# `tracker_base_url()` lets `$PLOT_JIRA_BASE_URL` win over its config value
+# because both carry the same shape — a URL. Here the key carries MORE than the
+# prose can express: `jenkins_instance()` (`:665`) returns `<slug>/<job/path>`,
+# and the container path is a fact no file in a repository states
+# (`stack.ts:98` calls the host *"the SLUG half"*). A prose-derived slug alone
+# degrades `jenkins_build_map()` to root-scope listing, where its own comment
+# says *"every branch reads `none`"* — and `quaweb` is nested
+# (`job/quaweb/job/release`), so that renders an empty board for the exact
+# repository this serves. So the explicit key is the primary and the prose is
+# the fallback, never the other way round.
+#
+# IT EXTRACTS A HOST, NOT A REMAINDER. "Everything after the first token" was
+# measured against all three real values and fails on every one:
+# `at jenkins-ci-ewz… (Bitbucket PRs…`, `pipelines in .build/pipelines/ …`,
+# `(e.g. continuous-build…)`. None is a host, and handing `jen -I` a sentence
+# is worse than handing it nothing. `Tracker:` gets away with the naive split
+# because its value is a scheme and a URL; `CI:` is prose in every repository
+# that declares it.
+#
+# A BACKTICKED SPAN IS PREFERRED because the backticks are a deliberate act —
+# the writer pointed at the value. It must still look like a host: one real
+# repository marks up a PATH (`` `.build/pipelines/` ``), which is not a server.
+#
+# BACKTICKS ARE STRIPPED AND NO SCHEME IS NORMALISED ON. `ewz` writes a bare
+# host in backticks and the probe used a full `https://` URL; `jen -I` accepts
+# either, so inventing a canonical form would break whichever caller passes the
+# other one.
+#
+# EMPTY IS AN ANSWER, not a failure: `Jenkins (e.g. continuous-build, …)` names
+# no instance. Read the exit code, never the emptiness.
+ci_instance() {
+  local instance candidate
+  instance=$(bash "$here/plot-config.sh" get "Jenkins instance" "" 2>/dev/null || echo "")
+  [ -n "$instance" ] || instance="${JENKINS_INSTANCE:-}"
+  if [ -n "$instance" ]; then
+    printf '%s' "$instance"
+    return
+  fi
+
+  local value
+  value="$(ci_raw)"
+
+  # The backticked spans, in order: `tr` puts each on its own line, so the
+  # even-numbered lines are what sat between a pair of backticks.
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    if ci_looks_like_host "$candidate"; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done <<EOF
+$(printf '%s\n' "$value" | tr '\`' '\n' | awk 'NR % 2 == 0')
+EOF
+
+  # Otherwise the first bare token that looks like a host. Punctuation that
+  # ends a clause is split off so `(jenkins.acme.dev)` reads as the host.
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    if ci_looks_like_host "$candidate"; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done <<EOF
+$(printf '%s\n' "$value" | tr -d '\`' | tr ' \t,()[]<>"'"'" '\n')
+EOF
 }
 
 # Fetch Jenkins build statuses for every branch in a multibranch job, in ONE
