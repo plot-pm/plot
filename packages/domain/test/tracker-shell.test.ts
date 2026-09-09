@@ -95,6 +95,10 @@ describe('a tracker is asked apart from the git host', () => {
       url: 'u',
       createdAt: '2026-09-06',
       body: 'B',
+      // `issue-view` reports no status — only `issue-list` does — so "" here
+      // is the op answering honestly rather than a field left unset.
+      status: '',
+      statusCategory: '',
     });
 
     const keyed = scriptsThat({
@@ -112,7 +116,7 @@ describe('a tracker is asked apart from the git host', () => {
     // worth a plan?* must not read it as an empty problem statement.
     const bare = scriptsThat({ 'plot-host.sh': "echo '{}'" });
     expect(answer<readonly Issue[]>(await trackerGithub(bare).issueList())).toEqual([
-      { id: '', title: '', url: '', createdAt: null, body: null },
+      { id: '', title: '', url: '', createdAt: null, body: null, status: '', statusCategory: '' },
     ]);
 
     const empty = scriptsThat({
@@ -120,6 +124,46 @@ describe('a tracker is asked apart from the git host', () => {
     });
     expect(answer<readonly Issue[]>(await trackerGithub(empty).issueList())).toMatchObject([
       { createdAt: null, body: '' },
+    ]);
+  });
+
+  it('carries the status and its category, and guesses neither', async () => {
+    // Twelve tickets rendered `open` twelve times because nothing read a
+    // status. Both fields are carried because neither substitutes for the
+    // other: `Internal Approving` is one instance's workflow word, so a board
+    // grouping on it fragments, while the category is the stable vocabulary a
+    // board can group on.
+    const jira = scriptsThat({
+      'plot-host.sh':
+        'echo \'{"number":"PROJ-1","title":"t","status":"Internal Approving","statusCategory":"In Progress"}\'',
+    });
+    expect(answer<readonly Issue[]>(await trackerJira(jira).issueList())).toMatchObject([
+      { status: 'Internal Approving', statusCategory: 'In Progress' },
+    ]);
+
+    // A tracker that said nothing yields "", never a guessed `To Do`. The op
+    // that reports no status at all is `issue-view`, and an issue it read must
+    // not claim a stage the tracker never named.
+    const silent = scriptsThat({ 'plot-host.sh': 'echo \'{"number":4,"title":"t"}\'' });
+    expect(answer<Issue>(await trackerGithub(silent).issueView('4'))).toMatchObject({
+      status: '',
+      statusCategory: '',
+    });
+  });
+
+  it('carries no tracker state the entity refuses', async () => {
+    // The entity's refusal survives this slice narrowly: its subject is a
+    // write-back loop, and reading a status is not one. So `assignee`,
+    // `labels` and `priority` stay absent even when the script reports them —
+    // the easy over-reach is widening the projection to the whole Jira fields
+    // block, which every positive test above would still pass.
+    const rich = scriptsThat({
+      'plot-host.sh':
+        'echo \'{"number":"PROJ-2","title":"t","status":"Done","statusCategory":"Done","assignee":"Alice","labels":["urgent"],"priority":"High"}\'',
+    });
+    const issue = answer<readonly Issue[]>(await trackerJira(rich).issueList())[0];
+    expect(Object.keys(issue).sort()).toEqual([
+      'body', 'createdAt', 'id', 'status', 'statusCategory', 'title', 'url',
     ]);
   });
 
@@ -390,6 +434,8 @@ describe('the fixture stands in for a tracker that is there', () => {
     url: 'https://quokka.invalid/issue/QF-1',
     createdAt: '2026-09-01T00:00:00Z',
     body: null,
+    status: 'open',
+    statusCategory: 'To Do',
   };
 
   it('answers every read the port defines', async () => {

@@ -1009,6 +1009,54 @@ test('host: pr-state reports NONE after exhausting every state', () => {
   assert.equal(callsOf(bb.callsFile).length, 3);
 });
 
+// --- issue-list github: the status is DERIVED from the state asked for -----
+//
+// GitHub has no workflow states — an issue is open or closed — and this op asks
+// for open ones only. So the answer is the state the call already passes, read
+// once by both the flag and the projection. A second literal would be a copy
+// that a widened filter silently outdates, which is the whole reason the plan
+// asked for a derivation rather than a hardcoded `To Do`.
+
+test('host: issue-list github derives status from the --state it asks for', () => {
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { number: 226, title: 'The board tells the truth', url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z' },
+    ]),
+  });
+  const res = spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.deepEqual(row, {
+    number: 226, title: 'The board tells the truth',
+    url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z',
+    status: 'open', statusCategory: 'To Do',
+  });
+  // The projected status is the SAME word the call passed to `gh`, which is
+  // what makes it derived rather than assumed.
+  const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
+  const stateFlag = argv[argv.indexOf('--state') + 1];
+  assert.equal(stateFlag, row.status);
+});
+
+test('host: issue-list github asks gh for no tracker state beyond what it projects', () => {
+  // The same refusal the Jira arm asserts, on the backend that makes it
+  // cheapest to breach: `--json assignees,labels` is one word away.
+  const stubs = makeStubs({ ghJson: '[]' });
+  spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
+  const json = argv[argv.indexOf('--json') + 1];
+  assert.equal(json, 'number,title,url,createdAt');
+  for (const refused of ['assignees', 'labels', 'priority', 'milestone']) {
+    assert.ok(!json.includes(refused), `issue-list must not request ${refused}`);
+  }
+});
+
 // --- issue-view: one issue, with its body, and never a write ---------------
 //
 // The op the board's *Create plan* action reads. `issue-list` runs on a timer
@@ -1141,17 +1189,45 @@ function runBb(args, stub, extraEnv = {}) {
   });
 }
 
-test('host: issue-list bitbucket emits the {number,title,url,createdAt} contract', () => {
+test('host: issue-list bitbucket emits the {number,title,url,createdAt,status,statusCategory} contract', () => {
   const stub = makeBbIssueStub({ out: BB_LIST_ANSI });
   const res = runBb(['issue-list'], stub);
   assert.equal(res.status, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows, [
-    { number: 3, title: 'Fix the login redirect loop', url: '', createdAt: '' },
+    { number: 3, title: 'Fix the login redirect loop', url: '', createdAt: '', status: 'OPEN', statusCategory: 'To Do' },
     // The title with "by" in it survives whole — split on three spaces, not " by ".
-    { number: 17, title: 'Add dark mode by default', url: '', createdAt: '' },
+    { number: 17, title: 'Add dark mode by default', url: '', createdAt: '', status: 'NEW', statusCategory: 'To Do' },
   ]);
   // url and createdAt are "" on bitbucket: bb issue list prints neither.
+  // `status` is NOT "": the badge was already parsed here to find where the
+  // title starts, and was thrown away. Keeping it costs no extra call.
+});
+
+test('host: issue-list bitbucket maps each state badge, and refuses to invent a category', () => {
+  // ON HOLD, INVALID, DUPLICATE and WONTFIX have no obvious category, and ""
+  // is the honest answer. WONTFIX is the case that matters: it is terminal
+  // WITHOUT being done, so filing it as `Done` would put abandoned work beside
+  // finished work on a board that groups on the category.
+  const badges = [
+    ['NEW', 'To Do'], ['OPEN', 'To Do'],
+    ['RESOLVED', 'Done'], ['CLOSED', 'Done'],
+    ['ON HOLD', ''], ['INVALID', ''], ['DUPLICATE', ''], ['WONTFIX', ''],
+  ];
+  const lines = badges
+    .map(([badge], i) => `#\\033[32m00${i + 1}\\033[0m \\033[48;5;12m ${badge} \\033[0m    Title ${i + 1}   \\033[38;5;242mby Alice\\033[0m`)
+    .join('\\n');
+  const stub = makeBbIssueStub({ out: `${lines}\\n` });
+  const res = runBb(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(
+    rows.map((r) => [r.status, r.statusCategory]),
+    badges,
+  );
+  // The title survives the badge lift in every case — including the two-word
+  // `ON HOLD`, which a single-word match would leave half in the title.
+  assert.deepEqual(rows.map((r) => r.title), badges.map((_, i) => `Title ${i + 1}`));
 });
 
 test('host: issue-list bitbucket never parses an ANSI error as an issue', () => {
@@ -1740,24 +1816,84 @@ function runJira(args, stub, extraEnv = {}) {
   });
 }
 
+// The measured shape, status block included. `Internal Approving` is a REAL
+// instance's workflow word and the reason two fields exist: it is not in any
+// three-value vocabulary, so a board grouping on the name alone fragments
+// across projects that spell one stage differently.
 const JIRA_SEARCH_OK = JSON.stringify({
   issues: [
-    { key: 'PROJ-123', fields: { summary: 'Tickets reach the inbox', created: '2026-08-20T09:00:00.000+0000' } },
-    { key: 'PROJ-99', fields: { summary: 'An older ticket', created: '2026-08-10T09:00:00.000+0000' } },
+    { key: 'PROJ-123', fields: {
+      summary: 'Tickets reach the inbox', created: '2026-08-20T09:00:00.000+0000',
+      status: { name: 'Internal Approving', statusCategory: { name: 'In Progress' } },
+    } },
+    { key: 'PROJ-99', fields: {
+      summary: 'An older ticket', created: '2026-08-10T09:00:00.000+0000',
+      status: { name: 'To Do', statusCategory: { name: 'To Do' } },
+    } },
   ],
 });
 
-test('host: issue-list jira emits the {number,title,url,createdAt} contract, key as number', () => {
+test('host: issue-list jira emits the {number,title,url,createdAt,status,statusCategory} contract, key as number', () => {
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const res = runJira(['issue-list'], stub);
   assert.equal(res.status, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows, [
-    { number: 'PROJ-123', title: 'Tickets reach the inbox', url: 'https://acme.atlassian.net/browse/PROJ-123', createdAt: '2026-08-20T09:00:00.000+0000' },
-    { number: 'PROJ-99', title: 'An older ticket', url: 'https://acme.atlassian.net/browse/PROJ-99', createdAt: '2026-08-10T09:00:00.000+0000' },
+    { number: 'PROJ-123', title: 'Tickets reach the inbox', url: 'https://acme.atlassian.net/browse/PROJ-123', createdAt: '2026-08-20T09:00:00.000+0000', status: 'Internal Approving', statusCategory: 'In Progress' },
+    { number: 'PROJ-99', title: 'An older ticket', url: 'https://acme.atlassian.net/browse/PROJ-99', createdAt: '2026-08-10T09:00:00.000+0000', status: 'To Do', statusCategory: 'To Do' },
   ]);
   // `number` is the Jira KEY, a string — #447 taught plot-plan-meta.sh to read it.
   assert.equal(typeof rows[0].number, 'string');
+});
+
+test('host: issue-list jira asks for status and NOT the whole fields block', () => {
+  // The easy over-reach: `fields=*all`, or the whole Jira fields block, which
+  // would carry assignee, labels and priority into a domain that refuses them.
+  // The entity's refusal survives this slice narrowly — its subject is a
+  // write-back loop, and a read of the status is not one — so the request must
+  // name exactly the fields the contract publishes.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  runJira(['issue-list'], stub);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  const fields = argv.find((l) => l.startsWith('fields='));
+  assert.equal(fields, 'fields=summary,created,status');
+  for (const refused of ['assignee', 'labels', 'priority', '*all', '*navigable']) {
+    assert.ok(!fields.includes(refused), `issue-list must not request ${refused}`);
+  }
+});
+
+test('host: issue-list jira projects no tracker state beyond the two status keys', () => {
+  // The same refusal on the OUTPUT side. A request that named only the right
+  // fields could still be widened later; this asserts the projection's key set
+  // itself, so adding `assignee` to the entity fails here rather than shipping.
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-1', fields: {
+      summary: 's', created: '2026-09-01T00:00:00.000+0000',
+      status: { name: 'In Progress', statusCategory: { name: 'In Progress' } },
+      // Present in the payload and deliberately NOT projected.
+      assignee: { displayName: 'Alice' }, labels: ['urgent'], priority: { name: 'High' },
+    } }],
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.deepEqual(
+    Object.keys(row).sort(),
+    ['createdAt', 'number', 'status', 'statusCategory', 'title', 'url'],
+  );
+});
+
+test('host: issue-list jira reports an absent status as "", never a guessed one', () => {
+  // Absent is not false. A ticket whose status Jira did not state must arrive
+  // as "" — a default of `To Do` would claim a stage the tracker never named.
+  const body = JSON.stringify({ issues: [{ key: 'PROJ-7', fields: { summary: 's', created: '' } }] });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.status, '');
+  assert.equal(row.statusCategory, '');
 });
 
 test('host: issue-list jira dispatches on Tracker, independent of the git host', () => {
