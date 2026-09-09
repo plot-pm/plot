@@ -1,4 +1,4 @@
-import { RELEASE_BRANCH } from '../contract/schema.js';
+import { RELEASE_BRANCH, issueKey } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2168,7 +2168,7 @@ export async function refreshRuns(
  * references anything", which would surface every issue in the tracker as
  * unplanned. Null lets the caller decline to answer instead.
  */
-async function referencedIssues(opts: BuildBoardOptions): Promise<Set<number> | null> {
+async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | null> {
   const planDir = await planDirectory(opts);
   const dir = path.join(opts.repoRoot, planDir);
   let files: string[];
@@ -2183,16 +2183,16 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<number> | 
     return null; // no plan directory to read — not a claim that nothing is planned
   }
   if (files.length === 0) return new Set();
-  const referenced = new Set<number>();
+  const referenced = new Set<string>();
   try {
     const answer = await scriptsFor(opts).planMeta(files);
     if (!answer.ok) return null;
     for (const line of answer.value.split('\n')) {
       if (!line.trim()) continue;
-      const meta = JSON.parse(line) as { issues?: number[] };
+      const meta = JSON.parse(line) as { issues?: (string | number)[] };
       // Absent on an older parser, which is a repo whose plans cannot reference
       // issues at all — [] is then the true answer rather than a fallback.
-      for (const n of meta.issues ?? []) referenced.add(n);
+      for (const n of meta.issues ?? []) referenced.add(issueKey(n));
     }
   } catch {
     return null;
@@ -2256,14 +2256,14 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     return;
   }
   const raw = said.stdout;
-  const open: { number: number; title: string; url: string; createdAt: string }[] = [];
+  const open: { number: string; title: string; url: string; createdAt: string }[] = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
       const issue = JSON.parse(line) as
-        { number: number; title?: string; url?: string; createdAt?: string };
+        { number: string | number; title?: string; url?: string; createdAt?: string };
       open.push({
-        number: issue.number,
+        number: issueKey(issue.number),
         title: issue.title ?? '',
         url: typeof issue.url === 'string' ? issue.url : '',
         createdAt: typeof issue.createdAt === 'string' ? issue.createdAt : '',
@@ -2284,7 +2284,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   }
   const now = Date.now();
   entry.issues = open
-    .filter((i) => !referenced.has(i.number))
+    .filter((i) => !referenced.has(issueKey(i.number)))
     .map((i) => {
       const at = i.createdAt ? Date.parse(i.createdAt) : NaN;
       return {
