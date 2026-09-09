@@ -10,6 +10,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #863 merged
+- **Started:** 2026-09-09, Jan Wloka, `feature/a-controller-action-leaves-a-receipt`
 
 ## Changelog
 
