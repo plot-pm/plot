@@ -2,6 +2,7 @@ import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/super
 import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Decision } from '@plot-pm/domain/workflows/decision';
 import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
+import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
 
 import { readTick, type SupervisorWorld } from '../supervisor.js';
 import { readQueue, type QueueWorld } from '../queue-reading.js';
@@ -244,7 +245,15 @@ const emptyDecision = (): Decision<SuperviseDetail> => ({
   outcome: 'decided',
   workflow: 'supervise',
   writes: [],
-  detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [] },
+  detail: {
+    agents: [],
+    left: [],
+    reaping: [],
+    correcting: [],
+    needingAPerson: [],
+    deferred: [],
+    unclaimed: [],
+  },
 });
 
 /**
@@ -328,6 +337,55 @@ export const tickLine = (report: TickReport): string => {
     if (queue.scaling !== null) fields.push(`started=${queue.scaling.start}`);
   }
 
+  // `unclaimed=` IS OMITTED AT ZERO, and it is the one field here that is. The
+  // others print a zero because a zero is a measurement about agents the tick
+  // supervised; this counts a population that SHOULD be empty, so on a healthy
+  // estate the honest line is silence. A daemon printing `unclaimed=0` sixty
+  // times an hour is a field a person stops reading, and the finding exists to
+  // be noticed the once it is not zero.
+  if (detail.unclaimed.length > 0) fields.push(`unclaimed=${detail.unclaimed.length}`);
+
   fields.push(`cost=${report.costMs}ms`);
   return fields.join(' ');
+};
+
+/**
+ * The unclaimed worktrees, named one per line for a person to act on.
+ *
+ * **SEPARATE FROM {@link tickLine} BECAUSE IT IS A DIFFERENT KIND OF OUTPUT.**
+ * That line is one row per tick, counts only, written every minute; this is a
+ * list a person reads once and then does something about. Folding paths into
+ * the summary line would put twelve absolute paths into a log row nobody can
+ * scan.
+ *
+ * **NOTHING IS PRINTED WHEN NOTHING IS CARRIED**, which is the plan's own
+ * done-when: an estate where every worktree is dispatched reports zero, and the
+ * shape a quiet estate takes here is no output at all.
+ *
+ * **EVERY LINE IS A SENTENCE OR A COMMAND, NEVER AN ACTION.** The clean ones
+ * carry the `git worktree remove` a person types; the dirty ones carry no
+ * command at all, and that absence is the finding — the supervisor cannot know
+ * why a directory holds uncommitted work, so it says what it measured and
+ * stops. It is the reaper's own refusal, applied to a population the reaper
+ * never sees.
+ *
+ * @param report - what the tick decided.
+ * @returns the report's lines, without their newlines; empty when nothing is
+ *   unclaimed.
+ */
+export const unclaimedLines = (report: TickReport): string[] => {
+  const findings = report.decision.detail.unclaimed;
+  if (findings.length === 0) return [];
+  return [
+    `plot-registryd ${unclaimedNotice(findings)}`,
+    ...findings.map((finding) => {
+      const held = finding.branch === '' ? 'detached' : finding.branch;
+      const dirt =
+        finding.disposition === 'read-it'
+          ? ` — ${finding.dirtyCount} uncommitted, read it before removing it`
+          : '';
+      const command = finding.command === '' ? '' : ` — ${finding.command}`;
+      return `  ${finding.path} (${held})${dirt}${command}`;
+    }),
+  ];
 };
