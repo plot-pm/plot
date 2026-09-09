@@ -260,6 +260,7 @@ describe('where a tick’s report goes', () => {
         correcting: [],
         needingAPerson: [],
         deferred: [],
+        unclaimed: [],
       },
     },
   });
@@ -280,6 +281,7 @@ describe('where a tick’s report goes', () => {
         correcting: [],
         needingAPerson: [],
         deferred: [],
+        unclaimed: [],
       },
     },
   });
@@ -384,6 +386,7 @@ describe('starting agents is the one write this daemon performs', () => {
         correcting: [],
         needingAPerson: [],
         deferred: [],
+        unclaimed: [],
       },
     },
     handOver: {
