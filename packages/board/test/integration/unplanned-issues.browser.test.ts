@@ -30,6 +30,10 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 
 const issue = (over: Partial<IssueRow> = {}): IssueRow => ({
   number: 228, title: 'Fleet scan asks the host once per branch', url: '', ageMinutes: 120,
+  // The tracker's own word, which the row RENDERS — GitHub's arm sources `open`
+  // from `--state open` rather than the board assuming it, so `open` here is a
+  // fact the host stated and no longer a literal the renderer wrote.
+  status: 'open', statusCategory: 'To Do',
   ...over,
 });
 
@@ -93,7 +97,8 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
   }
 
   const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
-  const issueRow = (page: Page, n: number) => section(page).locator(`li[data-issue-row="${n}"]`);
+  const issueRow = (page: Page, n: string | number) =>
+    section(page).locator(`li[data-issue-row="${n}"]`);
 
   it('shows an issue no plan references, beside the branch rows', async () => {
     const page = await open();
@@ -104,6 +109,43 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
       // substituted for it.
       await expect.poll(() =>
         section(page).locator('[data-branch="feature/needs-review"]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders a Jira ticket\'s OWN status word, not `open`', async () => {
+    // THE DEFECT, AT THE PIXEL. #849 measured four tickets in *Internal
+    // Approving*, *In Progress* and *Reviewing* all reading `open`, because
+    // `tupleFromIssue` wrote the word itself. A projection test proves the
+    // slot carries it; only a rendered page proves the cell shows it.
+    const page = await open(fleet({
+      issues: [issue({
+        number: 'PROJ-123', title: 'A ticket in flight', url: '',
+        status: 'Internal Approving', statusCategory: 'In Progress',
+      })],
+    }));
+    try {
+      const status = issueRow(page, 'PROJ-123').locator('[data-tuple-status]');
+      await expect.poll(() => status.innerText()).toContain('Internal Approving');
+      await expect.poll(() => status.innerText()).not.toContain('open');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders a row whose status the tracker never gave, with an EMPTY cell', async () => {
+    // Absent renders as absent — the rule `prStatus` states for `unknown`. The
+    // row itself must survive: a status this board cannot read is never a
+    // reason to drop the row, which is what `IssueAnswerSchema` keeps apart
+    // from a tracker that could not be asked at all.
+    const page = await open(fleet({
+      issues: [issue({ number: 227, title: 'No status given', status: '', statusCategory: '' })],
+    }));
+    try {
+      await expect.poll(() => issueRow(page, 227).count()).toBe(1);
+      const status = issueRow(page, 227).locator('[data-tuple-status]');
+      await expect.poll(() => status.innerText().then((t) => t.trim())).toBe('');
     } finally {
       await page.close();
     }
