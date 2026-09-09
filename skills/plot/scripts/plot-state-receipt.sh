@@ -160,22 +160,36 @@ _action_receipt_dir() {
   printf '%s\n' "$root/.plot/state/action-receipts"
 }
 
-# Named by the script's basename. A script name is already a filename, so unlike
-# a path it needs no hashing — and `plot-dispatch.sh` is the identity the gate
-# reads off the command line.
-_action_receipt_file() { # $1=script name
-  local dir
+# NAMED BY THE ACTION, not by the script. The board writes these too, and
+# `scripts/check-script-names.sh` refuses a `plot-*.sh` literal outside an
+# adapter — a script name in a controller is a boundary crossing no spawn
+# counter can see. So the shared filename is the action word, and mapping a
+# script back to it happens HERE, on the side that reads command lines.
+_action_of() { # $1=script name or action word → the action, or nothing
+  case "${1##*/}" in
+    plot-dispatch.sh|dispatch) printf 'dispatch\n' ;;
+    plot-approve.sh|approve)   printf 'approve\n' ;;
+    plot-deliver.sh|deliver)   printf 'deliver\n' ;;
+  esac
+}
+
+_action_receipt_file() { # $1=script name or action word
+  local dir action
   dir="$(_action_receipt_dir)" || return 1
-  printf '%s/%s\n' "$dir" "${1##*/}"
+  action="$(_action_of "$1")" || return 1
+  [ -n "$action" ] || return 1
+  printf '%s/%s\n' "$dir" "$action"
 }
 
 # $1 = the script the controller is about to run, $2 = what it is running it on.
 # Called by the controller endpoint immediately before it spawns.
 record_action_receipt() {
-  local script="${1##*/}" subject="${2:-}" file
-  file="$(_action_receipt_file "$script")" || return 0
+  local action subject="${2:-}" file
+  action="$(_action_of "${1:-}")"
+  [ -n "$action" ] || return 0
+  file="$(_action_receipt_file "$action")" || return 0
   mkdir -p "$(dirname "$file")" 2>/dev/null || return 0
-  printf '%s\t%s\t%s\n' "$script" "$subject" "$(date +%FT%T)" > "$file" 2>/dev/null || return 0
+  printf '%s\t%s\t%s\n' "$action" "$subject" "$(date +%FT%T)" > "$file" 2>/dev/null || return 0
   return 0
 }
 
@@ -227,9 +241,9 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     # The action word, or the script name — an operator reaching for this has
     # just read a refusal naming a script, so both spellings are accepted.
     case "$action_script" in
-      dispatch|plot-dispatch.sh) action_script="plot-dispatch.sh" ;;
-      approve|plot-approve.sh)   action_script="plot-approve.sh" ;;
-      deliver|plot-deliver.sh)   action_script="plot-deliver.sh" ;;
+      dispatch|plot-dispatch.sh) action_script="dispatch" ;;
+      approve|plot-approve.sh)   action_script="approve" ;;
+      deliver|plot-deliver.sh)   action_script="deliver" ;;
       *)
         echo "plot-state-receipt: '$action_script' is not a controller-owned action." >&2
         echo "  The three are: dispatch, approve, deliver." >&2

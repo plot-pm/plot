@@ -199,7 +199,7 @@ test('controller gate: the escape records its reason and clears the call', () =>
   const log = path.join(dir, '.plot', 'state', 'unowned-action-writes.tsv');
   assert.ok(existsSync(log), 'the escape is counted');
   const line = readFileSync(log, 'utf8').trim();
-  assert.match(line, /plot-dispatch\.sh\tsome-slug\tno board on this machine/,
+  assert.match(line, /dispatch\tsome-slug\tno board on this machine/,
     'the reason is recorded, because an uncounted escape is an off switch');
 
   assert.equal(run(dir, DISPATCH).status, 0, 'and it clears the gate');
@@ -224,13 +224,16 @@ test('controller gate: the path the board writes is the path the gate reads', ()
   // THE TWO WRITERS MUST AGREE ON ONE PATH. `recordActionReceipt` (TypeScript,
   // called by the three endpoints) and `record_action_receipt` (bash, called by
   // the escape) write the same file, and `plot-controller-gate.sh` reads it.
-  // The TS half is asserted against the SOURCE rather than imported, because
+  // The receipt is named for the ACTION, not the script: the board writes
+  // these too, and `check-script-names.sh` refuses a `plot-*.sh` literal
+  // outside an adapter. The TS half is asserted against the SOURCE rather than
+  // imported, because
   // `node --test` loads no TypeScript — and a dynamic import that silently
   // no-ops is a test that cannot fail. The board's own suite exercises the
   // function; this pins the one string the two spellings must share.
   const dir = repo();
   recordReceipt(dir, 'plot-dispatch.sh', 'some-slug');
-  const written = path.join(dir, '.plot', 'state', 'action-receipts', 'plot-dispatch.sh');
+  const written = path.join(dir, '.plot', 'state', 'action-receipts', 'dispatch');
   assert.ok(existsSync(written), 'the shell writer puts it here');
 
   const ts = readFileSync(

@@ -16,8 +16,8 @@ import path from 'node:path';
  * the escape hatch, and any future script-side writer — and this writes the
  * same file for a Node one. The pair is two spellings of one four-line format,
  * so the format is stated once in each and pinned by
- * `test/reconcile/controller-gate.test.mjs`, which writes with THIS function
- * and clears with the shell's reader. A test that wrote the file by hand would
+ * `test/reconcile/controller-gate.test.mjs`, which writes with each and reads
+ * with the gate. A test that wrote the file by hand would
  * pin the gate against a fixture rather than against the writer, which is the
  * drift `plot-pr-merged.sh` was extracted to prevent.
  *
@@ -26,26 +26,31 @@ import path from 'node:path';
  * pulled it.
  */
 
-/** The three actions a controller endpoint owns, and the script each one runs. */
-export const ACTION_SCRIPTS = {
-  dispatch: 'plot-dispatch.sh',
-  approve: 'plot-approve.sh',
-  deliver: 'plot-deliver.sh',
-} as const;
-
-/** An action a controller endpoint owns. */
-export type ControllerAction = keyof typeof ACTION_SCRIPTS;
+/**
+ * An action a controller endpoint owns.
+ *
+ * THE ACTION IS THE IDENTITY HERE, NOT THE SCRIPT, and that is
+ * `check-script-names.sh`'s rule rather than a preference: a `plot-*.sh` name
+ * in a controller is a boundary crossing no spawn counter can see, so the
+ * script names live on the shell side where the gate itself reads them off a
+ * command line. An endpoint authorises *an approval*; which file performs it is
+ * the adapter's business.
+ */
+export type ControllerAction = 'dispatch' | 'approve' | 'deliver';
 
 /**
- * Where one action's receipt lives — named by the script, because the script's
- * basename is what the gate reads off the command line.
+ * Where one action's receipt lives.
+ *
+ * The filename is the action, and `plot-controller-gate.sh` maps the script it
+ * saw back to that word. One string is shared across the two languages and it
+ * is this directory, which `test/reconcile/controller-gate.test.mjs` pins.
  *
  * @param repoRoot - the repository this board serves.
- * @param script - the script's filename, as the gate will see it.
+ * @param action - which of the three is being authorised.
  * @returns the absolute path of the receipt file.
  */
-export function actionReceiptPath(repoRoot: string, script: string): string {
-  return path.join(repoRoot, '.plot', 'state', 'action-receipts', script);
+export function actionReceiptPath(repoRoot: string, action: ControllerAction): string {
+  return path.join(repoRoot, '.plot', 'state', 'action-receipts', action);
 }
 
 /**
@@ -79,11 +84,10 @@ export function recordActionReceipt(
   action: ControllerAction,
   subject: string,
 ): void {
-  const script = ACTION_SCRIPTS[action];
-  const file = actionReceiptPath(repoRoot, script);
+  const file = actionReceiptPath(repoRoot, action);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, `${script}\t${subject}\t${new Date().toISOString()}\n`, 'utf8');
+    fs.writeFileSync(file, `${action}\t${subject}\t${new Date().toISOString()}\n`, 'utf8');
   } catch {
     /* the gate fails open on its own machinery; a lost receipt is not a lost action */
   }
