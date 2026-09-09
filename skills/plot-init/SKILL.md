@@ -245,6 +245,70 @@ it.
 > signals refuse rather than guess, for the reason above.
 > `PLOT-UNASKED: Which CI runs the PRs? — refused — both signals found, no CI key written`
 
+#### The Jenkins instance
+
+**Where `CI: jenkins` is proposed, propose `Jenkins instance` too.** Without
+this key the connector refuses: `plot-host.sh:677` exits 3 naming three
+repairs, which is right behaviour and not the outcome the goal describes — *a
+teammate clones a repository, runs `/plot-init`, and sees real build status,
+without being told which keys to set*. A green adoption and a blank board is the
+failure this question prevents, so it belongs beside the `CI:` proposal rather
+than in `/plot-board-setup`.
+
+**Read `ciInstance.slug` and `ciInstance.ask`, never the probe's
+`jenkins_host`.** The probe reports the host a self-describing doc names; the
+rule decides what that proposes and what is left to ask. **The rule names no
+vendor** — `packages/domain/src/rules/stack.ts` calls it a CI instance because a
+connector belongs in `adapters/`, and CI's *"The domain names no vendor"* gate
+refuses the other spelling. The probe is a shell script and says `jenkins_host`,
+because grepping for a Jenkins hostname is exactly a vendor's business.
+
+| `ciInstance.ask` | What to do |
+|---|---|
+| `path` | propose the slug with its evidence, ask the container path only |
+| `both` | ask for the instance and the job, naming why |
+| `none` | nothing to ask — the CI is not Jenkins, or is still undecided |
+
+**The value is `<slug>/<job/path>`, and only the slug is measurable.** The
+container path is a fact about the Jenkins job tree; reading it would need
+credentials adoption does not have. That is the same split adoption already
+makes for Jira, whose base URL is asked for the same reason.
+
+**One question where the slug was found:**
+
+> Found `jenkins-ci-webbloqs.internal.quatico.dev` in your README. Which job
+> builds this repository? (e.g. `quaweb/continuous-build`)
+
+**Two where it was not — and this is the normal case, not the edge one.** A
+`Jenkinsfile` says *Jenkins builds this* without saying *which Jenkins*, and
+nothing requires a repository to link its pipeline:
+
+> A `Jenkinsfile` says Jenkins builds this repository. Which instance, and
+> which job?
+
+**The fallback is a question, never a default.** There is no plausible instance
+to invent — a slug is site-specific, and a wrong one produces `NOT reachable`,
+which a reader cannot tell from a Jenkins that is down.
+
+**An unanswered question writes what is left.** With a slug and no path, write
+the slug alone: `plot-host.sh:566` treats a bare-host instance as *list at the
+root scope*, so a half-answer degrades to a reading that is wrong but visible.
+With neither, write no key and say so — a `Jenkins instance` invented to fill
+the field is the silent misconfiguration `/plot-init` refuses everywhere else.
+
+**Write it beside the `CI:` key:**
+
+```markdown
+- **CI:** jenkins
+- **Jenkins instance:** jenkins-ci-webbloqs.internal.quatico.dev/quaweb/continuous-build
+```
+
+> **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
+> *question* does not, as for the tracker. A measured slug is written alone and
+> the gap is named; an unmeasured one writes nothing.
+> `PLOT-UNASKED: Which Jenkins job builds this? — default — proposed the slug from the README, job path unset; builds list at the root scope until it is added`
+> `PLOT-UNASKED: Which Jenkins instance, and which job? — refused — a Jenkinsfile was found and no doc names an instance; no key written, the connector will refuse at the first build lookup`
+
 Do not ask about anything the probe answered confidently. A user who is asked
 to confirm their own git host learns that the tool is not paying attention.
 

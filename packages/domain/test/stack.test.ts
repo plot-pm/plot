@@ -8,6 +8,7 @@ import {
   isQuestion,
   nodeMajor,
   proposeCi,
+  proposeCiInstance,
   proposeCommitStyle,
   proposeLanguage,
   proposeNode,
@@ -35,6 +36,8 @@ const readings = (over: Partial<StackReadings> = {}): StackReadings => ({
   germanWordCount: 0,
   hasHubDoc: false,
   ciSignals: null,
+  ciHost: '',
+  instanceKeyedCi: '',
   ...over,
 });
 
@@ -289,6 +292,52 @@ describe('proposeCi', () => {
   });
 });
 
+describe('proposeCiInstance', () => {
+  it('proposes the measured slug and asks only the container path', () => {
+    // The slug is measurable and the path is not: `quaweb/continuous-build` is
+    // a fact about the Jenkins job tree, and reading it would need credentials
+    // adoption does not have.
+    const p = proposeCiInstance('jenkins-ci-webbloqs.internal.quatico.dev', true);
+    expect(p.slug).toBe('jenkins-ci-webbloqs.internal.quatico.dev');
+    expect(p.ask).toBe('path');
+  });
+
+  it('writes the slug alone when the path goes unanswered', () => {
+    // `plot-host.sh:566` lists at the root scope for a bare-host instance —
+    // wrong but visible, which beats a connector refusing invisibly.
+    expect(proposeCiInstance('jenkins.example.dev', true).key).toBe('jenkins.example.dev');
+  });
+
+  it('asks for both where the repository names no Jenkins', () => {
+    // The normal case, not the edge one: a `Jenkinsfile` says Jenkins builds
+    // this without saying which Jenkins.
+    const p = proposeCiInstance('', true);
+    expect(p.slug).toBeNull();
+    expect(p.ask).toBe('both');
+  });
+
+  it('writes no key where the slug went unanswered', () => {
+    // NEVER A DEFAULT. An invented slug answers `NOT reachable`, which a reader
+    // cannot tell from a Jenkins that is down.
+    expect(proposeCiInstance('', true).key).toBeNull();
+  });
+
+  it('reads whitespace as no slug at all', () => {
+    const p = proposeCiInstance('   ', true);
+    expect(p.slug).toBeNull();
+    expect(p.ask).toBe('both');
+  });
+
+  it('asks nothing where the CI is not Jenkins', () => {
+    // A GitHub Actions repository is not missing this key, so it is not asked
+    // — and a host named in its docs is still not its question.
+    const p = proposeCiInstance('jenkins.example.dev', false);
+    expect(p.slug).toBeNull();
+    expect(p.ask).toBe('none');
+    expect(p.key).toBeNull();
+  });
+});
+
 describe('proposeStack', () => {
   it('answers all four questions from one set of readings', () => {
     const p = proposeStack(readings({
@@ -324,6 +373,45 @@ describe('proposeStack', () => {
     expect(proposeStack(readings({
       ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: false }],
     })).ci).toEqual({ answer: 'silent' });
+  });
+
+  it('asks for the instance path where one signal proposes the keyed CI', () => {
+    // THE WIRE, ASSERTED. `proposeCiInstance` took a literal `false` from
+    // 2026-09-08 until the CI answer arrived, so every branch of it was
+    // reachable only by calling it directly. This is the composition.
+    const p = proposeStack(readings({
+      ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
+      ciHost: 'ci.example.dev',
+      instanceKeyedCi: 'jenkins',
+    }));
+    expect(p.ciInstance.ask).toBe('path');
+    expect(p.ciInstance.slug).toBe('ci.example.dev');
+  });
+
+  it('asks for no instance while two signals leave the CI question open', () => {
+    // A QUESTION IS NOT A PROPOSAL. `SignalQuestion` carries no proposed word,
+    // so there is nothing for the instance rule to match and nothing is asked
+    // until a person has said which CI runs the repository — the property
+    // `proposeCiInstance`'s header states, held here by the type.
+    const p = proposeStack(readings({
+      ciSignals: [
+        { proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true },
+        { proposes: 'github-actions', evidence: '`.github/workflows`', present: true },
+      ],
+      ciHost: 'ci.example.dev',
+      instanceKeyedCi: 'jenkins',
+    }));
+    expect(p.ciInstance.ask).toBe('none');
+    expect(p.ciInstance.slug).toBeNull();
+  });
+
+  it('asks for no instance where the proposed CI is not the keyed one', () => {
+    const p = proposeStack(readings({
+      ciSignals: [{ proposes: 'github-actions', evidence: '`.github/workflows`', present: true }],
+      ciHost: 'ci.example.dev',
+      instanceKeyedCi: 'jenkins',
+    }));
+    expect(p.ciInstance.ask).toBe('none');
   });
 
   it('proposes nothing from a repository that shows nothing', () => {

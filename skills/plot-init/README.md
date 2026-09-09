@@ -293,8 +293,10 @@ over one recomputed from the report.
   `feature/the-probe-reads-the-ci-system` merged as PR #811 carrying **zero
   files**, its claim commit only. The signal itself is already read next door,
   as `ci_signals.{jenkinsfile,gh_workflows}` in `plot-board-probe.sh`, which is
-  where the probe's field should derive its shape from. **The judgement half
-  landed 2026-09-09**: `proposeCi` decides what the two signals answer, and the
-  entry reads `ci_signals` when a probe reports it. Until this probe does, `ci`
-  is `null` here — *nobody looked*, which the skill states rather than reading
-  as `silent`.
+  where the probe's field should derive its shape from. **The judgement half landed 2026-09-09**: `proposeCi` decides what the two signals answer, and the entry reads `ci_signals` when a probe reports it. Until this probe does, `ci` is `null` here — *nobody looked*, which the skill states rather than reading as `silent`.
+
+- **The `Jenkins instance` proposal is complete, and 2026-09-09 connected it.** The probe emits `jenkins_host`, `proposeCiInstance` decides from it, and the section above says what to ask. Its trigger was a literal `false` for one day — `proposeStack` composed `proposeCiInstance(host, false)` and the answer was always *nothing to ask* — and main's own comment named the reason: *"the arrival of `ci.reading` is a one-line change here and nothing else."* `proposesInstanceKey` is that line. Every branch of the rule is asserted, including the two only a CI reading reaches.
+
+  **A question does not trigger it.** Where two signals were found the CI answer is `ask`, which carries no proposed word at all, so no instance is asked for until a person has said which CI runs the repository — the property `proposeCiInstance`'s own header states, now held by the type rather than by prose.
+
+  **The rule names no vendor and the probe does.** CI's *"The domain names no vendor"* gate refuses `jenkins` outside `packages/domain/src/adapters/`, so the word arrives as a reading: the probe keeps `jenkins_host`, the entry sets `instanceKeyedCi` beside it, and the rule compares the CI proposal against that value. Grepping for a Jenkins hostname is a vendor's business; `readingsFrom` is the adapter that bridges the two names.

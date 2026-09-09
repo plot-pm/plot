@@ -210,3 +210,59 @@ test('detect: finds quality gates in workspace packages, not only the root', () 
   assert.ok(d.dod_candidates.includes('test'), `expected test among ${JSON.stringify(d.dod_candidates)}`);
   assert.ok(d.dod_candidates.includes('lint'));
 });
+
+test('detect: reads the Jenkins host a self-describing doc names', () => {
+  // THE SLUG HALF OF `Jenkins instance`, and the half that is measurable. The
+  // container path is a fact about the Jenkins job tree, so adoption asks it.
+  const r = repoWith({
+    'README.md':
+      '# quaweb-website\n' +
+      'Builds: https://jenkins-ci-webbloqs.internal.quatico.dev/job/quaweb/\n' +
+      'See jenkins-ci-webbloqs.internal.quatico.dev for status.\n',
+    '.build/pipelines/website/release/Jenkinsfile': 'pipeline {}\n',
+  });
+  assert.equal(probe(r).jenkins_host, 'jenkins-ci-webbloqs.internal.quatico.dev');
+});
+
+test('detect: a repository naming no Jenkins reports no host', () => {
+  // The normal case. A `Jenkinsfile` says Jenkins builds this without saying
+  // WHICH Jenkins, so an empty reading is what adoption asks from.
+  const r = repoWith({
+    'README.md': '# thing\nNothing about CI here.\n',
+    'Jenkinsfile': 'pipeline {}\n',
+  });
+  assert.equal(probe(r).jenkins_host, '');
+});
+
+test('detect: the host is read from self-describing files, never every markdown', () => {
+  // MEASURED 2026-09-09 ON PLOT ITSELF. A `*.md` corpus reported
+  // `jenkins-ci-webbloqs.internal.quatico.dev` for a repository that runs no
+  // Jenkins, read out of a plan citing the host as another repo's example. A
+  // proposal from that reading points the connector at a stranger's server,
+  // which answers `NOT reachable` — indistinguishable from a Jenkins that is
+  // down.
+  const r = repoWith({
+    'README.md': '# thing\nNo CI named here.\n',
+    'docs/plans/a-plan.md': 'Measured in quaweb: jenkins-ci-webbloqs.internal.quatico.dev\n',
+  });
+  assert.equal(probe(r).jenkins_host, '',
+    'a hostname quoted as evidence in a plan is not this repository\'s Jenkins');
+});
+
+test('detect: the most repeated host wins where a doc names two', () => {
+  const r = repoWith({
+    'README.md':
+      'Primary: jenkins-main.example.dev\n' +
+      'Also jenkins-main.example.dev again.\n' +
+      'Legacy was jenkins-old.example.dev once.\n',
+  });
+  assert.equal(probe(r).jenkins_host, 'jenkins-main.example.dev');
+});
+
+test('detect: an untracked Jenkins hostname cannot answer for the repository', () => {
+  // BOUNDED BY GIT, never a tree walk — the same rule the Jenkinsfile search
+  // takes. An unstaged fixture is not the repository describing itself.
+  const r = repoWith({ 'README.md': '# thing\n' });
+  fs.writeFileSync(path.join(r, 'README.local.md'), 'jenkins-ghost.example.dev\n');
+  assert.equal(probe(r).jenkins_host, '');
+});

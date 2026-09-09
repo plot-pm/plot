@@ -102,5 +102,12 @@ export const readingsFrom = (report: Record<string, unknown>): StackReadings => 
     germanWordCount: numberOr(report.german_words, 0),
     hasHubDoc: stringOr(report.hub_docs) !== '',
     ciSignals: ciSignalsFrom(report.ci_signals),
+    ciHost: stringOr(report.jenkins_host),
+    // THE WORD LIVES HERE BECAUSE THE FIELD ABOVE DOES. `jenkins_host` is one
+    // CI system's reading -- the probe finds it by that system's own marker --
+    // so this is where the estate already knows which word the CI proposal has
+    // to carry before the host is worth asking about. The domain names no
+    // vendor, and takes the word as a value instead.
+    instanceKeyedCi: report.jenkins_host === undefined ? '' : 'jenkins',
   };
 };

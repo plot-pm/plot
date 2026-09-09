@@ -92,6 +92,31 @@ export interface StackReadings {
    * values and this file holds none.
    */
   ciSignals: readonly Signal<string>[] | null;
+  /**
+   * The Jenkins host a self-describing doc names, or `''` where none does.
+   *
+   * The SLUG half of the `Jenkins instance` key, whose full form is
+   * `<slug>/<job/path>`. The container path is a fact about the Jenkins job
+   * tree that no file in the repository states, so it is asked rather than
+   * read — the same split adoption already makes for Jira's base URL.
+   *
+   * A REPOSITORY NAMING NO JENKINS IS THE NORMAL CASE. `''` is not evidence
+   * against Jenkins; a `Jenkinsfile` says *Jenkins builds this* without saying
+   * *which Jenkins*, so an empty reading asks rather than proposing.
+   */
+  ciHost: string;
+  /**
+   * The collector's word for the CI system {@link StackReadings.ciHost}
+   * belongs to, or `''` where it read no host.
+   *
+   * A READING, NOT A CONSTANT. The host field is one CI system's — the probe
+   * reads it from that system's own marker — so the collector is the component
+   * that knows which word the CI proposal must carry for the host to be worth
+   * asking about. Supplying it here keeps that word out of the domain, which
+   * CI's vendor gate requires and which the signals already do for every other
+   * CI question.
+   */
+  instanceKeyedCi: string;
 }
 
 /** What the readings propose about the Node on this machine. */
@@ -139,6 +164,42 @@ export interface LanguageProposal {
   germanWords: number;
 }
 
+/**
+ * What must be asked before a `Jenkins instance` key can be written.
+ *
+ * `none` — nothing to ask; the key is not this repository's question.
+ * `path` — the slug was measured, so only the container path is missing.
+ * `both` — Jenkins builds this and no doc says which, so both halves are asked.
+ */
+export type CiInstanceAsk = 'none' | 'path' | 'both';
+
+/** What the readings propose about this repository's Jenkins instance. */
+export interface CiInstanceProposal {
+  /**
+   * The instance slug proposed, or `null` where no doc named one.
+   *
+   * NEVER INVENTED. There is no plausible instance to default to: a slug is
+   * site-specific, and a wrong one answers `NOT reachable` — which a reader
+   * cannot tell from a Jenkins that is down. So this is what was measured or
+   * it is `null`.
+   */
+  slug: string | null;
+  /** Which halves of the key are still missing. */
+  ask: CiInstanceAsk;
+  /**
+   * The key to write from the answers already in hand, or `null` for none.
+   *
+   * AN UNANSWERED PATH WRITES THE SLUG ALONE. `plot-host.sh:566` treats a
+   * bare-host instance as *list at the root scope* and calls that "honest, and
+   * the open point's fallback" — so a half-answer degrades to a reading that is
+   * wrong but visible, which beats a connector refusing for a reason nobody can
+   * see. An unanswered slug writes nothing, because a `Jenkins instance`
+   * invented to fill the field is the silent misconfiguration `/plot-init`
+   * refuses everywhere else.
+   */
+  key: string | null;
+}
+
 /** Everything the readings propose, each answer carrying its evidence. */
 export interface StackProposal {
   /** What Node this machine runs, and whether it is enough. */
@@ -161,6 +222,8 @@ export interface StackProposal {
    * question, distinct from all three of its answers.
    */
   ci: SignalAnswer<string> | null;
+  /** Which Jenkins builds it, where Jenkins does. */
+  ciInstance: CiInstanceProposal;
 }
 
 /**
@@ -445,6 +508,70 @@ export const proposeCi = (signals: readonly Signal<string>[]): SignalAnswer<stri
   fromSignals(signals);
 
 /**
+/**
+ * What a repository's Jenkins instance is, and what is left to ask.
+ *
+ * IT RUNS ONLY WHERE JENKINS BUILDS THE REPOSITORY. `CI: jenkins` is the
+ * trigger, because `plot-host.sh:677` refuses for want of this key only when
+ * the CI is Jenkins — a GitHub Actions repository is not missing anything.
+ * Where two signals were found the CI question is still open, so this asks
+ * nothing until it is answered.
+ *
+ * ONE QUESTION WHERE THE SLUG WAS FOUND, TWO WHERE IT WAS NOT. A reader who
+ * must supply a whole `<slug>/<job/path>` value is being asked to know the
+ * key's format, which the goal — *sees real build status without being told
+ * which keys to set* — rules out.
+ *
+ * @param ciHost the host a self-describing doc named, or `''`.
+ * @param isJenkins whether the CI proposal is `jenkins`.
+ * @returns the slug proposed, what is still asked, and the key writable now.
+ */
+export const proposeCiInstance = (
+  ciHost: string,
+  isJenkins: boolean,
+): CiInstanceProposal => {
+  if (!isJenkins) return { slug: null, ask: 'none', key: null };
+  const slug = ciHost.trim();
+  return slug === ''
+    ? { slug: null, ask: 'both', key: null }
+    : { slug, ask: 'path', key: slug };
+};
+
+/**
+ * Whether the CI answer names the system whose instance the readings describe.
+ *
+ * THE DOMAIN NAMES NO VENDOR, so the word is not written here. The comparison
+ * is against {@link StackReadings.instanceKeyedCi} — the collector's own name
+ * for the system it read a host for, supplied as a value with the reading it
+ * belongs to. CI's vendor gate is the rule; this is what obeying it looks like
+ * in the one place the rule needs a word at all.
+ *
+ * WHY A WORD IS NEEDED HERE AND NOWHERE ELSE: an instance key is one CI
+ * system's question. `plot-host.sh:677` refuses for want of it only for that
+ * system, and a repository built by any other is missing nothing. Every other
+ * rule in this file treats the proposed word as opaque and would be wrong to
+ * read it.
+ *
+ * A QUESTION IS NOT A PROPOSAL, and that is the guard the arms give for free.
+ * Where two signals were found the answer is `ask`, carrying no word at all —
+ * `SignalQuestion` has no field to read — so this is false and no instance is
+ * asked for until a person has said which CI runs the repository.
+ *
+ * @param signals every CI signal the collector looked for, or `null`.
+ * @param instanceKeyedCi the collector's word for the instance-keyed system,
+ *   or `''` where it read no host and therefore names none.
+ * @returns true only where one signal was present and proposed that word.
+ */
+const proposesInstanceKey = (
+  signals: readonly Signal<string>[] | null,
+  instanceKeyedCi: string,
+): boolean => {
+  if (signals === null || instanceKeyedCi === '') return false;
+  const answer = proposeCi(signals);
+  return isProposal(answer) && answer.proposed === instanceKeyedCi;
+};
+
+/**
  * Everything a probe's readings propose.
  *
  * THE ONE ENTRY POINT THE SKILLS CALL, through `plot-propose-stack.mjs`. The
@@ -465,4 +592,18 @@ export const proposeStack = (readings: StackReadings): StackProposal => ({
   ),
   language: proposeLanguage(readings.germanWordCount, readings.hasHubDoc),
   ci: readings.ciSignals === null ? null : proposeCi(readings.ciSignals),
+  // THE TRIGGER ARRIVED. `proposeCiInstance` was wired to a literal `false`
+  // until 2026-09-09, with main's own comment naming the reason -- *"the CI
+  // proposal does not exist yet ... the arrival of `ci.reading` is a one-line
+  // change here and nothing else."* This is that line.
+  //
+  // A QUESTION IS NOT A `jenkins` READING. Where two signals were found the CI
+  // answer is `ask`, `isProposal` is false, and no instance is asked for --
+  // which is what `proposeCiInstance`'s own header already required: *"Where
+  // two signals were found the CI question is still open, so this asks nothing
+  // until it is answered."*
+  ciInstance: proposeCiInstance(
+    readings.ciHost,
+    proposesInstanceKey(readings.ciSignals, readings.instanceKeyedCi),
+  ),
 });

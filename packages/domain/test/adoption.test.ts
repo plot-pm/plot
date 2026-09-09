@@ -39,6 +39,8 @@ const bare = (): StackProposal =>
     germanWordCount: 0,
     hasHubDoc: true,
     ciSignals: CI_SIGNALS.map((signal) => ({ ...signal, present: false })),
+    ciHost: '',
+    instanceKeyedCi: '',
   });
 
 /**
@@ -214,6 +216,8 @@ describe('composeAdoption — the keys', () => {
           germanWordCount: 0,
           hasHubDoc: true,
           ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
+          ciHost: '',
+          instanceKeyedCi: '',
         }),
         answers: answers({ tracker: 'jira', trackerUrl: 'https://acme.atlassian.net' }),
       }),
@@ -336,6 +340,8 @@ describe('composeAdoption — the commit style', () => {
           germanWordCount: 0,
           hasHubDoc: true,
                   ciSignals: null,
+                  ciHost: '',
+                  instanceKeyedCi: '',
         }),
       }),
     );
