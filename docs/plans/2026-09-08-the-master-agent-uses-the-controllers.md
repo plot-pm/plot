@@ -78,7 +78,7 @@
 
 ## Slices
 
-### A master agent cannot write a lifecycle field by hand (Branch: infra/a-lifecycle-field-has-one-writer) <!-- waits: feature/a-sprint-transition-is-performed -->
+### A master agent cannot write a lifecycle field by hand (Branch: infra/a-lifecycle-field-has-one-writer, PR: #851) <!-- waits: feature/a-sprint-transition-is-performed -->
 
 A gate refuses a commit that edits a `State:` line outside the scripts that own it.
 
