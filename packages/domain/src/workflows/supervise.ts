@@ -1,5 +1,10 @@
 import type { Supervision, SupervisionReadings } from '../rules/supervision.js';
 import { supervise as superviseOne } from '../rules/supervision.js';
+import {
+  unclaimedTrees,
+  type RegisteredTreeReadings,
+  type UnclaimedTree,
+} from '../rules/unclaimed.js';
 import { type Decision, type Write, decide } from './decision.js';
 
 /**
@@ -17,6 +22,21 @@ import { type Decision, type Write, decide } from './decision.js';
 export interface SuperviseReadings {
   /** What was measured of each registered agent, in registry order. */
   agents: readonly SupervisionReadings[];
+  /**
+   * Every worktree git knows about on this machine, or absent where nobody
+   * asked.
+   *
+   * **A SECOND POPULATION, NOT MORE FIELDS ON THE FIRST.** The agents are what
+   * the registry declared; this is what the machine is carrying, and the two
+   * disagree in exactly the case the finding exists for — a directory git lists
+   * that no manifest names. Joining them onto one list would need an agent
+   * entry for a tree nobody registered, which is the thing being reported.
+   *
+   * **ABSENT IS *NOBODY ASKED*, NOT *NOTHING WAS CARRIED*.** A caller running
+   * the tick with no tree reading gets no finding rather than a clean estate,
+   * the same distinction `handOver: null` already draws about the queue.
+   */
+  trees?: readonly RegisteredTreeReadings[];
 }
 
 /** What one tick was asked to bound itself by. */
@@ -57,6 +77,19 @@ export interface SuperviseDetail {
   deferred: readonly string[];
   /** The branches whose worker is alive and were left alone. */
   left: readonly string[];
+  /**
+   * The registered worktrees nobody dispatched, each with what a person may do.
+   *
+   * **IT REPORTS AND DOES NOT REMOVE**, for the same reason the reaper refuses
+   * on a dirty tree: the supervisor cannot know why a directory exists. What it
+   * can say is that the estate is carrying it — and that the carrying is what
+   * costs, on every scan, forever.
+   *
+   * Empty where nobody asked and empty where every tree is claimed. The
+   * distinction is not drawn here because nothing acts on it: a caller that
+   * gave no trees prints no line, and so does a caller whose estate is clean.
+   */
+  unclaimed: readonly UnclaimedTree[];
 }
 
 /**
@@ -76,6 +109,11 @@ export interface SuperviseDetail {
  * reverse leaves a daemon that died between the two having started a retry it
  * did not record — and an unrecorded retry is a budget that never runs out,
  * which is precisely the loop the `needs a person` stop exists to prevent.
+ *
+ * **THE UNCLAIMED TREES ARE COUNTED AND NEVER ACTED ON.** They are the one
+ * thing here the bound does not reach, because the bound limits what a tick
+ * DOES and this tick does nothing about them. It names them, says what they
+ * cost the scan, and leaves every removal to a person.
  *
  * @param readings - what this tick measured of every registered agent.
  * @param input - the bound this run was given.
@@ -170,6 +208,11 @@ export const supervise = (
     needingAPerson,
     deferred,
     left,
+    // THE FINDING NAMES NO WRITE, and that is the whole of its licence. It is
+    // derived after the per-agent pass rather than during it, because it is
+    // about a population the pass never visits: a tree the registry does not
+    // name has no agent to be a verdict on.
+    unclaimed: unclaimedTrees(readings.trees ?? []),
   });
 };
 
