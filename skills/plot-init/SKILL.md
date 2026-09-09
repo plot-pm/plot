@@ -244,11 +244,15 @@ without being told which keys to set*. A green adoption and a blank board is the
 failure this question prevents, so it belongs beside the `CI:` proposal rather
 than in `/plot-board-setup`.
 
-**Read `jenkins.slug` and `jenkins.ask`, never the probe's `jenkins_host`.** The
-probe reports the host a self-describing doc names; the rule decides what that
-proposes and what is left to ask.
+**Read `ciInstance.slug` and `ciInstance.ask`, never the probe's
+`jenkins_host`.** The probe reports the host a self-describing doc names; the
+rule decides what that proposes and what is left to ask. **The rule names no
+vendor** — `packages/domain/src/rules/stack.ts` calls it a CI instance because a
+connector belongs in `adapters/`, and CI's *"The domain names no vendor"* gate
+refuses the other spelling. The probe is a shell script and says `jenkins_host`,
+because grepping for a Jenkins hostname is exactly a vendor's business.
 
-| `jenkins.ask` | What to do |
+| `ciInstance.ask` | What to do |
 |---|---|
 | `path` | propose the slug with its evidence, ask the container path only |
 | `both` | ask for the instance and the job, naming why |
