@@ -96,7 +96,18 @@ Present: "Rejecting `<slug>`: M/N branches were built. K branches remain unbuilt
 
 Update the plan file (the resolved symlink target, e.g., `docs/plans/YYYY-MM-DD-<slug>.md`):
 
-- Change `**State:** Delivered` → `**State:** Approved`
+- Change `**State:** Delivered` → `**State:** Approved`, then declare the write:
+
+  ```bash
+  bash ../plot/scripts/plot-state-receipt.sh --unowned <plan file> Approved \
+    "/plot-reject has no controller — the backwards move has no rule at all"
+  ```
+
+  **`plot-state-gate.sh` refuses a `State:` line changed by anything but the
+  script that owns it**, and this is the one lifecycle move that runs backwards:
+  it has no `setPlanPhase`, no refusal, nothing that asks whether the plan was
+  ever delivered. The line above is the named escape and it is recorded, so the
+  gap stays countable until `a-rejection-is-a-controller-command` closes it.
 - If a `**Delivered:** YYYY-MM-DD` line exists, replace it with: `**Rejected:** YYYY-MM-DD (<reason>)`
 - If no Delivered line exists, add `**Rejected:** YYYY-MM-DD (<reason>)` to the Status section
 - Preserve all other content — branches, design, approvals, everything stays intact

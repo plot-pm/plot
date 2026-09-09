@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -229,4 +229,77 @@ test('state gate: unparseable hook input allows', () => {
   });
   const r = spawnSync('bash', [gate], { cwd: dir, input: 'not json', encoding: 'utf8' });
   assert.equal(r.status, 0);
+});
+
+// --- the named escape ------------------------------------------------------
+//
+// Three writes have no owning script today: /plot-approve step 3b under
+// `Review: in-session` or `ballot` (plot-approve.sh:190 refuses both by name),
+// /plot-release writing `State: Released`, and /plot-reject running the
+// lifecycle backwards. A gate refusing the only available method stops work
+// rather than routing it — which is why this slice waited at all — so the
+// escape is named, per-write, and RECORDED, in plot-dispatch.sh's
+// `--allow-local` tradition.
+
+function unowned(dir, rel, value, reason) {
+  return spawnSync('bash', [receipt, '--unowned', rel, value, reason], {
+    cwd: dir,
+    encoding: 'utf8',
+  });
+}
+
+test('state gate: the named escape clears a write no script owns', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Delivered') },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+  });
+  assert.equal(run(dir).status, 2, 'refused before the escape');
+  const e = unowned(dir, 'docs/plans/2026-01-01-x.md', 'Approved', '/plot-reject has no controller');
+  assert.equal(e.status, 0, `escape must succeed (stderr: ${e.stderr})`);
+  assert.equal(run(dir).status, 0, 'and cleared after it');
+});
+
+// The escape is countable, which is the whole difference between a visible gap
+// and a gate that is turned off. Each use is one line naming a routing gap the
+// later slices of the-master-agent-uses-the-controllers close.
+test('state gate: the escape records the gap it names', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Delivered') },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+  });
+  unowned(dir, 'docs/plans/2026-01-01-x.md', 'Approved', 'Review: in-session');
+  const log = path.join(dir, '.plot', 'state', 'unowned-state-writes.tsv');
+  assert.ok(existsSync(log), 'the escape writes a log');
+  assert.match(readFileSync(log, 'utf8'), /Review: in-session/);
+});
+
+test('state gate: the escape refuses without a reason', () => {
+  const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Delivered') } });
+  const r = spawnSync('bash', [receipt, '--unowned', 'docs/plans/2026-01-01-x.md', 'Approved'], {
+    cwd: dir,
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, 'a gap nobody wrote down is one nobody closes');
+  assert.match(r.stderr, /reason/);
+});
+
+test('state gate: the escape is spent like any other receipt', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Delivered') },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+  });
+  unowned(dir, 'docs/plans/2026-01-01-x.md', 'Approved', 'r');
+  assert.equal(run(dir).status, 0);
+  assert.equal(run(dir).status, 2, 'one escape licenses one commit');
+});
+
+// Sourcing must never execute the escape: the three owning scripts source this
+// file and pass no arguments, and a bare $1 under `set -u` would abort them at
+// load — with plot-approve.sh's own `set -uo pipefail` in force.
+test('state gate: the receipt file is safe to source under set -u', () => {
+  const r = spawnSync('bash', ['-c', `set -euo pipefail; . "${receipt}"; echo ok`], {
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  assert.match(r.stdout, /ok/);
 });
