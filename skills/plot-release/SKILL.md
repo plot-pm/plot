@@ -459,6 +459,20 @@ For each plan currently at `State: Delivered`:
    - **Released:** <tag date>, <version>
    ```
 
+   Then declare each write, once per plan:
+
+   ```bash
+   bash ../plot/scripts/plot-state-receipt.sh --unowned <plan file> Released \
+     "/plot-release has no controller — setPlanPhase does not exist"
+   ```
+
+   **`plot-state-gate.sh` refuses a `State:` line changed by anything but the
+   script that owns it**, and no script owns `Released`: `setPlanPhase` does not
+   exist, which the plan `the-master-agent-uses-the-controllers` records as a
+   finding rather than a gap to work around. The line above is the named escape
+   and it is recorded, so the gap stays countable until
+   `a-release-is-a-controller-command` closes it.
+
    **The symlink does not move.** `delivered/` means "no longer active", not
    "phase is exactly Delivered" — unlike `/plot-deliver`, this step moves
    nothing.

@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, cpSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, cpSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -18,7 +18,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
 
 const hooksJson = JSON.parse(readFileSync(path.join(repoRoot, 'hooks', 'hooks.json'), 'utf8'));
-const hookCommand = hooksJson.hooks.PreToolUse[0].hooks[0].command;
+const hookCommands = hooksJson.hooks.PreToolUse[0].hooks.map((h) => h.command);
+const hookCommand = hookCommands[0];
 
 // A plugin root whose path contains a space, holding the real scripts.
 function pluginRootWithSpace() {
@@ -89,4 +90,28 @@ test('hooks.json: the unquoted form would fail open silently (why the quotes exi
   const r = runHookCommand(unquoted, repo, root);
   assert.notEqual(r.status, 2, 'unquoted expansion must not reach the gate');
   assert.equal(r.status, 127, 'sh reports command-not-found — which hook runners treat as allow');
+});
+
+// The second gate, added 2026-09-09. It carries the same escaped quotes for the
+// same reason, and a test naming only the first would let the next entry ship
+// unquoted — the exact silent miss the two tests above exist to pin.
+test('hooks.json: every PreToolUse command quotes its plugin-root expansion', () => {
+  assert.ok(hookCommands.length >= 2, 'the phase gate and the state gate are both wired');
+  for (const command of hookCommands) {
+    assert.match(
+      command,
+      /^"\$\{CLAUDE_PLUGIN_ROOT\}\/[^"]+"$/,
+      `unquoted expansion in: ${command} — a plugin root with a space would silently never fire`,
+    );
+  }
+});
+
+// The state gate is wired, and wired to a script that exists. A hook entry
+// naming a missing file is a gate that never fires, which reads exactly like a
+// gate that passed.
+test('hooks.json: the state gate is wired and its script is on disk', () => {
+  const wired = hookCommands.find((c) => c.includes('plot-state-gate.sh'));
+  assert.ok(wired, 'plot-state-gate.sh must be a PreToolUse hook');
+  const rel = wired.replaceAll('"', '').replace('${CLAUDE_PLUGIN_ROOT}/', '');
+  assert.ok(existsSync(path.join(repoRoot, rel)), `${rel} must exist`);
 });

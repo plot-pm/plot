@@ -28,6 +28,12 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bundle="$script_dir/board/plot-sprint-transition.mjs"
 
+# The receipt this script leaves for plot-state-gate.sh, which refuses every
+# other writer of a `State:` line. Sourced rather than run: the gate and the
+# three owning scripts must agree on where a receipt lives, and one file is how.
+# shellcheck source=plot-state-receipt.sh
+. "$script_dir/plot-state-receipt.sh"
+
 usage() {
   echo "usage: plot-sprint-state.sh <slug> <state> [--on YYYY-MM-DD] [--dir <sprint dir>]" >&2
   echo "       plot-sprint-state.sh --states" >&2
@@ -159,6 +165,12 @@ fi
 
 [ -s "$tmp" ] || { rm -f "$tmp"; echo "plot-sprint-state: could not read $file" >&2; exit 1; }
 mv "$tmp" "$file"
+
+# The receipt plot-state-gate.sh clears on. Recorded after the `mv`, so it names
+# a value the file actually carries — and never on a refusal, where the `mv`
+# above is not reached and the sprint that was refused is the sprint that was
+# found.
+record_state_receipt "$file" "$decided_state"
 
 # The active symlink follows the state rather than being a second decision.
 # `ln -s` by hand is one of the three moves measured on 2026-09-08.

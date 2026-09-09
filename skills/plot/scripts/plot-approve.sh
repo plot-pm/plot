@@ -99,6 +99,12 @@ set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+# The receipt this script leaves for plot-state-gate.sh, which refuses every
+# other writer of a `State:` line. Sourced rather than run: the gate and the
+# three owning scripts must agree on where a receipt lives, and one file is how.
+# shellcheck source=plot-state-receipt.sh
+. "$script_dir/plot-state-receipt.sh"
+
 dry_run=0
 who_override=""
 slug=""
@@ -538,6 +544,10 @@ write_transition() { # $1=file $2=record $3=recorded(yes|no) → sets phase_repo
   fi
 
   phase_report=$([ "$flipped" = 1 ] && echo flipped || echo already)
+  # The receipt plot-state-gate.sh clears on. Recorded after the `mv`, so it
+  # names a value the file actually carries — a receipt written before a failed
+  # write would license a commit of the state that was refused.
+  record_state_receipt "$f" "Approved"
   return 0
 }
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** setup-asks-what-the-repo-already-knows
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 - **Started:** 2026-09-08, Jan Wloka, `feature/a-probe-reports-and-the-domain-judges`
 - **Started:** 2026-09-09, Jan Wloka, `feature/two-signals-ask-rather-than-tie-break`
+- **Delivered:** 2026-09-09
 
 ## Changelog
 

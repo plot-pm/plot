@@ -94,7 +94,6 @@ export const adoptionReadingsFrom = (report: Record<string, unknown>): AdoptionR
     ? report.hub_docs.filter((v): v is string => typeof v === 'string')
     : stringOr(report.hub_docs).split(/[,\s]+/).filter((s) => s !== ''),
   gitHost: stringOr(report.git_host),
-  ciSystem: stringOr(report.ci_system),
 });
 
 /**

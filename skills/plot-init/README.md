@@ -67,10 +67,15 @@ zero times across the whole adoption path.
 subjects)` is confirmable in one read; a bare `jira` is indistinguishable from
 a guess, and one unexplained proposal costs the whole block its credibility.
 
-**One signal proposes, two signals ask.** Where a `Jenkinsfile` and
-`.github/workflows/` are both present, adoption does not tie-break on the git
-host — a team on GitHub running Jenkins is common, and a wrong `CI:` sends
-every build-status lookup to the wrong system.
+**One signal proposes, two signals ask — and `proposeCi` is where that lives.**
+Where a `Jenkinsfile` and `.github/workflows/` are both present, adoption does
+not tie-break on the git host — a team on GitHub running Jenkins is common, and
+a wrong `CI:` sends every build-status lookup to the wrong system. The rule
+answers `propose`, `ask` or `silent`, and **an `ask` carries no proposed word**:
+a field holding `jenkins` beside an `uncertain: true` invites a caller to read
+the first half, so there is no half to read. It was prose in two skills until
+2026-09-09, which by CLAUDE.md's own test made it a rule rather than a gate —
+you could answer *did I complete this?* without doing the work.
 
 **The base URL is the only question added.** A prefix gives `QUACDS` and no
 host, and `tracker-jira.ts` needs one. Rather than guessing it from a remote or
@@ -288,24 +293,10 @@ over one recomputed from the report.
   `feature/the-probe-reads-the-ci-system` merged as PR #811 carrying **zero
   files**, its claim commit only. The signal itself is already read next door,
   as `ci_signals.{jenkinsfile,gh_workflows}` in `plot-board-probe.sh`, which is
-  where the probe's field should derive its shape from.
+  where the probe's field should derive its shape from. **The judgement half landed 2026-09-09**: `proposeCi` decides what the two signals answer, and the entry reads `ci_signals` when a probe reports it. Until this probe does, `ci` is `null` here — *nobody looked*, which the skill states rather than reading as `silent`.
 
-  **Re-measured 2026-09-09 and still true.** No branch on the estate carries
-  `ci_system` in either `plot-detect-repo.sh` or `rules/stack.ts`, and the
-  branch that was to add it has no remote ref. The slice merged empty twice.
+- **The `Jenkins instance` proposal is complete, and 2026-09-09 connected it.** The probe emits `jenkins_host`, `proposeCiInstance` decides from it, and the section above says what to ask. Its trigger was a literal `false` for one day — `proposeStack` composed `proposeCiInstance(host, false)` and the answer was always *nothing to ask* — and main's own comment named the reason: *"the arrival of `ci.reading` is a one-line change here and nothing else."* `proposesInstanceKey` is that line. Every branch of the rule is asserted, including the two only a CI reading reaches.
 
-- **The `Jenkins instance` proposal is complete and reached by nothing.** The
-  probe emits `jenkins_host`, `proposeCiInstance` decides from it, and the
-  section above says what to ask — but the rule's trigger is a `jenkins` CI
-  reading, so `proposeStack` composes `proposeCiInstance(host, false)` and the
-  answer is always *nothing to ask*. **This is a wire, not a stub:** the arrival
-  of `ci.reading` is one argument in `proposeStack` and no other change
-  anywhere. Every branch of the rule is asserted today, including the two that
-  only the CI reading can reach.
+  **A question does not trigger it.** Where two signals were found the CI answer is `ask`, which carries no proposed word at all, so no instance is asked for until a person has said which CI runs the repository — the property `proposeCiInstance`'s own header states, now held by the type rather than by prose.
 
-  **The rule names no vendor and the probe does.** `proposeCiInstance` takes a
-  `ciHost`, because CI's *"The domain names no vendor"* gate refuses `jenkins`
-  outside `packages/domain/src/adapters/` — a connector belongs there. The
-  shell probe keeps `jenkins_host`: grepping for a Jenkins hostname is a
-  vendor's business, and the entry's `readingsFrom` is the adapter that bridges
-  the two names.
+  **The rule names no vendor and the probe does.** CI's *"The domain names no vendor"* gate refuses `jenkins` outside `packages/domain/src/adapters/`, so the word arrives as a reading: the probe keeps `jenkins_host`, the entry sets `instanceKeyedCi` beside it, and the rule compares the CI proposal against that value. Grepping for a Jenkins hostname is a vendor's business; `readingsFrom` is the adapter that bridges the two names.
