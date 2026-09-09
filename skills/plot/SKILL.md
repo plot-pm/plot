@@ -46,9 +46,14 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
     <!-- - **Worker prompt template:** .plot/templates/worker-prompt.sh -->
     <!-- Optional: only when origin/HEAD detection picks the wrong branch -->
     <!-- - **Main branch:** develop -->
+    <!-- Optional: the tracker project keys this repo's work lives in.
+         Scopes the issue inbox; absent leaves it unscoped. NOT Branch prefixes. -->
+    <!-- - **Ticket prefixes:** PROJ-A, PROJ-B -->
 
 Helpers read these keys via `scripts/plot-config.sh get <key> [default]` —
 use it instead of grepping `CLAUDE.md`.
+
+`Ticket prefixes` names the tracker projects this repository's work lives in, and scopes the issue inbox to them. It is a different key from `Branch prefixes` above, which names git branch prefixes — the two sit adjacent and only this sentence keeps them apart. Set it when the tracker is a shared instance: the inbox's default query scopes by assignee and by resolution, so without it a board can show another team's tickets. It takes a list, because a repository mapping to several projects is the normal case; adoption seeds one prefix and a person adds the rest. Absent leaves the query unscoped, exactly as before.
 
 `Story directory` and `Story index` are read by the `story-tracking` skill and
 by the board. Documentation-style repos that aggregate other repos

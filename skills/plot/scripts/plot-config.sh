@@ -95,6 +95,20 @@
 #   Hosts plans         yes | no                      (no = refuse plan files)
 #   Tracker             plot | jira | github-issues | linear  (+ URL)
 #                       (plot = plans in this repo ARE the tracker; absent = same)
+#   Ticket prefixes     the tracker project keys this repository's work lives
+#                       in, comma-separated (`PROJ-A, PROJ-B`). NOT
+#                       `Branch prefixes`, which sits next to it and holds
+#                       `idea/`, `feature/`, `bug/` — that key is structural and
+#                       names git branches; this one names tracker projects.
+#                       Read by plot-host.sh's `issue-list` to scope the inbox:
+#                       the default JQL scopes by person and state, so on a
+#                       shared instance it is instance-wide and returns other
+#                       customers' tickets. A LIST, because a repository mapping
+#                       to several projects is the normal case; adoption seeds
+#                       ONE prefix and a person adds the rest. Absent = today's
+#                       unscoped query, byte for byte — a default that filtered
+#                       on an undeclared key would empty every existing board's
+#                       inbox on upgrade. `PLOT_JIRA_JQL` overrides both.
 #   Git host            github | bitbucket            (resolves gh vs bb)
 #   CI                  jenkins | github-actions | none — which CI system this
 #                       project uses. Recorded by /plot-board-setup; not yet
