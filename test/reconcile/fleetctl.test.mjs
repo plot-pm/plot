@@ -354,3 +354,154 @@ test('the systemd unit keeps its Nice, which is priority without eviction', () =
   assert.match(service, /^IOSchedulingClass=idle$/m,
     'the systemd unit lost its IO politeness');
 });
+
+// ── The completion marker: did the LAST --start finish? ───────────────────────
+//
+// THE MEASURED FAILURE, 2026-09-09: the fleet was stopped for hours and nothing
+// said so. `launchctl list` showed no `com.plot-pm.registryd` while the plist
+// sat on disk, correct and 5344 bytes, and one `launchctl bootstrap` restored
+// it. `--start` fills the unit, bootstraps, THEN cuts agent desks — one
+// `git worktree add` each, which is the slow part — so a run interrupted there
+// left a state with no name and `--status` collapsed it into *not installed*.
+//
+// THE TWO READINGS ARE ASSERTED TOGETHER, because neither settles it alone.
+// `.plot/state/` is machine-local and gitignored, so a fresh clone has no
+// marker either; only the unit file separates *never installed* from
+// *interrupted*. These drive `fleet_install_state` through the sourced seam
+// with `platform` and `supervisor_loaded` stubbed, which is what makes the
+// launchd arm reachable on CI's `ubuntu-latest`.
+
+/**
+ * Asks `fleet_install_state` with the platform and liveness pinned.
+ *
+ * The real probes are stubbed AFTER sourcing so the launchd branch of
+ * `unit_target` is exercised on Linux too — the arm a macOS operator uses, and
+ * the one CI could otherwise never run.
+ */
+function installState(root, ctl, home, { loaded = false, plat = 'launchd' } = {}) {
+  const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'
+platform() { echo ${plat}; }
+supervisor_loaded() { return ${loaded ? 0 : 1}; }
+printf '%s' "$(fleet_install_state)"`;
+  return execFileSync('bash', ['-c', probe], {
+    encoding: 'utf8', cwd: root, env: { ...process.env, HOME: home },
+  });
+}
+
+/** A fake HOME with the launchd unit directory, and optionally the unit in it. */
+function fakeHome(box, { unit = false } = {}) {
+  const home = path.join(box, 'home');
+  const agents = path.join(home, 'Library', 'LaunchAgents');
+  fs.mkdirSync(agents, { recursive: true });
+  if (unit) fs.writeFileSync(path.join(agents, 'com.plot-pm.registryd.plist'), '<plist/>\n');
+  return home;
+}
+
+test('marker: no unit and no marker is NOT INSTALLED, not interrupted', () => {
+  // THE FRESH-CLONE CASE. `.plot/state/` is gitignored, so a machine that never
+  // ran `--start` has no marker — reading the marker alone would send every new
+  // checkout to a `launchctl bootstrap` for a unit that does not exist.
+  const { root, box, ctl } = sandbox('state-fresh');
+  assert.equal(installState(root, ctl, fakeHome(box)), 'not-installed');
+});
+
+test('marker: a unit with no marker is INTERRUPTED — the state that read as absent', () => {
+  const { root, box, ctl } = sandbox('state-interrupted');
+  assert.equal(installState(root, ctl, fakeHome(box, { unit: true })), 'interrupted');
+});
+
+test('marker: a unit with a marker is INSTALLED', () => {
+  const { root, box, ctl } = sandbox('state-installed');
+  fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), '2026-09-09T00:00:00Z\n');
+  assert.equal(installState(root, ctl, fakeHome(box, { unit: true })), 'installed');
+});
+
+test('marker: a LOADED supervisor is running whatever the marker says', () => {
+  // LOADED IS TESTED FIRST AND THE MARKER IS NOT CONSULTED. Measured on this
+  // machine 2026-09-09: a supervisor loaded at pid 81406 with no marker beside
+  // it, because the marker post-dates the run that started it. A reading that
+  // took the marker as authoritative would call a healthy fleet interrupted.
+  const { root, box, ctl } = sandbox('state-running');
+  assert.equal(installState(root, ctl, fakeHome(box, { unit: true }), { loaded: true }), 'running');
+});
+
+// ── --status names the third state, and prints its repair ─────────────────────
+
+test('--status says NOT LOADED and prints the one-line bootstrap for an installed unit', () => {
+  const { root, box, ctl } = sandbox('status-interrupted');
+  const home = fakeHome(box, { unit: true });
+  const r = run(ctl, ['--status'], root, { HOME: home });
+
+  // Only meaningful where the platform probe answers launchd; on CI it does
+  // not, and the state machine itself is asserted above.
+  if (!/^platform: launchd$/m.test(r.out)) return;
+
+  assert.match(r.out, /NOT LOADED/,
+    'the state that read as *not installed* for hours is not named');
+  assert.match(r.out, /launchctl bootstrap gui\/\$\(id -u\) .*com\.plot-pm\.registryd\.plist/,
+    'the repair is not printed, so a reader pays for the wrong one');
+  assert.doesNotMatch(r.out, /supervisor: not installed/,
+    'the two failures are still collapsed into one word');
+});
+
+test('--status says NOT INSTALLED where there is no unit at all', () => {
+  const { root, box, ctl } = sandbox('status-fresh');
+  const r = run(ctl, ['--status'], root, { HOME: fakeHome(box) });
+  if (!/^platform: launchd$/m.test(r.out)) return;
+  assert.match(r.out, /not installed/);
+  assert.match(r.out, /start it: \/plot-fleet --start/);
+  assert.doesNotMatch(r.out, /launchctl bootstrap/,
+    'a fresh clone was told to bootstrap a unit that does not exist');
+});
+
+test('--status starts nothing in any state, and keeps the board contract', () => {
+  // TWO CONTRACTS AT ONCE. `rules/supervisor-reading.ts` reads the exit code
+  // (0 loaded, 1 not) and the `summary:` line that proves the code was the
+  // script's; widening the prose must change neither, or the board renders
+  // `down` from a run it could not interpret.
+  const { root, box, ctl } = sandbox('status-inert');
+  const home = fakeHome(box, { unit: true });
+  const r = run(ctl, ['--status'], root, { HOME: home });
+
+  assert.match(r.out, /^summary: agents_running=\d+ /m, 'the summary line the board reads is gone');
+  if (/^platform: launchd$/m.test(r.out)) {
+    assert.equal(r.status, 1, 'an unloaded supervisor must still exit 1');
+  }
+  // NOTHING WAS INSTALLED BY ASKING. A status that started what it was asked
+  // about could never report an absence.
+  assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-start.done')), false,
+    '--status wrote the completion marker');
+  assert.equal(fs.existsSync(path.join(root, '.plot', 'logs')), false, '--status made the log directory');
+});
+
+// ── --start records that it finished ──────────────────────────────────────────
+
+test('--start writes no completion marker when it is interrupted cutting desks', () => {
+  // THE MEASURED FAILURE, REPRODUCED. `plot-dispatch.sh --start` is where a run
+  // spends its time and where both interruptions happened; a stand-in that
+  // fails stands for one. The marker's ABSENCE is the assertion.
+  const { root, box, ctl } = sandbox('start-interrupted');
+  const home = fakeHome(box);
+  fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'),
+    '#!/usr/bin/env bash\necho "cutting desks" >&2\nexit 1\n');
+  fs.chmodSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), 0o755);
+
+  const r = run(ctl, ['--start'], root, { HOME: home });
+  // The launchd/systemd load is never reached under a fake HOME on CI; where it
+  // refuses earlier there is nothing to assert beyond the marker's absence,
+  // which holds in both cases and is the point.
+  assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-start.done')), false,
+    'an interrupted --start left a marker saying it finished');
+  assert.notEqual(r.status, 0);
+});
+
+test('--dry-run reports the state it would act on, and writes nothing', () => {
+  const { root, box, ctl } = sandbox('start-dry');
+  const home = fakeHome(box);
+  const r = run(ctl, ['--start', '--dry-run'], root, { HOME: home });
+  assert.equal(r.status, 0);
+  assert.match(r.out, /^state: (not-installed|interrupted|installed|running)$/m);
+  assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-start.done')), false,
+    '--dry-run wrote the completion marker');
+});
