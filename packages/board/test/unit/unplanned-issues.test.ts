@@ -90,6 +90,39 @@ describe('the contract keeps the three answers apart', () => {
     // Null rather than 0: 0 would claim the issue was opened this instant.
     expect(issue.ageMinutes).toBeNull();
   });
+
+  it('carries the tracker\'s own word and its category, both', () => {
+    // Neither substitutes for the other: *Internal Approving* is what a person
+    // reads and is per-workflow, while `In Progress` is the stable vocabulary a
+    // board could group on. Collapsing them loses one job or the other.
+    const issue = IssueRowSchema.parse({
+      number: 'PROJ-123', title: 'A ticket',
+      status: 'Internal Approving', statusCategory: 'In Progress',
+    });
+    expect(issue.status).toBe('Internal Approving');
+    expect(issue.statusCategory).toBe('In Progress');
+  });
+
+  it('accepts an empty statusCategory as an ANSWER, not a failure', () => {
+    // `plot-host.sh` gives Bitbucket's `ON HOLD`, `INVALID`, `DUPLICATE` and
+    // `WONTFIX` the empty string deliberately: they are terminal without being
+    // done, and filing a `WONTFIX` as `Done` puts abandoned work beside
+    // finished work. The contract must carry that, not reject or fill it.
+    const issue = IssueRowSchema.parse({
+      number: 7, title: 'Will not fix', status: 'WONTFIX', statusCategory: '',
+    });
+    expect(issue.status).toBe('WONTFIX');
+    expect(issue.statusCategory).toBe('');
+  });
+
+  it('defaults both to "" so a payload predating the fields still parses', () => {
+    // The rule `url` and `ageMinutes` already follow. A server that has not
+    // been rebuilt must not make the whole fleet payload unparseable — and the
+    // renderer answers `''` rather than inventing a word for it.
+    const issue = IssueRowSchema.parse({ number: 228, title: 'A signal' });
+    expect(issue.status).toBe('');
+    expect(issue.statusCategory).toBe('');
+  });
 });
 
 describe('issueKey — one normalisation, so the two sides cannot disagree', () => {
