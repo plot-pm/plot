@@ -56,6 +56,17 @@ key: a recurring ticket prefix proposes `Tracker:`, and `ci_system` proposes
 `@plot-pm/domain`, reached through `board/plot-propose-stack.mjs` — the probe
 reports the prefix and its count and decides neither.
 
+**One measurement seeds two keys.** The prefix that proposes `Tracker: jira`
+also seeds `Ticket prefixes`, the list `plot-host.sh issue-list` puts in the
+Jira query's `project IN (…)`. The probe reports the most frequent prefix it
+counted, so the seed is a **one-element list a person completes**:
+`composeAdoption` writes it with its gap named rather than as a complete
+answer, because scoping an inbox to one of a repository's three projects hides
+the other two under a heading claiming nobody planned them. Declining writes no
+key and leaves the inbox instance-wide, and an empty list is never written —
+`Ticket prefixes:` holding nothing claims the repository has no projects while
+behaving exactly like the absent key.
+
 **The silent default was the defect.** A repository that declares no tracker
 gets `trackerNone`, which answers `unaskable` on every issue operation —
 correct for a repo with no tracker, and a lie about a team that has Jira.

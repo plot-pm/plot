@@ -200,6 +200,41 @@ Turn the merged signals into proposals:
   **asks** the open question below and **never proposes `Tracker: none`** from
   silence.
 
+- **Ticket prefixes** — the same `ticket.prefix` seeds the `Ticket prefixes`
+  key, which is what `plot-host.sh issue-list` puts in the Jira query's
+  `project IN (…)`. A repository that declares it gets an inbox holding its own
+  tickets; one that declares nothing keeps the instance-wide query. **Ask for
+  the whole list, because the probe knows of one**:
+
+  > Found `QUACDS-*` in 6 of 80 commit subjects. Which Jira projects hold this
+  > repository's tickets? (`QUACDS`, or `QUACDS, QUAWEB, QUAPI`)
+
+  `plot-detect-repo.sh` counts every prefix and reports the most frequent, so
+  the seed is complete only where the repository maps to one project. Measured
+  on the repository issue #850 reports: scoping to the measured prefix alone
+  shows 3 of 12 issues and hides two other projects' work **under a heading
+  claiming nobody planned those tickets** — the same failure an instance-wide
+  inbox produces with the projects reversed. So a one-element answer is written
+  and the gap is named beside it.
+
+  **Declining writes no key.** The inbox stays instance-wide, which is what
+  every repository had before the key existed and is a legitimate choice. Never
+  write `Ticket prefixes:` empty: an empty key reads as *this repository has no
+  projects* while behaving exactly like the absent key.
+
+  **It is not `Branch prefixes`.** The two sit near each other in the config and
+  are unrelated — `Branch prefixes` holds `idea/, feature/, bug/` and shapes
+  branch names; `Ticket prefixes` holds Jira project keys and shapes one query.
+
+  > **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
+  > *question* does not, as for the tracker. Write the measured prefix alone and
+  > name the gap:
+  >
+  > `PLOT-UNASKED: which Jira projects hold this repository's tickets — default — wrote Ticket prefixes from QUACDS in 6 of 80 subjects; the inbox hides every issue in this repository's other projects until the rest are added`
+  >
+  > With a `null` `ticket.prefix` there is nothing to seed: write no key, and
+  > disclose nothing — an instance-wide inbox is today's behaviour.
+
 **The CI both-signals rule (Item 1b).** Where `ci.answer` is `ask` — both
 signals present — setup **does not propose**. It asks, naming both:
 
@@ -284,6 +319,7 @@ replacing existing content:
 - **CI:** jenkins
 - **Jenkins instance:** apps
 - **Tracker:** jira
+- **Ticket prefixes:** QUACDS, QUAWEB
 ```
 
 Write only the keys the user **confirmed** or a structural signal
@@ -302,6 +338,16 @@ failure this whole command is built to avoid.
 proposed prefix or answered outright. Write it only when confirmed or proposed
 from a `ticket.prefix` — **never `Tracker: none` from an unanswered question**,
 because absence of a prefix is not absence of a tracker.
+
+`Ticket prefixes` scopes the Jira inbox to this repository's projects. Write it
+only from a confirmed list or from a measured prefix, and **never empty** — the
+absent key is what leaves the inbox instance-wide, and an empty one claims the
+repository has no projects while changing nothing. Where the list holds one
+prefix, say what it costs:
+
+> Recorded `Ticket prefixes: QUACDS`, from `QUACDS-*` in 6 of 80 subjects. That
+> is the one prefix the subjects show — add the rest, or the inbox hides every
+> issue belonging to this repository's other projects.
 
 **Warn when the key has no backend.** `plot-host.sh issue-list` resolves issues
 through the **Git host** — `github` or `bitbucket` — not through a separate
@@ -435,6 +481,8 @@ nothing about whether a supervisor is loaded.
 | No artifact anywhere | Stop; report the plugin and npm routes |
 | A proposed `ticket.prefix` | Propose `Tracker: jira`, name the evidence; a human confirms |
 | A `null` `ticket.prefix` | Ask which tracker; never propose `Tracker: none` from silence |
+| A measured prefix, for `Ticket prefixes` | Ask for the whole list — the probe reports the most frequent of several; a one-element answer is written with its cost named |
+| No prefix and no answer, for `Ticket prefixes` | Write no key; the inbox stays instance-wide. Never `Ticket prefixes:` empty |
 | Both CI signals present | Ask which runs the PRs; do not tie-break on the git host |
 | Tracker unresolved, unattended | Refuse the key; a wrong tracker serves an empty inbox reading as *no tickets* |
 | Tracker has no backend | Write the key with a warning: *recorded; no backend reads this yet* — the inbox will be empty until the backend lands |

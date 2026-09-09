@@ -95,6 +95,18 @@
 #   Hosts plans         yes | no                      (no = refuse plan files)
 #   Tracker             plot | jira | github-issues | linear  (+ URL)
 #                       (plot = plans in this repo ARE the tracker; absent = same)
+#   Ticket prefixes     the tracker PROJECT KEYS this repository's tickets carry
+#                       (`QUACDS, QUAWEB`), read by `plot-host.sh issue-list` and
+#                       by nothing else: a declared list scopes the Jira query
+#                       with `project IN (…)`, and an absent key leaves it
+#                       instance-wide, which is what every repository had before
+#                       the key existed. NOT `Branch prefixes`, which sits three
+#                       keys above holding `idea/, feature/, bug/` and shapes
+#                       branch names — the two share a word and nothing else.
+#                       Proposed by /plot-init and /plot-board-setup from the
+#                       prefix the probe measured, confirmed by a person. Never
+#                       written empty: an empty list reads as *this repository
+#                       has no projects* and changes nothing about the query.
 #   Git host            github | bitbucket            (resolves gh vs bb)
 #   CI                  jenkins | github-actions | none — which CI system this
 #                       project uses. Recorded by /plot-board-setup; not yet
