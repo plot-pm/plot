@@ -8,10 +8,11 @@
 - **Type:** bug
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- `/plot-fleet --start` cannot leave a written-but-unloaded unit behind, and `--status` names that state when it finds one. A stopped fleet is announced prominently on the board — in a person's words, naming what will not happen and how to fix it — rather than discovered hours later in a chip reading `supervisor unknown`.
+- `/plot-fleet --start` cannot leave a written-but-unloaded unit behind, `--status` names that state when it finds one, and the WORKING header separates the controls a person clicks from the counts they read. A stopped fleet is announced prominently on the board — in a person's words, naming what will not happen and how to fix it — rather than discovered hours later in a chip reading `supervisor unknown`.
 
 Board impact: yes. `supervisor unknown` is one of the states this plan gives a reason.
 
@@ -196,6 +197,77 @@ is a reading about the board, not about the fleet, and alerting on it would
 train an operator to dismiss the alert that matters. Only *asked, and it is not
 there* is loud.
 
+### The WORKING section does not empty, and that is the danger
+
+**Measured: `fleet.ts:383` — *"THE WORKING SECTION IS THE REGISTRY"*.** It reads
+manifests and worktrees from disk through `readAgentRegistryWithInfo`, never
+from the supervisor. So a stopped fleet does not blank the section; every agent
+row keeps rendering, and each row's `running` stays **literally true**, because
+the process table still holds those pids.
+
+**The rows are correct and meaningless.** A worker that finished sits there
+`running` for as long as its process lives, because reaping it was the
+supervisor's job and nothing is doing that job. `fleet.ts:2674` already
+describes this outcome word for word:
+
+> agents ran against an 8-hour bound while nothing was loaded to reap them, and
+> the board rendered six rows indistinguishable from six healthy ones.
+
+**So the rows stay and the SECTION carries the warning.** Hiding them would lose
+real processes an operator may need to stop by hand; marking each row would
+repeat one fact N times. The header says it once: these are running, and nothing
+is watching them.
+
+### The header holds a control, three statuses and an alert with no boundary
+
+Today, one line:
+
+```
+🤖 WORKING (3)  − 4 +  parallel agents (cap) · 3 working · 3 manifests, 2 synthesized · supervisor unknown
+```
+
+A control, its label, three counts and an alert, in reading order, with nothing
+separating what a person **does** from what a person **reads**.
+
+**Controls go right, status stays left**, and the reason is not symmetry:
+inline, the stepper's position moves whenever the counts change length, so it is
+a target to re-find on every render. Right-aligned it lands in the same place on
+every section that has one.
+
+The two controls are structurally identical and belong to the same column —
+`AutoDispatchSwitch` on NOT STARTED (*should work start by itself?*) and
+`ParallelAgentsStepper` on WORKING (*how many at once?*), both writing to
+`/api/fleet-controls`, neither a status.
+
+```
+⚠  WAITING ON YOU (1)
+📋 NOT STARTED (3 plans · 5 slices)              auto-dispatch ☑
+🤖 WORKING (3) · 3 running                    parallel agents − 4 +
+   ⚠ FLEET STOPPED — nothing is being supervised. /plot-fleet --start
+```
+
+**The alert is neither, so it takes its own line.** It is not a control and it
+is louder than a status; competing for either edge would make it one of them.
+
+### A desk with no manifest becomes an error, not a synthesized row
+
+**Measured now: 1 manifest, 2 desks — one agent is synthesized.** Synthesis is
+today's fallback: `registry.ts:525` creates an entry for *"a worktree no manifest
+names"*, so a desk whose manifest was lost still renders.
+
+**That fallback is being withdrawn, deliberately, and the cost is stated.** A
+synthesized row is a desk the registry never registered, and every count derived
+from it — `3 manifests, 2 synthesized` — describes an inconsistency in
+vocabulary no operator can act on. Requiring the manifest makes the desk's
+registration a fact rather than a repair.
+
+**What is lost is the case the fallback was built for.** Deleting a manifest by
+hand currently leaves the desk visible as an `unknown` row; enforced, it becomes
+an error row instead. That is the intended trade — an error names the problem,
+where a synthesized row quietly papered over it — but the desk must still
+appear, because the desk is what holds the work. **Enforcement changes the row's
+kind, never its existence.**
+
 ### The alert is the board's, because the supervisor cannot report its own absence
 
 `supervisor unknown` is rendered today and means *I could not ask*. That is
@@ -243,6 +315,12 @@ about could never report an absence."*
 - `bug/the-board-says-the-fleet-is-stopped` <!-- builds: the fleet-stopped reading and its prominent alert, distinct from cannot-ask --> — the board asks launchd for the label, and where it renders `supervisor unknown` today it renders **FLEET STOPPED** prominently, naming the consequence and the repair. Waits on `bug/a-fleet-start-records-that-it-finished`, which defines the states.
 
   **Asserted: the rendered UI says FLEET and never `supervisor`, `registryd` or `unsupervised`** — `/plot-fleet` is the command a user types and no supervisor command exists, so the board must not name a component a person cannot address. **Asserted: the label matches the repair it prints** — the detail already says `/plot-fleet --start`, and a badge naming one thing while its fix names another is the inconsistency this removes. **Asserted: `unknown` and `stopped` are different words** — one means *I could not ask*, the other *I asked and it is not there*, and collapsing them is what made this outage silent. **Asserted: only `stopped` is prominent** — `unknown` stays a quiet chip, or an operator learns to dismiss the alert that matters. **Asserted: the alert names the consequence and the repair**, not the component. **Asserted: the board starts nothing** — it reports, and acting stays the operator's, since a page load must never become a lifecycle action.
+
+### Reading
+
+- `feature/the-working-header-separates-doing-from-reading` <!-- builds: the WORKING and NOT STARTED section headers — controls right, status left, counts legible --> — the two section controls move to a right-aligned column, the counts collapse to what a person can act on, and a stopped fleet marks the section rather than a row. Waits on `bug/the-board-says-the-fleet-is-stopped`, which defines the state the header renders.
+
+  **Asserted: `AutoDispatchSwitch` and `ParallelAgentsStepper` render right-aligned**, in the same column on both sections, so a control's position does not move when a count changes length. **Asserted: the WORKING rows still render with the fleet stopped** — they are real processes and hiding them loses what an operator may need to stop by hand. **Asserted: the SECTION carries the not-supervised warning, not each row** — one fact said once. **Asserted: the manifest split shows only when the counts disagree** — `3 manifests, 3 agents` says nothing and is not printed. **Asserted: a desk with no manifest renders as an ERROR row and still renders** — enforcement changes the row's kind, never its existence, since the desk is what holds the work.
 
 ## Notes
 
