@@ -8,7 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -84,6 +84,36 @@ That names **one** of the 74 files. A contributor reading either doc has no way 
 
 `reconcile(readings, input)` in the domain, reached by a tenth endpoint. Input carries the scope — `{ kind: 'plan', slug }`, `{ kind: 'sprint', slug }`, or `{ kind: 'workspace' }` — and the readings carry what the shell measured. The rule returns **findings**, each naming its subject, its evidence and the command that repairs it.
 
+### Its own bundle, not a verb on `plot-ask.mjs`
+
+**The estate has two entry patterns and this takes the second.** `plot-ask.mjs` answers `board` and `fleet` by RUNNING `plot-fleet-scan.sh` — it spawns. `plot-slice-pr.mjs` was given its own bundle for the reason `entry/transition.ts:26` states: *"This bundle spawns nothing and reads nothing."* A script asking an artifact that then calls a script is the loop that argument exists to prevent.
+
+**And the sweep is the worst possible candidate for it, though not for the reason a first count suggested.** Measured 2026-09-09: **~26 executable git call SITES and exactly one host op** (`pr-state`). An earlier draft of this plan said 72 shell and host calls; that number came from counting source lines and included `git rm`, `git push` and `git add` appearing inside the remediation strings the scan PRINTS for a person to run.
+
+**The cost is the multiplier, not the count.** Those 26 sites sit inside **31 loops**, iterated per plan and per branch — 253 plans on this estate. So the sweep's 279.9 s is git re-consulted thousands of times, which is also why no cache helps: the scan re-derives from refs every pass by design, and that is what makes it trustworthy.
+
+So: **`board/plot-reconcile.mjs`, JSON in and findings out, spawning nothing.** The shell keeps its 72 calls, takes the readings it already takes, and passes them in. That is `plot-open-pr.sh`'s shape — *"every reading arrives on stdin from the shell that took it"* — and it also keeps the bundle small: `plot-slice-pr.mjs` is 2.7 KB against `plot-ask.mjs`'s 491 KB, because a caller asking what has drifted should not load the fleet controller.
+
+### The cost target is asserted, not hoped
+
+**Measured: the sweep takes 279.9 s offline** (`--offline`, on this repo, 2026-08-31) and re-reads the whole estate each run. The cost is structural — ~26 git call sites inside 31 loops, over 253 plans — so a scope that narrows the population is the only thing that changes it. A scope that does not change that is a filter applied after the fact, which is precisely what this design says it is not.
+
+| scope | target |
+|---|---|
+| workspace | ~280 s — today's cost, unchanged |
+| plan | **under 5 s** |
+| sprint | **under 30 s** |
+
+The plan target is the load-bearing one, because it is what makes the delivery gate affordable. `plot-open-pr.sh` set the precedent for asserting this rather than hoping: 253 plans parsed took 103 s against 0.6 s once candidates were grepped first, and the number is in the plan because a slice that missed it would still have looked correct.
+
+### It replaces `/plot-deliver`'s step 7b rather than sitting beside it
+
+**7b runs the full 279 s estate sweep to ask about ONE plan**, then greps its output for that plan's filename. It is the delivery gate — objective, checkable, and correct — and it is the most expensive step in the delivery skill for a question a plan scope answers directly.
+
+The gate keeps its shape: the same blocking sections (1–6, to the `== blocking sections end ==` marker), the same hard stop, the same *"only an empty result clears it"*. What changes is that it asks about the plan it just delivered rather than about the estate.
+
+**`plot-estate-changed.sh` becomes unnecessary in this path.** That guard exists solely to skip a re-run of the expensive sweep — *"the same question asked twice"* — and a 5 s scoped call has nothing worth guarding. The script stays for its other callers; the delivery gate stops needing it, and the state file it maintains for this purpose stops being written.
+
 **It decides nothing and performs nothing — strictly, with no `--yes`**, which is the property `/plot-reconcile` already has and must keep:
 
 > It is **read-only**: it prints the exact remediating command for every finding but never runs it. The judgment — is this branch still relevant, should this plan be delivered or rejected — stays yours.
@@ -136,6 +166,12 @@ Tempting, and refused for the reason quoted above. The sweep's value is that it 
 - `infra/the-test-suite-says-what-it-tests` <!-- builds: the test:reconcile script name and the two docs describing it --> — rename the estate-wide shell suite so it stops colliding with the reconcile action, and correct `CLAUDE.md:530` and `AGENTS.md:115`, which describe 74 files as one file's tests.
 
   **Asserted: no doc describes the suite as plan-format tests** — both lines name what it covers. **Asserted: every caller moves together** — `package.json`, both docs, and any CI reference, so a stale name cannot survive in one place. **Asserted: the old name is gone rather than aliased** — an alias leaves the collision this slice exists to remove.
+
+  **And the slice carries the hang, because whoever renames the suite is already inside it.** `CHANGELOG.md` records this suite cancelling at the job ceiling in **10 of 16 observed runs**, and an underlying intermittent hang it calls **unexplained**. Measured again 2026-09-09: three processes at **0 % CPU for 28 minutes** past a `--test-timeout` of 5 — the parent waiting on children that never exit, under three agents running the suite concurrently.
+
+  **Asserted: the hang is reproduced or the slice says it could not be.** An unexplained defect has already survived several attempts, so the deliverable is a measurement — the condition under which it hangs, or a stated failure to provoke it — never a speculative fix. **Asserted: no test file is edited to make the suite pass.** If contention is the cause, the repair is bounding concurrency, and a green suite bought by weakening an assertion is the one move this repo forbids outright.
+
+  **This is the one slice that may legitimately not finish**, and it is separated from the rename in the PR so the trivial half can land regardless.
 
 ### Reconciling
 
