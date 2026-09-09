@@ -83,6 +83,7 @@ describe('answersFrom', () => {
       definitionOfDone: [],
       tracker: '',
       trackerUrl: '',
+      ticketPrefixes: [],
       ci: '',
       worktreeRoot: '',
     });
@@ -96,6 +97,11 @@ describe('answersFrom', () => {
   it('drops a Definition of Done entry that is not a gate name', () => {
     expect(answersFrom({ definitionOfDone: ['test', 3, null] }).definitionOfDone)
       .toEqual(['test']);
+  });
+
+  it('reads the ticket prefixes a person confirmed, dropping anything that is not one', () => {
+    expect(answersFrom({ ticketPrefixes: ['PROJ-A', 7, 'PROJ-B'] }).ticketPrefixes)
+      .toEqual(['PROJ-A', 'PROJ-B']);
   });
 });
 

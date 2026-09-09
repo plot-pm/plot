@@ -160,6 +160,16 @@ export interface AdoptionAnswers {
   readonly tracker: string;
   /** The tracker's base URL, or `''` where none was supplied. */
   readonly trackerUrl: string;
+  /**
+   * The ticket prefixes confirmed, or an empty list where nobody confirmed any.
+   *
+   * EMPTY IS A DECLINE AND NOT A GAP. The proposal seeded from a measured
+   * prefix is a proposal: a person who declines it leaves the key unwritten and
+   * the inbox instance-wide, which is what every repository had before the key
+   * existed. So an empty list writes nothing and announces nothing — there is
+   * no question outstanding once it has been put and answered.
+   */
+  readonly ticketPrefixes: readonly string[];
   /** The CI system confirmed, or `''` where the question was not put. */
   readonly ci: string;
   /** Where dispatched desks go, or `''` to take the proposal. */
@@ -238,6 +248,48 @@ const trackerKey = (input: AdoptionInput): { key: ConfigKey; gap: string } => {
     gap:
       trackerUrl === ''
         ? `Tracker: ${tracker} carries no base URL — issue operations answer unaskable until one is added`
+        : '',
+  };
+};
+
+/**
+ * The `Ticket prefixes` key adoption writes, and the gap it announces.
+ *
+ * WHAT THE PROBE MEASURED IS ONE PREFIX, AND A REPOSITORY MAY HAVE SEVERAL.
+ * The collector counts every prefix its subjects carry and reports the most
+ * frequent one, so a confirmed list seeded from that measurement is complete
+ * only where the repository maps to a single tracker project. Measured on the
+ * repository issue #850 reports: the probe answers one key, and scoping the
+ * inbox to it alone shows 3 of 12 issues while hiding the two other projects'
+ * work — under a heading claiming nobody has planned those tickets, which is
+ * the same lie an instance-wide inbox tells with the projects reversed.
+ *
+ * SO A ONE-ELEMENT LIST IS WRITTEN WITH ITS GAP NAMED. `trackerKey` above
+ * settles the shape: an incomplete answer that carries a structural signal is
+ * written and announced rather than withheld, because a person who can see
+ * what is missing adds the rest in one edit.
+ *
+ * AN EMPTY LIST WRITES NO KEY AT ALL. `Ticket prefixes:` holding nothing reads
+ * as *this repository has no projects*, and `tracker_projects()` takes it as
+ * the absent-key path anyway — so the empty key adds a claim to a behaviour
+ * that already holds without it. An absent key says *nobody has said*, which is
+ * true of a declined proposal and of an unmeasured repository alike.
+ *
+ * @param input - the readings, the proposals and the answers.
+ * @returns the key, or `null` where none is written, with the gap to announce.
+ */
+const ticketPrefixesKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => {
+  const confirmed = input.answers.ticketPrefixes.map((p) => p.trim()).filter((p) => p !== '');
+  if (confirmed.length === 0) return { key: null, gap: '' };
+  const { prefix, matched, outOf } = input.proposal.ticket;
+  const evidence = prefix !== null && confirmed.includes(prefix)
+    ? `${prefix} in ${matched} of ${outOf} subjects`
+    : 'confirmed';
+  return {
+    key: { key: 'Ticket prefixes', value: confirmed.join(', '), evidence },
+    gap:
+      confirmed.length === 1
+        ? `Ticket prefixes: ${confirmed[0]} is the one prefix the subjects show — add the rest, or the inbox hides every issue belonging to this repository's other projects`
         : '',
   };
 };
@@ -366,6 +418,7 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
   }
 
   const tracker = trackerKey(input);
+  const prefixes = ticketPrefixesKey(input);
   const ci = ciKey(input);
   const root = input.answers.worktreeRoot.trim() === ''
     ? DEFAULT_WORKTREE_ROOT
@@ -383,6 +436,11 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
     keys.push({ key: 'Git host', value: input.readings.gitHost, evidence: 'the remote' });
   }
   keys.push(tracker.key);
+  // BESIDE `Tracker:`, WHICH IS THE KEY IT SCOPES. It is not beside `Branch
+  // prefixes` despite the shared word — that one holds `idea/, feature/` and is
+  // structural, and the config's own docstring answers the collision. Putting
+  // the two adjacent would make a reader's eye do the work the docstring does.
+  if (prefixes.key !== null) keys.push(prefixes.key);
   if (ci.key !== null) keys.push(ci.key);
   keys.push({ key: 'Worktree root', value: root, evidence: '' });
 
@@ -401,6 +459,6 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
     creates: hub.creates,
     keys,
     ignoreLine: ignoreLineFor(root),
-    gaps: [tracker.gap, ci.gap].filter((g) => g !== ''),
+    gaps: [tracker.gap, prefixes.gap, ci.gap].filter((g) => g !== ''),
   };
 };

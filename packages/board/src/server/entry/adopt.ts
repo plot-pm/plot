@@ -67,8 +67,9 @@ const stringOr = (value: unknown): string => (typeof value === 'string' ? value 
 /**
  * Read a list of strings from a request.
  *
- * AN ABSENT LIST IS EMPTY, and for the Definition of Done that is a REFUSAL
- * rather than an empty Definition — the rule owns that reading. Nothing is
+ * AN ABSENT LIST IS EMPTY, and what that means is the rule's to say: for the
+ * Definition of Done it is a REFUSAL rather than an empty Definition, and for
+ * the ticket prefixes it is a declined proposal that writes no key. Nothing is
  * invented here to make the request look answered.
  *
  * @param value what the field held
@@ -109,6 +110,7 @@ export const answersFrom = (value: unknown): AdoptionAnswers => {
     definitionOfDone: stringsOr(given.definitionOfDone),
     tracker: stringOr(given.tracker),
     trackerUrl: stringOr(given.trackerUrl),
+    ticketPrefixes: stringsOr(given.ticketPrefixes),
     ci: stringOr(given.ci),
     worktreeRoot: stringOr(given.worktreeRoot),
   };
