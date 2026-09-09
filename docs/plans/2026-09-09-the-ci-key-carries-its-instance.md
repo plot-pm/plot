@@ -9,11 +9,11 @@
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
-- A Jenkins repo's CI limit reads `predicted`, not `unknown`. The `CI:` config value is split into its scheme and its instance the way `Tracker:` already is, so a value carrying a host name still matches.
+- A Jenkins repo's CI limit reads `predicted`, not `unknown`. The `CI:` config value is split into its scheme and its instance, so a value carrying a host name still matches, and the `Jenkins instance` key overrides the prose where a repository states one.
 
 Board impact: yes, and it is the point. The board renders the CI connector's limit, and it currently shows `unknown` for every Jenkins repo.
 
@@ -82,35 +82,67 @@ tracker_base_url() { ... }
 after the scheme (`jira https://acme.atlassian.net`)"*. `CI:` has the same
 shape in every real repo and none of the machinery.
 
-### And a second convention exists, unused
+### A second convention exists, and adoption now writes it
 
 `jenkins_instance()` (`:665`) reads a **separate** `Jenkins instance` config
-key, falling back to `$JENKINS_INSTANCE`. Measured 2026-09-09: **no repo sets
-that key, and it appears in no documentation** — not in `CLAUDE.md`, not in
-`plot/SKILL.md`.
+key, falling back to `$JENKINS_INSTANCE`. **It is not a dead convention, and a
+first draft of this plan said it was.** Measured 2026-09-09 against main:
+`the-probe-reads-the-ci-system` merged an entire adoption path for it —
+`plot-detect-repo.sh:137` reads the Jenkins host a repository's own docs name,
+`stack.ts:176` holds `CiInstanceProposal` with its `slug`/`ask`/`key` shape, and
+`plot-config.sh:102` documents the key. No repo sets it because the feature that
+proposes it landed last week, not because nobody wants it.
 
-So two conventions for one fact coexist, and the one the estate actually uses
-is the one the code cannot parse. That is the decision this plan settles: **the
-`CI:` value carries the instance**, and `Jenkins instance` becomes its
-override rather than its rival.
+**So both keys are live, and the plan settles their precedence rather than
+retiring either.** `CI:` carries the instance for the repositories that already
+write it in prose — every real Jenkins repo measured above — and `Jenkins
+instance` **overrides** it, because that is the key adoption proposes and the
+one a repo can state exactly.
+
+### The two readers return different shapes, and that is the risk
+
+**`jenkins_instance()` returns `<slug>/<job/path>`; `ci_instance()` can only
+ever return a slug.** `plot-host.sh:559` defines the compound — the slug is what
+`jen -I` takes, the remainder is the multibranch job's container path — and
+`stack.ts:98` calls the host *"the SLUG half"*. The container path is a fact
+about the Jenkins job tree that **no file in a repository states**, so no amount
+of reading `CI:` prose can produce it.
+
+`jenkins_build_map()` already handles a slug-only value, and its own comment
+says what happens: `job=""`, list at the root scope, and *"otherwise no branch
+matches and every row reads `none` — honest, and the open point's fallback."*
+
+**That is why `Jenkins instance` must win where both are set.** A repo that
+answered adoption's question has the job path; a repo that only wrote prose
+does not, and degrades to root-scope listing. `quaweb` is the case that proves
+it: its job is `job/quaweb/job/release`, nested, so a `CI:`-derived slug alone
+reads every row `none` while the `Jenkins instance` key reads them correctly.
+
+**The precedence is therefore one line, and it is not the tracker's.**
+`tracker_base_url()` lets `$PLOT_JIRA_BASE_URL` win over the config value
+because both carry the same shape. Here the override carries *more* than the
+`CI:` value can, so the order is: `Jenkins instance` key, then
+`$JENKINS_INSTANCE`, then `ci_instance()`. The prose is the fallback, never the
+primary.
 
 ## Design
 
 ### Approach
 
-**`ci_scheme()` and `ci_instance()`, shaped exactly like the tracker's pair.**
+**`ci_scheme()` and `ci_instance()`, shaped after the tracker's pair.**
 `ci_scheme()` is the first token lowercased — the word every caller meant to
-match. `ci_instance()` is what follows, with `Jenkins instance` and
-`$JENKINS_INSTANCE` as explicit overrides for a repo that wants them separate.
+match. `ci_instance()` extracts a host from the prose, and is consulted **last**,
+after both explicit sources.
 
 **Every caller asks `ci_scheme()`.** The four sites keep their `case` arms and
 their `=` test unchanged; only the value they compare moves. That is what makes
 this a small diff rather than a rewrite.
 
-**`ci_backend()` stays, and keeps returning the raw value.** Something may want
-the whole line, and removing it would widen the change beyond the defect. What
-changes is that no caller *matches* on it.
-
+**`ci_backend()` is removed, not kept.** After this change it has **zero**
+callers — all four move to `ci_scheme()` — and a function retained for a
+hypothetical reader is the second answer to one question this repo's own rules
+call a defect. Keeping it invites a future caller to match on the prose value
+again, which is precisely the bug being fixed.
 ### The instance cannot be "everything after the first token"
 
 **Measured against all three real Jenkins values, and the naive split fails on
@@ -145,10 +177,17 @@ would break the callers that pass the other one.
 
 ### Not chosen: making `Jenkins instance` the only source
 
-It is the tidier model — one key, one fact — and it is rejected because **no
-repo sets it**. Adopting it means every Jenkins repo must add a key before its
-CI limit works again, and the failure in the meantime is silent: the same
-`unknown` this plan exists to remove.
+It is the tidier model — one key, one fact — and the first draft rejected it on
+a claim that turned out to be false (*"no repo sets it"*: adoption proposes it,
+and did so before this plan was written). **The real reason stands and is
+different.** Every Jenkins repository measured on the Quatico estate already
+declares its host in `CI:` prose, and none of them has run the adoption path
+that would write the key. Making the key mandatory means each one reads
+`unknown` until somebody edits it, and the failure in the meantime is the
+silent one this plan exists to remove.
+
+So the key wins where it is set, and the prose answers where it is not. That is
+a fallback, not a rival.
 
 ### Not chosen: matching `jenkins*` with a glob
 
@@ -172,24 +211,34 @@ leaves `:2417`'s `=` test broken, since a glob is not an equality.
 ### Splitting the value
 
 - `bug/the-ci-key-splits-into-scheme-and-instance` — `ci_scheme()` and
-  `ci_instance()` beside `ci_backend()`, shaped like `tracker_scheme()` /
+  `ci_instance()` replacing `ci_backend()`, shaped after `tracker_scheme()` /
   `tracker_base_url()`. **Asserted: `ci_scheme()` returns `jenkins` for all
   four real-world spellings** — the bare word, `` Jenkins at `host` ``,
   `Jenkins pipelines in …`, and `Jenkins (e.g. …)`. **Asserted: `ci_instance()`
   returns a host or nothing, never a fragment of prose** — `` Jenkins at
   `jenkins-ci-ewz…` `` yields the host and `Jenkins (e.g. …)` yields empty,
-  and neither yields `at jenkins-ci-ewz…`. **Asserted: `Jenkins instance`
-  overrides it**, which is what a prose-only `CI:` relies on.
+  and neither yields `at jenkins-ci-ewz…`. **Asserted: the `Jenkins instance`
+  key WINS over `CI:` prose when both are set**, and `$JENKINS_INSTANCE` wins
+  over the prose too — the override carries a job path the prose cannot express,
+  so a repo that answered adoption's question keeps its nested job rather than
+  degrading to root-scope listing.
 
 ### Asking the scheme
 
 - `bug/the-ci-callers-match-the-scheme` — the four call sites compare
-  `ci_scheme()` rather than `ci_backend()`: `:2417`, `:2692`, `:2794`, `:3336`.
-  **Asserted: `ci-limit` reports `basis: predicted` for all three real Jenkins
-  spellings**, which is the defect this plan was opened for. **Asserted:
-  `github-actions` with a trailing note still matches its arm** — `:2692` has
-  the same bug and the same fix, so the fourth caller moves with the other
-  three rather than being left as the one that already worked.
+  `ci_scheme()`, and `ci_backend()` is **deleted**: `:2417`, `:2692`, `:2794`,
+  `:3336`. **Asserted: `ci-limit` reports `basis: predicted` for all three real
+  Jenkins spellings**, which is the defect this plan was opened for.
+  **Asserted: `github-actions` with a trailing note still matches its arm** —
+  `:2692` has the same bug and the same fix, so the fourth caller moves with the
+  other three rather than being left as the one that already worked.
+  **Asserted: `ci-limit`'s payload reports the SCHEME as its connector** —
+  `{"connector":"github-actions"}`, not
+  `{"connector":"github-actions (see .github/workflows/ci.yml)"}`. The board
+  renders that field, so a config note sitting in a connector name is the same
+  missing split read from the other end. **Asserted: no `ci_backend` reference
+  survives** — `grep -c ci_backend` returns 0, which is what stops a later
+  caller matching the prose value again.
 
 ## Notes
 
