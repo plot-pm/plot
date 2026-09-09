@@ -261,7 +261,7 @@ ordering**: this slice and Reading touch the same four lines but different
 fields, so neither is a prerequisite for the other and both are eligible at
 once. Whichever lands first, the other rebases.
 
-- `feature/an-issue-key-is-a-string` <!-- builds: the Issue identity type across the parser, the schema, the row and the referenced-issue set --> — `number` becomes a string end to end: `IssueRowSchema.number`, `fleet.ts`'s two local types, and `referencedIssues`' `Set<number>` → `Set<string>`; and `plot-plan-meta.sh` learns to read a `Issue: PROJ-123` key beside the `#N` form it already reads.
+- `feature/an-issue-key-is-a-string` <!-- builds: the Issue identity type across the parser, the schema, the row and the referenced-issue set --> — `number` becomes a string end to end: `IssueRowSchema.number`, `fleet.ts`'s two local types, and `referencedIssues`' `Set<number>` → `Set<string>`; and `plot-plan-meta.sh` learns to read a `Issue: PROJ-123` key beside the `#N` form it already reads. → #859
 
   **Asserted: a plan naming `Issue: PROJ-123` parses as `issues: ["PROJ-123"]`** — measured `[]` today, which is half the defect. **Asserted: a Jira ticket answered by a plan LEAVES the inbox** — the whole point, and the assertion a type-only change would pass without. **Asserted: a GitHub issue still drains** — `#849` in a plan against `849` from the host, both strings, still equal; this is the regression the change could most easily cause. **Asserted: no consumer coerces** — `grep` finds no `Number(` on the issue path, since a coercion satisfies the type and reproduces the bug.
 
