@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #854 merged
+- **Started:** 2026-09-09, Jan Wloka, `feature/the-jira-jql-scopes-by-project`
 
 ## Changelog
 
