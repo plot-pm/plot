@@ -295,7 +295,8 @@ the signal to stop.
   still answered *meters nothing*. **Asserted: no `ci_backend` reference
   survives** — `grep -c ci_backend` returns 0 across scripts AND
   `packages/domain/src`, since `budget.ts:15` cites it by name and its citation
-  moves to `ci_scheme()` in this slice.
+  moves to `ci_scheme()` in this slice. → #855
+
 ## Notes
 
 Written 2026-09-09, after `the-connector-is-read-against-a-real-instance` was
