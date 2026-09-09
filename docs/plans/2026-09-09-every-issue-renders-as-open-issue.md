@@ -13,6 +13,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #856 merged
+- **Started:** 2026-09-09, Jan Wloka, `feature/an-issue-carries-its-status`
 
 ## Changelog
 
