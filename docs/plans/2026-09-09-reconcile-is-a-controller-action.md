@@ -27,33 +27,19 @@ Board impact: yes. The reconcile action becomes a tenth endpoint beside the nine
 
 This plan is that finding, filed rather than worked around.
 
-### The reach is a naming disagreement, and it is one line
+### The reach was measured wrong twice, and the third reading is smaller
 
-**Measured 2026-09-09 on this estate: 18 worktrees, of which 11 held merged PRs — finished desks nobody removed.** The reaper's dry run reported `kept=3`.
+**Measured 2026-09-09 on this estate: 18 worktrees, of which 11 held merged PRs — finished desks nobody removed.** The reaper's dry run reported `kept=3`. Ten were removed by hand, using the reaper's own conditions, because the tool that holds them never looked.
 
-The cause is a **path-name filter that no longer matches what dispatch cuts**:
+**Three explanations were proposed for that and the first two were wrong, both mine.** It is not slug scoping — `plot-reap.sh:553` enumerates every worktree with no filter. And it is **not** the `/plot-wt-` path match this plan asserted at round 1: `:384` tests `.plot-worker.pid` FIRST and falls back to the path only when that file is absent. Both live desks carry the pid file, and re-measured after the ten removals the reaper examines **3 of 3** remaining dispatch desks correctly.
 
-```sh
-# plot-reap.sh, inside the worktree loop
-case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
-```
+**So the filter works, and the skipped population was historical.** The fifteen were desks cut before the pid-file convention whose paths also did not match `plot-wt-` — recognised by neither test, refused rather than examined. `:376` names that behaviour and accepts it: *"A dispatch tree whose pid file was deleted and whose path does not match goes unrecognised — which fails by REFUSING, the same safe direction the path test failed in, and for one tree instead of all of them."*
 
-Against `plot-dispatch.sh`, which names desks two other ways:
+**That is a deliberate design, not a defect — and it is still why nobody saw ten finished desks.** A tree the reaper declines to recognise is silent: not reaped, not kept, not counted, not named. The failure is safe and invisible, and invisibility is exactly what a reconciliation pass exists to remove.
 
-| site | name it cuts |
-|---|---|
-| `:1576` | `${wt_prefix}free-<session-id>` |
-| `:3068` | `${wt_prefix}<branch-suffix>` |
+**The finding is therefore reporting, not filtering.** An unrecognised dispatch desk should appear in a sweep as *this tree looks like a desk and I cannot classify it*, so a person decides — which is the sweep's whole contract. Widening the recognition test would trade a safe refusal for a wider blast radius; reporting the refusal costs nothing.
 
-**Neither contains `/plot-wt-`.** So 15 of 18 desks were skipped before a single refusal ran — not refused, not reported, not counted. The producer and the consumer disagree about what a dispatch desk is called, and nothing tests the pair.
-
-**The reaper is NOT slug-scoped**, and two earlier readings of this said otherwise. `plot-reap.sh:553` enumerates every worktree with no filter; the loop then discards most of them on the line above.
-
-**And the domain already holds the same question, unwired.** `reap.ts:27` declares `isDispatchTree: boolean` and `:136` skips any tree where it is false — but nothing computes it. The shell never supplies it, so the field is dead and the `case` statement is the real decision. Two filters for one question, one of them unreachable by any test, which is exactly how it drifted from dispatch's naming unnoticed.
-
-Ten of those desks were removed **by hand** after checking three facts per desk: a merged PR, no live pid, a clean tree. Those are the reaper's own conditions, applied by an operator because the tool that holds them never looked.
-
-**The sweep does not ask about desks at all.** Its eighteen sections cover plans, branches, refs and sprints; section 18 reports a branch whose PR merged and whose *ref* survives, and there is no section for one whose *desk* survives. The two are the same shape and only one is reported.
+**And the domain already declares the question, unwired.** `reap.ts:27` declares `isDispatchTree: boolean` and `:136` skips any tree where it is false — but nothing computes it. The shell decides in a `case` statement instead, so the typed field is dead and the live decision sits where no test reaches it. That is how a recognition rule can be correct today and drift tomorrow without anyone noticing.
 
 ### Three scopes, one of which is the only one that exists
 
@@ -182,11 +168,11 @@ Tempting, and refused for the reason quoted above. The sweep's value is that it 
 
 ### Sweeping
 
-- `feature/a-finished-desk-is-a-finding` <!-- builds: the dispatch-desk reading and the reconcile finding for a desk whose work has landed --> — **first the filter, then the finding.** `plot-reap.sh`'s `case "$wt" in *"/plot-wt-"*` skips 15 of 18 desks on this estate because dispatch names them `free-<id>` and `<branch-suffix>`; the shell stops deciding and instead **supplies `isDispatchTree`**, the field `reap.ts:27` already declares and `:136` already acts on. Then desks join the sweep, each finding naming the `git worktree remove` that repairs it. Waits on `feature/reconcile-is-a-controller-action`, which is where a finding is defined.
+- `feature/a-finished-desk-is-a-finding` <!-- builds: the dispatch-desk reading and the reconcile finding for a desk whose work has landed --> — **the shell stops deciding, and an unrecognised desk becomes visible.** `plot-reap.sh:384` recognises a dispatch tree by `.plot-worker.pid` or the legacy `plot-wt-` path, and a tree matching neither is silently skipped — safe, deliberate, and invisible, which is how ten finished desks went unnoticed. The shell **supplies `isDispatchTree`**, the field `reap.ts:27` already declares and `:136` already acts on, and the sweep reports what it could not classify. Then desks join the findings, each naming the `git worktree remove` that repairs it. Waits on `feature/reconcile-is-a-controller-action`, which is where a finding is defined.
 
-  **Asserted: the filter fix is measured before the finding is built** — re-run the reaper after the shell reports the field and count what it now examines. If 18 of 18 reach a refusal, the finding is reporting a population the reaper already handles, and the slice says so rather than adding a section nobody needs.
+  **Asserted: an unrecognised tree is REPORTED, never silently skipped** — the failure that hid ten finished desks. It is reported as unclassified, not as reapable: the recognition test stays exactly as strict, and only the silence goes.
 
-  **Asserted: a desk dispatch cut under EVERY naming reaches a refusal** — `free-<id>`, `<branch-suffix>` and the legacy `plot-wt-<suffix>` alike, since the bug is precisely that one of three was privileged. **Asserted: a hand-made worktree is still skipped** — `isDispatchTree: false` is the population boundary `reap.ts:136` states, and widening the filter must not widen the blast radius to trees a person made. **Asserted: no `case` statement decides it** — the shell measures and the rule judges, which is the split that would have caught this drift.
+  **Asserted: a hand-made worktree is still skipped entirely** — `isDispatchTree: false` is the population boundary `reap.ts:136` states, and a person's tree must not become a finding telling them to remove it. The distinction the slice must hold: *not a desk* is silence, *might be a desk and I cannot tell* is a finding. **Asserted: no `case` statement decides it** — the shell measures and the rule judges, which is the split that keeps a recognition rule testable. **Asserted: the reaper's verdicts are unchanged** — measured 3 of 3 on the current estate before the change, and the same 3 after.
 
   **Asserted: a dirty desk whose agent died is reported as NEEDS A PERSON, never as free** — the case that strands finished code, measured twice on this estate. **Asserted: a desk with a live worker is not reported at all**, since a finding an operator cannot act on is noise. **Asserted: the conditions come from `reap()`** rather than a second copy. **Asserted: the finding names the desk path**, because the repair is per-directory.
 
