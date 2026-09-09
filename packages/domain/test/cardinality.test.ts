@@ -85,7 +85,7 @@ describe('Agent 1 ── 1 Worktree — the agent OWNS its desk', () => {
     // runs agent → worktree, so a tree with no agent is an orphan rather than
     // a vacant desk.
     const tree: Worktree = {
-      path: '/tmp/wt', branch: 'feature/x', isMain: false, clean: true,
+      path: '/tmp/wt', branch: 'feature/x', detached: false, isMain: false, clean: true,
       agentSession: 'sess-1', prunable: false,
     };
     const agent: Agent = {
@@ -116,9 +116,14 @@ describe('Agent 1 ── * Slice — over time, one at a time', () => {
 describe('Worktree 1 ── 1 Branch — while checked out', () => {
   it('holds one branch, or none when detached', () => {
     const detached: Worktree = {
-      path: '/tmp/wt', branch: '', isMain: false, clean: true, agentSession: null, prunable: false,
+      path: '/tmp/wt', branch: '', detached: true, isMain: false, clean: true,
+      agentSession: null, prunable: false,
     };
+    // BOTH FACTS, because one does not imply the other. An empty branch is how
+    // a detached tree LOOKS; `detached` is what git SAYS, read from its own
+    // porcelain line. A tree whose branch could not be read also has `''`.
     expect(detached.branch).toBe('');
+    expect(detached.detached).toBe(true);
   });
 });
 
@@ -178,7 +183,7 @@ describe('Slice 1 ── 1 Branch, and a Wave spans plans', () => {
 describe('a reap asks about the agent, never about the tree', () => {
   it('refuses on what the agent left, which is the ownership direction', () => {
     const tree: Worktree = {
-      path: '/tmp/wt', branch: 'feature/x', isMain: false, clean: false,
+      path: '/tmp/wt', branch: 'feature/x', detached: false, isMain: false, clean: false,
       agentSession: 'sess-1', prunable: true,
     };
     // `prunable` is git's word — the directory is gone — and says nothing about

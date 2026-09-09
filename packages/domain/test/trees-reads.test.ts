@@ -101,6 +101,20 @@ describe('treesGit: the desks this machine holds', () => {
     expect(byPath.get(detached)).toBe('');
   });
 
+  it('reads detached from git rather than inferring it from an empty branch', async () => {
+    // THE READING IS THE REGISTRATION. `git worktree list --porcelain` emits a
+    // `detached` line for exactly this case, and the adapter reads that line.
+    // An empty branch is how a detached tree LOOKS, and inferring from it would
+    // answer `detached` for any tree whose branch could not be read.
+    const answer = await trees().list();
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    const byPath = new Map(answer.value.map((tree) => [tree.path, tree.detached]));
+    expect(byPath.get(detached)).toBe(true);
+    expect(byPath.get(repo)).toBe(false);
+    expect(byPath.get(linked)).toBe(false);
+  });
+
   it('answers one checkout branch without a path comparison', async () => {
     // What `server-info.ts` asks. It could take the listing and find its own
     // entry, but that means comparing `repoRoot` against git's reported path,

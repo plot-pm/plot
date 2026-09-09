@@ -84,6 +84,11 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
   const worktrees: readonly Worktree[] = (fixture.worktrees ?? []).map((tree, at) => ({
     path: tree.path ?? '',
     branch: tree.branch ?? '',
+    // A FIXTURE STATES WHAT IT MEANS. `detached` defaults false rather than
+    // being inferred from an empty branch: the adapter reads git's own
+    // `detached` line and never infers, so a fixture that inferred would be
+    // testing against a rule the production reader does not apply.
+    detached: tree.detached ?? false,
     isMain: tree.isMain ?? at === 0,
     clean: tree.clean ?? clean.has(tree.path ?? ''),
     agentSession: tree.agentSession ?? null,

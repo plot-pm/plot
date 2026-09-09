@@ -22,6 +22,7 @@ import {
 const desk: Worktree = {
   path: '/tmp/wt-feature-x',
   branch: 'feature/x',
+  detached: false,
   isMain: false,
   clean: true,
   agentSession: 'sess-1',
