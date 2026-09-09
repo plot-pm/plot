@@ -9,6 +9,7 @@
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -173,18 +174,22 @@ leaves `:2417`'s `=` test broken, since a glob is not an equality.
 - `bug/the-ci-key-splits-into-scheme-and-instance` — `ci_scheme()` and
   `ci_instance()` beside `ci_backend()`, shaped like `tracker_scheme()` /
   `tracker_base_url()`. **Asserted: `ci_scheme()` returns `jenkins` for all
-  three real-world spellings** — the bare word, `` Jenkins at `host` ``, and
-  `jenkins https://host`. **Asserted: `Jenkins instance` overrides the
-  instance parsed from `CI:`**, so a repo that separated them keeps working.
+  four real-world spellings** — the bare word, `` Jenkins at `host` ``,
+  `Jenkins pipelines in …`, and `Jenkins (e.g. …)`. **Asserted: `ci_instance()`
+  returns a host or nothing, never a fragment of prose** — `` Jenkins at
+  `jenkins-ci-ewz…` `` yields the host and `Jenkins (e.g. …)` yields empty,
+  and neither yields `at jenkins-ci-ewz…`. **Asserted: `Jenkins instance`
+  overrides it**, which is what a prose-only `CI:` relies on.
 
 ### Asking the scheme
 
 - `bug/the-ci-callers-match-the-scheme` — the four call sites compare
   `ci_scheme()` rather than `ci_backend()`: `:2417`, `:2692`, `:2794`, `:3336`.
-  **Asserted: `ci-limit` reports `basis: predicted` for every real-world
-  Jenkins spelling**, which is the defect this plan was opened for, and
-  **asserted: a repo declaring `github-actions` is unchanged** — the one caller
-  that already worked must not move.
+  **Asserted: `ci-limit` reports `basis: predicted` for all three real Jenkins
+  spellings**, which is the defect this plan was opened for. **Asserted:
+  `github-actions` with a trailing note still matches its arm** — `:2692` has
+  the same bug and the same fix, so the fourth caller moves with the other
+  three rather than being left as the one that already worked.
 
 ## Notes
 
@@ -199,3 +204,19 @@ verified, and my probe had used an unverified slug. I then guessed a second
 checked sprint explained a filter bug — also false, one sprint is Active. The
 defect in this plan is the one that survived being executed rather than read,
 which is why both slices assert against `ci-limit`'s actual output.
+
+**Interrogated 2026-09-09, one round**, and it corrected the plan in both
+directions — the defect is wider than stated, and the fix as stated does not
+work.
+
+**All four callers have it, not three.** `:2692` matches a bare
+`github-actions)` and fails identically on
+`github-actions (see .github/workflows/ci.yml)`. This repo escapes by writing
+the word alone, which is what made it look like the caller that worked.
+
+**And "everything after the first token" is not the instance.** `Tracker:`
+splits cleanly because its value is a scheme and a URL. `CI:` is prose in every
+repo that declares it, so the naive split yields `at jenkins-ci-ewz…`,
+`pipelines in .build/pipelines/…` and `(e.g. continuous-build…)` — none a host
+`jen -I` can use. `ci_instance()` extracts a host or returns empty, and
+`Jenkins instance` survives as the override a prose-only value needs.
