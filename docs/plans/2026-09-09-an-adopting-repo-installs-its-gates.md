@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #865 merged
 - **Started:** 2026-09-09, Jan Wloka, `feature/an-adopting-repo-installs-its-gates`
+- **Started:** 2026-09-09, Jan Wloka, `feature/an-installed-gate-fires-once`
 
 ## Changelog
 
