@@ -49,6 +49,22 @@ export interface Worktree {
   path: string;
   /** The branch checked out, or `''` when detached. */
   branch: string;
+  /**
+   * Whether HEAD is detached — git's own word, not an inference from
+   * {@link Worktree.branch}.
+   *
+   * THE READING IS THE REGISTRATION. `git worktree list --porcelain` emits a
+   * `detached` line for exactly this case, and it has emitted one since before
+   * any caller asked. An empty `branch` is the same value a record git could
+   * not be parsed out of leaves behind, so deriving detachment from it answers
+   * *no branch was read* where the question is *there is no branch to read*.
+   *
+   * This is what makes a tree askable without one. Twelve worktrees measured
+   * 2026-09-08 were cut `--detach` and none could be named by `forBranch`,
+   * `presence` or `cleanliness`, each of which takes a branch — unreachable
+   * rather than `unknown`, which would at least have been an answer.
+   */
+  detached: boolean;
   /** Whether this is the main checkout; never reapable. */
   isMain: boolean;
   /** No uncommitted changes AND no unpushed commits; false when uncheckable. */

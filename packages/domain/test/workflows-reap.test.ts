@@ -5,6 +5,7 @@ import type { Worktree } from '../src/entities/worktree.js';
 const tree = (over: Partial<Worktree> = {}): Worktree => ({
   path: '/repo/.worktrees/plot-wt-one',
   branch: 'feature/one',
+  detached: false,
   isMain: false,
   clean: true,
   agentSession: 'sess-1',

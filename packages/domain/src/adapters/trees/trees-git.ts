@@ -21,7 +21,12 @@ const STATUS_MAX_BUFFER = 32 * 1024 * 1024;
  */
 const worktreesOf = (stdout: string): Worktree[] => {
   const trees: Worktree[] = [];
-  let current: { path: string; branch: string; prunable: boolean } | null = null;
+  let current: {
+    path: string;
+    branch: string;
+    prunable: boolean;
+    detached: boolean;
+  } | null = null;
 
   const flush = () => {
     if (current === null) return;
@@ -32,6 +37,7 @@ const worktreesOf = (stdout: string): Worktree[] => {
       clean: false,
       agentSession: null,
       prunable: current.prunable,
+      detached: current.detached,
     });
     current = null;
   };
@@ -39,11 +45,23 @@ const worktreesOf = (stdout: string): Worktree[] => {
   for (const line of stdout.split('\n')) {
     if (line.startsWith('worktree ')) {
       flush();
-      current = { path: line.slice('worktree '.length), branch: '', prunable: false };
+      current = {
+        path: line.slice('worktree '.length),
+        branch: '',
+        prunable: false,
+        detached: false,
+      };
     } else if (line.startsWith('branch ') && current !== null) {
       current.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
     } else if (line.startsWith('prunable') && current !== null) {
       current.prunable = true;
+      // `detached` IS READ, not inferred from an empty branch. The porcelain
+      // emits its own line for it, and the two readings differ on the record
+      // this parser could not make sense of: that one leaves `branch` empty
+      // too, and a caller told it was detached would act on a tree nobody
+      // measured. Git says which, so the parser reports what git said.
+    } else if (line === 'detached' && current !== null) {
+      current.detached = true;
     }
   }
   flush();
