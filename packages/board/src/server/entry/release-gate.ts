@@ -213,30 +213,26 @@ export const verdict = (
   input: GateInput,
 ): Verdict => {
   const readings = {
-      sprintItems: items,
-      sprintFiles: {},
-      deliveredPlans: [],
-      // THE GATE PRECEDES THE VERSION, so none is given. `release` answers the
-      // Must-Have gate before it reads this, and refuses `version-underivable`
-      // after — which is the step this bundle does not ask about, and is
-      // reported as a pass because the gate it was asked about passed.
-      version: '',
-      derivedBump: '',
-      tagExists: false,
+    sprintItems: items,
+    sprintFiles: {},
+    deliveredPlans: [],
+    // THE GATE PRECEDES THE VERSION, so none is given. `release` answers the
+    // Must-Have gate before it reads this and refuses `version-underivable`
+    // after — which is the step this bundle does not ask about.
+    version: '',
+    derivedBump: '',
+    tagExists: false,
   };
-  const outcome = release(
-    readings,
-    {
-      candidate: input.candidate,
-      ignoreSprint: input.ignoreSprint,
-      unattended: input.unattended,
-      // The Should-Have prompt is the operator's and is asked by the skill, not
-      // here: a bundle answering it would be the tool deciding what it exists to
-      // put to a person. Left unanswered, so `release` reports the open items
-      // and refuses none of them.
-      on: '',
-    },
-  );
+  const outcome = release(readings, {
+    candidate: input.candidate,
+    ignoreSprint: input.ignoreSprint,
+    unattended: input.unattended,
+    // THE SHOULD-HAVE PROMPT IS THE OPERATOR'S, and the skill asks it: a bundle
+    // answering it would be the tool deciding what it exists to put to a person.
+    // `proceedOverShoulds` is therefore never given, so `should-haves-declined`
+    // cannot fire here and the open Shoulds are reported instead.
+    on: '',
+  });
 
   // THE TIER REPORTS COME FROM THE WORKFLOW, not from a second filter here.
   // Two places counting one sprint is how a checkbox and an estate came to
@@ -250,10 +246,12 @@ export const verdict = (
   ) as Decision<ReleaseDetail>;
   const { openShoulds, openCoulds, withdrawn } = reported.detail;
 
-  // `version-underivable` is the step AFTER the one this was asked about, and a
-  // gate reporting it would refuse a release the sprint permits. Only the two
-  // rules the gate owns are refusals here.
-  if (refused(outcome) && (outcome.reason === 'must-haves-open' || outcome.reason === 'should-haves-declined')) {
+  // `must-haves-open` IS THE ONLY REFUSAL THIS GATE OWNS. The three below it —
+  // `version-underivable`, `version-invalid`, `tag-absent` — belong to steps
+  // this was not asked about, and a gate reporting one would refuse a release
+  // the sprint permits. `should-haves-declined` cannot fire, for the reason
+  // above.
+  if (refused(outcome) && outcome.reason === 'must-haves-open') {
     return {
       pass: false,
       reason: outcome.reason,
