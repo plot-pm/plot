@@ -1,11 +1,11 @@
 // Contract test for skills/plot-init/SKILL.md — the `Tracker:` and `CI:`
 // proposals adoption builds from what the probe read.
 //
-// THE SUBJECT IS AN INSTRUCTION, NOT A SCRIPT, so this file asserts what the
-// skill SAYS. That is the shape `init-worktree-root.test.mjs` uses on the same
-// file, and it is the only surface there is: no script proposes a config key,
-// because turning a signal into a proposal is the skill's job (Manifesto
-// Principle 3).
+// THE PROPOSAL IS THE SKILL'S AND THE WRITE IS THE RULE'S, so this file asserts
+// both surfaces. Turning a signal into a proposal is judgement and stays the
+// skill's job (Manifesto Principle 3); which key that proposal becomes is
+// `composeAdoption`'s, and has been since 2026-09-09 — before that the key was a
+// markdown block in step 3 with an example beside it.
 //
 // WHAT IS BEING PROTECTED IS THE DIFFERENCE BETWEEN A READING AND AN ANSWER.
 // `plot-detect-repo.sh` reports a recurring ticket prefix and the CI evidence
@@ -26,7 +26,9 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
 const skillPath = path.join(repoRoot, 'skills', 'plot-init', 'SKILL.md');
+const rulePath = path.join(repoRoot, 'packages', 'domain', 'src', 'rules', 'adoption.ts');
 const skill = fs.readFileSync(skillPath, 'utf8');
+const rule = fs.readFileSync(rulePath, 'utf8');
 
 // Everything a person sees before any file is written.
 const proposal = skill.slice(0, skill.indexOf('### 3.'));
@@ -74,8 +76,15 @@ test('init: the base URL is the one thing asked', () => {
 test('init: the confirmed tracker is written with its URL', () => {
   assert.match(skill, /- \*\*Tracker:\*\* jira https:\/\/acme\.atlassian\.net/,
     'the written form must show the key carrying its URL');
-  assert.match(skill, /Write the confirmed `Tracker:` and `CI:` values/,
-    'step 3 must write what was confirmed rather than the defaults shown');
+  // THE PROPERTY MOVED INTO THE RULE. Step 3 used to instruct an agent to write
+  // the confirmed value rather than the example beside it, which is an
+  // instruction that had to be followed; `trackerKey` now takes the confirmed
+  // answer and falls back to `plot` only where nobody confirmed one, so there is
+  // no example to write by mistake.
+  assert.match(rule, /if \(tracker === ''\) \{/,
+    'the rule must fall back only where nobody confirmed a tracker');
+  assert.match(rule, /const value = trackerUrl === '' \? tracker : `\$\{tracker\} \$\{trackerUrl\}`;/,
+    'a confirmed tracker must carry its URL where one was supplied');
 });
 
 // ── The CI system: one signal proposes, two ask ──────────────────────────────

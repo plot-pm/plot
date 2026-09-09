@@ -11,6 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-08, Jan Wloka, in-session
+- **Started:** 2026-09-09, Jan Wloka, `bug/the-registry-sweeps-what-it-did-not-start`
 
 ## Changelog
 

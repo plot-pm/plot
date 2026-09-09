@@ -89,6 +89,70 @@ missing. A half-configured tracker that announces its gap beats one that fails
 later saying nothing. Two CI signals refuse the key outright, because a wrong
 `CI:` is worse than an absent one.
 
+## The config is written by a controller, not composed by prose
+
+**Step 3 stated the whole `## Plot Config` block as markdown until 2026-09-09.**
+An agent copied it and filled it in, so there was no invocation to check — no
+script diff, no test, no PR, and no rule that could refuse anything. That is the
+shape of every mistake `the-master-agent-uses-the-controllers` measured on
+2026-09-08: three lifecycle fields written by `sed`, `python re.sub` and
+`ln -s`, each invisible to review because none was a code change.
+
+**Adoption is the one command that writes into a repository Plot does not own**,
+which makes a wrong write the most expensive one Plot performs. So the write
+routes through `composeAdoption` (`packages/domain/src/rules/adoption.ts`),
+reached without HTTP through `skills/plot/scripts/board/plot-adopt.mjs` and
+performed by `skills/plot/scripts/plot-write-config.sh`.
+
+**The rule decides; the script performs.** `composeAdoption` answers which keys
+a repository gets, in which order, with which values, whether the write may
+happen at all, and what gaps the result has to announce. It renders no markdown:
+the `- **Key:** value` spelling is the performer's, the way `plot-sprint-state.sh`
+owns the `awk` that knows where a `## Status` line lives.
+
+**Four refusals, and each writes nothing at all:**
+
+| refusal | the reading behind it |
+|---|---|
+| `already-adopted` | a hub doc carries a `## Plot Config`. `plot-config.sh` reads the FIRST section it finds, so a second one makes half the config silently the old one |
+| `hub-ambiguous` | `CLAUDE.md` and `AGENTS.md` both exist and nobody chose. One hub doc is not a question; two are |
+| `answer-missing` | the Definition of Done is unanswered. The probe finds candidate scripts; which gates a merge is stated in no file |
+| unreadable input | the answers file is not JSON. Named with the file and the parse error, exit 2 — a caller's bug, not a repository's state |
+
+**Unattended changes what a refusal SAYS and never which fire.** A missing
+Definition of Done refuses either way; with `PLOT_UNATTENDED=1` the sentence is
+a `PLOT-UNASKED` line. Filling in a default there would be exactly the guess
+this slice exists to prevent — a repository adopted with gates nobody chose,
+where the wrong ones then gate every merge.
+
+**The evidence rides in a block comment, not on the key lines.** A trailing
+`<!-- 38 of 80 subjects -->` was written first, and measured the same day:
+`plot-config.sh` strips backticks and `(...)` and nothing else, so
+`get "Definition of Done"` answered `test, lint <!-- confirmed -->`. The parser
+is the config-format contract and was not widened for a note — so the note moved
+to where the parser already ignores it, and every VALUE is exactly what a reader
+gets back.
+
+**The rule names no CI system, and that is a gate rather than a preference.**
+`ciKey` branched on `'jenkins'` and `'github-actions'` when it was first written,
+and CI's *domain names no vendor* step refused it — a rule that knows which
+systems exist needs editing when the third one arrives, which is the property
+`ports/host.ts` opened its `HostBackend` to keep. The rule now recognises exactly
+two words, `both` and `none`, because both are answers ABOUT the reading rather
+than systems; every other word is a system it writes without knowing. Step 2 still
+names `jenkins` and `github-actions` in what it prints, and correctly: the skill
+reads the evidence, and only the domain is held to the gate.
+
+**`entry/stack-readings.ts` exists for a measured reason.** `entry/adopt.ts`
+needs the probe-report reader `entry/propose-stack.ts` already had, and imported
+it from there — after which `plot-adopt.mjs` printed a `StackProposal` and exited
+before its own main block ran. Every entry file ends in an
+`import.meta.url === pathToFileURL(process.argv[1])` block, and inside one
+bundle the imported module's `import.meta.url` is the bundle's own path, so both
+blocks match and the imported one runs first. That is why no entry in that
+directory imports another; where two need ONE answer, the answer moves to a
+module with no main block.
+
 ## Additive, always
 
 Adoption never moves, rewrites, or deletes anything. A repo with four
@@ -200,7 +264,19 @@ asserts what a hook file declares. It checks that the skill proposes the key
 with its ignore line as one decision, that it reads the existing convention
 before proposing, that it forbids printing the line to paste, and that it
 leaves `.git/info/exclude` to dispatch. A decline writes neither half, which is
-step 2's existing confirmation gate rather than a new mechanism.
+step 2's existing confirmation gate rather than a new mechanism. Since
+2026-09-09 its assertions sit where each property lives — the default in
+`DEFAULT_WORKTREE_ROOT`, the append in the performer's `>>`, the absolute-root
+case in `ignoreLineFor` — because the write stopped being prose an agent had to
+follow.
+
+`packages/domain/test/adoption.test.ts` covers `composeAdoption` at 100% of
+lines, branches, functions and statements, which the domain package gates.
+`packages/board/test/unit/adopt.test.ts` covers the ADAPTATION and nothing the
+rule already answers: a comma-separated `hub_docs` becoming a list,
+`has_plot_config` arriving as a boolean or a string, an absent `ci_system`
+reading as unread rather than as `none`, and a caller-supplied proposal winning
+over one recomputed from the report.
 
 ## Known gaps
 

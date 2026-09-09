@@ -38,7 +38,7 @@ and changes nothing.
 |-------|-----------|-------|
 | 1. Probe | Small | One script call, JSON out |
 | 2. Propose and confirm | Mid | Turning signals into a proposal is judgment |
-| 3. Write config and skeleton | Small | File and directory creation; the worker prompt is one script call. Appending the `.gitignore` line is mechanical — WHICH line was decided in step 2 |
+| 3. Write config and skeleton | Small | Two script calls: `plot-write-config.sh` owns the config section and the `.gitignore` line, `plot-install-prompt.sh` owns the worker prompt. Composing the answers file from step 2 is transcription; every decision inside the write is `composeAdoption`'s |
 | 4. Offer extensions | Mid | Deciding what the repo actually needs |
 | 5. Verify and summarise | Small | Read back what landed |
 
@@ -263,59 +263,77 @@ to confirm their own git host learns that the tool is not paying attention.
 
 ### 3. Write the config and skeleton
 
-**`## Plot Config`** into the hub doc — appended, never replacing content. If
-both `CLAUDE.md` and `AGENTS.md` exist, ask which is the hub; if neither
-exists, create `CLAUDE.md` with just this section.
+**Do not write `## Plot Config` by hand.** Put the answers in a file and call
+the command that owns the write:
 
-```markdown
-## Plot Config
+```bash
+cat > /tmp/plot-answers.json <<'JSON'
+{
+  "hub": "",
+  "definitionOfDone": ["test", "lint", "typecheck"],
+  "tracker": "jira",
+  "trackerUrl": "https://acme.atlassian.net",
+  "ci": "",
+  "worktreeRoot": ""
+}
+JSON
 
-- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
-- **Plan directory:** docs/plans/
-- **Active index:** docs/plans/active/
-- **Delivered index:** docs/plans/delivered/
-- **Git host:** <github|bitbucket>
-- **Tracker:** plot
-- **Worktree root:** .worktrees
+../plot/scripts/plot-write-config.sh --answers /tmp/plot-answers.json
 ```
 
-**Write the confirmed `Tracker:` and `CI:` values**, not the defaults shown
-here. `Tracker: plot` is the fallback for a repo whose plans *are* its tracker;
-a confirmed `jira` replaces it and carries its base URL. A `CI:` line appears
-only where a signal was found and confirmed — the probe's `none` writes no key.
+**Every field is what step 2 confirmed, and `""` means *nobody answered*.** An
+empty `hub` lets the command read the probe's own list — one doc is not a
+question; two are, and it refuses. An empty `worktreeRoot` takes `.worktrees`
+with the matching `.gitignore` line. An empty `definitionOfDone` is **not** an
+empty Definition: it is the unanswered question, and the command refuses.
 
-Add the posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`) only
-where the answers are not the default — an adopting repo should not start
-with a wall of settings it never chose.
+**IT ASKS `composeAdoption` AND STOPS ON ITS ANSWER.** The keys, their order,
+their values and whether the write may happen at all are the rule's
+(`packages/domain/src/rules/adoption.ts`), and the proposals inside them are
+`proposeStack`'s. **This step composed that section as prose until 2026-09-09**
+— an agent copied a markdown block and filled it in, so there was no
+invocation to check and no rule that could fire. Adoption is the one command
+that writes into a repository Plot does not own, which makes a wrong write the
+most expensive one Plot performs.
 
-**The `.gitignore` line**, matching the `Worktree root` just written — the
-half of that decision that cannot be skipped. Append it; never rewrite the
-file:
+**Read what it printed and say it.** The JSON on stdout carries the keys that
+landed, the `.gitignore` line, and a `gaps` list — a `Tracker:` with no base
+URL, a `CI:` refused because both signals were found. Those are what the
+adopted repository has to announce; report each one.
 
-```
-# The dispatch worktrees, gathered here by the `Worktree root` key rather than
-# scattered beside the checkout. They are CHECKOUTS — every one is re-creatable
-# with `git worktree add`, and none of them is content this repo carries.
-.worktrees/
-```
+**Four refusals, each naming what would end it:**
 
-**Write the path that was confirmed**, not the literal `.worktrees` — a repo
-that kept its own convention gets its own line. An absolute root lies outside
-the repository and needs no ignore rule at all; say so rather than writing a
-line that matches nothing.
+| refusal | what it means | what ends it |
+|---|---|---|
+| `already-adopted` | a hub doc carries a `## Plot Config` | edit that section; adoption is done |
+| `hub-ambiguous` | `CLAUDE.md` and `AGENTS.md` both exist | put the choice in `hub` |
+| `answer-missing` | the Definition of Done is unanswered | put the gates in `definitionOfDone` |
+| unreadable input | the answers file is not JSON | it names the file and the parse error |
+
+A refusal writes nothing at all — not the section, not the `.gitignore` line.
+`--dry-run` prints both without writing either.
+
+**The posture keys are still yours to add** (`Plan PRs`, `Implementation
+home`, `Hosts plans`), and only where the answers are not the default: an
+adopting repo should not start with a wall of settings it never chose. The
+command writes the keys the rule decides and no others, so these are a
+deliberate second edit rather than a gap.
+
+**The `.gitignore` line comes with the `Worktree root`** and the command writes
+it — the half of that decision that cannot be skipped. It appends and never
+rewrites, skips a line already there, and writes none at all for an absolute
+root, which lies outside the repository and needs no rule.
 
 **THIS IS A FILE ADOPTION HAS NEVER TOUCHED**, and it is worth pausing on.
 Everything else in this step lands in Plot's own territory — a config section,
 `docs/plans/`, `.plot/`. `.gitignore` is read by every tool the team uses, so
 it is written only on the confirmation step 2 already took, and only appended
-to. Where no `.gitignore` exists, create one holding just this block.
+to.
 
 **Do not print it for the user to paste.** A configured root with no ignore
 rule turns every dispatched desk into untracked files in `git status`, and the
-operator's next `git add -A` stages a whole checkout. That outcome is the
-defect this slice exists to remove, and leaving the line to a human is the
-most likely way to arrive at it. A directory and a plan skeleton are larger
-commitments, and adoption writes both.
+operator's next `git add -A` stages a whole checkout. Leaving the line to a
+human is the most likely way to arrive at that.
 
 **The desk's own exclusion is separate and is not written here.**
 `plot-dispatch.sh` adds its marker to `.git/info/exclude` inside each desk,
@@ -497,8 +515,17 @@ prerequisite is a fact a reader can act on; silence is not.
 
 - **Never move, rewrite, or delete existing files.** Adoption is additive.
   Existing planning systems get *described*, not migrated.
-- **Never overwrite a hub doc.** Append the config section; preserve
-  everything else verbatim.
+- **Never write `## Plot Config` by hand.** `plot-write-config.sh` owns that
+  write and `composeAdoption` decides it. The section was skill prose until
+  2026-09-09 — a markdown block an agent copied — so no rule could refuse an
+  already-adopted repository, and nothing recorded which keys a repository was
+  meant to get.
+- **Never proceed past a refusal from that command.** Four are named and each
+  says what would end it. A refusal is the end of the write, not advice: an
+  `already-adopted` repository worked around by hand gets two `## Plot Config`
+  sections, and `plot-config.sh` reads the first.
+- **Never overwrite a hub doc.** The command appends the config section and
+  preserves everything else verbatim.
 - **Never fail the whole adoption on one blocked step.** Steps are largely
   independent: if a file cannot be written, say exactly what the user should
   add and where, then continue.
@@ -532,8 +559,9 @@ prerequisite is a fact a reader can act on; silence is not.
 - **Never write `.gitignore` without the confirmation from step 2**, and never
   rewrite it — append. Every tool the team uses reads that file.
 - **Never write the `Worktree root` key without the matching ignore line**, or
-  the other way round. They are one decision, and a key on its own is what
-  turns a desk into untracked work in the repository root.
+  the other way round. They are one decision, `plot-write-config.sh` performs
+  both, and a key on its own is what turns a desk into untracked work in the
+  repository root.
 - **Never move existing worktrees.** A repo with its own convention keeps it
   and the ignore line follows it; relocating is `/plot-dispatch --migrate`'s
   job, on a person's say.
@@ -564,3 +592,7 @@ prerequisite is a fact a reader can act on; silence is not.
 | Guessing the Jira base URL from the git remote | A wrong URL fails later saying nothing about adoption | Ask; unattended, write the key and name the gap |
 | Choosing a CI system when both signals are present | A wrong `CI:` key sends every build-status lookup to the wrong system | Ask, naming both; refuse the key unattended |
 | Writing `CI: none` because the probe said `none` | Records a choice the repo never made | `none` is a reading; write no key and say what was read |
+| Writing the `## Plot Config` block by hand | No rule can refuse an already-adopted repository, and nothing records which keys the repo was meant to get — the defect this step's own history is | `plot-write-config.sh --answers <file>`; the block is `composeAdoption`'s |
+| Appending a second `## Plot Config` beside an existing one | Every key has two answers and `plot-config.sh` reads the first, so half the config is silently the old one | The command refuses `already-adopted`; edit the section that is there |
+| Filling in a Definition of Done to get past the refusal unattended | A repository is adopted with gates nobody chose, and the wrong ones gate every later merge | An empty `definitionOfDone` refuses and prints `PLOT-UNASKED`; that is the answer |
+| Reading the command's exit code and not its output | A write that landed with two open gaps reports as a clean adoption | The JSON carries `gaps`; report each one |

@@ -1,5 +1,6 @@
-import { proposeStack, type CiSignals, type StackProposal, type StackReadings }
+import { proposeStack, type StackProposal }
   from '@plot-pm/domain/rules/stack';
+import { readingsFrom } from './stack-readings.js';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -9,7 +10,7 @@ import { pathToFileURL } from 'node:url';
  *
  * ```
  * plot-detect-repo.sh | node plot-propose-stack.mjs
- * {"node":{...},"commitStyle":{...},"ticket":{...},"language":{...},"ci":{...}}
+ * {"node":{...},"commitStyle":{...},"ticket":{...},"language":{...}}
  * ```
  *
  * **ITS OWN BUNDLE, NOT A VERB ON `plot-ask.mjs`.** One bundle per question is
@@ -33,78 +34,20 @@ import { pathToFileURL } from 'node:url';
  */
 
 /**
- * Read one number from a probe's report.
+ * The probe-report reader, from the module both entries share.
  *
- * @param value what the field held
- * @param fallback what an absent or unreadable field means
- * @returns the number, or the fallback
+ * **IT MOVED OUT OF THIS FILE, and the reason is a measured failure.**
+ * `entry/adopt.ts` needs the same mapping and imported it from here on
+ * 2026-09-09; the bundle then ran THIS file's main block, because an imported
+ * entry's `import.meta.url` is the bundle's own path and its
+ * `pathToFileURL(process.argv[1])` comparison matches too. `plot-adopt.mjs`
+ * printed a `StackProposal` and exited before its own main block ran.
+ *
+ * So it lives in `stack-readings.ts` — a module with no main block — and both
+ * entries import it. Re-exported here because that is where every caller and
+ * the existing test already reach for it.
  */
-const numberOr = (value: unknown, fallback: number): number =>
-  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-
-/**
- * Read one string from a probe's report.
- *
- * @param value what the field held
- * @returns the string, or `''` where the field was absent or not a string
- */
-const stringOr = (value: unknown): string => (typeof value === 'string' ? value : '');
-
-/**
- * Read the CI signals from a probe's report.
- *
- * **AN ABSENT `ci_signals` IS `null`, NEVER `{false, false}`.** The two say
- * different things — *the collector did not look* against *the collector looked
- * and the tree shows nothing* — and only the second licenses writing no `CI:`
- * key on the repository's behalf. `plot-detect-repo.sh` does not report the
- * field yet, so `null` is the answer on this estate today.
- *
- * @param value what the `ci_signals` field held
- * @returns the two signals, or `null` where the field was absent or not an
- *   object
- */
-const ciSignalsFrom = (value: unknown): CiSignals | null => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const signals = value as Record<string, unknown>;
-  return {
-    jenkinsfile: signals.jenkinsfile === true,
-    ghWorkflows: signals.gh_workflows === true,
-  };
-};
-
-/**
- * Turn a merged probe report into the readings the rule takes.
- *
- * **AN ABSENT FIELD IS A READING NOBODY TOOK, and it is read that way.** A
- * missing `node_floor` means the repository pins nothing, which the rule
- * answers `null` for rather than assuming a floor; a missing count is zero
- * matches, which proposes nothing. Neither is coerced into the reassuring
- * direction.
- *
- * @param report the merged JSON the two collectors printed
- * @returns the readings, with every absent field read as *nothing was found*
- */
-export const readingsFrom = (report: Record<string, unknown>): StackReadings => {
-  const styles = (report.commit_style_counts ?? {}) as Record<string, unknown>;
-  return {
-    nodeVersion: stringOr(report.node),
-    nodeFloor:
-      typeof report.node_floor === 'number' && Number.isFinite(report.node_floor)
-        ? report.node_floor
-        : null,
-    commitStyleCounts: {
-      colon: numberOr(styles.colon, 0),
-      dash: numberOr(styles.dash, 0),
-      conventional: numberOr(styles.conventional, 0),
-    },
-    ticketPrefix: stringOr(report.ticket_prefix),
-    ticketPrefixCount: numberOr(report.ticket_prefix_count, 0),
-    subjectsRead: numberOr(report.subjects_read, 0),
-    germanWordCount: numberOr(report.german_words, 0),
-    hasHubDoc: stringOr(report.hub_docs) !== '',
-    ciSignals: ciSignalsFrom(report.ci_signals),
-  };
-};
+export { readingsFrom };
 
 /**
  * Judge one probe report.
