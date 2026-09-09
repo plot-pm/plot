@@ -9,11 +9,11 @@
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
-- A Jenkins repo's CI limit reads `predicted`, not `unknown`. The `CI:` config value is split into its scheme and its instance, so a value carrying a host name still matches, and the `Jenkins instance` key overrides the prose where a repository states one.
+- A Jenkins repo's CI limit reads `predicted`, not `unknown`, and reaches its connector instead of being filtered out as another service's. The `CI:` config value is split into its scheme and its instance, so a value carrying a host name still matches, and the `Jenkins instance` key overrides the prose where a repository states one.
 
 Board impact: yes, and it is the point. The board renders the CI connector's limit, and it currently shows `unknown` for every Jenkins repo.
 
@@ -56,10 +56,33 @@ bare `github-actions)` arm. Measured — a `CI:` of
 Jenkins values miss theirs. This repo escapes only because it happens to write
 the word alone.
 
-**The payload echoes the whole value too.** `ci-limit` returns
-`"connector":"github-actions (see .github/workflows/ci.yml)"` — a config note
-rendered as a connector name, which is the same missing split seen from the
-other end.
+**The payload echoes the whole value too, and that is a SECOND defect rather
+than a cosmetic one.** Measured 2026-09-09 by running the arm:
+
+```
+$ PLOT_CI='Jenkins at `jenkins-ci-ewz…`' plot-host.sh ci-limit
+{"connector":"jenkins at `jenkins-ci-ewz…`","limit":null,"basis":"unknown"}
+
+$ PLOT_CI='github-actions (see .github/workflows/ci.yml)' plot-host.sh ci-limit
+{"connector":"github-actions (see …)","limit":null,"basis":"unknown"}
+```
+
+`build-shell.ts:180` then filters that list by **equality**:
+
+```ts
+readings.value.filter((reading) => reading.connector === shell.system)
+```
+
+`shell.system` is the connector's own word — `jenkins`, `github-actions` — so a
+prose `CI:` value never matches, and `limit()` answers `[]`. The port's comment
+defines that answer: *"A connector that meters nothing answers an empty list,
+which is an answer."* **It is the wrong answer.** A Jenkins with a `predicted`
+ceiling of 60 reports as a connector that meters nothing, and the caller cannot
+tell the two apart.
+
+So the missing split costs two things, not one: the `basis` is `unknown` where
+`predicted` was ready, and the reading is then discarded before any caller sees
+it.
 
 **The `ci-limit` arm is the one that stings**, because the code is right about
 Jenkins and never reaches its own answer. It carries the reasoning and the
@@ -143,6 +166,22 @@ callers — all four move to `ci_scheme()` — and a function retained for a
 hypothetical reader is the second answer to one question this repo's own rules
 call a defect. Keeping it invites a future caller to match on the prose value
 again, which is precisely the bug being fixed.
+
+**`PLOT_CI` moves onto `ci_scheme()`, and its docstring is corrected.**
+`ci_backend()`'s comment calls it *"`PLOT_CI` overrides for tests"* and that has
+been false since the build connectors landed: `build-actions.ts:39` passes
+`buildReads({ context, system: SYSTEM }, { PLOT_CI: SYSTEM })` in **production**,
+as the dispatch contract the arm reads. So the variable keeps its precedence —
+env first, then the `CI` key — and is split the same way, because a connector
+passing a bare `SYSTEM` word and a person writing prose must reach the same
+comparison.
+
+**`budget.ts:15` cites the function by name and moves with it.** The domain
+documents `connector` as an open `z.string()` partly because *"`ci_backend()`
+validates nothing at all"*. The argument survives the rename unchanged —
+`ci_scheme()` validates nothing either, it only splits — so the citation is
+updated rather than left pointing at a deleted function.
+
 ### The instance cannot be "everything after the first token"
 
 **Measured against all three real Jenkins values, and the naive split fails on
@@ -208,6 +247,15 @@ leaves `:2417`'s `=` test broken, since a glob is not an equality.
 
 ## Slices
 
+**The regression surface is named, and it already exists.**
+`test/reconcile/host.test.mjs` sets `PLOT_CI` in **11 places**, and
+`packages/domain/test/host-shell.test.ts` and `build-shell.test.ts` cover the
+same ops from the domain side. That suite pins the bare-word contract, so it is
+what proves this change preserves behaviour for the spelling that already
+worked. **Both slices keep it green without editing it** — a slice that has to
+rewrite those tests has changed the contract rather than the parsing, which is
+the signal to stop.
+
 ### Splitting the value
 
 - `bug/the-ci-key-splits-into-scheme-and-instance` — `ci_scheme()` and
@@ -221,7 +269,9 @@ leaves `:2417`'s `=` test broken, since a glob is not an equality.
   key WINS over `CI:` prose when both are set**, and `$JENKINS_INSTANCE` wins
   over the prose too — the override carries a job path the prose cannot express,
   so a repo that answered adoption's question keeps its nested job rather than
-  degrading to root-scope listing.
+  degrading to root-scope listing. **Asserted: `PLOT_CI` is split like the
+  config value** — `build-actions.ts:39` passes it in production, so a bare
+  `SYSTEM` word and a person's prose must reach the same comparison.
 
 ### Asking the scheme
 
@@ -234,12 +284,15 @@ leaves `:2417`'s `=` test broken, since a glob is not an equality.
   other three rather than being left as the one that already worked.
   **Asserted: `ci-limit`'s payload reports the SCHEME as its connector** —
   `{"connector":"github-actions"}`, not
-  `{"connector":"github-actions (see .github/workflows/ci.yml)"}`. The board
-  renders that field, so a config note sitting in a connector name is the same
-  missing split read from the other end. **Asserted: no `ci_backend` reference
-  survives** — `grep -c ci_backend` returns 0, which is what stops a later
-  caller matching the prose value again.
-
+  `{"connector":"github-actions (see …)"}`. **Asserted from the domain side:
+  `limit()` returns a NON-EMPTY list for a prose `CI:` value** — this is the
+  assertion that catches the second defect, because `build-shell.ts:180` filters
+  by equality against `shell.system` and the payload fix is what makes the
+  reading survive it. A shell-only assertion would pass while the connector
+  still answered *meters nothing*. **Asserted: no `ci_backend` reference
+  survives** — `grep -c ci_backend` returns 0 across scripts AND
+  `packages/domain/src`, since `budget.ts:15` cites it by name and its citation
+  moves to `ci_scheme()` in this slice.
 ## Notes
 
 Written 2026-09-09, after `the-connector-is-read-against-a-real-instance` was
