@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -45,7 +46,9 @@ A controller receipt is the same instrument aimed one layer earlier: **only the 
 
 ### The receipt is the controller's, and the shape is already written
 
-`plot-state-receipt.sh` is sourced by the three scripts that own a `State:` line and by the gate that refuses every other writer — one file, because *"the gate and the owners must agree on where a receipt lives"*. This plan adds a second receipt kind with the same properties: machine-local under `.plot/state/` (a receipt travelling in a commit would clear the gate on every checkout that pulled it), spent when it clears, so one controller call licenses one script run.
+`plot-state-receipt.sh` is sourced by the three scripts that own a `State:` line and by the gate that refuses every other writer — one file, because *"the gate and the owners must agree on where a receipt lives"*. This plan adds a second receipt kind with the same properties: machine-local under `.plot/state/` (a receipt travelling in a commit would clear the gate on every checkout that pulled it).
+
+**It is spent on the action COMPLETING, not on the gate clearing**, and that is a deliberate difference from the state gate's receipt. `plot-approve.sh` and `plot-deliver.sh` are documented as idempotent precisely because their irreversible step is a host write: *"re-running is the repair for any interruption after it"*. A receipt spent at the gate would refuse that repair, turning the documented fix into a second controller call — and the operator most likely to need it is the one whose first run died halfway. So the gate clearing leaves the receipt in place, the script's own successful exit spends it, and a failed run can be retried on the same licence.
 
 **The controller writes it immediately before spawning.** `/api/dispatch`, `/api/approve` and `/api/deliver` already spawn detached and immediately; the receipt is written in the same function, naming the script and the slug.
 
@@ -53,9 +56,21 @@ A controller receipt is the same instrument aimed one layer earlier: **only the 
 
 **Gated: the lifecycle scripts a controller endpoint owns.** `plot-dispatch.sh`, `plot-approve.sh`, `plot-deliver.sh` — the three measured being called directly, each with a live endpoint.
 
+**Not gated: `gh` and `git`, though both were used to bypass a controller in the same session.** `gh pr merge` on a plan PR *is* the approval under `Review: pr`, and `git push origin HEAD:main` writes what a controller would have written. They are left out because **a refusal must name a route**, and neither has an endpoint to point at: refusing `gh pr merge` with no alternative produces a gate whose only possible response is the escape hatch, which is the shape people turn off. The three scripts each have a live endpoint, so every refusal this gate issues can name a real command.
+
 **Not gated: everything read-only.** `plot-fleet-scan.sh`, `plot-reconcile-scan.sh`, `plot-pr-state.sh` and the rest change nothing, and gating a read would make the estate unaskable without a running board. The gate's population is *scripts that write*, which is the same boundary `plot-dispatch.sh` names for itself: *"THIS IS THE ONE SCRIPT IN THE FLEET THAT WRITES."*
 
-**Not gated: a script calling another script.** `plot-worker-loop.sh` runs inside a dispatched agent and reaches for the same helpers; a gate that refused it would break every worker. The receipt covers the master agent's own tool calls, and a script invoked by a script is not one.
+**Not gated: a call from inside a desk.** `plot-worker-loop.sh` runs in a dispatched worktree and reaches for the same helpers, and a dispatched worker is a `claude -p` process **inheriting the same plugin hooks** — so its tool calls reach this gate exactly as the master agent's do. The exemption is therefore explicit rather than accidental.
+
+**The desk IS the exemption, read from where the call runs.** A call whose working directory is inside a dispatch worktree is a worker's; one from the repository root is the master agent's. That is the same distinction every other component already makes — `plot-dispatch.sh` finds a desk by asking git which worktree holds a branch, and `plot-reap.sh` recognises one by its `.plot-worker.pid`.
+
+**Not an environment variable, and the reason is the whole design.** `PLOT_WORKER=1` would be simpler and it is refused for the same argument the receipt rests on: an env var is something an agent sets, and the gate exists because a master agent's own assertions cannot be trusted. A working directory is a measurement.
+
+### An operator typing the script is gated too, and Plot stops advising it
+
+**The refusal applies to a person at a terminal**, because a hand-typed script call bypasses the controller exactly as an agent's does. The escape hatch below is what serves the operator whose board is not running.
+
+**So Plot must stop printing advice its own gate refuses.** `plot-worker-loop.sh:1497` tells the reader *"stop it with `plot-dispatch.sh --stop <branch>`"*, and after this change that sentence names a route the gate blocks. The slice owns both halves: the message names the controller, and the gate refuses the script. A tool that advertises one path and refuses it is worse than either alone.
 
 ### It fails OPEN on its own machinery, and CLOSED on the case it exists for
 
@@ -98,7 +113,15 @@ That is today's design. `/plot-dispatch`'s prose names the script, and a skill i
 
 - `feature/a-controller-action-leaves-a-receipt` <!-- builds: the controller-action receipt and the gate that refuses an unreceipted lifecycle script --> — `plot-state-receipt.sh` gains the action-receipt kind, the three endpoints write one before spawning, and `plot-controller-gate.sh` refuses a gated script invoked without one.
 
-  **Asserted: a direct `plot-dispatch.sh` call is REFUSED and names the endpoint** — the exact invocation measured five times on 2026-09-09. **Asserted: the same call through `/api/dispatch` succeeds**, since a gate that broke the legitimate path is worse than no gate. **Asserted: the receipt is spent** — one controller call licenses one run, and a second direct call after a successful one is refused. **Asserted: a read-only script is never gated** — `plot-fleet-scan.sh` runs with no receipt and no board. **Asserted: it fails OPEN with no `.plot/state/`, and says the routing went unverified** — failing open, not failing silently. **Asserted: the escape records its reason** to `.plot/state/unowned-action-writes.tsv`, because an uncounted escape is an off switch.
+  **Asserted: a direct `plot-dispatch.sh` call is REFUSED and names the endpoint** — the exact invocation measured five times on 2026-09-09. **Asserted: the same call through `/api/dispatch` succeeds**, since a gate that broke the legitimate path is worse than no gate.
+
+  **Asserted: a call from inside a dispatch worktree is allowed** — a dispatched worker inherits these hooks, so without this every worker breaks. **Asserted: the exemption reads the working directory, never an environment variable** — an env var is something an agent sets, and this gate exists because an agent's own assertions cannot be trusted.
+
+  **Asserted: a retry after a FAILED run is allowed on the same receipt** — `plot-approve.sh` and `plot-deliver.sh` document re-running as the repair for an interruption, and a gate that refused it would break the fix for the exact case it is most needed in. **Asserted: a second run after a SUCCESSFUL one is refused** — the receipt is spent by the script's own exit, so the licence covers one completed action.
+
+  **Asserted: `plot-worker-loop.sh` no longer prints `plot-dispatch.sh --stop` as advice** — it names the controller, so Plot never advertises a route its own gate refuses. **Asserted: an operator typing the script is gated like an agent**, with the escape hatch as the answer for a machine running no board.
+
+  **Asserted: a read-only script is never gated** — `plot-fleet-scan.sh` runs with no receipt and no board. **Asserted: `gh` and `git` are not gated** — a refusal must name a route, and neither has an endpoint to name. **Asserted: it fails OPEN with no `.plot/state/`, and says the routing went unverified** — failing open, not failing silently. **Asserted: the escape records its reason** to `.plot/state/unowned-action-writes.tsv`, because an uncounted escape is an off switch.
 
 ## Notes
 
