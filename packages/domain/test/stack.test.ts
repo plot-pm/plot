@@ -238,15 +238,24 @@ describe('fromSignals', () => {
 });
 
 describe('proposeCi', () => {
-  it('proposes jenkins from a lone Jenkinsfile', () => {
-    const answer = proposeCi({ jenkinsfile: true, ghWorkflows: false });
+  // THE VENDOR NAMES ARRIVE AS VALUES. The collector knows a `Jenkinsfile` when
+  // it sees one; the rule counts how many signals are present. That is why the
+  // third name below needs no edit to the rule — the same property
+  // `adoption.ts` holds for the key it writes, one layer earlier.
+  const ci = (jenkinsfile: boolean, ghWorkflows: boolean) => [
+    { proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: jenkinsfile },
+    { proposes: 'github-actions', evidence: '`.github/workflows/`', present: ghWorkflows },
+  ];
+
+  it('proposes the lone signal, with its evidence', () => {
+    const answer = proposeCi(ci(true, false));
     if (!isProposal(answer)) throw new Error('expected a proposal');
     expect(answer.proposed).toBe('jenkins');
     expect(answer.evidence).toBe('a `Jenkinsfile`');
   });
 
-  it('proposes github-actions from lone workflows', () => {
-    const answer = proposeCi({ jenkinsfile: false, ghWorkflows: true });
+  it('proposes whichever signal is the lone one', () => {
+    const answer = proposeCi(ci(false, true));
     if (!isProposal(answer)) throw new Error('expected a proposal');
     expect(answer.proposed).toBe('github-actions');
     expect(answer.evidence).toBe('`.github/workflows/`');
@@ -255,7 +264,7 @@ describe('proposeCi', () => {
   it('asks, naming both, where the tree shows both', () => {
     // A team on GitHub running Jenkins is this sprint's own user, and a
     // silently wrong `CI:` sends every build-status lookup to the wrong system.
-    const answer = proposeCi({ jenkinsfile: true, ghWorkflows: true });
+    const answer = proposeCi(ci(true, true));
     if (!isQuestion(answer)) throw new Error('expected a question');
     expect(answer.found).toEqual(['a `Jenkinsfile`', '`.github/workflows/`']);
   });
@@ -263,7 +272,20 @@ describe('proposeCi', () => {
   it('is silent where the tree shows neither', () => {
     // `none` is a reading, not a key: adoption writes nothing rather than
     // recording a `CI: none` the repository never chose.
-    expect(proposeCi({ jenkinsfile: false, ghWorkflows: false }).answer).toBe('silent');
+    expect(proposeCi(ci(false, false)).answer).toBe('silent');
+  });
+
+  it('knows no vendor — a system it has never heard of proposes itself', () => {
+    // The rule holds no list. A collector that learns to spot a `.buildkite/`
+    // directory adds one entry and this file does not change, which is what
+    // `The domain names no vendor` gates and what `ciKey`'s own comment asks
+    // for one layer along.
+    const answer = proposeCi([
+      { proposes: 'buildkite', evidence: '`.buildkite/`', present: true },
+      { proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: false },
+    ]);
+    if (!isProposal(answer)) throw new Error('expected a proposal');
+    expect(answer.proposed).toBe('buildkite');
   });
 });
 
@@ -286,18 +308,22 @@ describe('proposeStack', () => {
   });
 
   it('answers the CI question where the readings carried the signals', () => {
-    const p = proposeStack(readings({ ciSignals: { jenkinsfile: true, ghWorkflows: false } }));
+    const p = proposeStack(readings({
+      ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
+    }));
     if (p.ci === null || !isProposal(p.ci)) throw new Error('expected a proposal');
     expect(p.ci.proposed).toBe('jenkins');
   });
 
   it('leaves the CI question unanswered where the collector did not look', () => {
     // `null` IS NOT SILENCE. A collector that never reported `ci_signals` did
-    // not look; one that reported two falses looked and found nothing. Only the
-    // second licenses writing no `CI:` key on the repository's behalf.
+    // not look; one reporting signals that are all absent looked and found
+    // nothing. Only the second licenses writing no `CI:` key on the
+    // repository's behalf.
     expect(proposeStack(readings({ ciSignals: null })).ci).toBeNull();
-    expect(proposeStack(readings({ ciSignals: { jenkinsfile: false, ghWorkflows: false } })).ci)
-      .toEqual({ answer: 'silent' });
+    expect(proposeStack(readings({
+      ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: false }],
+    })).ci).toEqual({ answer: 'silent' });
   });
 
   it('proposes nothing from a repository that shows nothing', () => {

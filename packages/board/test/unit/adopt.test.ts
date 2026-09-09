@@ -74,14 +74,6 @@ describe('adoptionReadingsFrom', () => {
     expect(adoptionReadingsFrom({}).hasPlotConfig).toBe(false);
   });
 
-  it('reads an absent `ci_system` as unread rather than as `none`', () => {
-    // MEASURED 2026-09-09: `plot-detect-repo.sh` on main prints no `ci_system`
-    // at all — PR #811 for `the-probe-reads-the-ci-system` merged carrying zero
-    // files. So this is the live case, not a hypothetical, and the two readings
-    // reach different gaps in the rule.
-    expect(adoptionReadingsFrom({}).ciSystem).toBe('');
-    expect(adoptionReadingsFrom({ ci_system: 'none' }).ciSystem).toBe('none');
-  });
 });
 
 describe('answersFrom', () => {

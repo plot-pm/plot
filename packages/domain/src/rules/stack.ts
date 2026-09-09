@@ -80,15 +80,18 @@ export interface StackReadings {
   /** Whether any hub doc was found to sample at all. */
   hasHubDoc: boolean;
   /**
-   * What the tree shows about CI, or `null` where the collector did not look.
+   * Every CI signal the collector looked for, or `null` where it looked for none.
    *
-   * `null` IS NOT `{false, false}`. A collector that reports neither signal
-   * looked and found nothing, which proposes no `CI:` key; a collector that
-   * reports nothing at all was never asked, and saying *no CI evidence* on its
-   * behalf is a reading nobody took. `/plot-init` already draws the same line
-   * for the field it reads — *"which is not the same as `none`"*.
+   * `null` IS NOT AN EMPTY LIST. A collector reporting signals that are all
+   * absent looked and found nothing, which proposes no `CI:` key; a collector
+   * reporting nothing at all was never asked, and saying *no CI evidence* on
+   * its behalf is a reading nobody took. `/plot-init` already draws the same
+   * line for the field it reads — *"which is not the same as `none`"*.
+   *
+   * WHICH SIGNALS EXIST IS THE COLLECTOR'S, so the vendor names arrive as
+   * values and this file holds none.
    */
-  ciSignals: CiSignals | null;
+  ciSignals: readonly Signal<string>[] | null;
 }
 
 /** What the readings propose about the Node on this machine. */
@@ -157,7 +160,7 @@ export interface StackProposal {
    * `null` where the readings carried no `ciSignals` at all — an unasked
    * question, distinct from all three of its answers.
    */
-  ci: SignalAnswer<CiSystem> | null;
+  ci: SignalAnswer<string> | null;
 }
 
 /**
@@ -421,45 +424,25 @@ export const fromSignals = <T extends string>(
   };
 };
 
-/** A CI system a repository's tree can propose. */
-export type CiSystem = 'jenkins' | 'github-actions';
-
-/**
- * What the tree shows about which CI runs this repository's PRs.
- *
- * The two `plot-board-probe.sh` already reports as `ci_signals`, which is where
- * the shape comes from rather than from a new invention.
- */
-export interface CiSignals {
-  /** Whether a `Jenkinsfile` sits at the repository root. */
-  jenkinsfile: boolean;
-  /** Whether `.github/workflows/` exists. */
-  ghWorkflows: boolean;
-}
-
 /**
  * Which CI the tree proposes, or the question it raises.
  *
- * A `Jenkinsfile` alone proposes `jenkins`; `.github/workflows/` alone proposes
- * `github-actions`; both ask, naming both; neither is silent and no `CI:` key
- * is written.
+ * ONE SIGNAL PROPOSES, TWO SIGNALS ASK, and this is that rule applied to CI. It
+ * is `fromSignals` under a name the callers read, and it holds no list of
+ * systems: **the signals arrive from the collector, which is the only component
+ * that knows a `Jenkinsfile` when it sees one.** A third CI system needs a
+ * signal added where the tree is read and no edit here — the property
+ * `adoption.ts` already states for the key it writes, held one layer earlier.
  *
  * WHAT IT DOES NOT DO IS DECIDE WHICH CI A REPOSITORY SHOULD USE. It reads what
- * the tree shows. Whether the described pipeline is the one that gates a merge
- * is a person's answer, and this asks for it whenever the tree gives two.
+ * the collector found. Whether the described pipeline is the one that gates a
+ * merge is a person's answer, and this asks for it whenever the tree gives two.
  *
- * @param signals what the collector found in the tree.
+ * @param signals every CI signal the collector looked for, present or not.
  * @returns the proposal, the question, or silence.
  */
-export const proposeCi = (signals: CiSignals): SignalAnswer<CiSystem> =>
-  fromSignals<CiSystem>([
-    { proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: signals.jenkinsfile },
-    {
-      proposes: 'github-actions',
-      evidence: '`.github/workflows/`',
-      present: signals.ghWorkflows,
-    },
-  ]);
+export const proposeCi = (signals: readonly Signal<string>[]): SignalAnswer<string> =>
+  fromSignals(signals);
 
 /**
  * Everything a probe's readings propose.

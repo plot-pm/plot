@@ -1,4 +1,4 @@
-import type { CiSignals, StackReadings } from '@plot-pm/domain/rules/stack';
+import type { Signal, StackReadings } from '@plot-pm/domain/rules/stack';
 
 /**
  * The probe report → `StackReadings` mapping, shared by the two entries that
@@ -51,23 +51,36 @@ const stringOr = (value: unknown): string => (typeof value === 'string' ? value 
 /**
  * Read the CI signals from a probe's report.
  *
- * **AN ABSENT `ci_signals` IS `null`, NEVER `{false, false}`.** The two say
- * different things — *the collector did not look* against *the collector looked
- * and the tree shows nothing* — and only the second licenses writing no `CI:`
- * key on the repository's behalf. `plot-detect-repo.sh` does not report the
- * field yet, so `null` is the answer on this estate today.
+ * **AN ABSENT `ci_signals` IS `null`, NEVER A LIST OF ABSENT SIGNALS.** The two
+ * say different things — *the collector did not look* against *the collector
+ * looked and the tree shows nothing* — and only the second licenses writing no
+ * `CI:` key on the repository's behalf. `plot-detect-repo.sh` does not report
+ * the field yet, so `null` is the answer on this estate today.
+ *
+ * **THE VENDOR NAMES LIVE HERE AND NOT IN THE RULE.** Which file means which CI
+ * is what a collector knows; `proposeCi` counts how many signals are present
+ * and never learns their names, so a third CI system is one entry added here.
+ * The domain names no vendor, and CI gates exactly that.
  *
  * @param value what the `ci_signals` field held
- * @returns the two signals, or `null` where the field was absent or not an
- *   object
+ * @returns one entry per signal the collector looks for, or `null` where the
+ *   field was absent or not an object
  */
-const ciSignalsFrom = (value: unknown): CiSignals | null => {
+const ciSignalsFrom = (value: unknown): readonly Signal<string>[] | null => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const signals = value as Record<string, unknown>;
-  return {
-    jenkinsfile: signals.jenkinsfile === true,
-    ghWorkflows: signals.gh_workflows === true,
-  };
+  return [
+    {
+      proposes: 'jenkins',
+      evidence: 'a `Jenkinsfile`',
+      present: signals.jenkinsfile === true,
+    },
+    {
+      proposes: 'github-actions',
+      evidence: '`.github/workflows/`',
+      present: signals.gh_workflows === true,
+    },
+  ];
 };
 
 export const readingsFrom = (report: Record<string, unknown>): StackReadings => {
