@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** the-master-agent-holds-the-fleet
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-08, Jan Wloka, in-session
 - **Started:** 2026-09-09, Jan Wloka, `bug/the-registry-sweeps-what-it-did-not-start`
+- **Delivered:** 2026-09-09
 
 ## Changelog
 

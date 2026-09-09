@@ -63,7 +63,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 - [x] [a-merged-pr-carried-work] `/plot-deliver` distinguishes a slice whose PR carried work from one whose PR carried a marker. Two slices passed that gate in one sprint and nothing reported it.
 - [x] [the-master-agent-uses-the-controllers] A lifecycle action goes through its controller, and a refusal ends it. Measured 2026-09-08: four of five actions in one session had a controller and none was used — a sprint activated with `sed` while `setSprintState` sat there with nine refusals and zero callers.
 - [ ] [a-sprint-transition-is-performed] `/plot-sprint` start, commit and close call `setSprintState`. The rule is written, tested, exported and dead.
-- [ ] [the-registry-sweeps-what-it-did-not-start] The supervisor reports registered worktrees nobody dispatched. Measured 2026-09-08: twelve hand-made trees in `/private/tmp` made `git worktree list` report 34 where 22 were real, and the fleet scan timed out at 90 s — the board fell back to a stale pulse and showed no PRs.
+- [x] [the-registry-sweeps-what-it-did-not-start] The supervisor reports registered worktrees nobody dispatched. Measured 2026-09-08: twelve hand-made trees in `/private/tmp` made `git worktree list` report 34 where 22 were real, and the fleet scan timed out at 90 s — the board fell back to a stale pulse and showed no PRs.
 
 ### Should Have
 
