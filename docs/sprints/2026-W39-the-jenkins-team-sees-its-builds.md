@@ -57,7 +57,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 ### Must Have
 
-- [ ] [the-probe-reads-the-ci-system] `plot-detect-repo.sh` emits `ci_system` as signals, shaped after `plot-board-probe.sh`'s `ci_signals`. The `CI:` proposal in `/plot-init` is specified against this field and is inert without it. **Waits on `a-probe-reports-and-the-domain-judges`** — both change the same collector, and the word `ci_system` proposes belongs in the domain rather than written here and moved a week later. Re-filed: PR #811 merged zero files.
+- [x] [the-probe-reads-the-ci-system] `plot-detect-repo.sh` emits `ci_system` as signals, shaped after `plot-board-probe.sh`'s `ci_signals`. The `CI:` proposal in `/plot-init` is specified against this field and is inert without it. **Waits on `a-probe-reports-and-the-domain-judges`** — both change the same collector, and the word `ci_system` proposes belongs in the domain rather than written here and moved a week later. Re-filed: PR #811 merged zero files.
 - [x] [the-ci-connector-is-jenkins] `build-jenkins.ts` answers the three port operations through `plot-host.sh`. Re-filed: PR #821 merged a marker and no code.
 - [ ] [the-run-ops-ask-the-ci-backend] `runs` and `run-for-sha` branch on `ci_backend()` rather than calling `gh` unconditionally. Without this the connector above has nothing to call.
 - [x] [a-merged-pr-carried-work] `/plot-deliver` distinguishes a slice whose PR carried work from one whose PR carried a marker. Two slices passed that gate in one sprint and nothing reported it.
