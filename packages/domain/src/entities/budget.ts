@@ -12,10 +12,10 @@ import { LimitBasisSchema, type LimitBasis, type LimitReading } from './limit.js
  * exhaustion says nothing about REST.
  *
  * Every part is a STRING this record does not validate. `Tracker` already names
- * `linear`, a connector Plot has no adapter for, and `ci_backend()` validates
- * nothing at all; `Git host` is the counter-example, a closed enum that dies on
- * an unknown value. A design keyed to four connectors breaks on the fifth, and
- * GitLab and Trello are next.
+ * `linear`, a connector Plot has no adapter for, and `ci_scheme()` validates
+ * nothing at all — it only splits a `CI:` value at its first token; `Git host`
+ * is the counter-example, a closed enum that dies on an unknown value. A design
+ * keyed to four connectors breaks on the fifth, and GitLab and Trello are next.
  *
  * The bucket keeps the connector's OWN word. Normalising it would lose the
  * difference between a GitHub Actions minute quota and the API's 5000/hr, which
