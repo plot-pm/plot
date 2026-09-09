@@ -1862,6 +1862,118 @@ test('host: issue-list jira exits 3 when no base URL is configured', () => {
   assert.equal(res.stdout.trim(), '');
 });
 
+// --- `Ticket prefixes` scopes the inbox to this repository -------------------
+//
+// The defect: `assignee = currentUser() AND resolution = EMPTY` scopes by PERSON
+// and by STATE, and by nothing else. On a shared Jira instance a reporter's board
+// showed twelve issues, one of them belonging to a different customer entirely.
+// Jira has no notion of the repository a board serves — that mapping lives only
+// in this repo's config, which is why a KEY is the fix and not a JQL function.
+//
+// The key holds a LIST. A repository mapping to several Jira projects is the
+// normal case: filtering on adoption's single seeded prefix would hide the work
+// that genuinely belongs, under a heading claiming nobody had planned it.
+//
+// Every test below reads the JQL out of the recorded curl argv — the query is
+// sent as `--data-urlencode jql=…`, so the argv line IS the assertion subject.
+
+// The JQL the adapter sends, lifted from the recorded argv. `--data-urlencode`
+// passes `jql=<query>` as one argument, so the line carries the whole query.
+function jqlOf(stub) {
+  const line = readFileSync(stub.argvFile, 'utf8').split('\n').find((l) => l.startsWith('jql='));
+  return line === undefined ? null : line.slice('jql='.length);
+}
+
+// TODAY'S QUERY, byte for byte. Written out rather than derived, because the
+// upgrade-safety assertion below is only worth anything if this side is a
+// literal: a constant shared with the implementation would move with it.
+const JQL_UNSCOPED = 'assignee = currentUser() AND resolution = EMPTY ORDER BY created DESC';
+
+// A repository that declares NO `Ticket prefixes`. An env override cannot
+// express this — an empty override reads as *not set* and falls through to the
+// config, which run from this repo's own root is THIS repo's config. The same
+// trap `makeNoCiRepo` was written for, one key along: the absence has to be a
+// real repository saying nothing.
+function makeTicketPrefixRepo(prefixLine) {
+  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-prefixes-'));
+  const config = `## Plot Config\n\n- **Git host:** github\n${prefixLine ?? ''}`;
+  writeFileSync(path.join(repo, 'CLAUDE.md'), config);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  return repo;
+}
+
+// `runJira`, but from a chosen repository root so `plot-config.sh` reads that
+// repo's `## Plot Config` rather than the checkout the suite runs in.
+function runJiraIn(repo, args, stub, extraEnv = {}) {
+  return spawnSync('bash', [adapter, ...args], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, ...JIRA_ENV, ...extraEnv },
+  });
+}
+
+test('host: issue-list jira scopes the JQL by project when Ticket prefixes is set', () => {
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A, PROJ-B\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const jql = jqlOf(stub);
+  assert.match(jql, /AND project IN \(PROJ-A, PROJ-B\)/, 'the declared projects scope the inbox');
+  // The person and state scopes SURVIVE — this narrows the inbox, never replaces it.
+  assert.match(jql, /assignee = currentUser\(\)/);
+  assert.match(jql, /resolution = EMPTY/);
+  // ORDER BY stays LAST: JQL requires it after every clause, so an `IN` appended
+  // to the end of the default string would be a syntax error Jira rejects.
+  assert.match(jql, /ORDER BY created DESC$/, 'ORDER BY closes the query');
+});
+
+test('host: issue-list jira sends TODAY\'S query byte-for-byte when the key is absent', () => {
+  // THE UPGRADE-SAFETY PROPERTY, and the assertion that fails if the clause is
+  // appended unconditionally. A default that started filtering on an undeclared
+  // key would empty every existing board's inbox on upgrade — a WORSE failure
+  // than the one being fixed, because it looks like *no tickets* rather than
+  // like the wrong ones.
+  const repo = makeTicketPrefixRepo(null);
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(jqlOf(stub), JQL_UNSCOPED, 'an undeclared key changes nothing at all');
+});
+
+test('host: issue-list jira lets PLOT_JIRA_JQL win over Ticket prefixes', () => {
+  // Teams already worked around this bug with their own JQL. An override that
+  // stopped overriding would break exactly the people who noticed it first.
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A, PROJ-B\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list'], stub, { PLOT_JIRA_JQL: 'project = MINE ORDER BY created DESC' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(jqlOf(stub), 'project = MINE ORDER BY created DESC', 'the override is the whole query');
+  assert.ok(!jqlOf(stub).includes('PROJ-A'), 'the key never edits an explicit override');
+});
+
+test('host: issue-list jira reads a one-element Ticket prefixes as a valid IN clause', () => {
+  // What adoption's seed writes: `plot-detect-repo.sh` takes `head -1`, so a
+  // freshly adopted repo holds exactly one prefix. This catches a join that
+  // emits `IN (PROJ-A,)` — valid-looking to a reader, rejected by Jira.
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(jqlOf(stub), /AND project IN \(PROJ-A\) ORDER BY/, 'one element carries no trailing comma');
+});
+
+test('host: issue-list jira reads a comma-separated Ticket prefixes with or without spaces', () => {
+  // `PROJ-A, PROJ-B` and `PROJ-A,PROJ-B` must reach the SAME query. This is the
+  // estate's first list-valued key with a consumer, so the parsing is stated
+  // here rather than inherited.
+  const spaced = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const tight = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  runJiraIn(makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A,  PROJ-B\n'), ['issue-list'], spaced);
+  runJiraIn(makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A,PROJ-B\n'), ['issue-list'], tight);
+  assert.equal(jqlOf(spaced), jqlOf(tight), 'whitespace around the commas is not part of the value');
+  assert.match(jqlOf(tight), /IN \(PROJ-A, PROJ-B\)/);
+});
+
 test('host: issue-view jira returns {number,title,body,url} with a plain-string body', () => {
   // v2, not v3: `description` is a plain string here, the problem statement
   // /plot-idea receives — not an ADF tree to walk.

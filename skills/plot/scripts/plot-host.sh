@@ -1475,6 +1475,60 @@ tracker_base_url() {
   tracker_raw | awk '{print $2}' | sed 's:/*$::'
 }
 
+# The Jira projects this repository's work lives in, one per line, or nothing.
+#
+# WHY A KEY AND NOT A QUERY. The inbox's default JQL scopes by PERSON
+# (`assignee = currentUser()`) and by STATE (`resolution = EMPTY`), and by
+# nothing else. On a shared Jira instance that is instance-wide: one reporter's
+# board showed twelve issues, of which one belonged to a different customer
+# entirely. Jira has no notion of the repository a board serves — no
+# `currentProject()` function exists — and that mapping lives only here, in this
+# repository's own config. Asking Jira which projects the user can see answers
+# the wrong question: that list is instance-wide too, and is what produced the
+# bug.
+#
+# IT HOLDS A LIST, and the single prefix adoption seeds only STARTS it.
+# `plot-detect-repo.sh` takes `head -1`, so a freshly adopted repo declares one
+# project. Filtering on that alone would be a second defect wearing the fix's
+# clothes — on the reported repository it shows 3 of 12 issues and hides the
+# other two projects' work under a heading claiming nobody had planned it. A
+# repository mapping to several Jira projects is the normal case.
+#
+# NAMED `Ticket prefixes`, not `Jira projects` (which puts a vendor in a config
+# key and severs the word the probe already uses) and not `Tracker projects`
+# (which generalises over a set of one). It sits next to `Branch prefixes` in
+# every adopting repo's config — an unrelated structural key holding `idea/`,
+# `feature/`, `bug/` — and only this docstring keeps the two apart.
+#
+# EMPTY IS THE ANSWER FOR AN UNDECLARED KEY, and callers must keep it meaning
+# *do not scope*: the absent case has to leave today's query untouched, or an
+# upgrade empties every existing board's inbox — a worse failure than the one
+# being fixed, because it looks like *no tickets* rather than the wrong ones.
+#
+# PARSING IS STATED HERE, not inherited: this is the estate's first list-valued
+# key with a consumer (`Implementation home` is documented as taking a list and
+# nothing splits one). Commas separate, surrounding whitespace is not part of a
+# value, and an empty element is dropped rather than emitted — a join over a
+# stray comma would otherwise produce `IN (PROJ-A,)`, which Jira rejects. A
+# value that is punctuation alone therefore reads as *undeclared*: it restores
+# the unscoped query rather than sending a query no instance would accept.
+#
+# `PLOT_TICKET_PREFIXES` overrides, the shape `PLOT_TRACKER` already sets. It
+# cannot express ABSENCE — an empty override falls through to the config — so
+# the absent case is tested with a repository that declares nothing.
+tracker_projects() {
+  local raw
+  if [ -n "${PLOT_TICKET_PREFIXES:-}" ]; then
+    raw="$PLOT_TICKET_PREFIXES"
+  else
+    raw="$(bash "$here/plot-config.sh" get "Ticket prefixes" "")"
+  fi
+  # One per line, trimmed, empties dropped. `plot-config.sh` already normalises
+  # `A,B` to `A, B`, but an override arrives unnormalised and a hand-edited
+  # value can carry a stray comma — so the split is done here regardless.
+  printf '%s' "$raw" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' || true
+}
+
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
 # confirmed against a real instance; these follow Jira Cloud's documented Basic
 # scheme (email + API token, base64'd into an Authorization header):
@@ -3022,7 +3076,29 @@ case "$op" in
       # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
       # same order `createdAt` gives the GitHub arm.
       jira_require_config
-      jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY ORDER BY created DESC}"
+      # `Ticket prefixes` SCOPES THE DEFAULT to this repository's projects. The
+      # default alone scopes by person and by state, so on a shared instance it
+      # is instance-wide: it returned another customer's ticket to a reporter's
+      # board (see `tracker_projects` for the measurement and the naming).
+      #
+      # THE CLAUSE IS SPLICED, NOT APPENDED, and the split below is why: JQL
+      # requires ORDER BY to close the query, so a clause added to the end of
+      # the default string makes a query Jira rejects.
+      #
+      # AN UNDECLARED KEY LEAVES THE QUERY BYTE-IDENTICAL. `$scope` is empty,
+      # the two halves rejoin exactly as they were written, and an upgrade
+      # changes nothing for a repository that never set the key.
+      scope=""
+      if projects="$(tracker_projects)" && [ -n "$projects" ]; then
+        # `IN (A, B)`, never a trailing comma: paste joins N-1 separators over N
+        # elements, so a one-element list — what adoption's seed writes — yields
+        # `IN (A)` rather than `IN (A,)`.
+        scope=" AND project IN ($(printf '%s' "$projects" | paste -sd, - | sed 's/,/, /g'))"
+      fi
+      # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
+      # their own JQL; an override that stopped overriding would break exactly
+      # the people who noticed the problem first.
+      jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY${scope} ORDER BY created DESC}"
       # maxResults bounds ONE page. The inbox is small by construction (a
       # person's open tickets), so no nextPageToken loop is needed; the caller's
       # --limit caps it, else Jira's default page. v2 `search/jql` takes the same
