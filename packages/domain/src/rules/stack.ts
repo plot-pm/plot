@@ -79,6 +79,19 @@ export interface StackReadings {
   germanWordCount: number;
   /** Whether any hub doc was found to sample at all. */
   hasHubDoc: boolean;
+  /**
+   * The Jenkins host a self-describing doc names, or `''` where none does.
+   *
+   * The SLUG half of the `Jenkins instance` key, whose full form is
+   * `<slug>/<job/path>`. The container path is a fact about the Jenkins job
+   * tree that no file in the repository states, so it is asked rather than
+   * read — the same split adoption already makes for Jira's base URL.
+   *
+   * A REPOSITORY NAMING NO JENKINS IS THE NORMAL CASE. `''` is not evidence
+   * against Jenkins; a `Jenkinsfile` says *Jenkins builds this* without saying
+   * *which Jenkins*, so an empty reading asks rather than proposing.
+   */
+  ciHost: string;
 }
 
 /** What the readings propose about the Node on this machine. */
@@ -126,6 +139,42 @@ export interface LanguageProposal {
   germanWords: number;
 }
 
+/**
+ * What must be asked before a `Jenkins instance` key can be written.
+ *
+ * `none` — nothing to ask; the key is not this repository's question.
+ * `path` — the slug was measured, so only the container path is missing.
+ * `both` — Jenkins builds this and no doc says which, so both halves are asked.
+ */
+export type CiInstanceAsk = 'none' | 'path' | 'both';
+
+/** What the readings propose about this repository's Jenkins instance. */
+export interface CiInstanceProposal {
+  /**
+   * The instance slug proposed, or `null` where no doc named one.
+   *
+   * NEVER INVENTED. There is no plausible instance to default to: a slug is
+   * site-specific, and a wrong one answers `NOT reachable` — which a reader
+   * cannot tell from a Jenkins that is down. So this is what was measured or
+   * it is `null`.
+   */
+  slug: string | null;
+  /** Which halves of the key are still missing. */
+  ask: CiInstanceAsk;
+  /**
+   * The key to write from the answers already in hand, or `null` for none.
+   *
+   * AN UNANSWERED PATH WRITES THE SLUG ALONE. `plot-host.sh:566` treats a
+   * bare-host instance as *list at the root scope* and calls that "honest, and
+   * the open point's fallback" — so a half-answer degrades to a reading that is
+   * wrong but visible, which beats a connector refusing for a reason nobody can
+   * see. An unanswered slug writes nothing, because a `Jenkins instance`
+   * invented to fill the field is the silent misconfiguration `/plot-init`
+   * refuses everywhere else.
+   */
+  key: string | null;
+}
+
 /** Everything the readings propose, each answer carrying its evidence. */
 export interface StackProposal {
   /** What Node this machine runs, and whether it is enough. */
@@ -136,6 +185,8 @@ export interface StackProposal {
   ticket: TicketProposal;
   /** Which language its hub docs are written in. */
   language: LanguageProposal;
+  /** Which Jenkins builds it, where Jenkins does. */
+  ciInstance: CiInstanceProposal;
 }
 
 /**
@@ -279,6 +330,35 @@ export const proposeLanguage = (
 };
 
 /**
+ * What a repository's Jenkins instance is, and what is left to ask.
+ *
+ * IT RUNS ONLY WHERE JENKINS BUILDS THE REPOSITORY. `CI: jenkins` is the
+ * trigger, because `plot-host.sh:677` refuses for want of this key only when
+ * the CI is Jenkins — a GitHub Actions repository is not missing anything.
+ * Where two signals were found the CI question is still open, so this asks
+ * nothing until it is answered.
+ *
+ * ONE QUESTION WHERE THE SLUG WAS FOUND, TWO WHERE IT WAS NOT. A reader who
+ * must supply a whole `<slug>/<job/path>` value is being asked to know the
+ * key's format, which the goal — *sees real build status without being told
+ * which keys to set* — rules out.
+ *
+ * @param ciHost the host a self-describing doc named, or `''`.
+ * @param isJenkins whether the CI proposal is `jenkins`.
+ * @returns the slug proposed, what is still asked, and the key writable now.
+ */
+export const proposeCiInstance = (
+  ciHost: string,
+  isJenkins: boolean,
+): CiInstanceProposal => {
+  if (!isJenkins) return { slug: null, ask: 'none', key: null };
+  const slug = ciHost.trim();
+  return slug === ''
+    ? { slug: null, ask: 'both', key: null }
+    : { slug, ask: 'path', key: slug };
+};
+
+/**
  * Everything a probe's readings propose.
  *
  * THE ONE ENTRY POINT THE SKILLS CALL, through `plot-propose-stack.mjs`. The
@@ -298,4 +378,14 @@ export const proposeStack = (readings: StackReadings): StackProposal => ({
     readings.subjectsRead,
   ),
   language: proposeLanguage(readings.germanWordCount, readings.hasHubDoc),
+  // THE TRIGGER IS THE CI PROPOSAL'S, AND THE CI PROPOSAL DOES NOT EXIST YET.
+  // `ci_system` is `the-probe-reads-the-ci-system`'s field and its slice merged
+  // carrying zero files — twice. Until it lands there is no `jenkins` reading
+  // to trigger on, so this composes to the *nothing to ask* answer and the
+  // `Jenkins instance` machinery below it stays unreached.
+  //
+  // IT IS WIRED RATHER THAN OMITTED so the arrival of `ci.reading` is a
+  // one-line change here and nothing else: the rule, its tests, the entry's
+  // mapping and the skill's prose are all in place and asserted.
+  ciInstance: proposeCiInstance(readings.ciHost, false),
 });

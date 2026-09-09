@@ -289,3 +289,23 @@ over one recomputed from the report.
   files**, its claim commit only. The signal itself is already read next door,
   as `ci_signals.{jenkinsfile,gh_workflows}` in `plot-board-probe.sh`, which is
   where the probe's field should derive its shape from.
+
+  **Re-measured 2026-09-09 and still true.** No branch on the estate carries
+  `ci_system` in either `plot-detect-repo.sh` or `rules/stack.ts`, and the
+  branch that was to add it has no remote ref. The slice merged empty twice.
+
+- **The `Jenkins instance` proposal is complete and reached by nothing.** The
+  probe emits `jenkins_host`, `proposeCiInstance` decides from it, and the
+  section above says what to ask — but the rule's trigger is a `jenkins` CI
+  reading, so `proposeStack` composes `proposeCiInstance(host, false)` and the
+  answer is always *nothing to ask*. **This is a wire, not a stub:** the arrival
+  of `ci.reading` is one argument in `proposeStack` and no other change
+  anywhere. Every branch of the rule is asserted today, including the two that
+  only the CI reading can reach.
+
+  **The rule names no vendor and the probe does.** `proposeCiInstance` takes a
+  `ciHost`, because CI's *"The domain names no vendor"* gate refuses `jenkins`
+  outside `packages/domain/src/adapters/` — a connector belongs there. The
+  shell probe keeps `jenkins_host`: grepping for a Jenkins hostname is a
+  vendor's business, and the entry's `readingsFrom` is the adapter that bridges
+  the two names.

@@ -176,3 +176,47 @@ test('init: every unattended declaration still discloses', () => {
   assert.ok(disclosures.length >= declarations.length,
     `every unattended declaration must disclose: ${declarations.length} declared, ${disclosures.length} disclosed`);
 });
+
+// ── The Jenkins instance: the key the connector refuses without ──────────────
+//
+// THESE ASSERT PROSE, AND THAT IS DELIBERATE HERE WHERE IT WAS WRONG ABOVE.
+// The rule is `proposeJenkins`, asserted behaviourally in
+// `packages/domain/test/stack.test.ts`, and the probe field is asserted against
+// the script in `init.test.mjs`. What is left is the two QUESTIONS a person is
+// asked — which exist only as prose, because only an agent reading this file
+// asks them. A test over prose is right for prose and wrong for a rule; the
+// three `ci_system` tests beside these are the wrong kind and the plan that
+// owns that field deletes them.
+
+test('init: the Jenkins instance is proposed wherever CI: jenkins is', () => {
+  assert.match(proposal, /\*\*Where `CI: jenkins` is proposed, propose `Jenkins instance` too\.\*\*/,
+    'the connector exits 3 without this key, so adoption must propose it');
+});
+
+test('init: one question where the slug was measured', () => {
+  assert.match(proposal, /Which job\n> builds this repository\?/,
+    'a measured slug leaves only the container path to ask');
+});
+
+test('init: two questions where the repository names no Jenkins', () => {
+  assert.match(proposal, /Which instance, and\n> which job\?/,
+    'a Jenkinsfile says Jenkins builds this without saying which Jenkins');
+});
+
+test('init: the instance is never defaulted', () => {
+  assert.match(proposal, /\*\*The fallback is a question, never a default\.\*\*/,
+    'a wrong slug answers NOT reachable, which reads as a Jenkins that is down');
+});
+
+test('init: an unanswered path writes the slug alone', () => {
+  assert.match(proposal, /\*\*An unanswered question writes what is left\.\*\*/,
+    'a bare-host instance lists at the root scope — wrong but visible');
+});
+
+test('init: unattended writes a measured slug and refuses an unmeasured one', () => {
+  const unattended = proposal.slice(proposal.indexOf('#### The Jenkins instance'));
+  assert.match(unattended, /PLOT-UNASKED: Which Jenkins job builds this\? — default —/,
+    'a measured slug is a structural signal and survives unattended');
+  assert.match(unattended, /PLOT-UNASKED: Which Jenkins instance, and which job\? — refused —/,
+    'an unmeasured slug has nothing to propose, so it refuses');
+});
