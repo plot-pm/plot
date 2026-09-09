@@ -12,6 +12,8 @@ import {
   release,
   supersedable,
   supersede,
+  undeliver,
+  undeliverable,
   type TransitionPlan,
 } from '../src/transitions/plan.js';
 
@@ -588,6 +590,172 @@ describe('reject', () => {
     expect(isDecision(result)).toBe(true);
     if (!isDecision(result)) return;
     expect(result.record).toBe('2026-09-07, Jan, withdrawn');
+  });
+});
+
+describe('undeliver', () => {
+  const why = 'the corpus slice was never built';
+
+  it('returns a decision carrying approved and its Rejected record', () => {
+    const result = undeliver(planWith({ phase: 'delivered' }), { on: '2026-09-09', why });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.phase).toBe('approved');
+    expect(result.field).toBe('Rejected');
+    expect(result.record).toBe(`2026-09-09, ${why}`);
+  });
+
+  it('treats an approved plan with no record as the repairable case', () => {
+    // A phase that flipped without its record is half a reversal, and the
+    // repair is to write the record — not to refuse the plan as never
+    // delivered, which is what its phase alone now says.
+    const result = undeliver(planWith({ phase: 'approved' }), { on: '2026-09-09', why });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.alreadyRecorded).toBe(false);
+  });
+
+  it('reports nothing to do when the phase is approved and the record is written', () => {
+    const result = undeliver(
+      planWith({ phase: 'approved', rejectedRecord: '2026-09-01, an earlier reason' }),
+      { on: '2026-09-09', why },
+    );
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.alreadyRecorded).toBe(true);
+    expect(result.record).toBe('2026-09-01, an earlier reason');
+  });
+
+  it('keeps the written record rather than overwriting it with a new reason', () => {
+    // The recorded reason belongs to the reversal that happened. A repair run
+    // supplying a different one must not rewrite history to say the other thing.
+    const result = undeliver(
+      planWith({ phase: 'delivered', rejectedRecord: '2026-09-01, the first reason' }),
+      { on: '2026-09-09', why: 'a different reason' },
+    );
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.record).toBe('2026-09-01, the first reason');
+  });
+
+  it('refuses state-terminal: a released plan cannot have its delivery reversed', () => {
+    // A TAG IS PUBLIC. No edit to a phase field makes a published release
+    // not have happened, so this is terminal rather than merely blocked.
+    const result = undeliver(planWith({ phase: 'released' }), { on: '2026-09-09', why });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-terminal');
+  });
+
+  it('refuses state-too-early: a draft plan was never delivered', () => {
+    const result = undeliver(planWith({ phase: 'draft' }), { on: '2026-09-09', why });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-too-early');
+  });
+
+  it('refuses state-too-early for a design plan too', () => {
+    const result = undeliver(planWith({ phase: 'design' }), { on: '2026-09-09', why });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-too-early');
+  });
+
+  it('refuses state-unreadable rather than guessing an unreadable phase', () => {
+    const result = undeliver(planWith({ phase: 'none' }), { on: '2026-09-09', why });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-unreadable');
+  });
+
+  it('refuses state-wrong: a plan that left the lifecycle has no delivery', () => {
+    const result = undeliver(planWith({ phase: 'rejected' }), { on: '2026-09-09', why });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-wrong');
+  });
+
+  it('refuses reason-missing: a reversal with nothing saying why is unactionable', () => {
+    const result = undeliver(planWith({ phase: 'delivered' }), { on: '2026-09-09', why: '   ' });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('reason-missing');
+  });
+
+  it('asks for no reason where one is already written', () => {
+    // The reason was recorded when the delivery was reversed. A repair run is
+    // finishing that write, not making the claim again.
+    const result = undeliver(
+      planWith({ phase: 'delivered', rejectedRecord: '2026-09-01, the reason' }),
+      { on: '2026-09-09', why: '' },
+    );
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('refuses refs-swept by its own name, not as a generic unmet reading', () => {
+    // A CALLER WHOSE REFS WERE SWEPT HAS ONE REPAIR. `precondition-unmet`
+    // sends it looking for a reading it forgot to supply, which is a different
+    // mistake with a different fix.
+    const result = undeliver(planWith({ phase: 'delivered' }), {
+      on: '2026-09-09',
+      why,
+      preconditions: [{ name: 'refs', met: false }],
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('refs-swept');
+  });
+
+  it('names the swept branches where the reading carried them', () => {
+    const result = undeliver(planWith({ phase: 'delivered' }), {
+      on: '2026-09-09',
+      why,
+      preconditions: [{ name: 'refs', met: false, detail: 'feature/a, feature/b' }],
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.detail).toContain('feature/a, feature/b');
+  });
+
+  it('passes a met refs reading through to the decision', () => {
+    const result = undeliver(planWith({ phase: 'delivered' }), {
+      on: '2026-09-09',
+      why,
+      preconditions: [{ name: 'refs', met: true }],
+    });
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('refuses precondition-unmet for any other unmet reading', () => {
+    const result = undeliver(planWith({ phase: 'delivered' }), {
+      on: '2026-09-09',
+      why,
+      preconditions: [{ name: 'clean-tree', met: false }],
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('precondition-unmet');
+  });
+
+  it('offers the act separately from taking it', () => {
+    expect(undeliverable(planWith({ phase: 'delivered' }))).toBe(true);
+    expect(undeliverable(planWith({ phase: 'released' }))).toBe(false);
+    expect(undeliverable(planWith({ phase: 'draft' }))).toBe(false);
+  });
+
+  it('is not reject: the two write one field and no shared state', () => {
+    // `reject` writes the TERMINAL `rejected` state — a verdict that a plan
+    // will not be built. This returns Delivered to Approved and keeps it live.
+    // They share the `Rejected:` line because a plan file has one place for
+    // *somebody said no*; a caller reaching for the wrong one is refused.
+    const reversed = undeliver(planWith({ phase: 'delivered' }), { on: '2026-09-09', why });
+    expect(isDecision(reversed)).toBe(true);
+    if (!isDecision(reversed)) return;
+    expect(reversed.phase).toBe('approved');
+
+    expect(
+      isRefusal(reject(planWith({ phase: 'delivered' }), { on: '2026-09-09', who: 'Jan', why })),
+    ).toBe(true);
   });
 });
 
