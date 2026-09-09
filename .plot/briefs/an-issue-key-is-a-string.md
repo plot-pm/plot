@@ -7,7 +7,7 @@
 - **Review of the code:** repo convention
 - **Answers:** GitHub issue #849 (in part)
 
-**Independent of the Reading slice** (`feature/an-issue-carries-its-status`).
+**In the SAME wave as `feature/an-issue-carries-its-status`**, running concurrently.
 Both touch `plot-host.sh`'s Jira arm but different fields — Reading adds
 `status` to the request and projection, you change the identity type across
 four layers. Whichever lands first, the other rebases. **Also rebase onto
