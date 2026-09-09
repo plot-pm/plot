@@ -47,9 +47,18 @@ ci_backend() {
 }
 ```
 
-Its callers then match it as if it were scheme-only. **Three of the four do:**
-`:2417` tests `[ "$ci" = "jenkins" ]`, and `:2794` and `:3336` open a `case`
-with a bare `jenkins)` arm.
+Its callers then match it as if it were scheme-only. **All four do**, and the
+fourth only appears to work: `:2417` tests `[ "$ci" = "jenkins" ]`, `:2794` and
+`:3336` open a `case` with a bare `jenkins)` arm, and `:2692` opens one with a
+bare `github-actions)` arm. Measured — a `CI:` of
+`github-actions (see .github/workflows/ci.yml)` misses that arm exactly as the
+Jenkins values miss theirs. This repo escapes only because it happens to write
+the word alone.
+
+**The payload echoes the whole value too.** `ci-limit` returns
+`"connector":"github-actions (see .github/workflows/ci.yml)"` — a config note
+rendered as a connector name, which is the same missing split seen from the
+other end.
 
 **The `ci-limit` arm is the one that stings**, because the code is right about
 Jenkins and never reaches its own answer. It carries the reasoning and the
@@ -100,6 +109,30 @@ this a small diff rather than a rewrite.
 **`ci_backend()` stays, and keeps returning the raw value.** Something may want
 the whole line, and removing it would widen the change beyond the defect. What
 changes is that no caller *matches* on it.
+
+### The instance cannot be "everything after the first token"
+
+**Measured against all three real Jenkins values, and the naive split fails on
+every one:**
+
+| `CI:` value | rest of the line |
+|---|---|
+| `` Jenkins at `jenkins-ci-ewz…` (Bitbucket PRs trigger…) `` | `at jenkins-ci-ewz… (Bitbucket PRs…` |
+| `` Jenkins pipelines in `.build/pipelines/` (…) `` | `pipelines in .build/pipelines/ (…` |
+| `Jenkins (e.g. continuous-build, …)` | `(e.g. continuous-build, …` |
+
+None is a host `jen -I` can use. `Tracker:` gets away with the naive split
+because its value is `jira https://acme.atlassian.net` — a scheme and a URL,
+nothing else. **`CI:` is prose**, and every repo writes it as prose.
+
+So `ci_instance()` extracts a **host**, not a remainder: the first backticked
+span, or the first token that looks like a hostname or URL, and **empty when
+there is none**. An empty instance is honest — `Jenkins (e.g.
+continuous-build…)` names no instance, and pretending otherwise hands `jen -I`
+a sentence.
+
+**This is why `Jenkins instance` survives as an override rather than being
+retired.** A repo whose `CI:` prose carries no host has somewhere to put one.
 
 ### The instance is a host name, not a URL, and both are written
 
