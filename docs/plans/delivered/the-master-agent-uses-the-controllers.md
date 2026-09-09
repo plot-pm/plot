@@ -1,0 +1,1 @@
+../2026-09-08-the-master-agent-uses-the-controllers.md
