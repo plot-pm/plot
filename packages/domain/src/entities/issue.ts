@@ -18,10 +18,17 @@ export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
  * Identity: a natural key — an opaque string, which fails by the source lying.
  * State: derived, so it goes stale and is re-run.
  *
- * Carries only facts the tracker stated. Tracker state — status, assignee,
- * labels, priority — is deliberately absent: Plot never writes to the tracker,
- * so a mirrored field is wrong between refreshes and wrong forever after an
- * outage.
+ * Carries only facts the tracker stated. Tracker state — assignee, labels,
+ * priority — is deliberately absent: Plot never writes to the tracker, so a
+ * mirrored field is wrong between refreshes and wrong forever after an outage.
+ *
+ * `status` and `statusCategory` are the NARROW exception, and the refusal
+ * above still holds for the rest. What that refusal guards against is a
+ * write-back loop — a field Plot mirrors and then edits — and reading a
+ * status is not one. `title` is already mirrored and equally mutable, so the
+ * line the refusal draws is between reading and writing rather than between
+ * stated facts and derived ones. The status is what the board renders in
+ * place of the `open` it used to assume for every issue.
  */
 export interface Issue {
   /** The tracker's own identifier — opaque; equality only, no ordering or arithmetic. */
@@ -34,6 +41,21 @@ export interface Issue {
   createdAt: string | null;
   /** The description; null means not fetched, `''` means fetched and empty. */
   body: string | null;
+  /**
+   * The tracker's own word for the stage — per-workflow and possibly
+   * localised (*Internal Approving*). What a person reads; `''` when the
+   * tracker said none. Never grouped on: two projects spell one stage
+   * differently, so a board grouping on this fragments.
+   */
+  status: string;
+  /**
+   * The stable three-value vocabulary — `To Do`, `In Progress`, `Done`. What
+   * a board decides on. `''` where the tracker's own vocabulary has no word
+   * for the state, which is honest: a Bitbucket `WONTFIX` is terminal without
+   * being done, and filing it as `Done` puts abandoned work beside finished
+   * work.
+   */
+  statusCategory: string;
 }
 
 /**

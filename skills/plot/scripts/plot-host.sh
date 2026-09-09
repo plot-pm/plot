@@ -159,7 +159,26 @@
 #                                 unavailable, never "no run".
 #   issue-list [--limit N]        open tracker issues as JSON lines:
 #                                 {"number":N,"title":"…","url":"…",
-#                                  "createdAt":"…"}
+#                                  "createdAt":"…","status":"…",
+#                                  "statusCategory":"…"}
+#                                 `status` is the tracker's OWN word for the
+#                                 stage — per-workflow, possibly localised
+#                                 (*Internal Approving*). `statusCategory` is
+#                                 the stable three-value vocabulary (To Do /
+#                                 In Progress / Done) a board may group on.
+#                                 BOTH, because neither substitutes for the
+#                                 other: the name is what a person reads, the
+#                                 category is what a board decides on. EVERY
+#                                 backend answers both — GitHub derives them
+#                                 from the `--state` this op asks for, jira
+#                                 reads .fields.status, and bitbucket maps the
+#                                 state badge it already parses. A Jira-only
+#                                 field is what this adapter exists to prevent.
+#                                 `statusCategory` is "" where the tracker's
+#                                 vocabulary has no word for it — bitbucket's
+#                                 ON HOLD/INVALID/DUPLICATE/WONTFIX. Empty is
+#                                 an honest answer; an invented category files
+#                                 abandoned work beside finished work.
 #                                 READ-ONLY. Plot writes no label, no assignee
 #                                 and no close-on-merge, because a copy of
 #                                 tracker state ages into a lie. The one write
@@ -1473,6 +1492,60 @@ tracker_base_url() {
     return
   fi
   tracker_raw | awk '{print $2}' | sed 's:/*$::'
+}
+
+# The Jira projects this repository's work lives in, one per line, or nothing.
+#
+# WHY A KEY AND NOT A QUERY. The inbox's default JQL scopes by PERSON
+# (`assignee = currentUser()`) and by STATE (`resolution = EMPTY`), and by
+# nothing else. On a shared Jira instance that is instance-wide: one reporter's
+# board showed twelve issues, of which one belonged to a different customer
+# entirely. Jira has no notion of the repository a board serves — no
+# `currentProject()` function exists — and that mapping lives only here, in this
+# repository's own config. Asking Jira which projects the user can see answers
+# the wrong question: that list is instance-wide too, and is what produced the
+# bug.
+#
+# IT HOLDS A LIST, and the single prefix adoption seeds only STARTS it.
+# `plot-detect-repo.sh` takes `head -1`, so a freshly adopted repo declares one
+# project. Filtering on that alone would be a second defect wearing the fix's
+# clothes — on the reported repository it shows 3 of 12 issues and hides the
+# other two projects' work under a heading claiming nobody had planned it. A
+# repository mapping to several Jira projects is the normal case.
+#
+# NAMED `Ticket prefixes`, not `Jira projects` (which puts a vendor in a config
+# key and severs the word the probe already uses) and not `Tracker projects`
+# (which generalises over a set of one). It sits next to `Branch prefixes` in
+# every adopting repo's config — an unrelated structural key holding `idea/`,
+# `feature/`, `bug/` — and only this docstring keeps the two apart.
+#
+# EMPTY IS THE ANSWER FOR AN UNDECLARED KEY, and callers must keep it meaning
+# *do not scope*: the absent case has to leave today's query untouched, or an
+# upgrade empties every existing board's inbox — a worse failure than the one
+# being fixed, because it looks like *no tickets* rather than the wrong ones.
+#
+# PARSING IS STATED HERE, not inherited: this is the estate's first list-valued
+# key with a consumer (`Implementation home` is documented as taking a list and
+# nothing splits one). Commas separate, surrounding whitespace is not part of a
+# value, and an empty element is dropped rather than emitted — a join over a
+# stray comma would otherwise produce `IN (PROJ-A,)`, which Jira rejects. A
+# value that is punctuation alone therefore reads as *undeclared*: it restores
+# the unscoped query rather than sending a query no instance would accept.
+#
+# `PLOT_TICKET_PREFIXES` overrides, the shape `PLOT_TRACKER` already sets. It
+# cannot express ABSENCE — an empty override falls through to the config — so
+# the absent case is tested with a repository that declares nothing.
+tracker_projects() {
+  local raw
+  if [ -n "${PLOT_TICKET_PREFIXES:-}" ]; then
+    raw="$PLOT_TICKET_PREFIXES"
+  else
+    raw="$(bash "$here/plot-config.sh" get "Ticket prefixes" "")"
+  fi
+  # One per line, trimmed, empties dropped. `plot-config.sh` already normalises
+  # `A,B` to `A, B`, but an override arrives unnormalised and a hand-edited
+  # value can carry a stray comma — so the split is done here regardless.
+  printf '%s' "$raw" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' || true
 }
 
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
@@ -3022,7 +3095,29 @@ case "$op" in
       # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
       # same order `createdAt` gives the GitHub arm.
       jira_require_config
-      jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY ORDER BY created DESC}"
+      # `Ticket prefixes` SCOPES THE DEFAULT to this repository's projects. The
+      # default alone scopes by person and by state, so on a shared instance it
+      # is instance-wide: it returned another customer's ticket to a reporter's
+      # board (see `tracker_projects` for the measurement and the naming).
+      #
+      # THE CLAUSE IS SPLICED, NOT APPENDED, and the split below is why: JQL
+      # requires ORDER BY to close the query, so a clause added to the end of
+      # the default string makes a query Jira rejects.
+      #
+      # AN UNDECLARED KEY LEAVES THE QUERY BYTE-IDENTICAL. `$scope` is empty,
+      # the two halves rejoin exactly as they were written, and an upgrade
+      # changes nothing for a repository that never set the key.
+      scope=""
+      if projects="$(tracker_projects)" && [ -n "$projects" ]; then
+        # `IN (A, B)`, never a trailing comma: paste joins N-1 separators over N
+        # elements, so a one-element list — what adoption's seed writes — yields
+        # `IN (A)` rather than `IN (A,)`.
+        scope=" AND project IN ($(printf '%s' "$projects" | paste -sd, - | sed 's/,/, /g'))"
+      fi
+      # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
+      # their own JQL; an override that stopped overriding would break exactly
+      # the people who noticed the problem first.
+      jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY${scope} ORDER BY created DESC}"
       # maxResults bounds ONE page. The inbox is small by construction (a
       # person's open tickets), so no nextPageToken loop is needed; the caller's
       # --limit caps it, else Jira's default page. v2 `search/jql` takes the same
@@ -3034,7 +3129,7 @@ case "$op" in
       raw="$(jira_curl "/rest/api/2/search/jql" \
                -G \
                --data-urlencode "jql=$jql" \
-               --data-urlencode "fields=summary,created" \
+               --data-urlencode "fields=summary,created,status" \
                --data-urlencode "maxResults=$max")"; curl_rc=$?
       body="$(jira_check "$raw" "$curl_rc")" || exit $?
       # `number` is the Jira KEY (PROJ-123), a string — #447 taught the parser to
@@ -3042,21 +3137,39 @@ case "$op" in
       # search payload carries no browse URL, and the base is ours to know
       # (Principle 3: this script is the one place that knows a host URL's shape).
       base="$(tracker_base_url)"
+      # `status` is the workflow's own word (*Internal Approving*) and may be
+      # localised; `statusCategory` is Jira's stable three-value vocabulary
+      # (To Do / In Progress / Done). BOTH are carried because neither
+      # substitutes for the other: the name is what a person reads, the
+      # category is what a board groups on. A board grouping on the name
+      # fragments across projects that spell the same stage differently.
       printf '%s' "$body" | jq -c --arg base "$base" '.issues[]? | {
           number: .key,
           title: (.fields.summary // ""),
           url: ($base + "/browse/" + .key),
-          createdAt: (.fields.created // "")
+          createdAt: (.fields.created // ""),
+          status: (.fields.status.name // ""),
+          statusCategory: (.fields.status.statusCategory.name // "")
         }'
     elif [ "$be" = "github" ]; then
       # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
       # so the REST endpoint returns both, and every open PR would arrive here
       # as a signal nobody had planned. The `gh` subcommand filters PRs out;
       # this note exists because that trap is invisible while it works.
-      if out="$(gh issue list --state open ${limit_args[@]+"${limit_args[@]}"} \
+      # `status` is DERIVED from the state this call asks for, never written
+      # twice. GitHub has no workflow states: an issue is open or closed, and
+      # this op asks for open ones only. So the state passed to `gh` is the
+      # answer, and `$gh_state` is read by both the flag and the projection —
+      # a second literal would be a copy that a widened filter silently
+      # outdates. `To Do` is the category because an open GitHub issue is
+      # unstarted by the only vocabulary GitHub has.
+      gh_state="open"
+      if out="$(gh issue list --state "$gh_state" ${limit_args[@]+"${limit_args[@]}"} \
                   --json number,title,url,createdAt 2>/tmp/plot-host-err.$$)"; then
         rm -f "/tmp/plot-host-err.$$"
-        jq -c '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // "")}' <<<"$out"
+        jq -c --arg status "$gh_state" \
+          '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
+                  status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end)}' <<<"$out"
       else
         err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
         # NO empty-list fallback. `host_miss_or_fail` exists for a lookup whose
@@ -3096,15 +3209,37 @@ case "$op" in
         [[ "$line" =~ ^#0*([0-9]+)[[:space:]]+(.*)$ ]] || continue
         num="${BASH_REMATCH[1]}"
         rest="${BASH_REMATCH[2]}"
-        # Strip the leading state badge word (NEW/OPEN/RESOLVED/…) and its
-        # padding; the title starts after it.
-        rest="$(sed -E 's/^(NEW|OPEN|ON HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+//' <<<"$rest")"
+        # Lift the leading state badge word (NEW/OPEN/RESOLVED/…), then strip
+        # it and its padding; the title starts after it. The badge was parsed
+        # here before and THROWN AWAY to recover the title — it is captured
+        # now rather than fetched, so this costs no extra call. ONE
+        # vocabulary, matched once: a second copy in a mapping table is a list
+        # that drifts from the one that strips.
+        state=""
+        if [[ "$rest" =~ ^(NEW|OPEN|ON\ HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+(.*)$ ]]; then
+          state="${BASH_REMATCH[1]}"
+          rest="${BASH_REMATCH[2]}"
+        fi
+        # Map the badge onto the three-value category the board groups on.
+        # NEW/OPEN are unstarted; RESOLVED/CLOSED are finished. The rest —
+        # ON HOLD, INVALID, DUPLICATE, WONTFIX — get "" DELIBERATELY: they are
+        # terminal-without-being-done or started-without-progressing, and
+        # neither is a Jira category. Empty says *this vocabulary has no word
+        # for it*, which a board can render; inventing `Done` for WONTFIX
+        # would file abandoned work beside finished work.
+        case "$state" in
+          NEW|OPEN) category="To Do" ;;
+          RESOLVED|CLOSED) category="Done" ;;
+          *) category="" ;;
+        esac
         # Drop the trailing reporter: bb prints three spaces then `by <name>`.
         title="$(sed -E 's/[[:space:]]{2,}by [^[:space:]].*$//' <<<"$rest")"
         # `url` is "" — bb issue list prints none; a consumer renders the number
         # as plain text, the rule the header states.
         jq -cn --argjson number "$num" --arg title "$title" \
-          '{number:$number,title:$title,url:"",createdAt:""}'
+          --arg status "$state" --arg category "$category" \
+          '{number:$number,title:$title,url:"",createdAt:"",
+            status:$status,statusCategory:$category}'
         count=$((count + 1))
         # Honour the caller's --limit HERE: bb has no --limit, so a bound the
         # caller asked for is enforced by the adapter after parsing (Done-when 7).

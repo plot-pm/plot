@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #856 merged
 - **Started:** 2026-09-09, Jan Wloka, `feature/an-issue-carries-its-status`
+- **Started:** 2026-09-09, Jan Wloka, `feature/an-issue-key-is-a-string`
 
 ## Changelog
 
@@ -248,15 +249,17 @@ that #850's query feeds. A slice here rebases onto #850 rather than racing it.
 
 ### Reading
 
-The fact reaches the domain, and the issue's own key survives the trip. **Two
-branches, deliberately in ONE wave**: they touch the same four lines but
-different fields, so neither waits on the other and whichever lands first, the
-other rebases. Separate waves would have serialised them for no reason — a wave
-is eligible only when every prior wave has merged, so a structure that said
-*independent* in prose and *second wave* in shape would have blocked the
-Identity slice behind work it does not need.
+The fact reaches the domain. Both reads gain the two keys across all three
+backends, and the entity carries them.
 
-- `feature/an-issue-carries-its-status` <!-- builds: Issue.status and Issue.statusCategory, the tracker read path's status fields --> — add `status` to the Jira request and projection, source GitHub's from `--state`, map Bitbucket's parsed badge, and widen `Issue` + `RawIssue` with `status` and `statusCategory` — amending the entity's *deliberately absent* sentence to name what is carried and why.
+- `feature/an-issue-carries-its-status` <!-- builds: Issue.status and Issue.statusCategory, the tracker read path's status fields --> — add `status` to the Jira request and projection, source GitHub's from `--state`, map Bitbucket's parsed badge, and widen `Issue` + `RawIssue` with `status` and `statusCategory` — amending the entity's *deliberately absent* sentence to name what is carried and why. → #857
+
+### Identity
+
+The issue's own key survives the trip. **It names no `waits:`, and that is the
+ordering**: this slice and Reading touch the same four lines but different
+fields, so neither is a prerequisite for the other and both are eligible at
+once. Whichever lands first, the other rebases.
 
 - `feature/an-issue-key-is-a-string` <!-- builds: the Issue identity type across the parser, the schema, the row and the referenced-issue set --> — `number` becomes a string end to end: `IssueRowSchema.number`, `fleet.ts`'s two local types, and `referencedIssues`' `Set<number>` → `Set<string>`; and `plot-plan-meta.sh` learns to read a `Issue: PROJ-123` key beside the `#N` form it already reads.
 

@@ -145,8 +145,8 @@ describe('Machine 1 ── * everything — one machine, many tenants', () => {
 describe('Issue * ── * Plan — a plan answers several; a signal fans into n plans', () => {
   it('carries issue references as a collection on each side', () => {
     const issues: Issue[] = [
-      { id: '226', title: 'a', url: '', createdAt: null, body: null },
-      { id: 'PROJ-1', title: 'b', url: '', createdAt: null, body: null },
+      { id: '226', title: 'a', url: '', createdAt: null, body: null, status: 'open', statusCategory: 'To Do' },
+      { id: 'PROJ-1', title: 'b', url: '', createdAt: null, body: null, status: 'In Progress', statusCategory: 'In Progress' },
     ];
     const answeredByOnePlan = issues.map((i) => i.id);
     expect(answeredByOnePlan).toEqual(['226', 'PROJ-1']);
