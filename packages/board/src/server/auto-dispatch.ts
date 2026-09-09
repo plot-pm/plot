@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { scriptsFor, type BuildBoardOptions } from './board.js';
+import { recordActionReceipt } from './action-receipt.js';
 import type { FleetSettings } from './fleet-settings.js';
 import { LIVE_STATES, type Branch, type FleetReading } from '../contract/schema.js';
 import { refsGit, shellContext } from '@plot-pm/domain/adapters';
@@ -777,6 +778,10 @@ export function runAutoDispatch(
       console.error(`auto-dispatch could not open ${log}:`, err);
       continue;
     }
+    // The same receipt /api/dispatch writes, for the same reason: this IS a
+    // controller acting, and the gate cannot tell a timer's dispatch from a
+    // hand-typed one by the command line alone.
+    recordActionReceipt(opts.repoRoot, 'dispatch', plan.slug);
     scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', String(plan.max), plan.slug], {
       log: out,
       onError: (err) => console.error('auto-dispatch failed to spawn:', err),

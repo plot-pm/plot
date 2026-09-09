@@ -22,3 +22,4 @@ dist/
 /plot-worker-monitor.sh
 /plot-worker-state.sh
 /plot-transcript-quiet.sh
+/plot-state-receipt.sh

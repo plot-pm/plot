@@ -786,4 +786,12 @@ else
 fi
 
 echo "summary: merged=$merged_report phase=$phase_report record=$record_report holds=$holds_report sprint=$sprint_report push=$push_report"
+# THE RECEIPT IS SPENT HERE, on the action COMPLETING — never at the gate.
+# `plot-controller-gate.sh` clears on a receipt and LEAVES it, so an
+# interrupted run can be repeated on the same licence: this script documents
+# re-running as the repair for any interruption after its irreversible step,
+# and a receipt spent at the gate would refuse that repair in the case it is
+# most needed. One authorisation, one completed action.
+spend_action_receipt "plot-approve.sh"
+
 exit 0
