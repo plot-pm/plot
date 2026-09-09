@@ -1,11 +1,13 @@
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterAll, describe, it, expect } from 'vitest';
 
 import { buildActions } from '../src/adapters/build/build-actions.js';
 import { buildFor, buildShell } from '../src/adapters/build/build-resolve.js';
+import { buildReads, type BuildShell } from '../src/adapters/build/build-shell.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 
 /**
@@ -328,5 +330,53 @@ describe('a declared CI system resolves to its own connector', () => {
     expect((await buildShell({ repoRoot: broken, scriptDir: join(broken, 'scripts') })).system()).toBe(
       '',
     );
+  });
+});
+
+describe('a prose CI declaration still meters', () => {
+  /**
+   * THE REAL `plot-host.sh`, and that is the point of this block.
+   *
+   * Every case above stubs the script, which can only ever assert *given this
+   * payload, the connector does X*. The defect this block covers lives IN the
+   * payload: `ci-limit` reported the whole `CI:` value as the `connector`, and
+   * `buildReads`'s own filter drops a reading whose connector is not the
+   * system word. So a stub that prints a bare word passes while production
+   * answers `[]` — the port's own definition of *a connector that meters
+   * nothing*. A Jenkins with a `predicted` ceiling of 60 read as unmetered,
+   * and no caller could tell the two apart.
+   */
+  /** This repository's OWN `skills/plot/scripts`, the way `trees-reads` reaches it. */
+  const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/plot/scripts');
+
+  const realShell = (system: string): BuildShell => ({
+    context: { repoRoot: resolve(scriptDir, '../../..'), scriptDir },
+    system,
+  });
+
+  it('reports a prose Jenkins as metered, not as metering nothing', async () => {
+    // The value `ewz` actually writes. Before the scheme split this answered
+    // `basis: unknown` AND a prose connector, so the filter discarded it and
+    // `limit()` returned the empty list that means "meters nothing".
+    const answer = await buildReads(realShell('jenkins'), {
+      PLOT_CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`',
+    }).limit();
+
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value).not.toEqual([]);
+    expect(answer.value).toMatchObject([{ connector: 'jenkins', limit: 60, basis: 'predicted' }]);
+  });
+
+  it('reports a prose github-actions as its own reading', async () => {
+    // The GitHub arm had the same bug and this repository escaped it only by
+    // writing the word alone.
+    const answer = await buildReads(realShell('github-actions'), {
+      PLOT_CI: 'github-actions (see .github/workflows/ci.yml)',
+    }).limit();
+
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value).toMatchObject([{ connector: 'github-actions' }]);
   });
 });
