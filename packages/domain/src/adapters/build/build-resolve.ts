@@ -2,6 +2,7 @@ import type { BuildPort } from '../../ports/build.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { buildActions } from './build-actions.js';
+import { buildJenkins } from './build-jenkins.js';
 import { buildNone } from './build-none.js';
 
 /** Where a repository declares which CI system it builds on. */
@@ -19,8 +20,11 @@ const CI_KEY = 'CI';
  * The one word that means *there is no CI* resolves the same way an
  * unrecognised one does: to a connector that reaches nothing and says so.
  *
- * `jenkins` HAS NO CONNECTOR YET and therefore resolves to none, which is the
- * honest answer while `build-jenkins.ts` does not exist. It is the next slice's
+ * EVERY DECLARED SYSTEM WITH A CONNECTOR RESOLVES TO IT, and an undeclared or
+ * unknown one resolves to `buildNone`, which answers `unaskable` on every
+ * operation. This comment said `jenkins` had no connector until 2026-09-10; it
+ * is `build-jenkins.ts` now. A third system is a file and one `case`, never a
+ * branch inside a connector — the next slice's
  * one line here.
  *
  * Exported for test, because the mapping from a config word onto a connector is
@@ -34,6 +38,8 @@ export const buildFor = (declared: string, context: ShellContext): BuildPort => 
   switch (declared.trim().toLowerCase()) {
     case 'github-actions':
       return buildActions(context);
+    case 'jenkins':
+      return buildJenkins(context);
     default:
       return buildNone();
   }

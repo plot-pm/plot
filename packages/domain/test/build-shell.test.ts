@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, it, expect } from 'vitest';
 
 import { buildActions } from '../src/adapters/build/build-actions.js';
+import { buildJenkins } from '../src/adapters/build/build-jenkins.js';
 import { buildFor, buildShell } from '../src/adapters/build/build-resolve.js';
 import { buildReads, type BuildShell } from '../src/adapters/build/build-shell.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
@@ -305,11 +306,21 @@ describe('a declared CI system resolves to its own connector', () => {
     expect(await build.runs('feature/x')).toEqual({ ok: false, why: 'unaskable' });
   });
 
-  it('routes jenkins to none while no Jenkins connector exists', async () => {
-    // THE HONEST ANSWER TODAY, and the next slice's one line here. Claiming a
-    // connector that does not exist would report an absent capability as an
-    // empty run list.
-    expect(buildFor('jenkins', context).system()).toBe('');
+  it('routes jenkins to its own connector', async () => {
+    // THIS TEST ASSERTED `''` UNTIL 2026-09-10, when `build-jenkins.ts` landed
+    // — it was the anti-contract for a connector that did not exist yet, and
+    // its own comment named this slice as the one line that would change it.
+    expect(buildFor('jenkins', context).system()).toBe('jenkins');
+    expect(buildFor('  Jenkins \n', context).system()).toBe('jenkins');
+  });
+
+  it('tags a jenkins connector’s limit with its own system', async () => {
+    // A CONNECTOR PER VENDOR MEANS A WINDOW PER VENDOR. `limit()` filters the
+    // script's readings to this connector's system, so a Jenkins connector
+    // must never report the git host's budget as its own.
+    const build = buildFor('jenkins', context);
+    expect(build.system()).toBe('jenkins');
+    expect(build.system()).not.toBe('github-actions');
   });
 
   it('routes a repository that declared nothing to none', async () => {
@@ -380,3 +391,79 @@ describe('a prose CI declaration still meters', () => {
     expect(answer.value).toMatchObject([{ connector: 'github-actions' }]);
   });
 });
+
+describe('the jenkins connector answers through plot-host.sh', () => {
+  it('reads a branch’s current state as a history of one', async () => {
+    // WHAT JENKINS ANSWERS THROUGH THIS TRANSPORT. `jenkins_build_map` reports
+    // `{color, checks, job}` per branch — a CURRENT state — so `runs` yields
+    // exactly one entry, with `startedAt` and `url` EMPTY rather than invented.
+    // Measured 2026-09-10 against the live instance: a build entry carries no
+    // timestamp a caller could attribute to a commit.
+    const answer = await buildJenkins(
+      hostThat(
+        `printf '%s\\n' '{"workflow":"quaweb/release","conclusion":"passing","startedAt":"","url":""}'`,
+      ),
+    ).runs('feature/x');
+
+    expect(answer).toEqual({
+      ok: true,
+      value: [
+        { workflow: 'quaweb/release', conclusion: 'passing', startedAt: '', url: '' },
+      ],
+    });
+  });
+
+  it('reports its own system, never the git host’s', async () => {
+    expect(buildJenkins(hostThat('exit 0')).system()).toBe('jenkins');
+  });
+
+  it('answers unaskable for a sha, because the transport carries no commit', async () => {
+    // NOT AN EMPTY ANSWER. `plot-host.sh` exits 4 here, and `unaskable` is the
+    // true word: a branch-scoped state with no sha in it is the one fallback
+    // that costs a merge, since a run for a superseded commit reads identically
+    // to a run for the current one.
+    const build = buildJenkins(
+      hostThat('echo "plot-host: run-for-sha — jenkins has no sha-scoped answer" >&2\nexit 4'),
+    );
+    expect(await build.runForSha('feature/x', 'deadbeef')).toEqual({
+      ok: false,
+      why: 'unaskable',
+    });
+    // EXIT 4 LEAVES NO REFUSAL, and that is the contract rather than a gap:
+    // `build-shell.ts:133` states it — *"this connector cannot be asked at
+    // all, which is a standing configuration fact rather than an incident
+    // worth waiting out."* A caller retrying on `lastRefusal()` must not see
+    // a reason here, because no wait makes a sha askable through `jen`.
+    expect(build.lastRefusal()).toBeNull();
+  });
+
+  it('keeps only its own limit reading', async () => {
+    // A CONNECTOR PER VENDOR MEANS A WINDOW PER VENDOR: the script reports every
+    // connector's reading and `limit()` filters to this one, so a Jenkins
+    // connector can never present the git host's budget as its own.
+    const answer = await buildJenkins(
+      hostThat(
+        `printf '%s\\n' '{"connector":"jenkins","limit":60,"remaining":59,"basis":"predicted"}' ` +
+          `'{"connector":"github","limit":5000,"remaining":4999,"basis":"measured"}'`,
+      ),
+    ).limit();
+
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value).toHaveLength(1);
+    expect(answer.value[0].connector).toBe('jenkins');
+  });
+
+  it('reports the instance refusal rather than an empty history', async () => {
+    // `plot-host.sh` exits 3 without the `Jenkins instance` key, naming three
+    // repairs. A repository whose instance is unset HAS NOT BEEN ASKED, which
+    // is not the same as a branch that has never built.
+    const build = buildJenkins(
+      hostThat('echo "plot-host: jenkins — no Jenkins instance configured" >&2\nexit 3'),
+    );
+    const answer = await build.runs('feature/x');
+    expect(answer.ok).toBe(false);
+    expect(build.lastRefusal()).toContain('no Jenkins instance');
+  });
+});
+
