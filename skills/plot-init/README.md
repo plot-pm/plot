@@ -51,7 +51,7 @@ Where a signal is ambiguous the field is empty and the skill asks.
 ## The stack is proposed, not defaulted
 
 Adoption reads two signals about a team's stack and turns each into a config
-key: a recurring ticket prefix proposes `Tracker:`, and `ci_system` proposes
+key: a recurring ticket prefix proposes `Tracker:`, and `ci_signals` proposes
 `CI:`. **Whether a prefix recurs often enough is `proposeTicket`'s answer**, in
 `@plot-pm/domain`, reached through `board/plot-propose-stack.mjs` — the probe
 reports the prefix and its count and decides neither.
@@ -285,7 +285,7 @@ follow.
 lines, branches, functions and statements, which the domain package gates.
 `packages/board/test/unit/adopt.test.ts` covers the ADAPTATION and nothing the
 rule already answers: a comma-separated `hub_docs` becoming a list,
-`has_plot_config` arriving as a boolean or a string, an absent `ci_system`
+`has_plot_config` arriving as a boolean or a string, an absent `ci_signals`
 reading as unread rather than as `none`, and a caller-supplied proposal winning
 over one recomputed from the report.
 
@@ -297,14 +297,18 @@ over one recomputed from the report.
   like ordinary repos.
 - The skill writes the config but does not verify the DoD commands actually
   run. Confirming that is the adopter's first real use of the workflow.
-- **`plot-detect-repo.sh` does not emit `ci_system` yet.** The `CI:` proposal
-  above reads a field the probe is specified to report and does not, so it is
-  inert until that slice lands: the tracker half works today because the
-  ticket prefix already exists. Measured 2026-09-08 — the sibling slice
-  `feature/the-probe-reads-the-ci-system` merged as PR #811 carrying **zero
-  files**, its claim commit only. The signal itself is already read next door,
-  as `ci_signals.{jenkinsfile,gh_workflows}` in `plot-board-probe.sh`, which is
-  where the probe's field should derive its shape from. **The judgement half landed 2026-09-09**: `proposeCi` decides what the two signals answer, and the entry reads `ci_signals` when a probe reports it. Until this probe does, `ci` is `null` here — *nobody looked*, which the skill states rather than reading as `silent`.
+- **`plot-detect-repo.sh` emits `ci_signals` since 2026-09-10, and the field is
+  `ci_signals` rather than `ci_system`.** This entry recorded the gap and named
+  the wrong field for it: `stack-readings.ts:104` reads `report.ci_signals`, so
+  the six prose references to `ci_system` pointed at a name no code has ever
+  read. A probe emitting that name produced `ci: null` — *nobody looked* — with
+  every downstream consumer already built and tested. Measured against the stack
+  the sprint was written for: `{"jenkinsfile":true,"gh_workflows":false}` on a
+  Bitbucket repository whose three Jenkinsfiles live at
+  `.build/pipelines/<project>/<pipeline>/Jenkinsfile`, which is why the search is
+  `git ls-files` over `*Jenkinsfile*` and not a root-only test. `proposeCi` then
+  answers `propose: jenkins` and `proposeCiInstance` asks only for the job path.
+  Both earlier attempts merged carrying no code — PR #811, zero files.
 
 - **The `Jenkins instance` proposal is complete, and 2026-09-09 connected it.** The probe emits `jenkins_host`, `proposeCiInstance` decides from it, and the section above says what to ask. Its trigger was a literal `false` for one day — `proposeStack` composed `proposeCiInstance(host, false)` and the answer was always *nothing to ask* — and main's own comment named the reason: *"the arrival of `ci.reading` is a one-line change here and nothing else."* `proposesInstanceKey` is that line. Every branch of the rule is asserted, including the two only a CI reading reaches.
 

@@ -81,7 +81,7 @@ until 2026-09-08, and a rule an agent is asked to follow is eventually
 violated. A missing bundle names its repair (`pnpm build:board`); all fifteen
 are tracked in git, so it can only be missing from a broken install.
 
-**`ticket` and `ci_system` are the stack's two signals**, and step 2 turns each
+**`ticket` and `ci_signals` are the stack's two signals**, and step 2 turns each
 into a config key. They are readings, not answers: a recurring prefix says a
 ticket scheme is in use, and a `Jenkinsfile` says a Jenkins pipeline is
 described here. Neither says which system a team actually uses, which is why
@@ -241,7 +241,7 @@ project keys and shapes one query.
 
 #### The CI system
 
-**`ci_system` proposes `CI:`, with its evidence — and `proposeCi` decides
+**`ci_signals` proposes `CI:`, with its evidence — and `proposeCi` decides
 which.** The probe reports which signals it found; the domain turns them into
 one of three answers, and adoption reads `ci` from the proposal rather than
 re-deriving it:
@@ -273,7 +273,7 @@ repo never chose. Say what was read.
 **It reads files and asks nothing about credentials.** Whether `jen`
 authenticates is `/plot-board-setup`'s question, and it already asks it.
 
-**An absent `ci_system` writes no key and says so.** Where the probe reports no
+**An absent `ci_signals` writes no key and says so.** Where the probe reports no
 `ci_signals` at all, `ci` is `null` — a fourth answer, and not the `silent` the
 rule gives for a tree that shows neither signal. A probe that did not look
 leaves adoption with nothing to propose — which is not the same as `none`. Say
