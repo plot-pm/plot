@@ -136,3 +136,22 @@ The precedent is already stated for rendering: *a view state that cannot be asse
 **A commit sha is not.** A build entry carries exactly `_links, id, name, status, startTimeMillis, endTimeMillis, durationMillis, queueDurationMillis, pauseDurationMillis, stages`, on a plain pipeline and on a multibranch branch alike. A case-insensitive search for `sha|commit|revision|scm` over the whole payload matches nothing, and `jen build view` adds none in either mode. `_links` holds `self` and `changesets`; `jen` has no changesets subcommand and no raw-API passthrough, and the bearer from `jen auth token` gets Jenkins' login redirect rather than the endpoint.
 
 **So `run-for-sha` cannot be a sha lookup on Jenkins.** The only mapping `jen` exposes is branch → builds, through `--branch` on a multibranch job. Either the op resolves a sha to a branch before asking, or the port grows a branch-shaped question. That is a design constraint on `the-run-ops-ask-the-ci-backend`, which is already merged — so it is a finding to file rather than a slice to re-open.
+
+### The two re-filed Must items are true now — 2026-09-10
+
+**Both boxes were ticked by the empty PRs they were re-filed for.** `the-probe-reads-the-ci-system` (#811, zero files) and `the-ci-connector-is-jenkins` (#821, a marker) each ticked their item on merge, so the sprint recorded two conditions as met while neither had code. That is the shape `a-merged-pr-carried-work` was added to catch, and it caught nothing retroactively — a checkbox, once ticked, states no evidence.
+
+**`proposed` holds as of PR #879.** `plot-detect-repo.sh` emits `ci_signals`, and the field name was the defect: `stack-readings.ts:104` reads `report.ci_signals`, this skill's docs said `ci_system` in six places, and the probe emitted neither. A probe emitting the documented name would have produced the same `ci: null` — *nobody looked* — with every consumer already built and green.
+
+Measured against `quaweb-website`, the stack this sprint is for:
+
+| reading | value |
+|---|---|
+| `git_host` | `bitbucket` |
+| `ci_signals` | `{jenkinsfile: true, gh_workflows: false}` |
+| `ci` | `propose: jenkins` |
+| `ciInstance` | slug found, `ask: path` |
+
+**`connected` is PR #880.** `build-jenkins.ts` gives the port a connector; the shell arm for `runs` had existed since #837, so the domain could not ask what the script could already answer.
+
+**`runForSha` is `unaskable` on Jenkins, and that is measured rather than deferred.** `jen 0.4.0` against the live instance: a build entry carries `id`, `status`, timings and stages, and no `sha`, `commit`, `revision` or `scm` anywhere in the payload. `_links` offers `changesets`, which `jen` cannot reach and which rejects the Keycloak bearer. The answer is in Jenkins at `actions[].BuildData.lastBuiltRevision.SHA1` over REST — so the remaining half of **verified** needs a `JENKINS_API_TOKEN`, which `jen` keeps in the keychain and will not print.
