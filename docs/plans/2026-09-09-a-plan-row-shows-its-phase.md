@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #866 merged
 - **Started:** 2026-09-09, Jan Wloka, `bug/a-plan-row-shows-its-phase`
+- **Delivered:** 2026-09-10
 
 ## Changelog
 
@@ -83,7 +84,7 @@ Slot 5 exists and holds this fact on every other plan row. A second column would
 
 ### Showing
 
-- `bug/a-plan-row-shows-its-phase` <!-- builds: the idea-branch plan row's status slot, which reports the plan's phase rather than its PR's CI --> — the idea arm sets `status` from the plan's phase, and the PR's CI state takes a rank below it.
+- `bug/a-plan-row-shows-its-phase` <!-- builds: the idea-branch plan row's status slot, which reports the plan's phase rather than its PR's CI --> — the idea arm sets `status` from the plan's phase, and the PR's CI state takes a rank below it. → #872
 
   **Asserted: a Draft plan awaiting approval reports its phase, not `green`** — the three rows measured on 2026-09-09. **Asserted: both arms agree** — a plan row assembled by the client and one emitted by the server show the same fact in slot 5, which is the rule `tupleFromPlan` already states and the defect that it held for only one of the two. **Asserted: the CI state is still reachable** — a red plan PR blocks its own approval, so the fact is demoted rather than dropped. **Asserted: the phase comes from the plan file, not from the PR's draft flag** — a PR marked ready leaves the plan `Draft` until `/plot-approve` runs, and those two are the pair most easily confused.
 
