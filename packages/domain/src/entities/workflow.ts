@@ -94,6 +94,7 @@ export type WorkflowName =
   | 'deliver'
   | 'dispatch'
   | 'reap'
+  | 'reconcile'
   | 'implement'
   | 'release'
   | 'supervise';

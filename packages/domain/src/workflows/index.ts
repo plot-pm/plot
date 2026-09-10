@@ -24,6 +24,7 @@ export * from './deliver.js';
 export * from './dispatch.js';
 export * from './dispatch-verbs.js';
 export * from './reap.js';
+export * from './reconcile.js';
 export * from './implement.js';
 export * from './release.js';
 export * from './supervise.js';

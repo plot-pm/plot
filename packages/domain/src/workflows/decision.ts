@@ -492,6 +492,16 @@ export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   deliver: 'script',
   dispatch: 'script',
   reap: 'script',
+  // Transcribed from `plot-reconcile-scan.sh`, which has an exit code and a
+  // machine-countable footer — so the sections it shares with this workflow can
+  // be compared and a disagreement can fail a build.
+  //
+  // THE SCOPE HAS NO SCRIPT BEHIND IT, and that is the honest half of this
+  // claim: the sweep answers one question about the whole estate, so the plan
+  // and sprint scopes are specified in
+  // docs/plans/2026-09-09-reconcile-is-a-controller-action.md and verified
+  // against fixtures. The word is earned by the sections, not by the scoping.
+  reconcile: 'script',
   // FIXTURE-VERIFIED ONLY. Transcribed from skills/plot-implement/SKILL.md.
   implement: 'fixture',
   // FIXTURE-VERIFIED ONLY. Transcribed from skills/plot-release/SKILL.md.
