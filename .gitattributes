@@ -53,6 +53,7 @@ skills/plot/scripts/board/plot-landed.mjs -merge
 skills/plot/scripts/board/plot-movable.mjs -merge
 skills/plot/scripts/board/plot-prompt.mjs -merge
 skills/plot/scripts/board/plot-propose-stack.mjs -merge
+skills/plot/scripts/board/plot-reconcile.mjs -merge
 skills/plot/scripts/board/plot-registryd.mjs -merge
 skills/plot/scripts/board/plot-release-gate.mjs -merge
 skills/plot/scripts/board/plot-slice-pr.mjs -merge
