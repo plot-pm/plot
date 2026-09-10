@@ -1213,3 +1213,100 @@ describe('agentStateStatus — the registry state as a WORKING word', () => {
     }
   });
 });
+
+describe('a plan row shows its phase, whichever arm projected it', () => {
+  /**
+   * The idea-branch row the SERVER emits — `rowKind` calls it a `plan` because
+   * an idea branch's PR *is* the plan. A truthy `pr` is the whole point of the
+   * fixture: `row.pr` falsy takes the `stateStatus` path and never reproduces
+   * the defect.
+   */
+  const ideaRow = (over: Partial<AgentRow> = {}): AgentRow => row({
+    kind: 'plan', branch: 'idea/an-adopting-repo-installs-its-gates',
+    plan: 'an-adopting-repo-installs-its-gates',
+    planFile: '2026-09-09-an-adopting-repo-installs-its-gates.md',
+    phase: 'Discovery', branchUrl: 'https://host/tree/idea/x',
+    pr: { number: 865, url: 'https://host/pr/865', draft: true, state: 'green' },
+    ageMinutes: 46, ...over,
+  });
+
+  it('reports the phase where it used to report its PR\'s CI state', () => {
+    // MEASURED ON THE LIVE BOARD 2026-09-09, and reproduced here before the
+    // fix: `PLAN an-adopting-repo-installs-its-gates 865 green draft 46m` —
+    // slot 5 holding a fact about a build, on a row about a decision nobody
+    // has taken. This assertion returned `'green'` on `main`.
+    //
+    // `Discovery`, NOT `Draft`. `AgentRow.phase` is the board's five-column
+    // partition and `Draft` is a plan-file state; the client arm shows
+    // `Discovery` for the same plan, and matching it is the point.
+    expect(tupleFromRow(ideaRow()).status).toBe('Discovery');
+  });
+
+  it('agrees with the arm the client uses, given the same phase', () => {
+    // THE PLAN'S ACTUAL CLAIM, and the only form that keeps the divergence
+    // from re-opening. Two arms each asserted against a literal can drift back
+    // apart; one assertion comparing them cannot.
+    //
+    // Both read the SAME field: `rows.tsx` feeds the client arm
+    // `group.rows[0]?.phase ?? ''` — the identical `AgentRow.phase` this arm
+    // reads — which is what makes agreement a property rather than a
+    // coincidence of two fixtures.
+    for (const phase of ['Discovery', 'Design', 'Development', 'Testing', 'Released'] as const) {
+      const server = tupleFromRow(ideaRow({ phase }));
+      const client = tupleFromPlan({
+        plan: 'an-adopting-repo-installs-its-gates',
+        planFile: '2026-09-09-an-adopting-repo-installs-its-gates.md',
+        phase, waitingDays: 1,
+      });
+      expect(server.status, phase).toBe(client.status);
+      expect(server.kind, phase).toBe(client.kind);
+    }
+  });
+
+  it('keeps the PR\'s CI state where no phase can be named', () => {
+    // `phase` IS NULLABLE — *"null where no phase can honestly be named ... and
+    // the cell then renders empty rather than guessing a column"*.
+    //
+    // ABSENT IS NOT FALSE, applied to slot 5. Null means the phase is UNKNOWN,
+    // not that the row has nothing to say: falling back to the PR's state is
+    // declining to overwrite a known fact with an unknown one, which is not the
+    // guess the contract's docstring refuses. An unconditional assignment would
+    // blank a cell that says `green` today — a regression a reader reports —
+    // and it would do so on the one branch no test covered.
+    expect(tupleFromRow(ideaRow({ phase: null })).status).toBe('green');
+    // And with neither phase nor PR the branch's own git state still answers,
+    // which is the arm's behaviour before this change and after it.
+    expect(tupleFromRow(ideaRow({ phase: null, pr: null })).status).toBe('in progress');
+  });
+
+  it('leaves the CI state reachable, demoted rather than dropped', () => {
+    // A red plan PR blocks its own approval — `/plot-approve` refuses on a
+    // draft or failing PR — so the fact is demoted, never deleted. The row
+    // carries the PR as a LINK, and `Row` renders its state and draft flag as
+    // badges beside slot 5 (`statusExtra`), which is the shape `rows.tsx:715`
+    // already argued for the client arm's PR fold: *"a second element in the
+    // same cell, so `tupleFromPlan`'s phase is never at risk"*.
+    //
+    // So the projection needs nothing more than the phase — `TupleRow.status`
+    // is a `string`, and a second element is a rendering concern. What this
+    // asserts is that the PR survives the change as an artifact of the row.
+    const t = tupleFromRow(ideaRow());
+    expect(t.links.map((l) => l.what)).toEqual(['pr', 'branch']);
+    expect(t.links[0].label).toBe('865');
+    expect(t.links[0].href).toBe('https://host/pr/865');
+  });
+
+  it('takes the phase from the plan, never from the PR\'s draft flag', () => {
+    // THE PAIR MOST EASILY CONFUSED. A PR marked ready leaves the plan
+    // `Discovery` until `/plot-approve` runs, and the `draft` badge renders
+    // beside what is now the phase. Flipping the flag must not move slot 5.
+    const asDraft = tupleFromRow(ideaRow({
+      pr: { number: 865, url: 'https://host/pr/865', draft: true, state: 'green' },
+    }));
+    const asReady = tupleFromRow(ideaRow({
+      pr: { number: 865, url: 'https://host/pr/865', draft: false, state: 'green' },
+    }));
+    expect(asDraft.status).toBe('Discovery');
+    expect(asReady.status).toBe(asDraft.status);
+  });
+});
