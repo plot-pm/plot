@@ -18,7 +18,12 @@ Five conditions, all of which must hold: **proposed**, **connected**, **verified
 
 A changeset whose claim is *"the rule returns X"* is **not** in this list — a test decided it.
 
-**The contract suite is load-flaky too, and by the same amount.** CI on `072b693fb` reported **1585 pass, 0 fail** in about five minutes; the identical commit run locally reported **1 failure in 1106 seconds**. A local red here is a second measurement away from meaning anything.
+**The contract suite has one test that fails REPEATABLY under load, and it is named.** `dispatch: a refused dispatch calls the configured Brief command` failed on two consecutive local runs of `072b693fb` — the same assertion both times, which by `2d8f741d0`'s rule is a defect rather than noise. It passes alone, and CI passes it.
+
+**The defect is in the test's timing assumption, not in `plot-dispatch.sh`.** The assertion waits for a detached command to touch a sentinel behind a fixed `Date.now() + 10_000` wall-clock deadline (`dispatch.test.mjs:477`). A loaded machine misses that window. Deadlines in that one file range from 5 s to 30 s, so 10 s is an inherited default rather than a measured floor.
+
+- [ ] **Do not treat this one as load and move on.** Re-run it alone: `node --test --test-name-pattern="a refused dispatch calls the configured Brief command" test/reconcile/dispatch.test.mjs`. Green alone plus green in CI means the code is fine and the deadline is too tight — worth a slice, not a hold.
+- [ ] Any OTHER contract failure follows the usual rule: one is load, two at the same assertion is a defect.
 
 **The board suite is load-flaky on a working machine, and that is measured rather than suspected.** Measured 2026-09-10 on this estate: the full `test/unit` run reported **16 failures across 6 files**, the same six passed **76/76 run serially**, and CI reported **1 failure of 3008** on identical code. `2d8f741d0` states the rule this repo settled on — *one failure is the load, two at the same assertion is a defect*. Do not cut on a local red board suite without the second measurement.
 
@@ -184,7 +189,7 @@ skills/plot/scripts/plot-board-verify.sh skills/plot/scripts/board/board-server.
 
 - [ ] `git worktree add --detach <tmp> origin/main` — every check below runs there, for the reason in §3.
 - [ ] `pnpm install && pnpm --filter @plot-pm/domain run test` — expect 101 files, 2426 pass.
-- [ ] `pnpm run test:contracts` — expect 1585 pass, 0 fail. A local failure here is load until a second run repeats it at the same assertion; **CI is the authority for this suite**, and it runs it on every push to main.
+- [ ] `pnpm run test:contracts` — expect 1585 pass, 0 fail. **One known exception**, named above: `a refused dispatch calls the configured Brief command` fails repeatably on a loaded machine and passes alone and in CI. Any other failure follows the usual rule — one is load, two at the same assertion is a defect. **CI is the authority for this suite** and runs it on every push to main.
 - [ ] `pnpm run build:board && git status --short` — **must be empty**. A stale artifact failed CI twice this cycle; the gate is separate from every test.
 - [ ] `./scripts/check-changeset-packages.sh` — every changeset names a real package and says what changed.
 - [ ] `skills/plot/scripts/plot-release-gate.sh` — §0. Nothing is tagged until this is answered.
