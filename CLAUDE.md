@@ -527,7 +527,7 @@ hung test run rather than a wrong interpreter.
 nvm use              # Node 24, per .nvmrc — pnpm crashes on 26
 pnpm install         # install dependencies first if node_modules is missing
 pnpm test            # validates all skills parse correctly
-pnpm run test:reconcile   # plan-format contract tests (plot-plan-meta.sh)
+pnpm run test:contracts   # contract tests for the helper estate + CI gates (75 files)
 pnpm run test:board       # rebuilds the board artifact + runs its tests
 pnpm run typecheck        # typechecks @plot-pm/board
 

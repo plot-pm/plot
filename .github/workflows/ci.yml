@@ -117,9 +117,9 @@ jobs:
       # `--test-reporter=tap` is the load-bearing half: node's default reporter
       # buffers, so when the job is killed its output dies with it. TAP streams,
       # so the last line before silence NAMES the file that wedged.
-      - name: Reconcile contract tests
+      - name: Helper contract tests
         timeout-minutes: 12
-        run: pnpm run test:reconcile
+        run: pnpm run test:contracts
       - name: What was still running (only when the suite wedged)
         if: failure()
         run: |

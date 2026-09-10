@@ -31,7 +31,7 @@ Since bb 3.1 ([quatico-solutions/agent-skills#18](https://github.com/quatico-sol
 
 ## Testing
 
-- **Contract tests** (`pnpm run test:reconcile`, wired into CI): `test/reconcile/` specifies the plan-format and config grammar by example — one fixture per supported shape with exact expected parser output — and runs the scan end-to-end against a throwaway git repo containing one planted finding per report section (non-default `plans/` layout, so the config path is exercised). The tests verify the scan *detects*, not merely *runs*.
+- **Contract tests** (`pnpm run test:contracts`, wired into CI): `test/reconcile/` specifies the plan-format and config grammar by example — one fixture per supported shape with exact expected parser output — and runs the scan end-to-end against a throwaway git repo containing one planted finding per report section (non-default `plans/` layout, so the config path is exercised). The tests verify the scan *detects*, not merely *runs*.
 - **Real-repo verification:** run against plot's own `docs/plans/` (finds genuine merged-but-not-delivered and stale-branch findings) and against a Bitbucket monorepo with `plans/` at the repo root (config honored, `develop` detected from `origin/HEAD`, `bb` PR enumeration excludes branches with open PRs).
 - **Provenance:** the scan concept was proven twice in a downstream monorepo (cpq-cds), each run catching genuine drift a human then fixed, before being contributed upstream.
 

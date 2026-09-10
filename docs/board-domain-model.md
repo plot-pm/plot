@@ -191,7 +191,7 @@ no step.
 ## PLAN
 
 The one entity with a complete existing model: `plot-plan-meta.sh` emits 26
-fields and `pnpm run test:reconcile` tests it.
+fields and `pnpm run test:contracts` tests it.
 
 | property | type | values |
 |---|---|---|
