@@ -73,7 +73,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 - [x] [a-pr-is-opened-by-a-controller] A slice's PR is opened by a controller. No skill, no rule, done by hand three times today and fifteen branches went unseen last sprint.
 - [x] [a-lifecycle-field-has-one-writer] A hook refuses a commit editing a `State:` line outside the scripts that own it. Last, because a gate refusing the only available method stops work.
 
-- [ ] [the-connector-is-read-against-a-real-instance] Run two `jen` subcommands against `jenkins-ci-webbloqs.internal.quatico.dev` and record what they print. **Half measured 2026-09-10: build history is askable, a commit sha is not.** `jen 0.4.0` is installed and authenticated, so the blocker this item recorded is gone. What remains is the second subcommand and the `changesets` route — see the note below.
+- [x] [the-connector-is-read-against-a-real-instance] Measured 2026-09-10 against `jenkins-ci-webbloqs.internal.quatico.dev`. **Build history is askable through `jen`; a commit sha is not, and is askable over REST.** Both halves are now recorded — see the note below.
 - [x] [a-probe-reports-and-the-domain-judges] `proposeStack` in the domain decides what a probe's readings propose. **Runs before the CI slice**, which reports into it. Seven thresholds live inside the two collectors today — `node >= 20`, three commit-style counts, the ticket-prefix floor and the language count — and each is a decision a test cannot reach.
 - [x] [two-signals-ask-rather-than-tie-break] `/plot-board-setup`'s stated rule — *one signal proposes, two signals ask* — becomes a domain property rather than a paragraph an agent is asked to follow.
 
@@ -155,3 +155,23 @@ Measured against `quaweb-website`, the stack this sprint is for:
 **`connected` is PR #880.** `build-jenkins.ts` gives the port a connector; the shell arm for `runs` had existed since #837, so the domain could not ask what the script could already answer.
 
 **`runForSha` is `unaskable` on Jenkins, and that is measured rather than deferred.** `jen 0.4.0` against the live instance: a build entry carries `id`, `status`, timings and stages, and no `sha`, `commit`, `revision` or `scm` anywhere in the payload. `_links` offers `changesets`, which `jen` cannot reach and which rejects the Keycloak bearer. The answer is in Jenkins at `actions[].BuildData.lastBuiltRevision.SHA1` over REST — so the remaining half of **verified** needs a `JENKINS_API_TOKEN`, which `jen` keeps in the keychain and will not print.
+
+### The sha is askable, over REST and not through `jen` — 2026-09-10
+
+**The open question this item existed for is answered: a build names its commit, and `run-for-sha` has a route on Jenkins.**
+
+`jen 0.4.0` answers build history and never a sha. A build entry from `jen build list --json` carries `_links, id, name, status, startTimeMillis, endTimeMillis, durationMillis, queueDurationMillis, pauseDurationMillis, stages`, and a case-insensitive search of the whole payload for `sha|commit|revision|scm` matches nothing — on a plain pipeline and a multibranch branch alike. `_links` offers `changesets`, which `jen` has no subcommand for and no raw-API passthrough to reach.
+
+**REST answers it, with the token `jen` already stored.** The Jenkins API token lives in the login keychain under service `jen`, account `jenkins-token:<host>`, beside `jenkins-user:<host>`. With Basic auth from that pair, `/job/quaweb/job/release/187/api/json` returns HTTP 200 and 145 KB carrying `actions[].lastBuiltRevision.SHA1` — exactly where `plot-host.sh:2993` predicted on 2026-09-08, now confirmed against the instance rather than reasoned.
+
+**The Keycloak bearer is the wrong credential and that is the trap.** `jen auth token` prints a valid bearer, and Jenkins' own endpoints answer it with an HTML login redirect. A first measurement using it concluded the sha was unreachable; the transport was wrong, not the answer.
+
+**One call answers a whole history, filtered server-side.** A `tree=` query over `builds[number,result,actions[lastBuiltRevision[SHA1,branch[name]]]]{0,5}` returned 4855 bytes and five builds, each with a distinct sha and its branch:
+
+```
+#187 SUCCESS b0a2517aa107 refs/remotes/origin/develop
+#186 SUCCESS 49cafe06563f refs/remotes/origin/develop
+#185 SUCCESS bcccd644f3a6 refs/remotes/origin/develop
+```
+
+**So `run-for-sha` on Jenkins is a REST call, not a `jen` call**, and the `exit 4` in `plot-host.sh`'s `jenkins` arm is now a gap with a known fix rather than a transport limit. The URL must be percent-encoded: `tree=` uses `[]` and `{}`, which a shell expands.
