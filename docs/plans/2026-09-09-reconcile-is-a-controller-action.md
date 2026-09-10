@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #860 merged
 - **Started:** 2026-09-10, Jan Wloka, `infra/the-test-suite-says-what-it-tests`
 - **Started:** 2026-09-10, Jan Wloka, `feature/reconcile-is-a-controller-action`
+- **Delivered:** 2026-09-10
 
 ## Changelog
 
