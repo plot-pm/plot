@@ -375,3 +375,106 @@ describe('reconcile — the leftovers come from sweepable.ts', () => {
     expect(dirty[0]?.repair).toBe('');
   });
 });
+
+describe('reconcile — a tree it cannot classify is reported, not skipped', () => {
+  /**
+   * A tree under the worktree root that neither recognition test placed.
+   *
+   * `isDispatchTree` is false, so `reap()` never sees it — which is the whole
+   * point: today that combination is silence.
+   */
+  const unclassifiedDesk = (over: Partial<Worktree> = {}) => ({
+    tree: desk({ path: '/repo/.worktrees/feature-stranded', ...over }),
+    evidence: {
+      workerAlive: false,
+      blockedMarker: false,
+      hasMergedPr: false,
+      isDispatchTree: false,
+      unclassified: true,
+      manifest: '',
+      hasLog: false,
+    },
+  });
+
+  const findingsFor = (candidate: { tree: Worktree; evidence: Record<string, unknown> }) => {
+    const out = reconcile(
+      estate({
+        desks: {
+          candidates: [candidate as never],
+          orphanedManifests: [],
+          defaultBranch: 'main',
+        },
+      }),
+      { kind: 'workspace' },
+    );
+    if (!decided(out)) throw new Error('expected a decision');
+    return out.detail.findings;
+  };
+
+  // The regression this slice fixes. `plot-reap.sh:384` hit `continue` on a
+  // tree matching neither test — not reaped, not kept, not counted, not named.
+  it('reports a tree under the worktree root that no recognition test placed', () => {
+    const found = findingsFor(unclassifiedDesk()).filter((f) => f.kind === 'unclassified-tree');
+    expect(found.length).toBe(1);
+    expect(found[0]?.subject).toBe('/repo/.worktrees/feature-stranded');
+  });
+
+  // The failure mode worse than today's silence: a person's checkout turned
+  // into a removal instruction.
+  it('says nothing at all about a hand-made worktree outside the root', () => {
+    const handMade = {
+      ...unclassifiedDesk({ path: '/tmp/plot-baseline-main' }),
+      evidence: { ...unclassifiedDesk().evidence, unclassified: false },
+    };
+    expect(findingsFor(handMade)).toEqual([]);
+  });
+
+  // The recognition test stays exactly as strict; only the silence goes.
+  it('never offers a removal for a tree it could not classify', () => {
+    const [found] = findingsFor(unclassifiedDesk()).filter((f) => f.kind === 'unclassified-tree');
+    expect(found?.repair).toBe('');
+    expect(found?.blocking).toBe(false);
+  });
+
+  it('says what it could not tell, so a person knows what to look at', () => {
+    const [found] = findingsFor(unclassifiedDesk()).filter((f) => f.kind === 'unclassified-tree');
+    expect(found?.evidence).toContain('could not be classified');
+  });
+
+  // `unclassified` and `isDispatchTree` answer two questions, and a tree the
+  // reaper judges is never also reported as unplaceable.
+  it('reports a recognised desk once, through reap(), and not as unclassified', () => {
+    const kinds = findingsFor(finishedDesk()).map((f) => f.kind);
+    expect(kinds).toEqual(['worktree']);
+  });
+
+  // A CONTRADICTORY READING IS REPORTED ONCE. Both flags true is a caller's
+  // bug — the shell sets `unclassified` only where recognition FAILED — and
+  // the guard decides which half wins: the tree reap() judged is reported
+  // through its verdict, never as a second finding saying nothing placed it.
+  it('reports a tree claiming both readings once, through reap()', () => {
+    const contradictory = {
+      ...finishedDesk(),
+      evidence: { ...finishedDesk().evidence, isDispatchTree: true, unclassified: true },
+    };
+    const kinds = findingsFor(contradictory).map((f) => f.kind);
+    expect(kinds).toEqual(['worktree']);
+  });
+
+  // An absent reading is false: a caller that measured nothing has not
+  // discovered every tree is unplaceable.
+  it('reads an absent unclassified flag as false, never as a finding', () => {
+    const silent = {
+      ...unclassifiedDesk(),
+      evidence: {
+        workerAlive: false,
+        blockedMarker: false,
+        hasMergedPr: false,
+        isDispatchTree: false,
+        manifest: '',
+        hasLog: false,
+      },
+    };
+    expect(findingsFor(silent)).toEqual([]);
+  });
+});

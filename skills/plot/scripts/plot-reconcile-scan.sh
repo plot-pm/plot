@@ -2291,6 +2291,152 @@ else
 fi
 echo
 
+echo "== 19. Desks (a worktree the fleet left behind — a person decides) =="
+# THE READINGS ARE TAKEN HERE AND THE VERDICT IS THE RULE'S. This section
+# collects what is measurable about every worktree and asks
+# `board/plot-reconcile.mjs`, which asks `reconcile()`, which asks `reap()`.
+# It holds no condition of its own — the five refusals live in `reapable.ts`
+# and a second copy in shell is the drift `plot-reap.sh:384` already cost this
+# estate once.
+#
+# IT ASKS ABOUT DESKS AND NOTHING ELSE. The other eighteen sections still
+# print their own findings; wiring them through the controller is the reconcile
+# action's own work, and doing it here would rewrite eighteen sections in a
+# slice about worktrees.
+#
+# A rule that cannot be asked REPORTS AND DOES NOT GUESS, the discipline
+# `plot-reap.sh` states for the same import: no `node`, no bundle, a bundle
+# that throws all leave the section saying it could not evaluate. Silence would
+# read as *no desks have drifted*, which is the one direction a drift report
+# must never be lenient in.
+n_desks=0
+desk_rule="$script_dir/board/plot-reconcile.mjs"
+if ! command -v node >/dev/null 2>&1; then
+  echo "  (not evaluated — node not found; the desk verdict is a domain rule)"
+elif [ ! -r "$desk_rule" ]; then
+  echo "  (not evaluated — $desk_rule is missing; run 'pnpm build:board')"
+else
+  # Where the desks live, resolved from the MAIN checkout for the reason
+  # `plot-reap.sh` records: `git rev-parse --show-toplevel` answers *this*
+  # worktree, so a scan run from inside a desk would resolve `.worktrees`
+  # beneath that desk and place none of them.
+  desk_root=""
+  desk_cfg=$(bash "$script_dir/plot-config.sh" get "Worktree root" "" 2>/dev/null) || desk_cfg=""
+  if [ -n "$desk_cfg" ]; then
+    case "$desk_cfg" in
+      /*) desk_root="$desk_cfg" ;;
+      *)
+        desk_main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") \
+          || desk_main=""
+        [ -d "$desk_main" ] || desk_main=$(git rev-parse --show-toplevel 2>/dev/null)
+        desk_root="$desk_main/$desk_cfg"
+        ;;
+    esac
+    desk_root="${desk_root%/}"
+  fi
+
+  # One JSON object per worktree, assembled by `node` rather than by hand:
+  # a path may hold a quote or a backslash, and a hand-built string breaks the
+  # parser on exactly the tree somebody needs to read about.
+  desk_rows=""
+  while IFS=$'\t' read -r dwt dbr dprunable; do
+    [ -n "$dwt" ] || continue
+    dshort=${dbr#refs/heads/}
+
+    # Recognition — the SAME two readings `plot-reap.sh` takes, and no third.
+    d_dispatch=false
+    if [ -f "$dwt/.plot-worker.pid" ]; then
+      d_dispatch=true
+    else
+      case "$dwt" in *"/plot-wt-"*) d_dispatch=true ;; esac
+    fi
+    d_unclassified=false
+    if [ "$d_dispatch" = false ] && [ -n "$desk_root" ]; then
+      case "$dwt" in "$desk_root"/*) d_unclassified=true ;; esac
+    fi
+    # Neither: a hand-made checkout, outside the population and silent.
+    if [ "$d_dispatch" = false ] && [ "$d_unclassified" = false ]; then continue; fi
+
+    # A live worker's pid, or empty. Read, never judged.
+    d_pid=""
+    if [ -f "$dwt/.plot-worker.pid" ]; then
+      dp=$(cat "$dwt/.plot-worker.pid" 2>/dev/null)
+      if [ -n "$dp" ] && ps -p "$dp" >/dev/null 2>&1; then d_pid="$dp"; fi
+    fi
+    d_marker=false
+    ls "$dwt"/PLOT-BLOCKED* >/dev/null 2>&1 && d_marker=true
+    d_clean=true
+    [ -n "$(git -C "$dwt" status --porcelain 2>/dev/null | grep -v 'tiny-garden/\.plot/state' | head -1)" ] && d_clean=false
+    d_main=false
+    [ "$dshort" = "$MAIN" ] && d_main=true
+    d_detached=false
+    [ -z "$dshort" ] && d_detached=true
+
+    # Did the host merge ANY PR for this branch? The estate's one answer,
+    # from the merged-PR list this scan already bundled — never `state`, never
+    # ancestry. Unreachable answers *not merged*, so silence is never
+    # permission and no desk is reaped on an outage.
+    d_merged=false
+    if [ "$pr_reliable" = 1 ] && [ -n "$dshort" ] && [ -n "$(merged_pr_for_branch "$dshort")" ]; then
+      d_merged=true
+    fi
+
+    desk_rows+=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$dwt" "$dshort" "$d_dispatch" "$d_unclassified" "$d_pid" \
+      "$d_marker" "$d_clean" "$d_main" "$d_detached" "$d_merged")
+    desk_rows+=$'\n'
+  done < <(git worktree list --porcelain \
+            | awk '/^worktree /{ if (br != "") print p"\t"br"\t"pr; p=$2; br=""; pr="no"; next }
+                   /^branch /  { br=$2; next }
+                   /^prunable/ { pr="yes"; next }
+                   END         { if (br != "") print p"\t"br"\t"pr }')
+
+  desk_answer=$(printf '%s' "$desk_rows" | PLOT_MAIN="$MAIN" node --input-type=module -e '
+const rows = [];
+for await (const chunk of process.stdin) rows.push(chunk);
+const text = rows.join("");
+const candidates = text.split("\n").filter((l) => l.trim() !== "").map((line) => {
+  const [path, branch, dispatch, unclassified, pid, marker, clean, isMain, detached, merged] =
+    line.split("\t");
+  return {
+    tree: {
+      path, branch, detached: detached === "true", isMain: isMain === "true",
+      clean: clean === "true", agentSession: "", prunable: false,
+    },
+    evidence: {
+      workerAlive: pid !== "", blockedMarker: marker === "true",
+      hasMergedPr: merged === "true", isDispatchTree: dispatch === "true",
+      unclassified: unclassified === "true", manifest: "", hasLog: false,
+    },
+  };
+});
+process.stdout.write(JSON.stringify({
+  scope: { kind: "workspace" },
+  readings: {
+    plans: [], sprints: [], branches: [], claims: [], trees: [],
+    desks: { candidates, orphanedManifests: [], defaultBranch: process.env.PLOT_MAIN },
+  },
+}));
+' 2>/dev/null | node "$desk_rule" 2>/dev/null) || desk_answer=""
+
+  if [ -z "$desk_answer" ]; then
+    echo "  (not evaluated — the desk rule could not be asked)"
+  else
+    desk_out=$(printf '%s' "$desk_answer" | jq -r '
+      (.detail.findings // [])
+      | map(select(.kind == "worktree" or .kind == "unclassified-tree"))
+      | .[]
+      | "  \(.subject) — \(.evidence)" +
+        (if .repair == "" then "\n    (only a person can resolve this one)"
+         else "\n    fix: \(.repair)" end)' 2>/dev/null)
+    n_desks=$(printf '%s' "$desk_answer" | jq -r '
+      [(.detail.findings // [])[] | select(.kind == "worktree" or .kind == "unclassified-tree")]
+      | length' 2>/dev/null) || n_desks=0
+    [ -n "$n_desks" ] || n_desks=0
+    if [ -n "$desk_out" ]; then printf '%s\n' "$desk_out"; else echo "  (none — every desk is accounted for)"; fi
+  fi
+fi
+echo
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks pr_source=$PR_SOURCE main=$MAIN"
 exit 0

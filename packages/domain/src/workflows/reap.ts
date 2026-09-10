@@ -25,6 +25,20 @@ export interface ReapEvidence {
   hasMergedPr: boolean;
   /** Whether this is a tree the dispatcher created, and so this workflow's to remove. */
   isDispatchTree: boolean;
+  /**
+   * Whether the tree looks like a desk that no recognition test placed.
+   *
+   * A THIRD ANSWER, NOT A WIDER SECOND ONE. `isDispatchTree` stays strict and
+   * this never relaxes it: a tree carrying this reading is still skipped by
+   * {@link reap}, gains no write, and is never offered a removal. It exists so
+   * a caller downstream can REPORT what the recognition test refused, which is
+   * the half that was missing — a refused tree was not reaped, not kept, not
+   * counted and not named.
+   *
+   * Absent reads as false. A caller that measured nothing has not thereby
+   * discovered that every tree is unplaceable.
+   */
+  unclassified?: boolean;
   /** The registry manifest naming this tree, or `''` when none does. */
   manifest: string;
   /**
