@@ -448,6 +448,19 @@ describe('reconcile — a tree it cannot classify is reported, not skipped', () 
     expect(kinds).toEqual(['worktree']);
   });
 
+  // A CONTRADICTORY READING IS REPORTED ONCE. Both flags true is a caller's
+  // bug — the shell sets `unclassified` only where recognition FAILED — and
+  // the guard decides which half wins: the tree reap() judged is reported
+  // through its verdict, never as a second finding saying nothing placed it.
+  it('reports a tree claiming both readings once, through reap()', () => {
+    const contradictory = {
+      ...finishedDesk(),
+      evidence: { ...finishedDesk().evidence, isDispatchTree: true, unclassified: true },
+    };
+    const kinds = findingsFor(contradictory).map((f) => f.kind);
+    expect(kinds).toEqual(['worktree']);
+  });
+
   // An absent reading is false: a caller that measured nothing has not
   // discovered every tree is unplaceable.
   it('reads an absent unclassified flag as false, never as a finding', () => {
