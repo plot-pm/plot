@@ -43,6 +43,8 @@ Change the words to FLEET, add the prominence level that earns the top of the se
 
 **Rules carried over unchanged.** `unknown` is not a spelling of `down` — a board that could not ask must render neither an alarm nor an all-clear. The exit code is the contract and the summary line proves it was the script's; a timed-out `execFile` reports code 1, which is indistinguishable from a real *not loaded*, so silence must never become `down`.
 
+**A gap the merged slice opened, and it is NOT yours to close.** #869 taught `--status` to distinguish `NOT LOADED` — unit present, launchd unaware, repaired by one `launchctl bootstrap` — from `not installed`, no unit at all, repaired by `/plot-fleet --start` (`plot-fleetctl.sh:319` and `:328`). **The board cannot tell them apart**: `supervisor-reading.ts` reads the exit code, which is `1` for both, so `supervisorState` answers `down` either way and the alert can only ever print the more expensive repair. That is a reading the adapter does not take, so closing it is a plan amendment. **Report it; do not add a fourth state here.**
+
 ### Done when
 
 The plan's `## Done when` — the six **Asserted:** clauses on the `Reporting` slice — is the specification. Lift these in particular, because a naive implementation passes without them:
@@ -83,6 +85,8 @@ This branch owns:
 **Not yours:** the WORKING header's layout, the right-aligned control column, the manifest-count collapse, and the synthesized-row-becomes-an-error change. All four belong to `feature/the-working-header-separates-doing-from-reading`, which waits on this branch. The badge currently renders **inside** `ParallelAgentsStepper` (`FleetControls.tsx:301`) — that coupling is real and it is the next slice's to unpick. Change the words and the prominence where they are.
 
 Also not yours: `plot-fleetctl.sh`, `DESIGN-process.md`, `plot-registryd.mjs` and the launchd label. Those are machine-side and *supervisor* is the correct word there.
+
+Three branches from OTHER plans are in flight, verified at dispatch: `feature/adoption-proposes-the-ticket-prefixes` (adoption rules, `plot-init`/`plot-board-setup`), `feature/an-installed-gate-fires-once` (blocked, holds only a marker), `feature/the-jira-jql-scopes-by-project` (`plot-config.sh`, `plot/SKILL.md`). **None touches supervisor rendering.** Expect a collision only in `.changeset/` and in the generated `board/board-server.mjs` — on the artifact take either side and rerun `pnpm build:board`, never read its diff.
 
 No other branch in this plan is in flight — `bug/a-fleet-start-records-that-it-finished` merged as #869, and the Reading slice has not started.
 
