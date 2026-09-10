@@ -2256,17 +2256,31 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     return;
   }
   const raw = said.stdout;
-  const open: { number: string; title: string; url: string; createdAt: string }[] = [];
+  const open: {
+    number: string; title: string; url: string; createdAt: string;
+    status: string; statusCategory: string;
+  }[] = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      const issue = JSON.parse(line) as
-        { number: string | number; title?: string; url?: string; createdAt?: string };
+      const issue = JSON.parse(line) as {
+        number: string | number; title?: string; url?: string; createdAt?: string;
+        status?: string; statusCategory?: string;
+      };
       open.push({
         number: issueKey(issue.number),
         title: issue.title ?? '',
         url: typeof issue.url === 'string' ? issue.url : '',
         createdAt: typeof issue.createdAt === 'string' ? issue.createdAt : '',
+        // A CAST, NOT A PARSE — so the type guards are what stand in for one.
+        // `plot-host.sh` emits both keys on all three backends, but this is a
+        // hand-written projection reading named keys, and a key it does not
+        // name is a key the board never shows: that is precisely how the status
+        // reached the wire and stopped here. `''` where the host said nothing,
+        // which the renderer already has an answer for.
+        status: typeof issue.status === 'string' ? issue.status : '',
+        statusCategory:
+          typeof issue.statusCategory === 'string' ? issue.statusCategory : '',
       });
     } catch {
       // One malformed line is not a reason to discard the rest, and not a
@@ -2298,6 +2312,13 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
         // Null rather than 0 where the host gave no date: 0 would claim the
         // issue was opened this instant.
         ageMinutes: Number.isNaN(at) ? null : Math.max(0, Math.round((now - at) / 60_000)),
+        // The tracker's own word and the category it falls in — carried BOTH,
+        // because neither substitutes for the other: the name is what a person
+        // reads and the category is the stable vocabulary a board could decide
+        // on. Passed through untouched, empty included; the tracker's `''` for a
+        // state its own vocabulary has no word for is a fact, not a gap to fill.
+        status: i.status,
+        statusCategory: i.statusCategory,
       };
     });
   entry.issueAnswer = 'answered';

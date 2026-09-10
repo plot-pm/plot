@@ -74,6 +74,11 @@ const TUPLES: Record<string, TupleRow> = {
   ticket: tupleFromIssue(IssueRowSchema.parse({
     number: 228, title: 'Fleet scan asks the host once per branch',
     url: 'https://host/issues/228', ageMinutes: 1440,
+    // The status is the TRACKER'S, and naming it here keeps this gallery a row
+    // per kind "with the data its kind actually has": slot 5 used to fill from
+    // `tupleFromIssue`'s literal, so an unnamed status now renders an empty
+    // cell and would understate what a ticket row carries.
+    status: 'open', statusCategory: 'To Do',
   })),
   plan: tupleFromPlan({
     plan: 'fleet-scan-asks-the-host', planFile: '2026-08-20-fleet-scan-asks-the-host.md',

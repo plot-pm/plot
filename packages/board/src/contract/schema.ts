@@ -2952,8 +2952,15 @@ export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
  *
  * So it is its own small shape, carrying only what a human needs to answer the
  * one question the row exists for — *is this worth a plan?* — and nothing that
- * mirrors tracker state. No labels, no assignee, no status: those age into lies
- * the moment the tracker moves, and Plot never writes them back.
+ * mirrors tracker state. No labels, no assignee, no priority: those age into
+ * lies the moment the tracker moves, and Plot never writes them back.
+ *
+ * `status` and `statusCategory` are the NARROW exception, and the refusal above
+ * still holds for the rest — the entity's own sentence is amended the same way.
+ * What that refusal guards is a write-back loop, a field Plot mirrors and then
+ * edits, and reading a status is not one; `title` is already mirrored and
+ * equally mutable. The status is what this row renders in place of the `open`
+ * it used to assume for every issue.
  */
 /**
  * One issue identity, normalised so two sides cannot disagree about it.
@@ -3007,6 +3014,30 @@ export const IssueRowSchema = z.object({
   url: z.string().default(''),
   /** Minutes since the issue was opened, or null when the host gave no date. */
   ageMinutes: z.number().nullable().default(null),
+  /**
+   * The tracker's own word for the stage — *Internal Approving*, *Reviewing* —
+   * which is WHAT A PERSON READS. Per-workflow and possibly localised, so it is
+   * never grouped on: two projects spell one stage differently and a board
+   * grouping on this fragments across them. {@link statusCategory} is the field
+   * that decides; this is the field that informs.
+   *
+   * DEFAULTED, because a payload from a server that predates these fields must
+   * still parse — the rule `url` and `ageMinutes` already follow. The renderer
+   * therefore has to answer `''`, and does: absent renders as absent.
+   */
+  status: z.string().default(''),
+  /**
+   * The stable three-value vocabulary — `To Do`, `In Progress`, `Done` — which
+   * is what a board could group and colour on.
+   *
+   * `''` IS A LEGITIMATE ANSWER, not a failure to read one. `plot-host.sh`
+   * gives Bitbucket's `ON HOLD`, `INVALID`, `DUPLICATE` and `WONTFIX` the empty
+   * string deliberately: they are terminal without being done, and filing a
+   * `WONTFIX` as `Done` would put abandoned work beside finished work. Inventing
+   * a word here — `unknown`, or back to `open` — re-opens a question the read
+   * path already closed.
+   */
+  statusCategory: z.string().default(''),
 });
 export type IssueRow = z.infer<typeof IssueRowSchema>;
 

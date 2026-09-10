@@ -556,6 +556,49 @@ describe('a ticket carries its age, and its number is the artifact', () => {
   it('keeps the number as text where the tracker reported no address', () => {
     expect(tupleFromIssue(issue({ url: '' })).name.href).toBe('');
   });
+
+  it('renders the tracker\'s OWN word, never the literal `open`', () => {
+    // The defect, stated as the assertion a schema widening alone would pass
+    // without. Measured on #849: four Jira tickets in *Internal Approving*,
+    // *In Progress* and *Reviewing* all rendered `open`, because
+    // `tupleFromIssue` wrote the word itself. The literal's argument held for
+    // GitHub, whose `--state open` returns only open issues, and failed for
+    // Jira, whose default JQL asks for `resolution = EMPTY` — unresolved,
+    // which is far wider than not started.
+    expect(tupleFromIssue(issue({ status: 'Internal Approving' })).status)
+      .toBe('Internal Approving');
+    expect(tupleFromIssue(issue({ status: 'Reviewing' })).status).toBe('Reviewing');
+    expect(tupleFromIssue(issue({ status: 'In Progress' })).status).not.toBe('open');
+  });
+
+  it('renders the NAME rather than the category — the slot informs, it does not group', () => {
+    // Both fields are on the row and this slot takes the name deliberately: a
+    // person scanning the column reads the tracker's own word, while the
+    // category is the stable vocabulary a board would GROUP on. Rendering the
+    // category here would show three words where the tracker offers dozens.
+    const t = tupleFromIssue(issue({
+      status: 'Internal Approving', statusCategory: 'In Progress',
+    }));
+    expect(t.status).toBe('Internal Approving');
+    expect(t.status).not.toBe('In Progress');
+  });
+
+  it('still renders a row whose statusCategory is "" — the WONTFIX case', () => {
+    // Bitbucket's `ON HOLD`, `INVALID`, `DUPLICATE` and `WONTFIX` get no
+    // category by design: terminal without being done. The row renders, its
+    // other five slots are unaffected, and nothing invents a category.
+    const t = tupleFromIssue(issue({ status: 'WONTFIX', statusCategory: '' }));
+    expect(t.status).toBe('WONTFIX');
+    expect(t.name.label).toBe('228: Fleet scan asks the host once per branch');
+    expect(t.age.text).toBe('1d');
+  });
+
+  it('renders an empty status as EMPTY, never falling back to `open`', () => {
+    // The fallback an implementer adds to make a blank cell look tidy. Absent
+    // renders as absent — the rule `prStatus` states for `unknown`: a row that
+    // prints a guess has said something false in the slot a reader trusts.
+    expect(tupleFromIssue(issue({ status: '' })).status).toBe('');
+  });
 });
 
 describe('age is one clock, and the label marks the exception', () => {
@@ -651,7 +694,13 @@ describe('every kind fills all six slots', () => {
   // exist for every kind, which is what makes the shape a shape rather than a
   // description of the three that happen to have components.
   const projections: Record<RowKind, () => ReturnType<typeof tupleFromRow>> = {
-    ticket: () => tupleFromIssue(issue()),
+    // THE STATUS IS NAMED HERE, and it was not before — this fixture passed
+    // slot 5 only because `tupleFromIssue` wrote the literal `open` for every
+    // issue, so the cross-kind rule was being propped up by the defect it now
+    // reads around. A real ticket carries the tracker's own word; the fixture
+    // says so rather than the assertion being weakened to tolerate a blank
+    // cell, which would have discarded a genuine rule to accommodate one kind.
+    ticket: () => tupleFromIssue(issue({ status: 'Internal Approving' })),
     plan: () => tupleFromPlan({
       plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 1,
     }),
