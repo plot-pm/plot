@@ -546,6 +546,7 @@ and let the operator decide.
 ```bash
 ../plot/scripts/plot-install-hooks.sh --check   # ask first; writes nothing
 ../plot/scripts/plot-install-hooks.sh           # then install
+../plot/scripts/plot-install-hooks.sh --verify  # then prove it fires
 ```
 
 **Offered on every adoption, because the signal is the adoption.** Unlike the
@@ -580,8 +581,33 @@ it spent and refuses a write that was properly owned.
 An unwritable settings file already costs slash-command convenience and nothing
 more — never fail the whole adoption on one blocked step.
 
+**The written file is not the evidence — the block is.** `--verify` builds a
+guarded condition in a scratch repository and requires the refusal. Report what
+it says, per gate.
+
+`plot-state-gate.sh` shipped registered in `hooks/hooks.json` and no plugin
+release ever carried it, so the gate documented as closing four measured hand
+edits had never enforced anything on any machine. Nobody noticed, because a
+missing gate does not error — it permits. A step that writes a file and reports
+success reproduces that exactly.
+
+**`unverified` is never `installed`.** Measured: `plot-state-gate.sh` exits 0
+with empty stderr both when it was never invoked and when it failed open, so
+"the commit worked" cannot tell an installed gate from an absent one. Only the
+refusal is evidence. A gate reported `unprobed` — `plot-phase-gate.sh` needs a
+remote a scratch repo has no way to supply — went unproved, and saying so is
+the honest answer rather than a gap.
+
+**A failed verification does not fail the adoption**, the same rule as the line
+above: report `unverified`, name the gate and the reason, and continue. A
+repository with unproved gates works; being told is the deliverable.
+
+
 > **Unattended (`PLOT_UNATTENDED=1`):** a hook changes how the operator's own
-> tool behaves, so it is NOT installed without an answer.
+> tool behaves, so it is NOT installed without an answer. `--verify` asks
+> nothing and writes nothing, so it still runs where the gates were already
+> installed, and reports `unverified` where they were not — which is the true
+> answer for a repository that just declined them.
 > `PLOT-UNASKED: Install Plot's gates as PreToolUse hooks? — refused — a hook changes the operator's own tool; run skills/plot/scripts/plot-install-hooks.sh to add them`
 
 
