@@ -51,6 +51,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-plan-undeliver.mjs',
   'skills/plot/scripts/board/plot-prompt.mjs',
   'skills/plot/scripts/board/plot-propose-stack.mjs',
+  'skills/plot/scripts/board/plot-reconcile.mjs',
   'skills/plot/scripts/board/plot-registryd.mjs',
   'skills/plot/scripts/board/plot-release-gate.mjs',
   'skills/plot/scripts/board/plot-slice-pr.mjs',
