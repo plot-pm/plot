@@ -100,6 +100,15 @@
 # repo that configures one the reaper matched nothing and reported
 # `reapable=0 kept=0` over nine trees.
 #
+# A TREE NEITHER TEST PLACES IS REPORTED `unknown` AND STILL NOT TOUCHED.
+# The recognition test above is unchanged in strictness — this adds no tree to
+# the reapable population and offers no removal. What it removes is the
+# SILENCE: until 2026-09-10 such a tree hit `continue`, so it was not reaped,
+# not kept, not counted and not named, and that is how ten finished desks went
+# unnoticed while the reaper reported three. Only a tree under the configured
+# `Worktree root` qualifies; a hand-made checkout elsewhere stays silent,
+# because a person's tree must never become an instruction to remove it.
+#
 # THE MANIFEST GOES WITH THE WORKTREE. `readAgentRegistry` renders one row per
 # manifest, so a reap that removes only the checkout converts a finished agent
 # into an `unknown` row naming a directory that no longer exists — measured
@@ -231,6 +240,53 @@ if [ -r "$CONFIG" ]; then
   fi
 fi
 
+# Where the DESKS live, which is the same key resolved for a different question.
+#
+# `LOG_DIR` and this answer two things: `LOG_DIR` is where a finished branch's
+# log files are swept from, and this is the directory a tree must sit under to
+# be a candidate desk at all. A repository with NO configured root has no
+# `.worktrees/` and its desks are named `plot-wt-*` beside the repo — so this
+# stays EMPTY there rather than defaulting to the parent, because the parent
+# holds every sibling checkout a person ever made and calling those candidate
+# desks is the over-broad reading this slice must not introduce.
+#
+# IT IS RESOLVED AGAINST THE MAIN CHECKOUT, NOT `$ROOT`, and that is the one
+# place in this script where the two differ on purpose. `git rev-parse
+# --show-toplevel` answers *this* worktree, so a reaper run from inside a desk
+# resolves `.worktrees` to a directory beneath that desk — which does not
+# exist, so every tree reads as unplaceable-but-elsewhere and the reading is
+# silently empty. Measured 2026-09-10 from this worktree: `$ROOT/.worktrees`
+# named `.../plot-wt-feature-a-finished-desk-is-a-finding/.worktrees` while
+# every desk sits under `.../plot/.worktrees`. A dispatched agent runs the
+# reaper from exactly there, so the wrong answer would be the usual one.
+#
+# `--git-common-dir` is shared by every worktree of one repository, and its
+# parent is the primary checkout — which is what `plot-dispatch.sh` composes
+# desk paths from when it creates them. Same directory, same key, so a
+# creation and this reading cannot disagree.
+#
+# `LOG_DIR` above keeps `$ROOT` untouched: it is this script's established
+# behaviour with its own callers, and changing where a sweep DELETES from is a
+# blast radius rather than a reading. Named here rather than fixed silently.
+WT_ROOT=""
+if [ -r "$CONFIG" ]; then
+  d=$(bash "$CONFIG" get "Worktree root" "" 2>/dev/null) || d=""
+  if [ -n "$d" ]; then
+    case "$d" in
+      /*) WT_ROOT="$d" ;;
+      *)
+        # Falls back to `$ROOT` where git cannot answer, which is the same
+        # directory on a single-checkout repository and the only one available.
+        main_checkout=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") \
+          || main_checkout="$ROOT"
+        [ -d "$main_checkout" ] || main_checkout="$ROOT"
+        WT_ROOT="$main_checkout/$d"
+        ;;
+    esac
+    WT_ROOT="${WT_ROOT%/}"
+  fi
+fi
+
 # The files ONE branch's agent run leaves beside its worktree, removed with it.
 #
 # WHICH LOG THIS IS, since the plan says "the dispatcher log" and the estate
@@ -326,7 +382,7 @@ manifest_for() {
   return 1
 }
 
-reap=0; kept=0; removed=0; cleared=0; vanished=0
+reap=0; kept=0; removed=0; cleared=0; vanished=0; unplaced=0
 printf '%-8s %-52s %s\n' "verdict" "branch" "why"
 
 while IFS=$'\t' read -r wt br prunable; do
@@ -381,8 +437,54 @@ while IFS=$'\t' read -r wt br prunable; do
   #    and whose path does not match goes unrecognised — which fails by
   #    REFUSING, the same safe direction the path test failed in, and for one
   #    tree instead of all of them.
-  if [ ! -f "$wt/.plot-worker.pid" ]; then
-    case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+  #
+  #    THE REFUSAL IS NOW MEASURED RATHER THAN PERFORMED, and that is this
+  #    slice's whole subject. The two tests below produce READINGS; nothing
+  #    here decides what the readings mean. A `case` deciding it is where the
+  #    2026-08-30 defect lived — one line, in shell, that no test could reach,
+  #    shadowing `ReapEvidence.isDispatchTree`, declared for the same question.
+  #
+  #    `is_dispatch_tree` is UNCHANGED in strictness. Widening it would move
+  #    trees into the reaper's population, which is a blast radius, not a
+  #    report — and turning a person's checkout into a removal instruction is
+  #    worse than the silence being fixed.
+  #
+  #    `unclassified` is the reading that was missing: a tree sitting under
+  #    the configured `Worktree root` that neither test placed. It looks like a
+  #    desk by location and is recognised as one by nothing, so a person is the
+  #    only thing that can say. Measured 2026-09-10 on this estate:
+  #    `.worktrees/feature-one-monitor-watches-the-slice`, 5 unpushed commits,
+  #    a PLOT-BLOCKED marker and no PR, reported by nothing.
+  is_dispatch_tree=false
+  if [ -f "$wt/.plot-worker.pid" ]; then
+    is_dispatch_tree=true
+  else
+    case "$wt" in *"/plot-wt-"*) is_dispatch_tree=true ;; esac
+  fi
+
+  unclassified=false
+  if [ "$is_dispatch_tree" = false ] && [ -n "$WT_ROOT" ]; then
+    case "$wt" in "$WT_ROOT"/*) unclassified=true ;; esac
+  fi
+
+  # A tree that is NEITHER is silent, and that silence is correct: it is a
+  # hand-made checkout outside the population, not a tree that failed a test.
+  # Measured here — four `/tmp` baseline and scratchpad checkouts, each of
+  # which carries a `.plot/` directory because the repo tracks one, which is
+  # why the presence of `.plot/` cannot be the test.
+  if [ "$is_dispatch_tree" = false ] && [ "$unclassified" = false ]; then
+    continue
+  fi
+
+  # Reported and NOT judged. Every reading below measures something inside a
+  # desk, and this is a tree nothing has established is one — so the loop says
+  # what it found and moves on, rather than asking the rule a question about a
+  # population the rule excludes. It counts, because a refusal that counts is
+  # the difference between *nothing to clean* and *nothing was looked at*.
+  if [ "$unclassified" = true ]; then
+    printf '%-8s %-52s %s\n' "unknown" "$short" \
+      "under $(basename "$WT_ROOT")/, no worker pid and no recognised name — needs a person"
+    unplaced=$((unplaced+1)); continue
   fi
 
   # THE READINGS. Everything from here to the rule call MEASURES; nothing
@@ -940,5 +1042,5 @@ fi
 # which is why `plot-release-refs.sh` deletes those, plan-scoped, under its own
 # licence and its own five guards. The asymmetry between the kinds is the whole
 # safety argument and it stays.
-echo "summary: reapable=$reap removed=$removed kept=$kept vanished=$vanished cleared=$cleared branches=$swept_branches branches_deleted=$deleted_branches branches_kept=$kept_branches claims=$swept_claims claims_deleted=$deleted_claims claims_kept=$kept_claims dirty_trees=$dirty_trees dry_run=$DRY"
+echo "summary: reapable=$reap removed=$removed kept=$kept vanished=$vanished unplaced=$unplaced cleared=$cleared branches=$swept_branches branches_deleted=$deleted_branches branches_kept=$kept_branches claims=$swept_claims claims_deleted=$deleted_claims claims_kept=$kept_claims dirty_trees=$dirty_trees dry_run=$DRY"
 exit 0
