@@ -8,6 +8,7 @@ import {
   UNNAMED_SLICE,
   isOneSlicePlan,
   FLEET_CONTROLS_DEFAULT,
+  isLiveState,
 } from '../../contract/schema.js';
 
 /**
@@ -26,7 +27,7 @@ import {
 function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number; working?: number } {
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
-import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
+import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { SprintFilter } from './SprintFilter.js';
 import { slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
@@ -525,6 +526,32 @@ export function AgentList({
       return !slugPassesSprintFilter(row.plan, selectedSprints, membership);
     }).length;
   }, [workingRows, sprintFilter, selectedSprints, membership]);
+
+  // HOW MANY AGENTS THE REGISTRY HOLDS THAT ARE NOT WORKING — the figure the
+  // section's own tally cannot give, and the only one of the two worth a word.
+  //
+  // WHY NOT `N running`. The section renders `workingRows`, which
+  // `workingAgentRows` has ALREADY filtered to `isLiveState`, so the tally IS
+  // the live count: printing `WORKING (3) · 3 running` states one number twice,
+  // which is the `3 manifests, 3 agents` failure this slice exists to remove,
+  // one figure along. The number that disagrees with the tally is the
+  // REGISTRY's, which holds every entry regardless of state — the finished
+  // desks, the stalled ones, the ones whose worker exited.
+  //
+  // So the header says how many entries the section is NOT showing. Measured
+  // 2026-09-07 and quoted at `fleet.ts:2674`: six spent workers ran 23-25 hours
+  // against an 8-hour bound. Those six render in WAITING ON YOU as problem
+  // reports; what WORKING's header adds is that the fleet is holding them at
+  // all, which is the fact an operator reading the cap needs.
+  //
+  // `isLiveState` rather than a literal pair, so the enum and this filter cannot
+  // drift — it is the denylist reading, which means an unrecognised tenth state
+  // counts as live. That is the safe direction: a state this board does not know
+  // is a worker it cannot rule out, so it is never reported as idle.
+  const agentsNotWorking = useMemo(
+    () => (fleet?.agents ?? []).filter((agent) => !isLiveState(agent.state)).length,
+    [fleet?.agents],
+  );
 
   // Degrade, do not hide: before the first scan lands this says so rather than
   // showing an empty list, which would read as "no agents are working".
@@ -1090,13 +1117,65 @@ export function AgentList({
                   the stepper to WORKING (*how many at once?*). Both read the
                   SHARED state off `fleet.fleetControls` and write it back through
                   /api/fleet-controls; neither dispatches anything in this slice. */}
+              {/* THE COUNTS A READER READS, on the left where text belongs and
+                  beside the tally they qualify. Only what disagrees with
+                  something is printed — see `WorkingCounts`. */}
+              {key === 'working' && (
+                <WorkingCounts
+                  notWorking={agentsNotWorking}
+                  hiddenByFilter={workersHiddenByFilter}
+                  registry={fleet?.registry}
+                />
+              )}
+              {/* THE CONTROL COLUMN — `ml-auto` on the control itself, which is
+                  the last child of this flex row.
+
+                  An auto margin absorbs every pixel of free space in a flex
+                  row, so the control lands on the heading's right edge and
+                  nothing before it moves. That is the whole fix: the stepper
+                  used to sit immediately after a tally whose width changed with
+                  the data, so the control an operator aims at moved between
+                  renders. Right-aligned it lands in the same place on every
+                  section that has one, and both sections share the column
+                  because both headings carry the same `px-3` and the same flex
+                  row.
+
+                  A GEOMETRY PROPERTY, NOT A CLASS NAME. Two sections agreeing is
+                  what the test asserts — the boxes' right edges against each
+                  other — because a later hand right-aligning only WORKING would
+                  pass any assertion about the presence of `ml-auto`.
+
+                  STILL OUTSIDE THE FOLD'S `<button>` above, and that has not
+                  changed: a control nested in the fold would be a button inside
+                  a button, invalid markup that swallows its own clicks. This is
+                  a layout change to the `<h2>`, never a re-parenting. */}
               {key === 'not-started' && (
-                <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                <span className="ml-auto flex items-center">
+                  <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                </span>
               )}
               {key === 'working' && (
-                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} hiddenByFilter={workersHiddenByFilter} registry={fleet?.registry} supervisor={fleet?.supervisor} />
+                <span className="ml-auto flex items-center">
+                  <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
+                </span>
               )}
             </h2>
+            {/* THE FLEET ALERT — a sibling of the heading, on its own line.
+
+                It is neither a control nor a count, so it competes for neither
+                edge: nested in the stepper it was read by a screen reader as
+                part of the `spinbutton`'s value, and right-aligning the control
+                would have carried it into the control column. THE SECTION
+                CARRIES IT, NOT EACH ROW — one fact said once, where marking
+                every row would repeat it N times.
+
+                The WORKING rows below are untouched by it. `fleet.ts:383` —
+                "THE WORKING SECTION IS THE REGISTRY" — reads manifests and
+                worktrees from disk and never the supervisor, so a stopped fleet
+                does not empty the section, and each row's `running` stays
+                literally true because the pids still exist. Hiding them would
+                lose real processes an operator may need to stop by hand. */}
+            {key === 'working' && <FleetAlert supervisor={fleet?.supervisor} />}
             {/* The body goes, the header stays — including its count. Removed
                 from the tree rather than hidden with CSS: a folded group should
                 cost no vertical space at all, which is the entire complaint
@@ -1553,7 +1632,7 @@ export function AgentList({
                         `showPlanHeading` already refuses those. */}
                     {/* THE PLAN, as a ROW rather than as a text heading — where
                         its rows are slices.
-                        
+
                         *"We need to group branches for plans. Which should be
                         Plan group with WAVES"* and *"PLANS are missing with their
                         age"*. NOT STARTED has drawn exactly this since the slice
@@ -1561,7 +1640,7 @@ export function AgentList({
                         approval clock, with its slices indented beneath. A text
                         heading carries neither — it is a label, and a plan has a
                         phase, an age and a menu.
-                        
+
                         Only where every row under it is a slice. A group holding a
                         release and a ticket has no plan to head it with, and the
                         `h3` below still serves the mixed case. */}
@@ -1731,7 +1810,7 @@ export function AgentList({
                     >
                       {/* SLICES OVER THEIR REVIEWABLE BRANCHES, in this section
                           only — and only where a slice holds MORE THAN ONE.
-                          
+
                           *"Technically the PR with branch and the wave is a
                           WAVE"*, and the qualifier is the section: WAITING ON YOU
                           asks *what needs a decision*, and where three PRs are
@@ -1739,7 +1818,7 @@ export function AgentList({
                           slice. `opus5-longhorizon-hardening :: Implementation`
                           holds five landed branches and reads `blocked` — five
                           reviews the board was filing as *nothing to do*.
-                          
+
                           The earlier objection to calling a PR a slice was that a
                           five-branch slice would render five rows all named
                           `Implementation`. Grouping is what answers it: one slice
@@ -1747,7 +1826,7 @@ export function AgentList({
                           PR row, because there is no set to name — the same rule
                           `showsSliceFold` applies, and the same one that makes a
                           single-branch slice one row in NOT STARTED.
-                          
+
                           The slice can appear in BOTH sections, deliberately: the
                           branches with PRs group here, the ones nobody started
                           group under the plan in NOT STARTED. Each section shows
