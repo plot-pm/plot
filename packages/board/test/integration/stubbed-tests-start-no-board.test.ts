@@ -432,8 +432,17 @@ const EXPECTED_FILES = 47;
  * `packages/domain/test/supervisor-reading.test.ts` with no browser. These five
  * assert only that the badge shows what the rule decided — the split the
  * Layering Rule draws.
+ *
+ * 480 → 482 ON 2026-09-10. Two tests, one already-counted file: a Jira ticket
+ * renders the tracker's own word rather than the literal `open`, and a row
+ * whose status the tracker never gave renders an empty cell and keeps the row.
+ * `EXPECTED_FILES` is unchanged — both sit in `unplanned-issues.browser.test.ts`.
+ *
+ * The projection is unit-tested in `test/unit/tuple-row.test.ts` with no
+ * browser. These two assert only that the cell shows what the projection
+ * carried — the split the Layering Rule draws, the same one the five above cite.
  */
-const EXPECTED_TESTS = 480;
+const EXPECTED_TESTS = 482;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
