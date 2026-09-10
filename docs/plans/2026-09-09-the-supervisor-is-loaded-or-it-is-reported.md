@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #864 merged
 - **Started:** 2026-09-09, Jan Wloka, `bug/a-fleet-start-records-that-it-finished`
+- **Started:** 2026-09-10, Jan Wloka, `bug/the-board-says-the-fleet-is-stopped`
 
 ## Changelog
 
