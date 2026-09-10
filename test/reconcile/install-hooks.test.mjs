@@ -22,7 +22,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, chmodSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, chmodSync, copyFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -246,4 +246,137 @@ test('the registered command resolves from the project root', () => {
     assert.match(entry.command, /^"\$CLAUDE_PROJECT_DIR"\/skills\/plot\/scripts\//);
     assert.equal(entry.type, 'command');
   }
+});
+
+// --- `--verify`: the install proves itself ------------------------------------
+//
+// THREE OF THESE EXIST BECAUSE A NAIVE IMPLEMENTATION WOULD PASS WITHOUT THEM,
+// and the first is the most important assertion in this file.
+//
+//   - the UNINSTALLED case reports `unverified`. Measured 2026-09-09 and again
+//     while building this: plot-state-gate.sh exits 0 with empty stderr both
+//     when it was never invoked and when it failed open — byte-identical,
+//     because `trap 'exit 0' ERR` is deliberate. An implementation keying on a
+//     commit succeeding reports green against a repository with no gates at
+//     all, which is the exact state this whole plan exists to fix.
+//   - the scratch tree is gone on the FAILURE path. Cleanup on the happy path
+//     is what everyone writes; `trap ... EXIT` gets the assertion-failure path
+//     and a trailing `rm -rf` does not — and here the failure path is the
+//     EXPECTED outcome on an unverified install.
+//   - a gate that cannot be proved is `unprobed`, never `verified`. Folding an
+//     unknown into a pass is the disease; folding it into a failure makes a
+//     perfect install report red forever, which operators learn to ignore.
+
+// The gate scripts a prober actually drives. repo() above copies the installer
+// alone, which is all the install half needs.
+const gateScripts = [
+  'plot-state-gate.sh',
+  'plot-controller-gate.sh',
+  'plot-phase-gate.sh',
+  'plot-state-receipt.sh',
+  'plot-config.sh',
+];
+
+function repoWithGates(opts) {
+  const dir = repo(opts);
+  for (const g of gateScripts) {
+    const src = path.join(repoRoot, 'skills', 'plot', 'scripts', g);
+    if (!existsSync(src)) continue;
+    const dst = path.join(dir, 'skills', 'plot', 'scripts', g);
+    copyFileSync(src, dst);
+    chmodSync(dst, 0o755);
+  }
+  return dir;
+}
+
+test('--verify on an uninstalled repository reports unverified, never installed', () => {
+  // THE ASSERTION THIS FILE EXISTS FOR. The gates are on disk and registered in
+  // hooks.json; nothing is registered in .claude/settings.json, so nothing
+  // would ever invoke them. That is the measured state of the repository this
+  // plan was written in — and the state a verification keying on exit 0 calls
+  // green.
+  const dir = repoWithGates();
+  const { code, out } = run(dir, ['--verify']);
+  assert.equal(code, 3, `an uninstalled repo must not verify (out: ${out})`);
+  assert.match(out, /^unverified/m);
+  assert.doesNotMatch(out, /^verified/m, 'an uninstalled repo must never read as verified');
+  // Named per gate, because "unverified" without the gate is not actionable.
+  for (const g of shippedGates) assert.match(out, new RegExp(g.replace('.', '\\.')));
+});
+
+test('--verify proves a gate by its refusal, not by the file being written', () => {
+  const dir = repoWithGates();
+  run(dir); // install
+  const { code, out } = run(dir, ['--verify']);
+  assert.equal(code, 0, `an installed repo must verify (out: ${out})`);
+  assert.match(out, /^verified/m);
+  // The state gate is the one with a cheap self-contained condition, and it is
+  // the gate that had never fired on any machine. Exit 2 is the contract; the
+  // word here is this script's own report of it.
+  assert.match(out, /verified\s+plot-state-gate\.sh/);
+});
+
+test('--verify distinguishes a gate that cannot be proved from one that failed', () => {
+  // plot-phase-gate.sh reads the plan from origin/<main> — an approval nobody
+  // else can see is not one — so a scratch repo with no remote cannot build
+  // its condition. That is an honest unknown and must not read as either a
+  // pass or a failure.
+  const dir = repoWithGates();
+  run(dir);
+  const { out } = run(dir, ['--verify']);
+  assert.match(out, /unprobed\s+plot-phase-gate\.sh/);
+  assert.match(out, /origin\/<main>/, 'the reason is named, not just the verdict');
+  assert.doesNotMatch(out, /verified\s+plot-phase-gate\.sh/);
+});
+
+test('--verify writes nothing that survives it, including on the failure path', () => {
+  // Cleanup on the happy path is what everyone writes. The uninstalled case is
+  // the FAILURE path and the expected outcome here, so it is the one asserted.
+  const dir = repoWithGates();
+  const before = new Set(readdirSync(tmpdir()));
+  const { code } = run(dir, ['--verify']);
+  assert.equal(code, 3);
+  const leaked = readdirSync(tmpdir()).filter((e) => !before.has(e) && /^tmp\./.test(e));
+  // Snapshot difference rather than "temp is empty": this machine runs several
+  // worktrees and suites against one shared temp directory.
+  for (const e of leaked) {
+    assert.ok(
+      !existsSync(path.join(tmpdir(), e, 'stderr.0')),
+      `the verification left a scratch directory behind: ${e}`,
+    );
+  }
+  // And it touched neither the settings file nor the tree it was run in.
+  assert.equal(existsSync(settingsPath(dir)), false, '--verify must not install');
+  const dirty = execSync('git status --porcelain', { cwd: dir, encoding: 'utf8' })
+    .split('\n')
+    .filter((l) => l.trim() && !l.includes('hooks/') && !l.includes('skills/'));
+  assert.deepEqual(dirty, [], 'the operator tree must be as it was found');
+});
+
+test('--verify never installs, so it composes with --check', () => {
+  // `--check` reports what IS, `--verify` reports what FIRES. Neither writes.
+  const dir = repoWithGates();
+  const v = run(dir, ['--verify']);
+  assert.equal(existsSync(path.join(dir, '.claude')), false, '--verify must not create .claude');
+  const c = run(dir, ['--check']);
+  assert.equal(c.code, 3);
+  assert.match(c.out, /^absent —/);
+  assert.equal(v.code, 3);
+});
+
+test('/plot-init reports an unproved gate and continues rather than failing adoption', () => {
+  // The happy path never reaches this, which is why it is asserted directly.
+  // /plot-init's standing guardrail — "never fail the whole adoption on one
+  // blocked step" — is the same rule wave 1 applied to a blocked settings
+  // file, and it has to hold for a verification that comes back unverified.
+  const skill = readFileSync(path.join(repoRoot, 'skills', 'plot-init', 'SKILL.md'), 'utf8');
+  const step = skill.slice(skill.indexOf('plot-install-hooks.sh --check'));
+  assert.match(step, /--verify/, 'the step runs the verification after installing');
+  assert.match(
+    step.slice(0, step.indexOf('## ') > 0 ? step.indexOf('## ') : step.length),
+    /does not fail the adoption|never fail the whole adoption/,
+    'and says a failed verification does not fail the adoption',
+  );
+  // `unverified` is the word, and it is stated as distinct from installed.
+  assert.match(step, /`unverified` is never `installed`/);
 });
