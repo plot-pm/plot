@@ -80,7 +80,7 @@ Run the scanner (it lives in the plot skill's `scripts/` directory, next to the 
 ../plot/scripts/plot-reconcile-scan.sh --offline  # no network at all (skips fetch + git-host pr list)
 ```
 
-It reads `origin/*` refs plus the configured plan directory and emits seven sections, each finding carrying its exact remediating command as copy-paste text:
+It reads `origin/*` refs, the configured plan directory and the repository's worktrees, and emits nineteen sections, each finding carrying its exact remediating command as copy-paste text. The ones an operator acts on most often:
 
 1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode.
 2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Branches` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
@@ -138,6 +138,9 @@ destroys work in progress. Check `/plot-pulse` and the worker's log
 7. **Uncut slices** — a `### ` wave heading carrying more than one branch line. A wave holds one branch; one holding several is a shape `/plot-reslice` can repair. Actionable but non-blocking; see below.
 8. **Prose wave names** — a `### ` wave heading written as a sentence, not a label. A sentence-length name paints over the cells beside it on the board; the fix is to rename the heading in the plan. Actionable but non-blocking; see below.
 9. **Index drift (convenience)** — a plan with no symlink in either index, or a `.md` file in the plan directory carrying no `State:` field at all. Nothing depends on either; see below.
+10. **Desks** — a worktree the fleet left behind. It is the one section that decides nothing itself: the scan takes the readings and asks `board/plot-reconcile.mjs`, which asks the domain's `reap()`, so the five refusals have one home. A finished desk is reported with its `git worktree remove`; a desk holding uncommitted work, a `PLOT-BLOCKED` marker, or sitting on the default branch is reported as **needing a person** and offered no command; a desk somebody is working at is not reported at all.
+
+    **A tree it cannot classify is reported and never promoted.** A dispatch desk is recognised by its `.plot-worker.pid` file or a legacy `plot-wt-` path, and a tree matching neither used to be skipped in silence — not reaped, not kept, not counted, not named, which is how ten finished desks went unnoticed while the reaper reported three. Such a tree now appears as unclassified, with no removal command: the recognition test stays exactly as strict, and only the silence goes. A hand-made checkout outside the configured `Worktree root` still produces nothing, because a person's tree must never become an instruction to remove it.
 
 ### Why an unlinked plan is not a defect (and what still is)
 

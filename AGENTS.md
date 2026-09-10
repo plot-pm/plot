@@ -50,7 +50,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
 | `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
 | `plot-story-lint.sh` | Story-estate drift check (missing STORY files, frontmatter, done-not-archived, index sync); machine-countable footer; exit 1 on findings |
-| `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (eighteen sections + machine-countable footer); sections 1–6 block a delivery and a `== blocking sections end ==` line says where they end |
+| `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (nineteen sections + machine-countable footer); sections 1–6 block a delivery and a `== blocking sections end ==` line says where they end. Section 19 reports the desks, asking the domain rule rather than deciding |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 
 Design split (Manifesto Principle 3): **skills interpret and adapt; scripts collect and report.**
