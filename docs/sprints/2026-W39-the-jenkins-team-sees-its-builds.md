@@ -59,23 +59,23 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 - [x] [the-probe-reads-the-ci-system] `plot-detect-repo.sh` emits `ci_system` as signals, shaped after `plot-board-probe.sh`'s `ci_signals`. The `CI:` proposal in `/plot-init` is specified against this field and is inert without it. **Waits on `a-probe-reports-and-the-domain-judges`** — both change the same collector, and the word `ci_system` proposes belongs in the domain rather than written here and moved a week later. Re-filed: PR #811 merged zero files.
 - [x] [the-ci-connector-is-jenkins] `build-jenkins.ts` answers the three port operations through `plot-host.sh`. Re-filed: PR #821 merged a marker and no code.
-- [ ] [the-run-ops-ask-the-ci-backend] `runs` and `run-for-sha` branch on `ci_backend()` rather than calling `gh` unconditionally. Without this the connector above has nothing to call.
+- [x] [the-run-ops-ask-the-ci-backend] `runs` and `run-for-sha` branch on `ci_backend()` rather than calling `gh` unconditionally. Without this the connector above has nothing to call.
 - [x] [a-merged-pr-carried-work] `/plot-deliver` distinguishes a slice whose PR carried work from one whose PR carried a marker. Two slices passed that gate in one sprint and nothing reported it.
 - [x] [the-master-agent-uses-the-controllers] A lifecycle action goes through its controller, and a refusal ends it. Measured 2026-09-08: four of five actions in one session had a controller and none was used — a sprint activated with `sed` while `setSprintState` sat there with nine refusals and zero callers.
-- [ ] [a-sprint-transition-is-performed] `/plot-sprint` start, commit and close call `setSprintState`. The rule is written, tested, exported and dead.
+- [x] [a-sprint-transition-is-performed] `/plot-sprint` start, commit and close call `setSprintState`. The rule is written, tested, exported and dead.
 - [x] [the-registry-sweeps-what-it-did-not-start] The supervisor reports registered worktrees nobody dispatched. Measured 2026-09-08: twelve hand-made trees in `/private/tmp` made `git worktree list` report 34 where 22 were real, and the fleet scan timed out at 90 s — the board fell back to a stale pulse and showed no PRs.
 
 ### Should Have
 
-- [ ] [a-rejection-is-a-controller-command] `/plot-reject` moves Delivered → Approved through an endpoint. The one backwards move, and it has no rule at all today.
-- [ ] [a-release-is-a-controller-command] `/plot-release` asks a controller for its verdict. The facts are collected; the judgement is still skill prose in front of the one action nobody can undo.
-- [ ] [adoption-is-a-controller-command] `/plot-init` writes its config through an endpoint asking `proposeStack`. The only command that writes into a repository Plot does not own.
-- [ ] [a-pr-is-opened-by-a-controller] A slice's PR is opened by a controller. No skill, no rule, done by hand three times today and fifteen branches went unseen last sprint.
-- [ ] [a-lifecycle-field-has-one-writer] A hook refuses a commit editing a `State:` line outside the scripts that own it. Last, because a gate refusing the only available method stops work.
+- [x] [a-rejection-is-a-controller-command] `/plot-reject` moves Delivered → Approved through an endpoint. The one backwards move, and it has no rule at all today.
+- [x] [a-release-is-a-controller-command] `/plot-release` asks a controller for its verdict. The facts are collected; the judgement is still skill prose in front of the one action nobody can undo.
+- [x] [adoption-is-a-controller-command] `/plot-init` writes its config through an endpoint asking `proposeStack`. The only command that writes into a repository Plot does not own.
+- [x] [a-pr-is-opened-by-a-controller] A slice's PR is opened by a controller. No skill, no rule, done by hand three times today and fifteen branches went unseen last sprint.
+- [x] [a-lifecycle-field-has-one-writer] A hook refuses a commit editing a `State:` line outside the scripts that own it. Last, because a gate refusing the only available method stops work.
 
-- [ ] [the-connector-is-read-against-a-real-instance] Run two `jen` subcommands against `jenkins-ci-webbloqs.internal.quatico.dev` and record what they print. The instance answers (HTTP 403 — present, refusing) and the job `quaweb` exists; what is missing is `jen` and a token. Whether a build history and a build's commit sha are askable at all is the open question the connector's shape rests on.
+- [ ] [the-connector-is-read-against-a-real-instance] Run two `jen` subcommands against `jenkins-ci-webbloqs.internal.quatico.dev` and record what they print. **Half measured 2026-09-10: build history is askable, a commit sha is not.** `jen 0.4.0` is installed and authenticated, so the blocker this item recorded is gone. What remains is the second subcommand and the `changesets` route — see the note below.
 - [x] [a-probe-reports-and-the-domain-judges] `proposeStack` in the domain decides what a probe's readings propose. **Runs before the CI slice**, which reports into it. Seven thresholds live inside the two collectors today — `node >= 20`, three commit-style counts, the ticket-prefix floor and the language count — and each is a decision a test cannot reach.
-- [ ] [two-signals-ask-rather-than-tie-break] `/plot-board-setup`'s stated rule — *one signal proposes, two signals ask* — becomes a domain property rather than a paragraph an agent is asked to follow.
+- [x] [two-signals-ask-rather-than-tie-break] `/plot-board-setup`'s stated rule — *one signal proposes, two signals ask* — becomes a domain property rather than a paragraph an agent is asked to follow.
 
 ### Could Have
 
@@ -126,3 +126,13 @@ The probe reaches the machine: `node --version`, `git rev-parse`, whether `jen` 
 The precedent is already stated for rendering: *a view state that cannot be asserted without a browser is a domain property that has not been extracted yet.* A setup decision that can only be checked by reading skill prose is the same thing.
 
 **So the split is: the probe measures, the domain judges, the skill asks and writes.** This sprint adds `ci_system` to a collector, which is exactly where the next threshold would otherwise land.
+
+### `jen` answers with builds and never a sha — 2026-09-10
+
+**The blocker this sprint recorded is gone, and the open question is half answered.** `jen 0.4.0` is installed at `~/.local/bin/jen` and authenticated against `jenkins-ci-webbloqs.internal.quatico.dev` (Keycloak plus a Jenkins token in the keychain). The sprint's *"what is missing is `jen` and a token"* no longer holds.
+
+**Build history is askable.** `jen build list quaweb/release --json` returns builds with `id`, `status`, timings and per-stage detail. `jen job list quaweb` reports the job shape, including a multibranch `continuous-build` whose branches arrive percent-encoded (`bug%2Fkarriere-...`) — the form `jenkins_build_map()` already decodes.
+
+**A commit sha is not.** A build entry carries exactly `_links, id, name, status, startTimeMillis, endTimeMillis, durationMillis, queueDurationMillis, pauseDurationMillis, stages`, on a plain pipeline and on a multibranch branch alike. A case-insensitive search for `sha|commit|revision|scm` over the whole payload matches nothing, and `jen build view` adds none in either mode. `_links` holds `self` and `changesets`; `jen` has no changesets subcommand and no raw-API passthrough, and the bearer from `jen auth token` gets Jenkins' login redirect rather than the endpoint.
+
+**So `run-for-sha` cannot be a sha lookup on Jenkins.** The only mapping `jen` exposes is branch → builds, through `--branch` on a multibranch job. Either the op resolves a sha to a branch before asking, or the port grows a branch-shaped question. That is a design constraint on `the-run-ops-ask-the-ci-backend`, which is already merged — so it is a finding to file rather than a slice to re-open.
