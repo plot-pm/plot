@@ -234,6 +234,44 @@ describe('reconcile — which desks are drift and which are noise', () => {
   });
 });
 
+describe('reconcile — each plan drift names its own repair', () => {
+  const only = (over: Partial<PlanDrift>) => {
+    const out = reconcile(estate({ plans: [plan(over)] }), { kind: 'plan', slug: 'a-plan' });
+    if (!decided(out)) throw new Error('expected a decision');
+    return out.detail.findings;
+  };
+
+  it('reports a plan whose phase and index symlink disagree', () => {
+    const [f] = only({ phaseSymlinkDrift: true });
+    expect(f?.kind).toBe('phase-symlink-drift');
+    expect(f?.repair).toBe('/plot-reconcile --plan a-plan');
+    expect(f?.blocking).toBe(true);
+  });
+
+  // Two plans mid-delivery is a collision a person resolves — naming a command
+  // would be naming one of the two, which is the judgement this does not make.
+  it('reports a concurrent delivery and offers no command', () => {
+    const [f] = only({ concurrentDelivery: true });
+    expect(f?.kind).toBe('concurrent-delivery');
+    expect(f?.repair).toBe('');
+    expect(f?.blocking).toBe(true);
+  });
+
+  it('reports a delivered plan whose release is tagged, and names the release', () => {
+    const [f] = only({ deliveredNotReleased: true });
+    expect(f?.kind).toBe('delivered-not-released');
+    expect(f?.repair).toBe('/plot-release a-plan');
+  });
+
+  // What the scan could not parse is carried through as the evidence, never
+  // summarised: the sentence is the half a person acts on.
+  it('carries the scan’s own words for a plan needing attention', () => {
+    const [f] = only({ attention: 'no State: field' });
+    expect(f?.kind).toBe('needs-attention');
+    expect(f?.evidence).toBe('no State: field');
+  });
+});
+
 describe('reconcile — what blocks a delivery', () => {
   it('counts the blocking findings so a gate asks one field', () => {
     const out = reconcile(

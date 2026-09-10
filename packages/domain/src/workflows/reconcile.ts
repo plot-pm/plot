@@ -160,21 +160,51 @@ export interface ReconcileDetail {
 export type ReconcileRefusal = 'no-such-plan' | 'no-such-sprint';
 
 /**
- * Whether a scope names something the readings hold.
+ * A scope that named something the readings do not hold.
+ *
+ * It carries the SLUG it failed on, because only the branch that failed still
+ * knows it: a workspace scope has no slug and can never be refused, so a caller
+ * re-deriving one downstream needs an arm for a case that cannot happen.
+ */
+interface Unresolved {
+  /** The rule that fired. */
+  readonly reason: ReconcileRefusal;
+  /** Which kind of scope it was. */
+  readonly kind: 'plan' | 'sprint';
+  /** The name nothing answered to. */
+  readonly slug: string;
+}
+
+/**
+ * Resolves a scope against the readings, or names why it cannot be.
+ *
+ * THE SPRINT IS RETURNED RATHER THAN RE-FOUND. Looking it up here and again in
+ * the body would be two answers to one question, and the second lookup would
+ * need a `!== undefined` guard for a case this function has already excluded —
+ * an unreachable branch that no test can honestly cover.
  *
  * @param scope - what the caller asked about.
  * @param readings - what the shell measured.
- * @returns the refusal, or `null` when the scope resolves.
+ * @returns the refusal, the resolved sprint, or `null` for a scope that needs
+ *   no resolving.
  */
-const scopeProblem = (
+const resolveScope = (
   scope: ReconcileScope,
   readings: ReconcileReadings,
-): ReconcileRefusal | null => {
-  if (scope.kind === 'plan' && !readings.plans.some((p) => p.slug === scope.slug)) {
-    return 'no-such-plan';
+): Unresolved | SprintDrift | null => {
+  if (scope.kind === 'plan') {
+    return readings.plans.some((p) => p.slug === scope.slug)
+      ? null
+      : { reason: 'no-such-plan', kind: 'plan', slug: scope.slug };
   }
-  if (scope.kind === 'sprint' && !readings.sprints.some((s) => s.slug === scope.slug)) {
-    return 'no-such-sprint';
+  if (scope.kind === 'sprint') {
+    return (
+      readings.sprints.find((s) => s.slug === scope.slug) ?? {
+        reason: 'no-such-sprint',
+        kind: 'sprint',
+        slug: scope.slug,
+      }
+    );
   }
   return null;
 };
@@ -184,18 +214,19 @@ const scopeProblem = (
  *
  * @param scope - what the caller asked about.
  * @param readings - what the shell measured.
+ * @param sprint - the sprint a sprint scope resolved to, or `null`.
  * @returns the plans in scope, in the order they were read.
  */
 const plansInScope = (
   scope: ReconcileScope,
   readings: ReconcileReadings,
+  sprint: SprintDrift | null,
 ): readonly PlanDrift[] => {
   if (scope.kind === 'plan') {
     return readings.plans.filter((p) => p.slug === scope.slug);
   }
-  if (scope.kind === 'sprint') {
-    const sprint = readings.sprints.find((s) => s.slug === scope.slug);
-    const members = new Set(sprint?.members ?? []);
+  if (sprint !== null) {
+    const members = new Set(sprint.members);
     return readings.plans.filter((p) => members.has(p.slug));
   }
   return readings.plans;
@@ -433,23 +464,21 @@ export const reconcile = (
   readings: ReconcileReadings,
   scope: ReconcileScope,
 ): Decision<ReconcileDetail> | Refusal<ReconcileRefusal> => {
-  const problem = scopeProblem(scope, readings);
-  if (problem !== null) {
-    const slug = scope.kind === 'workspace' ? '' : scope.slug;
+  const resolved = resolveScope(scope, readings);
+  if (resolved !== null && 'reason' in resolved) {
     return refuse(
       'reconcile',
-      problem,
-      `no ${scope.kind} named '${slug}' was read — an empty result would read as nothing has drifted`,
+      resolved.reason,
+      `no ${resolved.kind} named '${resolved.slug}' was read — an empty result would read as nothing has drifted`,
     );
   }
 
   const findings: DriftFinding[] = [];
-  for (const plan of plansInScope(scope, readings)) {
+  for (const plan of plansInScope(scope, readings, resolved)) {
     findings.push(...planFindings(plan));
   }
-  if (scope.kind === 'sprint') {
-    const sprint = readings.sprints.find((s) => s.slug === scope.slug);
-    if (sprint !== undefined) findings.push(...sprintFindings(sprint));
+  if (resolved !== null) {
+    findings.push(...sprintFindings(resolved));
   }
   if (scope.kind === 'workspace') {
     for (const sprint of readings.sprints) findings.push(...sprintFindings(sprint));
