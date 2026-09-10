@@ -117,9 +117,49 @@ jobs:
       # `--test-reporter=tap` is the load-bearing half: node's default reporter
       # buffers, so when the job is killed its output dies with it. TAP streams,
       # so the last line before silence NAMES the file that wedged.
-      - name: Reconcile contract tests
+      #
+      # MEASURED 2026-09-10, AND IT IS ARITHMETIC RATHER THAN A HANG. A full
+      # local run finished — `cancelled 0`, exit 1 on two assertions — in
+      # **22m 08s** (`duration_ms 1328462`) carrying **139.3 minutes of
+      # test work** across 1565 tests in 75 files. That is 6.3x effective
+      # parallelism on a 16-core machine at load 5.4.
+      #
+      # To fit this ceiling the suite needs **11.6x**. A 2-4 core CI runner
+      # gives ~4x, which predicts ~35 minutes — and the reported symptom was a
+      # cancellation at ~25. The suite is not wedging; it is being killed
+      # mid-stream, which is why no step is marked `failure` and
+      # `--log-failed` is empty. `node --test` never gave up, so it reported
+      # nothing to give up on.
+      #
+      # THE SUITE OUTGREW THE CEILING: 42 files at the 912/912 reference
+      # (2026-08-31) against **75 files and 1565 tests** ten days later, while
+      # `timeout-minutes` stayed at 12. The "~2 minutes on a healthy run"
+      # recorded in CHANGELOG.md:2366 was measured on that smaller suite.
+      #
+      # 35 tests exceed 30s and the slowest single test is **255.6s**, so the
+      # cost is a few shell-spawning files rather than a broad regression:
+      # `dispatch.test.mjs` and `fleet.test.mjs` were the two still running at
+      # 12 minutes, each turning over `plot-dispatch.sh` / `plot-fleet-scan.sh`
+      # subprocesses continuously at 1.4-2.3s of CPU per 12 minutes of wall
+      # clock. Quiet at 0% CPU, but never idle — which is exactly what an
+      # earlier reading of "0% CPU for 28 minutes" looked like from outside.
+      #
+      # `dispatch.test.mjs` ALONE takes 6m 05s for its 93 tests — half this
+      # ceiling in one file, on an idle machine. Run alone it is 93/93 green;
+      # in the full suite it contributed both of the run's two failures, each
+      # `spawnSync bash ETIMEDOUT` against the 30s bound its own `staff()`
+      # helper sets (`dispatch.test.mjs:76`) while neighbouring tests around
+      # that helper passed at 39.8s and 45.0s. So those two are contention,
+      # not assertions — and the repair is bounding concurrency, never
+      # weakening the assertion.
+      #
+      # NOT FIXED HERE, DELIBERATELY. Raising this ceiling, sharding the suite
+      # or bounding the slow files are three different answers and the plan
+      # scoped this slice to the measurement. What changed is that the hang is
+      # no longer unexplained (CHANGELOG.md:2368).
+      - name: Helper contract tests
         timeout-minutes: 12
-        run: pnpm run test:reconcile
+        run: pnpm run test:contracts
       - name: What was still running (only when the suite wedged)
         if: failure()
         run: |

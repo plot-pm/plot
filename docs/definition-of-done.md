@@ -7,9 +7,10 @@ reviewer uphold.
 ## Every change
 
 - [ ] Skills parse and frontmatter validates (`pnpm test`, `pnpm run validate`).
-- [ ] Contract tests pass (`pnpm run test:reconcile`) — the plan-format contract
-      (`plot-plan-meta.sh`) is specified by fixtures; a format change updates a
-      fixture in the same commit.
+- [ ] Contract tests pass (`pnpm run test:contracts`) — the helper estate and
+      the CI gates are specified by fixtures, the plan-format contract
+      (`plot-plan-meta.sh`) among them; a format change updates a fixture in
+      the same commit.
 - [ ] A changeset is present when skills changed (`pnpm changeset`), and the
       plugin version is bumped per `CLAUDE.md` › Versioning.
 
