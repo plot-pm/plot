@@ -23,6 +23,11 @@ import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummar
 import { roundsBadgeText } from '../../components/PlanCard.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
 import { briefGapNote, needsBrief, waitingTone } from './row-identity.js';
+// THE DOMAIN'S OWN DISCRIMINATOR, not a re-read of the field. `identity ===
+// 'manifest'` is a rule with a test beside it in
+// `packages/domain/test/agent.test.ts`; comparing the string here would be a
+// second copy of it in a component.
+import { identityWasDeclared } from '@plot-pm/domain';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
 import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
@@ -2350,12 +2355,39 @@ export function RegistryRow({
           // lose a fact. The attribute is present only when the agent IS free:
           // absent is not `false`, the same rule the slice hook follows above.
           ...(availability ? { 'data-agent-availability': availability } : {}),
+          // THE KIND, AS AN ATTRIBUTE — so a reader and a test can ask whether
+          // this row is an error without reading a colour or a class name.
+          // Present only on the undeclared row: absent is not `false`, the same
+          // rule the two attributes above follow.
+          ...(identityWasDeclared(agent) ? {} : { 'data-agent-undeclared': '' }),
         }}
+        // AN UNDECLARED AGENT IS AN ERROR ROW, and it is the FIRST question the
+        // tone answers — before any state, because a desk nobody registered is
+        // a defect in the fleet's records rather than a stage of the work.
+        //
+        // `identityWasDeclared` is the domain's rule and the discriminator is
+        // its own: `identity === 'manifest'`. Nothing is decided here, the way
+        // nothing about the supervisor's wording is decided in
+        // `FleetControls`.
+        //
+        // THE ROW STILL RENDERS. Enforcement changes the row's KIND, never its
+        // existence — the desk is what holds the work, so a synthesized entry
+        // that quietly papered over a missing manifest now names the problem
+        // and keeps its place. The trade is stated in the plan and accepted:
+        // deleting a manifest by hand left an `unknown` row and now leaves an
+        // error row.
+        //
+        // Measured 2026-09-10 on this checkout: 4 manifests against 11
+        // worktrees, so the discriminator discriminates and this does not turn
+        // every row into an error. `agent.ts`'s own docstring records the 2026-
+        // 08-28 reading of 0 against 13, which would have — the estate has
+        // moved, and this was re-measured rather than assumed.
         iconTone={
-          agent.state === 'stalled' ? 'error'
-            : agent.state === 'waiting' ? 'warn'
-              : agent.state === 'finished' ? 'success'
-                : undefined
+          !identityWasDeclared(agent) ? 'error'
+            : agent.state === 'stalled' ? 'error'
+              : agent.state === 'waiting' ? 'warn'
+                : agent.state === 'finished' ? 'success'
+                  : undefined
         }
         // THE SAME MARKS THE BRANCH AGENT ROW DRAWS, and by the same rules — a
         // travelling dot whose PACE reads the worktree (`activityPace`: fast

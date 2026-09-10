@@ -132,7 +132,7 @@ export function AutoDispatchSwitch({ value }: { value: boolean }) {
  * expected interaction — a reader who lands on it with Tab can change it without
  * reaching for the two buttons.
  */
-export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry, supervisor }: { value: number; working?: number; hiddenByFilter?: number; registry?: RegistryInfo; supervisor?: Supervisor }) {
+export function ParallelAgentsStepper({ value }: { value: number }) {
   const [count, setCount] = useState(value);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -178,6 +178,16 @@ export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry
       }}
       className="inline-flex items-center gap-1 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400"
     >
+      {/*
+        THE LABEL LEADS AND THE WIDGET IS FLUSH RIGHT. The control sits in a
+        right-aligned column, so whichever of its own children is last lands on
+        the section's right edge — and that edge should hold the `+` a reader
+        aims at, not the words explaining it. Reading order is unchanged:
+        *parallel agents* then the value.
+      */}
+      <span aria-hidden className="mr-0.5">
+        parallel agents
+      </span>
       <button
         type="button"
         data-fleet-parallel-decrement
@@ -208,131 +218,175 @@ export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry
       >
         +
       </button>
-      <span aria-hidden className="ml-0.5">
-        parallel agents (cap)
-      </span>
-      {/*
-        THE REGISTRY SIZE — exactly what WORKING renders. One row per entry, so
-        one count, read twice: `agents.length` in the server, `.length` of the
-        rendered rows here. A cap and a measurement are different claims; this
-        is the measurement, the stepper states the cap.
+    </span>
+  );
+}
 
-        DOES NOT MATCH THE CAP'S BALANCE. Auto-dispatch counts only `running`
-        and `waiting` entries whose branches have not landed; this counts every
-        entry regardless of state or branch status. A fleet with 23 entries and
-        only 2 live workers shows `23 working` here and has 2 slots occupied
-        against the cap — both true, neither derived from the other.
-      */}
-      {typeof working === 'number' && (
+/**
+ * WHAT A READER CAN ACT ON, beside the WORKING heading — and nothing else.
+ *
+ * The header carried five figures in one line: the cap's own label, a registry
+ * size, a filter gap, a manifest split and a supervisor reading, all
+ * `·`-separated in reading order. Their combined width is what moved the
+ * stepper between renders, and the stepper is the thing an operator aims at.
+ * So the counts stay on the left, where text belongs, and the control leaves
+ * them.
+ *
+ * COLLAPSED TO WHAT DISAGREES WITH SOMETHING. Each figure earns its place by
+ * stating a fact neither the tally nor the rows already carry:
+ *
+ * - `N not working` — registry entries the section is NOT showing, because
+ *   their worker is finished, stalled or gone. The section renders live agents
+ *   only, so its tally is the live count and `N running` beside it would be one
+ *   number twice; this is the figure that differs from it.
+ * - the filter gap — printed only when a filter WOULD hide a live worker.
+ * - the manifest split — printed only when the counts disagree, which is the
+ *   rule `RegistryInfo`'s annotation already followed: `3 manifests, 3 agents`
+ *   says nothing. `0 manifests, 12 synthesized` said in one line what took ten
+ *   minutes to diagnose.
+ *
+ * NONE OF THE THREE IS PRINTED WHEN IT AGREES — a zero is an absence and is
+ * rendered as one. A header that always prints every figure trains a reader to
+ * skip the line, which is how a correct sentence sat in a chip for an hour on
+ * 2026-09-09.
+ */
+export function WorkingCounts({
+  notWorking,
+  hiddenByFilter,
+  registry,
+}: {
+  /**
+   * Registry entries whose worker is not live — finished, stalled, exited. The
+   * section shows the live ones, so this is what it is not showing.
+   */
+  notWorking?: number;
+  /** Live workers a sprint filter would hide if it were applied. */
+  hiddenByFilter?: number;
+  /** The registry read, for the manifest split. */
+  registry?: RegistryInfo;
+}) {
+  // Printed only when there are some. Zero entries not working is the ordinary
+  // state and the tally already said it, so `· 0 not working` is the redundant
+  // clause this slice removes rather than adds.
+  const showRunning = typeof notWorking === 'number' && notWorking > 0;
+  const showHidden = typeof hiddenByFilter === 'number' && hiddenByFilter > 0;
+  // The rule `RegistryInfo`'s own annotation already carried, reused rather
+  // than reinvented: no manifests at all (the error case) or anything
+  // synthesized.
+  const showRegistry = !!registry && (registry.manifestCount === 0 || registry.synthesizedCount > 0);
+  if (!showRunning && !showHidden && !showRegistry) return null;
+
+  return (
+    <span className="flex items-baseline gap-1.5 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400">
+      {showRunning && (
         <span
           data-fleet-working
-          className="ml-1.5 text-slate-500 dark:text-slate-400 tabular-nums"
-          title={`${working} workers in the registry — all states, including finished and stalled`}
+          className="tabular-nums"
+          title={`${notWorking} registry entr${notWorking === 1 ? 'y' : 'ies'} whose worker is finished, stalled or gone — this section shows the live ones`}
         >
-          · {working} working
+          · {notWorking} not working
         </span>
       )}
-      {/*
-        THE GAP A FILTER HIDES — `the-filter-does-not-hide-a-worker`, slice
-        Named. The WORKING section shows workers regardless of sprint filter
-        (a worker is a fact about the fleet, not about a reader's focus), but
-        the control should name when a filter WOULD hide workers if it were
-        applied. This stops the control from contradicting the section's intent
-        even when the section deliberately shows more than the filter would
-        admit.
-      */}
-      {typeof hiddenByFilter === 'number' && hiddenByFilter > 0 && (
+      {showHidden && (
         <span
           data-fleet-hidden-by-filter
-          className="ml-1.5 text-amber-600 dark:text-amber-500 tabular-nums"
+          className="tabular-nums text-amber-600 dark:text-amber-500"
           title={`${hiddenByFilter} live workers on plans outside the selected sprint filter`}
         >
           ({hiddenByFilter} hidden by filter)
         </span>
       )}
-      {/*
-        THE REGISTRY METADATA — makes a synthesized fleet legible. A board started
-        in a worktree with no `.plot/agents/` of its own synthesizes the entire
-        fleet from `git worktree list`, and nothing else on screen says so. The
-        rows render, the agents carry no sessions, the drop menu vanishes, and
-        the operator has no way to tell a synthesized fleet from one that happens
-        to have nothing to offer.
-
-        `0 manifests, 12 synthesized` says immediately what took ten minutes to
-        diagnose: the board is reading an empty directory, not a broken one.
-
-        Shown ONLY when interesting — either no manifests found (the error case
-        this exists for) or any synthesized entries. A healthy fleet with 7
-        manifests and 0 synthesized needs no annotation; a fleet with 0 manifests
-        is the exact case where silence was harmful.
-      */}
-      {registry && (registry.manifestCount === 0 || registry.synthesizedCount > 0) && (
+      {showRegistry && registry && (
         <span
           data-fleet-registry
-          className={`ml-1.5 tabular-nums ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
+          className={`tabular-nums ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
           title={`Registry: ${registry.directory}\n${registry.manifestCount} manifest(s) read, ${registry.synthesizedCount} synthesized from worktrees`}
         >
           · {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
         </span>
       )}
-      {/*
-        WHETHER ANYTHING SUPERVISES THESE AGENTS — the fact the board did not
-        carry when six spent workers ran 23-25 hours against an 8-hour bound on
-        2026-09-07 and rendered as six healthy rows.
-
-        A statement about WORKING's contents, which is why it is here: the
-        supervisor is what reaps those agents' desks when they finish, marks the
-        spent ones and frees them. NOT on the master agent's row, which is one
-        agent where the missing fact is about the fleet; NOT in `StatusPanel`,
-        which reports on the board's own reading, while the measured failure was
-        that the board was open with the eye on the agents.
-
-        NOTHING IS DECIDED HERE. `shown`, `label`, `detail` and `prominence` all
-        arrive from `supervisorVerdict` in the domain, asserted in
-        `packages/domain/test/supervisor-reading.test.ts` with no browser. This
-        maps `prominence` to class strings and renders the words it was given —
-        the `registry` annotation's shape above, reused rather than reinvented.
-        The WORD IS NOT CHOSEN HERE EITHER: the label says FLEET because the
-        domain says so, since `/plot-fleet` is the command a person types and no
-        supervisor command exists. A prefix concatenated here would be a second
-        vocabulary no test of the rule could see.
-
-        `alert` — the fleet stopped while agents run — is the level a chip
-        cannot carry. Measured 2026-09-09: three agents idle 44-57 minutes with
-        merged PRs, an eligible slice untaken, and this exact sentence in a grey
-        chip a person read for an hour without acting. So `alert` renders as a
-        bordered, filled, bold block rather than a `·`-prefixed run of text.
-
-        `note` — the `unknown` state — is deliberately NOT amber: a board that
-        could not ask must render neither an alarm nor an all-clear. `warn`
-        keeps the amber chip no supervisor reading produces today.
-
-        IT PRINTS THE REPAIR AND RUNS NOTHING. The detail carries
-        `/plot-fleet --start` as text a person types; a button here would make a
-        page load a lifecycle action, which is the boundary `DESIGN-process.md`
-        draws between the board and fleet control.
-      */}
-      {supervisor?.shown && (supervisor.prominence === 'alert' ? (
-        <span
-          data-fleet-supervisor
-          data-fleet-supervisor-state={supervisor.state}
-          data-fleet-supervisor-prominence={supervisor.prominence}
-          className="ml-1.5 rounded border border-red-500 bg-red-50 px-1.5 py-0.5 font-semibold text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300"
-          title={supervisor.detail}
-        >
-          ⚠ {supervisor.label}
-        </span>
-      ) : (
-        <span
-          data-fleet-supervisor
-          data-fleet-supervisor-state={supervisor.state}
-          data-fleet-supervisor-prominence={supervisor.prominence}
-          className={`ml-1.5 ${supervisor.prominence === 'warn' ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
-          title={supervisor.detail}
-        >
-          · {supervisor.label}
-        </span>
-      ))}
     </span>
+  );
+}
+
+/**
+ * WHETHER ANYTHING SUPERVISES THESE AGENTS — on its own line under the WORKING
+ * heading, and neither a control nor a count.
+ *
+ * ## Why it is not in the stepper any more
+ *
+ * Wave 2 shipped this inside `ParallelAgentsStepper`, which was right while
+ * there was no header layout to hang it on and is wrong now, for two reasons
+ * that are both about the `spinbutton` it was nested in. A screen reader
+ * announces a `spinbutton`'s contents as part of the control's value, so the
+ * outage sentence was read as the cap's reading. And the control is now
+ * right-aligned, which would have carried the alert into the control column —
+ * making an alert compete for the edge a control owns.
+ *
+ * So it takes its own line: *"It is not a control and it is louder than a
+ * status; competing for either edge would make it one of them."*
+ *
+ * ## Nothing is decided here
+ *
+ * `shown`, `label`, `detail` and `prominence` all arrive from
+ * `supervisorVerdict` in the domain, asserted in
+ * `packages/domain/test/supervisor-reading.test.ts` with no browser. This maps
+ * `prominence` to class strings and renders the words it was given. THE WORD IS
+ * NOT CHOSEN HERE: the label says FLEET because the domain says so, since
+ * `/plot-fleet` is the command a person types and no supervisor command exists.
+ * A prefix concatenated here would be a second vocabulary no test of the rule
+ * could see.
+ *
+ * `alert` — the fleet stopped while agents run — is the level a chip cannot
+ * carry. Measured 2026-09-09: three agents idle 44-57 minutes with merged PRs,
+ * an eligible slice untaken, and this exact sentence in a grey chip a person
+ * read for an hour without acting.
+ *
+ * `note` — the `unknown` state — is deliberately NOT amber: a board that could
+ * not ask must render neither an alarm nor an all-clear. Promoting it would
+ * train the operator to dismiss the alert that matters.
+ *
+ * IT PRINTS THE REPAIR AND RUNS NOTHING. The detail carries
+ * `/plot-fleet --start` as text a person types; a button here would make a page
+ * load a lifecycle action, which is the boundary `DESIGN-process.md` draws
+ * between the board and fleet control.
+ */
+export function FleetAlert({ supervisor }: { supervisor?: Supervisor }) {
+  if (!supervisor?.shown) return null;
+  const loud = supervisor.prominence === 'alert';
+  return (
+    <div
+      data-fleet-supervisor
+      data-fleet-supervisor-state={supervisor.state}
+      data-fleet-supervisor-prominence={supervisor.prominence}
+      // `role="alert"` ONLY when it is one. A `note` that announced itself
+      // would interrupt a screen-reader reader to say the board could not ask a
+      // question, which is the same over-promotion the colours refuse.
+      {...(loud ? { role: 'alert' as const } : {})}
+      className={
+        loud
+          ? 'mb-2 flex flex-wrap items-baseline gap-x-2 rounded border border-red-500 bg-red-50 px-3 py-1 text-xs font-semibold normal-case tracking-normal text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300'
+          : `mb-2 flex flex-wrap items-baseline gap-x-2 px-3 text-xs font-normal normal-case tracking-normal ${
+              supervisor.prominence === 'warn'
+                ? 'text-amber-600 dark:text-amber-500'
+                : 'text-slate-400 dark:text-slate-500'
+            }`
+      }
+      title={supervisor.detail}
+    >
+      <span data-fleet-supervisor-label>
+        {loud && <span aria-hidden>⚠ </span>}
+        {supervisor.label}
+      </span>
+      {/*
+        THE CONSEQUENCE AND THE REPAIR, in the domain's own words. The detail is
+        the sentence that names what will not happen and what to type; the chip
+        carried it in a `title` only, where a reader who never hovered never saw
+        it. On its own line there is room to print it, and the outage this plan
+        was written from is exactly the case where the reader needed the
+        sentence rather than the word.
+      */}
+      {loud && <span data-fleet-supervisor-detail className="font-normal">{supervisor.detail}</span>}
+    </div>
   );
 }

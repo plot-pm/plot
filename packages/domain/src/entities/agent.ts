@@ -152,13 +152,27 @@ export const isFree = (
  * Whether a reader can trust this row to say who the agent is.
  *
  * Measured 2026-08-28: 0 manifests against 13 dispatch worktrees, so every
- * agent row this estate renders is synthesized. A row cannot today distinguish
- * *I know who this is* from *I inferred that someone is here*.
+ * agent row that estate rendered was synthesized, and a row could not
+ * distinguish *I know who this is* from *I inferred that someone is here*.
  *
- * @param agent - the agent to test.
+ * THE ESTATE HAS SINCE MOVED, and the reading matters because it decides
+ * whether enforcing this turns every row into an error. Measured 2026-09-10:
+ * 4 manifests against 11 worktrees. So the discriminator discriminates, and
+ * the board renders the undeclared row as an ERROR row — the kind changes and
+ * the row stays, because the desk is what holds the work.
+ *
+ * Takes the one field it reads rather than a whole {@link Agent}, for the
+ * reason {@link isFree} gives: the board's registry entry is a narrower record
+ * of the same facts, and it carries `identity` with exactly this meaning. A
+ * cast at that call site would assert an equality between the two shapes that
+ * does not hold — the entry has no `activity`, `exitCode`, `dirtyPaths` or
+ * `machineAtDeath` — where widening lets the caller ask honestly.
+ *
+ * @param agent - the agent to test; its identity alone.
  * @returns true when a manifest declared this agent.
  */
-export const identityWasDeclared = (agent: Agent): boolean => agent.identity === 'manifest';
+export const identityWasDeclared = (agent: Pick<Agent, 'identity'>): boolean =>
+  agent.identity === 'manifest';
 
 /**
  * Whether an agent's work needs a person before anything else can proceed.

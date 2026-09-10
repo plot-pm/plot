@@ -456,7 +456,22 @@ const EXPECTED_FILES = 47;
  * rendered cell. Measured discriminating — with the fix reverted the cell
  * reads `greengreendraft` and two of the three fail.
  */
-const EXPECTED_TESTS = 485;
+/**
+ * 485 → 488 ON 2026-09-10: the three properties `the-working-header-separates-
+ * doing-from-reading` needs a rendered page for, two files, `EXPECTED_FILES`
+ * unchanged.
+ *
+ * All three are claims no unit test can make. The geometry one is the clearest:
+ * *both controls are right-aligned in the same column* is an assertion about
+ * two boxes' coordinates, and the two readings behind it — a checkbox sitting
+ * 85 px left of its own column, an `<h2>` whose border box ends 12 px past its
+ * content edge — are facts only a layout engine produces. The other two are a
+ * row COUNT across two fixtures and an attribute on one row among several.
+ *
+ * Raised in the commit that adds them, which is the mechanism this gate names.
+ * Each serves its own state through a stubbed `/api/fleet` and starts no board.
+ */
+const EXPECTED_TESTS = 488;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
