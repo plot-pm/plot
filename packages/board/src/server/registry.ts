@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
-import { AgentStateSchema, type AgentState as ContractAgentState } from '../contract/schema.js';
+import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from '../contract/schema.js';
 import { scriptsShell } from '@plot-pm/domain/adapters';
 
 /**
@@ -119,6 +119,16 @@ export interface ProcessGroup {
 export interface AgentEntry {
   /** The session id the dispatcher minted — the identity, and the transcript's name. */
   session: string;
+  /**
+   * Whether a manifest declared this agent, or the registry inferred it from a
+   * desk that has none.
+   *
+   * Stamped by whichever path built the entry — `manifest` by `parseManifest`,
+   * which returns non-null only when it read one, and `synthesized` by
+   * `synthesizeEntry`. So the value is a consequence of how the entry came to
+   * exist rather than a field a caller sets, and the two cannot disagree.
+   */
+  identity: AgentIdentity;
   /**
    * The handle a correction is resumed into, or `''` on a manifest that carries
    * none.
@@ -397,6 +407,11 @@ export function parseManifest(json: string): AgentEntry | null {
   const group = readGroup(o);
   return {
     session,
+    // A MANIFEST DECLARED THIS AGENT, and this function is the proof: it
+    // returns null on anything it could not read as one, so reaching here IS
+    // the declaration. Stamped rather than passed in, so no caller can build a
+    // manifest-backed entry that claims otherwise.
+    identity: 'manifest',
     // NOT DEFAULTED TO `session`, and that is the whole reason it is a second
     // field. A manifest written before this existed asserts no resume handle,
     // and filling one in from the join key would invent a claim the file never
@@ -749,6 +764,11 @@ export async function readAgentRegistryWithInfo(
 function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
   return {
     session: '',
+    // NOBODY DECLARED THIS AGENT — the desk is all there is, and the row now
+    // says so instead of reading as a registered agent whose fields happen to
+    // be empty. The row still RENDERS: the desk is what holds the work, so
+    // enforcement changes its kind and never its existence.
+    identity: 'synthesized',
     resumeId: '',
     attempts: 0,
     branch: wt.branch,

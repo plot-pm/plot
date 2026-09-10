@@ -3216,6 +3216,18 @@ export const ProcessGroupSchema = z.object({
   buildMonitorPid: z.string().default(''),
 });
 
+/**
+ * Whether an agent's identity was declared or inferred — the wire's copy of the
+ * domain's `AgentIdentitySchema`.
+ *
+ * A COPY BECAUSE THE CONTRACT PACKAGE IMPORTS NO DOMAIN, the same reason every
+ * other entity on this wire restates its shape. The two are one enum in two
+ * places and the values are the domain's; `identityWasDeclared` is the rule and
+ * lives there.
+ */
+export const AgentIdentitySchema = z.enum(['manifest', 'synthesized']);
+export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
+
 export const AgentEntrySchema = z.object({
   /**
    * The session id, minted at launch. The identity, and the transcript's name.
@@ -3227,6 +3239,23 @@ export const AgentEntrySchema = z.object({
    * `''` rather than required: absent is a real state, not a rejection.
    */
   session: z.string().default(''),
+  /**
+   * Whether a manifest DECLARED this agent, or the registry inferred it from a
+   * desk with no manifest.
+   *
+   * The domain has answered this since `AgentIdentitySchema`
+   * (`packages/domain/src/entities/agent.ts`) and `identityWasDeclared` reads
+   * it; the wire dropped it, so the board's client could not tell the two
+   * apart. A row for a desk nobody registered is not a lesser row — the desk
+   * is what holds the work — but it is a DIFFERENT row, and the section said
+   * so nowhere.
+   *
+   * Defaults to `manifest`: every producer that predates this field wrote
+   * entries it had read a manifest for, and the synthesizing path is the one
+   * that now says so explicitly. A default of `synthesized` would retag every
+   * declared agent on an older server as an error.
+   */
+  identity: AgentIdentitySchema.default('manifest'),
   /** The branch it holds, or `''` while it holds none — empty is a real value. */
   branch: z.string().default(''),
   worktree: z.string().default(''),
