@@ -290,15 +290,39 @@ export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry
         NOTHING IS DECIDED HERE. `shown`, `label`, `detail` and `prominence` all
         arrive from `supervisorVerdict` in the domain, asserted in
         `packages/domain/test/supervisor-reading.test.ts` with no browser. This
-        maps `prominence` to two class strings and renders the words it was
-        given — the `registry` annotation's shape above, reused rather than
-        reinvented.
+        maps `prominence` to class strings and renders the words it was given —
+        the `registry` annotation's shape above, reused rather than reinvented.
+        The WORD IS NOT CHOSEN HERE EITHER: the label says FLEET because the
+        domain says so, since `/plot-fleet` is the command a person types and no
+        supervisor command exists. A prefix concatenated here would be a second
+        vocabulary no test of the rule could see.
 
-        `warn` is amber, matching its neighbours. `note` — the `unknown` state —
-        is deliberately NOT amber: a board that could not ask must render
-        neither an alarm nor an all-clear.
+        `alert` — the fleet stopped while agents run — is the level a chip
+        cannot carry. Measured 2026-09-09: three agents idle 44-57 minutes with
+        merged PRs, an eligible slice untaken, and this exact sentence in a grey
+        chip a person read for an hour without acting. So `alert` renders as a
+        bordered, filled, bold block rather than a `·`-prefixed run of text.
+
+        `note` — the `unknown` state — is deliberately NOT amber: a board that
+        could not ask must render neither an alarm nor an all-clear. `warn`
+        keeps the amber chip no supervisor reading produces today.
+
+        IT PRINTS THE REPAIR AND RUNS NOTHING. The detail carries
+        `/plot-fleet --start` as text a person types; a button here would make a
+        page load a lifecycle action, which is the boundary `DESIGN-process.md`
+        draws between the board and fleet control.
       */}
-      {supervisor?.shown && (
+      {supervisor?.shown && (supervisor.prominence === 'alert' ? (
+        <span
+          data-fleet-supervisor
+          data-fleet-supervisor-state={supervisor.state}
+          data-fleet-supervisor-prominence={supervisor.prominence}
+          className="ml-1.5 rounded border border-red-500 bg-red-50 px-1.5 py-0.5 font-semibold text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300"
+          title={supervisor.detail}
+        >
+          ⚠ {supervisor.label}
+        </span>
+      ) : (
         <span
           data-fleet-supervisor
           data-fleet-supervisor-state={supervisor.state}
@@ -308,7 +332,7 @@ export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry
         >
           · {supervisor.label}
         </span>
-      )}
+      ))}
     </span>
   );
 }
