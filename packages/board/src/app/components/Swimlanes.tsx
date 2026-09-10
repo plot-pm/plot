@@ -250,6 +250,7 @@ export function Swimlanes({
         planSource={board.planSource}
         ageSeconds={planAgeSeconds}
         checksUnaskable={checksUnaskableOn(board)}
+        ci={board.server?.ci ?? ''}
       />
     </div>
   );

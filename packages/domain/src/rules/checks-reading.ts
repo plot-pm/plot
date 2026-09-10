@@ -216,3 +216,48 @@ export const checksUnaskable = (readings: readonly ChecksReadings[]): boolean =>
  */
 export const CHECKS_UNASKABLE_NOTE =
   'The host cannot report check states, so no build is known for any pull request here. This is a fact about the connector, not about the work.';
+
+/**
+ * How a CI system is named to a reader.
+ *
+ * THE CONFIG WORD IS NOT THE READING WORD. `github-actions` is a key's value;
+ * `GitHub Actions` is what a person calls it. A board printing the key teaches
+ * its reader to translate, and the goal this serves — *sees real build status
+ * without being told which keys to set* — rules that out.
+ *
+ * AN UNKNOWN SYSTEM IS RETURNED AS ITSELF rather than mapped to a placeholder.
+ * A repository may declare a CI Plot has no connector for, and printing that
+ * word back is honest; inventing `unknown` would hide which system was asked.
+ *
+ * @param system - the CI system as the config declares it.
+ * @returns the name to show a reader, or `''` where nothing was declared.
+ */
+export const ciDisplayName = (system: string): string => {
+  const declared = system.trim().toLowerCase();
+  if (declared === '') return '';
+  if (declared === 'github-actions') return 'GitHub Actions';
+  if (declared === 'jenkins') return 'Jenkins';
+  return system.trim();
+};
+
+/**
+ * What the board says once, naming the CI system that could not be asked.
+ *
+ * AN EMPTY COLUMN MUST NOT READ AS *NO CI*. On a Jenkins team the board's own
+ * sentence said *the host* — true, and useless: a reader cannot tell a stack
+ * with no CI from a Jenkins that answered nothing, and those need opposite
+ * actions. Naming the system is the whole difference.
+ *
+ * IT FALLS BACK TO THE UNNAMED SENTENCE, because a board that never read the
+ * `CI` key knows less than one that did, and saying a name it does not have
+ * would be worse than saying none. `CHECKS_UNASKABLE_NOTE` is that sentence.
+ *
+ * @param system - the CI system as the config declares it, or `''`.
+ * @returns the sentence to show, naming the system where one is known.
+ */
+export const checksUnaskableNote = (system: string): string => {
+  const name = ciDisplayName(system);
+  return name === ''
+    ? CHECKS_UNASKABLE_NOTE
+    : `${name} reported no check state for any pull request here. This is a fact about the connector, not about the work.`;
+};

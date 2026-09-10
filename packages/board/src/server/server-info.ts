@@ -120,6 +120,28 @@ const readConfig = async (
   return (read.ok ? read.value.trim() : '') || fallback;
 };
 
+/** The `## Plot Config` key naming the repository's CI system. */
+const CI_KEY = 'CI';
+
+/**
+ * The CI system this repository declared, read ONCE for the process's life.
+ *
+ * A STARTUP FACT, unlike `branch`. A process serves one worktree, and that
+ * worktree's `CI` key does not change under it the way its checked-out branch
+ * does — so this is memoised outright rather than on a TTL, and the spawn stays
+ * off the `/api/board` path this file exists to keep clear.
+ *
+ * AN UNREADABLE KEY IS `''`, which `checksUnaskableNote` renders as the unnamed
+ * sentence. A board that could not read the key knows less than one that did,
+ * and naming a system it never read would be worse than naming none.
+ */
+let cachedCi: string | null = null;
+
+const ciSystem = async (opts: BuildBoardOptions): Promise<string> => {
+  if (cachedCi === null) cachedCi = await readConfig(opts, CI_KEY, '');
+  return cachedCi;
+};
+
 /**
  * Assemble the server's self-description for the board payload.
  *
@@ -135,9 +157,10 @@ export async function serverInfo(
   // be synchronous spawns on the `/api/board` path, which is the defect this
   // migration exists for: a synchronous spawn cannot yield, so the loop served
   // nothing while either ran.
-  const [restartCommand, branch] = await Promise.all([
+  const [restartCommand, branch, ci] = await Promise.all([
     readConfig(opts, BOARD_COMMAND_KEY, NO_COMMAND),
     currentBranch(opts),
+    ciSystem(opts),
   ]);
   return {
     restartCommand,
@@ -149,5 +172,9 @@ export async function serverInfo(
     // response — `repoRoot` is what every helper spawn is measured against, so
     // this reports a value the server already holds rather than computing one.
     repo: opts.repoRoot,
+    // MEMOISED FOR THE PROCESS, not per request: a worktree's `CI` key is a
+    // startup fact. Empty where none is declared or the key is unreadable, and
+    // the board then says the unnamed sentence rather than naming a guess.
+    ci,
   };
 }

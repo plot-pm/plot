@@ -910,6 +910,19 @@ export type DispatchInfo = z.infer<typeof DispatchInfoSchema>;
  * that states the silence without inventing a command it was never told.
  */
 export const ServerInfoSchema = z.object({
+  /**
+   * The CI system this repository declared, as its `CI` key spells it — or `''`
+   * where none is declared or the key could not be read.
+   *
+   * IT NAMES WHICH CI ANSWERED NOTHING. An empty check column is ambiguous
+   * between *this stack has no CI* and *this CI reported nothing*, and those
+   * need opposite actions. `checksUnaskableNote` turns this into the sentence;
+   * an empty value falls back to the unnamed one rather than guessing.
+   *
+   * The CONFIG WORD, not a display name — `ciDisplayName` owns that mapping, so
+   * a reader and a caller comparing against the key see the same string.
+   */
+  ci: z.string().default(''),
   /** e.g. `pnpm board`. Empty where the server does not know its own. */
   restartCommand: z.string().default(''),
   /** The bound port, or 0 where it is not known. */
@@ -960,7 +973,7 @@ export const BoardSchema = z.object({
   /** See DispatchInfoSchema — a server capability, not plan data. */
   dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
   /** See ServerInfoSchema — how to start this server again, and where it is. */
-  server: ServerInfoSchema.default({ restartCommand: '', port: 0, branch: '', repo: '' }),
+  server: ServerInfoSchema.default({ restartCommand: '', port: 0, branch: '', repo: '', ci: '' }),
   /**
    * Whether the server will act on an Approve click, and why not.
    *
