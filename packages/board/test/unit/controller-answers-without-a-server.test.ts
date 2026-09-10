@@ -102,8 +102,12 @@ describe('the controller answers without a server', () => {
           `${flag} is the caller's to answer, not the controller's to know`,
         );
       }
+      // `ci` joined the placeholder on 2026-09-10 and belongs to the same
+      // claim: the CI system is read by `server-info.ts` at response time, from
+      // the repository's config — so the controller, which never saw a socket
+      // and never read a key, has nothing to say about it either.
       assert.deepEqual(
-        answer.server, { restartCommand: '', port: 0, branch: '', repo: '' },
+        answer.server, { restartCommand: '', port: 0, branch: '', repo: '', ci: '' },
         'the controller names no binding',
       );
     } finally {

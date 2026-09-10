@@ -216,3 +216,31 @@ export const checksUnaskable = (readings: readonly ChecksReadings[]): boolean =>
  */
 export const CHECKS_UNASKABLE_NOTE =
   'The host cannot report check states, so no build is known for any pull request here. This is a fact about the connector, not about the work.';
+
+/**
+ * How a CI system is named to a reader.
+ *
+ * THE DOMAIN LEARNS NO VENDOR, and this function is where that was nearly lost.
+ * It first held `github-actions -> GitHub Actions` and `jenkins -> Jenkins`, and
+ * CI's *domain names no vendor* gate refused it — correctly, and for the reason
+ * `rules/stack.ts` already states: a rule that knows which systems exist needs
+ * editing when the third one arrives, which is the property `BuildSystem` and
+ * `HostBackend` were opened to strings to keep.
+ *
+ * SO THE CONNECTOR SUPPLIES THE NAME. Each `BuildPort` implementation knows
+ * what its vendor is called — `build-actions.ts` says `GitHub Actions`,
+ * `build-jenkins.ts` says `Jenkins` — and this only tidies whatever arrives.
+ * A third CI system is a file under `adapters/`, with no edit here.
+ *
+ * @param name - the display name the connector supplies, or the declared key
+ *   where no connector answered.
+ * @returns the name to show a reader, trimmed; `''` where nothing was supplied.
+ */
+export const ciDisplayName = (name: string): string => name.trim();
+
+export const checksUnaskableNote = (system: string): string => {
+  const name = ciDisplayName(system);
+  return name === ''
+    ? CHECKS_UNASKABLE_NOTE
+    : `${name} reported no check state for any pull request here. This is a fact about the connector, not about the work.`;
+};

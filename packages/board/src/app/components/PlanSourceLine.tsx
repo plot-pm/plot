@@ -1,4 +1,4 @@
-import { CHECKS_UNASKABLE_NOTE } from '@plot-pm/domain';
+import { checksUnaskableNote, ciDisplayName } from '@plot-pm/domain';
 import type { PlanSource } from '../../contract/schema.js';
 
 /**
@@ -36,6 +36,7 @@ export function PlanSourceLine({
   planSource,
   ageSeconds,
   checksUnaskable = false,
+  ci = '',
 }: {
   /**
    * Where the plans came from — or UNDEFINED, from a server that predates the
@@ -73,6 +74,15 @@ export function PlanSourceLine({
    * absence.
    */
   checksUnaskable?: boolean;
+  /**
+   * The CI system the repository declared, named as a reader calls it.
+   *
+   * NAMES WHICH CI ANSWERED NOTHING. An empty check column cannot otherwise be
+   * told from a stack with no CI, and those need opposite actions. Empty falls
+   * back to the unnamed sentence — `checksUnaskableNote` owns that choice. The
+   * key-to-name mapping is `server-info.ts`'s; the domain names no vendor.
+   */
+  ci?: string;
 }) {
   // A ref that could not be resolved is the one case with no provenance to
   // state, and it must NOT be answered by quietly falling back to the checkout
@@ -98,13 +108,17 @@ export function PlanSourceLine({
   // than a fault in this run, the same reason a repo with no remote is reported
   // and not scolded. The sentence is the domain's, so what this board claims
   // about its own reach is asserted in a unit test rather than written here.
+  const ciName = ciDisplayName(ci);
   const checksLine = checksUnaskable ? (
     <p
       className="mt-1 px-1 text-xs text-slate-400 dark:text-slate-600"
       data-checks-unaskable
-      title={CHECKS_UNASKABLE_NOTE}
+      data-ci={ciName || undefined}
+      title={checksUnaskableNote(ci)}
     >
-      Checks not asked — the host reports none for any pull request here.
+      {ciName === ''
+        ? 'Checks not asked — the host reports none for any pull request here.'
+        : `Checks not asked — ${ciName} reports none for any pull request here.`}
     </p>
   ) : null;
 

@@ -120,6 +120,50 @@ const readConfig = async (
   return (read.ok ? read.value.trim() : '') || fallback;
 };
 
+/** The `## Plot Config` key naming the repository's CI system. */
+const CI_KEY = 'CI';
+
+/**
+ * The CI system this repository declared, read ONCE for the process's life.
+ *
+ * A STARTUP FACT, unlike `branch`. A process serves one worktree, and that
+ * worktree's `CI` key does not change under it the way its checked-out branch
+ * does — so this is memoised outright rather than on a TTL, and the spawn stays
+ * off the `/api/board` path this file exists to keep clear.
+ *
+ * AN UNREADABLE KEY IS `''`, which `checksUnaskableNote` renders as the unnamed
+ * sentence. A board that could not read the key knows less than one that did,
+ * and naming a system it never read would be worse than naming none.
+ */
+let cachedCi: string | null = null;
+
+/**
+ * What a person calls each CI system, keyed by the word its config uses.
+ *
+ * THE VENDOR NAMES LIVE HERE AND NOT IN THE RULE — the same split
+ * `entry/stack-readings.ts` already makes, and CI's *domain names no vendor*
+ * gate enforces. `github-actions` is a key's VALUE; `GitHub Actions` is what a
+ * reader calls it, and a board printing the key makes its reader translate.
+ *
+ * A SYSTEM THAT IS NOT LISTED IS SHOWN AS ITSELF. A repository may declare a CI
+ * Plot has no connector for, and printing that word back is honest where a
+ * placeholder would hide which system was asked. So a third CI system needs an
+ * entry here to read well, and needs nothing anywhere to work.
+ */
+const CI_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  'github-actions': 'GitHub Actions',
+  jenkins: 'Jenkins',
+};
+
+const ciSystem = async (opts: BuildBoardOptions): Promise<string> => {
+  if (cachedCi === null) {
+    const declared = await readConfig(opts, CI_KEY, '');
+    const key = declared.trim().toLowerCase();
+    cachedCi = key === '' ? '' : (CI_DISPLAY_NAMES[key] ?? declared.trim());
+  }
+  return cachedCi;
+};
+
 /**
  * Assemble the server's self-description for the board payload.
  *
@@ -135,9 +179,10 @@ export async function serverInfo(
   // be synchronous spawns on the `/api/board` path, which is the defect this
   // migration exists for: a synchronous spawn cannot yield, so the loop served
   // nothing while either ran.
-  const [restartCommand, branch] = await Promise.all([
+  const [restartCommand, branch, ci] = await Promise.all([
     readConfig(opts, BOARD_COMMAND_KEY, NO_COMMAND),
     currentBranch(opts),
+    ciSystem(opts),
   ]);
   return {
     restartCommand,
@@ -149,5 +194,9 @@ export async function serverInfo(
     // response — `repoRoot` is what every helper spawn is measured against, so
     // this reports a value the server already holds rather than computing one.
     repo: opts.repoRoot,
+    // MEMOISED FOR THE PROCESS, not per request: a worktree's `CI` key is a
+    // startup fact. Empty where none is declared or the key is unreadable, and
+    // the board then says the unnamed sentence rather than naming a guess.
+    ci,
   };
 }

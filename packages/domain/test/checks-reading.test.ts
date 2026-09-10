@@ -4,7 +4,9 @@ import {
   checksProminence,
   checksShown,
   checksUnaskable,
+  checksUnaskableNote,
   checksVerdict,
+  ciDisplayName,
   type Checks,
   type ChecksReadings,
 } from '../src/index.js';
@@ -171,5 +173,40 @@ describe('checksUnaskable', () => {
   it('carries a sentence about the connector rather than about the work', () => {
     expect(CHECKS_UNASKABLE_NOTE).toContain('host cannot report');
     expect(CHECKS_UNASKABLE_NOTE).toContain('not about the work');
+  });
+});
+
+describe('the board names which CI answered', () => {
+  it('shows whatever name it is handed, learning no vendor', () => {
+    // THE DOMAIN NAMES NO VENDOR. This function first mapped two CI systems by
+    // name and CI's gate refused it — a rule that knows which systems exist
+    // needs editing when the third arrives. The mapping lives in
+    // `server-info.ts`; this only tidies what arrives.
+    expect(ciDisplayName('GitHub Actions')).toBe('GitHub Actions');
+    expect(ciDisplayName('  Jenkins  ')).toBe('Jenkins');
+    expect(ciDisplayName('some-future-ci')).toBe('some-future-ci');
+  });
+
+  it('names nothing where nothing was supplied', () => {
+    expect(ciDisplayName('')).toBe('');
+    expect(ciDisplayName('   ')).toBe('');
+  });
+
+  it('names the system in the sentence the board shows once', () => {
+    // THE WHOLE POINT: an empty check column must not read as *no CI*.
+    expect(checksUnaskableNote('Jenkins')).toContain('Jenkins reported no check state');
+  });
+
+  it('keeps the sentence about the connector, not about the work', () => {
+    // The distinction `CHECKS_UNASKABLE_NOTE` was written to protect survives:
+    // a reader must not read an unreachable connector as failing pull requests.
+    expect(checksUnaskableNote('Jenkins')).toContain('not about the work');
+  });
+
+  it('falls back to the unnamed sentence where no CI was read', () => {
+    // A board that never read the `CI` key knows LESS than one that did, and
+    // naming a system it does not have would be worse than naming none.
+    expect(checksUnaskableNote('')).toBe(CHECKS_UNASKABLE_NOTE);
+    expect(checksUnaskableNote('   ')).toBe(CHECKS_UNASKABLE_NOTE);
   });
 });
