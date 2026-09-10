@@ -128,6 +128,66 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
     }
   });
 
+  it('renders both controls right-aligned in the same column', async () => {
+    // THE GEOMETRY, NOT A CLASS NAME. A test asserting the presence of
+    // `ml-auto`, or that the control exists at all, passes the layout this
+    // slice replaced — the stepper used to sit immediately after a tally whose
+    // width changes with the data, so it moved between renders and the operator
+    // re-found it every time.
+    //
+    // TWO SECTIONS AGREEING IS THE PROPERTY. A later hand right-aligning only
+    // WORKING satisfies every claim about one control's position, so the
+    // assertion compares the two columns to each other — which is what such a
+    // change breaks.
+    //
+    // MEASURED ON THE COLUMN, NOT ON THE CONTROL. `[data-fleet-auto-dispatch]`
+    // is the `<input>` inside its label and the label's text follows it, so the
+    // checkbox's own right edge sits 85 px left of the column — measured
+    // 2026-09-10, 1286.7 against 1372. The right-aligned box is the column, and
+    // asserting on the input would have failed a correct layout.
+    //
+    // AND AGAINST THE HEADING'S CONTENT EDGE. The `<h2>` carries `px-3`, so its
+    // border box ends 12 px right of where its children can reach: 1384 against
+    // 1372. A claim against `h2.right` fails by exactly that padding.
+    const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
+    try {
+      const boxes = await page.evaluate(() => {
+        const read = (sel: string) => {
+          const el = document.querySelector(sel);
+          const column = el?.closest('[data-fleet-control-column]');
+          const h2 = column?.closest('h2');
+          if (!column || !h2) return null;
+          const c = column.getBoundingClientRect();
+          const h = h2.getBoundingClientRect();
+          const padRight = parseFloat(getComputedStyle(h2).paddingRight) || 0;
+          return { right: c.right, width: c.width, contentRight: h.right - padRight };
+        };
+        return {
+          sw: read('[data-fleet-auto-dispatch]'),
+          st: read('[data-fleet-parallel-agents]'),
+        };
+      });
+      expect(boxes.sw).not.toBeNull();
+      expect(boxes.st).not.toBeNull();
+      const sw = boxes.sw!;
+      const st = boxes.st!;
+      // Each control's column ends on its own heading's content edge — a
+      // one-pixel tolerance for sub-pixel layout.
+      expect(Math.abs(sw.contentRight - sw.right)).toBeLessThan(2);
+      expect(Math.abs(st.contentRight - st.right)).toBeLessThan(2);
+      // AND THE SAME COLUMN. Both headings are the same width in the same
+      // container, so two right-aligned columns share an edge — this is the
+      // claim that fails if only one section is aligned.
+      expect(Math.abs(sw.right - st.right)).toBeLessThan(2);
+      // Neither column is zero-width: a collapsed box satisfies every
+      // arithmetic claim above while rendering nothing an operator can hit.
+      expect(sw.width).toBeGreaterThan(0);
+      expect(st.width).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('the switch reflects the shared state and POSTs the flip', async () => {
     const { page, posts } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     try {

@@ -1150,12 +1150,12 @@ export function AgentList({
                   a button, invalid markup that swallows its own clicks. This is
                   a layout change to the `<h2>`, never a re-parenting. */}
               {key === 'not-started' && (
-                <span className="ml-auto flex items-center">
+                <span data-fleet-control-column className="ml-auto flex items-center">
                   <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
                 </span>
               )}
               {key === 'working' && (
-                <span className="ml-auto flex items-center">
+                <span data-fleet-control-column className="ml-auto flex items-center">
                   <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
                 </span>
               )}
