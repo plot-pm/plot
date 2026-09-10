@@ -165,7 +165,7 @@ Tempting, and refused for the reason quoted above. The sweep's value is that it 
 
 ### Reconciling
 
-- `feature/reconcile-is-a-controller-action` <!-- builds: the reconcile rule and its controller endpoint, scoped to a plan, a sprint or the workspace --> — the domain rule taking a scope and returning findings, plus the tenth endpoint beside the nine, reachable through `plot-ask.mjs`.
+- `feature/reconcile-is-a-controller-action` <!-- builds: the reconcile rule and its controller endpoint, scoped to a plan, a sprint or the workspace --> — the domain rule taking a scope and returning findings, plus the tenth endpoint beside the nine, reachable through `plot-ask.mjs`. → #877
 
   **Asserted: the three scopes return different finding sets** for one estate — a plan scope reports that plan's drift and not the estate's. **Asserted: it performs nothing** — no write, no removal, no fetch the caller did not ask for; the findings name commands and run none. **Asserted: a scope naming a plan that does not exist is refused**, not answered with an empty sweep, since an empty finding list reads as *nothing has drifted*.
 
