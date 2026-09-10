@@ -642,6 +642,46 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     return {
       ...base,
       name: plan ?? branchLink(row),
+      // THE PHASE WINS SLOT 5, and this arm is where that rule was missing.
+      //
+      // Measured on the live board 2026-09-09: `PLAN
+      // an-adopting-repo-installs-its-gates  865  green  draft  46m`, three
+      // Draft plans each reporting their PR's CI. `base` computes `row.pr ?
+      // prStatus(row.pr) : stateStatus(row)`, and an idea branch's PR *is* the
+      // plan — so `row.pr` is always truthy and the ternary never reaches
+      // `stateStatus`. Slot 5 held a fact about a build, on a row about a
+      // decision nobody has taken.
+      //
+      // `tupleFromPlan` states the rule this restores — *"the phase belongs
+      // HERE, and this is the object it describes"*, written to move the phase
+      // off 71 branch rows and on to the plan row. It succeeded for the rows
+      // the CLIENT assembles and never reached this arm, so the estate's own
+      // principle was violated by the same shape that fixed it.
+      //
+      // BOTH ARMS READ `AgentRow.phase`. `rows.tsx` feeds the client arm
+      // `group.rows[0]?.phase ?? ''` — the identical field — which is what
+      // makes *the two arms agree* a property rather than two fixtures that
+      // happen to match. The word is `Discovery`, not `Draft`: `phase` is the
+      // board's five-column partition, derived from the pair of plan phase and
+      // branch git state, never from the plan file's lifecycle state alone.
+      //
+      // NULL FALLS BACK TO THE PR, and that is a decision rather than an
+      // oversight. `phase` is nullable — *"null where no phase can honestly be
+      // named"* — and absent is not false: null means UNKNOWN, so deferring to
+      // the PR's state declines to overwrite a known fact with an unknown one.
+      // An unconditional assignment would blank a cell that says `green`
+      // today, which is a regression a reader reports, and the contract's
+      // *renders empty* is about the phase FACT rather than about the slot.
+      //
+      // THE CI STATE IS DEMOTED, NOT DELETED — a red plan PR blocks its own
+      // approval, so it stays worth reaching. It needs nothing here: the PR is
+      // already an artifact link below, and `Row` renders its state and draft
+      // flag as badges beside slot 5, the same `statusExtra` shape
+      // `rows.tsx:715` argues for the client arm's PR fold — *"a second
+      // element in the same cell, so `tupleFromPlan`'s phase is never at
+      // risk"*. `TupleRow.status` is a `string`; a second element is the
+      // rendering layer's concern and not this projection's.
+      status: row.phase ?? base.status,
       // PR THEN BRANCH — narrowest first, container last.
       //
       // Reported from the live board: *"Plan shows PR before Branch, but Wave

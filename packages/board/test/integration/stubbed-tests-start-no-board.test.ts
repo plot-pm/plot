@@ -441,8 +441,22 @@ const EXPECTED_FILES = 47;
  * The projection is unit-tested in `test/unit/tuple-row.test.ts` with no
  * browser. These two assert only that the cell shows what the projection
  * carried — the split the Layering Rule draws, the same one the five above cite.
+ *
+ * 482 → 485 ON 2026-09-10. Three tests, one already-counted file: a plan row
+ * the SERVER emits leads with its phase where it used to lead with its PR's CI
+ * state, the CI state and draft flag stay beside it, and the phase comes first
+ * in the cell. `EXPECTED_FILES` is unchanged — all three sit in a second
+ * one-tuple harness inside `tuple-row.browser.test.ts`, which that file's own
+ * rule requires: its `TUPLES` map is keyed by kind and holds exactly one row
+ * per kind, and `plan` is already taken by the CLIENT arm.
+ *
+ * The projection is unit-tested with no browser, by the split above. What
+ * these add is the part a projection cannot state: `TupleRow.status` is a
+ * `string`, so *the phase is first* is a claim about two elements in one
+ * rendered cell. Measured discriminating — with the fix reverted the cell
+ * reads `greengreendraft` and two of the three fail.
  */
-const EXPECTED_TESTS = 482;
+const EXPECTED_TESTS = 485;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
