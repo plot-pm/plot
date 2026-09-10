@@ -658,6 +658,47 @@ await esbuild.build({
 fs.copyFileSync(slicePrArtifact, shippedSlicePr);
 fs.chmodSync(shippedSlicePr, 0o755);
 
+// What has drifted, at one scope, for /plot-reconcile.
+//
+// ONCE PER SWEEP, which an operator runs casually — that is the property the
+// action must keep, so this decides and performs nothing and there is no --yes.
+// Its own bundle for the reason the ones above give: a shell asking plot-ask.mjs
+// would call an artifact that runs plot-fleet-scan.sh, and the sweep is the
+// worst candidate for that — ~26 git call sites inside 31 loops over 253 plans.
+// This asks reconcile() and spawns nothing; the readings arrive on stdin from
+// the shell that took them.
+//
+// 327 KB RATHER THAN plot-slice-pr.mjs's 2.7, AND THE REASON IS THE SCHEMA
+// rather than the controller. Measured with `esbuild --analyze`: 14 KB is this
+// entry plus the rule, and 313 KB is zod's locale table, reached because
+// `workflows/reap.ts` imports the FUNCTION `reapRefusals` from
+// `entities/worktree.ts` and a value import runs that module's `z.enum` at the
+// top level. That is `plot-delta.mjs`'s case, stated above — larger than the
+// rule-only bundles and far short of the barrel.
+//
+// The property the plan asserted is separately verified and holds: the bundle
+// carries no spawn path, no `child_process` and no fleet controller. Composing
+// `reap()` is the design; the size is what reusing its conditions costs, and
+// the alternative — a second copy of the five refusals — is the defect the plan
+// exists to report.
+const reconcileArtifact = path.join(here, 'dist/plot-reconcile.mjs');
+const shippedReconcile = path.join(here, '../../skills/plot/scripts/board/plot-reconcile.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/reconcile.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: reconcileArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(reconcileArtifact, shippedReconcile);
+fs.chmodSync(shippedReconcile, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -779,6 +820,7 @@ const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
 const planUndeliverKb = (fs.statSync(shippedPlanUndeliver).size / 1024).toFixed(1);
 const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
+const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -799,4 +841,5 @@ console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/s
 console.log(`Built plot-plan-undeliver.mjs (${planUndeliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

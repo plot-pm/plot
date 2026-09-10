@@ -10,7 +10,7 @@ import { EVIDENCE, isScriptVerified, decide, refuse } from '../src/workflows/ind
  * reader seeing five workflows tested alike and levelling the field.
  */
 describe('evidence — what each workflow’s expression can be checked against', () => {
-  it.each(['approve', 'deliver', 'dispatch', 'reap'] as const)(
+  it.each(['approve', 'deliver', 'dispatch', 'reap', 'reconcile'] as const)(
     '%s is backed by a script, which has an exit code',
     (workflow) => {
       expect(EVIDENCE[workflow]).toBe('script');
@@ -34,6 +34,7 @@ describe('evidence — what each workflow’s expression can be checked against'
       'dispatch',
       'implement',
       'reap',
+      'reconcile',
       'release',
       'supervise',
     ]);
