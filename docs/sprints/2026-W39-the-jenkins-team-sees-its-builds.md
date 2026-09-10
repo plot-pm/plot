@@ -79,7 +79,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 ### Could Have
 
-- [ ] [the-board-says-which-ci-answered] The board names the CI system behind a check state, so an empty column on a Jenkins team reads as *Jenkins said nothing* rather than as *no CI*.
+- [x] [the-board-says-which-ci-answered] The board names the CI system behind a check state, so an empty column on a Jenkins team reads as *Jenkins said nothing* rather than as *no CI*.
 - [x] [a-lifecycle-action-needs-a-controller-receipt] A hook refuses a lifecycle script invoked without a controller receipt. Measured 2026-09-09: five dispatches in one session went to `plot-dispatch.sh` directly, by the agent that had read the rule with the board answering. It surfaced because a person asked.
 - [x] [an-adopting-repo-installs-its-gates] `/plot-init` installs Plot's hooks and proves the install by firing a gate. Measured: `plot-state-gate.sh` is registered at repo HEAD and in **no shipped plugin version** — it has never enforced anything on any machine, including the one that wrote it.
 - [x] [the-supervisor-is-loaded-or-it-is-reported] `--start` cannot leave a written-but-unloaded unit behind, and a stopped fleet is announced in a person's words. The fleet was down for hours on 2026-09-09 with a correct plist on disk that launchd was never told about.
@@ -175,3 +175,15 @@ Measured against `quaweb-website`, the stack this sprint is for:
 ```
 
 **So `run-for-sha` on Jenkins is a REST call, not a `jen` call**, and the `exit 4` in `plot-host.sh`'s `jenkins` arm is now a gap with a known fix rather than a transport limit. The URL must be percent-encoded: `tree=` uses `[]` and `{}`, which a shell expands.
+
+### Every item is closed, and two were closed twice — 2026-09-10
+
+**The sprint's last two items shipped as #881 and a measurement.**
+
+`the-board-says-which-ci-answered` (#881): the board named *the host* where it needed to name the system, so an empty check column could not be told from a stack with no CI. `ServerInfo` now carries the CI system, read once per process, and `checksUnaskableNote` names it. Verified on a board started from main's own artifact: `server.ci = "GitHub Actions"`.
+
+**The vendor mapping lives in `server-info.ts`, not the domain.** The first version put `github-actions -> GitHub Actions` in `rules/checks-reading.ts` and CI's *domain names no vendor* gate refused it — correctly, and for the reason `rules/stack.ts` states: a rule that knows which systems exist needs editing when the third one arrives. A CI system with no entry is shown as its key, so a third one reads well with an entry and works without one.
+
+`the-connector-is-read-against-a-real-instance`: **the sha is askable, over REST.** `jen` answers build history and never a commit; the Jenkins REST API answers both, using the API token `jen` already stores in the keychain. The first measurement used `jen auth token` — a Keycloak bearer, which Jenkins answers with a login redirect — and wrongly concluded the sha was unreachable. The transport was wrong, not the answer.
+
+**So `run-for-sha` on Jenkins is a gap with a known fix**, not a transport limit: `plot-host.sh`'s jenkins arm exits 4 and `build-jenkins.ts` answers `unaskable`, both honestly, and neither has been taught REST yet. That is the follow-up this sprint hands on.
