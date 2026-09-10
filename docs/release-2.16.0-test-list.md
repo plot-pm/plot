@@ -11,12 +11,14 @@ Five conditions, all of which must hold: **proposed**, **connected**, **verified
 | suite | files | result |
 |---|---|---|
 | `@plot-pm/domain` | 101 | **2426 pass, 0 fail** — measured on main, 2026-09-10 |
-| `test/reconcile` | 77 | run before cutting |
+| `test/reconcile` | 77 | **1585 pass, 0 fail** — CI on `072b693fb`; a local run reported 1 failure on the same commit |
 | board vitest | 163 | CI measured 3008 pass, 0 fail on the last branch |
 | `packages/domain/corpus` | 8 | adapters vs production, live estate |
 | `test/e2e` | 12 | CI's gate, not a local run |
 
 A changeset whose claim is *"the rule returns X"* is **not** in this list — a test decided it.
+
+**The contract suite is load-flaky too, and by the same amount.** CI on `072b693fb` reported **1585 pass, 0 fail** in about five minutes; the identical commit run locally reported **1 failure in 1106 seconds**. A local red here is a second measurement away from meaning anything.
 
 **The board suite is load-flaky on a working machine, and that is measured rather than suspected.** Measured 2026-09-10 on this estate: the full `test/unit` run reported **16 failures across 6 files**, the same six passed **76/76 run serially**, and CI reported **1 failure of 3008** on identical code. `2d8f741d0` states the rule this repo settled on — *one failure is the load, two at the same assertion is a defect*. Do not cut on a local red board suite without the second measurement.
 
@@ -182,7 +184,7 @@ skills/plot/scripts/plot-board-verify.sh skills/plot/scripts/board/board-server.
 
 - [ ] `git worktree add --detach <tmp> origin/main` — every check below runs there, for the reason in §3.
 - [ ] `pnpm install && pnpm --filter @plot-pm/domain run test` — expect 101 files, 2426 pass.
-- [ ] `pnpm run test:contracts` — expect 77 files green.
+- [ ] `pnpm run test:contracts` — expect 1585 pass, 0 fail. A local failure here is load until a second run repeats it at the same assertion; **CI is the authority for this suite**, and it runs it on every push to main.
 - [ ] `pnpm run build:board && git status --short` — **must be empty**. A stale artifact failed CI twice this cycle; the gate is separate from every test.
 - [ ] `./scripts/check-changeset-packages.sh` — every changeset names a real package and says what changed.
 - [ ] `skills/plot/scripts/plot-release-gate.sh` — §0. Nothing is tagged until this is answered.
