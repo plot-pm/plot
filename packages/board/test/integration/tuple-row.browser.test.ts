@@ -613,3 +613,113 @@ describe('the name track holds the name (A: a long plan slug renders in full)', 
     expect(clipped, 'a name wider than the floored track must still clip').toBe(true);
   });
 });
+
+/**
+ * A SERVER-EMITTED PLAN ROW LEADS WITH ITS PHASE — what only a rendered cell
+ * can settle.
+ *
+ * The unit suite owns the projection: `tupleFromRow` on a `kind: 'plan'` row
+ * puts the phase in slot 5. What it cannot own is the DEMOTION — that the CI
+ * state is still reachable beside the phase rather than deleted, and that the
+ * phase comes FIRST in the cell. `TupleRow.status` is a `string`, so ordering
+ * inside slot 5 is a rendered fact: `tuple.status` and `statusExtra` are two
+ * elements in one box, and only a laid-out box says which reads first.
+ *
+ * A second, one-tuple harness rather than an entry in `TUPLES`, for the reason
+ * the eligible-wave block above states: that map is keyed by kind and asserted
+ * to hold exactly one row per kind, and `plan` is already taken — by
+ * `tupleFromPlan`, the CLIENT arm. That entry is the blind spot this covers.
+ * It was a false witness for the same defect in the unit suite, whose
+ * `projections.plan` also calls the arm that was never broken.
+ */
+describe('a plan row emitted by the server leads with its phase', () => {
+  let browser: Browser;
+  let page: Page;
+
+  // THE ROW MEASURED ON THE LIVE BOARD 2026-09-09 — `PLAN
+  // an-adopting-repo-installs-its-gates  865  green  draft  46m`. A truthy
+  // `pr` is the whole fixture: `row.pr` falsy takes the `stateStatus` path and
+  // never reproduces the defect.
+  const IDEA_PLAN = tupleFromRow(AgentRowSchema.parse({
+    repo: 'plot', kind: 'plan',
+    branch: 'idea/an-adopting-repo-installs-its-gates',
+    branchUrl: 'https://host/tree/idea/an-adopting-repo-installs-its-gates',
+    plan: 'an-adopting-repo-installs-its-gates',
+    planFile: '2026-09-09-an-adopting-repo-installs-its-gates.md',
+    wave: '', state: 'wip', phase: 'Discovery', group: 'waiting-on-you',
+    ageMinutes: 46, note: '',
+    pr: { number: 865, url: 'https://host/pull/865', draft: true, state: 'green' },
+  }));
+
+  // The badges `Row` puts beside slot 5 — the PR's state and its draft flag.
+  // Passed as `statusExtra` because that is where they live: a badge is a
+  // rendering and `tuple-row.ts` carries no React, which is the separation
+  // that lets the unit suite test the slot rules as data.
+  const PLAN_HARNESS = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/components/TupleRow.tsx'))};
+
+createRoot(document.getElementById('root')).render(
+  React.createElement('ul', { role: 'rowgroup' },
+    React.createElement(TupleRowView, {
+      tuple: window.__PLAN__,
+      menu: null,
+      statusExtra: React.createElement(React.Fragment, null,
+        React.createElement('span', { 'data-pr-state-badge': true }, 'green'),
+        React.createElement('span', { 'data-pr-draft': true }, 'draft')),
+    })),
+);
+`;
+
+  beforeAll(async () => {
+    const built = await esbuild.build({
+      stdin: { contents: PLAN_HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
+      bundle: true, format: 'esm', write: false, jsx: 'automatic',
+      absWorkingDir: path.resolve(here, '../..'),
+    });
+    browser = await chromium.launch();
+    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+    page = await context.newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate((plan) => {
+      (window as never as { __PLAN__: unknown }).__PLAN__ = plan;
+    }, IDEA_PLAN);
+    await page.addScriptTag({ content: built.outputFiles[0].text, type: 'module' });
+    await page.locator('li[data-tuple-kind="plan"]').first().waitFor({ timeout: 10_000 });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  it('renders the phase in slot 5, where it rendered `green`', async () => {
+    const status = page.locator('li[data-tuple-kind="plan"] [data-tuple-status]');
+    const text = await status.innerText();
+    // THE PHASE IS THERE, and the CI word is no longer what slot 5 leads with.
+    expect(text).toContain('Discovery');
+    // `Discovery`, NOT `Draft` — the board's five-column partition rather than
+    // the plan file's lifecycle state, which is what the client arm prints for
+    // the same plan.
+    expect(text).not.toContain('Draft');
+  });
+
+  it('keeps the CI state and the draft flag beside it, demoted not deleted', async () => {
+    // A red plan PR blocks its own approval, so the state stays worth
+    // reaching. `statusExtra` adds to slot 5 and never replaces its word —
+    // the shape `rows.tsx` argues for the client arm's PR fold.
+    const status = page.locator('li[data-tuple-kind="plan"] [data-tuple-status]');
+    expect(await status.locator('[data-pr-state-badge]').innerText()).toBe('green');
+    expect(await status.locator('[data-pr-draft]').innerText()).toBe('draft');
+  });
+
+  it('puts the phase first in the cell', async () => {
+    // THE CONSTRAINT THE PLAN FIXES — *the phase is first*. Ordering inside one
+    // cell is a rendered fact rather than a projected one, which is why it is
+    // asserted here: `tuple.status` is a string and cannot express rank.
+    const status = page.locator('li[data-tuple-kind="plan"] [data-tuple-status]');
+    const text = await status.innerText();
+    expect(text.indexOf('Discovery')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('Discovery')).toBeLessThan(text.indexOf('green'));
+  });
+});
