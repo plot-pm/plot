@@ -40,10 +40,17 @@ export type ReconcileScope =
  * *a backstop that guesses is worse than none*. Nothing guesses here — the
  * verdict comes from {@link reap}, which holds the five refusals, and this
  * workflow reports what that rule decided without re-deciding it.
+ *
+ * `unclassified-tree` is its own kind and not a `worktree` with a softer
+ * evidence string. `worktree` means *a desk {@link reap} judged*, and a tree
+ * no recognition test placed is by definition one `reap` never saw — so the
+ * two carry different guarantees, and a caller filtering for reapable desks
+ * must not receive a tree nothing measured.
  */
 export type DriftKind =
   | LeftoverKind
   | 'worktree'
+  | 'unclassified-tree'
   | 'phase-symlink-drift'
   | 'merged-not-delivered'
   | 'concurrent-delivery'
@@ -359,8 +366,14 @@ const NEEDS_A_PERSON: ReadonlySet<string> = new Set([
  * cannot act on is noise — and a desk holding uncommitted work is reported with
  * NO repair command, because that is the shape that strands finished code.
  *
+ * AND A TREE NO RECOGNITION TEST PLACED IS REPORTED TOO, through
+ * {@link unclassifiedFindings}. That population is the one `reap` skips before
+ * judging anything, so it was silent: not reaped, not kept, not counted, not
+ * named. Reporting it is what this workflow adds; classifying it is not.
+ *
  * @param readings - the desks, as the reaper reads them.
- * @returns one finding per desk whose work has landed or whose tree needs a person.
+ * @returns one finding per desk whose work has landed, whose tree needs a
+ *   person, or which could not be classified at all.
  */
 const deskFindings = (readings: ReapReadings): DriftFinding[] => {
   const decision = reap(readings);
@@ -380,6 +393,43 @@ const deskFindings = (readings: ReapReadings): DriftFinding[] => {
       kind: 'worktree',
       subject: kept.path,
       evidence: `needs a person: ${kept.reason}`,
+      repair: '',
+      blocking: false,
+    });
+  }
+  findings.push(...unclassifiedFindings(readings));
+  return findings;
+};
+
+/**
+ * The trees no recognition test could place.
+ *
+ * IT READS THE CANDIDATES AND NOT THE DECISION, because a tree carrying
+ * `unclassified` never reaches the decision at all — `reap` skips it at the
+ * population boundary, which is exactly the silence this reports. Nothing here
+ * re-derives one of `reap`'s conditions: the reading was taken by the shell
+ * and is carried through as the finding.
+ *
+ * NEVER PROMOTED TO REAPABLE, and never handed a `git worktree remove`. The
+ * recognition test stays exactly as strict — widening it would trade a safe
+ * refusal for a wider blast radius, while reporting the refusal costs nothing.
+ * So the repair is empty and a person decides.
+ *
+ * @param readings - the desks, as the reaper reads them.
+ * @returns one finding per tree the shell measured but could not place.
+ */
+const unclassifiedFindings = (readings: ReapReadings): DriftFinding[] => {
+  const findings: DriftFinding[] = [];
+  for (const { tree, evidence } of readings.candidates) {
+    if (evidence.unclassified !== true) continue;
+    // A tree the reaper judged is reported through its verdict, once. Both
+    // readings true is a caller's bug rather than a shape to render twice.
+    if (evidence.isDispatchTree) continue;
+    findings.push({
+      kind: 'unclassified-tree',
+      subject: tree.path,
+      evidence:
+        'sits under the worktree root and could not be classified — no worker pid file and no recognised name',
       repair: '',
       blocking: false,
     });

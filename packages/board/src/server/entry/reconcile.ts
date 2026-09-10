@@ -207,6 +207,11 @@ const treeFrom = (value: unknown) => {
  * cannot place is outside the reaper's population rather than inside it, which
  * is the refusing direction `reap.ts` chose for the same field.
  *
+ * `unclassified` reads the same way and for the opposite consequence: absent
+ * is false, so a caller that measured nothing reports nothing. It never
+ * relaxes `isDispatchTree` — a tree carrying it is still outside the reaper's
+ * population and gains no removal, only a mention.
+ *
  * @param value - one entry of the request's `desks.candidates` array.
  * @returns the desk and what was measured of it.
  */
@@ -229,6 +234,7 @@ const candidateFrom = (value: unknown) => {
       blockedMarker: evidence.blockedMarker === true,
       hasMergedPr: evidence.hasMergedPr === true,
       isDispatchTree: evidence.isDispatchTree === true,
+      unclassified: evidence.unclassified === true,
       manifest: stringOr(evidence.manifest),
       hasLog: evidence.hasLog === true,
     },
