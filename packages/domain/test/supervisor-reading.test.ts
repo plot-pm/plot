@@ -80,18 +80,33 @@ describe('supervisorProminence — the state alone decides nothing', () => {
     expect(supervisorProminence(reading({ exitCode: 1, agentsRunning: 0 }))).toBe('quiet');
   });
 
-  it('warns when nothing supervises and one agent runs', () => {
-    expect(supervisorProminence(reading({ exitCode: 1, agentsRunning: 1 }))).toBe('warn');
+  it('alerts when nothing supervises and one agent runs', () => {
+    expect(supervisorProminence(reading({ exitCode: 1, agentsRunning: 1 }))).toBe('alert');
   });
 
-  it('warns on the measured failure — down with six agents running', () => {
-    expect(supervisorProminence(reading({ exitCode: 1, agentsRunning: 6 }))).toBe('warn');
+  it('alerts on the measured failure — stopped with six agents running', () => {
+    // `alert` AND NOT `warn`, and that is the level a chip cannot carry.
+    // Measured 2026-09-09: the correct sentence rendered as a grey chip on a
+    // stepper's status line and a person read it for an hour without acting.
+    expect(supervisorProminence(reading({ exitCode: 1, agentsRunning: 6 }))).toBe('alert');
   });
 
-  it('notes an unknown reading rather than warning about it', () => {
+  it('notes an unknown reading rather than alerting about it', () => {
     // The board's own inability to ask is not a fact about the fleet, so it is
     // never an alarm — even with agents running.
     expect(supervisorProminence(reading({ asked: false, exitCode: null, agentsRunning: 6 }))).toBe('note');
+  });
+
+  it('keeps unknown quieter than stopped at the same agent count', () => {
+    // THE ASYMMETRY, ASSERTED AS A PAIR so a collapse in EITHER direction
+    // fails. Alerting on `unknown` teaches an operator to dismiss the alert
+    // that matters; demoting `stopped` to a note is the outage this plan was
+    // written from. Each alone passes if both become one word.
+    const stopped = supervisorProminence(reading({ exitCode: 1, agentsRunning: 3 }));
+    const cannotAsk = supervisorProminence(reading({ asked: false, exitCode: null, agentsRunning: 3 }));
+    expect(stopped).toBe('alert');
+    expect(cannotAsk).toBe('note');
+    expect(cannotAsk).not.toBe(stopped);
   });
 });
 
@@ -113,14 +128,14 @@ describe('supervisorVerdict — one reading decides the word and the styling tog
   it('renders nothing for a loaded supervisor', () => {
     const verdict = supervisorVerdict(reading({ exitCode: 0, agentsRunning: 3 }));
     expect(verdict).toMatchObject({ state: 'up', prominence: 'quiet', shown: false });
-    expect(verdict.label).toBe('supervised');
+    expect(verdict.label).toBe('fleet running');
     expect(verdict.detail).toContain('reaped');
   });
 
   it('names the board, not the fleet, when it could not ask', () => {
     const verdict = supervisorVerdict(reading({ asked: false, exitCode: null }));
     expect(verdict).toMatchObject({ state: 'unknown', prominence: 'note', shown: true });
-    expect(verdict.label).toBe('supervisor unknown');
+    expect(verdict.label).toBe('fleet status unknown');
     expect(verdict.detail).toContain('could not ask');
     // It must not claim the supervisor is down — that is the whole third state.
     expect(verdict.detail).toContain('not the same fact');
@@ -128,8 +143,8 @@ describe('supervisorVerdict — one reading decides the word and the styling tog
 
   it('counts the agents in the warning, in the plural', () => {
     const verdict = supervisorVerdict(reading({ exitCode: 1, agentsRunning: 6 }));
-    expect(verdict).toMatchObject({ state: 'down', prominence: 'warn', shown: true });
-    expect(verdict.label).toBe('unsupervised');
+    expect(verdict).toMatchObject({ state: 'down', prominence: 'alert', shown: true });
+    expect(verdict.label).toBe('FLEET STOPPED');
     expect(verdict.detail).toContain('6 agents are running');
   });
 
@@ -143,5 +158,69 @@ describe('supervisorVerdict — one reading decides the word and the styling tog
     expect(verdict).toMatchObject({ state: 'down', prominence: 'quiet', shown: true });
     expect(verdict.detail).toContain('nothing is being neglected');
     expect(verdict.detail).toContain('/plot-fleet --start');
+  });
+
+  it('names the consequence and not the condition', () => {
+    // *No slice will be picked up* is what a reader decides about.
+    // `unsupervised` named a component and left the consequence to be derived,
+    // which is what a person failed to do for an hour on 2026-09-09.
+    for (const agentsRunning of [0, 3]) {
+      const verdict = supervisorVerdict(reading({ exitCode: 1, agentsRunning }));
+      expect(verdict.detail.toLowerCase()).toContain('no slice will be picked up');
+    }
+  });
+});
+
+describe('the vocabulary is FLEET, in every state and in both fields', () => {
+  /**
+   * THE WORDS A PERSON CAN ACT ON, AND NO OTHERS.
+   *
+   * `/plot-fleet --start`, `--status` and `--stop` are the three commands a
+   * reader types. There is no `/plot-supervisor`, no skill by that name, and
+   * nothing addressable — so a badge reading `unsupervised` named a component
+   * its own repair sentence did not.
+   *
+   * `plot-registryd`, the launchd label `com.plot-pm.registryd` and the state
+   * `up` are three machine-side vocabularies for one process, and they stay
+   * correct where a machine reads them. This asserts only that none reaches a
+   * board reader.
+   */
+  const INTERNAL = ['supervisor', 'supervised', 'unsupervised', 'registryd', 'launchd', 'launchctl'];
+
+  const everyReading: ReadonlyArray<[string, SupervisorReadings]> = [
+    ['loaded', reading({ exitCode: 0, agentsRunning: 3 })],
+    ['stopped with agents', reading({ exitCode: 1, agentsRunning: 3 })],
+    ['stopped with none', reading({ exitCode: 1, agentsRunning: 0 })],
+    ['could not ask', reading({ asked: false, exitCode: null, agentsRunning: 3 })],
+  ];
+
+  for (const [name, readings] of everyReading) {
+    it(`says fleet and no internal word — ${name}`, () => {
+      const verdict = supervisorVerdict(readings);
+      expect(verdict.label.toLowerCase()).toContain('fleet');
+      for (const word of INTERNAL) {
+        expect(verdict.label.toLowerCase()).not.toContain(word);
+      }
+    });
+  }
+
+  it('pairs the label with the repair it prints, rather than each alone', () => {
+    // A badge naming one component while its fix names another is the
+    // inconsistency this removes. Assert the PAIR: the repair's own noun has to
+    // be the label's noun, so renaming one and not the other fails.
+    const verdict = supervisorVerdict(reading({ exitCode: 1, agentsRunning: 3 }));
+    expect(verdict.detail).toContain('/plot-fleet --start');
+    const repairNoun = '/plot-fleet'.replace('/plot-', '');
+    expect(verdict.label.toLowerCase()).toContain(repairNoun);
+  });
+
+  it('gives stopped and cannot-ask different words', () => {
+    // One means *I asked and it is not there*; the other *I could not ask*.
+    // Collapsing them is what made the 2026-09-09 outage silent.
+    const stopped = supervisorVerdict(reading({ exitCode: 1, agentsRunning: 3 }));
+    const cannotAsk = supervisorVerdict(reading({ asked: false, exitCode: null, agentsRunning: 3 }));
+    expect(stopped.label).not.toBe(cannotAsk.label);
+    expect(cannotAsk.label.toLowerCase()).toContain('unknown');
+    expect(stopped.label.toLowerCase()).not.toContain('unknown');
   });
 });

@@ -3365,9 +3365,12 @@ export const SupervisorSchema = z.object({
   /**
    * How loudly to say it, combining the state with the agent count. `down` with
    * no agents is `quiet` — nothing is being neglected; `down` with agents
-   * running is `warn`, because every one of them is unreapable.
+   * running is `alert`, because every one of them is unreapable and no slice
+   * will be picked up. `alert` is the level a chip cannot carry: measured
+   * 2026-09-09, the correct sentence sat in a grey chip for an hour and nobody
+   * acted on it.
    */
-  prominence: z.enum(['quiet', 'note', 'warn']),
+  prominence: z.enum(['quiet', 'note', 'warn', 'alert']),
   /** Whether there is anything worth saying; false for a loaded supervisor. */
   shown: z.boolean(),
   /** The badge's label. */
