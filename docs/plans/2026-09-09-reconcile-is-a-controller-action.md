@@ -152,7 +152,7 @@ Tempting, and refused for the reason quoted above. The sweep's value is that it 
 
 ### Naming
 
-- `infra/the-test-suite-says-what-it-tests` <!-- builds: the test:reconcile script name and the two docs describing it --> — rename the estate-wide shell suite so it stops colliding with the reconcile action, and correct `CLAUDE.md:530` and `AGENTS.md:115`, which describe 74 files as one file's tests.
+- `infra/the-test-suite-says-what-it-tests` <!-- builds: the test:reconcile script name and the two docs describing it --> — rename the estate-wide shell suite so it stops colliding with the reconcile action, and correct `CLAUDE.md:530` and `AGENTS.md:115`, which describe 74 files as one file's tests. → #874
 
   **Asserted: no doc describes the suite as plan-format tests** — both lines name what it covers. **Asserted: every caller moves together** — `package.json`, both docs, and any CI reference, so a stale name cannot survive in one place. **Asserted: the old name is gone rather than aliased** — an alias leaves the collision this slice exists to remove.
 
