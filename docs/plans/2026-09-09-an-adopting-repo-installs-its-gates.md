@@ -149,7 +149,7 @@ A `pre-commit` hook would cover every contributor and every tool, not just Claud
 
 ### Installing
 
-- `feature/an-adopting-repo-installs-its-gates` <!-- builds: plot-install-hooks.sh and its verification, and the /plot-init step that offers it --> — **first prove the route, then build the installer.** Register one hook from a `.claude/settings.json`, fire it, read the refusal; only then write `plot-install-hooks.sh` with the `written`/`current`/`present` contract and a `--check` mode, plus the `/plot-init` step that offers it.
+- `feature/an-adopting-repo-installs-its-gates` <!-- builds: plot-install-hooks.sh and its verification, and the /plot-init step that offers it --> — **first prove the route, then build the installer.** Register one hook from a `.claude/settings.json`, fire it, read the refusal; only then write `plot-install-hooks.sh` with the `written`/`current`/`present` contract and a `--check` mode, plus the `/plot-init` step that offers it. → #871
 
   **Asserted: a settings-registered `PreToolUse` hook FIRES, with a repo-relative path** — measured before anything is built, because nothing on this estate demonstrates it. **Asserted: if it does not fire, the slice reports that and stops** — an installer for a route that does not work is worse than none.
 
