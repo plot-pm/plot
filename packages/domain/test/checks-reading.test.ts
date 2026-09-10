@@ -177,49 +177,36 @@ describe('checksUnaskable', () => {
 });
 
 describe('the board names which CI answered', () => {
-  it('gives a CI system the name a person uses, not the config key', () => {
-    // `github-actions` is a key's VALUE. A board printing it makes its reader
-    // translate, which the goal — *sees build status without being told which
-    // keys to set* — rules out.
-    expect(ciDisplayName('github-actions')).toBe('GitHub Actions');
-    expect(ciDisplayName('jenkins')).toBe('Jenkins');
-  });
-
-  it('reads a declared system however the config spells it', () => {
+  it('shows whatever name it is handed, learning no vendor', () => {
+    // THE DOMAIN NAMES NO VENDOR. This function first mapped two CI systems by
+    // name and CI's gate refused it — a rule that knows which systems exist
+    // needs editing when the third arrives. The mapping lives in
+    // `server-info.ts`; this only tidies what arrives.
+    expect(ciDisplayName('GitHub Actions')).toBe('GitHub Actions');
     expect(ciDisplayName('  Jenkins  ')).toBe('Jenkins');
-    expect(ciDisplayName('GitHub-Actions')).toBe('GitHub Actions');
+    expect(ciDisplayName('some-future-ci')).toBe('some-future-ci');
   });
 
-  it('returns an unknown system as itself rather than a placeholder', () => {
-    // A repository may declare a CI Plot has no connector for. Printing the
-    // word back is honest; `unknown` would hide which system was asked.
-    expect(ciDisplayName('gitlab-ci')).toBe('gitlab-ci');
-  });
-
-  it('names nothing where nothing was declared', () => {
+  it('names nothing where nothing was supplied', () => {
     expect(ciDisplayName('')).toBe('');
     expect(ciDisplayName('   ')).toBe('');
   });
 
   it('names the system in the sentence the board shows once', () => {
     // THE WHOLE POINT: an empty check column must not read as *no CI*.
-    expect(checksUnaskableNote('jenkins')).toContain('Jenkins reported no check state');
-    expect(checksUnaskableNote('github-actions')).toContain(
-      'GitHub Actions reported no check state',
-    );
+    expect(checksUnaskableNote('Jenkins')).toContain('Jenkins reported no check state');
   });
 
   it('keeps the sentence about the connector, not about the work', () => {
-    // The distinction `CHECKS_UNASKABLE_NOTE` was written to protect survives
-    // the rename: a reader must not read an unreachable connector as failing
-    // pull requests.
-    expect(checksUnaskableNote('jenkins')).toContain('not about the work');
+    // The distinction `CHECKS_UNASKABLE_NOTE` was written to protect survives:
+    // a reader must not read an unreachable connector as failing pull requests.
+    expect(checksUnaskableNote('Jenkins')).toContain('not about the work');
   });
 
   it('falls back to the unnamed sentence where no CI was read', () => {
     // A board that never read the `CI` key knows LESS than one that did, and
     // naming a system it does not have would be worse than naming none.
     expect(checksUnaskableNote('')).toBe(CHECKS_UNASKABLE_NOTE);
+    expect(checksUnaskableNote('   ')).toBe(CHECKS_UNASKABLE_NOTE);
   });
 });
-

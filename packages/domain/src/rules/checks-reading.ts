@@ -220,41 +220,24 @@ export const CHECKS_UNASKABLE_NOTE =
 /**
  * How a CI system is named to a reader.
  *
- * THE CONFIG WORD IS NOT THE READING WORD. `github-actions` is a key's value;
- * `GitHub Actions` is what a person calls it. A board printing the key teaches
- * its reader to translate, and the goal this serves — *sees real build status
- * without being told which keys to set* — rules that out.
+ * THE DOMAIN LEARNS NO VENDOR, and this function is where that was nearly lost.
+ * It first held `github-actions -> GitHub Actions` and `jenkins -> Jenkins`, and
+ * CI's *domain names no vendor* gate refused it — correctly, and for the reason
+ * `rules/stack.ts` already states: a rule that knows which systems exist needs
+ * editing when the third one arrives, which is the property `BuildSystem` and
+ * `HostBackend` were opened to strings to keep.
  *
- * AN UNKNOWN SYSTEM IS RETURNED AS ITSELF rather than mapped to a placeholder.
- * A repository may declare a CI Plot has no connector for, and printing that
- * word back is honest; inventing `unknown` would hide which system was asked.
+ * SO THE CONNECTOR SUPPLIES THE NAME. Each `BuildPort` implementation knows
+ * what its vendor is called — `build-actions.ts` says `GitHub Actions`,
+ * `build-jenkins.ts` says `Jenkins` — and this only tidies whatever arrives.
+ * A third CI system is a file under `adapters/`, with no edit here.
  *
- * @param system - the CI system as the config declares it.
- * @returns the name to show a reader, or `''` where nothing was declared.
+ * @param name - the display name the connector supplies, or the declared key
+ *   where no connector answered.
+ * @returns the name to show a reader, trimmed; `''` where nothing was supplied.
  */
-export const ciDisplayName = (system: string): string => {
-  const declared = system.trim().toLowerCase();
-  if (declared === '') return '';
-  if (declared === 'github-actions') return 'GitHub Actions';
-  if (declared === 'jenkins') return 'Jenkins';
-  return system.trim();
-};
+export const ciDisplayName = (name: string): string => name.trim();
 
-/**
- * What the board says once, naming the CI system that could not be asked.
- *
- * AN EMPTY COLUMN MUST NOT READ AS *NO CI*. On a Jenkins team the board's own
- * sentence said *the host* — true, and useless: a reader cannot tell a stack
- * with no CI from a Jenkins that answered nothing, and those need opposite
- * actions. Naming the system is the whole difference.
- *
- * IT FALLS BACK TO THE UNNAMED SENTENCE, because a board that never read the
- * `CI` key knows less than one that did, and saying a name it does not have
- * would be worse than saying none. `CHECKS_UNASKABLE_NOTE` is that sentence.
- *
- * @param system - the CI system as the config declares it, or `''`.
- * @returns the sentence to show, naming the system where one is known.
- */
 export const checksUnaskableNote = (system: string): string => {
   const name = ciDisplayName(system);
   return name === ''

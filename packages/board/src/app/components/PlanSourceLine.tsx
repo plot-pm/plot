@@ -75,11 +75,12 @@ export function PlanSourceLine({
    */
   checksUnaskable?: boolean;
   /**
-   * The CI system the repository declared, as its `CI` key spells it.
+   * The CI system the repository declared, named as a reader calls it.
    *
    * NAMES WHICH CI ANSWERED NOTHING. An empty check column cannot otherwise be
    * told from a stack with no CI, and those need opposite actions. Empty falls
-   * back to the unnamed sentence — `checksUnaskableNote` owns that choice.
+   * back to the unnamed sentence — `checksUnaskableNote` owns that choice. The
+   * key-to-name mapping is `server-info.ts`'s; the domain names no vendor.
    */
   ci?: string;
 }) {

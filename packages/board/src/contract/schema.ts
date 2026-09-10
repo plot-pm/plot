@@ -911,16 +911,18 @@ export type DispatchInfo = z.infer<typeof DispatchInfoSchema>;
  */
 export const ServerInfoSchema = z.object({
   /**
-   * The CI system this repository declared, as its `CI` key spells it — or `''`
-   * where none is declared or the key could not be read.
+   * The CI system this repository declared, named as a reader calls it — or
+   * `''` where none is declared or the key could not be read.
    *
    * IT NAMES WHICH CI ANSWERED NOTHING. An empty check column is ambiguous
    * between *this stack has no CI* and *this CI reported nothing*, and those
    * need opposite actions. `checksUnaskableNote` turns this into the sentence;
    * an empty value falls back to the unnamed one rather than guessing.
    *
-   * The CONFIG WORD, not a display name — `ciDisplayName` owns that mapping, so
-   * a reader and a caller comparing against the key see the same string.
+   * THE READER'S WORD, not the config key — `server-info.ts` maps them, where
+   * the vendor names are allowed to live. The domain never learns a vendor
+   * exists, which CI's *domain names no vendor* gate enforces; a system with no
+   * mapping is passed through as its key, which is honest rather than hidden.
    */
   ci: z.string().default(''),
   /** e.g. `pnpm board`. Empty where the server does not know its own. */

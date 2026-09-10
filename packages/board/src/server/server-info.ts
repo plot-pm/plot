@@ -137,8 +137,30 @@ const CI_KEY = 'CI';
  */
 let cachedCi: string | null = null;
 
+/**
+ * What a person calls each CI system, keyed by the word its config uses.
+ *
+ * THE VENDOR NAMES LIVE HERE AND NOT IN THE RULE — the same split
+ * `entry/stack-readings.ts` already makes, and CI's *domain names no vendor*
+ * gate enforces. `github-actions` is a key's VALUE; `GitHub Actions` is what a
+ * reader calls it, and a board printing the key makes its reader translate.
+ *
+ * A SYSTEM THAT IS NOT LISTED IS SHOWN AS ITSELF. A repository may declare a CI
+ * Plot has no connector for, and printing that word back is honest where a
+ * placeholder would hide which system was asked. So a third CI system needs an
+ * entry here to read well, and needs nothing anywhere to work.
+ */
+const CI_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  'github-actions': 'GitHub Actions',
+  jenkins: 'Jenkins',
+};
+
 const ciSystem = async (opts: BuildBoardOptions): Promise<string> => {
-  if (cachedCi === null) cachedCi = await readConfig(opts, CI_KEY, '');
+  if (cachedCi === null) {
+    const declared = await readConfig(opts, CI_KEY, '');
+    const key = declared.trim().toLowerCase();
+    cachedCi = key === '' ? '' : (CI_DISPLAY_NAMES[key] ?? declared.trim());
+  }
   return cachedCi;
 };
 
