@@ -159,7 +159,7 @@ A `pre-commit` hook would cover every contributor and every tool, not just Claud
 
 ### Proving
 
-- `feature/an-installed-gate-fires-once` <!-- builds: the install's verification step, which requires a refusal rather than a written file --> — the install proves itself by triggering a guarded condition and requiring the refusal. Waits on `feature/an-adopting-repo-installs-its-gates`.
+- `feature/an-installed-gate-fires-once` <!-- builds: the install's verification step, which requires a refusal rather than a written file --> — the install proves itself by triggering a guarded condition and requiring the refusal. Waits on `feature/an-adopting-repo-installs-its-gates`. → #876
 
   **Asserted: the verification REFUSES and the refusal is read** — a written file is not the evidence, the block is. **Asserted: a gate that does not fire is reported UNVERIFIED, never installed** — the honest word, and the one the supervisor's written-but-unloaded plist needed. **Asserted: verification writes nothing that survives it** — it constructs its condition and leaves the repository as it found it, because a proof that dirties a tree is one people skip.
 
