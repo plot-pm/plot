@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #860 merged
+- **Started:** 2026-09-10, Jan Wloka, `infra/the-test-suite-says-what-it-tests`
 
 ## Changelog
 
