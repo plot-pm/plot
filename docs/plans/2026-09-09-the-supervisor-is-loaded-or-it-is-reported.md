@@ -309,7 +309,7 @@ about could never report an absence."*
 
 ### Finishing
 
-- `bug/a-fleet-start-records-that-it-finished` <!-- builds: the start-completion marker and the three-state status --> — `--start` writes a completion marker after bootstrap verifies, and `--status` distinguishes *not installed*, *not loaded*, and *running*, printing the repair for each.
+- `bug/a-fleet-start-records-that-it-finished` <!-- builds: the start-completion marker and the three-state status --> — `--start` writes a completion marker after bootstrap verifies, and `--status` distinguishes *not installed*, *not loaded*, and *running*, printing the repair for each. → #869
 
   **Asserted: a `--start` interrupted during agent creation leaves no completion marker**, which is the measured failure reproduced. **Asserted: `--status` says NOT LOADED and prints the one-line bootstrap** when a unit file exists and launchd does not know it — the state that read as *not installed* for hours. **Asserted: `--status` still starts nothing**, in all three states. **Asserted: `--start` on an unloaded, verified unit bootstraps rather than re-cutting desks**, and refuses a unit it did not fill this run.
 
