@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-09-09, Jan Wloka, `bug/a-fleet-start-records-that-it-finished`
 - **Started:** 2026-09-10, Jan Wloka, `bug/the-board-says-the-fleet-is-stopped`
 - **Started:** 2026-09-10, Jan Wloka, `feature/the-working-header-separates-doing-from-reading`
+- **Delivered:** 2026-09-10
 
 ## Changelog
 
