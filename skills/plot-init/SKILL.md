@@ -200,6 +200,45 @@ proposal adds:
 > `null` `ticket.prefix` there is nothing to propose, and step 2's own stop
 > covers it.
 
+#### The ticket prefixes
+
+**The same measured prefix seeds `Ticket prefixes`, and the seed is one
+element of a list a person completes.** `Ticket prefixes` is what
+`plot-host.sh issue-list` puts in the Jira query's `project IN (…)`, so a
+repository that declares it gets an inbox holding its own tickets and one that
+declares nothing keeps the instance-wide query. Ask for the whole list:
+
+> Found `QUACDS` in 38 of 80 commit subjects. Which Jira projects hold this
+> repository's tickets? (`QUACDS`, or `QUACDS, QUAWEB, QUAPI`)
+
+**Ask for the rest, because the probe knows of one.** `plot-detect-repo.sh`
+counts every prefix and reports the most frequent, so the seed is complete only
+where the repository maps to a single project. Measured on the repository issue
+#850 reports: scoping to the measured prefix alone shows 3 of 12 issues and
+hides two other projects' work under a heading claiming nobody planned it —
+which is the same lie the instance-wide inbox tells with the projects reversed.
+`composeAdoption` names that gap on a one-element list; the question is what
+lets a person close it before it is written.
+
+**Declining writes no key, and that is an answer.** The inbox stays
+instance-wide, which is what every repository had before the key existed. Put
+the confirmed list in the answers file's `ticketPrefixes`; an empty list is the
+decline, and the rule omits the key rather than writing it blank.
+
+**This key is not `Branch prefixes`.** They will sit near each other in the
+adopted repository's config and they are unrelated: `Branch prefixes` holds
+`idea/, feature/, bug/` and shapes branch names; `Ticket prefixes` holds Jira
+project keys and shapes one query.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
+> *question* does not — as for the tracker. Put the measured prefix in
+> `ticketPrefixes` alone and let the rule announce its gap:
+> `PLOT-UNASKED: Which Jira projects hold this repository's tickets? — default — seeded Ticket prefixes from QUACDS in 38 of 80 subjects; the inbox hides every issue in this repository's other projects until the rest are added`
+>
+> With a `null` `ticket.prefix` there is nothing to seed, so `ticketPrefixes`
+> stays empty and no key is written — the inbox is instance-wide, which is
+> today's behaviour and needs no disclosure.
+
 #### The CI system
 
 **`ci_system` proposes `CI:`, with its evidence — and `proposeCi` decides
@@ -337,6 +376,7 @@ cat > /tmp/plot-answers.json <<'JSON'
   "definitionOfDone": ["test", "lint", "typecheck"],
   "tracker": "jira",
   "trackerUrl": "https://acme.atlassian.net",
+  "ticketPrefixes": ["QUACDS", "QUAWEB"],
   "ci": "",
   "worktreeRoot": ""
 }
@@ -349,7 +389,9 @@ JSON
 empty `hub` lets the command read the probe's own list — one doc is not a
 question; two are, and it refuses. An empty `worktreeRoot` takes `.worktrees`
 with the matching `.gitignore` line. An empty `definitionOfDone` is **not** an
-empty Definition: it is the unanswered question, and the command refuses.
+empty Definition: it is the unanswered question, and the command refuses. An
+empty `ticketPrefixes` is a **declined** proposal and refuses nothing: no
+`Ticket prefixes` key is written and the inbox stays instance-wide.
 
 **IT ASKS `composeAdoption` AND STOPS ON ITS ANSWER.** The keys, their order,
 their values and whether the write may happen at all are the rule's
@@ -614,6 +656,13 @@ prerequisite is a fact a reader can act on; silence is not.
   the wrong system. Two signals ask.
 - **Never guess the Jira base URL.** It is nowhere in git history. Ask for it,
   or — unattended — write the key without it and say the URL is missing.
+- **Never write the measured prefix as the whole of `Ticket prefixes`.** The
+  probe reports the most frequent of the prefixes it counted, so a repository
+  mapping to three Jira projects seeds one. Ask for the list; a one-element
+  answer is written with its gap named.
+- **Never write `Ticket prefixes` empty.** An empty key reads as *this
+  repository has no projects* and changes nothing about the query. A decline
+  writes no key — put an empty `ticketPrefixes` in the answers file.
 - **Never install a git hook without an answer.** `post-commit` runs on every
   commit on the operator's machine, and git ships no hooks on clone for that
   reason. The record is offered; it is never a side effect of adoption.
@@ -654,6 +703,8 @@ prerequisite is a fact a reader can act on; silence is not.
 | Proposing `Tracker: jira` as a bare word | A reader cannot tell a measurement from a guess, so the whole proposal loses trust | Print the evidence: `jira (QUACDS in 38 of 80 subjects)` |
 | Asking which tracker when the prefix already recurs | Interrogates the user about something the probe read | Propose from the signal; ask only for the base URL |
 | Guessing the Jira base URL from the git remote | A wrong URL fails later saying nothing about adoption | Ask; unattended, write the key and name the gap |
+| Writing the measured prefix as the complete `Ticket prefixes` | The inbox shows one project's issues and hides the rest under a heading claiming nobody planned them | Ask for the whole list; a one-element answer carries the rule's gap |
+| Writing `Ticket prefixes:` with nothing after it | Reads as *this repository has no projects* while behaving exactly like the absent key | Decline writes no key; an empty `ticketPrefixes` is the decline |
 | Choosing a CI system when both signals are present | A wrong `CI:` key sends every build-status lookup to the wrong system | Ask, naming both; refuse the key unattended |
 | Writing `CI: none` because the probe said `none` | Records a choice the repo never made | `none` is a reading; write no key and say what was read |
 | Writing the `## Plot Config` block by hand | No rule can refuse an already-adopted repository, and nothing records which keys the repo was meant to get — the defect this step's own history is | `plot-write-config.sh --answers <file>`; the block is `composeAdoption`'s |

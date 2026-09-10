@@ -75,6 +75,18 @@ sends `issue-list` to the wrong system, which answers with an empty list the
 board renders as *you have no tickets*. So unattended it refuses rather than
 guesses — except where a prefix was actually found, which is a real signal.
 
+The same prefix seeds `Ticket prefixes`, and that key is scoped differently.
+`Tracker:` names the system; `Ticket prefixes` names which of its projects hold
+this repository's tickets, and `plot-host.sh issue-list` reads it into the Jira
+query's `project IN (…)`. The probe reports the most frequent prefix of the
+several a repository may carry, so setup **asks for the whole list** and writes
+a one-element answer with what it costs named: an inbox scoped to one of three
+projects hides the other two under a heading claiming nobody planned those
+tickets. Declining writes no key — the inbox stays instance-wide, which is what
+every repository had before the key existed — and the key is never written
+empty, since an empty list claims the repository has no projects and changes
+nothing about the query.
+
 ## Why the gate asserts cards, not HTTP 200
 
 Measured 2026-08-18: a plan file written with a bare `**State:** Draft` line

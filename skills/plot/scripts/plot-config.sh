@@ -109,6 +109,9 @@
 #                       unscoped query, byte for byte — a default that filtered
 #                       on an undeclared key would empty every existing board's
 #                       inbox on upgrade. `PLOT_JIRA_JQL` overrides both.
+#                       NEVER WRITTEN EMPTY: an empty list reads as *this
+#                       repository has no projects* and changes nothing about
+#                       the query, so adoption omits the key instead.
 #   Git host            github | bitbucket            (resolves gh vs bb)
 #   CI                  jenkins | github-actions | none — which CI system this
 #                       project uses. Recorded by /plot-board-setup; not yet

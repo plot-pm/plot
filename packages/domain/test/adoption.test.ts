@@ -22,6 +22,7 @@ const answers = (over: Partial<AdoptionAnswers> = {}): AdoptionAnswers => ({
   definitionOfDone: ['test', 'lint'],
   tracker: '',
   trackerUrl: '',
+  ticketPrefixes: [],
   ci: '',
   worktreeRoot: '',
   ...over,
@@ -68,6 +69,22 @@ const showing = (...present: string[]): StackProposal => ({
 
 /** The proposal a collector that never looked for CI at all produces. */
 const unread = (): StackProposal => ({ ...bare(), ci: null });
+
+/** The proposal a repository whose subjects carry one recurring prefix produces. */
+const measuring = (prefix: string, count = 38): StackProposal =>
+  proposeStack({
+    nodeVersion: 'v24.20.0',
+    nodeFloor: 24,
+    commitStyleCounts: { colon: 0, dash: 0, conventional: 0 },
+    ticketPrefix: prefix,
+    ticketPrefixCount: count,
+    subjectsRead: 80,
+    germanWordCount: 0,
+    hasHubDoc: true,
+    ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
+    ciHost: '',
+    instanceKeyedCi: '',
+  });
 
 const input = (over: Partial<AdoptionInput> = {}): AdoptionInput => ({
   readings: readings(),
@@ -243,6 +260,103 @@ describe('composeAdoption — the keys', () => {
     expect(result.gaps).toEqual([
       'Tracker: jira carries no base URL — issue operations answer unaskable until one is added',
     ]);
+  });
+});
+
+describe('composeAdoption — the `Ticket prefixes` key', () => {
+  it('writes a confirmed one-element list WITH its gap named', () => {
+    // THE GAP IS THE ASSERTION. A rule that wrote `PROJ-B` as though it were the
+    // complete answer passes every other check here: the key is present, the
+    // value is the measured prefix, and the evidence is real. On the repository
+    // issue #850 reports, that scopes the inbox to 3 of 12 issues and hides the
+    // rest under a heading claiming nobody planned them.
+    const result = composeAdoption(
+      input({ proposal: measuring('PROJ-B'), answers: answers({ ticketPrefixes: ['PROJ-B'] }) }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(valueOf(result, 'Ticket prefixes')).toBe('PROJ-B');
+    expect(result.keys.find((k) => k.key === 'Ticket prefixes')?.evidence)
+      .toBe('PROJ-B in 38 of 80 subjects');
+    expect(result.gaps).toEqual([
+      "Ticket prefixes: PROJ-B is the one prefix the subjects show — add the rest, or the inbox hides every issue belonging to this repository's other projects",
+    ]);
+  });
+
+  it('writes the list a person completed, and announces nothing', () => {
+    const result = composeAdoption(
+      input({
+        proposal: measuring('PROJ-B'),
+        answers: answers({ ticketPrefixes: ['PROJ-A', 'PROJ-B', 'PROJ-C'] }),
+      }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(valueOf(result, 'Ticket prefixes')).toBe('PROJ-A, PROJ-B, PROJ-C');
+    // The measurement still stands behind it — one of the three is what the
+    // subjects show, and a reviewer confirming the key reads that rather than
+    // re-running the probe.
+    expect(result.keys.find((k) => k.key === 'Ticket prefixes')?.evidence)
+      .toBe('PROJ-B in 38 of 80 subjects');
+    expect(result.gaps).toEqual([]);
+  });
+
+  it('OMITS the key where nothing was confirmed — never writes it empty', () => {
+    // `Ticket prefixes:` holding nothing reads as *this repository has no
+    // projects*, and `tracker_projects()` takes it as the absent-key path
+    // anyway — so an empty key adds a claim to a behaviour it does not change.
+    const result = composeAdoption(input({ proposal: measuring('PROJ-B') }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.keys.map((k) => k.key)).not.toContain('Ticket prefixes');
+    expect(result.gaps.filter((g) => g.startsWith('Ticket prefixes'))).toEqual([]);
+  });
+
+  it('writes no key where a person declined a measured proposal, and no gap', () => {
+    // A DECLINE IS AN ANSWER. The inbox stays instance-wide, which is what every
+    // repository had before the key existed, so nothing is outstanding — a gap
+    // here would report a question that was put and answered.
+    const declined = composeAdoption(
+      input({ proposal: measuring('PROJ-B'), answers: answers({ ticketPrefixes: [] }) }),
+    );
+    if (isAdoptionRefusal(declined)) throw new Error(declined.detail);
+    expect(declined.keys.map((k) => k.key)).not.toContain('Ticket prefixes');
+    expect(declined.gaps).toEqual([]);
+  });
+
+  it('drops blanks a caller sent, and writes no key where only blanks arrived', () => {
+    const padded = composeAdoption(
+      input({
+        proposal: measuring('PROJ-B'),
+        answers: answers({ ticketPrefixes: [' PROJ-A ', '', 'PROJ-B'] }),
+      }),
+    );
+    if (isAdoptionRefusal(padded)) throw new Error(padded.detail);
+    expect(valueOf(padded, 'Ticket prefixes')).toBe('PROJ-A, PROJ-B');
+
+    const blank = composeAdoption(input({ answers: answers({ ticketPrefixes: ['', '  '] }) }));
+    if (isAdoptionRefusal(blank)) throw new Error(blank.detail);
+    expect(blank.keys.map((k) => k.key)).not.toContain('Ticket prefixes');
+  });
+
+  it('writes a list a person supplied where the probe measured nothing', () => {
+    // The proposal seeds the question and does not gate the answer: a repository
+    // whose subjects reference no ticket at all still has Jira projects, and a
+    // person who names them is the authority the measurement stands in for.
+    const result = composeAdoption(input({ answers: answers({ ticketPrefixes: ['PROJ-A'] }) }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(valueOf(result, 'Ticket prefixes')).toBe('PROJ-A');
+    expect(result.keys.find((k) => k.key === 'Ticket prefixes')?.evidence).toBe('confirmed');
+    expect(result.gaps.filter((g) => g.startsWith('Ticket prefixes'))).toHaveLength(1);
+  });
+
+  it('sits beside `Tracker`, which is the key it scopes', () => {
+    const result = composeAdoption(
+      input({
+        proposal: measuring('PROJ-B'),
+        answers: answers({ tracker: 'jira', trackerUrl: 'https://acme.atlassian.net', ticketPrefixes: ['PROJ-A', 'PROJ-B'] }),
+      }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    const names = result.keys.map((k) => k.key);
+    expect(names.indexOf('Ticket prefixes')).toBe(names.indexOf('Tracker') + 1);
   });
 });
 
