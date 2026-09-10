@@ -21,6 +21,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -89,8 +91,8 @@ test('init: the confirmed tracker is written with its URL', () => {
 
 // ── The CI system: one signal proposes, two ask ──────────────────────────────
 
-test('init: ci_system proposes a CI key', () => {
-  assert.match(proposal, /`ci_system` proposes `CI:`/,
+test('init: ci_signals proposes a CI key', () => {
+  assert.match(proposal, /`ci_signals` proposes `CI:`/,
     'the reading must yield a proposal');
   assert.match(proposal, /`CI: jenkins`/, 'the jenkins proposal must appear');
   assert.match(proposal, /`CI: github-actions`/,
@@ -117,10 +119,12 @@ test('init: `none` is a reading, not a key', () => {
     'the mistakes table must name it');
 });
 
-test('init: an absent ci_system writes no key and is not `none`', () => {
-  // The field is specified and not yet emitted, so adoption must degrade
-  // rather than invent a reading. "Not read" and "none" are different answers.
-  assert.match(proposal, /\*\*An absent `ci_system` writes no key and says so\.\*\*/,
+test('init: an absent ci_signals writes no key and is not `none`', () => {
+  // The field IS emitted since 2026-09-10, so this is no longer the estate's
+  // everyday case — but it stays asserted, because a probe too old to report
+  // it must degrade rather than invent a reading. "Not read" and "none" are
+  // different answers, and only the second licenses writing no key.
+  assert.match(proposal, /\*\*An absent `ci_signals` writes no key and says so\.\*\*/,
     'the skill must handle a probe that does not report the field');
   assert.match(proposal, /which is not the same as `none`/,
     'an unread field must not collapse into the `none` reading');
@@ -219,4 +223,72 @@ test('init: unattended writes a measured slug and refuses an unmeasured one', ()
     'a measured slug is a structural signal and survives unattended');
   assert.match(unattended, /PLOT-UNASKED: Which Jenkins instance, and which job\? — refused —/,
     'an unmeasured slug has nothing to propose, so it refuses');
+});
+
+// ── The collector emits the field the reader reads ───────────────────────────
+//
+// THE PROSE AND THE CODE NAMED TWO DIFFERENT FIELDS, and every test above is a
+// prose assertion, so none of them could see it. `stack-readings.ts` reads
+// `report.ci_signals`; this skill's docs said `ci_system` in six places, and
+// `plot-detect-repo.sh` emitted neither. The result was `ci: null` — *nobody
+// looked* — with the rule, the entry and their unit tests all complete.
+//
+// So this test runs the SCRIPT and asserts the shape a reader consumes. A
+// prose test cannot catch a field-name disagreement; only executing the
+// collector can.
+test('init: plot-detect-repo.sh emits ci_signals with both signal keys', () => {
+  const probe = path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-detect-repo.sh');
+  const out = execFileSync('bash', [probe], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    timeout: 120000,
+  });
+  const report = JSON.parse(out);
+
+  assert.ok(
+    Object.hasOwn(report, 'ci_signals'),
+    'the probe must emit `ci_signals` — the field `stack-readings.ts` reads',
+  );
+  assert.equal(typeof report.ci_signals, 'object');
+  assert.notEqual(report.ci_signals, null);
+
+  // The two keys `ciSignalsFrom` tests with `=== true`. A renamed key reads as
+  // `present: false`, which is a silent wrong answer rather than a failure.
+  assert.equal(typeof report.ci_signals.jenkinsfile, 'boolean',
+    '`jenkinsfile` must be a boolean — `ciSignalsFrom` tests it with === true');
+  assert.equal(typeof report.ci_signals.gh_workflows, 'boolean',
+    '`gh_workflows` must be a boolean — `ciSignalsFrom` tests it with === true');
+
+  // This repository runs GitHub Actions and no Jenkins, so the reading is known.
+  assert.equal(report.ci_signals.gh_workflows, true,
+    'this repo has .github/workflows/, so the signal must be present');
+  assert.equal(report.ci_signals.jenkinsfile, false,
+    'this repo runs no Jenkins, so the signal must be absent');
+});
+
+// A Jenkinsfile is found wherever git tracks it, never only at the root.
+//
+// MEASURED, NOT REASONED: the stack this sprint was written for keeps three at
+// `.build/pipelines/<project>/<pipeline>/Jenkinsfile` — none of the four paths
+// an earlier slice guessed, root included. A root-only probe reads that
+// repository as having no CI at all, which is the reading that makes the whole
+// adoption path silent.
+test('init: a nested Jenkinsfile is a signal', () => {
+  const probe = path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-detect-repo.sh');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ci-signal-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    fs.mkdirSync(path.join(dir, '.build', 'pipelines', 'web', 'release'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.build', 'pipelines', 'web', 'release', 'Jenkinsfile'), 'pipeline {}\n');
+    execFileSync('git', ['add', '-A'], { cwd: dir });
+
+    const report = JSON.parse(
+      execFileSync('bash', [probe], { cwd: dir, encoding: 'utf8', timeout: 120000 }),
+    );
+    assert.equal(report.ci_signals.jenkinsfile, true,
+      'a Jenkinsfile three directories deep must still be a signal');
+    assert.equal(report.ci_signals.gh_workflows, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

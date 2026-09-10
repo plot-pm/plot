@@ -176,6 +176,38 @@ if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]; then
     | awk '{print $2}')
 fi
 
+# --- the CI signals the tree carries ------------------------------------
+# WHICH CI systems left evidence, and NOTHING about what that implies. The
+# shape is `plot-board-probe.sh`'s `ci_signals` deliberately: two collectors
+# reporting the same reading under two shapes is how the two drift, and that
+# probe already had this field when this one was specified against it.
+#
+# IT REPORTS TWO BOOLEANS AND NEVER A SYSTEM. `proposeCi` counts how many
+# signals are present — one proposes, two ask, none is silent — so a collector
+# emitting `"jenkins"` would be making the judgement the domain owns, and a
+# third CI system would then need an edit here AND in the rule. Signals keep
+# that to one place, which is the property `rules/stack.ts:495` states.
+#
+# BOUNDED BY GIT, for the reason the two searches above are: `git ls-files`
+# sees only tracked files, so a `Jenkinsfile` fixture inside `node_modules` or
+# an unstaged experiment cannot answer for the repository.
+#
+# THE JENKINSFILE SEARCH IS NOT ROOT-ONLY, and that is a measurement. The
+# stack this was written for keeps three of them at
+# `.build/pipelines/<project>/<pipeline>/Jenkinsfile` — none of the paths
+# reasoned from convention, root included. A root-only probe reads that
+# repository as having no CI at all.
+jenkinsfile=false
+gh_workflows=false
+if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]; then
+  git ls-files -z -- '*Jenkinsfile' '*Jenkinsfile.*' 'Jenkinsfile*' 2>/dev/null \
+    | grep -qz . && jenkinsfile=true
+  # A directory with no workflow file in it is not a signal: `.github/workflows`
+  # survives in repositories whose workflows were deleted.
+  git ls-files -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml' 2>/dev/null \
+    | grep -qz . && gh_workflows=true
+fi
+
 # --- language sample ----------------------------------------------------
 # How many German words the hub docs carry, and nothing about what that means.
 # `proposeLanguage` decides, and it reads `hub_docs` too: no doc at all is a
@@ -202,6 +234,7 @@ cat <<JSON
   "has_plot_config": $has_cfg,
   "has_settings": $has_settings,
   "jenkins_host": "$(j "$jenkins_host")",
+  "ci_signals": {"jenkinsfile": $jenkinsfile, "gh_workflows": $gh_workflows},
   "german_words": ${de:-0}
 }
 JSON
