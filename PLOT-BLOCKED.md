@@ -1,5 +1,30 @@
 PLOT-BLOCKED: Wave 1 never ran — `plot-install-hooks.sh` does not exist, so there is no install to verify. Should this slice wait for wave 1 to be re-dispatched, or is it re-scoped to build the installer too?
 
+## Re-verified 2026-09-10
+
+This question was first recorded 2026-09-09 and is **still unanswered**. Every
+fact below was re-measured today against a freshly fetched `origin`:
+
+| reading | 2026-09-09 | 2026-09-10 |
+|---|---|---|
+| `origin/main` | `43cb0a5d` | `114851ee` |
+| wave 1 commits ahead of main | 0 | **0** |
+| wave 1 files changed vs main | 0 | **0** |
+| wave 1 PR | none | **`{"found": false}`** |
+| `plot-install-hooks.sh` on the estate | absent | **absent** |
+| wave 1 worktree | none | **none** |
+| plan `## Slices` wave order | wave 2 waits on wave 1 | **unchanged** |
+
+`main` advanced by four commits and none of them is wave 1's. The plan was not
+resliced. So the blocker is unchanged and the recommendation below stands.
+
+One correction was made to the finding while re-verifying — see
+`.plot/findings/an-installed-gate-fires-once.md` §4. The earlier claim that a
+scratch repo needs a `## Plot Config` section was **wrong**; measured both ways,
+the gate refuses with exit 2 either way, because the plan-directory key carries
+a default. It does not change the blocker, and it removes a false requirement
+from whoever builds `--verify`.
+
 ## The measurement
 
 Branch: `feature/an-installed-gate-fires-once` (wave 2: Proving)

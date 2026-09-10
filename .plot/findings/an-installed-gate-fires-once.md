@@ -49,21 +49,39 @@ tree. Exit 2 with the owning command on stderr, as the brief documents. So the
 thing wave 2 would verify does work when invoked directly; what is missing is
 the install whose success it would prove.
 
-## 4. A hazard for whoever builds `--verify`: the scratch repo needs a config section
+## 4. A hazard for whoever builds `--verify`: what the scratch repo must actually seed
 
-Measured here by getting it wrong first. `plot-state-gate.sh` resolves its plan
-directory through `plot-config.sh get "Plan directory"`, which reads the
-`## Plot Config` section of the repo it runs in. A scratch repo without that
-section does not recognise its own plan files as plans, so the gate sees no
-transition and **exits 0 in silence** — byte-identical to a gate that is absent,
-which is the exact ambiguity the plan's second slice exists to defeat.
+**Corrected 2026-09-10 by controlled comparison.** An earlier version of this
+finding claimed the scratch repo needs a `## Plot Config` section carrying
+`Plan directory`, and that without one the gate exits 0 in silence. **That is
+wrong.** It was inferred from a single failed attempt rather than from an A/B,
+and the failed attempt had a broken `sed` that never staged the change — so the
+exit 0 measured the absent transition, not the absent config.
 
-A verification building a scratch repo must therefore seed:
+Measured both ways, same scratch repo shape, one with a `## Plot Config` section
+and one with none:
 
-- a `## Plot Config` section carrying `Plan directory`
-- a plan file with the `## Status` / `- **State:** <word>` shape the parser reads
-- a committed HEAD version **and** a staged change of the `State:` value
+| scratch repo | exit | stderr |
+|---|---|---|
+| **with** `## Plot Config` → `Plan directory` | 2 | the refusal, naming the file |
+| **without** any config section | 2 | the refusal, naming the file |
 
-`test/reconcile/state-gate.test.mjs`'s `repo()` helper already gets all three
-right and is the shape to copy. Anything short of it returns 0 and proves
-nothing — which would ship the bug the slice exists to fix.
+`plot-state-gate.sh:69` is
+`PLAN_DIR="$(bash "$HERE/plot-config.sh" get "Plan directory" "docs/plans/")"` —
+the key carries a **default**, and `plot-config.sh get` returns it when no
+config section exists. So a scratch repo laid out at `docs/plans/` is recognised
+either way, and seeding a config section is optional rather than required.
+
+**A verification building a scratch repo must seed the transition, and that is
+the part that is load-bearing:**
+
+- a plan file under the plan directory (`docs/plans/` unless the repo overrides
+  it) with the `## Status` / `- **State:** <word>` shape the parser reads
+- a committed `HEAD` version of that file **and** a staged change of its
+  `State:` value — the gate's reading is the diff, so a creation passes and an
+  unchanged value passes
+
+`test/reconcile/state-gate.test.mjs`'s `repo()` helper gets this right and is
+the shape to copy. **The ambiguity the slice exists to defeat is real** — a
+condition short of a staged transition returns 0, byte-identical to an absent
+gate — but a missing config section is not one of its causes.
