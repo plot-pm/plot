@@ -38,6 +38,7 @@
     "plot-reap.sh",
     "plot-release-refs.sh",
     "plot-resolve-artifact.sh",
+    "plot-state-receipt.sh",
     "plot-transcript-quiet.sh",
     "plot-worker-monitor.sh",
     "plot-worker-state.sh"

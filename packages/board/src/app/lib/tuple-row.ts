@@ -1090,10 +1090,37 @@ export function tupleFromIssue(issue: IssueRow): TupleRow {
     kindLabel: KIND_LABEL.ticket,
     name: { what: 'ticket', label: `${issue.number}: ${issue.title}`, href: issue.url },
     links: [],
-    // `open`, and it is the only status an UNPLANNED issue has: the tracker
-    // reports open issues and this list is filtered to the ones no plan
-    // references. A closed one is not here to have a status.
-    status: 'open',
+    // THE TRACKER'S OWN WORD, and the read path is what changed rather than
+    // this line's judgement.
+    //
+    // This was the literal `open`, argued as *the only status an unplanned
+    // issue has: the tracker reports open issues and this list is filtered to
+    // the ones no plan references.* **That reasoning was true for GitHub and
+    // false for Jira** — `gh issue list --state open` really does return only
+    // open issues, while Jira's default JQL asks for `resolution = EMPTY`,
+    // which is UNRESOLVED and a far wider set than *not started*. Measured on
+    // #849: four tickets in *Internal Approving*, *In Progress* and
+    // *Reviewing* all rendered `open`, and twelve rendered it twelve times.
+    //
+    // So the word is read now, not assumed. The NAME rather than
+    // `statusCategory`: the name is what a person reads in a column they scan,
+    // and the category is the stable vocabulary a board would GROUP on — a
+    // distinction the payload keeps precisely so this slot need not choose
+    // between informing and deciding.
+    //
+    // `''` FALLS STRAIGHT THROUGH, and that is the answer rather than a gap.
+    // A Bitbucket `WONTFIX` is terminal without being done, so the read path
+    // gives it no category deliberately; a fallback here — `unknown`, or back
+    // to `open` — would re-open a question already closed and would print a
+    // guess in the one slot a reader trusts. Absent renders as absent, the rule
+    // `prStatus` states for `unknown`.
+    //
+    // A COLLISION IS ACCEPTED KNOWINGLY: `statusTone` keys on the word, so a
+    // tracker workflow named *Failed* or *Stalled* takes the rose fault tone.
+    // It is left alone. Suppressing it would mean widening the shared row's
+    // contract for one kind — the very mistake this row was fixed for — and a
+    // tracker calling its own ticket failed is not obviously the wrong colour.
+    status: issue.status,
     age: {
       text: issue.ageMinutes === null ? '' : tupleAgeText(issue.ageMinutes),
       label: '',

@@ -150,6 +150,12 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
 
+# The controller receipt, for `spend_action_receipt` below. Sourced from the
+# ONE file that holds both receipt kinds, for the reason that file states: the
+# gate and the owners must agree on where a receipt lives.
+# shellcheck source=plot-state-receipt.sh
+. "$script_dir/plot-state-receipt.sh"
+
 # The ONE answer to "did the host merge ANY PR for this branch?" — `pr_merged`,
 # read by `held_worktree` rather than derived from ancestry. Sourced for the
 # same reason `plot-reap.sh` and `plot-release-refs.sh` source it: three callers
@@ -3206,3 +3212,13 @@ book_started ${claimed_now[@]+"${claimed_now[@]}"} || true
 check_and_update_cap "$n_started"
 
 print_summary "$n_dispatched" "$n_reused" "$n_skipped" "$n_started"
+
+# THE RECEIPT IS SPENT HERE, on the fan-out COMPLETING — never at the gate.
+# `plot-controller-gate.sh` clears on a receipt and LEAVES it, so a run that
+# died partway can be repeated on the same licence. One authorisation, one
+# completed action.
+#
+# ONLY THE FAN-OUT SPENDS ONE. `--status`, `--dry-run`, `--stop`, `--restart`,
+# `--start` and `--migrate` all return before this line, and the gate exempts
+# each of them: they are reads, or writes no endpoint owns.
+spend_action_receipt "plot-dispatch.sh"

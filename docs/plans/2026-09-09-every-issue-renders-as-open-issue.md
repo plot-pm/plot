@@ -6,7 +6,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Issue:** #849
 - **Story:** the-board-is-blank-where-it-matters
@@ -15,6 +15,8 @@
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #856 merged
 - **Started:** 2026-09-09, Jan Wloka, `feature/an-issue-carries-its-status`
 - **Started:** 2026-09-09, Jan Wloka, `feature/an-issue-key-is-a-string`
+- **Started:** 2026-09-09, Jan Wloka, `feature/the-inbox-shows-a-real-status`
+- **Delivered:** 2026-09-10
 
 ## Changelog
 
@@ -261,7 +263,7 @@ ordering**: this slice and Reading touch the same four lines but different
 fields, so neither is a prerequisite for the other and both are eligible at
 once. Whichever lands first, the other rebases.
 
-- `feature/an-issue-key-is-a-string` <!-- builds: the Issue identity type across the parser, the schema, the row and the referenced-issue set --> — `number` becomes a string end to end: `IssueRowSchema.number`, `fleet.ts`'s two local types, and `referencedIssues`' `Set<number>` → `Set<string>`; and `plot-plan-meta.sh` learns to read a `Issue: PROJ-123` key beside the `#N` form it already reads.
+- `feature/an-issue-key-is-a-string` <!-- builds: the Issue identity type across the parser, the schema, the row and the referenced-issue set --> — `number` becomes a string end to end: `IssueRowSchema.number`, `fleet.ts`'s two local types, and `referencedIssues`' `Set<number>` → `Set<string>`; and `plot-plan-meta.sh` learns to read a `Issue: PROJ-123` key beside the `#N` form it already reads. → #859
 
   **Asserted: a plan naming `Issue: PROJ-123` parses as `issues: ["PROJ-123"]`** — measured `[]` today, which is half the defect. **Asserted: a Jira ticket answered by a plan LEAVES the inbox** — the whole point, and the assertion a type-only change would pass without. **Asserted: a GitHub issue still drains** — `#849` in a plan against `849` from the host, both strings, still equal; this is the regression the change could most easily cause. **Asserted: no consumer coerces** — `grep` finds no `Number(` on the issue path, since a coercion satisfies the type and reproduces the bug.
 
@@ -270,7 +272,7 @@ once. Whichever lands first, the other rebases.
 The board shows it. Depends on Reading: there is nothing to render until the
 payload carries it.
 
-- `feature/the-inbox-shows-a-real-status` <!-- builds: the inbox row status cell, read from the issue rather than assumed --> — carry the two fields through `IssueRowSchema` and the fleet payload, and replace `tupleFromIssue`'s `status: 'open'` literal with the issue's own status, rewriting the justification comment that made the literal defensible.
+- `feature/the-inbox-shows-a-real-status` <!-- builds: the inbox row status cell, read from the issue rather than assumed --> — carry the two fields through `IssueRowSchema` and the fleet payload, and replace `tupleFromIssue`'s `status: 'open'` literal with the issue's own status, rewriting the justification comment that made the literal defensible. → #868
 
 ## Notes
 

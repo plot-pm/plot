@@ -95,18 +95,23 @@
 #   Hosts plans         yes | no                      (no = refuse plan files)
 #   Tracker             plot | jira | github-issues | linear  (+ URL)
 #                       (plot = plans in this repo ARE the tracker; absent = same)
-#   Ticket prefixes     the tracker PROJECT KEYS this repository's tickets carry
-#                       (`QUACDS, QUAWEB`), read by `plot-host.sh issue-list` and
-#                       by nothing else: a declared list scopes the Jira query
-#                       with `project IN (…)`, and an absent key leaves it
-#                       instance-wide, which is what every repository had before
-#                       the key existed. NOT `Branch prefixes`, which sits three
-#                       keys above holding `idea/, feature/, bug/` and shapes
-#                       branch names — the two share a word and nothing else.
-#                       Proposed by /plot-init and /plot-board-setup from the
-#                       prefix the probe measured, confirmed by a person. Never
-#                       written empty: an empty list reads as *this repository
-#                       has no projects* and changes nothing about the query.
+#   Ticket prefixes     the tracker project keys this repository's work lives
+#                       in, comma-separated (`PROJ-A, PROJ-B`). NOT
+#                       `Branch prefixes`, which sits next to it and holds
+#                       `idea/`, `feature/`, `bug/` — that key is structural and
+#                       names git branches; this one names tracker projects.
+#                       Read by plot-host.sh's `issue-list` to scope the inbox:
+#                       the default JQL scopes by person and state, so on a
+#                       shared instance it is instance-wide and returns other
+#                       customers' tickets. A LIST, because a repository mapping
+#                       to several projects is the normal case; adoption seeds
+#                       ONE prefix and a person adds the rest. Absent = today's
+#                       unscoped query, byte for byte — a default that filtered
+#                       on an undeclared key would empty every existing board's
+#                       inbox on upgrade. `PLOT_JIRA_JQL` overrides both.
+#                       NEVER WRITTEN EMPTY: an empty list reads as *this
+#                       repository has no projects* and changes nothing about
+#                       the query, so adoption omits the key instead.
 #   Git host            github | bitbucket            (resolves gh vs bb)
 #   CI                  jenkins | github-actions | none — which CI system this
 #                       project uses. Recorded by /plot-board-setup; not yet

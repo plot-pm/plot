@@ -4,6 +4,7 @@ import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, allSlicesMerged, scriptsFor, type BuildBoardOptions } from './board.js';
+import { recordActionReceipt } from './action-receipt.js';
 import { pulseFor, pulseCompleteFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
@@ -519,6 +520,12 @@ export async function handleDeliver(
   // interpolated into that string: the prompt reached the repo as a file, and
   // its PATH travels in the environment and as ONE argument via `"$@"`. The slug
   // is SLUG_RE-bounded, so even it carries nothing a shell would interpret.
+  // THE RECEIPT, BEFORE THE AGENT STARTS. This route spawns an agent rather
+  // than the script, and that agent runs `plot-deliver.sh` itself — from the
+  // repository root, inheriting these same plugin hooks, so its call reaches
+  // `plot-controller-gate.sh` exactly as a master agent's does. The controller
+  // authorised the action here; the receipt is what says so.
+  recordActionReceipt(opts.repoRoot, 'deliver', slug);
   const child = spawn(
     'sh',
     ['-c', `${usable} "$@"`, 'plot-deliver', `Read ${promptPath} and follow it.`],

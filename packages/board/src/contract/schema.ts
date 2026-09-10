@@ -2952,9 +2952,30 @@ export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
  *
  * So it is its own small shape, carrying only what a human needs to answer the
  * one question the row exists for — *is this worth a plan?* — and nothing that
- * mirrors tracker state. No labels, no assignee, no status: those age into lies
- * the moment the tracker moves, and Plot never writes them back.
+ * mirrors tracker state. No labels, no assignee, no priority: those age into
+ * lies the moment the tracker moves, and Plot never writes them back.
+ *
+ * `status` and `statusCategory` are the NARROW exception, and the refusal above
+ * still holds for the rest — the entity's own sentence is amended the same way.
+ * What that refusal guards is a write-back loop, a field Plot mirrors and then
+ * edits, and reading a status is not one; `title` is already mirrored and
+ * equally mutable. The status is what this row renders in place of the `open`
+ * it used to assume for every issue.
  */
+/**
+ * One issue identity, normalised so two sides cannot disagree about it.
+ *
+ * THE COMPARISON IS THE REASON THIS EXISTS. `referencedIssues` builds a set
+ * from what plans record and the inbox filters against what the host reported;
+ * a plan writing `#849` and a host sending `849` must land on one value, and a
+ * Jira plan writing `PROJ-123` must survive untouched. Passing both sides
+ * through here is what makes `has()` answer truthfully.
+ *
+ * @param n - the identity as its source spelled it.
+ * @returns the same identity as a string.
+ */
+export const issueKey = (n: string | number): string => String(n);
+
 export const IssueRowSchema = z.object({
   /**
    * `ticket`, always — and stated rather than assumed, for the same reason
@@ -2967,7 +2988,22 @@ export const IssueRowSchema = z.object({
    * kind, and a wider type here would invite a caller to say so.
    */
   kind: z.literal('ticket').default('ticket'),
-  number: z.number(),
+  /**
+   * The issue's identity, as the tracker spells it — `849` from GitHub, or
+   * `PROJ-123` from Jira.
+   *
+   * A STRING, and the entity said so first: `Issue` documents identity as "a
+   * natural key — an opaque string, which fails by the source lying." Four
+   * consumers declared `number` anyway, and `plot-host.sh` puts `.key` on the
+   * wire, so a Jira arm sent `PROJ-123` through a `z.number()` that could only
+   * reject it.
+   *
+   * COERCED FROM A NUMBER, never the reverse. `849` and `"849"` name one issue
+   * and stringify losslessly; `PROJ-123` has no integer form at all, so
+   * narrowing to a number would mean inventing an identity the tracker does not
+   * use. Both sides of a comparison pass through {@link issueKey}.
+   */
+  number: z.union([z.string(), z.number()]).transform((n) => String(n)),
   title: z.string(),
   /**
    * The tracker address, or "" when the host reported none. The consumer then
@@ -2978,6 +3014,30 @@ export const IssueRowSchema = z.object({
   url: z.string().default(''),
   /** Minutes since the issue was opened, or null when the host gave no date. */
   ageMinutes: z.number().nullable().default(null),
+  /**
+   * The tracker's own word for the stage — *Internal Approving*, *Reviewing* —
+   * which is WHAT A PERSON READS. Per-workflow and possibly localised, so it is
+   * never grouped on: two projects spell one stage differently and a board
+   * grouping on this fragments across them. {@link statusCategory} is the field
+   * that decides; this is the field that informs.
+   *
+   * DEFAULTED, because a payload from a server that predates these fields must
+   * still parse — the rule `url` and `ageMinutes` already follow. The renderer
+   * therefore has to answer `''`, and does: absent renders as absent.
+   */
+  status: z.string().default(''),
+  /**
+   * The stable three-value vocabulary — `To Do`, `In Progress`, `Done` — which
+   * is what a board could group and colour on.
+   *
+   * `''` IS A LEGITIMATE ANSWER, not a failure to read one. `plot-host.sh`
+   * gives Bitbucket's `ON HOLD`, `INVALID`, `DUPLICATE` and `WONTFIX` the empty
+   * string deliberately: they are terminal without being done, and filing a
+   * `WONTFIX` as `Done` would put abandoned work beside finished work. Inventing
+   * a word here — `unknown`, or back to `open` — re-opens a question the read
+   * path already closed.
+   */
+  statusCategory: z.string().default(''),
 });
 export type IssueRow = z.infer<typeof IssueRowSchema>;
 
