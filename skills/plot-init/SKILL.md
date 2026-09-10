@@ -515,6 +515,7 @@ justify**, and say what triggered the offer:
 | Repo has `docs/sessionlogs/` (or a session-wrap tool is in use) | A `## Session Wrap Up` section in the hub | Session-scoped tools write the log; Plot only supplies the plot-shaped facts |
 | Repo has a plan directory with plans in it | `/plot-board-setup` — a local Kanban view of those plans | The board is first-class and gated in the Definition of Done, but nothing else in adoption mentions it |
 | Repo dispatches agents (a `Worktree root` key, or `.plot/agents/`) | The `post-commit` commit record | Several writers to one plan estate is where a commit silently reverts a file it never edited; the record is what makes the next one diagnosable |
+| **Plot is being adopted at all** | **Plot's gates as `PreToolUse` hooks** | `hooks/hooks.json` is `${CLAUDE_PLUGIN_ROOT}`-relative, so any install that is not the plugin gets no gates and nothing says so |
 
 **The commit record**, when offered, is installed by the script and never by
 hand:
@@ -539,6 +540,50 @@ and let the operator decide.
 > **Unattended (`PLOT_UNATTENDED=1`):** a git hook changes the operator's
 > machine, so it is NOT installed without an answer.
 > `PLOT-UNASKED: Install the post-commit commit record? — refused — a git hook is a change to every contributor's machine; run skills/plot/scripts/plot-install-commit-record.sh to add it`
+
+**The gates**, when offered, are installed by the script and never by hand:
+
+```bash
+../plot/scripts/plot-install-hooks.sh --check   # ask first; writes nothing
+../plot/scripts/plot-install-hooks.sh           # then install
+```
+
+**Offered on every adoption, because the signal is the adoption.** Unlike the
+commit record, whose value depends on a measured defect, the gates protect the
+lifecycle this command is installing. `hooks/hooks.json` ships with the plugin
+and every path in it is `${CLAUDE_PLUGIN_ROOT}`-relative — a repository that
+vendors the skills, or clones the repo, gets **no gates at all**. A missing
+gate does not error; it permits, and the first evidence is a plan whose phase
+disagrees with its record.
+
+**State what they refuse, plainly, and let the operator decline.** A repository
+without gates works. Being told it has none is the deliverable:
+
+- `plot-phase-gate.sh` blocks an implementation commit while the governing plan
+  is Draft. Plan-only commits pass, and it fails open.
+- `plot-state-gate.sh` blocks a commit that **changes** a `State:` line in a
+  plan or sprint file unless the script that owns that write made it, proved by
+  a receipt no editor can forge.
+- Whatever else `hooks/hooks.json` registers — the set is read from that file,
+  never hardcoded, so a gate added later is installed by the same command.
+
+**It never overwrites.** A repository may run its own `PreToolUse` hooks for
+its own reasons, and the script cannot tell an important one from an abandoned
+one. It reports `present`, names the entries to add, keeps the rest, exits 3.
+
+**A gate already registered by the plugin reports `current` and is not added
+again**, and that is correctness rather than tidiness: the state gate spends
+its receipt when it clears, so two registrations mean the second reader finds
+it spent and refuses a write that was properly owned.
+
+**If `.claude/settings.json` cannot be written, print the block and continue.**
+An unwritable settings file already costs slash-command convenience and nothing
+more — never fail the whole adoption on one blocked step.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** a hook changes how the operator's own
+> tool behaves, so it is NOT installed without an answer.
+> `PLOT-UNASKED: Install Plot's gates as PreToolUse hooks? — refused — a hook changes the operator's own tool; run skills/plot/scripts/plot-install-hooks.sh to add them`
+
 
 **The `## Session Wrap Up` section**, when offered, tells whatever writes
 session logs which Plot facts belong in one:
