@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-11, Jan Wloka, plan-PR #887 merged
+- **Started:** 2026-09-11, Jan Wloka, `bug/one-cap-holds-across-boards`
 
 ## Changelog
 
