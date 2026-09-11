@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-11, Jan Wloka, plan-PR #887 merged
 - **Started:** 2026-09-11, Jan Wloka, `bug/one-cap-holds-across-boards`
+- **Delivered:** 2026-09-12
 
 ## Changelog
 
