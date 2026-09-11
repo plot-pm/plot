@@ -1,0 +1,1 @@
+../2026-09-12-a-failed-gate-becomes-a-correction.md
