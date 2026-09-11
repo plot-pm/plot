@@ -7,7 +7,8 @@
 
 ## Status
 
-- **State:** Planning
+- **State:** Closed
+- **Actual End:** 2026-09-11
 - **Start:** 2026-08-28
 - **End:** 2026-09-11
 - **Release:** 2.13.0
@@ -49,9 +50,9 @@ already found *act*.
 
 Stories: [[the-master-agent-holds-the-fleet]] (the harness half)
 
-- [ ] [a-delivery-that-half-lands-refuses] A delivery writes its phase, its record **and** its index entry, or reports which one it could not write — measured: a phase flip without the symlink made a finished plan read as unfinished for two days
+- [x] [a-delivery-that-half-lands-refuses] A delivery writes its phase, its record **and** its index entry, or reports which one it could not write — measured: a phase flip without the symlink made a finished plan read as unfinished for two days **Verified 2026-09-11: `plot-deliver.sh` reports every write by name — `summary: phase=flipped record=written index=moved sprint=updated push=clean` — and names one it could not make.**
 - [ ] [a-merge-without-a-changeset-is-named] A merged branch whose changeset was never committed is reported before the release consumes the estate — measured: 2 in one session, both nearly shipping no release note
-- [ ] [a-held-worktree-names-what-holds-it] `plot-reap.sh` says *which file* holds a tree it refuses, so an operator can judge it — measured: 3 trees held by one uncommitted file each, all resolved by hand
+- [x] [a-held-worktree-names-what-holds-it] `plot-reap.sh` says *which file* holds a tree it refuses, so an operator can judge it — measured: 3 trees held by one uncommitted file each, all resolved by hand **Verified 2026-09-11: `plot-reap.sh` answers `uncommitted: <file>`, observed refusing a real desk on that file.**
 - [x] ~~[the-board-watches-instead-of-re-asking]~~ **Delivered 2026-08-29, shipped in 2.11.1** (#507, #508) — left this sprint; kept for the record. The board holds branch, plan and worktree state between pulses and re-derives only what changed — measured: **127 git processes every 5 s**, shaped `branches + plans + worktrees + ~30`, of which ~97 sit behind three signals that cost one process each
 - [ ] [one-cap-holds-across-boards] Two boards on one repo cannot exceed `parallelAgents` between them — measured: the budget is `parallelAgents − liveAgentCount`, and each board computes it on its own pulse, so two boards seconds apart both read *0 live, budget 3* and each start 3
 
@@ -164,3 +165,27 @@ The two board Musts are independent of those and of each other.
   they belong with the fix, not a release later.
 
 <!-- logged here as the sprint's contents change -->
+
+### Closed with six items unfinished, each validated — 2026-09-11
+
+**The sprint's window ended today and the release it targeted shipped weeks ago as v2.13.0.** It never left `Planning`, and its own note said *"Nothing here has a plan yet"* — still true: none of the nine items has a plan file, so closing loses no plan.
+
+**Every item was re-checked against the estate rather than read off its checkbox**, because the boxes were never revisited after the sprint stalled. Two were already done and are now ticked:
+
+| item | what was measured |
+|---|---|
+| `a-delivery-that-half-lands-refuses` | `plot-deliver.sh` prints `phase= record= index= sprint= push=`, naming every write and any it could not make |
+| `a-held-worktree-names-what-holds-it` | `plot-reap.sh` answers `uncommitted: <file>`, observed refusing a real desk |
+
+**Six remain open, and two have drifted since they were filed:**
+
+| item | state on 2026-09-11 |
+|---|---|
+| `a-merge-without-a-changeset-is-named` | open — `check-changeset-packages.sh` validates changesets that EXIST; nothing reports a merged branch with none |
+| `one-cap-holds-across-boards` | open — no cross-board coordination of `parallelAgents` |
+| `the-scan-drift-counter-is-acted-on` | open, and **worse**: `sprint_drift` was 27 when filed and reads **57** today; only the scan itself names the counter |
+| `the-mock-board-has-a-sprint` | open — `mock-fleet.ts` carries one issue and **no `sprints` key**, exactly the `sprints: 0, issues: 1` the item measured |
+| `a-delivered-plan-resolves-its-version` | **partly done** — 6 plans lacked a PR annotation, 3 do now; the v2.16.0 release work resolved the rest incidentally |
+| `the-backend-does-not-default-silently` | open — **reproduced**: a fresh repo with no remote answers `github` at exit 0. The refusal that exists is for an unrecognised host, not a missing remote |
+
+**Closing does not retire this work.** Six items with no plan are the only record of it, and anything still wanted is re-filed into a future sprint deliberately rather than inherited by one.
