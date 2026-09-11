@@ -3,18 +3,18 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: seventeen-section text report on stdout (each finding carries its exact
+# Output: twenty-one-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
 #         it. The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a seventeen-section report. This is the COMPUTATIONAL half of the
+# emits a twenty-one-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -59,28 +59,46 @@
 #                                 the `attention` count for the same reason. The
 #                                 threshold is the parser's (LONG_WAVE_NAME_MAX);
 #                                 this only surfaces the `long_wave_names` field
-#   9. Sprint drift             — a plan whose `Sprint:` field disagrees with
-#                                 the sprint file listing it, or is empty while
-#                                 a sprint lists it; also a sprint member whose
-#                                 slug names no plan. ACTIONABLE BUT NON-BLOCKING
-#                                 — someone edits the plan or sprint — so it sits
-#                                 with the unsliced and prose sections and is kept
-#                                 out of the `attention` count for the same reason
-#  10. Index drift              — CONVENIENCE level: a plan with no symlink, or
+#   9. Unplanned members        — a sprint member whose slug names no plan.
+#                                 REPORTED, AND NOT DRIFT: a slice that merges
+#                                 as a PR with no plan file is a normal shape
+#                                 here, so this RISES AS WORK SUCCEEDS. It
+#                                 carries `unplanned_members=` and is worded
+#                                 for what it is, because a reader acts on the
+#                                 heading
+#  10. Sprint field unset       — a plan listed by a sprint carrying no
+#                                 `Sprint:` field. Real, and mechanically
+#                                 fixable; the `backfill:` line is copy-paste
+#                                 text a PERSON runs, because the field is a
+#                                 claim about intent and a script writing one
+#                                 would be inventing it. `sprint_unset=`
+#  11. Sprint mismatch          — a plan whose `Sprint:` names a DIFFERENT
+#                                 sprint than the file listing it. Real, and
+#                                 needs a person: a disagreement about what
+#                                 shipped where. Prints BOTH names, since a
+#                                 reader cannot act knowing one. `sprint_mismatch=`
+#                                 These three shared one counter (`sprint_drift=`)
+#                                 until 2026-09-11, when it read 57 and nothing
+#                                 had ever consumed it. ALL THREE ARE ACTIONABLE
+#                                 BUT NON-BLOCKING — someone edits the plan or
+#                                 sprint — so they sit with the uncut and prose
+#                                 sections and stay out of the `attention` count
+#  12. Index drift              — CONVENIENCE level: a plan with no symlink, or
 #                                 a phase-less file in the plan directory.
 #                                 Since #254 the phase grouping is derived from
 #                                 plan content, so nothing depends on these;
 #                                 they are browsing gaps, deliberately kept out
 #                                 of the `attention` count that gates delivery
-#  11. Stale sprint tally       — sprint items left unchecked whose plan is
+#  13. Stale sprint tally       — sprint items left unchecked whose plan is
 #                                 delivered or released. Covers CLOSED sprints
 #                                 too, because those are the population whose
 #                                 tally nothing else will ever recompute. An
 #                                 item with no resolvable plan is skipped
-#                                 silently — section 9 already catches that.
-#                                 ADVISORY, like section 9; stays out of
+#                                 silently — the unplanned-members section
+#                                 already catches that. ADVISORY, like it;
+#                                 stays out of
 #                                 `attention`, gates nothing.
-#  12. Double-claimed branches  — a branch listed by MORE THAN ONE plan, naming
+#  14. Double-claimed branches  — a branch listed by MORE THAN ONE plan, naming
 #                                 both plans and the wave each lists it under.
 #                                 Only meaningful since the matcher anchored
 #                                 (#490): before that a dependency CITED in
@@ -89,7 +107,7 @@
 #                                 person to resolve, not a branch that cannot
 #                                 move — so it carries `double_claims=` and
 #                                 stays out of `attention`.
-#  13. Stale interrogation rounds — a DRAFT plan whose recorded `Rounds:` value
+#  15. Stale interrogation rounds — a DRAFT plan whose recorded `Rounds:` value
 #                                 predates its own last amendment, naming the
 #                                 round, the commit that last wrote it, and the
 #                                 commit that amended the plan after it. A plan
@@ -102,23 +120,23 @@
 #                                 `attention`. Placed after the
 #                                 `== blocking sections end ==` marker, which
 #                                 is what /plot-deliver's gate reads to.
-#  14. Sprint phase vs index    — a sprint whose `Phase:` disagrees with
+#  16. Sprint phase vs index    — a sprint whose `Phase:` disagrees with
 #                                 `<sprint dir>/active/`: Active with no link,
 #                                 or linked while Planned or Closed. TWO
 #                                 RECORDS OF ONE FACT, and nothing read the
 #                                 pair — measured in both directions twice in
 #                                 four days, both found by a person reading the
-#                                 directory. Distinct from `sprint_drift=`,
+#                                 directory. Distinct from `sprint_mismatch=`,
 #                                 which counts PLANS whose `Sprint:` field
 #                                 disagrees; this counts SPRINTS. The phase is
 #                                 READ, never derived: a sprint ends when
 #                                 somebody says it ended. REPORTS AND NEVER
-#                                 GATES — section 10's precedent, since every
+#                                 GATES — index drift's precedent, since every
 #                                 consumer that decides anything reads the
 #                                 phase from the file — so it carries
 #                                 `sprint_index_drift=` and stays out of
 #                                 `attention`.
-#  15. Sprint outlived release  — a sprint that is NOT Closed whose declared
+#  17. Sprint outlived release  — a sprint that is NOT Closed whose declared
 #                                 `Release:` has been tagged. Measured:
 #                                 `a-half-landed-workflow-says-so` targets
 #                                 2.13.0, which shipped as `v2.13.0`, while the
@@ -133,10 +151,10 @@
 #                                 says the window passed, not that the work is
 #                                 done, so a person closes it. It carries
 #                                 `sprint_shipped=` — a third question, distinct
-#                                 from `sprint_drift=` (plans) and
+#                                 from `sprint_mismatch=` (plans) and
 #                                 `sprint_index_drift=` (phase vs index) — and
 #                                 stays out of `attention`.
-#  16. Stated waits             — a LIVE slice (Draft or Approved) whose body
+#  18. Stated waits             — a LIVE slice (Draft or Approved) whose body
 #                                 CLAIMS a wait while its branch line carries
 #                                 no `waits:`. Two records of one fact, and
 #                                 only the annotation reaches the fleet:
@@ -157,7 +175,7 @@
 #                                 names a branch no shell can guess — so it
 #                                 carries `stated_waits=` and stays out of
 #                                 `attention`.
-#  17. Unclaimed work           — a remote branch carrying FILE CHANGES that no
+#  19. Unclaimed work           — a remote branch carrying FILE CHANGES that no
 #                                 plan names and no open PR carries. THE
 #                                 READING IS FILE CHANGES, NOT COMMITS:
 #                                 measured 2026-09-07, seven of twelve such
@@ -665,7 +683,8 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 }
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
-n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
+n_unsliced=0; n_prose=0; n_unplanned_members=0; n_sprint_unset=0; n_sprint_mismatch=0
+n_stale_tally=0; n_idx=0; n_double=0
 n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0; n_unclaimed=0; n_merged_refs=0
 
 # ---------------------------------------------------------------------------
@@ -707,7 +726,7 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
   #
   # It is not silently dropped, because the visibility the old line bought was
   # real: a phase-less file in the plan directory is still worth a human
-  # glance, and section 9 (index drift) is where a glance-level finding belongs
+  # glance, and the index-drift section is where a glance-level finding belongs
   # now. What
   # changes is the claim — "nobody classified this" instead of "this plan is
   # broken" — and that it no longer inflates the `attention` count that gates
@@ -1241,7 +1260,7 @@ if [ -n "$plan_json" ]; then
     unsliced_out+="  $base — wave '$disp' carries $wcount branch lines (a wave holds one)\n"
     # /plot-reslice is the repair, and it needs a human to name the slices and
     # argue their order — so the verb is `reslice:`, not `fix:`: a person must
-    # decide, exactly as index drift's (section 9) is `optional:`.
+    # decide, exactly as the index-drift section's is `optional:`.
     unsliced_out+="    reslice: /plot-reslice ${slug%.md}\n"
     n_unsliced=$((n_unsliced + 1))
   done < <(printf '%s\n' "$plan_json" \
@@ -1298,7 +1317,7 @@ if [ -n "$plan_json" ]; then
     prose_out+="  $base — wave name '$wname' reads as prose, not a label (rename it)\n"
     # The repair is a human editing the plan: a wave heading shortened to a label.
     # Not a `fix:` command a shell can run — naming is judgement — so the verb is
-    # `rename:`, exactly as section 7's is `reslice:` and section 10's is `optional:`.
+    # `rename:`, exactly as the uncut-slices section's is `reslice:` and index drift's is `optional:`.
     prose_out+="    rename: shorten the wave heading in prose ${slug%.md} (full name kept on hover)\n"
     n_prose=$((n_prose + 1))
   done < <(printf '%s\n' "$plan_json" \
@@ -1309,36 +1328,62 @@ if [ -n "$prose_out" ]; then printf '%b' "$prose_out"; else echo "  (none — ev
 echo
 
 # ---------------------------------------------------------------------------
-# 9. Sprint drift
+# 9, 10, 11. Sprint membership — THREE findings, three counters
 #
-# A plan whose `Sprint:` field disagrees with the sprint file listing it, or is
-# empty while a sprint lists it; also a sprint member whose slug names no plan.
-# ACTIONABLE BUT NON-BLOCKING — someone edits the plan or sprint — so it sits
-# with the unsliced and prose sections and is kept out of the `attention` count.
+# One pass over the sprint files answers three different questions, and each
+# gets its own section, heading and footer key. They shared one counter
+# (`sprint_drift=`) until 2026-09-11, when the number read 57 and nothing had
+# ever consumed it — so a reader who wanted to act had to re-derive the split
+# from 57 lines. The same argument three prior sections already made against
+# folding INTO this counter (`sprint_index_drift=`, `sprint_shipped=`: one
+# number answering two questions) applied to the counter itself.
 #
-# WHY THIS MATTERS: The plan's `Sprint:` field is a back-reference, not the
-# source of truth; membership comes from the sprint file's `- [ ] [slug]` list.
-# A filter joining on `plan.Sprint` would show 5 of 19 plans and silently hide
-# the rest — including the sprint's largest Must Haves. This section reports the
-# disagreement so it can be fixed, while the filter always works correctly.
+#   9. `unplanned_members=` — a sprint member whose slug names no plan.
+#                             REPORTED, AND NOT DRIFT. See below.
+#  10. `sprint_unset=`      — a plan listed by a sprint with no `Sprint:` field.
+#                             Real, and mechanically fixable by a person.
+#  11. `sprint_mismatch=`   — a plan whose `Sprint:` names a DIFFERENT sprint.
+#                             Real, and needs a person: it is a disagreement
+#                             about what shipped where.
+#
+# SECTION 9 IS NOT A DEFECT COUNT, which is why it is named for its shape
+# rather than for drift. A slice that merges as a PR with no plan file is a
+# normal, frequent shape here: of the 18 measured on 2026-09-11, eight belonged
+# to a sprint whose own note said "Nothing here has a plan yet" — deliberately,
+# and it closed that way — and eight more had every one of them SHIPPED. So
+# this component RISES AS WORK SUCCEEDS. A counter whose largest share grows
+# when the estate is healthy is not a health signal, and merging it with the
+# two real defects buried them.
+#
+# WHY THE OTHER TWO MATTER: The plan's `Sprint:` field is a back-reference, not
+# the source of truth; membership comes from the sprint file's `- [ ] [slug]`
+# list. A filter joining on `plan.Sprint` would show 5 of 19 plans and silently
+# hide the rest — including the sprint's largest Must Haves. These sections
+# report the disagreement so it can be fixed, while the filter always works.
 #
 # THE SPRINT FILE IS THE TRUTH. When a plan's `Sprint:` disagrees, the plan's
 # field is what needs editing, not the sprint file's membership. The one
-# exception — a sprint member naming no plan — is the sprint file's fault and
-# is reported separately.
+# exception — a sprint member naming no plan — is the sprint file's fault, and
+# that is section 9.
 #
-# IT DOES NOT GATE, and that is deliberate: /plot-deliver's delivery-landed gate
-# and the /plot hygiene line both read `attention=` from the footer. A cosmetic
-# finding there would fail every delivery. So it carries its own footer counter
-# (`sprint_drift=`), exactly as uncut slices and prose names do.
-echo "== 9. Sprint drift (plan Sprint: field disagrees with sprint file) =="
-sprint_drift_out=""
+# NOTHING HERE IS BACKFILLED AUTOMATICALLY. The `Sprint:` field is a claim about
+# intent, and a script writing one would be inventing it; the `backfill:` line
+# is copy-paste text a person runs.
+#
+# NONE OF THE THREE GATES, and that is deliberate: /plot-deliver's
+# delivery-landed gate and the /plot hygiene line both read `attention=` from
+# the footer. A cosmetic finding there would fail every delivery. So each
+# carries its own footer counter, exactly as uncut slices and prose names do,
+# and all three sit below the `== blocking sections end ==` marker.
+unplanned_members_out=""
+sprint_unset_out=""
+sprint_mismatch_out=""
 SPRINT_DIR=$(cfg "Sprint directory" "docs/sprints/"); SPRINT_DIR="${SPRINT_DIR%/}"
 
 # Build newline-delimited maps of "slug<TAB>sprint" and "slug<TAB>phase" from
 # plan_rows. Uses plan_rows which has: file|phase|...|type|sprint (phase is
 # field 2, sprint is field 9). The slug is derived from the file basename, same
-# as elsewhere. The phase map is what section 11 reads to answer "is this
+# as elsewhere. The phase map is what the stale-sprint-tally section reads to answer "is this
 # sprint item's plan delivered/released" — the PHASE, never the directory.
 plan_sprint_map=""
 plan_phase_map=""
@@ -1406,29 +1451,43 @@ if [ -d "$SPRINT_DIR" ]; then
       esac
       seen_in_sprint="$seen_in_sprint$member_slug"$'\n'
 
-      # Does this slug name a plan we know about?
+      # Does this slug name a plan we know about? Section 9 — not drift.
       if ! plan_field=$(lookup_plan_sprint "$member_slug"); then
-        sprint_drift_out+="  $sf_base → [$member_slug] — sprint member names no plan\n"
-        sprint_drift_out+="    inspect: is the slug a typo, or has the plan been renamed/deleted?\n"
-        n_sprint_drift=$((n_sprint_drift + 1))
+        unplanned_members_out+="  $sf_base → [$member_slug] — sprint member names no plan\n"
+        unplanned_members_out+="    inspect: is the slug a typo, or has the plan been renamed/deleted?\n"
+        n_unplanned_members=$((n_unplanned_members + 1))
         continue
       fi
 
       # Does the plan's Sprint: field match this sprint's slug?
       if [ -z "$plan_field" ]; then
-        sprint_drift_out+="  $member_slug — listed by sprint '$sprint_slug' but plan has no Sprint: field\n"
-        sprint_drift_out+="    backfill: add \`Sprint: $sprint_slug\` to the plan's ## Status section\n"
-        n_sprint_drift=$((n_sprint_drift + 1))
+        # Section 10 — real, and mechanically fixable.
+        sprint_unset_out+="  $member_slug — listed by sprint '$sprint_slug' but plan has no Sprint: field\n"
+        sprint_unset_out+="    backfill: add \`Sprint: $sprint_slug\` to the plan's ## Status section\n"
+        n_sprint_unset=$((n_sprint_unset + 1))
       elif [ "$plan_field" != "$sprint_slug" ]; then
-        sprint_drift_out+="  $member_slug — listed by sprint '$sprint_slug' but plan Sprint: says '$plan_field'\n"
-        sprint_drift_out+="    fix: update the plan's Sprint: field to '$sprint_slug', or remove it from the sprint file\n"
-        n_sprint_drift=$((n_sprint_drift + 1))
+        # Section 11 — real, and needs a person. BOTH names are printed: a
+        # reader cannot act knowing only one of them.
+        sprint_mismatch_out+="  $member_slug — listed by sprint '$sprint_slug' but plan Sprint: says '$plan_field'\n"
+        sprint_mismatch_out+="    fix: update the plan's Sprint: field to '$sprint_slug', or remove it from the sprint file\n"
+        n_sprint_mismatch=$((n_sprint_mismatch + 1))
       fi
     done < "$sf"
   done
 fi
 
-if [ -n "$sprint_drift_out" ]; then printf '%b' "$sprint_drift_out"; else echo "  (none — every sprint member's plan agrees)"; fi
+# The three headings. Section 9 is deliberately NOT worded as drift: it reports
+# a shape that a healthy estate produces, and a reader acts on the wording.
+echo "== 9. Unplanned sprint members (reported, not drift — a slice may ship as a PR with no plan) =="
+if [ -n "$unplanned_members_out" ]; then printf '%b' "$unplanned_members_out"; else echo "  (none — every sprint member names a plan)"; fi
+echo
+
+echo "== 10. Sprint field unset (plan listed by a sprint carries no Sprint: field) =="
+if [ -n "$sprint_unset_out" ]; then printf '%b' "$sprint_unset_out"; else echo "  (none — every listed plan names its sprint)"; fi
+echo
+
+echo "== 11. Sprint mismatch (plan's Sprint: names a different sprint) =="
+if [ -n "$sprint_mismatch_out" ]; then printf '%b' "$sprint_mismatch_out"; else echo "  (none — every listed plan agrees with its sprint)"; fi
 echo
 
 # ---------------------------------------------------------------------------
@@ -1445,7 +1504,7 @@ echo
 # derived phase grouping (#254) already sees these plans, so the only thing
 # missing is the browsing convenience, and the printed command is `optional:`
 # for that reason — section 1's are `fix:`.
-echo "== 10. Index drift (convenience — nothing depends on these) =="
+echo "== 12. Index drift (convenience — nothing depends on these) =="
 if [ -n "$index_out" ]; then printf '%b' "$index_out"; else echo "  (none — the convenience indexes match the plans)"; fi
 echo
 
@@ -1458,7 +1517,7 @@ echo
 # from now on, but nothing fixes the ones already closed before that fix
 # shipped. Those are the population this section exists for.
 #
-# ADVISORY, exactly like section 9. It names the file, the item and the plan's
+# ADVISORY, exactly like the sprint-membership sections. It names the file, the item and the plan's
 # phase, prints the fix, and GATES NOTHING. A closed sprint with a stale tick
 # is wrong, not broken, and rewriting history automatically is worse than
 # reporting it. The footer carries its own counter (`stale_tally=`), and it
@@ -1476,7 +1535,7 @@ echo
 # THE PHASE, NOT THE DIRECTORY. The brief is explicit: `plot-plan-meta.sh`
 # answers the phase. A delivered plan whose symlink move failed — the case
 # `/plot-deliver` deliberately made survivable — must still report as done.
-echo "== 11. Stale sprint tally (unchecked items whose plan is delivered/released) =="
+echo "== 13. Stale sprint tally (unchecked items whose plan is delivered/released) =="
 stale_tally_out=""
 
 # Walk ALL sprint files (not just active/) because a CLOSED sprint is exactly
@@ -1489,7 +1548,7 @@ if [ -d "$SPRINT_DIR" ]; then
     # waves lists its slug once per wave, but we only report staleness once.
     seen_stale_in_sprint=""
     # Parse member lines: `- [ ] [slug]` or `- [x] [slug]` — same regex as
-    # board.ts and section 9. Only UNCHECKED items matter here.
+    # board.ts and the sprint-membership sections. Only UNCHECKED items matter here.
     while IFS= read -r line; do
       # Extract check state and slug.
       local_checked=""
@@ -1573,7 +1632,7 @@ echo
 #
 # ONE FINDING PER BRANCH, not one per claimant: the finding IS the collision, so
 # a branch claimed by three plans is one line naming three, not three lines.
-echo "== 12. Double-claimed branches (one branch, two plans — a person decides) =="
+echo "== 14. Double-claimed branches (one branch, two plans — a person decides) =="
 double_out=""
 if [ -n "$plan_json" ]; then
   # One jq pass over the already-captured parser output. Emits one record per
@@ -1696,7 +1755,7 @@ echo
 # sprint drift, stale tallies, index drift and double claims each do. And it
 # sits below the `== blocking sections end ==` marker, which is what keeps it
 # out of /plot-deliver's gate — its number is not what does that.
-echo "== 13. Stale interrogation rounds (a Draft plan amended since its last round) =="
+echo "== 15. Stale interrogation rounds (a Draft plan amended since its last round) =="
 rounds_out=""
 if [ -n "$plan_json" ]; then
   # One jq pass, one record per Draft plan that RECORDS a round. `has("rounds")`
@@ -1738,7 +1797,7 @@ echo
 # section` carried `Phase: Active` and was not in the index at all. Neither was
 # caught by anything; a person reading the directory found both.
 #
-# NOT AN EXTENSION OF `sprint_drift`. That counter counts PLANS whose `Sprint:`
+# NOT AN EXTENSION OF `sprint_mismatch`. That counter counts PLANS whose `Sprint:`
 # field disagrees with the sprint file. This is a fact about the SPRINT FILE,
 # which nothing else here reads. One number answering two questions is a number
 # a reader has to re-derive the split from, which is what a machine-countable
@@ -1749,7 +1808,7 @@ echo
 # Deriving `Active` from open items would make this section disagree with the
 # only record of that decision, which is the file.
 #
-# CONVENIENCE, NEVER A GATE — section 10's precedent, and a sprint's index is
+# CONVENIENCE, NEVER A GATE — index drift's precedent, and a sprint's index is
 # the same shape as a plan's. It stays OUT of `attention=` and sits below the
 # `== blocking sections end ==` marker, which is what keeps it out of
 # /plot-deliver's gate. A sprint indexed wrongly is wrong, not broken: every
@@ -1762,7 +1821,7 @@ echo
 # A sprint file with no `Phase:` line is SKIPPED. It is not a sprint this
 # section can ask about — the same rule sections 1, 7, 8, 12 and 13 apply to a
 # plan with no phase.
-echo "== 14. Sprint phase vs index (convenience — nothing depends on these) =="
+echo "== 16. Sprint phase vs index (convenience — nothing depends on these) =="
 sprint_idx_out=""
 if [ -d "$SPRINT_DIR" ]; then
   for sf in "$SPRINT_DIR"/[0-9]*.md; do
@@ -1821,7 +1880,7 @@ echo
 # file — and nothing said it.
 #
 # IT REPORTS, AND CLOSING IS THE TEAM'S WORD. A sprint ends when somebody says
-# it ended — the same rule section 14 states about its phase — so this names the
+# it ended — the same rule the sprint-phase-vs-index section states about its phase — so this names the
 # fact and stops. It offers no `/plot-sprint close`, because a shipped release
 # is evidence that the sprint's window passed and not evidence that its work is
 # done: the measured sprint's eight items are all still open, and a section that
@@ -1845,7 +1904,7 @@ echo
 # declare `2.13.0` and the estate tags `v2.13.0`. Both spellings are tried, so a
 # project that tags without the prefix is not silently reported as unshipped.
 #
-# NOT `sprint_drift=`, which counts PLANS whose `Sprint:` field disagrees with
+# NOT `sprint_mismatch=`, which counts PLANS whose `Sprint:` field disagrees with
 # the sprint file, and not `sprint_index_drift=`, which counts sprints whose
 # phase disagrees with the index. This is a third question — has this sprint's
 # train left? — and it carries `sprint_shipped=`. One number answering several
@@ -1860,7 +1919,7 @@ echo
 # A sprint with no `Release:`, or one whose release has not shipped, is silent.
 # So is a Closed one — that is the state this section is about reaching, not a
 # finding.
-echo "== 15. Sprint outlived its release (the train shipped — a person closes it) =="
+echo "== 17. Sprint outlived its release (the train shipped — a person closes it) =="
 sprint_ship_out=""
 if [ -d "$SPRINT_DIR" ]; then
   for sf in "$SPRINT_DIR"/[0-9]*.md; do
@@ -1959,7 +2018,7 @@ echo
 # nobody agreed to. It carries its own footer counter (`stated_waits=`), stays
 # OUT of `attention=`, and sits below the `== blocking sections end ==` marker,
 # which is what keeps it out of /plot-deliver's gate.
-echo "== 16. Stated waits with no annotation (convenience — nothing depends on these) =="
+echo "== 18. Stated waits with no annotation (convenience — nothing depends on these) =="
 stated_out=""
 if [ -n "$plan_json" ]; then
   # The LIVE plan files, from the parser rather than a second phase grep.
@@ -2077,7 +2136,7 @@ echo
 # PR, write the plan that claims it, or delete the ref. A finding that says
 # only *this exists* leaves the reader where the board already left them.
 #
-# THE CLAIM SET IS THE PARSER'S, never a second grep — the rule section 12
+# THE CLAIM SET IS THE PARSER'S, never a second grep — the rule the double-claims section
 # states and for its reason: two in three backticked branch names in a plan are
 # citations rather than claims, so a grep would read a dependency mentioned in
 # prose as a claim and silence a genuine finding. EVERY phase counts as a
@@ -2103,7 +2162,7 @@ echo
 # agreed to. It carries its own footer counter (`unclaimed_work=`), stays OUT
 # of `attention=`, and sits below the `== blocking sections end ==` marker,
 # which is what keeps it out of /plot-deliver's gate.
-echo "== 17. Unclaimed work (a branch with changes no plan names — a person decides) =="
+echo "== 19. Unclaimed work (a branch with changes no plan names — a person decides) =="
 unclaimed_out=""
 if [ "$section3_suppressed" = 1 ]; then
   # The same refusal section 3 makes, for the same reason: without the open-PR
@@ -2164,7 +2223,7 @@ echo
 # A remote branch whose PR MERGED and whose ref still exists. The work is
 # finished; the ref is litter, and until now nothing named it.
 #
-# MEASURED 2026-09-07. After section 17 reported `unclaimed_work=8` and all
+# MEASURED 2026-09-07. After the unclaimed-work section reported `unclaimed_work=8` and all
 # eight were resolved, the estate still held 15 remote branches. NINE had
 # merged PRs — `feature/the-scan-reads-a-fleet-reading` (#600, 56 files),
 # `feature/the-shell-stops-parsing-plans` (#577), `feature/the-board-reads-the-
@@ -2221,7 +2280,7 @@ echo
 # pointer. It carries its own footer counter (`merged_refs=`), stays OUT of
 # `attention=`, and sits below the `== blocking sections end ==` marker, which
 # is what keeps it out of /plot-deliver's gate.
-echo "== 18. Merged refs (a branch whose PR merged, ref still here — a person decides) =="
+echo "== 20. Merged refs (a branch whose PR merged, ref still here — a person decides) =="
 merged_ref_out=""
 if [ "$pr_reliable" != 1 ]; then
   # Silence is not permission and it is not a finding either. Without the
@@ -2233,7 +2292,7 @@ if [ "$pr_reliable" != 1 ]; then
   echo "  Re-run once the git host answers."
 else
   # branch, plan file and phase — one $US-separated line per claimed branch.
-  # Phase-less files are skipped for section 17's reason: a decision log naming
+  # Phase-less files are skipped for the unclaimed-work section's reason: a decision log naming
   # a branch is not a claimant.
   claim_rows=""
   if [ -n "$plan_json" ]; then
@@ -2291,7 +2350,7 @@ else
 fi
 echo
 
-echo "== 19. Desks (a worktree the fleet left behind — a person decides) =="
+echo "== 21. Desks (a worktree the fleet left behind — a person decides) =="
 # THE READINGS ARE TAKEN HERE AND THE VERDICT IS THE RULE'S. This section
 # collects what is measurable about every worktree and asks
 # `board/plot-reconcile.mjs`, which asks `reconcile()`, which asks `reap()`.
@@ -2438,5 +2497,5 @@ process.stdout.write(JSON.stringify({
 fi
 echo
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks pr_source=$PR_SOURCE main=$MAIN"
 exit 0
