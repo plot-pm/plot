@@ -269,24 +269,23 @@ test('host: backend infers the host from the remote when nothing declares one', 
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('host: backend refuses rather than defaulting where no remote names a host', () => {
-  // THE REASSURING DIRECTION IS THE WORST ONE TO BE WRONG IN. A repository with
-  // no remote answered `github` at exit 0, so every downstream op asked GitHub
-  // about a repository that is not there — and exit 4 is this script's word for
-  // *cannot be asked at all*, which callers read as permanent rather than
-  // transient. Measured 2026-09-11 on a fresh `git init`.
+test('host: backend says so when nothing names a host', () => {
+  // IT REPORTS AND DOES NOT REFUSE, and that is a measurement rather than a
+  // preference. An earlier version exited 4 here and five contract tests went
+  // red: a sandbox repository with no remote is a legitimate, common shape —
+  // six suites build one — and every op needing a host in such a repo was
+  // relying on this default. Refusing at the resolver punishes a caller for a
+  // question it never asked.
+  //
+  // WHAT CHANGES IS THAT THE GUESS STOPS BEING SILENT. The value is still
+  // usable so the exit stays 0; the provenance is not certain, so it is said.
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-noremote-'));
   execFileSync('git', ['init', '-q', '.'], { cwd: dir });
-  let code = 0;
-  let stderr = '';
-  try {
-    execFileSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
-  } catch (err) {
-    code = err.status;
-    stderr = String(err.stderr ?? '');
-  }
-  assert.equal(code, 4, 'a host nothing can name is unaskable, not GitHub');
-  assert.match(stderr, /no 'origin' remote/, 'the refusal says what is missing');
+  const res = spawnSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status, 0, 'a caller that needs a host still gets one');
+  assert.equal(res.stdout.trim(), 'github');
+  assert.match(res.stderr, /no 'Git host' key and no remote names one/,
+    'the guess announces itself');
   rmSync(dir, { recursive: true, force: true });
 });
 

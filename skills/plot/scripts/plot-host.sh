@@ -1786,18 +1786,18 @@ backend_declared() {
     *bitbucket.org*) echo "bitbucket"; return ;;
   esac
 
-  # AN UNREADABLE HOST IS NOT A DEFAULT ONE. Exit 4 is this script's word for
-  # *cannot be asked*, and every caller already reads it as permanent rather
-  # than transient — the same answer `runs` gives for a CI it cannot reach.
-  echo "plot-host: cannot tell which git host this repository uses" >&2
-  if [ -z "$url" ]; then
-    echo "  There is no 'origin' remote to infer one from." >&2
-  else
-    echo "  The 'origin' remote is '$url', which names no host this script drives." >&2
-  fi
-  echo "  Set the 'Git host' key in the ## Plot Config section of CLAUDE.md" >&2
-  echo "  (or \$PLOT_HOST) to one of: ${HOST_DRIVES// /, }" >&2
-  return 4
+  # NOTHING NAMES A HOST, AND THAT IS REPORTED RATHER THAN REFUSED. An earlier
+  # version of this returned exit 4 here, and five contract tests went red:
+  # a sandbox repository with no remote is a legitimate, common shape — six
+  # suites build one — and every op that needs a host in one was relying on
+  # this default. Refusing at the resolver punishes them for a question they
+  # never asked.
+  #
+  # SO THE GUESS SURVIVES AND STOPS BEING SILENT. `backend_unnamed` is set for
+  # the `backend` op to report, which is the one caller ASKING which host this
+  # is rather than needing one in passing.
+  BACKEND_UNNAMED=1
+  echo "github"
 }
 
 # The resolved backend, refused where this script has no arm for it.
@@ -1811,6 +1811,7 @@ backend_declared() {
 # sentence below for the name.
 backend() {
   local v rc
+  BACKEND_UNNAMED=0
   # THE DECLARED-HOST REFUSAL IS PASSED THROUGH, NOT FLATTENED. `|| return 1`
   # collapsed exit 4 into 1 here, and 4 is the one code every caller reads as
   # *this cannot be asked at all* rather than *retry*. Measured 2026-09-11: a
@@ -1820,6 +1821,14 @@ backend() {
   if ! host_drivable "$v"; then
     echo "plot-host: cannot drive '$v' — this script drives ${HOST_DRIVES// /, }; set the 'Git host' key in CLAUDE.md (or \$PLOT_HOST) to one of them" >&2
     return 4
+  fi
+  # THE ANSWER IS PRINTED EITHER WAY, AND A GUESS SAYS SO. `backend` is a
+  # reading, not a gate: a caller that needs a host still gets one, and a
+  # person asking which host this is learns the answer was inferred from
+  # nothing. Exit stays 0 — the value is usable, its provenance is not certain.
+  if [ "${BACKEND_UNNAMED:-0}" = 1 ]; then
+    echo "plot-host: no 'Git host' key and no remote names one — assuming '$v'" >&2
+    echo "  Set the 'Git host' key in ## Plot Config (or \$PLOT_HOST) to be sure." >&2
   fi
   printf '%s\n' "$v"
 }
