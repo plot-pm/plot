@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-11, Jan Wloka, plan-PR #887 merged
+- **Started:** 2026-09-11, Jan Wloka, `feature/a-merge-without-a-changeset-is-named`
 
 ## Changelog
 
