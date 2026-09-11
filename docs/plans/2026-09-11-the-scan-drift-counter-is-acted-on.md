@@ -9,6 +9,7 @@
 - **Story:** plot-gates
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -29,11 +30,18 @@ Not one fact. Three:
 
 | shape | count | is it drift? |
 |---|---|---|
-| sprint member names no plan | 18 | **no** — an unplanned item is honestly unplanned |
-| plan has no `Sprint:` field | 13 | yes, and mechanically fixable |
-| plan's `Sprint:` names a *different* sprint | 26 | yes, and needs a person |
+| sprint member names no plan | 18 | **no** — see below |
+| plan has no `Sprint:` field | 18 | yes, and mechanically fixable |
+| plan's `Sprint:` names a *different* sprint | 21 | yes, and needs a person |
 
-**The largest share is not a defect.** W36 alone contributes 8 members with no plan, and its own note says *"Nothing here has a plan yet"* — deliberately. Counting those as drift is what makes the number both large and unactionable.
+*(18 + 18 + 21 = 57, the footer's number. An earlier draft of this plan printed 18/13/26, which was a transcription error and did not sum — corrected 2026-09-11 against the scan's own output.)*
+
+**The largest share is not a defect, and the reason is stronger than "unplanned work exists."** The 18 split almost evenly between two sprints, and they are opposite cases:
+
+- **W36 contributes 8.** Its own note says *"Nothing here has a plan yet"* — deliberately, and it closed that way.
+- **W39 contributes 8, and every one of them SHIPPED.** `a-rejection-is-a-controller-command` (#843), `a-release-is-a-controller-command` (#848), `adoption-is-a-controller-command` (#840), `a-pr-is-opened-by-a-controller` (#846), `a-lifecycle-field-has-one-writer` (#851), `the-board-says-which-ci-answered` (#881), plus two verified complete by measurement.
+
+**So the counter's largest component is produced by work being DONE.** A slice that merges as a PR without a plan file is a normal, frequent shape on this estate — it is how most of W39 shipped — and calling it drift means the number rises as the sprint succeeds. That is the strongest argument against rendering it anywhere a person is asked to act on.
 
 **The third shape is the one worth a person's time** and it is buried: a plan claimed by one sprint while naming another is a real disagreement about what shipped where.
 
@@ -58,13 +66,15 @@ Split the one section into three counters, each with its own heading and its own
 - A plan missing `Sprint:` prints the backfill line it already prints.
 - A plan naming a different sprint prints both names — it does today and must keep doing so.
 - The blocking set is unchanged: all three sit below the marker and `attention=` does not move.
-- Measured on this estate: 18 / 13 / 26 against today's undifferentiated 57, and the three sum to it.
+- Measured on this estate: **18 / 18 / 21** against today's undifferentiated 57, and the three sum to it.
 
 ## Notes
 
 ### Why "reaches a reader" is not answered here — 2026-09-11
 
 The W36 item said the counter should *"reach a reader instead of a footer"*, which sounds like the board. **This plan deliberately stops short of that**, because the measurement says the counter is not yet worth rendering: 18 of 57 lines are not defects, and a board chip showing 57 would carry the same uselessness into a more prominent place.
+
+**The W39 half sharpens that into a rule.** A counter whose largest component GROWS as work ships is not a health signal, and putting it where a person is asked to act on it teaches them to dismiss the place it sits — which is the footer's existing problem moved somewhere more expensive.
 
 **Separate first, then decide.** Once the three numbers exist and one of them is small and real, whether it earns a rendered state is a question with evidence behind it.
 
