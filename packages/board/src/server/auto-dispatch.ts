@@ -1137,27 +1137,43 @@ export function maybeAutoDispatch(
   });
 
   if (plans.length === 0) return pruned;
-  const newly = runAutoDispatch(opts, pulse, plans, allInFlight, missingBriefs);
 
-  // The newly dispatched branches, marked before this function returns so the
-  // OTHER board's very next pulse counts them. This is the write the whole slice
-  // exists for: without it a branch dispatched here is invisible to every other
-  // board until a registry entry appears, and that window is exactly where the
-  // second board spends the same slot.
+  // MARKED BEFORE THE SPAWN, NOT AFTER, and the order is the whole point. The
+  // window this slice closes is the one between deciding and being visible, so a
+  // mark written after the spawn leaves it open at its widest — and a crash
+  // between the two would leave a dispatch running that no board is charged for,
+  // which is the failure direction the plan forbids. Marking first can only
+  // over-mark (the script may start fewer than planned), and `runAutoDispatch`
+  // already states that asymmetry: over-marking makes the board briefly more
+  // conservative, never less.
   //
-  // THIS BOARD'S OWN: `pruned` plus what it just started, and never the shared
-  // marks it merely read. Re-stamping a peer's marks with `now` would let a dead
-  // board's budget be renewed indefinitely by a live board that never dispatched
-  // those branches — the marks would stop expiring and the TTL would buy
-  // nothing. `writeInFlight` merges, so the peer's marks survive this write on
-  // their own timestamps; they are simply not refreshed by a board that does not
-  // own them.
+  // The branches are the ones `runAutoDispatch` will mark, derived by the same
+  // call with the same arguments — `startableBranches` is pure, so asking it
+  // twice cannot answer differently, and the spawn side keeps its own reading
+  // rather than being handed one.
+  const willStart: string[] = [];
+  for (const plan of plans) {
+    willStart.push(
+      ...startableBranches(pulse, plan.slug, allInFlight, missingBriefs).slice(0, plan.max),
+    );
+  }
+
+  // THIS BOARD'S OWN: `pruned` plus what it is about to start, and never the
+  // shared marks it merely read. Re-stamping a peer's marks with `now` would let
+  // a dead board's budget be renewed indefinitely by a live board that never
+  // dispatched those branches — the marks would stop expiring and the TTL would
+  // buy nothing. `writeInFlight` merges, so the peer's marks survive this write
+  // on their own timestamps; they are simply not refreshed by a board that does
+  // not own them.
   const owned = new Set(pruned);
-  for (const b of newly) owned.add(b);
+  for (const b of willStart) owned.add(b);
   const markError = writeInFlight(opts.repoRoot, owned);
   if (markError) {
     console.log(`auto-dispatch: could not record in-flight marks: ${markError}`);
   }
+
+  const newly = runAutoDispatch(opts, pulse, plans, allInFlight, missingBriefs);
+  for (const b of newly) owned.add(b);
 
   // THE RETURNED SET IS THIS BOARD'S, NOT THE MERGED ONE, and that is the same
   // ownership rule the write above keeps. The caller assigns this to
