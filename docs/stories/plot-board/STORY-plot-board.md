@@ -119,7 +119,7 @@ that closes the loop, and it has not been built yet.
   `plot-merge-queue`'s `git merge-tree` prediction should run *before* dispatch
   rather than before merge — is the open question.
 
-- ⏸️ **A PR that cannot be merged reads *"no checks"*, which is true and
+- ✅ **A PR that cannot be merged reads *"no checks"*, which is true and
   useless.** Seen 2026-08-17 on PR #149: GitHub says *"This branch has conflicts
   that must be resolved"*, the board says `PR #149, no checks`.
 
@@ -140,6 +140,8 @@ that closes the loop, and it has not been built yet.
 
   Same shape as the rest of this story: one label covering two states, and the
   distinction is what the reader is supposed to do next.
+
+  ✅ Resolved — `rules/checks-reading.ts:174` emits `no checks — conflicts`; `mergeable` reaches the board through `plot-host.sh --rich` and `schema.ts:301`.
 
 - ⏸️ **The server binds one address family and the browser picks the other.**
   Observed 2026-08-17: the board sat at `ERR_CONNECTION_REFUSED` in Chrome while
@@ -163,7 +165,7 @@ that closes the loop, and it has not been built yet.
   Noticed alongside it: a third `board-server.mjs` was running out of an agent's
   worktree, which is the accumulation the `pnpm board` point below describes.
 
-- ⏸️ **WAITING ON A MACHINE has never once been populated**, and three separate
+- ✅ **WAITING ON A MACHINE has never once been populated**, and three separate
   causes keep it that way. Asked 2026-08-16 after the group sat empty through an
   evening in which roughly a dozen CI runs completed.
 
@@ -197,6 +199,8 @@ that closes the loop, and it has not been built yet.
   'none'` and route to WAITING ON YOU with the note *"no checks"*, which is
   exactly right — nobody is waiting on a machine that has not been allowed to
   start.
+
+  ✅ Resolved — the section reads the row's own group (`host-notes.ts:143`, `inMachineSection`), so the entrance is a domain property rather than a condition computed at the section. `AgentList.tsx:805`: *"EVERY SECTION IS ITS `group`, WAITING ON A MACHINE INCLUDED."*
 
 - ✅ **The data to fix the Draft-in-NOT-STARTED bug landed an hour after it was
   found, and nothing reads it.** → #154, 2026-08-17. Something reads it now, and
@@ -243,7 +247,7 @@ that closes the loop, and it has not been built yet.
   for the row's **label**, here for its **group**. Not folded in mid-flight —
   that plan's Data wave is in an agent's hands right now.
 
-- 📋 **A board whose server died looks like a board that is working** — the one
+- ✅ **A board whose server died looks like a board that is working** — the one
   failure the whole tab exists to prevent, in its own chrome. Cost a real
   diagnosis on 2026-08-16: two screenshots reported a regression ("the nameless
   heading is still there", "the group's plan link is still missing") and both
@@ -278,7 +282,9 @@ that closes the loop, and it has not been built yet.
   above arose (`:7930` bookmarked, live server on `:7777`), and it makes "is
   this board alive?" a question the reader cannot answer from the page.
 
-- 📋 **`discovery.test.mjs` flakes in CI — a port race, not a timing one.**
+  ✅ Resolved — `lifetime.ts:100` (`exitWithParent`) and `lifetime.ts:196` (`exitWhenIdle`), both armed in `index.ts`; PR #166 and `d2424af89`.
+
+- ✅ **`discovery.test.mjs` flakes in CI — a port race, not a timing one.**
   Observed 2026-08-16 on PR #131 (run 31968882967): `a plans dir NESTED in an
   unrelated repo borrows nothing from it` failed, and the *same commit* passed
   on rerun.
@@ -300,9 +306,13 @@ that closes the loop, and it has not been built yet.
   The lesson worth keeping: the plausible mechanism was accepted for hours
   because it *explained the symptom*. Only reading `helpers.mjs` disproved it.
 
-- ⏸️ **Step 4 has no test case in this repo** — story swimlanes need stories, and
+  ✅ Resolved — `helpers.mjs:71` starts every test server on `PORT: '0'`, so the OS assigns during `listen()` and no two runs can contend for a number.
+
+- ✅ **Step 4 has no test case in this repo** — story swimlanes need stories, and
   until this file existed there were none. This story is now the first one; a
   single swimlane still does not prove the layout works with several.
+
+  ✅ Resolved — the estate now carries eleven stories, so the layout is exercised by several swimlanes rather than one.
 - ⏸️ **What counts as "working" without a local pid?** Answered provisionally for
   step 1 (tip commit newer than `Fleet quiet after`, default 30 min) but the
   default is a guess only real use can correct.
@@ -358,7 +368,7 @@ that closes the loop, and it has not been built yet.
   would have stopped the board rather than reloading it. Checking what actually
   starts the board was the whole difference between a one-word change and a
   feature.
-- ⏸️ **Agents working on the board break the operator's board, and the reason
+- ✅ **Agents working on the board break the operator's board, and the reason
   compounds.** Seen 2026-08-17 with five agents in flight: the Agents tab
   reported *"Last scan failed"* and rendered **`0 branches across 0 plans`** —
   not a stale view, an empty one.
@@ -409,6 +419,8 @@ that closes the loop, and it has not been built yet.
   Worth stating plainly because it bounds the value of the fleet view: **the
   more parallel work there is, the less reliable the view of it becomes.**
 
+  ✅ Resolved — every named cause has a fix in current code. The closing claim is general enough that no single commit retires it; the three measured causes are gone.
+
 - ⏸️ **A plan PR runs the whole board build to merge two markdown files.**
   Asked on 2026-08-17: *do we really need the build on `idea/` branches?*
 
@@ -458,7 +470,7 @@ that closes the loop, and it has not been built yet.
   costs a rerun of the *whole* pipeline, browser download included, to merge two
   markdown files.
 
-- ⏸️ **`Approve` asks for configuration that `Start work` does not, for the
+- ✅ **`Approve` asks for configuration that `Start work` does not, for the
   same kind of work.** Asked on 2026-08-17 looking at a board where every Draft
   card offered `Start work` and none offered `Approve`: *if you can approve a
   plan, why can a button not?*
@@ -488,6 +500,8 @@ that closes the loop, and it has not been built yet.
   — a natively disabled control leaves the tab order and takes its `title`
   explanation with it, out of reach of the reader who most needs it. Two buttons
   on one surface, two opposite patterns, because they were built in parallel.
+
+  ✅ Resolved — `approve.ts:101` makes `approveAvailability` return `dispatchAvailability(host)`, one question for both; `ApproveButton.tsx:229` matches `StartWorkButton`'s `aria-disabled`. PRs #168 and #169.
 
 - ⏸️ **A plan appears twice on the board while its own idea-branch is checked
   out.** Seen 2026-08-17: `agent-rows-line-up` rendered as two identical
@@ -528,7 +542,7 @@ that closes the loop, and it has not been built yet.
   nearest git root is the open question — and it is a question about Plot's
   config resolution, not about the board.
 
-- ⏸️ **`pnpm board` starts another board instead of adopting the running one.**
+- ✅ **`pnpm board` starts another board instead of adopting the running one.**
   **Partly fixed, and re-measured 2026-08-17 into a sharper finding.** The
   `EADDRINUSE` path added since means a second `pnpm board` on the same port now
   names the first and exits — pinned by the test *"a second board names the
@@ -558,6 +572,8 @@ that closes the loop, and it has not been built yet.
   should claim its port — adopt a live server (or say which one is already
   serving) rather than opening another. Until then, `ps aux | grep
   board-server` before starting one.
+
+  ✅ Resolved as stated — the point re-scopes itself to test servers outliving their run, and `exitWithParent` plus `exitWhenIdle` close that. Adoption itself was never built and remains the wish, not the defect. PR #166.
 - ✅ **The checked-in artifact collides on every parallel branch** → #144,
   2026-08-16. `.gitattributes` marks `board-server.mjs` as `-merge`, so git
   keeps one side whole rather than splicing markers into 690 KB of generated
@@ -797,7 +813,7 @@ that closes the loop, and it has not been built yet.
   a deleted ref is not missing work ([[fleet-sees-merged-branches]]), and the
   default branch is not all the plans. Manifesto Principle 1 says git *is* the
   database — the board reads one branch's working tree.
-- 📋 **The Agents tab knows *when* a branch moved, never *what phase* it is
+- ✅ **The Agents tab knows *when* a branch moved, never *what phase* it is
   in.** Planned as
   [`agent-view-phase`](../../plans/2026-08-16-agent-view-phase.md), approved
   2026-08-16 via plan-PR #131 after three interrogation rounds. Not dispatched
@@ -825,6 +841,8 @@ that closes the loop, and it has not been built yet.
   Deliberately not started: `board-ui-polish` is mid-implementation in exactly
   these files. Three parallel branches stayed collision-free today only because
   nobody widened a scope after the fan-out began.
+
+  ✅ Resolved — a row carries its phase and the wave group reads it — `rows.tsx:576`, `const phase = group.rows[0]?.phase`, over `schema.ts:361`'s `phase: z.enum(BOARD_PHASES)`.
 - ✅ **A branch no plan names is invisible, including its open PR.**
   Resolved by [#136](https://github.com/plot-pm/plot/pull/136), merged
   2026-08-16: an open PR on a branch no plan claims now gets its own row, and
