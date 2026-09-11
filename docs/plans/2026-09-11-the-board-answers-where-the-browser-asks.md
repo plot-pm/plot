@@ -7,7 +7,7 @@
 - **State:** Draft
 - **Type:** bug
 - **Story:** plot-board
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
 
 ## Changelog
