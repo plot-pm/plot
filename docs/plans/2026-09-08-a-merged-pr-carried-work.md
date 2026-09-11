@@ -63,7 +63,7 @@
 
 ## Slices
 
-### Delivery reports a slice whose PR carried no work (Branch: bug/a-merged-pr-carried-work)
+### Delivery reports a slice whose PR carried no work (Branch: bug/a-merged-pr-carried-work, PR: #835)
 
 `plot-deliver.sh` reports a branch whose merged PR changed no file outside `PLOT-BLOCKED*` and the claim.
 
