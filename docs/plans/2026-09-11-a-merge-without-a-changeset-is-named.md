@@ -9,7 +9,7 @@
 - **Story:** plot-gates
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 - **Approved:** 2026-09-11, Jan Wloka, plan-PR #887 merged
 - **Started:** 2026-09-11, Jan Wloka, `feature/a-merge-without-a-changeset-is-named`
 
@@ -47,7 +47,22 @@
 
 A new advisory section in `plot-reconcile-scan.sh`, below the `== blocking sections end ==` marker, with its own footer counter.
 
-**It asks the MERGE COMMIT, not the branch, and needs no host call at all.** `git diff --name-only --diff-filter=A <merge>^1 <merge>^2` names every file the merged side added, so a `.changeset/*.md` among them is the answer. Verified 2026-09-11 in both directions: #886 added `the-mock-board-has-a-sprint.md` and the method found it; #884 added none and the method said so.
+**It asks the MERGE COMMIT, not the branch, and needs no host call at all.** Verified 2026-09-11 in both directions: #886 added `the-mock-board-has-a-sprint.md` and the method found it; #884 added none and the method said so.
+
+**DIFF FROM THE MERGE BASE, NOT FROM `^1`.** This plan first wrote `<merge>^1 <merge>^2`, and the brief for its own slice caught the defect before a line was implemented. `^1` is main AT MERGE TIME, so that form attributes every change main gained while the branch was open to the branch itself. Measured on this estate:
+
+| merge | what it shipped | `^1..^2` | `merge-base..^2` |
+|---|---|---|---|
+| #889 | docs only | **1** shipped-code file | 0 |
+| #887 | docs only | **3** | 0 |
+| #885 | one script | 4 | **1** |
+
+Three of the five recent merges where the two forms differ would have been reported as shipping code they never touched — false positives on exactly the exclusion this section depends on. The base is `git merge-base "$m^1" "$m^2"`, and both questions are asked from it:
+
+```sh
+base=$(git merge-base "$m^1" "$m^2")
+changesets=$(git diff --name-only --diff-filter=A "$base" "$m^2" | grep -c '^\.changeset/.*\.md$')
+```
 
 **The branch ref is the wrong handle and would have failed quietly.** The first draft of this slice read `<base>...<head>`, which needs the branch to still exist — and `plot-release-refs.sh` deletes merged refs by design. Measured the same day: **3 remote branches survive on this repository** against hundreds of merges, so a branch-keyed check would answer *no changeset* for almost everything, for the wrong reason.
 
