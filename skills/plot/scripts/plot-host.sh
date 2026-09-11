@@ -834,6 +834,47 @@ jenkins_no_instance() {
 # estimate for. This draws it one step earlier, for a connector that does not
 # exist at all — and `resultOf` (`adapters/run-script.ts:211`) maps exit 4 onto
 # `unaskable`, which is the word the build port already answers with.
+# The Jenkins REST credential, read from where `jen` already stores it.
+#
+# NOT THE KEYCLOAK BEARER. `jen auth token` prints one and Jenkins answers it
+# with an HTML login redirect — measured 2026-09-10, and it is the trap that
+# made an earlier reading conclude the sha was unreachable. Jenkins' own API
+# takes BASIC auth with a user and an API token, which `jen` keeps in the login
+# keychain under service `jen`, accounts `jenkins-user:<host>` and
+# `jenkins-token:<host>`.
+#
+# IT PRINTS `user:token` AND NOTHING ELSE, or nothing at all. The caller passes
+# it straight to `curl -u`; no branch echoes it, and no failure path names it.
+#
+# EMPTY IS THE HONEST ANSWER on a machine with no `security` (Linux, CI), with
+# no keychain entry, or with either half missing — a half credential is not a
+# credential. The caller turns that into exit 4, which is *cannot be asked*.
+jenkins_rest_credential() { # $1 = the bare host
+  command -v security >/dev/null 2>&1 || return 1
+  local u t
+  u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
+  t=$(security find-generic-password -s jen -a "jenkins-token:$1" -w 2>/dev/null) || return 1
+  [ -n "$u" ] && [ -n "$t" ] || return 1
+  printf '%s:%s' "$u" "$t"
+}
+
+# A job path as Jenkins' REST API spells it: every segment under `job/`.
+#
+# `quaweb/release` is the path a person writes and `job/quaweb/job/release` is
+# the URL, because a Jenkins folder is itself a job. A multibranch branch adds
+# one more segment, PERCENT-ENCODED — `bug/foo` is `bug%2Ffoo`, the same
+# encoding `jenkins_build_map` already decodes on the way back.
+jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
+  local out="" seg
+  local IFS=/
+  for seg in $1; do [ -n "$seg" ] && out="$out/job/$seg"; done
+  unset IFS
+  if [ -n "${2:-}" ]; then
+    out="$out/job/$(printf '%s' "$2" | sed 's|/|%2F|g')"
+  fi
+  printf '%s' "$out"
+}
+
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
   local ci_word="${2:-}"
   if [ -z "$ci_word" ] || [ "$ci_word" = none ]; then
@@ -2991,29 +3032,100 @@ case "$op" in
     _ci="$(ci_scheme)"
     case "$_ci" in
       jenkins)
-        # JENKINS CANNOT ANSWER THIS THROUGH `jen`, AND THAT IS A MEASUREMENT
-        # RATHER THAN A GAP LEFT OPEN. `jenkins_build_map` — the only Jenkins
-        # reader this script has — answers `{color, checks, job}` per BRANCH and
-        # carries no commit at all, so there is nothing here to match a sha
-        # against.
+        # THE SHA IS IN JENKINS AND `jen` IS NOT THE TRANSPORT. Measured
+        # 2026-09-10 against a live instance: a build entry from `jen build
+        # list --json` carries `id`, `status`, timings and stages, and a search
+        # of the whole payload for `sha|commit|revision|scm` matches nothing.
+        # `jen` has no changesets subcommand and no raw-API passthrough.
         #
-        # THE ANSWER EXISTS AND THIS TRANSPORT DOES NOT REACH IT. Measured
-        # 2026-09-08 against a live instance, a build names its commit at
-        # `actions[].BuildData.lastBuiltRevision.SHA1`, paired with its branch —
-        # over the REST API, which `the-ci-connector-is-jenkins` reads. Until
-        # that lands, `unaskable` is the true word: this connector cannot be
-        # asked, which is not the same as the branch having no run for the sha.
+        # JENKINS' OWN REST API ANSWERS IT, at
+        # `actions[].lastBuiltRevision.SHA1`, paired with the branch. One
+        # `tree=` query returns a whole history — 4855 bytes for five builds —
+        # so this costs one round trip like the GitHub arm does.
         #
-        # FALLING BACK TO THE BRANCH'S CURRENT STATE WOULD BE THE ONE ANSWER
-        # THAT COSTS A MERGE. This op exists because a run for a superseded
-        # commit reads identically to a run for the current one, and reporting
-        # a branch-scoped state with no sha in it is exactly the guessing it was
-        # written to end — two merge waiters were stopped for it on 2026-08-30.
-        echo "plot-host: run-for-sha — jenkins has no sha-scoped answer through \`jen\`" >&2
-        echo "  \`jen job list\` reports one state per branch and names no commit." >&2
-        echo "  A build's sha is in Jenkins and reached over its REST API, which" >&2
-        echo "  the Jenkins build connector reads. Until then this cannot be asked." >&2
-        exit 4
+        # THIS ARM EXITED 4 UNTIL 2026-09-11, and the refusal was honest for
+        # the transport it had. What changed is the transport, not the rule.
+        _jen_instance="$(jenkins_instance)"
+        [ -n "$_jen_instance" ] || jenkins_no_instance
+        _jen_host="${_jen_instance%%/*}"
+        _jen_job="${_jen_instance#*/}"
+        [ "$_jen_job" = "$_jen_instance" ] && _jen_job=""
+        [ -n "${PLOT_JENKINS_JOB:-}" ] && _jen_job="$PLOT_JENKINS_JOB"
+        if [ -z "$_jen_job" ]; then
+          # A bare-host instance names no job, and a sha lives in a job's
+          # builds. `runs` degrades to an empty map here; this op has no row to
+          # carry that, so the only way to say *cannot be asked* is exit 4.
+          echo "plot-host: run-for-sha — the Jenkins instance names no job path" >&2
+          echo "  A sha is a fact about a job's builds, so the instance must be" >&2
+          echo "  <slug>/<job/path> rather than a bare host." >&2
+          exit 4
+        fi
+        _jen_cred="$(jenkins_rest_credential "$_jen_host")" || {
+          # NO CREDENTIAL IS *CANNOT BE ASKED*, never *no run*. The keychain is
+          # macOS-only and a Linux agent legitimately has none; saying nothing
+          # at exit 0 would read as a branch that never built.
+          echo "plot-host: run-for-sha — no Jenkins API credential for '$_jen_host'" >&2
+          echo "  Jenkins' REST API takes basic auth with an API token, which" >&2
+          echo "  \`jen auth login\` stores in the login keychain. The Keycloak" >&2
+          echo "  bearer from \`jen auth token\` is NOT it — Jenkins answers that" >&2
+          echo "  with a login redirect." >&2
+          exit 4
+        }
+        # A BRANCH IS A JOB SEGMENT ON A MULTIBRANCH JOB AND NOT ON A PLAIN
+        # ONE, and no reading of the configured path says which this is. So the
+        # multibranch URL is tried first and the plain one is the fallback:
+        # `job/quaweb/job/continuous-build/job/content%2Fctas` against
+        # `job/quaweb/job/release`. Measured 2026-09-11 — asking the plain job
+        # for a branch segment answers 404, which is why guessing one shape
+        # cost a run.
+        #
+        # THE PLAIN JOB REPORTS ITS OWN BUILDS whatever branch was asked about,
+        # and that is honest rather than wrong: a pipeline job builds one
+        # thing, and the `sha` in the answer says which commit it built.
+        _jen_tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1%5D%5D%5D%7B0,$limit%7D"
+        _jen_body=""
+        for _jen_path in \
+          "$(jenkins_job_url_path "$_jen_job" "$branch")" \
+          "$(jenkins_job_url_path "$_jen_job" "")"; do
+          host_slot_take jenkins ''
+          _jen_try=$(curl -sg --max-time 30 -u "$_jen_cred" \
+            "https://$_jen_host$_jen_path/api/json?$_jen_tree" 2>/dev/null) || true
+          host_slot_give
+          budget_record_call jenkins ''
+          if printf '%s' "$_jen_try" | jq -e 'has("builds")' >/dev/null 2>&1; then
+            _jen_body="$_jen_try"; break
+          fi
+        done
+        _jen_cred=""
+        if [ -z "$_jen_body" ] || ! printf '%s' "$_jen_body" | jq -e 'has("builds")' >/dev/null 2>&1; then
+          # AN UNREACHABLE INSTANCE IS NOT AN EMPTY HISTORY. A refused or
+          # redirected request answers HTML, which fails the `builds` test.
+          echo "plot-host: run-for-sha — Jenkins did not answer for '$_jen_host'" >&2
+          exit 4
+        fi
+        # THE SAME FALLBACK RULE AS THE GITHUB ARM, and it is inherited rather
+        # than invented: the asked-for sha if a build carries it, else the
+        # newest build, and `sha` says WHICH. A caller that could not tell the
+        # two apart would be back to the branch-scoped guessing this op ends.
+        #
+        # `result` is null while a build runs, which is Jenkins' own word for
+        # *in flight* — mapped to the `status`/`conclusion` split the contract
+        # already uses, so the shape does not fork per connector.
+        printf '%s' "$_jen_body" | jq -c --arg sha "$sha" '
+          [ .builds[]
+            | { sha: ([ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ] | first // ""),
+                status: (if .building then "in_progress" else "completed" end),
+                conclusion: (if .building then null else (.result // null) end),
+                url: (.url // ""),
+                startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end) } ]
+          | ((map(select(.sha == $sha)) | .[0]) // .[0])
+          | select(. != null)' 2>/dev/null || true
+        # THIS ARM ANSWERS AND THE OP IS OVER. Everything below the `esac` is
+        # the GitHub path — the old jenkins arm reached it only because it
+        # ended in `exit 4`. Measured 2026-09-11: without this the answer was
+        # printed and then a `CI is github-actions but the git host is
+        # 'bitbucket'` refusal followed it on stderr.
+        exit 0
         ;;
       github-actions) : ;;
       *) ci_unaskable run-for-sha "$_ci" ;;

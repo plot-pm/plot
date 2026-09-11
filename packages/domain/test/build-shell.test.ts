@@ -417,23 +417,43 @@ describe('the jenkins connector answers through plot-host.sh', () => {
     expect(buildJenkins(hostThat('exit 0')).system()).toBe('jenkins');
   });
 
-  it('answers unaskable for a sha, because the transport carries no commit', async () => {
-    // NOT AN EMPTY ANSWER. `plot-host.sh` exits 4 here, and `unaskable` is the
-    // true word: a branch-scoped state with no sha in it is the one fallback
-    // that costs a merge, since a run for a superseded commit reads identically
-    // to a run for the current one.
+  it('reads a run for a sha, now that the transport reaches one', async () => {
+    // THIS TEST ASSERTED `unaskable` UNTIL 2026-09-11, when `plot-host.sh`
+    // learned Jenkins' REST route. The refusal was honest for the transport it
+    // had — `jen` carries no commit — and what changed is the transport.
+    const answer = await buildJenkins(
+      hostThat(
+        `printf '%s\\n' '{"sha":"b0a2517","status":"completed","conclusion":"SUCCESS",` +
+          `"url":"https://jenkins.invalid/job/x/187/","startedAt":"2026-09-10T07:16:52Z"}'`,
+      ),
+    ).runForSha('develop', 'b0a2517');
+
+    expect(answer).toEqual({
+      ok: true,
+      value: {
+        sha: 'b0a2517',
+        status: 'completed',
+        conclusion: 'SUCCESS',
+        url: 'https://jenkins.invalid/job/x/187/',
+        startedAt: '2026-09-10T07:16:52Z',
+      },
+    });
+  });
+
+  it('answers unaskable where no credential reaches Jenkins', async () => {
+    // NOT AN EMPTY ANSWER, and this is the direction that matters. Jenkins'
+    // REST API takes an API token from the login keychain, which a Linux agent
+    // legitimately has none of. `unaskable` says *this connector cannot be
+    // asked*; silence at exit 0 would read as a branch that never built.
     const build = buildJenkins(
-      hostThat('echo "plot-host: run-for-sha — jenkins has no sha-scoped answer" >&2\nexit 4'),
+      hostThat('echo "plot-host: run-for-sha — no Jenkins API credential" >&2\nexit 4'),
     );
     expect(await build.runForSha('feature/x', 'deadbeef')).toEqual({
       ok: false,
       why: 'unaskable',
     });
-    // EXIT 4 LEAVES NO REFUSAL, and that is the contract rather than a gap:
-    // `build-shell.ts:133` states it — *"this connector cannot be asked at
-    // all, which is a standing configuration fact rather than an incident
-    // worth waiting out."* A caller retrying on `lastRefusal()` must not see
-    // a reason here, because no wait makes a sha askable through `jen`.
+    // Exit 4 leaves no refusal (`build-shell.ts:133`): a caller retrying on
+    // `lastRefusal()` must not wait for a credential no wait supplies.
     expect(build.lastRefusal()).toBeNull();
   });
 

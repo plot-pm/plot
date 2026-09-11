@@ -756,15 +756,25 @@ test('host: runs reaches the jenkins arm through a prose CI value', () => {
 });
 
 test('host: run-for-sha reaches the jenkins arm through a prose CI value', () => {
-  // `run-for-sha` has no sha-scoped Jenkins answer through `jen`, and says so
-  // on stderr. Falling past the arm instead would answer `null` — a branch with
-  // no run for the sha, which is the guess this op exists to end.
+  // THE CLAIM IS THE ROUTING, and it is unchanged: a prose `CI:` value must
+  // still land in the jenkins arm. Falling past it would answer `null` — a
+  // branch with no run for the sha, which is the guess this op exists to end.
+  //
+  // WHAT THE ARM SAYS CHANGED ON 2026-09-11, when it learned Jenkins' REST
+  // route. This sandbox has no keychain credential for the stub host, so the
+  // arm refuses on that — still exit 4, still *cannot be asked*, and still
+  // proof the jenkins arm was the one reached.
   const stubs = makeStubs();
   const res = runAllowFail(['run-for-sha', 'feature/x', 'abc123'], {
     env: { PLOT_HOST: 'github', PLOT_CI: 'Jenkins (e.g. continuous-build, quaweb)' },
     stubs,
   });
-  assert.match(res.stderr, /no sha-scoped answer/, 'the jenkins arm was reached');
+  // ANY OF THE ARM'S OWN REFUSALS PROVES THE ROUTING, and which one fires
+  // depends on how far the sandbox lets it get: no instance configured refuses
+  // first, then a bare-host instance, then an absent keychain credential. The
+  // github arm would answer `null` instead, which is what this guards against.
+  assert.match(res.stderr, /no Jenkins instance is configured|names no job path|no Jenkins API credential/,
+    'the jenkins arm was reached');
 });
 
 test('host: runs declaring github-actions on a bitbucket remote exits 4, never empty', () => {
@@ -1749,21 +1759,26 @@ test('host: runs on Jenkins with no instance configured exits 3, naming the thre
   assert.match(res.stderr, /JENKINS_INSTANCE/);
 });
 
-test('host: run-for-sha on Jenkins exits 4 — the map names no commit', () => {
-  // THE ONE ANSWER THAT WOULD COST A MERGE IS THE BRANCH'S CURRENT STATE.
-  // `jenkins_build_map` answers per BRANCH and carries no sha, so there is
-  // nothing here to match against — and this op exists precisely because a run
-  // for a superseded commit reads identically to one for the current commit.
-  // Reporting a branch-scoped state with no sha is the guessing it ends.
+test('host: run-for-sha on Jenkins without a credential exits 4, never empty', () => {
+  // THIS TEST ASSERTED `names no commit` UNTIL 2026-09-11. That refusal was
+  // honest for the transport it had — `jen` carries no sha — and what changed
+  // is the transport: `plot-host.sh` now reads Jenkins' REST API at
+  // `actions[].lastBuiltRevision.SHA1`.
+  //
+  // THE PROPERTY WORTH KEEPING IS THE DIRECTION OF THE FAILURE. Jenkins' REST
+  // API takes basic auth with an API token from the login keychain, which this
+  // sandbox has none of — and an absent credential must answer *cannot be
+  // asked*, never *this branch has no run for the sha*. Silence at exit 0 is
+  // the one answer that would cost a merge.
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'abc123'], { repo, hostStubs, jen });
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
-  assert.match(res.stderr, /names no commit/);
+  assert.match(res.stderr, /no Jenkins API credential|names no job path/);
   assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 0,
-    'a question this transport cannot answer is not asked at all');
+    'the sha route does not go through `jen`, which carries no commit');
 });
 
 // --- Jira issue-list / issue-view: REST, no CLI, pinned to the contract ------
