@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Story:** plot-gates
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-11, Jan Wloka, plan-PR #887 merged
 - **Started:** 2026-09-11, Jan Wloka, `feature/a-merge-without-a-changeset-is-named`
+- **Delivered:** 2026-09-12
 
 ## Changelog
 
