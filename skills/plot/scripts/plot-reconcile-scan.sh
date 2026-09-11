@@ -2497,7 +2497,7 @@ process.stdout.write(JSON.stringify({
   fi
 fi
 echo
-echo "== 20. Merged without a changeset (a merge that shipped code and no release note) =="
+echo "== 22. Merged without a changeset (a merge that shipped code and no release note) =="
 # THE FAILURE IS MEASURED: two merges in one session nearly shipped with no
 # release note. `check-changeset-packages.sh` cannot catch this — it validates
 # changesets that EXIST (real package, description over 20 characters, no
