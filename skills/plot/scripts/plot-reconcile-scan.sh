@@ -686,6 +686,7 @@ n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_unplanned_members=0; n_sprint_unset=0; n_sprint_mismatch=0
 n_stale_tally=0; n_idx=0; n_double=0
 n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0; n_unclaimed=0; n_merged_refs=0
+n_no_changeset=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -2496,6 +2497,180 @@ process.stdout.write(JSON.stringify({
   fi
 fi
 echo
+echo "== 22. Merged without a changeset (a merge that shipped code and no release note) =="
+# THE FAILURE IS MEASURED: two merges in one session nearly shipped with no
+# release note. `check-changeset-packages.sh` cannot catch this — it validates
+# changesets that EXIST (real package, description over 20 characters, no
+# leading `bumps:` comment), so a branch carrying none passes it trivially.
+# The gap is silent in the direction nobody investigates: a missing note is
+# invisible until somebody reads the published changelog and finds a feature
+# absent, by which time the tag is cut and cannot be moved.
+#
+# IT ASKS THE MERGE COMMIT, NEVER THE BRANCH REF. The first draft read
+# `<base>...<head>`, which needs the branch to still exist — and
+# `plot-release-refs.sh` deletes merged refs by design. Measured 2026-09-11:
+# THREE remote branches survive on this repository against hundreds of merges,
+# so a branch-keyed check answers *no changeset* for almost everything, for the
+# wrong reason. A merge commit's two parents hold the whole answer.
+#
+# AND IT NEEDS NO HOST CALL AT ALL. `MERGED_PR_LIMIT` does not bound this
+# section and `pr_reliable` does not gate it — section 18 guards on
+# `pr_reliable` because it asks the host what merged, and copying that guard
+# here would make the section silent during an outage for no reason. The PR
+# NUMBER is a nicety lifted from the merge subject; when it is absent the merge
+# SHA is named and the finding is reported anyway.
+#
+# DIFF FROM THE MERGE BASE, NOT FROM `^1`. `^1` is main AT MERGE TIME, so
+# `$m^1 $m^2` diffs the two TIPS and attributes every commit main gained while
+# the branch was open to the branch itself. Measured on this estate over the
+# last 40 merges: the `^1 ^2` form reports NINE findings against TWO from the
+# merge base, and #854 reads as touching `packages/domain/src/entities/budget.ts`
+# — which main did, not the branch. Both questions are asked from the base.
+#
+# FOUR EXCLUSIONS, each measured over the last 40 merges rather than assumed.
+# Unnarrowed this fires on 25 of 40 — 63%, which is `sprint_drift=57`'s failure
+# reproduced: a counter so loud nobody reads it.
+#   * the merge touched no `packages/*/src/` or `skills/` (25 -> 8) — a docs,
+#     test or fixture merge describes nothing a release note would carry;
+#   * the merged branch is `idea/*` (8 -> 2) — a plan PR ships no code and
+#     carries no changeset by construction;
+#   * the merged branch is `changeset-release/*` (2 -> 0) — the release PR
+#     CONSUMES changesets; demanding one of it inverts the workflow;
+#   * the merge is not on the default branch's FIRST-PARENT spine — this drops
+#     `Merge remote-tracking branch 'origin/main' into <branch>`, a rebase-style
+#     merge INTO a feature branch rather than a merge of work into main. Those
+#     are not deliveries. Across a 150-merge window four of the nine raw
+#     findings are exactly that shape.
+#
+# THE FIRST-PARENT SPINE IS THE READING, AND ANCESTRY WOULD NOT WORK. The plan
+# words this exclusion as *"a merge whose first parent is not on the default
+# branch's history"*, and measured 2026-09-11 that predicate can never fire:
+# once a rebase-style merge is itself merged into main, its whole history —
+# feature-branch first parent included — becomes main's history, so
+# `merge-base --is-ancestor "$m^1" origin/main` is true for all nine. The spine
+# `git rev-list --first-parent` is the sequence of deliveries; a merge of main
+# INTO a branch sits off it. Same intent, a reading that holds.
+#
+# TWO EXCLUSIONS NO LONGER FIRE, AND THEY STAY. The merge base alone drops every
+# `idea/*` residual, so those two `case` arms cost one line each and document
+# intent — an adopting repository with different merge habits may still need
+# them. Correctness rests on the merge base, never on the name lists.
+#
+# REPORTS AND NEVER REFUSES. A merge with no changeset is legitimate and common
+# — a docs fix, a test-only change, a revert, a build-artifact rebuild. A gate
+# refusing them fires constantly on honest work, which is the shape people turn
+# off. Same call `a-merged-pr-carried-work` made, for the same reason: what is
+# missing is the DECISION, not the outcome. It carries `no_changeset=`, stays
+# OUT of `attention=`, and sits below the `== blocking sections end ==` marker.
+n_no_changeset=0
+# THE WINDOW IS STATED RATHER THAN IMPLIED. What bounds this section is how far
+# back it walks `git log --merges` — a local choice with no rate limit behind
+# it, unlike `MERGED_PR_LIMIT`. Saying the number is the difference between a
+# report that is complete and one that looks complete.
+CHANGESET_MERGE_WINDOW=${PLOT_CHANGESET_MERGE_WINDOW:-40}
+nc_out=""
+nc_ref="origin/$MAIN"
+git rev-parse -q --verify "$nc_ref" >/dev/null 2>&1 || nc_ref="$MAIN"
+if ! git rev-parse -q --verify "$nc_ref" >/dev/null 2>&1; then
+  # A SECTION THAT CANNOT EVALUATE SAYS SO. Section 18's `(not evaluated — …)`
+  # is the pattern: silence reads as *nothing drifted*, which is the one
+  # direction a drift report must never be lenient in.
+  echo "  (not evaluated — neither origin/$MAIN nor $MAIN is readable)"
+else
+  # The delivery spine, read once. Membership of `$m^1` in it is the fourth
+  # exclusion, and a single `grep -qx` per merge beats a `rev-list` per merge.
+  nc_spine=$(git rev-list --first-parent "$nc_ref" 2>/dev/null)
+  nc_squashed=0
+  nc_seen=0
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    nc_seen=$((nc_seen + 1))
+    # A SQUASH HAS ONE PARENT, so there is no merged side to diff. This
+    # repository uses merge commits (verified 2026-09-11); an adopting
+    # repository that squashes needs a different handle, and the section says
+    # so below rather than reporting every squashed merge as missing a
+    # changeset.
+    git rev-parse -q --verify "$m^2" >/dev/null 2>&1 || { nc_squashed=$((nc_squashed + 1)); continue; }
+
+    # Exclusion four, before any diff: a merge of main INTO a branch is not a
+    # delivery. Cheapest test and it drops the largest false population.
+    p1=$(git rev-parse -q --verify "$m^1" 2>/dev/null) || continue
+    printf '%s\n' "$nc_spine" | grep -qx "$p1" || continue
+
+    # The merged branch name, from the merge subject. `%s` carries it for both
+    # the host's `Merge pull request #N from <owner>/<branch>` and git's own
+    # `Merge remote-tracking branch 'origin/<branch>'`.
+    subj=$(git log -1 --format='%s' "$m" 2>/dev/null)
+    nc_branch=""
+    case "$subj" in
+      "Merge pull request #"*" from "*)
+        nc_branch=${subj#*" from "}
+        nc_branch=${nc_branch#*/} ;;     # strip the owner prefix
+      "Merge branch "*)
+        nc_branch=${subj#"Merge branch "}
+        nc_branch=${nc_branch%%"'"*}
+        nc_branch=${nc_branch#"'"} ;;
+      "Merge remote-tracking branch "*)
+        nc_branch=${subj#"Merge remote-tracking branch "}
+        nc_branch=${nc_branch%%"'"*}
+        nc_branch=${nc_branch#"'"}
+        nc_branch=${nc_branch#origin/} ;;
+    esac
+
+    # Exclusions two and three. Both are measured non-firing once the merge base
+    # is in use; they stay because they cost one arm each and state the intent.
+    case "$nc_branch" in
+      idea/*|changeset-release/*) continue ;;
+    esac
+
+    base=$(git merge-base "$m^1" "$m^2" 2>/dev/null) || continue
+
+    # `--diff-filter=A` is what makes this *a changeset ADDED on the merged
+    # side* rather than *the word .changeset appearing anywhere in the diff*.
+    # Without it a release PR — which DELETES changesets — reads as carrying
+    # one, and the section reports every implementation merge forever.
+    cs=$(git diff --name-only --diff-filter=A "$base" "$m^2" 2>/dev/null \
+          | grep -c '^\.changeset/.*\.md$')
+    [ "${cs:-0}" -eq 0 ] || continue
+
+    # Exclusion one: shipped code. A docs, test or fixture merge describes
+    # nothing a release note would carry.
+    code=$(git diff --name-only "$base" "$m^2" 2>/dev/null \
+            | grep -cE '^(packages/[^/]+/src/|skills/)')
+    [ "${code:-0}" -gt 0 ] || continue
+
+    short=$(git rev-parse --short "$m" 2>/dev/null)
+    # The PR number is a NICETY, not the handle. When the subject carries none,
+    # the merge SHA is named and the finding is reported all the same.
+    nc_pr=""
+    case "$subj" in
+      "Merge pull request #"*)
+        nc_pr=${subj#"Merge pull request #"}
+        nc_pr=${nc_pr%%" "*} ;;
+    esac
+    nc_label="merge $short"
+    [ -n "$nc_pr" ] && nc_label="PR #$nc_pr (merge $short)"
+    [ -n "$nc_branch" ] || nc_branch="(branch not named in the merge subject)"
+
+    nc_out+="  $nc_label — $nc_branch merged ${code} shipped-code file(s), added no changeset\n"
+    nc_out+="    inspect: git diff --name-only $base $short^2\n"
+    # NAMES THE DECISION, NOT A REPAIR. The changeset belongs to the merge that
+    # is already in; what a person decides is whether this change owes a release
+    # note at all, and a revert, a rebuild or a test-only fix legitimately owes
+    # none.
+    nc_out+="    decide: add a changeset on main for it, or record that this change ships no release note\n"
+    n_no_changeset=$((n_no_changeset + 1))
+  done < <(git log --merges -n "$CHANGESET_MERGE_WINDOW" --format='%H' "$nc_ref" 2>/dev/null)
+
+  if [ -n "$nc_out" ]; then printf '%b' "$nc_out"; else echo "  (none — every merge that shipped code in this window carried a changeset)"; fi
+  echo "  window: the last $nc_seen merge commit(s) on $nc_ref (raise with PLOT_CHANGESET_MERGE_WINDOW)."
+  if [ "$nc_squashed" -gt 0 ]; then
+    echo "  note: $nc_squashed of them are single-parent (squash) merges — a squash has no merged"
+    echo "        side to diff, so this section cannot answer for them."
+  fi
+fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset pr_source=$PR_SOURCE main=$MAIN"
 exit 0
