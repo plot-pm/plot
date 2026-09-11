@@ -198,7 +198,7 @@ their PR.
 ## Slices
 
 
-### Verified (Branch: bug/loose-checks-the-rollup → #461)
+### Verified (Branch: bug/loose-checks-the-rollup, PR: #461)
 - `pr_ready` reads the check rollup from the scan's existing `pr-list` call and accepts only `green`; `--loose` degrades to strict wherever the rollup cannot be had
 
 ## Approval

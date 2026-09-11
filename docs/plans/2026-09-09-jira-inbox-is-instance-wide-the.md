@@ -110,13 +110,13 @@ No such JQL function exists. Jira has no notion of the repository the board is s
 
 ### Scoped
 
-- `feature/the-jira-jql-scopes-by-project` — a `tracker_projects()` helper reading `Ticket prefixes`, and `issue-list`'s default JQL gaining `AND project IN (…)` when it answers non-empty. <!-- builds: tracker_projects, the helper reading a repository's Jira project keys -->
+- `feature/the-jira-jql-scopes-by-project` — a `tracker_projects()` helper reading `Ticket prefixes`, and `issue-list`'s default JQL gaining `AND project IN (…)` when it answers non-empty. → #858 <!-- builds: tracker_projects, the helper reading a repository's Jira project keys -->
 
   **Asserted: with the key set, the JQL carries `project IN (PROJ-A, PROJ-B)`** and the issues returned are that repository's. **Asserted: with the key absent, the JQL is byte-identical to today's** — this is the upgrade-safety property, and it is the assertion that fails if the clause is appended unconditionally. **Asserted: `PLOT_JIRA_JQL` still wins** with the key set, since an override that stopped overriding would break the teams who already worked around this. **Asserted: the key is split on commas with surrounding whitespace tolerated** — `PROJ-A, PROJ-B` and `PROJ-A,PROJ-B` reach the same query. **Asserted: a key holding one prefix produces a valid one-element `IN` clause**, because that is what adoption's seed writes.
 
 ### Proposed
 
-- `feature/adoption-proposes-the-ticket-prefixes` — `/plot-init` and `/plot-board-setup` propose `Ticket prefixes`, seeded from the measured prefix and confirmed by a person. <!-- builds: proposeTicketPrefixes, the rule deciding what key list adoption writes -->
+- `feature/adoption-proposes-the-ticket-prefixes` — `/plot-init` and `/plot-board-setup` propose `Ticket prefixes`, seeded from the measured prefix and confirmed by a person. → #870 <!-- builds: proposeTicketPrefixes, the rule deciding what key list adoption writes -->
 
   **Asserted: a measured prefix proposes a one-element list with its gap named**, not a silent complete answer. **Asserted: no measured prefix proposes nothing** — the key is omitted rather than written empty, since an empty key must not read as *this repository has no projects* and trigger the absent-key path with a claim attached. **Asserted: the proposal is a proposal** — declining it writes no key, and the inbox stays instance-wide, which is today's behaviour and a legitimate choice.
 

@@ -47,7 +47,7 @@
 
 ## Slices
 
-### The supervisor counts the trees it did not start (Branch: bug/the-registry-sweeps-what-it-did-not-start → #845)
+### The supervisor counts the trees it did not start (Branch: bug/the-registry-sweeps-what-it-did-not-start, PR: #845)
 
 The tick reports registered worktrees that hold no claim, and names what a person can do about each.
 
@@ -61,7 +61,7 @@ The tick reports registered worktrees that hold no claim, and names what a perso
 
 **Done when** a tick names registered worktrees that hold no claim, distinguishes clean from dirty, states the scan cost they add, prints the removal command for the clean ones, removes nothing, and reports zero on an estate where every worktree is dispatched.
 
-### A tree can be asked about without a branch (Branch: feature/a-tree-is-asked-about-by-path) <!-- waits: bug/the-registry-sweeps-what-it-did-not-start -->
+### A tree can be asked about without a branch (Branch: feature/a-tree-is-asked-about-by-path, PR: #844) <!-- waits: bug/the-registry-sweeps-what-it-did-not-start -->
 
 `ports/trees.ts` gains a way to enumerate worktrees rather than only to look one up by branch.
 
