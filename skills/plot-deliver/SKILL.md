@@ -312,7 +312,7 @@ Run the scan and capture both its `summary:` footer and the targeted grep:
 tail -1 /tmp/plot-deliver-gate.txt   # the summary: footer — paste this as the gate artifact
 ```
 
-Grep the **findings that block**, not every mention of the plan. The scan emits a `== blocking sections end ==` line between the two kinds: above it are the defects that stop a delivery, below it the shapes somebody fixes — uncut slices, prose slice names, sprint drift, stale tallies, the convenience index, double claims, stale rounds. A delivered plan that never had a symlink appears below the line by design, and so does an uncut slice: neither is a half-landed delivery.
+Grep the **findings that block**, not every mention of the plan. The scan emits a `== blocking sections end ==` line between the two kinds: above it are the defects that stop a delivery, below it the shapes somebody fixes — uncut slices, prose slice names, the three sprint-membership findings, stale tallies, the convenience index, double claims, stale rounds. A delivered plan that never had a symlink appears below the line by design, and so does an uncut slice: neither is a half-landed delivery.
 
 **Read to the marker, not to a section number.** The gate used to stop at `== 7.`, which meant *the first non-blocking section* and said *seven*; the scan has been renumbered twice, and each time somebody had to notice that a section inserted below 7 would silently shrink this gate. The marker moves with the boundary because it IS the boundary:
 
