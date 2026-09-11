@@ -131,7 +131,7 @@ type: feature
   fs.symlinkSync('../2026-01-03-gamma.md', path.join(repo, 'plans', 'active', 'gamma.md'));
   fs.symlinkSync('../2026-01-06-sigma.md', path.join(repo, 'plans', 'active', 'sigma.md'));
   // Section 5: a link whose target does not exist. THE CONTRAST the advisory
-  // demotion has to preserve — a missing link is a browsing gap (section 9),
+  // demotion has to preserve — a missing link is a browsing gap (index drift),
   // a link pointing at nothing is a broken pointer and still needs attention.
   fs.symlinkSync('../2026-01-99-vanished.md', path.join(repo, 'plans', 'active', 'vanished.md'));
 
@@ -184,28 +184,28 @@ test('scan: section 4 shows divergence for the active plan branch', () => {
   assert.match(report, /bug\/gamma — 1 ahead \/ 0 behind origin\/main/);
 });
 
-test('scan: section 10 reports an unlinked plan at convenience level, not as attention', () => {
+test('scan: section 12 reports an unlinked plan at convenience level, not as attention', () => {
   // Since #254 the phase grouping is derived from plan content, so an unlinked
   // plan is fully visible and the old "(orphaned)" verdict expired. It stays
   // listed — the symlink is still a browsing convenience — but as `optional:`
-  // in index drift (section 10 since the unsliced-wave, prose-name, and sprint-drift
+  // in index drift (section 12 since the unsliced-wave, prose-name, and sprint-drift
   // sections took 7, 8 and 9), and it must not appear in section 5.
   const sections = splitSections(report);
-  assert.match(sections['10'], /2026-01-05-omega\.md — phase 'Approved', no symlink in plans\/active\/ or plans\/delivered\/ \(browsing only\)/);
-  assert.match(sections['10'], /optional: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
+  assert.match(sections['12'], /2026-01-05-omega\.md — phase 'Approved', no symlink in plans\/active\/ or plans\/delivered\/ \(browsing only\)/);
+  assert.match(sections['12'], /optional: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
   assert.doesNotMatch(sections['5'], /2026-01-05-omega\.md/);
   // The word that expired must be gone from the whole report for this plan.
   assert.doesNotMatch(report, /2026-01-05-omega\.md[^\n]*orphaned/);
 });
 
-test('scan: section 10 calls a phase-less file a non-plan, agreeing with plot-fleet-scan.sh', () => {
+test('scan: section 12 calls a phase-less file a non-plan, agreeing with plot-fleet-scan.sh', () => {
   // #254 decided a file whose phase parses as NONE is not a plan. This script
   // used to call the same file a plan needing attention; that split is closed
   // in #254's direction, and the file stays visible at convenience level
-  // (index drift, section 10 since the unsliced-wave, prose-name, and sprint-drift
+  // (index drift, section 12 since the unsliced-wave, prose-name, and sprint-drift
   // sections took 7, 8 and 9).
   const sections = splitSections(report);
-  assert.match(sections['10'], /2026-01-04-legacy\.md — no phase field → not a plan/);
+  assert.match(sections['12'], /2026-01-04-legacy\.md — no phase field → not a plan/);
   assert.doesNotMatch(sections['5'], /2026-01-04-legacy\.md/);
 });
 
@@ -215,7 +215,7 @@ test('scan: section 5 still flags a DANGLING index symlink as attention', () => 
   // repoint or remove is a judgment the script cannot make.
   const sections = splitSections(report);
   assert.match(sections['5'], /plans\/active\/vanished\.md — symlink target missing: \.\.\/2026-01-99-vanished\.md \(dangling index link\)/);
-  assert.doesNotMatch(sections['10'], /vanished\.md/);
+  assert.doesNotMatch(sections['12'], /vanished\.md/);
 });
 
 test('scan: section 1 flags a Superseded plan still symlinked in active/ (terminal drift)', () => {
@@ -223,10 +223,10 @@ test('scan: section 1 flags a Superseded plan still symlinked in active/ (termin
   assert.match(report, /fix: git rm plans\/active\/sigma\.md && ln -s \.\.\/2026-01-06-sigma\.md plans\/delivered\/sigma\.md && git add -A/);
 });
 
-test('scan: section 10 routes an unlinked Superseded plan to delivered/, not active/', () => {
+test('scan: section 12 routes an unlinked Superseded plan to delivered/, not active/', () => {
   const sections = splitSections(report);
-  assert.match(sections['10'], /2026-01-07-tau\.md — phase 'Superseded', no symlink/);
-  assert.match(sections['10'], /optional: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
+  assert.match(sections['12'], /2026-01-07-tau\.md — phase 'Superseded', no symlink/);
+  assert.match(sections['12'], /optional: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
   // Guard against regression to the old wrong default (active/) — issue #33.
   assert.doesNotMatch(report, /ln -s \.\.\/2026-01-07-tau\.md plans\/active\/tau\.md/);
 });
@@ -255,16 +255,20 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // per wave, so that section is silent and contributes a zero counter.
   // prose_slice_names: 0 — every slice name in this fixture is a label, so the
   // prose-name section is silent too and contributes its own zero counter.
-  // sprint_drift: 0 — the fixture has no sprint files, so the section is silent.
-  // stale_tally: 0 — no sprint files, so section 11 is also silent.
+  // unplanned_members / sprint_unset / sprint_mismatch: 0 — the fixture has
+  // no sprint files, so all three sprint-membership sections are silent. They
+  // are three counters rather than one because they answer three questions:
+  // a member naming no plan is not drift at all, and burying it with the two
+  // real defects is what left `sprint_drift=57` unread for weeks.
+  // stale_tally: 0 — no sprint files, so the stale-tally section is silent.
   // double_claims: 0 — every branch in this fixture is named by exactly one
-  // plan, so section 12 is silent; its collision case has its own fixture.
+  // plan, so that section is silent; its collision case has its own fixture.
   // rounds_drift: 0 — no plan here is Draft and none records a Rounds: value,
-  // so section 13 is silent; its stale-round case has its own fixture.
-  // sprint_index_drift: 0 — no sprint files, so section 14 is silent as well;
-  // both its directions have their own fixture.
-  // sprint_shipped: 0 — no sprint files and no tags, so section 15 is silent;
-  // its shipped-release case has its own fixture.
+  // so that section is silent; its stale-round case has its own fixture.
+  // sprint_index_drift: 0 — no sprint files, so that section is silent as
+  // well; both its directions have their own fixture.
+  // sprint_shipped: 0 — no sprint files and no tags, so that section is
+  // silent; its shipped-release case has its own fixture.
   // desks: 0 — and the zero is the property, not an accident. This fixture
   // declares no `Worktree root`, so no tree is even a candidate desk and the
   // checkout itself produces nothing. A non-zero here would mean the sweep had
@@ -272,7 +276,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // `desk-finding.test.mjs` guards from the other side.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -963,7 +967,7 @@ before(() => {
 
   fs.mkdirSync(path.join(uwRepo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(uwRepo, 'plans', 'delivered'), { recursive: true });
-  // Link every plan so index drift (section 9) stays silent — keeps this
+  // Link every plan so index drift stays silent — keeps this
   // fixture's footer focused on uncut_slices without unrelated noise.
   fs.symlinkSync('../2026-02-01-tangled.md', path.join(uwRepo, 'plans', 'active', 'tangled.md'));
   fs.symlinkSync('../2026-02-02-tidy.md', path.join(uwRepo, 'plans', 'active', 'tidy.md'));
@@ -1547,7 +1551,7 @@ test('scan: --no-pr still prints rows (today\'s behaviour preserved)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 11: stale sprint tally (unchecked items whose plan is delivered or
+// Section 13: stale sprint tally (unchecked items whose plan is delivered or
 // released). A SEVENTH fixture. This section walks sprint files, matches items
 // against plan phases, and reports unchecked items over delivered/released
 // plans. It covers CLOSED sprints — those are the population whose tally
@@ -1639,7 +1643,7 @@ before(() => {
 - [ ] [released-plan] Unchecked, plan is released — STALE
 - [ ] [approved-plan] Unchecked, plan is NOT delivered — silent
 - [x] [delivered-plan] Checked, plan is delivered — silent (already ticked)
-- [ ] [no-such-plan] Unchecked, slug names no plan — silent (section 9's finding)
+- [ ] [no-such-plan] Unchecked, slug names no plan — silent (the unplanned-members finding)
 - [ ] A bare prose line with no slug — silent (no plan to check)
 `);
 
@@ -1652,48 +1656,48 @@ before(() => {
 });
 after(() => fs.rmSync(stTmp, { recursive: true, force: true }));
 
-test('scan: section 11 reports an unchecked item whose plan is delivered', () => {
-  const hits = stSections['11'].split('\n')
+test('scan: section 13 reports an unchecked item whose plan is delivered', () => {
+  const hits = stSections['13'].split('\n')
     .filter((l) => l.includes('delivered-plan') && l.includes('unchecked'));
   assert.equal(hits.length, 1, `expected exactly one delivered-plan stale finding, got:\n${hits.join('\n')}`);
   assert.match(hits[0], /unchecked but plan is delivered/);
 });
 
-test('scan: section 11 reports an unchecked item whose plan is released', () => {
-  const hits = stSections['11'].split('\n')
+test('scan: section 13 reports an unchecked item whose plan is released', () => {
+  const hits = stSections['13'].split('\n')
     .filter((l) => l.includes('released-plan') && l.includes('unchecked'));
   assert.equal(hits.length, 1, `expected exactly one released-plan stale finding, got:\n${hits.join('\n')}`);
   assert.match(hits[0], /unchecked but plan is released/);
 });
 
-test('scan: section 11 is silent for an unchecked item whose plan is NOT delivered', () => {
-  assert.doesNotMatch(stSections['11'], /approved-plan/);
+test('scan: section 13 is silent for an unchecked item whose plan is NOT delivered', () => {
+  assert.doesNotMatch(stSections['13'], /approved-plan/);
 });
 
-test('scan: section 11 is silent for a checked item (even if plan is delivered)', () => {
+test('scan: section 13 is silent for a checked item (even if plan is delivered)', () => {
   // The delivered-plan appears once (unchecked) but not twice (the checked line).
-  const hits = stSections['11'].split('\n')
+  const hits = stSections['13'].split('\n')
     .filter((l) => l.includes('delivered-plan') && l.includes('unchecked'));
   assert.equal(hits.length, 1, 'only the unchecked mention should appear');
 });
 
-test('scan: section 11 skips an unresolvable slug silently', () => {
-  // [no-such-plan] names no plan file. This is NOT a section 11 finding — it is
-  // section 9's finding (sprint member names no plan). Section 11 must NOT
+test('scan: section 13 skips an unresolvable slug silently', () => {
+  // [no-such-plan] names no plan file. This is NOT a section 13 finding — it is
+  // the unplanned-members finding (section 9). The stale-tally section must NOT
   // report it as stale.
-  assert.doesNotMatch(stSections['11'], /no-such-plan/);
-  // But section 9 should catch it.
+  assert.doesNotMatch(stSections['13'], /no-such-plan/);
+  // But the unplanned-members section should catch it.
   assert.match(stSections['9'], /no-such-plan/);
 });
 
-test('scan: section 11 skips a bare prose line silently', () => {
+test('scan: section 13 skips a bare prose line silently', () => {
   // "A bare prose line with no slug" has no `[slug]` — the regex never matches.
-  assert.doesNotMatch(stSections['11'], /bare prose/);
+  assert.doesNotMatch(stSections['13'], /bare prose/);
 });
 
-test('scan: section 11 footer counter matches the number of findings', () => {
+test('scan: section 13 footer counter matches the number of findings', () => {
   // delivered-plan (delivered) + released-plan (released) = 2 findings.
-  const bodyFindings = stSections['11'].split('\n').filter((l) => l.includes('unchecked but plan is')).length;
+  const bodyFindings = stSections['13'].split('\n').filter((l) => l.includes('unchecked but plan is')).length;
   assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
   const footer = stReport.trim().split('\n').at(-1);
   assert.match(footer, /\bstale_tally=2\b/);
@@ -1708,7 +1712,7 @@ test('scan: a stale tally leaves attention= unchanged — the section does NOT g
   assert.match(footer, /\battention=0\b/);
 });
 
-test('scan: section 11 covers CLOSED sprints, not just active ones', () => {
+test('scan: section 13 covers CLOSED sprints, not just active ones', () => {
   // The fixture sprint is Phase: Closed. The fact that findings appear at all
   // proves closed sprints are walked. This test pins the premise: if the sprint
   // were somehow active-only, stale_tally=0 would be the silent failure.
@@ -1717,7 +1721,7 @@ test('scan: section 11 covers CLOSED sprints, not just active ones', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 12: double-claimed branches (one branch listed by more than one plan).
+// Section 14: double-claimed branches (one branch listed by more than one plan).
 //
 // A SEVENTH fixture, minimal like the unsliced and prose ones: pure plan
 // parsing (reads the parser's waves[]), no git host, run --offline. This
@@ -1870,49 +1874,49 @@ before(() => {
 });
 after(() => fs.rmSync(dcTmp, { recursive: true, force: true }));
 
-test('scan: section 12 reports a doubly-claimed branch once, naming both plans and their waves', () => {
-  const hits = dcSections['12'].split('\n').filter((l) => l.includes('feature/contested') && l.includes('claimed by'));
+test('scan: section 14 reports a doubly-claimed branch once, naming both plans and their waves', () => {
+  const hits = dcSections['14'].split('\n').filter((l) => l.includes('feature/contested') && l.includes('claimed by'));
   assert.equal(hits.length, 1, `expected exactly one collision finding, got:\n${hits.join('\n')}`);
   // Both plans AND the wave each lists it under — the plan line asks for both.
   assert.match(hits[0], /first-claimant \(Shared\)/);
   assert.match(hits[0], /second-claimant \(Disputed\)/);
   assert.match(hits[0], /claimed by 2 plans/);
   // And the actionable line a person runs — resolve:, not fix:.
-  assert.match(dcSections['12'], /resolve: decide which plan owns `feature\/contested`/);
+  assert.match(dcSections['14'], /resolve: decide which plan owns `feature\/contested`/);
 });
 
-test('scan: section 12 is silent for a branch claimed by exactly one plan', () => {
-  assert.doesNotMatch(dcSections['12'], /feature\/first-only/);
-  assert.doesNotMatch(dcSections['12'], /feature\/second-only/);
-  assert.doesNotMatch(dcSections['12'], /feature\/citing-own/);
+test('scan: section 14 is silent for a branch claimed by exactly one plan', () => {
+  assert.doesNotMatch(dcSections['14'], /feature\/first-only/);
+  assert.doesNotMatch(dcSections['14'], /feature\/second-only/);
+  assert.doesNotMatch(dcSections['14'], /feature\/citing-own/);
 });
 
-test('scan: section 12 does not read a CITATION as a second claim', () => {
+test('scan: section 14 does not read a CITATION as a second claim', () => {
   // citing.md names `feature/contested` in a blockquote AND inside its own
   // branch line's description — the two shapes the pre-#490 matcher read as
   // claims. It must not appear as a claimant, and the count must stay 2.
-  assert.doesNotMatch(dcSections['12'], /citing \(/);
-  const hits = dcSections['12'].split('\n').filter((l) => l.includes('claimed by'));
+  assert.doesNotMatch(dcSections['14'], /citing \(/);
+  const hits = dcSections['14'].split('\n').filter((l) => l.includes('claimed by'));
   assert.match(hits[0], /claimed by 2 plans/, 'a citation must not raise the claimant count');
 });
 
-test('scan: section 12 does not treat a phase-less file as a claimant', () => {
+test('scan: section 14 does not treat a phase-less file as a claimant', () => {
   // notes.md lists `feature/contested` in claim shape but has no Phase:, so it
   // is not a plan. Catches a second parser that treats every .md as a plan.
-  assert.doesNotMatch(dcSections['12'], /notes \(/);
+  assert.doesNotMatch(dcSections['14'], /notes \(/);
 });
 
-test('scan: section 12 does not report a plan colliding with itself', () => {
+test('scan: section 14 does not report a plan colliding with itself', () => {
   // self-repeat.md lists `feature/repeated` in two of its own waves. That is one
   // claimant, not a conflict — a different fault with a different repair.
-  assert.doesNotMatch(dcSections['12'], /feature\/repeated/);
+  assert.doesNotMatch(dcSections['14'], /feature\/repeated/);
 });
 
-test('scan: section 12 footer counter matches the number of findings', () => {
+test('scan: section 14 footer counter matches the number of findings', () => {
   // One collision (feature/contested). The counter must be wired to the same
   // variable the body increments — a footer wired to a different variable is a
   // bug no single-finding assertion above can see.
-  const bodyFindings = dcSections['12'].split('\n').filter((l) => l.includes('claimed by')).length;
+  const bodyFindings = dcSections['14'].split('\n').filter((l) => l.includes('claimed by')).length;
   assert.equal(bodyFindings, 1, `expected 1 body finding, got ${bodyFindings}`);
   const footer = dcReport.trim().split('\n').at(-1);
   assert.match(footer, /\bdouble_claims=1\b/);
@@ -1930,19 +1934,19 @@ test('scan: a double claim leaves attention= unchanged — the section does NOT 
 
 test('scan: a double claim sits below the blocking-sections marker', () => {
   // WHAT KEEPS IT OUT OF THE DELIVERY GATE IS THE MARKER, NOT ITS NUMBER. This
-  // used to assert that section 12 was double claims and section 7 was uncut
+  // used to assert that section 14 was double claims and section 7 was uncut
   // slices, because the gate read `== 7.` and a section inserted below it would
   // silently shrink the gate. The gate now reads to the marker, so what is
   // worth pinning is which SIDE of it this section falls on.
   assert.ok(
     dcReport.indexOf('== blocking sections end ==') <
-      dcReport.indexOf('== 12. Double-claimed branches'),
+      dcReport.indexOf('== 14. Double-claimed branches'),
     'the double-claim section must sit below the boundary marker',
   );
 });
 
 // ---------------------------------------------------------------------------
-// Stale interrogation rounds (section 13).
+// Stale interrogation rounds (section 15).
 //
 // A SEPARATE fixture, because this section's subject is a plan's COMMIT
 // HISTORY rather than its text: the finding needs one commit that writes a
@@ -2052,47 +2056,47 @@ before(() => {
 });
 after(() => fs.rmSync(srTmp, { recursive: true, force: true }));
 
-test('scan: section 13 reports a Draft plan amended since its recorded round, naming both commits', () => {
-  assert.match(srSections['13'], /2026-04-01-stale-round\.md — records round 2 \(last written in [0-9a-f]+\), amended since in [0-9a-f]+/);
+test('scan: section 15 reports a Draft plan amended since its recorded round, naming both commits', () => {
+  assert.match(srSections['15'], /2026-04-01-stale-round\.md — records round 2 \(last written in [0-9a-f]+\), amended since in [0-9a-f]+/);
   // The finding names its inputs, so a reader can judge it — and the two
   // commits must DIFFER, or the comparison reported nothing.
-  const m = /records round 2 \(last written in ([0-9a-f]+)\), amended since in ([0-9a-f]+)/.exec(srSections['13']);
+  const m = /records round 2 \(last written in ([0-9a-f]+)\), amended since in ([0-9a-f]+)/.exec(srSections['15']);
   assert.ok(m, 'the finding must name both commits');
   assert.notEqual(m[1], m[2], 'the round commit and the amendment must be different commits');
   // A hint, not an order: the verb is `consider:`, not `fix:`.
-  assert.match(srSections['13'], /consider: re-question the plan/);
+  assert.match(srSections['15'], /consider: re-question the plan/);
 });
 
-test('scan: section 13 treats `Rounds: 0` as a recorded value, not as absence', () => {
+test('scan: section 15 treats `Rounds: 0` as a recorded value, not as absence', () => {
   // The parser emits `"rounds":0` for this plan and NO `rounds` key for one
   // with no field. A shell test on truthiness would silence exactly this plan —
   // the one that explicitly said it was never questioned.
-  assert.match(srSections['13'], /2026-04-02-zero-round\.md — records round 0 \(last written in [0-9a-f]+\)/);
+  assert.match(srSections['15'], /2026-04-02-zero-round\.md — records round 0 \(last written in [0-9a-f]+\)/);
 });
 
-test('scan: section 13 is silent for a plan with no Rounds: field', () => {
+test('scan: section 15 is silent for a plan with no Rounds: field', () => {
   // THE HALF A CARELESS IMPLEMENTATION GETS WRONG. This plan was amended in the
   // same commit as the two reported above, so only the missing round separates
   // it from them: a plan nobody has questioned is honestly unquestioned.
-  assert.doesNotMatch(srSections['13'], /never-questioned/);
+  assert.doesNotMatch(srSections['15'], /never-questioned/);
 });
 
-test('scan: section 13 is silent for an Approved plan', () => {
+test('scan: section 15 is silent for an Approved plan', () => {
   // Records round 3, amended after it — and out of scope. An Approved plan has
   // passed the review the questioning feeds; the badge a reader judges belongs
   // to a Draft plan's card.
-  assert.doesNotMatch(srSections['13'], /2026-04-04-approved\.md/);
+  assert.doesNotMatch(srSections['15'], /2026-04-04-approved\.md/);
 });
 
-test('scan: section 13 is silent for a Draft plan untouched since its round', () => {
-  assert.doesNotMatch(srSections['13'], /2026-04-05-current\.md/);
+test('scan: section 15 is silent for a Draft plan untouched since its round', () => {
+  assert.doesNotMatch(srSections['15'], /2026-04-05-current\.md/);
 });
 
-test('scan: section 13 footer counter matches the number of findings', () => {
+test('scan: section 15 footer counter matches the number of findings', () => {
   // Two findings: the round-2 plan and the round-0 plan. The counter must be
   // wired to the same variable the body increments — a footer wired to a
   // different variable is a bug no single-finding assertion above can see.
-  const bodyFindings = srSections['13'].split('\n').filter((l) => l.includes('records round ')).length;
+  const bodyFindings = srSections['15'].split('\n').filter((l) => l.includes('records round ')).length;
   assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
   const footer = srReport.trim().split('\n').at(-1);
   assert.match(footer, /\brounds_drift=2\b/);
@@ -2117,7 +2121,7 @@ test('scan: a stale round sits below the blocking-sections marker', () => {
   // that matters is which side of it this section falls on.
   assert.ok(
     srReport.indexOf('== blocking sections end ==') <
-      srReport.indexOf('== 13. Stale interrogation rounds'),
+      srReport.indexOf('== 15. Stale interrogation rounds'),
     'the stale-round section must sit below the boundary marker',
   );
 });
@@ -2327,7 +2331,7 @@ test('gate: the old positional marker would have been fooled by that same edit',
 });
 
 // ---------------------------------------------------------------------------
-// Section 14: sprint phase vs index. Two records of ONE fact — is this sprint
+// Section 16: sprint phase vs index. Two records of ONE fact — is this sprint
 // running — and until this section nothing read the pair.
 //
 // The estate had ZERO instances when this shipped: the `Planned` sprint sitting
@@ -2434,80 +2438,86 @@ after(() => {
   if (spTmp) fs.rmSync(spTmp, { recursive: true, force: true });
 });
 
-test('scan: section 14 reports an Active sprint missing from the index', () => {
-  assert.match(spSections['14'], /2026-W01-unlinked-active\.md/,
-    `an Active sprint with no link must be named:\n${spSections['14']}`);
-  assert.match(spSections['14'], /Phase: Active, but no link/,
+test('scan: section 16 reports an Active sprint missing from the index', () => {
+  assert.match(spSections['16'], /2026-W01-unlinked-active\.md/,
+    `an Active sprint with no link must be named:\n${spSections['16']}`);
+  assert.match(spSections['16'], /Phase: Active, but no link/,
     'and the line must say which way the disagreement runs');
 });
 
-test('scan: section 14 reports a linked sprint that is not Active', () => {
+test('scan: section 16 reports a linked sprint that is not Active', () => {
   // The direction measured on 2026-09-06, and the one a filename comparison
   // cannot see.
-  assert.match(spSections['14'], /2026-W02-linked-planned\.md/,
-    `a Planned sprint in the index must be named:\n${spSections['14']}`);
-  assert.match(spSections['14'], /Phase: Planned, but still linked/,
+  assert.match(spSections['16'], /2026-W02-linked-planned\.md/,
+    `a Planned sprint in the index must be named:\n${spSections['16']}`);
+  assert.match(spSections['16'], /Phase: Planned, but still linked/,
     'and the line must say the index claims what the file denies');
 
-  assert.match(spSections['14'], /2026-W03-linked-closed\.md/,
+  assert.match(spSections['16'], /2026-W03-linked-closed\.md/,
     'a Closed sprint in the index is the same finding');
-  assert.match(spSections['14'], /Phase: Closed, but still linked/,
+  assert.match(spSections['16'], /Phase: Closed, but still linked/,
     'named by its own phase, not by a collapsed "not Active"');
 });
 
-test('scan: section 14 is silent when phase and index agree', () => {
-  assert.doesNotMatch(spSections['14'], /2026-W04-linked-active/,
-    `Active and linked agree:\n${spSections['14']}`);
-  assert.doesNotMatch(spSections['14'], /2026-W05-unlinked-closed/,
-    `Closed and unlinked agree:\n${spSections['14']}`);
+test('scan: section 16 is silent when phase and index agree', () => {
+  assert.doesNotMatch(spSections['16'], /2026-W04-linked-active/,
+    `Active and linked agree:\n${spSections['16']}`);
+  assert.doesNotMatch(spSections['16'], /2026-W05-unlinked-closed/,
+    `Closed and unlinked agree:\n${spSections['16']}`);
 });
 
-test('scan: section 14 skips a sprint file with no phase', () => {
+test('scan: section 16 skips a sprint file with no phase', () => {
   // Not a sprint this section can ask about. Reporting it would say the index
   // is wrong when all that is known is that the file declares nothing.
-  assert.doesNotMatch(spSections['14'], /2026-W06-no-phase/,
-    `a file with no Phase: is skipped:\n${spSections['14']}`);
+  assert.doesNotMatch(spSections['16'], /2026-W06-no-phase/,
+    `a file with no Phase: is skipped:\n${spSections['16']}`);
 });
 
-test('scan: section 14 resolves the link by reading it, not by its name', () => {
+test('scan: section 16 resolves the link by reading it, not by its name', () => {
   // `linked-active.md` -> `2026-W04-linked-active.md`. Nothing in the link's
   // own name matches the file's, so a name comparison would find no link and
   // report this sprint as an unlinked Active one. Its absence is the proof.
-  assert.doesNotMatch(spSections['14'], /2026-W04/,
-    `the slug-named link must resolve to the week-named file:\n${spSections['14']}`);
+  assert.doesNotMatch(spSections['16'], /2026-W04/,
+    `the slug-named link must resolve to the week-named file:\n${spSections['16']}`);
 });
 
-test('scan: section 14 counts in the footer and gates nothing', () => {
+test('scan: section 16 counts in the footer and gates nothing', () => {
   const footer = spReport.trim().split('\n').at(-1);
   assert.match(footer, /\bsprint_index_drift=3\b/,
     `three disagreements, one counter:\n${footer}`);
   // THE POINT OF THE SECTION'S PLACEMENT. `attention=` is what /plot-deliver
   // gates on; a sprint indexed wrongly must never stop a delivery.
   assert.match(footer, /\battention=0\b/,
-    `section 14 must not reach attention=:\n${footer}`);
+    `section 16 must not reach attention=:\n${footer}`);
 });
 
-test('scan: section 14 sits below the blocking marker', () => {
+test('scan: section 16 sits below the blocking marker', () => {
   // The marker is what /plot-deliver's gate reads to. A convenience section
   // above it would join the blocking set without any counter saying so.
   const marker = spReport.indexOf('== blocking sections end ==');
-  const section = spReport.indexOf('== 14. ');
+  const section = spReport.indexOf('== 16. ');
   assert.ok(marker > 0, 'the fixture report carries the marker');
   assert.ok(section > marker,
-    'section 14 must sit below the marker, like every other advisory section');
+    'section 16 must sit below the marker, like every other advisory section');
 });
 
-test('scan: section 14 is distinct from sprint drift', () => {
-  // `sprint_drift=` counts PLANS whose `Sprint:` field disagrees with the
-  // sprint file. This fixture has no plans at all, so that counter stays zero
-  // while section 14 reports three — one number could not have said both.
+test('scan: section 16 is distinct from the sprint-membership counters', () => {
+  // `sprint_mismatch=` and `sprint_unset=` count PLANS whose `Sprint:` field
+  // disagrees with, or is absent from, the sprint file listing them, and
+  // `unplanned_members=` counts MEMBERS naming no plan. This fixture has no
+  // plans at all, so all three stay zero while section 16 reports three — one
+  // number could not have said both.
   const footer = spReport.trim().split('\n').at(-1);
-  assert.match(footer, /\bsprint_drift=0\b/,
-    `the plan-side counter is untouched:\n${footer}`);
+  assert.match(footer, /\bsprint_mismatch=0\b/,
+    `the plan-side mismatch counter is untouched:\n${footer}`);
+  assert.match(footer, /\bsprint_unset=0\b/,
+    `the plan-side unset counter is untouched:\n${footer}`);
+  assert.match(footer, /\bunplanned_members=0\b/,
+    `the member-side counter is untouched:\n${footer}`);
 });
 
 // ---------------------------------------------------------------------------
-// Sprint outlived its release (section 15).
+// Sprint outlived its release (section 17).
 //
 // A sprint that is NOT Closed whose declared `Release:` has been tagged. The
 // train has left; the file has not caught up.
@@ -2616,73 +2626,73 @@ after(() => {
   if (srlTmp) fs.rmSync(srlTmp, { recursive: true, force: true });
 });
 
-test('scan: section 15 reports a non-Closed sprint whose release shipped', () => {
-  assert.match(srlSections['15'], /2026-W01-shipped-planning\.md/,
-    `the measured case must be named:\n${srlSections['15']}`);
-  assert.match(srlSections['15'], /2026-W02-shipped-active\.md/,
-    `an Active sprint whose release shipped must be named too:\n${srlSections['15']}`);
+test('scan: section 17 reports a non-Closed sprint whose release shipped', () => {
+  assert.match(srlSections['17'], /2026-W01-shipped-planning\.md/,
+    `the measured case must be named:\n${srlSections['17']}`);
+  assert.match(srlSections['17'], /2026-W02-shipped-active\.md/,
+    `an Active sprint whose release shipped must be named too:\n${srlSections['17']}`);
 });
 
-test('scan: section 15 names the sprint, its release and the tag', () => {
+test('scan: section 17 names the sprint, its release and the tag', () => {
   // NAMED, NEVER COUNTED. A reader who has to open the file to find out which
   // release shipped has been told nothing they could act on.
-  const line = srlSections['15'].split('\n')
+  const line = srlSections['17'].split('\n')
     .find((l) => l.includes('2026-W01-shipped-planning.md'));
-  assert.ok(line, `the finding must be one line:\n${srlSections['15']}`);
+  assert.ok(line, `the finding must be one line:\n${srlSections['17']}`);
   assert.match(line, /Phase: Planning/, 'the phase it is still in');
   assert.match(line, /\b1\.1\.0\b/, 'the release it declared');
   assert.match(line, /\bv1\.1\.0\b/, 'and the tag that shipped it');
 });
 
-test('scan: section 15 reads Planning, not only the template word Planned', () => {
+test('scan: section 17 reads Planning, not only the template word Planned', () => {
   // THE MEASURED FILE'S OWN WORD. `a-half-landed-workflow-says-so` reads
   // `Phase: Planning` while the template says `Planned`, so the population is
   // written as "not Closed" rather than as a list of open phases — a list
   // would have missed the single sprint this section was built for.
-  assert.match(srlSections['15'], /2026-W01-shipped-planning\.md — Phase: Planning/,
-    `a Planning sprint must be reported:\n${srlSections['15']}`);
+  assert.match(srlSections['17'], /2026-W01-shipped-planning\.md — Phase: Planning/,
+    `a Planning sprint must be reported:\n${srlSections['17']}`);
 });
 
-test('scan: section 15 resolves a release that carries prose after the version', () => {
+test('scan: section 17 resolves a release that carries prose after the version', () => {
   // Measured on this estate: `Release: 2.13.0 — **released 2026-09-05**, ...`.
   // `plot-sprint-release.sh` reports the field verbatim, which is right for a
   // facts collector; the first N.N.N in it is the target.
-  assert.match(srlSections['15'], /2026-W03-shipped-prose\.md/,
-    `a release with a trailing note must still resolve:\n${srlSections['15']}`);
-  assert.match(srlSections['15'], /\bv1\.3\.0\b/, 'and find its tag');
+  assert.match(srlSections['17'], /2026-W03-shipped-prose\.md/,
+    `a release with a trailing note must still resolve:\n${srlSections['17']}`);
+  assert.match(srlSections['17'], /\bv1\.3\.0\b/, 'and find its tag');
 });
 
-test('scan: section 15 finds a tag with no v prefix', () => {
+test('scan: section 17 finds a tag with no v prefix', () => {
   // Sprints declare `1.4.0` and a project may tag either `v1.4.0` or `1.4.0`.
   // Trying one spelling only would report a shipped release as unshipped.
-  const line = srlSections['15'].split('\n')
+  const line = srlSections['17'].split('\n')
     .find((l) => l.includes('2026-W04-shipped-bare-tag.md'));
-  assert.ok(line, `a bare tag must be found:\n${srlSections['15']}`);
+  assert.ok(line, `a bare tag must be found:\n${srlSections['17']}`);
   assert.match(line, /shipped as 1\.4\.0/, 'and named as the estate spells it');
 });
 
-test('scan: section 15 is silent about a Closed sprint', () => {
+test('scan: section 17 is silent about a Closed sprint', () => {
   // THE STATE THIS SECTION IS ABOUT REACHING. A Closed sprint whose release
   // shipped is a sprint that finished correctly; reporting it would report
   // every finished sprint forever, and the section would be noise by its
   // second week.
-  assert.doesNotMatch(srlSections['15'], /2026-W05-closed-shipped\.md/,
-    `a Closed sprint must not be reported:\n${srlSections['15']}`);
+  assert.doesNotMatch(srlSections['17'], /2026-W05-closed-shipped\.md/,
+    `a Closed sprint must not be reported:\n${srlSections['17']}`);
 });
 
-test('scan: section 15 is silent when the release has not shipped', () => {
-  assert.doesNotMatch(srlSections['15'], /2026-W06-unshipped\.md/,
-    `an open sprint whose release is untagged must be silent:\n${srlSections['15']}`);
+test('scan: section 17 is silent when the release has not shipped', () => {
+  assert.doesNotMatch(srlSections['17'], /2026-W06-unshipped\.md/,
+    `an open sprint whose release is untagged must be silent:\n${srlSections['17']}`);
 });
 
-test('scan: section 15 is silent when the sprint declares no release', () => {
+test('scan: section 17 is silent when the sprint declares no release', () => {
   // A sprint with no `Release:` says nothing about a release, so there is no
   // pair to compare — the same rule `plot-sprint-release.sh` states.
-  assert.doesNotMatch(srlSections['15'], /2026-W07-no-release\.md/,
-    `a sprint with no release target must be silent:\n${srlSections['15']}`);
+  assert.doesNotMatch(srlSections['17'], /2026-W07-no-release\.md/,
+    `a sprint with no release target must be silent:\n${srlSections['17']}`);
 });
 
-test('scan: section 15 counts in the footer and gates nothing', () => {
+test('scan: section 17 counts in the footer and gates nothing', () => {
   const footer = srlReport.trim().split('\n').at(-1);
   assert.match(footer, /\bsprint_shipped=4\b/,
     `four sprints shipped their release:\n${footer}`);
@@ -2693,13 +2703,13 @@ test('scan: section 15 counts in the footer and gates nothing', () => {
     `this section must not reach the gating counter:\n${footer}`);
 });
 
-test('scan: section 15 sits below the blocking-sections marker', () => {
+test('scan: section 17 sits below the blocking-sections marker', () => {
   // The placement is what keeps it out of /plot-deliver's gate, which reads to
   // the marker rather than to a section number.
   const marker = srlReport.indexOf('== blocking sections end ==');
-  const section = srlReport.indexOf('== 15. Sprint outlived its release');
+  const section = srlReport.indexOf('== 17. Sprint outlived its release');
   assert.ok(marker > 0 && section > marker,
-    'section 15 must sit below the marker, like every other advisory section');
+    'section 17 must sit below the marker, like every other advisory section');
 });
 
 test('scan: the delivery gate cannot see a shipped-release finding', () => {
@@ -2713,46 +2723,49 @@ test('scan: the delivery gate cannot see a shipped-release finding', () => {
   }
 });
 
-test('scan: section 15 closes nothing and offers no close', () => {
+test('scan: section 17 closes nothing and offers no close', () => {
   // CLOSING IS THE TEAM'S WORD. A shipped release says the sprint's window
   // passed, not that its work is done — the measured sprint's eight items are
   // all still open — so the section names the fact and stops.
-  assert.doesNotMatch(srlSections['15'], /\/plot-sprint close/,
-    `the section must not offer to close:\n${srlSections['15']}`);
+  assert.doesNotMatch(srlSections['17'], /\/plot-sprint close/,
+    `the section must not offer to close:\n${srlSections['17']}`);
   // And it wrote nothing: the fixture's sprint files are untouched.
   const status = git(srlRepo, 'status', '--porcelain');
   assert.equal(status.trim(), '', 'the scan must not modify the working tree');
 });
 
-test('scan: section 15 is distinct from both sprint counters beside it', () => {
+test('scan: section 17 is distinct from both sprint counters beside it', () => {
   // THREE QUESTIONS, THREE NUMBERS, and this fixture answers all three at once
   // — which is the argument for keeping them apart rather than a coincidence.
   //
-  // `sprint_drift=` counts PLANS whose `Sprint:` field disagrees with the
-  // sprint file; this fixture has no plans, so it is 0.
+  // `sprint_mismatch=` counts PLANS whose `Sprint:` field disagrees with the
+  // sprint file; this fixture has no plans, so it is 0, as are the other two
+  // sprint-membership counters beside it.
   //
   // `sprint_index_drift=` counts SPRINTS whose phase disagrees with the index.
   // It reads 5, not 0: five of these sprints are Active or Planning with no
-  // link, which is section 14's finding and correct. The five are not the four
+  // link, which is section 16's finding and correct. The five are not the four
   // — `2026-W06-unshipped` and `2026-W07-no-release` are index findings and not
   // release ones, while `2026-W05-closed-shipped` is neither.
   //
   // A single counter answering both would report 9, or 5, or 4, and a reader
   // would have to open the report to re-derive which sprints were which. That
-  // is exactly what section 14's slice argued against.
+  // is exactly what section 16's slice argued against.
   const footer = srlReport.trim().split('\n').at(-1);
-  assert.match(footer, /\bsprint_drift=0\b/, `the plan-side counter is untouched:\n${footer}`);
+  assert.match(footer, /\bsprint_mismatch=0\b/, `the plan-side counter is untouched:\n${footer}`);
+  assert.match(footer, /\bsprint_unset=0\b/, `and so is the unset counter:\n${footer}`);
+  assert.match(footer, /\bunplanned_members=0\b/, `and so is the member-side counter:\n${footer}`);
   assert.match(footer, /\bsprint_index_drift=5\b/,
     `the index counter reports its own finding, on its own population:\n${footer}`);
   assert.match(footer, /\bsprint_shipped=4\b/, `and this one carries a different four:\n${footer}`);
   // The populations genuinely differ, which is the point rather than the count:
   // one sprint is reported by 14 and not by 15.
-  assert.match(srlSections['14'], /2026-W06-unshipped\.md/, 'section 14 sees it');
-  assert.doesNotMatch(srlSections['15'], /2026-W06-unshipped\.md/, 'section 15 does not');
+  assert.match(srlSections['16'], /2026-W06-unshipped\.md/, 'section 16 sees it');
+  assert.doesNotMatch(srlSections['17'], /2026-W06-unshipped\.md/, 'section 17 does not');
 });
 
 // ---------------------------------------------------------------------------
-// Section 16 — stated waits with no annotation.
+// Section 18 — stated waits with no annotation.
 //
 // Its own fixture, because the discriminators are all about WORDING and the
 // shared fixture's plans are written to exercise phases and symlinks. Proves:
@@ -2888,94 +2901,94 @@ after(() => {
   if (swTmp) fs.rmSync(swTmp, { recursive: true, force: true });
 });
 
-test('scan: section 16 reports a stated wait in the heading dialect', () => {
-  assert.match(swSections['16'], /bug\/stated-heading/,
-    `the measured case must be named:\n${swSections['16']}`);
+test('scan: section 18 reports a stated wait in the heading dialect', () => {
+  assert.match(swSections['18'], /bug\/stated-heading/,
+    `the measured case must be named:\n${swSections['18']}`);
 });
 
-test('scan: section 16 reports a stated wait in the list dialect', () => {
+test('scan: section 18 reports a stated wait in the list dialect', () => {
   // Both plan shapes are live on this estate, and a section reading only one
   // is silent on half the plans without saying so.
-  assert.match(swSections['16'], /bug\/stated-list/,
-    `the list dialect must be read too:\n${swSections['16']}`);
+  assert.match(swSections['18'], /bug\/stated-list/,
+    `the list dialect must be read too:\n${swSections['18']}`);
 });
 
-test('scan: section 16 quotes the sentence', () => {
+test('scan: section 18 quotes the sentence', () => {
   // The finding is weaker than a verdict, so it must name its evidence: a
   // reader decides whether the sentence IS a dependency claim.
-  assert.match(swSections['16'], /IT WAITS FOR/,
-    `the claiming sentence must be quoted:\n${swSections['16']}`);
-  assert.match(swSections['16'], /This slice waits on the parser slice/,
+  assert.match(swSections['18'], /IT WAITS FOR/,
+    `the claiming sentence must be quoted:\n${swSections['18']}`);
+  assert.match(swSections['18'], /This slice waits on the parser slice/,
     'and the list dialect quotes its own line');
 });
 
-test('scan: section 16 is silent on a slice that carries the annotation', () => {
+test('scan: section 18 is silent on a slice that carries the annotation', () => {
   // Adding `waits:` IS the repair, so the section must go quiet when it lands.
-  assert.doesNotMatch(swSections['16'], /bug\/annotated-heading/,
-    `an annotated heading is the fixed state:\n${swSections['16']}`);
-  assert.doesNotMatch(swSections['16'], /bug\/annotated-list/,
-    `and so is an annotated list item:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/annotated-heading/,
+    `an annotated heading is the fixed state:\n${swSections['18']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/annotated-list/,
+    `and so is an annotated list item:\n${swSections['18']}`);
 });
 
-test('scan: section 16 does not match a wait whose subject is not the slice', () => {
+test('scan: section 18 does not match a wait whose subject is not the slice', () => {
   // The measured false positive: `--stop` waits for each worker to exit. The
   // sentence describes runtime behaviour; nothing about the slice waits.
-  assert.doesNotMatch(swSections['16'], /bug\/describes-behaviour/,
-    `a described wait is not a claimed one:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/describes-behaviour/,
+    `a described wait is not a claimed one:\n${swSections['18']}`);
 });
 
-test('scan: section 16 does not match the phrase inside a code span', () => {
+test('scan: section 18 does not match the phrase inside a code span', () => {
   // A plan documenting this section tabulates the phrases it matches. Without
   // the code-span strip, the slice that defines the check reports itself.
-  assert.doesNotMatch(swSections['16'], /bug\/quotes-the-phrase/,
-    `a backticked phrase quotes, it does not claim:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/quotes-the-phrase/,
+    `a backticked phrase quotes, it does not claim:\n${swSections['18']}`);
 });
 
-test('scan: section 16 does not match a plan link or a PR number', () => {
+test('scan: section 18 does not match a plan link or a PR number', () => {
   // The drafted rule, measured at 391 of 477 slices — 82% of the estate. A
   // finding that fires on four slices in five is one a reader learns to skip.
-  assert.doesNotMatch(swSections['16'], /bug\/links-a-plan/,
-    `a citation is context, not a wait:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/links-a-plan/,
+    `a citation is context, not a wait:\n${swSections['18']}`);
 });
 
-test('scan: section 16 does not match `depends on` or `after`', () => {
+test('scan: section 18 does not match `depends on` or `after`', () => {
   // 29 further hits, and neither reads as a dependency claim here: `depends
   // on` is design rationale more often than ordering, `after` is temporal.
-  assert.doesNotMatch(swSections['16'], /bug\/near-misses/,
-    `the near misses stay out:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/near-misses/,
+    `the near misses stay out:\n${swSections['18']}`);
 });
 
-test('scan: section 16 scans only Draft and Approved plans', () => {
+test('scan: section 18 scans only Draft and Approved plans', () => {
   // The filter that makes the section silent on today's estate. A shipped
   // plan's wait was resolved by shipping.
-  assert.doesNotMatch(swSections['16'], /bug\/released-stated/,
-    `a Released plan is not scanned:\n${swSections['16']}`);
-  assert.doesNotMatch(swSections['16'], /bug\/delivered-stated/,
-    `nor is a Delivered one:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/released-stated/,
+    `a Released plan is not scanned:\n${swSections['18']}`);
+  assert.doesNotMatch(swSections['18'], /bug\/delivered-stated/,
+    `nor is a Delivered one:\n${swSections['18']}`);
 });
 
-test('scan: section 16 counts in the footer and gates nothing', () => {
+test('scan: section 18 counts in the footer and gates nothing', () => {
   const footer = swReport.trim().split('\n').at(-1);
   assert.match(footer, /\bstated_waits=2\b/,
     `two stated waits, one counter:\n${footer}`);
   // THE POINT OF THE PLACEMENT. An unannotated wait is a legibility gap, and
   // an advisory finding that can stop a delivery is a gate nobody agreed to.
   assert.match(footer, /\battention=0\b/,
-    `section 16 must not reach attention=:\n${footer}`);
+    `section 18 must not reach attention=:\n${footer}`);
 });
 
-test('scan: section 16 sits below the blocking marker', () => {
+test('scan: section 18 sits below the blocking marker', () => {
   const marker = swReport.indexOf('== blocking sections end ==');
-  const section = swReport.indexOf('== 16. ');
+  const section = swReport.indexOf('== 18. ');
   assert.ok(marker > 0, 'the fixture report carries the marker');
   assert.ok(section > marker,
-    'section 16 must sit below the marker, like every other advisory section');
+    'section 18 must sit below the marker, like every other advisory section');
 });
 
-// --- Section 18: a merged ref that outlived its PR --------------------------
+// --- Section 20: a merged ref that outlived its PR --------------------------
 //
 // A SECOND FIXTURE, and it needs a git host. Every assertion above runs against
-// a local bare origin, which is deliberately `degraded` — but section 18's whole
+// a local bare origin, which is deliberately `degraded` — but section 20's whole
 // predicate is the host's merged-PR list, so the shared fixture can only prove
 // the suppression case. This repo therefore copies the scripts into a shim, puts
 // a stubbed `plot-host.sh` beside them, and points `origin` at a github.com URL
@@ -3047,7 +3060,7 @@ ${status('Approved')}## Branches
 
 - \`feature/live-claim\` — impl
 `);
-  // A file with no phase is not a claimant (section 17's rule).
+  // A file with no phase is not a claimant (section 19's rule).
   w('plans/2026-01-03-notaplan.md', '# Worker report\n\nIt mentions `feature/ownerless` in passing.\n');
 
   git(mrRepo, 'add', '-A');
@@ -3102,70 +3115,70 @@ after(() => {
   if (mrShim) fs.rmSync(mrShim, { recursive: true, force: true });
 });
 
-test('scan: section 18 names a merged ref no plan claims', () => {
+test('scan: section 20 names a merged ref no plan claims', () => {
   // The finding's real subject. `plot-release-refs.sh` is plan-scoped, so
   // nothing reaches a merged ref that no plan names — nine accumulated.
-  assert.match(mrSections['18'], /feature\/ownerless/,
-    `an unclaimed merged ref must be named:\n${mrSections['18']}`);
-  assert.match(mrSections['18'], /#683 merged/,
+  assert.match(mrSections['20'], /feature\/ownerless/,
+    `an unclaimed merged ref must be named:\n${mrSections['20']}`);
+  assert.match(mrSections['20'], /#683 merged/,
     'and the PR number the host reported is the evidence');
-  assert.match(mrSections['18'], /no plan names it/,
+  assert.match(mrSections['20'], /no plan names it/,
     'the ownerless case says so in words');
-  assert.match(mrSections['18'], /git push origin --delete feature\/ownerless/,
+  assert.match(mrSections['20'], /git push origin --delete feature\/ownerless/,
     'and names the deletion a person may run');
 });
 
-test('scan: section 18 routes a delivered plan\'s merged ref to the ref sweep', () => {
+test('scan: section 20 routes a delivered plan\'s merged ref to the ref sweep', () => {
   // Already licensed for exactly this ref, and plan-scoped. The finding says so
   // rather than proposing a bare `git push --delete`.
-  const line = mrSections['18'].split('\n').filter((l) => l.includes('feature/sweepable') || l.includes('shipped'));
-  assert.match(mrSections['18'], /feature\/sweepable/,
-    `a delivered plan's merged ref must be named:\n${mrSections['18']}`);
-  assert.match(mrSections['18'], /2026-01-01-shipped\.md \(delivered\)/,
+  const line = mrSections['20'].split('\n').filter((l) => l.includes('feature/sweepable') || l.includes('shipped'));
+  assert.match(mrSections['20'], /feature\/sweepable/,
+    `a delivered plan's merged ref must be named:\n${mrSections['20']}`);
+  assert.match(mrSections['20'], /2026-01-01-shipped\.md \(delivered\)/,
     `the claiming plan and its phase are the finding:\n${line.join('\n')}`);
-  assert.match(mrSections['18'], /plot-release-refs\.sh shipped --yes/,
+  assert.match(mrSections['20'], /plot-release-refs\.sh shipped --yes/,
     'and the plan-scoped tool is what it names');
 });
 
-test('scan: section 18 sends a live plan to its delivery, not to the ref sweep', () => {
+test('scan: section 20 sends a live plan to its delivery, not to the ref sweep', () => {
   // The ref sweep runs AFTER the delivery. Proposing it on a live plan would
   // propose deleting a ref whose plan has not finished with it.
-  assert.match(mrSections['18'], /feature\/live-claim/,
-    `a live plan's merged ref is still a finding:\n${mrSections['18']}`);
-  assert.match(mrSections['18'], /2026-01-02-live\.md \(approved\)/,
+  assert.match(mrSections['20'], /feature\/live-claim/,
+    `a live plan's merged ref is still a finding:\n${mrSections['20']}`);
+  assert.match(mrSections['20'], /2026-01-02-live\.md \(approved\)/,
     'and its phase is named');
-  assert.match(mrSections['18'], /\/plot-deliver live/,
+  assert.match(mrSections['20'], /\/plot-deliver live/,
     'the delivery is the next step');
-  assert.doesNotMatch(mrSections['18'], /plot-release-refs\.sh live/,
-    `the ref sweep must not be proposed for an undelivered plan:\n${mrSections['18']}`);
+  assert.doesNotMatch(mrSections['20'], /plot-release-refs\.sh live/,
+    `the ref sweep must not be proposed for an undelivered plan:\n${mrSections['20']}`);
 });
 
-test('scan: section 18 is silent on a ref with no merged PR', () => {
+test('scan: section 20 is silent on a ref with no merged PR', () => {
   // The control. The section reads the HOST's merged list; a ref the host never
   // merged is not a finding, however old the branch is.
-  assert.doesNotMatch(mrSections['18'], /feature\/unmerged/,
-    `an unmerged ref is not a merged one:\n${mrSections['18']}`);
+  assert.doesNotMatch(mrSections['20'], /feature\/unmerged/,
+    `an unmerged ref is not a merged one:\n${mrSections['20']}`);
 });
 
-test('scan: section 18 counts in the footer and gates nothing', () => {
+test('scan: section 20 counts in the footer and gates nothing', () => {
   const footer = mrReport.trim().split('\n').at(-1);
   assert.match(footer, /\bmerged_refs=3\b/,
     `three merged refs, one counter:\n${footer}`);
   // A leftover ref is a tidiness gap, not a broken pointer. An advisory finding
   // that can stop a delivery is a gate nobody agreed to.
   assert.match(footer, /\battention=0\b/,
-    `section 18 must not reach attention=:\n${footer}`);
+    `section 20 must not reach attention=:\n${footer}`);
 });
 
-test('scan: section 18 sits below the blocking marker', () => {
+test('scan: section 20 sits below the blocking marker', () => {
   const marker = mrReport.indexOf('== blocking sections end ==');
-  const section = mrReport.indexOf('== 18. ');
+  const section = mrReport.indexOf('== 20. ');
   assert.ok(marker > 0, 'the fixture report carries the marker');
   assert.ok(section > marker,
-    'section 18 must sit below the marker, like every other advisory section');
+    'section 20 must sit below the marker, like every other advisory section');
 });
 
-test('scan: section 18 reports nothing when the host cannot be asked', () => {
+test('scan: section 20 reports nothing when the host cannot be asked', () => {
   // AN UNREACHABLE HOST REPORTS NOTHING, NOT EVERYTHING. Without the merged-PR
   // list every ref reads as unmerged, so a section that fell back to ancestry
   // would turn an outage into a list of deletion candidates — and squash-merge
@@ -3173,9 +3186,9 @@ test('scan: section 18 reports nothing when the host cannot be asked', () => {
   const offline = execFileSync('bash', [path.join(mrShim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
     { encoding: 'utf8', cwd: mrRepo });
   const sections = splitSections(offline);
-  assert.match(sections['18'], /not evaluated/,
-    `an unaskable host must say so:\n${sections['18']}`);
-  assert.doesNotMatch(sections['18'], /feature\/ownerless/,
+  assert.match(sections['20'], /not evaluated/,
+    `an unaskable host must say so:\n${sections['20']}`);
+  assert.doesNotMatch(sections['20'], /feature\/ownerless/,
     'and must name no ref at all');
   assert.match(offline.trim().split('\n').at(-1), /\bmerged_refs=0\b/,
     'the count stays 0 rather than counting an unevaluated section');
