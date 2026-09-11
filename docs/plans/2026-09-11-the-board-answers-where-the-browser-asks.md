@@ -61,8 +61,23 @@ Both sources are legitimate. A plan may exist only in the working tree, and a pl
 
 ## Slices
 
-- `bug/the-board-answers-on-both-loopback-families` — the bind, and the same-origin gate's reading of it
-- `bug/one-plan-is-one-card` — `localOnlyPaths` reaches the staging site, plus the fixture that keeps the working-tree copy
+### The board answers on both families (Branch: bug/the-board-answers-on-both-loopback-families)
+
+Bind loopback dual-stack rather than a name. `index.ts:49` reads `HOST = process.env.HOST ?? 'localhost'`, and `git log -S"HOST = process.env.HOST"` returns exactly one commit — `c0cbbc764`, the scaffold. Node resolves that name to one family, so a browser reaching for the other finds nothing while the process is healthy.
+
+**Measured on the operator's own board, 2026-09-11**, while this plan was being written: `lsof` reported `TCP [::1]:7777 (LISTEN)` and the page reported no contact for 18 polls. The defect this slice fixes interrupted the session that planned it.
+
+**It must not widen the write surface.** `index.ts:141` records that `HOST=0.0.0.0` published every write endpoint, and that the value was read and never checked. Binding both loopback families reaches a browser on this machine; binding every interface reaches the network. This slice does the first, and the `0.0.0.0` path keeps whatever check it has. The same-origin allowlist reads the bound address, so its reading moves with the bind.
+
+### One plan is one card (Branch: bug/one-plan-is-one-card)
+
+Pass `localOnlyPaths` to the staging site so the branch reader skips a path the working-tree reader already supplied.
+
+`board.ts:1750` marks ref-absent plans into `localOnlyPaths`; `board.ts:1802` stages `collectBranchPlans(...)`; the set is never consulted there. The only exclusion lives in `readBranchPlans` at `:786` and compares against `origin/<default>` and other branch plans — neither contains a local-only path. So a plan in the working tree, pushed to its idea branch and absent from main, reaches `readPlanMeta` twice.
+
+**Both sources stay legitimate.** A plan may exist only in the working tree, and a plan may exist only on a branch; removing either reading makes a real plan invisible. What is missing is that the second reader does not know what the first supplied.
+
+**The fixture must keep the copy the suite deletes.** `discovery.test.mjs:113` and `:126` each check out main and then `rmSync` the working-tree copy — *"so the filesystem walk genuinely cannot see this plan"* — and `produces no duplicate cards` at `:198` covers branch-versus-branch only. A new case leaves the file in place and asserts one card. Use `rmTree`, not a raw recursive `fs.rmSync`: CI counts those and the allowance is 1.
 
 ## Notes
 
