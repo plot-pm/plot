@@ -1763,12 +1763,47 @@ backend_declared() {
     return
   fi
   local v
-  v="$(bash "$here/plot-config.sh" get "Git host" "github" | tr '[:upper:]' '[:lower:]')"
+  v="$(bash "$here/plot-config.sh" get "Git host" "" | tr '[:upper:]' '[:lower:]')"
   case "$v" in
-    bb) echo "bitbucket" ;;
-    "") echo "github" ;;
-    *) printf '%s\n' "$v" ;;
+    bb) echo "bitbucket"; return ;;
+    "") : ;;
+    *) printf '%s\n' "$v"; return ;;
   esac
+
+  # NOTHING DECLARED — INFER FROM THE REMOTE, AND REFUSE WHERE THERE IS NONE.
+  # This answered `github` unconditionally until 2026-09-11, which is the
+  # reassuring direction: a Bitbucket repo that forgot the key got GitHub's
+  # answer, and a repo with no remote at all got one too. Measured on a fresh
+  # `git init` with no remote: `backend` printed `github` and exited 0.
+  #
+  # THE REMOTE IS EVIDENCE AND THE KEY IS A DECLARATION, so the key still wins
+  # above. What changes is only the case where nobody said: a hostname in the
+  # remote is a reading, and no remote is no reading.
+  local url
+  url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  case "$url" in
+    *github.com*)    echo "github";    return ;;
+    *bitbucket.org*) echo "bitbucket"; return ;;
+  esac
+
+  # NOTHING NAMES A HOST, AND THAT IS REPORTED RATHER THAN REFUSED. An earlier
+  # version of this returned exit 4 here, and five contract tests went red:
+  # a sandbox repository with no remote is a legitimate, common shape — six
+  # suites build one — and every op that needs a host in one was relying on
+  # this default. Refusing at the resolver punishes them for a question they
+  # never asked.
+  #
+  # SO THE GUESS SURVIVES AND STOPS BEING SILENT — AND IT SIGNALS THROUGH THE
+  # EXIT CODE, NEVER A VARIABLE. This set a `BACKEND_UNNAMED` global first, and
+  # the caller reads it as `v="$(backend_declared)"` — a COMMAND SUBSTITUTION,
+  # which runs in a subshell, so the assignment died with the child and the
+  # parent always read 0. The warning never printed, and a direct call looked
+  # correct because its stdout was right.
+  #
+  # Exit 9 is arbitrary and deliberately outside the contract's 0/1/3/4: it
+  # never leaves this file, and `backend` maps it back to a successful answer.
+  echo "github"
+  return 9
 }
 
 # The resolved backend, refused where this script has no arm for it.
@@ -1781,11 +1816,26 @@ backend_declared() {
 # person must fix. `host-shell.ts` reads that code as `unaskable` and reads the
 # sentence below for the name.
 backend() {
-  local v
-  v="$(backend_declared)" || return 1
+  local v rc unnamed=0
+  # THE DECLARED-HOST REFUSAL IS PASSED THROUGH, NOT FLATTENED. `|| return 1`
+  # collapsed exit 4 into 1 here, and 4 is the one code every caller reads as
+  # *this cannot be asked at all* rather than *retry*. Measured 2026-09-11: a
+  # repository with no remote exited 1, which tells a caller to try again.
+  v="$(backend_declared)"; rc=$?
+  # 9 is the resolver's private word for *answered, but nothing named it*.
+  if [ "$rc" -eq 9 ]; then unnamed=1; rc=0; fi
+  [ "$rc" -eq 0 ] || return "$rc"
   if ! host_drivable "$v"; then
     echo "plot-host: cannot drive '$v' — this script drives ${HOST_DRIVES// /, }; set the 'Git host' key in CLAUDE.md (or \$PLOT_HOST) to one of them" >&2
     return 4
+  fi
+  # THE ANSWER IS PRINTED EITHER WAY, AND A GUESS SAYS SO. `backend` is a
+  # reading, not a gate: a caller that needs a host still gets one, and a
+  # person asking which host this is learns the answer was inferred from
+  # nothing. Exit stays 0 — the value is usable, its provenance is not certain.
+  if [ "$unnamed" = 1 ]; then
+    echo "plot-host: no 'Git host' key and no remote names one — assuming '$v'" >&2
+    echo "  Set the 'Git host' key in ## Plot Config (or \$PLOT_HOST) to be sure." >&2
   fi
   printf '%s\n' "$v"
 }

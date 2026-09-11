@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -254,6 +254,39 @@ test('host: PLOT_HOST env resolves the backend', () => {
   const stubs = makeStubs();
   assert.equal(run(['backend'], { env: { PLOT_HOST: 'bitbucket' }, stubs }).trim(), 'bitbucket');
   assert.equal(run(['backend'], { env: { PLOT_HOST: 'github' }, stubs }).trim(), 'github');
+});
+
+test('host: backend infers the host from the remote when nothing declares one', () => {
+  // THE KEY IS A DECLARATION AND THE REMOTE IS EVIDENCE. `Git host` still wins;
+  // this covers only the case where nobody said, which answered `github`
+  // unconditionally until 2026-09-11 — so a Bitbucket repository that forgot
+  // the key got GitHub's answer.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-remote-'));
+  execFileSync('git', ['init', '-q', '.'], { cwd: dir });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:x/y.git'], { cwd: dir });
+  const out = execFileSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(out.trim(), 'bitbucket');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('host: backend says so when nothing names a host', () => {
+  // IT REPORTS AND DOES NOT REFUSE, and that is a measurement rather than a
+  // preference. An earlier version exited 4 here and five contract tests went
+  // red: a sandbox repository with no remote is a legitimate, common shape —
+  // six suites build one — and every op needing a host in such a repo was
+  // relying on this default. Refusing at the resolver punishes a caller for a
+  // question it never asked.
+  //
+  // WHAT CHANGES IS THAT THE GUESS STOPS BEING SILENT. The value is still
+  // usable so the exit stays 0; the provenance is not certain, so it is said.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-noremote-'));
+  execFileSync('git', ['init', '-q', '.'], { cwd: dir });
+  const res = spawnSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status, 0, 'a caller that needs a host still gets one');
+  assert.equal(res.stdout.trim(), 'github');
+  assert.match(res.stderr, /no 'Git host' key and no remote names one/,
+    'the guess announces itself');
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('host: pr-state github maps gh --json and normalizes', () => {
