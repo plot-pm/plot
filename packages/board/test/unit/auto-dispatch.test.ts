@@ -29,6 +29,7 @@ import { measureMachine, type Machine as MachineEntity } from '@plot-pm/domain';
 import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
+import { rmTree } from '../helpers.mjs';
 
 // Wave 3 of approval-hands-the-work-to-agents. The planner is the DECISION half
 // of auto-dispatch: given the controls, the pulse, and how many workers are
@@ -1323,7 +1324,7 @@ describe('the shared in-flight store — two boards, one record', () => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-inflight-'));
   });
   afterEach(() => {
-    fs.rmSync(repo, { recursive: true, force: true });
+    rmTree(repo);
   });
 
   it('a missing file reads as an empty set, not as a failure', () => {
@@ -1449,7 +1450,7 @@ describe('two boards together start no more than parallelAgents', () => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-twoboard-'));
   });
   afterEach(() => {
-    fs.rmSync(repo, { recursive: true, force: true });
+    rmTree(repo);
   });
 
   /**
