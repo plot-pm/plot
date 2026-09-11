@@ -1793,11 +1793,17 @@ backend_declared() {
   # this default. Refusing at the resolver punishes them for a question they
   # never asked.
   #
-  # SO THE GUESS SURVIVES AND STOPS BEING SILENT. `backend_unnamed` is set for
-  # the `backend` op to report, which is the one caller ASKING which host this
-  # is rather than needing one in passing.
-  BACKEND_UNNAMED=1
+  # SO THE GUESS SURVIVES AND STOPS BEING SILENT — AND IT SIGNALS THROUGH THE
+  # EXIT CODE, NEVER A VARIABLE. This set a `BACKEND_UNNAMED` global first, and
+  # the caller reads it as `v="$(backend_declared)"` — a COMMAND SUBSTITUTION,
+  # which runs in a subshell, so the assignment died with the child and the
+  # parent always read 0. The warning never printed, and a direct call looked
+  # correct because its stdout was right.
+  #
+  # Exit 9 is arbitrary and deliberately outside the contract's 0/1/3/4: it
+  # never leaves this file, and `backend` maps it back to a successful answer.
   echo "github"
+  return 9
 }
 
 # The resolved backend, refused where this script has no arm for it.
@@ -1810,13 +1816,14 @@ backend_declared() {
 # person must fix. `host-shell.ts` reads that code as `unaskable` and reads the
 # sentence below for the name.
 backend() {
-  local v rc
-  BACKEND_UNNAMED=0
+  local v rc unnamed=0
   # THE DECLARED-HOST REFUSAL IS PASSED THROUGH, NOT FLATTENED. `|| return 1`
   # collapsed exit 4 into 1 here, and 4 is the one code every caller reads as
   # *this cannot be asked at all* rather than *retry*. Measured 2026-09-11: a
   # repository with no remote exited 1, which tells a caller to try again.
   v="$(backend_declared)"; rc=$?
+  # 9 is the resolver's private word for *answered, but nothing named it*.
+  if [ "$rc" -eq 9 ]; then unnamed=1; rc=0; fi
   [ "$rc" -eq 0 ] || return "$rc"
   if ! host_drivable "$v"; then
     echo "plot-host: cannot drive '$v' — this script drives ${HOST_DRIVES// /, }; set the 'Git host' key in CLAUDE.md (or \$PLOT_HOST) to one of them" >&2
@@ -1826,7 +1833,7 @@ backend() {
   # reading, not a gate: a caller that needs a host still gets one, and a
   # person asking which host this is learns the answer was inferred from
   # nothing. Exit stays 0 — the value is usable, its provenance is not certain.
-  if [ "${BACKEND_UNNAMED:-0}" = 1 ]; then
+  if [ "$unnamed" = 1 ]; then
     echo "plot-host: no 'Git host' key and no remote names one — assuming '$v'" >&2
     echo "  Set the 'Git host' key in ## Plot Config (or \$PLOT_HOST) to be sure." >&2
   fi
