@@ -26,19 +26,23 @@ const SYSTEM = 'jenkins';
  * repository whose instance is unset has not been asked, which is not the same
  * as a branch that has never built.
  *
- * `runForSha` IS `unaskable` HERE, AND THAT IS THE TRANSPORT'S LIMIT RATHER
- * THAN A GAP LEFT OPEN. `jenkins_build_map` answers `{color, checks, job}` per
- * BRANCH and carries no commit, so nothing in this transport can match a sha.
- * Measured 2026-09-10 against the live instance: a build entry from
- * `jen build list --json` holds `id`, `status`, timings and stages, and a
- * case-insensitive search of the whole payload for `sha|commit|revision|scm`
- * matches nothing. The answer exists in Jenkins — at
- * `actions[].BuildData.lastBuiltRevision.SHA1` over its REST API — and this
- * transport does not reach it.
+ * `runForSha` ASKS JENKINS' REST API, and the transport is the whole story.
+ * `jen` answers build history and never a commit — measured 2026-09-10, a
+ * build entry carries `id`, `status`, timings and stages, and a search of the
+ * whole payload for `sha|commit|revision|scm` matches nothing. Jenkins' own
+ * REST API answers it at `actions[].lastBuiltRevision.SHA1`, and
+ * `plot-host.sh` reaches that since 2026-09-11.
  *
- * FALLING BACK TO THE BRANCH'S CURRENT STATE IS THE ONE ANSWER THAT COSTS A
- * MERGE, so the script refuses instead. `runForSha` exists because a run for a
- * superseded commit reads identically to a run for the current one.
+ * THE CREDENTIAL IS NOT THE KEYCLOAK BEARER. Jenkins takes basic auth with an
+ * API token, which `jen` stores in the login keychain; the bearer from `jen
+ * auth token` gets an HTML login redirect. A machine with no keychain entry
+ * answers `unaskable`, which is *this connector cannot be asked* rather than
+ * *this branch has never built*.
+ *
+ * IT INHERITS THE GITHUB ARM'S FALLBACK RULE rather than inventing one: the
+ * asked-for sha if a build carries it, else the newest build, with `sha`
+ * saying which. A caller that could not tell those apart would be back to the
+ * branch-scoped guessing this operation exists to end.
  *
  * @param context - where the scripts and the repository are.
  * @returns a `BuildPort` backed by this vendor's connector.
