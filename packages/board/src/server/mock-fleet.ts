@@ -360,12 +360,45 @@ export function mockFleet(): Fleet {
     },
     stuck: { stuck: 0, artifact: 0, conflict: 1, unpushed: 0, ci: 0 },
     prAgeSeconds: 0,
+    // A SPRINT, because the Agents tab reads it from HERE and not from the
+    // board payload — so without one the sprint chip, its counts and its
+    // timebox cannot be seen on a mock at all. Stated `late` on purpose: the
+    // interesting state is the one a reader cannot produce on demand, and a
+    // running sprint is what every real board already shows.
+    sprints: [{
+      slug: 'the-mock-board-shows-a-sprint',
+      title: 'The mock board shows a sprint',
+      release: '9.9.0',
+      counts: { total: 4, open: 1, wip: 1, done: 2 },
+      timebox: 'late' as const,
+      timeboxLabel: '2026-01-06 → 2026-01-20',
+      members: [
+        { slug: 'a-row-is-a-branch', tier: 'must' as const, checked: true, known: true },
+        { slug: 'a-ticket-is-not-a-row', tier: 'must' as const, checked: true, known: true },
+        { slug: 'the-seventh-kind-is-a-ticket', tier: 'should' as const, checked: false, known: true },
+        // `known: false` is a member naming a plan the estate does not hold —
+        // the state a reader cannot otherwise see, and the one the chip renders
+        // differently.
+        { slug: 'a-member-with-no-plan', tier: 'could' as const, checked: false, known: false },
+      ],
+    }],
+    // TWO issues, not one. The inbox's own rule is that an issue a plan already
+    // answers drops out of it, and a single row cannot show both sides of that
+    // — so one carries a plan and one does not.
     issues: [{
       number: 228,
       title: 'Fleet scan asks the host once per branch',
       url: 'https://example.invalid/issues/228',
       ageMinutes: 2 * 1440,
       plan: '', planFile: '', planUrl: '',
+    }, {
+      number: 231,
+      title: 'The board names which CI answered',
+      url: 'https://example.invalid/issues/231',
+      ageMinutes: 6 * 60,
+      plan: 'the-board-says-which-ci-answered',
+      planFile: 'docs/plans/2026-09-10-the-board-says-which-ci-answered.md',
+      planUrl: 'https://example.invalid/plans/231',
     }],
     issueAnswer: 'answered' as const,
     issueError: null,
