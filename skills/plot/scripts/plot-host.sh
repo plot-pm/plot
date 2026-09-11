@@ -1763,12 +1763,41 @@ backend_declared() {
     return
   fi
   local v
-  v="$(bash "$here/plot-config.sh" get "Git host" "github" | tr '[:upper:]' '[:lower:]')"
+  v="$(bash "$here/plot-config.sh" get "Git host" "" | tr '[:upper:]' '[:lower:]')"
   case "$v" in
-    bb) echo "bitbucket" ;;
-    "") echo "github" ;;
-    *) printf '%s\n' "$v" ;;
+    bb) echo "bitbucket"; return ;;
+    "") : ;;
+    *) printf '%s\n' "$v"; return ;;
   esac
+
+  # NOTHING DECLARED — INFER FROM THE REMOTE, AND REFUSE WHERE THERE IS NONE.
+  # This answered `github` unconditionally until 2026-09-11, which is the
+  # reassuring direction: a Bitbucket repo that forgot the key got GitHub's
+  # answer, and a repo with no remote at all got one too. Measured on a fresh
+  # `git init` with no remote: `backend` printed `github` and exited 0.
+  #
+  # THE REMOTE IS EVIDENCE AND THE KEY IS A DECLARATION, so the key still wins
+  # above. What changes is only the case where nobody said: a hostname in the
+  # remote is a reading, and no remote is no reading.
+  local url
+  url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  case "$url" in
+    *github.com*)    echo "github";    return ;;
+    *bitbucket.org*) echo "bitbucket"; return ;;
+  esac
+
+  # AN UNREADABLE HOST IS NOT A DEFAULT ONE. Exit 4 is this script's word for
+  # *cannot be asked*, and every caller already reads it as permanent rather
+  # than transient — the same answer `runs` gives for a CI it cannot reach.
+  echo "plot-host: cannot tell which git host this repository uses" >&2
+  if [ -z "$url" ]; then
+    echo "  There is no 'origin' remote to infer one from." >&2
+  else
+    echo "  The 'origin' remote is '$url', which names no host this script drives." >&2
+  fi
+  echo "  Set the 'Git host' key in the ## Plot Config section of CLAUDE.md" >&2
+  echo "  (or \$PLOT_HOST) to one of: ${HOST_DRIVES// /, }" >&2
+  return 4
 }
 
 # The resolved backend, refused where this script has no arm for it.
@@ -1781,8 +1810,13 @@ backend_declared() {
 # person must fix. `host-shell.ts` reads that code as `unaskable` and reads the
 # sentence below for the name.
 backend() {
-  local v
-  v="$(backend_declared)" || return 1
+  local v rc
+  # THE DECLARED-HOST REFUSAL IS PASSED THROUGH, NOT FLATTENED. `|| return 1`
+  # collapsed exit 4 into 1 here, and 4 is the one code every caller reads as
+  # *this cannot be asked at all* rather than *retry*. Measured 2026-09-11: a
+  # repository with no remote exited 1, which tells a caller to try again.
+  v="$(backend_declared)"; rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
   if ! host_drivable "$v"; then
     echo "plot-host: cannot drive '$v' — this script drives ${HOST_DRIVES// /, }; set the 'Git host' key in CLAUDE.md (or \$PLOT_HOST) to one of them" >&2
     return 4

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -254,6 +254,40 @@ test('host: PLOT_HOST env resolves the backend', () => {
   const stubs = makeStubs();
   assert.equal(run(['backend'], { env: { PLOT_HOST: 'bitbucket' }, stubs }).trim(), 'bitbucket');
   assert.equal(run(['backend'], { env: { PLOT_HOST: 'github' }, stubs }).trim(), 'github');
+});
+
+test('host: backend infers the host from the remote when nothing declares one', () => {
+  // THE KEY IS A DECLARATION AND THE REMOTE IS EVIDENCE. `Git host` still wins;
+  // this covers only the case where nobody said, which answered `github`
+  // unconditionally until 2026-09-11 — so a Bitbucket repository that forgot
+  // the key got GitHub's answer.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-remote-'));
+  execFileSync('git', ['init', '-q', '.'], { cwd: dir });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:x/y.git'], { cwd: dir });
+  const out = execFileSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(out.trim(), 'bitbucket');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('host: backend refuses rather than defaulting where no remote names a host', () => {
+  // THE REASSURING DIRECTION IS THE WORST ONE TO BE WRONG IN. A repository with
+  // no remote answered `github` at exit 0, so every downstream op asked GitHub
+  // about a repository that is not there — and exit 4 is this script's word for
+  // *cannot be asked at all*, which callers read as permanent rather than
+  // transient. Measured 2026-09-11 on a fresh `git init`.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-noremote-'));
+  execFileSync('git', ['init', '-q', '.'], { cwd: dir });
+  let code = 0;
+  let stderr = '';
+  try {
+    execFileSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
+  } catch (err) {
+    code = err.status;
+    stderr = String(err.stderr ?? '');
+  }
+  assert.equal(code, 4, 'a host nothing can name is unaskable, not GitHub');
+  assert.match(stderr, /no 'origin' remote/, 'the refusal says what is missing');
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('host: pr-state github maps gh --json and normalizes', () => {
