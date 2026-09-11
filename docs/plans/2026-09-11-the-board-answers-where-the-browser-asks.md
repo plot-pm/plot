@@ -10,6 +10,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-11, jwloka, in-session
+- **Started:** 2026-09-12, jwloka, `bug/the-board-answers-on-both-loopback-families`
 
 ## Changelog
 
