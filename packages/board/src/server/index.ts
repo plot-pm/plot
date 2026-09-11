@@ -752,7 +752,15 @@ async function handleRequest(
  */
 let lastRequestAt = Date.now();
 
-const server = http.createServer((req, res) => {
+/**
+ * The one request listener, shared by every bound family.
+ *
+ * Extracted from the single `createServer` call so the second listener is the
+ * same server in every respect but its bind address. A second handler — even a
+ * copy — would be a second place for a route to be added to, which is the shape
+ * WRITE_ROUTES above exists to refuse.
+ */
+const serve = (req: http.IncomingMessage, res: http.ServerResponse): void => {
   lastRequestAt = Date.now();
   // THE REJECTION IS CAUGHT HERE, and it is not optional. `handleRequest` is
   // async now, so a throw past its own try/catch arrives as a rejected promise
@@ -772,10 +780,46 @@ const server = http.createServer((req, res) => {
     res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Internal Server Error');
   });
-});
+};
 
 /**
- * The failed bind IS the check.
+ * The FIRST listener — the one that owns the port and the EADDRINUSE contract.
+ * The others are created in {@link bindNext} around the same {@link serve}.
+ */
+const server = http.createServer(serve);
+
+/**
+ * THE BIND ADDRESSES, IN ORDER, AND THE ORDER IS LOAD-BEARING.
+ *
+ * `HOST` names ONE address family. Measured on Node v24.4.1, 2026-09-12:
+ * `listen(port, 'localhost')` binds `::1` alone, so a browser resolving
+ * `localhost` to `127.0.0.1` gets `ECONNREFUSED` from a server that is up and
+ * healthy. Observed on the operator's board 2026-09-11: `lsof` reported
+ * `TCP [::1]:7777 (LISTEN)` while the page showed no contact for 18 polls.
+ *
+ * ONE PORT, TWO LISTENERS — not one listener on a wildcard. A port is taken
+ * per-address rather than per-machine, so the second bind is not a conflict.
+ * The wildcard is refused for the reason the WRITE_ROUTES comment records:
+ * `HOST=0.0.0.0` once published every write endpoint, including the one that
+ * spawns detached agents, to every interface the machine had. Binding both
+ * loopback families reaches a browser on THIS machine; binding a wildcard
+ * reaches the network.
+ *
+ * `listen(port)` with no host is the same trap arriving by omission — it binds
+ * `::`, the IPv6 wildcard. It would also shut every write endpoint, since
+ * `isLocalCaller` compares against exactly `localhost`, `127.0.0.1` and `::1`,
+ * and `::` is in none of them: a board that serves `/api/board` correctly and
+ * refuses all ten capabilities. Both addresses below are already in that set,
+ * which keeps the write gate open BY CONSTRUCTION rather than by a second edit.
+ *
+ * Only a DEFAULT host is expanded. An operator who named `HOST` chose an
+ * address, and quietly binding a second one would widen a surface they narrowed
+ * — including the `0.0.0.0` path, which keeps whatever check it has.
+ */
+const BIND_ADDRESSES = process.env.HOST ? [HOST] : ['::1', '127.0.0.1'];
+
+/**
+ * The FIRST bind's failure IS the check.
  *
  * Asking beforehand whether the port is free would rebuild the very race this
  * server was changed to remove: between the answer and the `listen()` the port
@@ -787,6 +831,13 @@ const server = http.createServer((req, res) => {
  * It reports and stops; it never kills the running board. Several worktrees run
  * side by side, and a `pnpm board` in one terminal shooting down another's is a
  * worse failure than the one being fixed.
+ *
+ * THIS HANDLER IS THE FIRST LISTENER'S ALONE, and that is the whole reason the
+ * binds are sequential. `EADDRINUSE` means two different things now: on the
+ * first bind another board owns this port, and on a LATER bind it cannot mean
+ * that, because the first bind just succeeded — this board owns the port. One
+ * handler over both would report a healthy board as "already running" and exit
+ * it, which is a worse failure than the one being fixed. See `bindNext`.
  */
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
@@ -813,12 +864,55 @@ exitWithParent();
  */
 exitWhenIdle({ lastRequestAt: () => lastRequestAt });
 
-server.listen(REQUESTED_PORT, HOST, () => {
+/**
+ * Bind the remaining families, one after another, on the port the FIRST bind
+ * was given.
+ *
+ * ALWAYS `boundPort`, NEVER `REQUESTED_PORT`. Under `PORT=0` the request is the
+ * literal 0, and asking for it again would have the OS assign a SECOND,
+ * different port: the first family would work and the second would answer
+ * somewhere nobody is looking. The assignment happens during the first
+ * `listen`, which is why these are sequential rather than concurrent.
+ *
+ * A FAILURE HERE DEGRADES, IT DOES NOT DIE. The first bind has already
+ * succeeded, so the board is up and serving; taking the process down would turn
+ * a partial success into no board at all, which is worse than today's
+ * behaviour. The unreachable family is NAMED rather than swallowed — a board
+ * that silently serves one family is exactly the defect this change fixes, and
+ * a fix whose own failure mode is silent would reintroduce it one level up.
+ *
+ * No `net` probe, deliberately: the failed bind is the check here too, and
+ * `port.test.mjs` greps this source to hold that shut.
+ */
+const bindNext = (rest: string[]): void => {
+  const [address, ...remaining] = rest;
+  if (address === undefined) return;
+  const extra = http.createServer(serve);
+  extra.on('error', (err: NodeJS.ErrnoException) => {
+    console.warn(
+      `Plot board: could not also bind ${address}:${boundPort} (${err.code ?? err.message}) — ` +
+        `serving on ${BIND_ADDRESSES[0]} only, so a browser resolving to ${address} will not reach it`,
+    );
+    bindNext(remaining);
+  });
+  // `exitWithParent`/`exitWhenIdle` act via `process.exit`, so a server in this
+  // process dies with it and needs no second registration. `unref` keeps that
+  // true in the other direction: an extra listener must never be the thing
+  // holding the process open after the first one closes, which is precisely the
+  // orphaned-board defect those two gates exist to prevent.
+  extra.unref();
+  extra.listen(boundPort, address, () => bindNext(remaining));
+};
+
+server.listen(REQUESTED_PORT, BIND_ADDRESSES[0], () => {
   // Read the port from the server rather than from the constant: with PORT=0
   // the OS assigned it during this very listen, and nothing else knows it.
   const addr = server.address();
   if (addr && typeof addr === 'object') boundPort = addr.port;
   console.log(`Plot board: http://localhost:${boundPort}`);
+  // Only now is `boundPort` known, which is why the remaining families are
+  // bound from inside this callback rather than beside the call.
+  bindNext(BIND_ADDRESSES.slice(1));
   if (HOST === '0.0.0.0') {
     // Through `Machine`, which is the component that names this machine and so
     // the one that says where it can be reached. Awaited inside the callback

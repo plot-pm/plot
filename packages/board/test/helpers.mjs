@@ -149,15 +149,20 @@ export function fetchRaw(port, pathname) {
  * { status, body, headers } without parsing. The 405 guard and the same-origin
  * check are both things only a non-GET, header-bearing request can exercise.
  */
-export function request(port, { method = 'GET', path: pathname = '/', headers = {}, body } = {}) {
+export function request(port, { method = 'GET', path: pathname = '/', headers = {}, body, host = 'localhost' } = {}) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? null : Buffer.from(body);
     const req = http.request(
       {
-        // `localhost`, matching the other helpers: the server binds to whatever
-        // HOST names, and on a dual-stack machine that resolves to ::1 — a
-        // hardcoded 127.0.0.1 would be refused by a server listening on IPv6.
-        host: 'localhost',
+        // `localhost` by default, matching the other helpers — it resolves to
+        // whichever family this machine prefers, which is what a browser does.
+        //
+        // OVERRIDABLE because `localhost` cannot tell the two apart, and that is
+        // the whole subject of `port.test.mjs`'s dual-family cases: a request to
+        // the name reaches whatever is bound and so passes against a server that
+        // binds only one. Naming `127.0.0.1` or `::1` is the only way to assert
+        // that BOTH answer.
+        host,
         port,
         path: pathname,
         method,
