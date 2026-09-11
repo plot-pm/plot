@@ -276,7 +276,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // `desk-finding.test.mjs` guards from the other side.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=1 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -3192,4 +3192,193 @@ test('scan: section 20 reports nothing when the host cannot be asked', () => {
     'and must name no ref at all');
   assert.match(offline.trim().split('\n').at(-1), /\bmerged_refs=0\b/,
     'the count stays 0 rather than counting an unevaluated section');
+});
+
+// ---------------------------------------------------------------------------
+// Section 20 — a merge that shipped code and added no changeset.
+//
+// Its own fixture repo, because the question is about MERGE COMMITS and the
+// shared fixture has none. Every case below is a merge into main: one finding
+// and one control per exclusion, so a naive implementation cannot pass by
+// reporting everything or nothing.
+let ncTmp, ncRepo, ncReport, ncSections, ncShim;
+
+before(() => {
+  ncTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nochangeset-'));
+  const origin = path.join(ncTmp, 'origin.git');
+  ncRepo = path.join(ncTmp, 'repo');
+  git(ncTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(ncTmp, 'clone', '-q', origin, ncRepo);
+  git(ncRepo, 'config', 'user.email', 'test@example.invalid');
+  git(ncRepo, 'config', 'user.name', 'Plot Test');
+  git(ncRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(ncRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+  git(ncRepo, 'add', '-A');
+  git(ncRepo, 'commit', '-q', '-m', 'no-changeset fixture');
+  git(ncRepo, 'push', '-q', 'origin', 'main');
+
+  // Merge `branch` into main as a real merge commit with the host's own
+  // subject, so the PR number is lifted the way it is in production.
+  const mergeToMain = (branch, pr, files) => {
+    git(ncRepo, 'checkout', '-q', '-b', branch, 'main');
+    for (const [rel, body] of Object.entries(files)) {
+      const p = path.join(ncRepo, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, body);
+    }
+    git(ncRepo, 'add', '-A');
+    git(ncRepo, 'commit', '-q', '-m', `work on ${branch}`);
+    git(ncRepo, 'checkout', '-q', 'main');
+    git(ncRepo, 'merge', '-q', '--no-ff', branch,
+      '-m', `Merge pull request #${pr} from plot-pm/${branch}`);
+  };
+
+  // THE FINDING. Shipped code under skills/, no changeset.
+  mergeToMain('feature/silent-ship', 701, {
+    'skills/plot/scripts/quiet.sh': '#!/usr/bin/env bash\necho quiet\n',
+  });
+
+  // CONTROL — added a changeset. `--diff-filter=A` is what makes this silent;
+  // a grep for the string `.changeset` anywhere in the diff reports it.
+  mergeToMain('feature/noted-ship', 702, {
+    'skills/plot/scripts/noted.sh': '#!/usr/bin/env bash\necho noted\n',
+    '.changeset/brave-pandas-smile.md': "---\n'plot': patch\n---\n\nIt says what changed.\n",
+  });
+
+  // CONTROL — exclusion one: no shipped-code path. Docs and tests carry no
+  // release note.
+  mergeToMain('docs/just-words', 703, {
+    'docs/notes.md': 'Some prose.\n',
+    'test/reconcile/extra.test.mjs': '// a test\n',
+  });
+
+  // CONTROL — exclusion two: a plan PR ships no code by construction.
+  mergeToMain('idea/a-plan-only', 704, {
+    'skills/plot/scripts/plan-shaped.sh': '#!/usr/bin/env bash\necho plan\n',
+  });
+
+  // CONTROL — exclusion three: the release PR CONSUMES changesets; demanding
+  // one of it inverts the workflow.
+  mergeToMain('changeset-release/main', 705, {
+    'skills/plot/scripts/released.sh': '#!/usr/bin/env bash\necho released\n',
+  });
+
+  // CONTROL — exclusion four: a rebase-style merge of main INTO a feature
+  // branch, which is not a delivery. It sits OFF the first-parent spine, and
+  // its first parent is still an ancestor of main once the branch lands —
+  // which is why the spine is the reading and ancestry is not.
+  //
+  // The branch carries its OWN changeset, so its eventual delivery (#706) is
+  // legitimately silent and the only thing left to test is the inner merge.
+  // Without it the fixture plants two findings and #706 is a CORRECT one — it
+  // really did ship code with no note — which measured here as `no_changeset=2`
+  // against an asserted 1.
+  git(ncRepo, 'checkout', '-q', '-b', 'feature/took-main', 'main~3');
+  fs.mkdirSync(path.join(ncRepo, 'skills/plot/scripts'), { recursive: true });
+  fs.writeFileSync(path.join(ncRepo, 'skills/plot/scripts/rebased.sh'), '#!/usr/bin/env bash\necho r\n');
+  fs.mkdirSync(path.join(ncRepo, '.changeset'), { recursive: true });
+  fs.writeFileSync(path.join(ncRepo, '.changeset/tidy-otters-wave.md'),
+    "---\n'plot': patch\n---\n\nThe rebased branch says what changed.\n");
+  git(ncRepo, 'add', '-A');
+  git(ncRepo, 'commit', '-q', '-m', 'work on feature/took-main');
+  git(ncRepo, 'merge', '-q', '--no-ff', 'main', '-m', "Merge remote-tracking branch 'origin/main' into feature/took-main");
+  git(ncRepo, 'checkout', '-q', 'main');
+  git(ncRepo, 'merge', '-q', '--no-ff', 'feature/took-main',
+    '-m', 'Merge pull request #706 from plot-pm/feature/took-main');
+
+  git(ncRepo, 'push', '-q', 'origin', 'main');
+
+  ncShim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nochangeset-shim-'));
+  shimScripts(ncShim);
+
+  ncReport = execFileSync('bash', [path.join(ncShim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
+    { encoding: 'utf8', cwd: ncRepo });
+  ncSections = splitSections(ncReport);
+});
+
+after(() => {
+  if (ncTmp) fs.rmSync(ncTmp, { recursive: true, force: true });
+  if (ncShim) fs.rmSync(ncShim, { recursive: true, force: true });
+});
+
+test('scan: section 20 names a merge that shipped code with no changeset', () => {
+  assert.match(ncSections['20'], /feature\/silent-ship/,
+    `the merge that shipped code and no changeset must be named:\n${ncSections['20']}`);
+  // The PR number is a nicety lifted from the merge subject, and it is what
+  // makes the finding actionable without a host call.
+  assert.match(ncSections['20'], /PR #701/,
+    `and the PR number the merge subject carries is the evidence:\n${ncSections['20']}`);
+  // NAMES THE DECISION, NOT A REPAIR: a change may legitimately owe no note.
+  assert.match(ncSections['20'], /decide:/,
+    'the finding names the decision a person makes');
+});
+
+test('scan: section 20 is silent on a merge that ADDED a changeset', () => {
+  // Without `--diff-filter=A` a section that greps for `.changeset` anywhere in
+  // the diff passes its happy-path test and reports every release PR forever.
+  assert.doesNotMatch(ncSections['20'], /feature\/noted-ship/,
+    `a merge carrying a changeset is not a finding:\n${ncSections['20']}`);
+});
+
+test('scan: section 20 holds its four exclusions', () => {
+  assert.doesNotMatch(ncSections['20'], /docs\/just-words/,
+    `a docs/test merge describes nothing a release note would carry:\n${ncSections['20']}`);
+  assert.doesNotMatch(ncSections['20'], /idea\/a-plan-only/,
+    'a plan PR ships no code and carries no changeset by construction');
+  assert.doesNotMatch(ncSections['20'], /changeset-release/,
+    'the release PR consumes changesets; demanding one of it inverts the workflow');
+  // THE SPINE IS THE READING. `merge-base --is-ancestor "$m^1" origin/main` is
+  // TRUE for this merge once the branch lands, so an ancestry test cannot drop
+  // it; the first-parent spine can, because a merge of main INTO a branch sits
+  // off the sequence of deliveries.
+  assert.doesNotMatch(ncSections['20'], /Merge remote-tracking branch/,
+    `a rebase-style merge into a feature branch is not a delivery:\n${ncSections['20']}`);
+});
+
+test('scan: section 20 counts in the footer, states its window, and gates nothing', () => {
+  const footer = ncReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bno_changeset=1\b/,
+    `one planted finding, one counter — a section with no footer key is invisible\n${footer}`);
+  // A missing release note is a decision gap, not a broken pointer. An advisory
+  // finding that can stop a delivery is a gate nobody agreed to.
+  assert.match(footer, /\battention=0\b/,
+    `section 20 must not reach attention=:\n${footer}`);
+  // THE SECTION STATES ITS WINDOW. What bounds it is how far back it walks
+  // `git log --merges`; saying the number is the difference between a report
+  // that is complete and one that looks complete.
+  assert.match(ncSections['20'], /window: the last \d+ merge commit\(s\)/,
+    `the window is stated rather than implied:\n${ncSections['20']}`);
+});
+
+test('scan: section 20 sits below the blocking marker', () => {
+  const marker = ncReport.indexOf('== blocking sections end ==');
+  const section = ncReport.indexOf('== 20. ');
+  assert.ok(marker > 0, 'the fixture report carries the marker');
+  assert.ok(section > marker,
+    'section 20 must sit below the marker, so /plot-deliver\'s gate does not read it');
+});
+
+test('scan: section 20 needs no host call', () => {
+  // `--offline` skips both PR lists. Section 18 prints `(not evaluated — …)`
+  // under it; this section answers from the merge parents, so copying that
+  // guard would make it silent during an outage for no reason.
+  assert.doesNotMatch(ncSections['20'], /not evaluated/,
+    `the merge parents hold the whole answer — no host is needed:\n${ncSections['20']}`);
+  assert.match(ncSections['20'], /feature\/silent-ship/,
+    'so the finding still reports with the host unreachable');
 });
