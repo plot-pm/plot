@@ -55,7 +55,9 @@ Keeping them apart means this slice ships a gate with no routing, which is usefu
 
 ## Slices
 
-- `feature/a-charter-bounds-what-an-agent-may-touch` — the `PLOT_CAPABILITIES` export, the shipped prompt template's handling of it, and the unbounded-agent warning
+### A charter bounds its agent's tools (Branch: feature/a-charter-bounds-what-an-agent-may-touch)
+
+The `PLOT_CAPABILITIES` export, the shipped prompt template's handling of it, and the warning an agent gets when it declares capabilities its prompt ignores.
 
 ## Notes
 

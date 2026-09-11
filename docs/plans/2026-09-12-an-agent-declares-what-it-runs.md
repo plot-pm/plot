@@ -72,7 +72,9 @@ That is a decision this repo has already paid for once in the other direction: `
 
 ## Slices
 
-- `feature/an-agent-declares-what-it-runs` — charter resolution in `start_worker`, the three exports, and the missing-harness refusal
+### An agent declares what it runs (Branch: feature/an-agent-declares-what-it-runs)
+
+Charter resolution in `start_worker` before `Worker command`, the three exports, and the refusal when the declared harness is absent.
 
 ## Notes
 

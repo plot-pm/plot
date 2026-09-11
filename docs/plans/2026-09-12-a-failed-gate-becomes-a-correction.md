@@ -65,8 +65,13 @@ Adding the branch and the agent to the marker is small and belongs here rather t
 
 ## Slices
 
-- `feature/a-failed-gate-becomes-a-correction` — the correction file, the loop's consumption of it, the attempt budget, and the superseded-sha discard
-- `feature/a-marker-names-its-writer` — branch and agent on every `PLOT-BLOCKED` marker
+### A failed build becomes a correction (Branch: feature/a-failed-gate-becomes-a-correction)
+
+The correction file in the desk, the loop's consumption of it, the attempt budget, and the superseded-sha discard.
+
+### A marker names its writer (Branch: feature/a-marker-names-its-writer)
+
+Branch and agent on every `PLOT-BLOCKED` marker. Independent of the slice above — a marker gains a field whether or not corrections exist — but it belongs to this plan because a correction loop is what raises the rate of markers.
 
 ## Notes
 

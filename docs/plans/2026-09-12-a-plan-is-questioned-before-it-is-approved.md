@@ -64,8 +64,13 @@ So each caller names its own lenses and the mechanism knows none of them.
 
 ## Slices
 
-- `feature/a-plan-is-questioned-before-it-is-approved` — the Draft panel and its lenses
-- `feature/a-delivery-verdict-names-what-it-ran` — step 5's lenses and the executed-not-read commitment gate
+### A plan is questioned before approval (Branch: feature/a-plan-is-questioned-before-it-is-approved)
+
+The Draft panel and its lenses, reading the plan plus its sprint siblings.
+
+### A delivery verdict names what it ran (Branch: feature/a-delivery-verdict-names-what-it-ran)
+
+Step 5 gains lenses over its existing per-PR fan-out, and its commitment gate requires the command a juror executed rather than the diff it read.
 
 ## Notes
 
