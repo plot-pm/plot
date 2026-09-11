@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-09-11
 - **Committed:** 2026-09-08
 - **Started:** 2026-09-08
 - **Start:** 2026-09-09
