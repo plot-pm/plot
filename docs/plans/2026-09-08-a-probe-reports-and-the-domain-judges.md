@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** setup-asks-what-the-repo-already-knows
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-08, Jan Wloka, `feature/a-probe-reports-and-the-domain-judges`
 - **Started:** 2026-09-09, Jan Wloka, `feature/two-signals-ask-rather-than-tie-break`
 - **Delivered:** 2026-09-09
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #866 merged
 - **Started:** 2026-09-09, Jan Wloka, `bug/a-plan-row-shows-its-phase`
 - **Delivered:** 2026-09-10
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

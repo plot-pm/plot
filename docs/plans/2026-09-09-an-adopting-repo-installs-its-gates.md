@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-09-09, Jan Wloka, `feature/an-adopting-repo-installs-its-gates`
 - **Started:** 2026-09-09, Jan Wloka, `feature/an-installed-gate-fires-once`
 - **Delivered:** 2026-09-10
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

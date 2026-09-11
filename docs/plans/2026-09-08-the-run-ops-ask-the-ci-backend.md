@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** plot-gates
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-08, Jan Wloka, in-session
 - **Delivered:** 2026-09-11
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

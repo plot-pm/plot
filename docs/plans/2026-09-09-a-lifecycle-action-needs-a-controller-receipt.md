@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-09, Jan Wloka, plan-PR #863 merged
 - **Started:** 2026-09-09, Jan Wloka, `feature/a-controller-action-leaves-a-receipt`
 - **Delivered:** 2026-09-10
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

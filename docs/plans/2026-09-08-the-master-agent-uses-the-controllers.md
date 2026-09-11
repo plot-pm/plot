@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** plot-gates
@@ -13,6 +13,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-09, Jan Wloka, in-session
 - **Delivered:** 2026-09-09
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

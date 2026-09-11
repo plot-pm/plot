@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** setup-asks-what-the-repo-already-knows
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 - **Started:** 2026-09-08, Jan Wloka, `feature/adoption-proposes-the-jenkins-instance`
 - **Delivered:** 2026-09-09
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

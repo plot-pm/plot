@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** the-board-is-blank-where-it-matters
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 - **Started:** 2026-09-08, Jan Wloka, `bug/the-run-ops-ask-the-ci-backend`
 - **Delivered:** 2026-09-08
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 

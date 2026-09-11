@@ -6,7 +6,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #849
 - **Story:** the-board-is-blank-where-it-matters
@@ -17,6 +17,7 @@
 - **Started:** 2026-09-09, Jan Wloka, `feature/an-issue-key-is-a-string`
 - **Started:** 2026-09-09, Jan Wloka, `feature/the-inbox-shows-a-real-status`
 - **Delivered:** 2026-09-10
+- **Released:** 2026-09-11, v2.16.0
 
 ## Changelog
 
