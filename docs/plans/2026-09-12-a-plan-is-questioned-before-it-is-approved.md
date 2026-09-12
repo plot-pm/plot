@@ -74,7 +74,7 @@ So each caller names its own lenses and the mechanism knows none of them.
 
 ## Slices
 
-### A plan is questioned before approval (Branch: feature/a-plan-is-questioned-before-it-is-approved)
+### A plan is questioned before approval (Branch: feature/a-plan-is-questioned-before-it-is-approved, PR: #898)
 
 The Draft panel and its lenses, reading the plan plus its sprint siblings.
 
