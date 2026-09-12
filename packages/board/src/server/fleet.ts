@@ -592,6 +592,24 @@ export interface CacheEntry {
    * offered again.
    */
   deliverInFlight: Set<string>;
+  /**
+   * The plan slugs this board has asked the `Brief command` to write a brief
+   * for, and whose brief no pulse has yet seen on `origin/<main>`.
+   *
+   * The same cross-pulse guard `deliverInFlight` is, for the same reason and
+   * with the same lifetime. Measured 2026-09-11: a dispatch that timed out
+   * while its inner script outlived it produced two `claude -p` briefs for one
+   * slug, and a board asking every five seconds would produce one per pulse.
+   *
+   * MUTATED IN PLACE by `maybeAutoDispatch` rather than reassigned, which is
+   * why there is no `entry.briefsAsked =` below: the set is a running tally this
+   * entry owns, not a value derived from each pulse.
+   *
+   * IN MEMORY AND NOWHERE ELSE. A restart re-derives it: the brief either
+   * reached `origin/<main>`, in which case the plan is no longer `no-brief`, or
+   * it did not and the plan is simply asked for again.
+   */
+  briefsAsked: Set<string>;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -2941,6 +2959,10 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
       entry.agents,
       entry.autoInFlight,
       machine,
+      // MUTATED IN PLACE, never reassigned — see the field's own note. The ask
+      // record is this entry's running tally and not a per-pulse derivation, so
+      // it is handed in and kept rather than returned.
+      entry.briefsAsked,
     );
 
     // THE THIRD AUTOMATIC WRITE — a finished plan delivers itself, and its
@@ -3019,6 +3041,7 @@ export function freshCacheEntry(): CacheEntry {
     // and a restart re-derives liveness from git rather than trusting a set.
     autoInFlight: new Set(),
     deliverInFlight: new Set(),
+    briefsAsked: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
     prLimit: null, prLimitBasis: 'unknown', prAccount: null, prSlotsHeld: null,
