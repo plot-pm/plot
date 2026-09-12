@@ -4,7 +4,7 @@
 // `plot-movable.mjs`'s 1.2 KB — the whole domain, on the launch path of every
 // worker, to answer which file to source.
 import { readCharter, charterPath, type CharterReading } from '@plot-pm/domain/entities/charter';
-import { resolvePrompt } from '@plot-pm/domain/rules/prompt';
+import { resolveLaunch, resolvePrompt } from '@plot-pm/domain/rules/prompt';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -77,9 +77,49 @@ export const answer = (repoRoot: string, name: string): string => {
 };
 
 /**
+ * Decide what this agent runs — the harness, model and effort it declared.
+ *
+ * A VERB ON THIS BUNDLE RATHER THAN A SECOND ONE, and the measurement is the
+ * argument. The reasons `entry/transition.ts` gives for a separate artifact are
+ * about what an entry would DRAG IN — `plot-ask.mjs` runs a whole fleet scan to
+ * answer a question, so a launch asking it would scan to find a model name.
+ * Here the opposite holds: this bundle already imports `charter.js` and already
+ * reads exactly the file a launch must read, so a second artifact would be
+ * 330 KB of the same zod schema on disk and a second read of one file on the
+ * launch path, for no isolation that this file does not already have.
+ *
+ * FOUR FIELDS OUT, NOT THREE, and the fourth is the charter's name. A caller
+ * that exported three empty strings could not tell a charter declaring nothing
+ * from no charter at all, and the log line naming the agent is what makes a
+ * launch explicable afterwards.
+ *
+ * @param repoRoot - the repo root.
+ * @param name - the agent name, or `''`.
+ * @returns `<resolution>\t<harness>\t<model>\t<effort>\t<detail>`; the three
+ *   names are empty on a fallback and on a refusal.
+ */
+export const launch = (repoRoot: string, name: string): string => {
+  const resolution = resolveLaunch(read(repoRoot, name));
+  switch (resolution.resolve) {
+    case 'declared':
+      return `declared\t${resolution.harness}\t${resolution.model}\t${resolution.effort}\t${resolution.charter}\n`;
+    case 'fallback':
+      return `fallback\t\t\t\t${resolution.why}\n`;
+    case 'refused':
+      return `refused\t\t\t\t${resolution.why}\n`;
+  }
+};
+
+/**
  * Print the answer.
  *
- * @param argv - the repo root and the agent name.
+ * `--launch` ASKS THE SECOND QUESTION, and it is a flag rather than a
+ * positional so the existing contract is untouched: `plot-prompt.mjs <root>
+ * [agent]` means exactly what it meant, and `plot-worker-loop.sh:945` — which
+ * is vendored into every published package and into checkouts this build does
+ * not update — keeps working unchanged.
+ *
+ * @param argv - the repo root and the agent name, optionally after `--launch`.
  * @param write - where the answer goes.
  * @returns the process exit code — 0 resolved, 2 bad arguments, 3 refused.
  */
@@ -87,12 +127,13 @@ export const run = (
   argv: readonly string[],
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): number => {
-  const [repoRoot, name = ''] = argv;
+  const wantsLaunch = argv[0] === '--launch';
+  const [repoRoot, name = ''] = wantsLaunch ? argv.slice(1) : argv;
   if (repoRoot === undefined || repoRoot === '') {
-    process.stderr.write('plot-prompt: usage: plot-prompt.mjs <repo-root> [agent-name]\n');
+    process.stderr.write('plot-prompt: usage: plot-prompt.mjs [--launch] <repo-root> [agent-name]\n');
     return 2;
   }
-  const line = answer(repoRoot, name);
+  const line = wantsLaunch ? launch(repoRoot, name) : answer(repoRoot, name);
   write(line);
   // A DISTINCT CODE FOR THE REFUSAL. The caller must not launch on it, and a
   // shell reading only `$?` would otherwise treat an unbelievable charter as a
