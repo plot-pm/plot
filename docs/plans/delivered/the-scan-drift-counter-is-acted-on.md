@@ -1,0 +1,1 @@
+../2026-09-11-the-scan-drift-counter-is-acted-on.md

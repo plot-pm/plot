@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Story:** plot-gates
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-11, Jan Wloka, plan-PR #887 merged
 - **Started:** 2026-09-11, Jan Wloka, `bug/the-scan-drift-counter-is-acted-on`
+- **Delivered:** 2026-09-12
 
 ## Changelog
 

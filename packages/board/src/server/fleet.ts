@@ -561,12 +561,21 @@ export interface CacheEntry {
    * may show neither a claim ref nor a manifest on the very next one. Counting
    * only the registry against the cap would then dispatch it a second time and
    * let the fleet reach 2N. This set holds such branches against the cap until a
-   * pulse confirms them (claimed, merged, gone, or held by a live registry
-   * entry), at which point `pruneInFlight` retires them.
+   * pulse confirms them (merged, gone, or held by a live registry entry), at
+   * which point `pruneInFlight` retires them.
    *
-   * IN MEMORY AND NOWHERE ELSE, like `terminal` above: it describes what THIS
-   * process did, a restart re-derives from git, and it must never become a
-   * second source of truth about a repo whose only one is git.
+   * THIS PROCESS'S HALF OF AN ANSWER THAT IS SHARED ON DISK. It was in memory
+   * and nowhere else until 2026-09-11, and that is precisely what let two boards
+   * on one repository reach `2N` between them: each saw an empty in-flight set,
+   * each concluded it was alone, each spent the whole cap. The marks now also
+   * live in `.plot/state/auto-in-flight.json`, which every board reads and
+   * renews — see `in-flight-store.ts`.
+   *
+   * This field stays, and it is not a cache of that file. It is what THIS board
+   * dispatched and therefore what this board renews; `maybeAutoDispatch` merges
+   * the shared marks in for the budget arithmetic and writes back only these.
+   * A restart still re-derives it — an empty set here is correct at construction,
+   * because the unexpired marks on disk are adopted on the first pulse.
    */
   autoInFlight: Set<string>;
   /**

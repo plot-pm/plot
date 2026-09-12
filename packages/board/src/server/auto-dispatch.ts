@@ -15,6 +15,7 @@ import {
 } from '@plot-pm/domain';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
+import { readInFlight, writeInFlight } from './in-flight-store.js';
 import { briefPath } from './brief-path.js';
 import { DISPATCH_SCRIPT } from './dispatch.js';
 
@@ -307,8 +308,33 @@ export interface PlanAutoDispatchInput {
    * only the registry would dispatch it a second time and reach 2N. These count
    * against the budget AND are removed from the startable set, so an in-flight
    * branch is neither re-dispatched nor double-charged.
+   *
+   * THIS BOARD'S MARKS AND EVERY OTHER BOARD'S, already merged by the caller —
+   * see {@link sharedInFlight} for the reading that carries the others and why
+   * they are merged before this function sees them.
    */
   inFlight: Set<string>;
+  /**
+   * Whether the SHARED in-flight record could be read this pulse. `false` means
+   * a file exists on disk and this board could not read it.
+   *
+   * A READING, not a port: the caller reads `.plot/state/auto-in-flight.json`
+   * and hands the answer in as a value, so this function stays pure. The
+   * branches themselves arrive merged into {@link inFlight}, because a mark is a
+   * mark whoever wrote it — what this flag carries is the one fact the merged
+   * set cannot express, namely that the merge is INCOMPLETE.
+   *
+   * ABSENT DISPATCHES, the convention `machine` and `agents` already keep:
+   * `undefined` means the question was not asked, which is a caller that predates
+   * the shared record and gets exactly its old single-board behaviour.
+   *
+   * FALSE STARTS NOTHING. The tempting fallback is *count what I can see*, and
+   * it reproduces the bug exactly — a board that cannot read the shared record
+   * concludes it is alone and spends the whole budget. Same call
+   * `plot-pr-merged.sh` makes: an unreachable host answers *not merged*, so
+   * silence is never permission. See {@link sharedInFlightBlocks}.
+   */
+  sharedInFlight?: boolean;
   /**
    * Branches whose brief does not exist on `origin/main`. A slice with no brief
    * is not started — see `a-worker-starts-with-its-brief.md`.
@@ -391,9 +417,53 @@ export function machineDefers(
   return deferralMessage(machine);
 }
 
+/**
+ * Whether an unreadable shared in-flight record stops this pulse.
+ *
+ * THE FAILURE DIRECTION, and it is the opposite of every other reading here.
+ * `machine` absent dispatches, `agents` absent dispatches, a malformed fleet
+ * control falls back to a default — because in each case the unknown fact
+ * cannot hide a worker. This one can. The shared record is the ONLY evidence
+ * that another board has already spent a slot, so a board that cannot read it
+ * and dispatches anyway is a board that concludes it is alone, which is exactly
+ * the bug: two boards, each seeing nothing, each spending `parallelAgents`.
+ *
+ * So a file that exists and will not read is a REFUSAL. Same call
+ * `plot-pr-merged.sh` makes on an unreachable host — it answers *not merged*,
+ * because silence is never permission.
+ *
+ * ABSENT IS NOT FALSE. `undefined` means the caller never asked, which is a
+ * caller predating the shared record; it gets its old behaviour rather than a
+ * refusal it has no way to clear. A MISSING file is not this case either — the
+ * reader answers it as an empty set, since no board having dispatched anything
+ * is a complete answer rather than an unreadable one.
+ *
+ * @returns true when the pulse must start nothing.
+ */
+export function sharedInFlightBlocks(sharedInFlight: boolean | undefined): boolean {
+  return sharedInFlight === false;
+}
+
 export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan[] {
-  const { controls, agents = [], pulse, liveCount, inFlight, missingBriefs, machine } = input;
+  const {
+    controls,
+    agents = [],
+    pulse,
+    liveCount,
+    inFlight,
+    missingBriefs,
+    machine,
+    sharedInFlight,
+  } = input;
   if (!controls.autoDispatch) return [];
+
+  // THE SHARED RECORD IS UNREADABLE, SO NOTHING STARTS. Checked before the
+  // budget and before the machine, because it is the only refusal here whose
+  // absence is not recoverable by the next pulse: a dispatch made blind to the
+  // other boards' marks has already spent the slot by the time the file reads
+  // again. See {@link sharedInFlightBlocks} for why this reading alone refuses
+  // where every other absent reading dispatches.
+  if (sharedInFlightBlocks(sharedInFlight)) return [];
 
   // THE MACHINE QUESTION, beside the budget and before it is spent. A dispatch
   // asks two things — *is an agent free* and *has the machine room* — and this
@@ -706,9 +776,23 @@ export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<s
 /**
  * The branches whose in-flight mark can be RETIRED: the pulse now confirms them
  * one way or another. A branch stays in flight only while the board cannot see
- * what its dispatch did; once the pulse reports it claimed, merged, gone from
- * every plan, or a live registry entry holds it, the mark has served its purpose
- * and keeping it would over-charge the budget forever.
+ * what its dispatch did; once the pulse reports it merged, gone from every plan,
+ * or held by a live registry entry, the mark has served its purpose and keeping
+ * it would over-charge the budget forever.
+ *
+ * THE CLAIMED-REF PATH CANNOT FIRE, and saying so is the repair. This docstring
+ * and the comment in the body both used to name *claimed* as a retirement path,
+ * and `runAutoDispatch`'s said a dispatch *"pushes a claim"*. Measured
+ * 2026-09-11: `grep -n 'git push' skills/plot/scripts/plot-dispatch.sh` returns
+ * one line and it is a COMMENT about `plot-push-main.sh`. Dispatch stopped
+ * pushing a claim when it became a hand-over to the registry, so a mark waiting
+ * for a claim ref waits for something nothing writes. What actually retires a
+ * mark today is a live registry entry, or the branch leaving the startable set.
+ *
+ * WHICH IS WHY THE SHARED MARKS EXPIRE. With one of four paths dead, a mark
+ * whose board died before its registry entry appeared would be held by nothing
+ * and retired by nothing. The TTL in `in-flight-store.ts` is not new machinery
+ * bolted on; it restores a retirement path this set had already lost.
  *
  * Returns the pruned set rather than mutating in place, so the caller decides
  * when to install it — the same one-directional discipline the rest of the cache
@@ -733,8 +817,11 @@ export function pruneInFlight(
     for (const plan of pulse.plans) {
       for (const wave of plan.slices) {
         for (const b of wave.branches) {
-          // Still open in the pulse AND not yet claimed: the claim ref this
-          // dispatch pushes has not appeared, so the mark still stands.
+          // Still startable in the pulse: nothing the scan can see has yet
+          // taken this branch, so the dispatch has not landed and the mark
+          // still stands. NOT "the claim ref has not appeared" — dispatch
+          // pushes no claim ref (measured 2026-09-11); what has not appeared is
+          // the registry entry, which the `liveBranches` check above answers.
           if (b.branch === branch && isStartable(b.state)) stillStartable = true;
         }
       }
@@ -748,10 +835,17 @@ export function pruneInFlight(
  * Fan out this pulse's plan of dispatches, detached, and return the branches
  * newly put in flight so the caller can fold them into the cache's set.
  *
- * Each plan is ONE `plot-dispatch.sh --max <n> <slug>` — the script fans out up
- * to `n` of its own eligible branches, claiming each by ref push. Detached and
- * unwaited, exactly as `/api/dispatch` spawns it: a dispatch creates a worktree
- * and pushes a claim, strictly slower than the scan that must not block on it.
+ * Each plan is ONE `plot-dispatch.sh --max <n> <slug>` — the script hands up to
+ * `n` of its own eligible branches to the registry. Detached and unwaited,
+ * exactly as `/api/dispatch` spawns it: a dispatch queues the slice and the
+ * registry matches it to an agent, strictly slower than the scan that must not
+ * block on it.
+ *
+ * IT PUSHES NO CLAIM REF, and this sentence used to say it did. Measured
+ * 2026-09-11: dispatch stopped claiming by ref push when it became a hand-over
+ * to the registry (`plot-dispatch.sh` contains no `git push` at all). That is
+ * precisely WHY the in-flight set has to exist and has to be shared — with no
+ * ref written, nothing outside the dispatching process knows the slot is spent.
  * Output goes to the same per-slug dispatcher log the route writes, so an
  * operator reads one file whether the dispatch was clicked or automatic.
  *
@@ -811,6 +905,15 @@ export function runAutoDispatch(
  * AT THE CAP, REFUSES AND NAMES THE BRANCHES. Refusing silently is what made
  * the cap invisible — see `a-worker-asks-for-the-next-wave.md`, "Counted" slice.
  * The log line names the branches occupying the slots, not just the count.
+ *
+ * THE CAP IS PER-REPOSITORY, NOT PER-BOARD, and this is where that is made
+ * true. The live half already was: `entry.agents` comes from the SHARED agent
+ * registry, so `parallelAgents − live` is the same number whoever asks. The
+ * in-flight half was not — it lived in one process's memory, so a second board
+ * saw an empty fleet and spent the whole budget again, reaching `2N` between the
+ * two. This function reads the shared marks from `.plot/state/`, folds them into
+ * the set the planner counts, and renews its own before it returns. Every read
+ * and write is HERE; `planAutoDispatch` receives values and stays pure.
  */
 export function maybeAutoDispatch(
   opts: BuildBoardOptions,
@@ -822,6 +925,56 @@ export function maybeAutoDispatch(
 ): Set<string> {
   const pruned = pruneInFlight(inFlight, pulse, agents);
   const liveCount = liveAgentCount(agents, pulse);
+
+  // THE OTHER BOARDS' MARKS. Read fresh every pulse, uncached, for the reason
+  // `readFleetSettings` is: a cache would put an authoritative copy back in this
+  // process's memory, which is the defect being fixed.
+  //
+  // Marks this board wrote come back too, and that is deliberate — the file is
+  // the answer, not a peer-only supplement, so a board recovering from a restart
+  // re-adopts its own unexpired marks instead of re-dispatching what it already
+  // started. `pruned` is still merged in: a mark this board holds in memory and
+  // has not yet written (or failed to write) must not go uncounted.
+  const shared = readInFlight(opts.repoRoot);
+  // Named `allInFlight`, not `merged`: in this file `merged` means a branch that
+  // LANDED (`mergedBranches`, `isFree`'s `sliceHasMerged`), and a set of
+  // in-flight branches called `merged` reads as the opposite of what it holds.
+  const allInFlight = new Set(pruned);
+  for (const branch of shared.branches ?? []) allInFlight.add(branch);
+
+  // RENEW THIS BOARD'S MARKS EVERY PULSE, BEFORE ANY EARLY RETURN. The marks
+  // expire, so a board that stops renewing is a board whose budget comes back —
+  // and the pulses where this function returns early are exactly the ones where
+  // the fleet is fullest. A board sitting at the cap, or deferring on a starved
+  // machine, is still holding its in-flight branches; if the renewal lived after
+  // those returns, its marks would lapse after {@link IN_FLIGHT_TTL_MS} and the
+  // other board would spend slots this one has already spent. That is the
+  // original bug, arrived at through the fix.
+  //
+  // `pruned`, not `allInFlight`: this board renews what IT holds. Re-stamping a
+  // peer's marks with `now` would let a dead board's budget be renewed forever
+  // by a live board that never dispatched those branches.
+  const renewError = writeInFlight(opts.repoRoot, pruned);
+  if (renewError && controls.autoDispatch) {
+    // Logged and not fatal. A board that cannot WRITE its marks still dispatches
+    // — it may be the only board, and refusing here would stop a single-board
+    // fleet on a permissions problem. The conservative refusal is on the READ
+    // side, where an unknown shared answer can actually hide another board's
+    // worker.
+    console.log(`auto-dispatch: could not record in-flight marks: ${renewError}`);
+  }
+
+  if (shared.branches === null && controls.autoDispatch) {
+    // NAMED, because this refusal starts nothing and an operator reading a
+    // still fleet deserves the reason. The file exists and will not read, so
+    // this board cannot know what the others are holding — and counting only
+    // what it can see is the bug itself.
+    console.log(
+      `auto-dispatch: cannot read the shared in-flight record ` +
+      `(${shared.error}); starting nothing this pulse — another board may ` +
+      `already hold the budget`,
+    );
+  }
 
   // THE MACHINE DEFERS, AND IT SAYS WHAT IT MEASURED. Logged before the cap
   // arithmetic because it outranks it: a starved machine is not a full one, and
@@ -840,6 +993,8 @@ export function maybeAutoDispatch(
       // Same rule as the cap refusal: a deferral with nothing to dispatch is
       // routine, not a decision anybody needs to read every five seconds.
       if (hasEligible) console.log(`auto-dispatch: ${deferral}`);
+      // This board's own set, never the merged one — see the ownership note
+      // on the final return. An early return must not adopt a peer's marks.
       return pruned;
     }
     // NOT CLEAR, BUT NOT STARVED EITHER — the `tight` band, which dispatches.
@@ -858,7 +1013,7 @@ export function maybeAutoDispatch(
   // meaningfully. The switch being off is a deliberate absence, not a refusal;
   // the cap being reached is what needed visibility.
   if (controls.autoDispatch) {
-    const budget = controls.parallelAgents - (liveCount + pruned.size);
+    const budget = controls.parallelAgents - (liveCount + allInFlight.size);
     if (budget <= 0) {
       // THE SAME ARITHMETIC AND THE SAME SECOND QUESTION as `planAutoDispatch`.
       // These two must not diverge: this branch decides whether to log a
@@ -868,7 +1023,7 @@ export function maybeAutoDispatch(
       const free = freeAgentCount(agents, pulse);
       if (free <= 0) {
         const liveBranches = liveAgentBranches(agents, pulse);
-        const inFlightList = [...pruned];
+        const inFlightList = [...allInFlight];
         // Only log when there IS something to dispatch — a cap hit with no
         // eligible work is routine, not a refusal.
         const hasEligible = pulse.plans.some(
@@ -903,7 +1058,7 @@ export function maybeAutoDispatch(
   // Logged here, off the cap path, so a cap refusal and a claim skip are two
   // distinct sentences and neither repeats the other. One call per pulse.
   if (controls.autoDispatch) {
-    const skipped = skippedClaimedBranches(pulse, pruned);
+    const skipped = skippedClaimedBranches(pulse, allInFlight);
     if (skipped.length > 0) {
       console.log(
         `auto-dispatch: skipping claimed branch(es) a dispatch cannot start ` +
@@ -923,7 +1078,7 @@ export function maybeAutoDispatch(
   // wrong about main even when its own checkout lags. The spike measured a
   // checkout 20+ commits behind main, missing 7 briefs — filesystem reads would
   // have refused starts that should have happened.
-  const candidates = controls.autoDispatch ? dispatchCandidates(pulse, pruned) : [];
+  const candidates = controls.autoDispatch ? dispatchCandidates(pulse, allInFlight) : [];
   const missingBriefs = controls.autoDispatch
     ? findMissingBriefs(opts.repoRoot, candidates)
     : new Set<string>();
@@ -951,7 +1106,7 @@ export function maybeAutoDispatch(
   // `no-eligible-wave` asks for nothing — which is what makes a plan skipped
   // for briefs distinguishable from one skipped for anything else.
   if (controls.autoDispatch) {
-    const skipped = skippedPlans(pulse, pruned, missingBriefs);
+    const skipped = skippedPlans(pulse, allInFlight, missingBriefs);
     if (skipped.length > 0) {
       console.log(
         `auto-dispatch: skipping plan(s) with nothing startable: ` +
@@ -970,12 +1125,63 @@ export function maybeAutoDispatch(
     // The registry the cap was measured against, so the planner's free-agent
     // question is asked of the same fleet this function just logged about.
     agents,
-    inFlight: pruned,
+    // THIS BOARD'S MARKS PLUS EVERY OTHER BOARD'S. The planner charges the
+    // budget for all of them and drops all of them from the startable set, so a
+    // branch another board dispatched two seconds ago is neither started again
+    // nor counted as free capacity.
+    inFlight: allInFlight,
+    // The one fact the merged set cannot carry: whether the merge is complete.
+    // Read here, handed in as a value — the planner stays pure.
+    sharedInFlight: shared.branches !== null,
     missingBriefs,
   });
+
   if (plans.length === 0) return pruned;
-  const newly = runAutoDispatch(opts, pulse, plans, pruned, missingBriefs);
-  const next = new Set(pruned);
-  for (const b of newly) next.add(b);
-  return next;
+
+  // MARKED BEFORE THE SPAWN, NOT AFTER, and the order is the whole point. The
+  // window this slice closes is the one between deciding and being visible, so a
+  // mark written after the spawn leaves it open at its widest — and a crash
+  // between the two would leave a dispatch running that no board is charged for,
+  // which is the failure direction the plan forbids. Marking first can only
+  // over-mark (the script may start fewer than planned), and `runAutoDispatch`
+  // already states that asymmetry: over-marking makes the board briefly more
+  // conservative, never less.
+  //
+  // The branches are the ones `runAutoDispatch` will mark, derived by the same
+  // call with the same arguments — `startableBranches` is pure, so asking it
+  // twice cannot answer differently, and the spawn side keeps its own reading
+  // rather than being handed one.
+  const willStart: string[] = [];
+  for (const plan of plans) {
+    willStart.push(
+      ...startableBranches(pulse, plan.slug, allInFlight, missingBriefs).slice(0, plan.max),
+    );
+  }
+
+  // THIS BOARD'S OWN: `pruned` plus what it is about to start, and never the
+  // shared marks it merely read. Re-stamping a peer's marks with `now` would let
+  // a dead board's budget be renewed indefinitely by a live board that never
+  // dispatched those branches — the marks would stop expiring and the TTL would
+  // buy nothing. `writeInFlight` merges, so the peer's marks survive this write
+  // on their own timestamps; they are simply not refreshed by a board that does
+  // not own them.
+  const owned = new Set(pruned);
+  for (const b of willStart) owned.add(b);
+  const markError = writeInFlight(opts.repoRoot, owned);
+  if (markError) {
+    console.log(`auto-dispatch: could not record in-flight marks: ${markError}`);
+  }
+
+  const newly = runAutoDispatch(opts, pulse, plans, allInFlight, missingBriefs);
+  for (const b of newly) owned.add(b);
+
+  // THE RETURNED SET IS THIS BOARD'S, NOT THE MERGED ONE, and that is the same
+  // ownership rule the write above keeps. The caller assigns this to
+  // `entry.autoInFlight`, which is what the NEXT pulse renews; returning the
+  // merged set would make this board adopt every peer mark as its own and renew
+  // it forever, so a board that died would have its budget held by whichever
+  // board happened to read the file. The peers' marks are re-read fresh every
+  // pulse instead — the file is the shared answer, and this set is only ever
+  // this board's contribution to it.
+  return owned;
 }
