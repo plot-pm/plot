@@ -1115,6 +1115,67 @@ start_worker() {
   # A HAND-MADE WORKTREE GETS NEITHER, and that falls out rather than being
   # enforced: this is the only code that starts a wrapper, and a worktree with
   # no wrapper has nothing for a monitor to be a child of.
+  # WHAT THIS AGENT MAY TOUCH — `PLOT_CAPABILITIES`, AND WHY IT IS RESOLVED HERE.
+  #
+  # A charter's `capabilities` list is the one differentiation Plot can express
+  # that is not a rule. Everything else an agent is told is PROSE — text it reads
+  # and can reason past — and CLAUDE.md's own test settles what that makes it:
+  # *can you answer "did I complete this?" without doing the work?* An agent
+  # asked in prose not to edit the code it reviews can answer yes without it
+  # being true. A tool the harness never offers cannot be called.
+  #
+  # RESOLUTION, NEVER MATCHING, the rule `plot-worker-loop.sh:916` states for the
+  # prompt. `$PLOT_AGENT` is what the operator or the registry set; nothing here
+  # reads a plan, ranks a candidate or chooses an agent. This slice BOUNDS an
+  # agent and does not route to one — `matchQueue` is the assignment lock and is
+  # untouched.
+  #
+  # THE LIST TRAVELS, THE SPELLING DOES NOT. Plot carries capability NAMES and
+  # has no opinion about what they mean: Principle 5, *"Plot contains zero
+  # hardcoded project names, paths, or configuration"*. Different harnesses spell
+  # a tool restriction differently, so the prompt file turns a name into a flag —
+  # the same division the prompt itself draws. There is no capability enum here,
+  # no built-in `read-only`, and no tool table in the domain.
+  #
+  # ASKED OF THE BUNDLE, NOT OF THE FILE. `plot-prompt.mjs` already reads this
+  # charter through `readCharter`, which refuses an unknown key, a run fact and
+  # bytes that are not JSON. A `grep` for the field would happily read
+  # capabilities out of a charter the domain refuses outright.
+  #
+  # AN EXIT CODE, NOT AN EMPTINESS. Three readings print nothing on stdout and
+  # only one of them is a fault: no agent named, and a named agent with no
+  # charter on this clone, are the estate today; a charter that EXISTS and cannot
+  # be believed is a person's typo, and exits 3. Launching unbounded on it would
+  # run — successfully — under a scope nobody asked for.
+  #
+  # NOTHING IS EXPORTED WHERE NOTHING WAS DECLARED. An agent with no charter, or
+  # one naming no capabilities, exports no `PLOT_CAPABILITIES` at all — not an
+  # empty string. A prompt file probes `[ -n "$PLOT_CAPABILITIES" ]`, and a
+  # variable that is always set makes that probe meaningless.
+  #
+  # THE BUNDLE MISSING IS NOT A REFUSAL, `resolve_prompt_file`'s fourth arm: a
+  # checkout without it is a Plot installation problem rather than a statement
+  # about this agent. It says it could not ask and launches unbounded, which is
+  # what it did before this existed.
+  local capabilities='' cap_status=0
+  if [ -n "${PLOT_AGENT:-}" ]; then
+    if [ -f "$script_dir/board/plot-prompt.mjs" ]; then
+      capabilities=$(node "$script_dir/board/plot-prompt.mjs" --capabilities "$repo_root" "$PLOT_AGENT" 2>/dev/null)
+      cap_status=$?
+      if [ "$cap_status" -eq 3 ]; then
+        echo "    refusing to start $branch — the charter for agent '$PLOT_AGENT' cannot be read:"
+        node "$script_dir/board/plot-prompt.mjs" --capabilities "$repo_root" "$PLOT_AGENT" 2>&1 >/dev/null \
+          | sed 's/^/      /'
+        echo "      A charter that cannot be believed must not launch an agent, because the"
+        echo "      launch would succeed under a scope nobody asked for. Fix"
+        echo "      $repo_root/.plot/charters/$PLOT_AGENT.json or unset PLOT_AGENT."
+        return 1
+      fi
+    else
+      echo "    no plot-prompt.mjs beside this script — starting $branch without asking what agent '$PLOT_AGENT' may touch"
+    fi
+  fi
+
   local worker_monitor='' agent_monitor='' build_monitor=''
   [ -x "$script_dir/plot-worker-monitor.sh" ] && worker_monitor="$script_dir/plot-worker-monitor.sh"
   [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
@@ -1136,7 +1197,22 @@ start_worker() {
   # byte-identical to what it was — which is the 100% case, since zero charters
   # exist. `PLOT_AGENT` is forwarded too, so the loop's own `resolve_prompt_file`
   # asks about the same agent this launch resolved.
-  ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
+  ( cd "$wt" && \
+      # AN `export`, NOT AN ENV PREFIX, AND THE REASON IS A MEASUREMENT. Bash
+      # recognises an assignment prefix BEFORE it expands parameters, so a
+      # `${caps:+PLOT_CAPABILITIES="$caps"}` in the prefix below is not an
+      # assignment at all — it expands to a WORD, and bash then looks for a
+      # command by that name. Measured 2026-09-12: the empty case passed and
+      # every non-empty one failed with `PLOT_CAPABILITIES=read-only: command
+      # not found`, which would have broken every dispatch that had a charter
+      # while the case with no charter went on working.
+      #
+      # The conditional is what keeps an undeclared agent's variable UNSET
+      # rather than empty, so a prompt file's `[ -n "$PLOT_CAPABILITIES" ]`
+      # probe means what it says. This subshell is already the launch's own, so
+      # the export reaches the wrapper and nothing else.
+      { [ -n "$capabilities" ] && export PLOT_CAPABILITIES="$capabilities"; true; } && \
+      PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
       PLOT_SLUG="$slug" \
       PLOT_SESSION_ID="$session" \
       PLOT_AGENT="${PLOT_AGENT:-}" \
