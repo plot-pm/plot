@@ -75,7 +75,7 @@ Adding the branch and the agent to the marker is small and belongs here rather t
 
 ## Slices
 
-### An absent agent is noticed (Branch: feature/an-absent-agent-is-noticed)
+### An absent agent is noticed (Branch: feature/an-absent-agent-is-noticed, PR: #900)
 
 The fleet reports an agent whose process is gone, rather than reporting it `running`.
 
