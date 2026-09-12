@@ -1810,6 +1810,29 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
           stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-plans-'));
         }
         for (const plan of branchPlans) {
+          // THE JOIN, AND IT IS A JOIN RATHER THAN A PRECEDENCE RULE. Both
+          // readings are legitimate — a plan may live only in the working tree,
+          // and a plan may live only on a branch — so neither arm may be
+          // removed. What was missing is that this reader did not know what the
+          // working-tree reader already supplied, and a plan visible to both
+          // entered staging twice and reached `readPlanMeta` as two cards.
+          //
+          // `readBranchPlans` already performs exactly this exclusion at its own
+          // level, against `origin/<default>` and against other branches. A
+          // local-only path is in neither population, which is why that rule is
+          // right and simply was never asked about this third source.
+          //
+          // HERE RATHER THAN INSIDE THE COLLECTOR, and the reason is the cache:
+          // `branchPlanCache` is keyed on the repo plus the branch tip SHAs, and
+          // the working tree changes without any SHA moving. Filtering inside
+          // `collectBranchPlans` would write a working-tree-dependent answer
+          // into a ref-keyed cache and then serve it stale in exactly the
+          // direction that brings the duplicate back. This loop runs per build
+          // and has `localOnlyPaths` in scope; the collector has neither.
+          //
+          // Skipped BEFORE the counter is read, so a skipped plan consumes no
+          // staging directory and the numbering stays dense.
+          if (localOnlyPaths.has(plan.path)) continue;
           // Numbered off the same counter as the ref plans above, so the two
           // staged populations cannot collide on a shared basename.
           const dir = path.join(stageDir, String(canonicalPath.size));
