@@ -9,6 +9,7 @@
 - **Story:** an-agent-is-declared-and-corrected
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
@@ -65,7 +66,7 @@ Adding the branch and the agent to the marker is small and belongs here rather t
 
 ### Open Questions
 
-- [ ] What is the default budget? Two attempts is a starting point and nothing here measures it. It must be configurable, and the first real number should come from watching the fleet rather than from this plan.
+- [x] What is the default budget? **Two, configurable, and the config comment says it is a guess.** Nothing has measured it; the first real number comes from watching the fleet. Recording the guess as a guess is what stops it hardening into a decision nobody made.
 - [ ] Does a correction count against `Worker bound`? A corrected agent has been alive longer than its work suggests. Leaning yes — the bound is about the machine, not about progress.
 - [ ] Should a repo-gate failure (`pnpm test`) use the same path as a CI failure? Same shape, different detector. Out of scope here; the CI path is the one with a monitor already watching.
 
@@ -79,7 +80,11 @@ The fleet reports an agent whose process is gone, rather than reporting it `runn
 
 `plot-worker-state.sh` already owns this question and already names `stalled` — unlanded work with no live process. This slice makes the reading reach it, so `--status` stops printing `running` for a desk nobody is at.
 
-**It reports and reaps nothing.** Four desks measured today held work one step from done; a sweep that acted on this reading would have destroyed it. What to do about a stopped agent is the next slice's question and the operator's call.
+**It reaps nothing, and it hands the slice on.** Four desks measured today held work one step from done, so a sweep that deleted on this reading would have destroyed it. Instead the desk is **inherited untouched** and a new agent continues from it — the shape `--restart` already has, where *"a stall IS uncommitted work"* and one measured here left 324 finished lines on the floor.
+
+**The hand-over reuses `--restart`'s guards rather than writing a second, laxer set.** That is the argument `plot-dispatch --stop` makes against a second stop rule, and it matters more here because this path runs with nobody watching. **The PR is asked FIRST, before the state word** — five of five `failed` worktrees measured on this estate held one, four open and one merged — then a live pid, then a `PLOT-BLOCKED` marker. Any of the three refuses the hand-over and the desk waits for a person.
+
+**This reverses `--restart`'s own stated rule, and the reversal is deliberate.** That verb refuses to auto-select a branch because *"replacing a stopped worker rather than reviewing, reaping or abandoning its work is a person's call."* The measurement that overrides it: on 2026-09-11 four agents stopped, three held finished work, and every one sat untouched until a person read `ps`. The call was the operator's and the operator was not looking.
 
 ### A failed build becomes a correction (Branch: feature/a-failed-gate-becomes-a-correction)
 

@@ -9,6 +9,7 @@
 - **Story:** an-agent-is-declared-and-corrected
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
@@ -29,6 +30,12 @@
 **A plan is questioned alone, so a contradiction between siblings is invisible to both.** Measured in this story's own preparation: a plan proposed fixing a per-board cap that `fleet.ts:2691` already read from the shared registry. A juror holding the sibling plans would have seen it.
 
 ## Design
+
+### The panel gates on a verdict, never on existence
+
+**A juror returning `reject` refuses the approval. A panel that ran and found nothing refuses nothing.** So the gate fires on a finding rather than on a ritual, and a plan nobody has questioned is approvable exactly as it is today — which is what keeps the 73% from becoming unapprovable overnight.
+
+**A reject is cleared by a panel round that no longer rejects**, not by an override. The plan is amended and re-questioned; approval unblocks when no juror rejects. Nothing is overridden and no reason is recorded, because the finding does not get waived — it stops holding, and the next round is the evidence. That is re-derivable by anyone who reads the plan later, where an override is a claim about a conversation nobody else saw.
 
 ### Approach
 
@@ -58,8 +65,8 @@ So each caller names its own lenses and the mechanism knows none of them.
 
 ### Open Questions
 
-- [ ] Which siblings? The sprint is one answer; plans whose slices are eligible alongside this one is another, and closer to *what will be built at the same time*. The sprint is cheaper and is where this starts.
-- [ ] Does a Draft panel gate `/plot-approve`, or advise it? Gating makes 73% of plans suddenly unapprovable. Advising is the honest start, and a gate is a later decision with data behind it.
+- [x] Which siblings? **The sprint when one is active; every unfinished plan when none is.** All six sprints are Closed today, so the fallback is the normal case rather than an edge — ~6 plans on this estate. **The set is bounded and the panel names what it dropped**: most recently amended first, up to N, and the output says how many siblings went unread. A panel that silently truncates is a panel whose blind spot is invisible, which is the defect `plot-reconcile-scan.sh` avoids by reporting rather than deciding.
+- [x] Does a Draft panel gate `/plot-approve`, or advise it? **It gates on a verdict.** A `reject` refuses the approval; a panel that found nothing refuses nothing, and a plan never questioned is approvable as today. See *The panel gates on a verdict* above.
 - [ ] Does `Rounds:` distinguish a panel round from an interactive one? They are not equivalent work. A second field is a plan-format change and needs its own argument.
 
 ## Slices
