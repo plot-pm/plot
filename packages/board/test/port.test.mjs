@@ -183,6 +183,102 @@ describe('the default port is unchanged', () => {
   });
 });
 
+describe('the board answers on both loopback families', () => {
+  let tmp, server, stub;
+
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
+    stub = makeStubScripts();
+    writeImplementCommand(tmp, { bin: stub.implementBin });
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(() => {
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('answers at 127.0.0.1 AND at ::1, against one running board', async () => {
+    // THE assertion that separates the fix from the defect, and the reason it
+    // names both addresses rather than `localhost`: that name resolves to
+    // whichever family this machine prefers, so a request to it passes today,
+    // unfixed, against a board bound to one family alone.
+    //
+    // Measured on Node v24.4.1, 2026-09-12: `listen(port, 'localhost')` binds
+    // `::1` only, and a request to 127.0.0.1 gets ECONNREFUSED from a server
+    // that is up. Observed on the operator's board 2026-09-11 as `lsof`
+    // reporting `TCP [::1]:7777 (LISTEN)` while the page showed no contact for
+    // 18 polls.
+    for (const host of ['127.0.0.1', '::1']) {
+      const res = await request(server.port, { path: '/api/board', host });
+      assert.equal(res.status, 200, `no answer at ${host}: ${res.body}`);
+      assert.ok(JSON.parse(res.body).generatedAt, `no board payload at ${host}`);
+    }
+  });
+
+  it('binds both families on the SAME port under PORT=0', async () => {
+    // Catches a second bind that asked for `0` again instead of the port the
+    // first was given: the OS would assign a second, different port, the first
+    // family would work, and the second would answer somewhere nobody looks.
+    // `startServer` runs under PORT=0, so the port below was OS-assigned during
+    // the first listen — both answers above came from this one number.
+    assert.ok(server.port > 0);
+    const [four, six] = await Promise.all([
+      request(server.port, { path: '/api/board', host: '127.0.0.1' }),
+      request(server.port, { path: '/api/board', host: '::1' }),
+    ]);
+    assert.equal(four.status, 200, 'IPv4 did not answer on the reported port');
+    assert.equal(six.status, 200, 'IPv6 did not answer on the reported port');
+  });
+
+  it('keeps the write gate open on both families', async () => {
+    // Catches the `listen(port)` / `'::'` trap, which fails NO other test: the
+    // board comes up, /api/board answers correctly, and only the capabilities
+    // are dead. `isLocalCaller` is a three-value string equality over
+    // `localhost`, `127.0.0.1` and `::1`; the IPv6 wildcard `::` is in none of
+    // them, so a board bound there refuses all ten capabilities with "the board
+    // is bound to :: , not localhost" — a healthy process with broken buttons,
+    // the same shape of failure this suite's subject is fixing.
+    //
+    // Asserted as "not 403" rather than as one status: 403 is the gate refusing,
+    // and every other code means the request reached the handler behind it.
+    for (const host of ['127.0.0.1', '::1']) {
+      const res = await request(server.port, {
+        method: 'POST',
+        path: '/api/dispatch',
+        host,
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          origin: `http://localhost:${server.port}`,
+        },
+        body: JSON.stringify({ slug: 'ship-the-widget' }),
+      });
+      assert.notEqual(res.status, 403, `the write gate refused a caller at ${host}: ${res.body}`);
+    }
+  });
+
+  it('expands only a DEFAULT host, leaving an explicit HOST alone', async () => {
+    // An operator who named HOST chose an address, and quietly binding a second
+    // one would widen a surface they narrowed — the `0.0.0.0` path above all,
+    // which index.ts:141 records as having once published every write endpoint
+    // to every interface the machine had.
+    //
+    // The source is the assertion: the expansion reads `process.env.HOST`
+    // directly rather than the derived constant, which has already collapsed
+    // "unset" and "set to localhost" into one value.
+    const src = fs.readFileSync(
+      path.join(REPO_ROOT, 'packages/board/src/server/index.ts'),
+      'utf8',
+    );
+    assert.match(
+      src,
+      /process\.env\.HOST\s*\?\s*\[HOST\]\s*:\s*\['::1',\s*'127\.0\.0\.1'\]/,
+      'the bind list must expand only when HOST is unset',
+    );
+  });
+});
+
 describe('a second board names the first and exits', () => {
   let tmp, first;
 
