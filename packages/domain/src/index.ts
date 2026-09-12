@@ -58,6 +58,7 @@ export * from './rules/queue.js';
 export * from './rules/fleet-size.js';
 export * from './rules/sweepable.js';
 export * from './rules/prompt.js';
+export * from './rules/panel.js';
 export * from './rules/quiet.js';
 export * from './rules/supervisor-reading.js';
 export * from './rules/checks-reading.js';
