@@ -531,10 +531,65 @@ plot_worker_cpu_centis() { # $1=pid → total CPU centiseconds of pid+descendant
 # process at all returns 2 — *could not look* — rather than 1, because a failure
 # to observe is not evidence of something to see. The caller has already
 # established the pid answers `kill -0` before it asks this.
+# How long a wrapper must have been alive before its empty subtree means
+# anything.
+#
+# THE STARTUP WINDOW IS REAL AND IT IS THIS READING'S OWN. `kill -0` succeeds
+# the instant the wrapper exists, and the agent is forked some time after that —
+# measured 2026-09-12, 37 to 237 ms for a `sh` forking a trivial child, and a
+# real agent boots in seconds. A reading taken inside that window sees a worker
+# that is STARTING and would call it stopped.
+#
+# The file already documents the same hazard one level down: *"There is a
+# sub-millisecond window after the wrapper starts and before `.plot-worker.pid`
+# is written, and a scan landing in it reads `none` — honest."* That window is
+# tolerable because `none` tells a reader to look again; this one is not, because
+# the whole point of the reading is to let something ACT on a stopped agent, and
+# acting on a starting one hands its desk away as it boots.
+#
+# THIRTY SECONDS, AND IT IS A GUESS SAID OUT LOUD. Nothing has measured how long
+# an agent takes to appear under its wrapper on a loaded machine; this is an
+# order of magnitude above the worst observed fork and an order below the
+# shortest slice. It is overridable so the tests need not wait, and a project on
+# slower hardware can raise it.
+: "${PLOT_AGENT_GRACE_SECONDS:=30}"
+
+# The whole seconds a pid has been alive, or empty when it cannot be read.
+#
+# `etime` RATHER THAN `lstart`, because this needs a DURATION and `lstart` is a
+# date a caller would have to parse and subtract. `[[DD-]HH:]MM:SS` is parsed
+# from the right, the way `plot_worker_cpu_centis` parses its clock and for the
+# same reason: an absolute-seconds assumption wraps at 60.
+plot_pid_elapsed_seconds() { # $1=pid → whole seconds, or empty
+  local pid="$1" raw
+  [ -n "$pid" ] || return 1
+  raw=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ') || return 1
+  [ -n "$raw" ] || return 1
+  printf '%s' "$raw" | awk '
+    {
+      n = split($0, dh, "-")
+      days = (n == 2) ? dh[1] : 0
+      t = (n == 2) ? dh[2] : dh[1]
+      m = split(t, p, ":")
+      total = 0; mult = 1
+      for (i = m; i >= 1; i--) { total += p[i] * mult; mult *= 60 }
+      print total + (days * 86400)
+    }'
+}
+
 plot_worker_agent_alive() { # $1=pid → 0 agent present, 1 absent, 2 unaskable
-  local root="$1"
+  local root="$1" age
   [ -n "$root" ] || return 2
   case "$root" in *[!0-9]*) return 2 ;; esac
+
+  # A WRAPPER YOUNGER THAN THE GRACE IS UNASKABLE, NEVER ABSENT. It may be
+  # starting its agent right now, and `2` is the answer that says *could not
+  # look* — which the callers already resolve to today's behaviour. Absent is
+  # not false, and a failure to observe is not evidence of something to see.
+  age=$(plot_pid_elapsed_seconds "$root") || age=""
+  if [ -n "$age" ] && [ "$age" -lt "$PLOT_AGENT_GRACE_SECONDS" ] 2>/dev/null; then
+    return 2
+  fi
 
   # `comm=` IS THE EXECUTABLE, `command=` IS THE WHOLE INVOCATION, and this
   # needs the second. A wrapper whose argv merely NAMES the agent would match on

@@ -832,6 +832,71 @@ resolve_launch() { # $1 = repo root, $2 = agent name ('' when none)
   return 0
 }
 
+# WHETHER A DESK MAY BE HANDED TO A NEW WORKER — the ONE gate, two callers.
+#
+# EXTRACTED RATHER THAN COPIED, and that is the point. `--restart` asked these
+# three questions inline; `--absent` asks the same three over every orphaned
+# desk. A second, laxer set written for the sweep is the failure
+# `plot-dispatch --stop` already argues against for stop rules, and it matters
+# more here because the sweep runs with nobody watching.
+#
+# IT RETURNS RATHER THAN EXITS, which is the only change the extraction makes.
+# A verb acting on one branch exits on a refusal; a sweep over several must
+# refuse one desk and carry on to the next. The caller decides which.
+#
+# THE ORDER IS LOAD-BEARING AND IT IS THE MEASURED ONE:
+#
+# 1. THE PR, BEFORE THE STATE WORD. Five of five `failed` worktrees in this
+#    estate held a PR — four open, one already merged. `plot-worker-state.sh`
+#    refines `finished` by the tree but deliberately does NOT refine `failed`,
+#    `ended` or `none`, because a recorded non-zero exit is already a specific
+#    answer about the PROCESS — and silent about the WORK. A gate written on
+#    the state word alone would have restarted all five and discarded exactly
+#    what the `finished` refusal exists to protect.
+# 2. A LIVE WORKER. There is no --force: a flag overriding this is the flag
+#    typed reflexively, and what it would override is another agent's work in
+#    progress.
+# 3. A `PLOT-BLOCKED` MARKER. A person owes this branch an answer, and a new
+#    worker meets the same question and writes the same marker. Asked through
+#    `plot_worker_blocked_file`, never re-globbed: the marker's spelling lives
+#    with the classification in `plot-worker-state.sh` and only there.
+#
+# `stalled`, `failed`, `ended` and `no worker` all pass. The PR question is what
+# makes `failed` safe to include — and including it is the point: a gate that
+# simply refused `failed` would pass every refusal test and leave the verb
+# unable to do the one thing it exists for.
+handover_refusal() { # $1=branch $2=worktree $3=state → 0 may hand over, 1 refused
+  local branch="$1" wt="$2" state="$3" pr_json pr_num pr_state marker
+
+  if reached_review "$branch"; then
+    pr_json=$("$script_dir/plot-host.sh" pr-state "$branch" </dev/null 2>/dev/null || true)
+    pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+    pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+    echo "plot-dispatch: $branch has a pull request (#${pr_num:-?}, ${pr_state:-OPEN}) — refusing." >&2
+    echo "  The work reached review, whatever the worker's exit code says. A" >&2
+    echo "  restart here redoes work someone is already looking at." >&2
+    echo "  Review it, or reap the worktree once it merges." >&2
+    return 1
+  fi
+
+  case "$state" in
+    running*)
+      echo "plot-dispatch: a worker is alive on $branch (pid ${state#running }) — refusing." >&2
+      echo "  Stop it first if you mean to replace it:" >&2
+      echo "    plot-dispatch.sh --stop $branch" >&2
+      return 1
+      ;;
+    waiting*)
+      marker=$(plot_worker_blocked_file "$wt" || true)
+      echo "plot-dispatch: $branch is blocked on a question — refusing." >&2
+      echo "  the question is in $wt/${marker:-the marker file}" >&2
+      echo "  Answer it and delete the marker, then restart." >&2
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 start_worker() {
   local branch="$1" wt="$2"
   local cmd
@@ -1428,44 +1493,12 @@ if [ "$mode" = "restart" ]; then
   # Same lesson plot-reap.sh learned from the other side: it reads `mergedAt`
   # and never `state`, because a merged PR reports CLOSED. There the state word
   # lies about merging; here the exit code lies about completion.
-  if reached_review "$restart_branch"; then
-    pr_json=$("$script_dir/plot-host.sh" pr-state "$restart_branch" </dev/null 2>/dev/null || true)
-    pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
-    pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
-    echo "plot-dispatch: $restart_branch has a pull request (#${pr_num:-?}, ${pr_state:-OPEN}) — refusing." >&2
-    echo "  The work reached review, whatever the worker's exit code says. A" >&2
-    echo "  restart here redoes work someone is already looking at." >&2
-    echo "  Review it, or reap the worktree once it merges." >&2
-    exit 1
-  fi
 
   # Only now the process. `worker_state` is the ONE answer to "is a worker
   # running here" — asked rather than re-derived, so this cannot drift from
   # `--status` and the scan the way five of six states already did once.
   restart_state=$(worker_state "$restart_wt" "$restart_branch")
-  case "$restart_state" in
-    running*)
-      # THE REFUSAL THAT PREVENTS TWO WORKERS ON ONE BRANCH. There is no
-      # --force: a flag overriding this is the flag typed reflexively, and what
-      # it would override is another agent's work in progress.
-      echo "plot-dispatch: a worker is alive on $restart_branch (pid ${restart_state#running }) — refusing." >&2
-      echo "  Stop it first if you mean to replace it:" >&2
-      echo "    plot-dispatch.sh --stop $restart_branch" >&2
-      exit 1
-      ;;
-    waiting*)
-      # A person owes this branch an answer. A new worker meets the same
-      # question and writes the same marker.
-      # ASKED, NOT RE-GLOBBED. The marker's spelling lives with the
-      # classification in plot-worker-state.sh and only there; a copy of the
-      # glob here is the drift `workerstate.test.mjs` pins against.
-      marker=$(plot_worker_blocked_file "$restart_wt" || true)
-      echo "plot-dispatch: $restart_branch is blocked on a question — refusing." >&2
-      echo "  the question is in $restart_wt/${marker:-the marker file}" >&2
-      echo "  Answer it and delete the marker, then restart." >&2
-      exit 1
-      ;;
-  esac
+  handover_refusal "$restart_branch" "$restart_wt" "$restart_state" || exit 1
   # `stalled`, `failed`, `ended` and `no worker` all restart. The PR question
   # above is what makes `failed` safe to include — and including it is the
   # point: a gate that simply refused `failed` would pass every refusal test

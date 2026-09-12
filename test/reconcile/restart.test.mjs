@@ -120,6 +120,13 @@ function ghShim({ state = null } = {}) {
 // which is exactly the behaviour under test.
 function run(repo, args, { gh = null, expectFail = false } = {}) {
   const env = { ...process.env };
+  // WHAT COUNTS AS THE AGENT, IN THIS TEST'S WORLD. The liveness reading asks
+  // whether a process named `$PLOT_AGENT_PROCESS` runs under the recorded pid,
+  // and the name is the project's — Plot hardcodes no tooling. `spawnLive`
+  // builds its worker out of `sleep`, so the tests declare `sleep` to be the
+  // agent rather than shipping a real agent binary into a fixture. The reading
+  // under test is process TOPOLOGY, which this leaves untouched.
+  env.PLOT_AGENT_PROCESS = 'sleep';
   if (gh) env.PATH = `${gh}:${env.PATH}`;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-restart-out-'));
   ctx.push(dir);
@@ -162,9 +169,38 @@ function recordWorker(repo, wt, pid, { session = 'sess-old', branch = 'feature/s
     }, null, 2) + '\n');
 }
 
+// A LIVE WORKER'S SHAPE, NOT MERELY A LIVE PID.
+//
+// This spawned a bare `sleep` and recorded it as the worker until 2026-09-12.
+// That was faithful while liveness meant `kill -0` on the recorded pid, and it
+// stopped being faithful when liveness started asking whether an AGENT runs
+// under that pid: a lone `sleep` is precisely the orphaned wrapper the reading
+// now reports, so three tests here asserted `running` about the one tree the
+// fleet had just learned to call stopped.
+//
+// THE FIXTURE MOVED, NOT THE READING. Measured the same day on this machine,
+// two of three live fleet workers carried an agent process in their subtree and
+// the third had been sitting twelve hours with only `bash` and `sleep` under it.
+// Every recorded pid was `bash` — the loop shell, never the agent. So the
+// production shape is a wrapper WITH an agent beneath it, and a fixture without
+// one describes the defect rather than the worker. Weakening the reading to keep
+// the old fixture green would put the defect back behind a passing test.
+//
+// THE AGENT IS A CHILD, NOT THE RECORDED PID, because the reading excludes the
+// root: the recorded pid is the wrapper by construction, so a root match could
+// only ever be a false positive. `PLOT_AGENT_PROCESS` names what to look for
+// and the tests set it to `sleep`, which keeps the fixture free of a real agent
+// binary — the reading is about process TOPOLOGY, and the name is the project's.
+//
+// `nohup … & exec` IS THE SURVIVING-PROCESS IDIOM `dispatch.test.mjs` already
+// uses. `exec` replaces the shell without changing the pid, so the number this
+// returns stays valid; `nohup` with `&` detaches it, so the runner's own exit
+// does not reap it — the trap this repo recorded as "the worker is reaped when
+// the dispatcher exits under node --test".
 function spawnLive() {
-  return execFileSync('bash', ['-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'],
-    { encoding: 'utf8' }).trim();
+  return execFileSync('bash', ['-c',
+    "nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
+  ], { encoding: 'utf8' }).trim();
 }
 
 // Every manifest in the registry, newest session first by file mtime.
