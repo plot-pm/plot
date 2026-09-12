@@ -6,6 +6,7 @@
 
 - **State:** Draft
 - **Type:** feature
+- **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** an-agent-is-declared-and-corrected
 - **Review:** pr
 - **Impl:** own branches

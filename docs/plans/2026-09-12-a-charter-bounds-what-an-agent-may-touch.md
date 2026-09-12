@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
+- **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** an-agent-is-declared-and-corrected
 - **Review:** in-session
 - **Impl:** own branches
