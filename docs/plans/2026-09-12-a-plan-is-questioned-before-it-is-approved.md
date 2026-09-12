@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** an-agent-is-declared-and-corrected
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-12, jwloka, in-session
 - **Rounds:** 2
 - **Started:** 2026-09-12, Jan Wloka, `feature/a-plan-is-questioned-before-it-is-approved`
+- **Delivered:** 2026-09-12
 
 ## Changelog
 
