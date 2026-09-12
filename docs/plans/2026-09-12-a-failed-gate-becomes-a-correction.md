@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-12, jwloka, in-session
 - **Rounds:** 2
 - **Started:** 2026-09-12, Jan Wloka, `feature/an-absent-agent-is-noticed`
+- **Started:** 2026-09-12, Jan Wloka, `feature/a-failed-gate-becomes-a-correction`
 
 ## Changelog
 
