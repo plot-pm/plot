@@ -90,7 +90,7 @@ The fleet reports an agent whose process is gone, rather than reporting it `runn
 
 **This reverses `--restart`'s own stated rule, and the reversal is deliberate.** That verb refuses to auto-select a branch because *"replacing a stopped worker rather than reviewing, reaping or abandoning its work is a person's call."* The measurement that overrides it: on 2026-09-11 four agents stopped, three held finished work, and every one sat untouched until a person read `ps`. The call was the operator's and the operator was not looking.
 
-### A failed build becomes a correction (Branch: feature/a-failed-gate-becomes-a-correction)
+### A failed build becomes a correction (Branch: feature/a-failed-gate-becomes-a-correction, PR: #904)
 
 The correction file in the desk, the loop's consumption of it, the attempt budget, and the superseded-sha discard.
 
