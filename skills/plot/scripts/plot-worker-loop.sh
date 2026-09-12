@@ -1170,6 +1170,125 @@ resolve_prompt_file() { # $1 = repo root, $2 = agent name ('' when none)
 # ---------------------------------------------------------------------------
 # EVERYTHING ABOVE IS DEFINITIONS; EVERYTHING BELOW STARTS A WORKER
 # ---------------------------------------------------------------------------
+# THE BUILD'S VERDICT — the finding this loop now corrects on
+# ---------------------------------------------------------------------------
+#
+# IT IS DEFINED ABOVE THE `PLOT_WORKER_LOOP_SOURCED` GUARD, BESIDE THE MANIFEST
+# READERS AND NOT BESIDE `monitor_says_idle`, WHICH IT OTHERWISE MIRRORS. The
+# guard returns before that function is defined, so a test sourcing this file to
+# drive it gets `command not found` — exit 127, which a caller reading only the
+# status reads as *no correction owed*. Measured while building this slice: eight
+# discard tests passed against a function that had never been defined, and every
+# one of them would have passed against no implementation at all. These two are
+# pure — one `grep` and one `rev-parse`, no loop state — so position costs
+# nothing and being sourceable is what makes the discards assertable.
+#
+# `plot-build-monitor.sh` detects a failing run and publishes `build failed`
+# with the run URL, the head sha and the conclusion. Until this slice, consumers
+# of that finding on the estate were NONE: `buildMonitorPid` was read by the
+# board's registry and the finding itself by nothing, so CI's verdict was
+# measured, published, and dropped.
+#
+# WHERE THE FINDINGS ARE. The same derivation `monitor_findings_file` makes for
+# the WorkerMonitor, against the BuildMonitor's own filename. It is duplicated
+# at one line rather than plumbed, for that function's stated reason: the
+# wrapper starts the monitors, the loop is started BY the wrapper's command, and
+# no env var travels between them. `PLOT_BUILD_MONITOR_FILE` is read first so
+# the day the wrapper passes one, this follows it without a second change.
+build_findings_file() {
+  printf '%s' "${PLOT_BUILD_MONITOR_FILE:-${PLOT_WORKTREE:+$PLOT_WORKTREE/.plot-worker.monitor.build.jsonl}}"
+}
+
+# Does the BuildMonitor's LATEST finding say a build failed, and is it about the
+# code this desk is holding right now?
+#
+# → prints the finding's `evidence` when a correction is owed; nothing otherwise
+#
+# THE LAST MATCHING LINE, NEVER ANY LINE. `monitor_says_idle` states the rule
+# and the BuildMonitor makes it sharper: that monitor publishes on a change of
+# ANSWER-ABOUT-A-COMMIT, so a desk whose build failed and whose next push passed
+# carries `build failed` followed by `build passed`, both forever, in one file.
+# Grepping the file for the word would correct an agent whose build has since
+# gone green — the single most likely defect in this path, and the one that
+# wastes a whole correction telling an agent to fix work that is already right.
+#
+# THE MONITOR IS MATCHED BY NAME. The AgentMonitor and the WorkerMonitor write
+# beside this file under the same `.plot-worker.monitor.` prefix with different
+# vocabularies — one reports what an agent OWES, a Registry-side fact, the other
+# what a process is DOING. Taking either as a verdict about a build is exactly
+# the Machine/Registry confusion CLAUDE.md's split exists to prevent, so the
+# match is anchored on the `"monitor":"BuildMonitor"` field the monitor stamps
+# into every line. `monitor_says_idle` is the precedent.
+#
+# GREP RATHER THAN A JSON PARSER, for `monitor_says_idle`'s reason unchanged:
+# the line is written by `printf` in `plot-build-monitor.sh:publish` with a
+# fixed field order, so the fields sit at known positions in a known shape, and
+# a `node -e` per poll would fork an interpreter inside a worker whose whole
+# point is to leave the machine alone for the agent.
+#
+# A FINDING FILE THAT DOES NOT EXIST IS NOT A PASSING BUILD. It is no reading at
+# all — no monitor ran, or none has published yet — and the answer is that
+# nothing is owed, which is the same shape `monitor_says_idle` takes for an
+# unreadable file.
+build_says_failed() { # → prints the evidence, or nothing
+  local f
+  f=$(build_findings_file)
+  [ -n "$f" ] && [ -s "$f" ] || return 1
+  local last
+  last=$(grep '"monitor":"BuildMonitor"' "$f" 2>/dev/null | tail -n 1)
+  [ -n "$last" ] || return 1
+  case "$last" in (*'"finding":"build failed"'*) ;; (*) return 1 ;; esac
+
+  # THE EVIDENCE IS THE MESSAGE, TAKEN VERBATIM. The monitor already wrote *"the
+  # run at <url> for <sha> concluded <conclusion>"* — the run URL and the
+  # conclusion are what a person would read, and a summary here would be a
+  # second interpretation of something CI stated precisely. So the field is
+  # passed through rather than rebuilt.
+  #
+  # THE FIELD IS CUT AT ITS OWN BOUNDARIES rather than by counting: `evidence`
+  # is followed by `measuredAt` in a fixed order, so the prefix is removed up to
+  # the key and the suffix from the next key on.
+  local evidence="${last#*\"evidence\":\"}"
+  evidence="${evidence%%\",\"measuredAt\"*}"
+  [ -n "$evidence" ] || return 1
+
+  # A CORRECTION ABOUT A SUPERSEDED SHA IS DISCARDED, NOT DELIVERED. The monitor
+  # already refuses the inverse — `head moved` exists because *"A green result
+  # for code nobody will merge is worse than no result"* — and a failure about a
+  # sha the agent has already replaced is answered by work that is already done.
+  # Delivering it would spend a correction asking for a fix that landed before
+  # the question arrived.
+  #
+  # THE COMPARISON IS AT CONSUMPTION TIME, and it has to be: the finding was
+  # true when published and the branch has had minutes to move since. The
+  # monitor's own `settled_shas` cannot answer this — it stops the monitor
+  # re-asking, and says nothing about whether a subscriber should still act.
+  #
+  # THE SHA IS READ OUT OF THE EVIDENCE because the finding carries it nowhere
+  # else: `publish` writes seven fields and none of them is the commit. Adding
+  # one would be a monitor change for a fact its own sentence already states, so
+  # the sentence is parsed — `for <sha> concluded` — and the shape is pinned by
+  # a contract test against the monitor's real output rather than assumed.
+  #
+  # AN UNREADABLE SHA ON EITHER SIDE DELIVERS. A finding whose sentence does not
+  # carry one, or a worktree whose HEAD cannot be read, is not evidence that the
+  # failure is stale — and the failing direction matters: discarding on an
+  # unreadable reading would silently drop every correction the moment the
+  # sentence changed shape, where delivering one costs a correction against a
+  # budget that ends in a person either way.
+  local finding_sha head_sha
+  finding_sha="${evidence##*for }"
+  finding_sha="${finding_sha%% concluded*}"
+  case "$evidence" in (*" for "*" concluded "*) ;; (*) finding_sha='' ;; esac
+  head_sha=$(git -C "${PLOT_WORKTREE:-$PWD}" rev-parse --verify --quiet HEAD 2>/dev/null || true)
+  if [ -n "$finding_sha" ] && [ -n "$head_sha" ] && [ "$finding_sha" != "$head_sha" ]; then
+    return 1
+  fi
+
+  printf '%s' "$evidence"
+}
+
+# ---------------------------------------------------------------------------
 #
 # `PLOT_WORKER_LOOP_SOURCED=1` STOPS HERE, so a test can take the definitions
 # without launching anything. The desk decision — `desk_is_resettable`,
@@ -1369,114 +1488,6 @@ monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
   return 1
 }
 
-# ---------------------------------------------------------------------------
-# THE BUILD'S VERDICT — the finding this loop now corrects on
-# ---------------------------------------------------------------------------
-#
-# `plot-build-monitor.sh` detects a failing run and publishes `build failed`
-# with the run URL, the head sha and the conclusion. Until this slice, consumers
-# of that finding on the estate were NONE: `buildMonitorPid` was read by the
-# board's registry and the finding itself by nothing, so CI's verdict was
-# measured, published, and dropped.
-#
-# WHERE THE FINDINGS ARE. The same derivation `monitor_findings_file` makes for
-# the WorkerMonitor, against the BuildMonitor's own filename. It is duplicated
-# at one line rather than plumbed, for that function's stated reason: the
-# wrapper starts the monitors, the loop is started BY the wrapper's command, and
-# no env var travels between them. `PLOT_BUILD_MONITOR_FILE` is read first so
-# the day the wrapper passes one, this follows it without a second change.
-build_findings_file() {
-  printf '%s' "${PLOT_BUILD_MONITOR_FILE:-${PLOT_WORKTREE:+$PLOT_WORKTREE/.plot-worker.monitor.build.jsonl}}"
-}
-
-# Does the BuildMonitor's LATEST finding say a build failed, and is it about the
-# code this desk is holding right now?
-#
-# → prints the finding's `evidence` when a correction is owed; nothing otherwise
-#
-# THE LAST MATCHING LINE, NEVER ANY LINE. `monitor_says_idle` states the rule
-# and the BuildMonitor makes it sharper: that monitor publishes on a change of
-# ANSWER-ABOUT-A-COMMIT, so a desk whose build failed and whose next push passed
-# carries `build failed` followed by `build passed`, both forever, in one file.
-# Grepping the file for the word would correct an agent whose build has since
-# gone green — the single most likely defect in this path, and the one that
-# wastes a whole correction telling an agent to fix work that is already right.
-#
-# THE MONITOR IS MATCHED BY NAME. The AgentMonitor and the WorkerMonitor write
-# beside this file under the same `.plot-worker.monitor.` prefix with different
-# vocabularies — one reports what an agent OWES, a Registry-side fact, the other
-# what a process is DOING. Taking either as a verdict about a build is exactly
-# the Machine/Registry confusion CLAUDE.md's split exists to prevent, so the
-# match is anchored on the `"monitor":"BuildMonitor"` field the monitor stamps
-# into every line. `monitor_says_idle` is the precedent.
-#
-# GREP RATHER THAN A JSON PARSER, for `monitor_says_idle`'s reason unchanged:
-# the line is written by `printf` in `plot-build-monitor.sh:publish` with a
-# fixed field order, so the fields sit at known positions in a known shape, and
-# a `node -e` per poll would fork an interpreter inside a worker whose whole
-# point is to leave the machine alone for the agent.
-#
-# A FINDING FILE THAT DOES NOT EXIST IS NOT A PASSING BUILD. It is no reading at
-# all — no monitor ran, or none has published yet — and the answer is that
-# nothing is owed, which is the same shape `monitor_says_idle` takes for an
-# unreadable file.
-build_says_failed() { # → prints the evidence, or nothing
-  local f
-  f=$(build_findings_file)
-  [ -n "$f" ] && [ -s "$f" ] || return 1
-  local last
-  last=$(grep '"monitor":"BuildMonitor"' "$f" 2>/dev/null | tail -n 1)
-  [ -n "$last" ] || return 1
-  case "$last" in (*'"finding":"build failed"'*) ;; (*) return 1 ;; esac
-
-  # THE EVIDENCE IS THE MESSAGE, TAKEN VERBATIM. The monitor already wrote *"the
-  # run at <url> for <sha> concluded <conclusion>"* — the run URL and the
-  # conclusion are what a person would read, and a summary here would be a
-  # second interpretation of something CI stated precisely. So the field is
-  # passed through rather than rebuilt.
-  #
-  # THE FIELD IS CUT AT ITS OWN BOUNDARIES rather than by counting: `evidence`
-  # is followed by `measuredAt` in a fixed order, so the prefix is removed up to
-  # the key and the suffix from the next key on.
-  local evidence="${last#*\"evidence\":\"}"
-  evidence="${evidence%%\",\"measuredAt\"*}"
-  [ -n "$evidence" ] || return 1
-
-  # A CORRECTION ABOUT A SUPERSEDED SHA IS DISCARDED, NOT DELIVERED. The monitor
-  # already refuses the inverse — `head moved` exists because *"A green result
-  # for code nobody will merge is worse than no result"* — and a failure about a
-  # sha the agent has already replaced is answered by work that is already done.
-  # Delivering it would spend a correction asking for a fix that landed before
-  # the question arrived.
-  #
-  # THE COMPARISON IS AT CONSUMPTION TIME, and it has to be: the finding was
-  # true when published and the branch has had minutes to move since. The
-  # monitor's own `settled_shas` cannot answer this — it stops the monitor
-  # re-asking, and says nothing about whether a subscriber should still act.
-  #
-  # THE SHA IS READ OUT OF THE EVIDENCE because the finding carries it nowhere
-  # else: `publish` writes seven fields and none of them is the commit. Adding
-  # one would be a monitor change for a fact its own sentence already states, so
-  # the sentence is parsed — `for <sha> concluded` — and the shape is pinned by
-  # a contract test against the monitor's real output rather than assumed.
-  #
-  # AN UNREADABLE SHA ON EITHER SIDE DELIVERS. A finding whose sentence does not
-  # carry one, or a worktree whose HEAD cannot be read, is not evidence that the
-  # failure is stale — and the failing direction matters: discarding on an
-  # unreadable reading would silently drop every correction the moment the
-  # sentence changed shape, where delivering one costs a correction against a
-  # budget that ends in a person either way.
-  local finding_sha head_sha
-  finding_sha="${evidence##*for }"
-  finding_sha="${finding_sha%% concluded*}"
-  case "$evidence" in (*" for "*" concluded "*) ;; (*) finding_sha='' ;; esac
-  head_sha=$(git -C "${PLOT_WORKTREE:-$PWD}" rev-parse --verify --quiet HEAD 2>/dev/null || true)
-  if [ -n "$finding_sha" ] && [ -n "$head_sha" ] && [ "$finding_sha" != "$head_sha" ]; then
-    return 1
-  fi
-
-  printf '%s' "$evidence"
-}
 
 # Could the agent's transcript be read for this worktree at all? `yes` | `no`.
 #
