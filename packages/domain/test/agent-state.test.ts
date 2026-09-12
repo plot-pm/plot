@@ -74,6 +74,35 @@ describe('agentState', () => {
     );
   });
 
+  it('answers with the DESK for an orphaned wrapper, never with the process', () => {
+    // THE WRAPPER IS ALIVE AND THE AGENT IS GONE. The recorded pid is the loop
+    // shell, and `kill -0` on it succeeds for the whole `Worker bound` whether
+    // or not an agent runs inside: measured 2026-09-11, four agents ended
+    // mid-slice and every one reported `running`.
+    //
+    // IT ROUTES TO THE DESK BECAUSE THE PROCESS HAS NOTHING LEFT TO SAY. The
+    // wrapper has not exited, so it has written no exit code and never will
+    // within its bound — `exit` reads absent, and `ended` would throw away the
+    // one thing that can still be read. Three of those four desks held work one
+    // step from done, so `ended` would have said the run was over while the WORK
+    // was one push from done.
+    expect(
+      agentState(desk({ pidRecorded: true, liveness: 'orphaned', exit: null, task: task({ dirty: true }) })),
+    ).toBe('stalled');
+    expect(
+      agentState(desk({ pidRecorded: true, liveness: 'orphaned', exit: null, task: task({ blocked: true }) })),
+    ).toBe('waiting');
+    expect(
+      agentState(desk({ pidRecorded: true, liveness: 'orphaned', exit: null })),
+    ).toBe('finished');
+    // AND IT OUTRANKS THE EXIT ARMS, which is the ordering this fixes. A stale
+    // exit record from an earlier run of the same desk must not decide a state
+    // the desk is entitled to answer.
+    expect(
+      agentState(desk({ pidRecorded: true, liveness: 'orphaned', exit: '3', task: task({ dirty: true }) })),
+    ).toBe('stalled');
+  });
+
   it('answers ended when no exit was recorded', () => {
     // A worker killed outright leaves no file. Guessing `finished` is the same
     // mistake in the other direction, and `finished` tells a reader to stop
