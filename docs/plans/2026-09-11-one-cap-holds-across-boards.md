@@ -6,6 +6,7 @@
 
 - **State:** Delivered
 - **Type:** bug
+- **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches

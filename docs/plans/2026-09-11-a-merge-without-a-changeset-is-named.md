@@ -6,6 +6,7 @@
 
 - **State:** Delivered
 - **Type:** feature
+- **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** plot-gates
 - **Review:** pr
 - **Impl:** own branches

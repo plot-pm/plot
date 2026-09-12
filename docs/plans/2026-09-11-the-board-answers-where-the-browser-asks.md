@@ -6,6 +6,7 @@
 
 - **State:** Delivered
 - **Type:** bug
+- **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
