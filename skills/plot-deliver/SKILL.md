@@ -188,9 +188,11 @@ For each non-deferred branch:
 ### 5. Verify Plan Completeness
 
 > **Model tiers for this step:**
-> - **Frontier (e.g., Opus):** Full deliverable extraction, parallel PR diff review via subagents (small-model subagents gather diffs, frontier consolidates), Done/Partial/Missing checklist.
-> - **Mid (e.g., Sonnet):** Extract deliverables and check PR titles/descriptions (skip full diff review). Can delegate PR metadata collection to small subagents. Present a simplified checklist based on PR metadata rather than code changes. Ask user to verify.
+> - **Frontier (e.g., Opus):** Full deliverable extraction, the lens panel through `/plot-panel` (each juror reads the plan's merged diffs and runs what the deliverables claim), reading the moderation into a Done/Partial/Missing checklist.
+> - **Mid (e.g., Sonnet):** Extract deliverables and run the panel with fewer lenses, or check PR titles/descriptions and skip the diff review. Present a simplified checklist based on PR metadata rather than code changes. Ask user to verify.
 > - **Small (e.g., Haiku):** Skip entirely. Verify all PRs are merged (step 4), then ask: "All implementation PRs are merged. Ready to deliver this plan?" Human judgment is the final gate.
+>
+> **The commitment checks are Small at every tier** — `plot-panel.mjs check` is one script call per label per juror and an exit code decides it. A tier that skips the panel is reported as a delivery no lens questioned, never as a clean one.
 
 Compare what the plan promised against what was actually delivered.
 
