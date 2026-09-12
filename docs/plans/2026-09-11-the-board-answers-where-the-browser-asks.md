@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-11, jwloka, in-session
 - **Started:** 2026-09-12, jwloka, `bug/the-board-answers-on-both-loopback-families`
+- **Started:** 2026-09-12, Jan Wloka, `bug/one-plan-is-one-card`
 
 ## Changelog
 
