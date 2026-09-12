@@ -69,7 +69,7 @@ The code still says `Wave` where it means `Slice`. That is a known defect with i
 |---|---|---|
 | 1 | [an-agent-declares-what-it-runs](../../plans/2026-09-12-an-agent-declares-what-it-runs.md) | the charter's `harness`, `model` and `effort` reach the invocation |
 | 2 | [a-charter-bounds-what-an-agent-may-touch](../../plans/2026-09-12-a-charter-bounds-what-an-agent-may-touch.md) | `capabilities` becomes an enforced tool scope, not a prompt |
-| 3 | [a-failed-gate-becomes-a-correction](../../plans/2026-09-12-a-failed-gate-becomes-a-correction.md) | the build finding reaches the agent that caused it |
+| 3 | [a-failed-gate-becomes-a-correction](../../plans/2026-09-12-a-failed-gate-becomes-a-correction.md) | an absent agent is noticed, and a build finding reaches the agent that caused it |
 | 4 | [a-panel-questions-one-plan](../../plans/2026-09-12-a-panel-questions-one-plan.md) | the panel mechanism: fan-out, verdict files, commitment gate, reconciliation |
 | 5 | [a-plan-is-questioned-before-it-is-approved](../../plans/2026-09-12-a-plan-is-questioned-before-it-is-approved.md) | the Draft panel, and the delivery panel it shares a mechanism with |
 

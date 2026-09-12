@@ -12,20 +12,26 @@
 
 ## Changelog
 
+- The fleet reports an agent whose process has gone, instead of reporting it `running`. The reading is the agent's own `claude` process, never the wrapper's CPU, which is near zero whether the agent is alive or dead.
 - A failing build is handed back to the agent that pushed it, in the same session, up to a bounded number of attempts. A `PLOT-BLOCKED` marker is written once the budget is spent rather than on the first failure.
+- Every `PLOT-BLOCKED` marker names the branch and agent that wrote it.
 
-<!-- Board impact: the agent row gains a correction count. AgentEntry and the
-     board's schema both change; rebuild the artifact. -->
+<!-- Board impact: the agent row gains a correction count and an absent-process
+     reading. AgentEntry and the board's schema both change; rebuild the artifact. -->
 
 ## Motivation
 
-**The failure is already measured and reaches nobody.** `plot-build-monitor.sh:370` publishes `build failed` with the run URL, the head sha and the conclusion. Consumers of that finding on the estate, measured 2026-09-12: **none**. `buildMonitorPid` is read by the board's registry; the finding itself is read by nothing.
+**A worker that stops is invisible until a person reads `ps`.** Measured 2026-09-11, in one session: **four agents** ended mid-slice. None failed a build, none wrote a `PLOT-BLOCKED` marker, and every one reported `running` in `plot-fleetctl.sh --status` with a plausible quiet time. Three of them left **8 commits and 9 uncommitted files** on their desks, each with an unstaged `.changeset/` file — the last thing written before pushing. Every one was one step from done, and all three would have been reaped as abandoned.
 
-**The only correction path is a person.** `plot-worker-loop.sh:1683` writes a marker ending *"fix the invocation in the prompt file, then restart this agent."* That is right for a prompt that never ran — the case it was written for. It is the only shape Plot has, so a failing test produces a stopped agent rather than a second attempt.
+**The wrapper's CPU cannot tell a live agent from a dead one.** Both read `0.02s over ~50 minutes`, because the work happens in a grandchild. The only reliable test is whether a `claude` process exists two levels down — which nothing in Plot performs.
 
-**Three measured incidents are this gap.** Four workers hung in one session with nothing but bash and sleep. A stalled worker exited 0 leaving 324 uncommitted lines, indistinguishable from success. A worker sat at 0% CPU with its PR already open. In each case a correction existed and nothing delivered it.
+**So the fleet's most expensive failure today was not a failing gate. It was an absent process.** That is what this plan must answer first.
 
-**The pieces are all present.** The session id is on the manifest, the resume flag is the loop's decision, `attempts` is the supervisor's counter and the only one the budget reads, and the monitor knows the build failed. Nothing joins them.
+**A failing build is the second half, and it is measured too.** `plot-build-monitor.sh:370` detects a failing run and publishes `build failed` with the run URL, the head sha and the conclusion. Consumers of that finding on the estate: **none**. `buildMonitorPid` is read by the board's registry; the finding itself is read by nothing. So CI's verdict is measured, published, and dropped.
+
+**The only correction path is a person.** `plot-worker-loop.sh:1683` writes a marker ending *"fix the invocation in the prompt file, then restart this agent."* That is right for a prompt that never ran — the case it was written for — and it is the only shape Plot has.
+
+**The pieces are all present.** The session id is on the manifest, the resume flag is the loop's decision, `attempts` is the supervisor's counter and the only one the budget reads, and `plot-worker-state.sh` already names `stalled` — unlanded work with no live process. Nothing joins them.
 
 ## Design
 
@@ -65,13 +71,29 @@ Adding the branch and the agent to the marker is small and belongs here rather t
 
 ## Slices
 
+### An absent agent is noticed (Branch: feature/an-absent-agent-is-noticed)
+
+The fleet reports an agent whose process is gone, rather than reporting it `running`.
+
+**The reading is the `claude` process two levels down**, never the wrapper's CPU: measured 2026-09-11, a healthy agent's wrapper shows `0.02s over 25 minutes` because the work happens in a grandchild, and a dead one shows the same. A live agent has a `claude` child with CPU accruing; a dead one has only `sleep 28800` and `sleep 5`.
+
+`plot-worker-state.sh` already owns this question and already names `stalled` — unlanded work with no live process. This slice makes the reading reach it, so `--status` stops printing `running` for a desk nobody is at.
+
+**It reports and reaps nothing.** Four desks measured today held work one step from done; a sweep that acted on this reading would have destroyed it. What to do about a stopped agent is the next slice's question and the operator's call.
+
 ### A failed build becomes a correction (Branch: feature/a-failed-gate-becomes-a-correction)
 
 The correction file in the desk, the loop's consumption of it, the attempt budget, and the superseded-sha discard.
 
+The BuildMonitor's `build failed` finding becomes a file the loop reads on its next pass, resuming the agent's session with the failure text verbatim. The budget is the loop's, read from config; an agent cannot extend it by declaring itself unfinished.
+
+**A correction about a superseded sha is discarded, not delivered** — the monitor already distinguishes `head moved`, and a failure about a sha the agent has replaced is answered by work already done.
+
 ### A marker names its writer (Branch: feature/a-marker-names-its-writer)
 
-Branch and agent on every `PLOT-BLOCKED` marker. Independent of the slice above — a marker gains a field whether or not corrections exist — but it belongs to this plan because a correction loop is what raises the rate of markers.
+Branch and agent on every `PLOT-BLOCKED` marker.
+
+Independent of both slices above — a marker gains a field whether or not corrections exist — but it belongs here because a correction loop raises the rate of markers, and a marker written by one branch's worker into another's tree already made a finished branch read as blocked.
 
 ## Notes
 
