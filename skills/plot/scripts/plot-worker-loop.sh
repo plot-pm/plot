@@ -420,12 +420,52 @@ raise_manifest_attempts() { # $1=manifest
 # IT IS NOT OVERWRITTEN. A marker already in the tree is an agent's own question
 # to a person, and replacing it with Plot's would answer a question nobody
 # asked.
+# IT NAMES ITS WRITER, ON ITS OWN LINE BELOW THE QUESTION. Measured 2026-08-20
+# in `plot-wt-bug-the-timeout-test-does-not-race-the-clock`: a marker written by
+# ANOTHER branch's worker into that tree made a finished branch read as blocked,
+# and the only way to tell was a person recognising a branch name that was not
+# theirs. The fleet scan reads the marker from the TREE, so the tree cannot say
+# who wrote it.
+#
+# BELOW, AND NEVER BESIDE, and that is the whole constraint rather than a layout
+# preference. `firstMarkerLine` (`agents-fs.ts:125`) takes the FIRST non-empty
+# line and truncates at `QUESTION_MAX = 120`; this caller's head measures 357
+# characters once expanded and already renders as 119 plus an ellipsis, so an
+# identity prepended to it would push the question out of the render entirely —
+# the field would arrive by destroying the thing it annotates. A line below the
+# first is never read by the board and always read by the person.
+#
+# THE IDENTITY IS THE SESSION, not the branch, the worktree or the pid:
+# `entities/agent.ts:66` states each of those changes while the agent lives. The
+# branch is named too, because the incident was a marker about the WRONG branch
+# and the pair is what makes that legible.
+#
+# AN ABSENT SESSION SAYS SO. `session_handle` returns non-zero when there is no
+# handle to print — the exit code is the answer, and an empty string after it is
+# a real value rather than a failure to check — so a hand-started loop with no
+# dispatcher reports `undeclared` rather than an agent called nothing. Inventing
+# one would leave the next foreign-marker incident to be debugged against a name
+# nobody minted.
+marker_writer_line() { # → one line naming who wrote this marker
+  local handle
+  if handle=$(session_handle); then
+    printf 'Written by the agent on `%s`, session `%s`.' "${PLOT_BRANCH:-?}" "$handle"
+  else
+    printf 'Written by the agent on `%s` (session undeclared — no dispatcher minted one).' \
+      "${PLOT_BRANCH:-?}"
+  fi
+}
+
 write_blocked_marker() { # $1=worktree $2=text
   local wt="$1" text="$2" file
   [ -n "$wt" ] && [ -d "$wt" ] || return 0
   file="$wt/PLOT-BLOCKED.md"
   [ -e "$file" ] && return 0
-  printf '%s\n' "$text" > "$file" 2>/dev/null || return 0
+  # The writer's line goes through the SAME no-overwrite guard above: a marker
+  # already in the tree is an agent's own question to a person, so an existing
+  # marker keeps its old shape and gains no field. That is correct rather than a
+  # migration gap — answering a question nobody asked is what the guard refuses.
+  printf '%s\n\n%s\n' "$text" "$(marker_writer_line)" > "$file" 2>/dev/null || return 0
 }
 
 # Read the slice the registry handed this agent, or nothing while it holds none.
