@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { scriptsFor, type BuildBoardOptions } from './board.js';
+import { askForBrief, briefAskPrompt, briefCommand } from './brief-ask.js';
 import { recordActionReceipt } from './action-receipt.js';
 import type { FleetSettings } from './fleet-settings.js';
 import { LIVE_STATES, type Branch, type FleetReading } from '../contract/schema.js';
@@ -597,6 +598,46 @@ export function skippedClaimedBranches(pulse: FleetReading, inFlight: Set<string
 }
 
 /**
+ * The first branch of one plan that has no brief on `origin/main`.
+ *
+ * WHICH BRANCH THE PROMPT NAMES. A brief is per BRANCH — `briefPath` derives it
+ * from the branch's last segment — while the ask is per PLAN, because that is
+ * the unit `skippedPlans` reports and the unit `/plot-implement` takes. So one
+ * branch has to be named, and the first briefless one in the pulse's own order
+ * is the one `/plot-implement` would reach first anyway.
+ *
+ * PURE, and it reads the pulse in the SAME ORDER as {@link skippedPlans} and
+ * {@link planAutoDispatch} — plan, then slice, then branch, eligible slices
+ * only. A different order would name a branch the skip was not about.
+ *
+ * A plan reported `no-brief` always has one. The `undefined` return is for a
+ * caller that hands in a reason and a pulse that disagree, which is a bug rather
+ * than a state — the caller skips the ask rather than guessing a branch.
+ *
+ * @param pulse This pulse's fleet reading.
+ * @param slug The plan slug, as {@link planSlug} spells it.
+ * @param missingBriefs Branches with no brief on `origin/main`.
+ * @returns The branch to name in the prompt, or `undefined`.
+ */
+export function firstBrieflessBranch(
+  pulse: FleetReading,
+  slug: string,
+  missingBriefs: Set<string>,
+): string | undefined {
+  for (const plan of pulse.plans) {
+    if (plan.phase !== 'approved') continue;
+    if (planSlug(plan.file) !== slug) continue;
+    for (const wave of plan.slices) {
+      if (wave.verdict !== 'eligible') continue;
+      for (const b of wave.branches) {
+        if (missingBriefs.has(b.branch)) return b.branch;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Why auto-dispatch dropped a plan from this pulse's candidates.
  *
  * A NAME A READER CAN ACT ON, following `commission.ts`'s `no-idea-command` and
@@ -922,7 +963,20 @@ export function maybeAutoDispatch(
   agents: AgentEntry[],
   inFlight: Set<string>,
   machine?: MachineEntity,
+  briefsAsked: Set<string> = new Set(),
 ): Set<string> {
+  // THE ASK RECORD IS MUTATED, NOT RETURNED, and that is the one asymmetry in
+  // this signature. The in-flight set is returned because its contents are
+  // DERIVED each pulse — pruned, merged with the peers', and handed back as this
+  // board's own contribution. The ask record is not derived from anything: it is
+  // a running tally of asks this board made, and the caller holds the same set
+  // across pulses. Returning a second value would change the contract every
+  // existing caller reads, to express a lifetime the caller already owns.
+  //
+  // IN MEMORY AND PER-BOARD, the lifetime `deliverInFlight` already has and for
+  // its reason: a restart loses it, the brief either landed or did not, and the
+  // next pass asks again. That is the same recovery `plot-registryd.mjs` relies
+  // on by holding nothing between ticks — so no state file, deliberately.
   const pruned = pruneInFlight(inFlight, pulse, agents);
   const liveCount = liveAgentCount(agents, pulse);
 
@@ -1112,6 +1166,73 @@ export function maybeAutoDispatch(
         `auto-dispatch: skipping plan(s) with nothing startable: ` +
         `${skipped.map((p) => `${p.slug} (${p.reason})`).join(', ')}`,
       );
+    }
+
+    // ASK FOR THE BRIEF THE SKIP ABOVE JUST NAMED.
+    //
+    // A plan reported `no-brief` is approved, has an eligible slice, holds no
+    // blocking ref and is not in flight — `skippedPlans` checks briefs LAST, so
+    // the only thing between it and a worker is a file nobody has written.
+    // Measured 2026-09-12 across seven dispatches in one session: every one
+    // reported `brief_asked=1 dispatched=0` on the first pass, and the claim
+    // followed 60-75 seconds later once a human's brief reached `origin/main`.
+    // The board was never the slow part.
+    //
+    // NOTHING IS CLAIMED ON THIS PASS, and that is not a limitation to fix. The
+    // gate reads `origin/<main>` rather than the filesystem, so a brief written
+    // this instant is still invisible to it; the next pulse finds it and claims
+    // normally. A pass that spawned and then dispatched the same branch would be
+    // dispatching against a brief that is not there.
+    //
+    // AFTER the skip log, so the two sentences read in the order they happened:
+    // the plan was skipped, and then it was asked for.
+    const asking = skipped.filter((p) => p.reason === 'no-brief');
+    if (asking.length > 0) {
+      // THE BUDGET, BECAUSE A BRIEF WRITER COSTS AN AGENT. A `claude -p` brief
+      // session is a process like any other, so asking while the cap is spent
+      // starts work the operator capped. The same arithmetic the cap refusal and
+      // the planner use — and the asks already outstanding are charged too,
+      // which is what stops N pulses from starting N writers for N plans while
+      // none of them has landed.
+      let askBudget =
+        controls.parallelAgents - (liveCount + allInFlight.size + briefsAsked.size);
+      // READ FRESH, never cached at startup: a key added while the board runs
+      // takes effect on the next pulse. An unset or `none` command answers ''
+      // and this whole block does nothing — today's behaviour exactly, which is
+      // Principle 5: Plot hardcodes no agent tooling.
+      const command = askBudget > 0 ? briefCommand(opts) : '';
+      for (const plan of asking) {
+        if (askBudget <= 0) break;
+        // ONE ASK PER PLAN, AND NEVER A SECOND WHILE ONE IS OUTSTANDING.
+        // Measured 2026-09-11: a foreground dispatch timed out at 2 minutes
+        // while `timeout 300` on the inner script outlived it, and re-running
+        // produced two `claude -p` briefs for one slug.
+        if (briefsAsked.has(plan.slug)) continue;
+        if (!command) continue;
+        const branch = firstBrieflessBranch(pulse, plan.slug, missingBriefs);
+        // A plan reported `no-brief` has one by construction; the guard is for a
+        // caller that hands in a reason and a pulse that disagree.
+        if (!branch) continue;
+        const log = askForBrief(
+          opts,
+          command,
+          plan.slug,
+          briefAskPrompt(plan.slug, branch, pulse.main),
+        );
+        // MARKED EVEN WHEN THE SPAWN FAILED. `askForBrief` reports and returns
+        // '' rather than throwing, and marking anyway is the conservative
+        // direction: a board that re-asked every pulse on a broken command would
+        // write a process per pulse. The restart clears it.
+        briefsAsked.add(plan.slug);
+        askBudget -= 1;
+        // THE ASK IS REPORTED, in the same voice as the skips above, so an
+        // operator reading the console sees the fleet acting rather than idling.
+        console.log(
+          `auto-dispatch: asked the Brief command to write ${plan.slug}'s brief ` +
+          `for ${branch}${log ? ` — log: ${log}` : ''}; claiming nothing this pass ` +
+          `(the gate reads origin/${pulse.main})`,
+        );
+      }
     }
   }
 
