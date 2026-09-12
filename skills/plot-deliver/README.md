@@ -4,7 +4,7 @@ Verify all implementation is done, then deliver the plan.
 
 ## Purpose
 
-Spoke of the Plot workflow. Handles the delivery phase — verifies all implementation PRs are merged, performs a completeness check (plan deliverables vs actual PR diffs using parallel subagents), and delivers the plan (moves the symlink from `active/` to `delivered/`, updates the Phase field). Plan files never move — they stay at their date-prefixed path. For features/bugs, `/plot-release` follows; for docs/infra, delivery means the work is live.
+Spoke of the Plot workflow. Handles the delivery phase — verifies all implementation PRs are merged, performs a completeness check (plan deliverables vs actual PR diffs, questioned by a [`/plot-panel`](../plot-panel/SKILL.md) of lenses), and delivers the plan (moves the symlink from `active/` to `delivered/`, updates the Phase field). Plan files never move — they stay at their date-prefixed path. For features/bugs, `/plot-release` follows; for docs/infra, delivery means the work is live.
 
 ## Tier
 
@@ -26,9 +26,12 @@ See [plot/README.md](../plot/README.md) for the full development history and [pl
 ## Known Gaps
 
 - Completeness verification relies on LLM judgment of PR diffs against plan deliverables — may miss subtle gaps.
+- **The `Evidence: executed|read` gate checks the claim, not the command.** Step 5 requires each juror to commit to having executed or only read, and `plot-panel.mjs check` refuses a verdict that omits the line. It cannot verify that the command a juror names actually ran, or that its output matches — a juror writing `executed` having run nothing defeats it, and only a person reading the verdict sees that. Validating the command is a change to `readJuror`, which is deliberately vocabulary-agnostic; it would need its own plan.
+- **A delivery with no panel record is unquestioned, not clean.** Step 5 falls back to the per-PR refutation when `skills/plot-panel/` is absent, and reports that it did. Nothing prevents a reader from treating the fallback as equivalent.
 - Relies on `../plot/scripts/plot-impl-status.sh` via relative path.
 
 ## Planned Improvements
 
 - Structured completeness checklist output for easier review.
+- **Whether three lenses is the right number is unmeasured.** `/plot-panel` takes N and says four is a guess; this caller chose three because they are the three ways a delivery is wrong. The first real number comes from running it.
 - Support for partial delivery (deliver completed branches, keep plan active for remaining work).
