@@ -11,6 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-12, jwloka, in-session
+- **Started:** 2026-09-12, jwloka, `feature/auto-dispatch-asks-for-the-brief`
 - **Rounds:** 1
 
 ## Changelog
