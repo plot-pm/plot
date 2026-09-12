@@ -489,6 +489,85 @@ plot_worker_cpu_centis() { # $1=pid → total CPU centiseconds of pid+descendant
     }'
 }
 
+# The name a live agent's process carries, as a substring of its command.
+#
+# CONFIGURABLE BECAUSE THE AGENT IS THE PROJECT'S, NOT PLOT'S. Principle 5 —
+# Plot hardcodes no tooling — and the `Worker command` key already says every
+# project names its own. This is the default because it is what this estate
+# runs; a project whose agent is a different binary sets `PLOT_AGENT_PROCESS`
+# and nothing else changes.
+: "${PLOT_AGENT_PROCESS:=claude}"
+
+# Whether an AGENT — not merely the wrapper — is alive under this pid.
+#
+# THE DEFECT THIS ANSWERS. The pid this fleet records is the loop shell, and
+# `kill -0` on it succeeds for the whole `Worker bound` (28800 s) whether or not
+# an agent still runs inside it. Measured 2026-09-11, in one session: FOUR
+# agents ended mid-slice, none failed a build, none wrote a marker, and every
+# one reported `running` with a plausible quiet time. Three left 8 commits and 9
+# uncommitted files on their desks — one step from done, and all three would
+# have been reaped as abandoned.
+#
+# EXISTENCE, NOT MOTION, AND THAT IS THE WHOLE DISTINCTION FROM THE CUE BELOW.
+# `plot_worker_activity` samples CPU twice and asks whether the subtree is
+# MOVING; an agent blocked on a network read is `idle` and perfectly alive. This
+# asks whether there is an agent in the subtree AT ALL, which is a set
+# membership test over one snapshot rather than a delta over two. The cue may
+# never decide liveness, and this may never be read as a cue.
+#
+# ACCUMULATED CPU CANNOT DECIDE IT EITHER. Measured 2026-09-12 on this machine,
+# a dead agent's tree held three `bash` children at 0:41.50, 0:41.22 and
+# 0:40.31 — forty seconds of CPU each, burnt before the agent died. Only the
+# PRESENCE of the agent process separates that tree from a live one.
+#
+# THE SAME ONE-SNAPSHOT WALK `plot_worker_cpu_centis` USES, and for its reason:
+# a `pgrep -P` recursion forks a process per descendant on a scan the board
+# polls every 5 s. It is also the only shape that reaches the real depth —
+# measured on a healthy agent the same day, `claude` sat THREE levels below the
+# recorded pid (`sh` → `bash` → `bash` → `claude`), so a depth-limited probe
+# reports every live agent absent.
+#
+# ABSENT IS NOT FALSE, the rule this file keeps re-learning. A pid naming no
+# process at all returns 2 — *could not look* — rather than 1, because a failure
+# to observe is not evidence of something to see. The caller has already
+# established the pid answers `kill -0` before it asks this.
+plot_worker_agent_alive() { # $1=pid → 0 agent present, 1 absent, 2 unaskable
+  local root="$1"
+  [ -n "$root" ] || return 2
+  case "$root" in *[!0-9]*) return 2 ;; esac
+
+  # `comm=` IS THE EXECUTABLE, `command=` IS THE WHOLE INVOCATION, and this
+  # needs the second. A wrapper whose argv merely NAMES the agent would match on
+  # `command=`, so the match is anchored to the executable's own basename —
+  # taken from `comm=`, which macOS truncates but never rewrites.
+  ps -o pid=,ppid=,comm= -ax 2>/dev/null | awk -v root="$root" -v want="$PLOT_AGENT_PROCESS" '
+    { pid[$1] = $1; ppid[$1] = $2
+      # Everything after pid and ppid is the command; keep its basename.
+      c = $0; sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]+/, "", c)
+      sub(/.*\//, "", c)
+      comm[$1] = c }
+    END {
+      if (!(root in pid)) { exit 2 }
+      # The same relaxation the CPU walker uses: sweep the ppid map until the
+      # subtree stops growing. Depth is unbounded, which is the point.
+      inset[root] = 1
+      changed = 1
+      while (changed) {
+        changed = 0
+        for (p in ppid) {
+          if (!(p in inset) && (ppid[p] in inset)) { inset[p] = 1; changed = 1 }
+        }
+      }
+      # THE ROOT ITSELF IS EXCLUDED. The recorded pid is the loop shell by
+      # construction, and a shell that matched would make every desk read alive.
+      for (p in inset) {
+        if (p == root) continue
+        if (index(comm[p], want) > 0) { exit 0 }
+      }
+      exit 1
+    }'
+}
+
 # Whether a RUNNING worker's child is doing work — `working`, `idle`, or "".
 #
 # A CUE, NOT A STATE. The row already reads `running`; this is the secondary
@@ -691,7 +770,29 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
         return
       fi
     fi
-    # The process is running AND current (or uncheckable, with no startedAt).
+    # THE WRAPPER LIVES. DOES AN AGENT? `kill -0` answered about the loop shell,
+    # and that shell outlives its agent for the whole `Worker bound` — measured
+    # 2026-09-11, four agents ended mid-slice and every one reported `running`.
+    # So the pid answering is a precondition for this question, never the answer
+    # to it.
+    #
+    # ONLY A DEFINITE ABSENCE MOVES THE READING. Return 2 is *could not look* —
+    # a pid that vanished between `kill -0` and here — and it falls through to
+    # `running`, which is what this reported before the reading existed. Absent
+    # is not false.
+    if plot_worker_agent_alive "$pid"; then
+      printf 'running\t%s\t' "$pid"
+      return
+    elif [ "$?" -eq 1 ]; then
+      # The wrapper is alive and the agent is gone. The DESK decides what that
+      # means — `stalled` for work only this machine holds, `waiting` for a
+      # marker, `finished` for a desk that is clear — because the process has
+      # nothing left to say. No exit file exists: the wrapper has not exited.
+      printf '%s\t%s\t' "$(plot_worker_task_state "$wt" "$has_pr")" "$pid"
+      return
+    fi
+    # Unaskable: the process table could not be read for this pid. Report what
+    # `kill -0` established and nothing more.
     printf 'running\t%s\t' "$pid"
     return
   fi
@@ -780,7 +881,9 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
 #
 #   worktree_here  pid_recorded  liveness  exit  blocked  dirty  unpushed
 #
-# `liveness` is `live`, `stale` or `dead`; `exit` is the code as read, empty for
+# `liveness` is `live`, `stale`, `orphaned` or `dead` — `orphaned` being a pid
+# that answers with no agent process under it, which is a live wrapper whose
+# agent has gone; `exit` is the code as read, empty for
 # an unreadable record and the literal `-` for an absent one, because an empty
 # field cannot say which of the two it is and the rule answers them alike only
 # because it was told they differ. The PR fact is NOT here: it comes from the
@@ -825,7 +928,18 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
       # uncheckable pid honest rather than pessimistic.
       if [ -n "$started_at" ] && ! plot_pid_is_current "$pid" "$started_at"; then
         liveness=stale
+      elif plot_worker_agent_alive "$pid"; then
+        liveness=live
+      elif [ "$?" -eq 1 ]; then
+        # THE FOURTH WORD, and it belongs in this field rather than in a private
+        # branch inside `plot_worker_state`. `stale` set the precedent: it means
+        # *the pid exists and is not our worker*, and this means *the pid exists
+        # and our worker is no longer inside it*. Both are facts about what the
+        # recorded pid names, which is what this field is.
+        liveness=orphaned
       else
+        # Unaskable — `kill -0` answered, the process table did not. Report what
+        # was established.
         liveness=live
       fi
     fi
