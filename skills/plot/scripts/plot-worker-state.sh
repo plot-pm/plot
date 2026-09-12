@@ -835,6 +835,31 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
     # a pid that vanished between `kill -0` and here — and it falls through to
     # `running`, which is what this reported before the reading existed. Absent
     # is not false.
+    #
+    # AND THE QUESTION IS ONLY ASKED OF A DESK PLOT LAUNCHED A WORKER INTO,
+    # which `.plot-worker.wrapper.pid` is the proof of. A recorded pid with no
+    # wrapper file beside it was never started by `start_worker` — a hand-made
+    # desk, or a fixture writing a pid by hand — so Plot has no grounds to
+    # expect an agent beneath it, and asking would reinterpret every such pid as
+    # an orphan.
+    #
+    # Measured 2026-09-12 in CI: `--status` reported `finished` for a desk whose
+    # recorded pid was the TEST RUNNER — alive 1436 s, with no agent beneath it.
+    # The grace window cannot catch that, because the process is old.
+    #
+    # THE WRAPPER FILE RATHER THAN THE MANIFEST, and that is a measurement too:
+    # the one genuinely orphaned desk on this machine carries NO manifest — the
+    # registry it was written to has moved — and gating on one defeated the
+    # detection for exactly the population this exists to serve. The wrapper
+    # file is also the better evidence: the manifest is written by the
+    # dispatcher BEFORE the launch, while this file is written by the wrapper
+    # process itself, so its presence proves a worker really ran here. It is the
+    # file's own rule one line over — *"the process that knows a pid is the one
+    # that writes it"*.
+    if [ ! -f "$wt/.plot-worker.wrapper.pid" ]; then
+      printf 'running\t%s\t' "$pid"
+      return
+    fi
     if plot_worker_agent_alive "$pid"; then
       printf 'running\t%s\t' "$pid"
       return
@@ -983,6 +1008,11 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
       # uncheckable pid honest rather than pessimistic.
       if [ -n "$started_at" ] && ! plot_pid_is_current "$pid" "$started_at"; then
         liveness=stale
+      elif [ ! -f "$wt/.plot-worker.wrapper.pid" ]; then
+        # NO WRAPPER FILE, NO AGENT QUESTION — the gate `plot_worker_state`
+        # applies, repeated here because these two must not drift: a desk Plot
+        # never launched a worker into has no agent Plot can expect.
+        liveness=live
       elif plot_worker_agent_alive "$pid"; then
         liveness=live
       elif [ "$?" -eq 1 ]; then
