@@ -44,7 +44,7 @@ Then two halves, and neither is expressible today.
 
 ### Should Have
 
-- [ ] [a-panel-questions-one-plan](../plans/2026-09-12-a-panel-questions-one-plan.md) — the panel mechanism: fan-out over one prompt, verdict files, a commitment gate, a moderator
+- [x] [a-panel-questions-one-plan](../plans/2026-09-12-a-panel-questions-one-plan.md) — the panel mechanism: fan-out over one prompt, verdict files, a commitment gate, a moderator
 - [ ] [a-plan-is-questioned-before-it-is-approved](../plans/2026-09-12-a-plan-is-questioned-before-it-is-approved.md) — the Draft panel gating on a verdict, and the delivery panel that shares its mechanism
 
 ### Could Have
