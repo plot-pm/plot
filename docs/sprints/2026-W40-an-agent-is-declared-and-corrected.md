@@ -49,7 +49,7 @@ Then two halves, and neither is expressible today.
 
 ### Could Have
 
-<!-- add items here -->
+- [ ] [auto-dispatch-asks-for-the-brief](../plans/2026-09-12-auto-dispatch-asks-for-the-brief.md) — the board runs the configured `Brief command` for a plan it skipped as `no-brief`, closing the last operator step between an approved plan and a working agent (story: `the-master-agent-holds-the-fleet`)
 
 ### Deferred
 
