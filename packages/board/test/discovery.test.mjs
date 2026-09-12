@@ -369,3 +369,117 @@ describe('board: a plans dir NESTED in an unrelated repo borrows nothing from it
     assert.deepEqual(slugs, ['board-acts-through-plot']);
   });
 });
+
+describe('board: a plan in the working tree AND on its branch is ONE card', () => {
+  // THE INPUT NO OTHER FIXTURE SUPPLIES, and the reason this suite could not
+  // catch the defect. The plan must be visible to BOTH readers at once:
+  //   - in the working tree      → the filesystem walk supplies it
+  //   - pushed to idea/          → the branch reader supplies it again
+  //   - absent from origin/main  → neither existing exclusion fires
+  //
+  // AND THE FILE MUST BE UNTRACKED ON `main`, which is the part that is easy to
+  // get wrong. Simply not deleting the working-tree copy is NOT enough: the
+  // file was committed on the idea branch, so `git checkout main` removes it —
+  // measured 2026-09-12, a fixture that only skipped the `rmSync` left no file
+  // on disk and the test passed against the unfixed code, proving nothing. So
+  // the copy is written back AFTER returning to main, where git is not tracking
+  // it. That is also what a real `/plot-idea` leaves behind on the machine that
+  // ran it, which is why this shape is the realistic one rather than a
+  // contrivance.
+  //
+  // `readBranchPlans` excludes a path already on `origin/<default>` or already
+  // seen on another branch. A local-only path is in neither population, which
+  // is why the rule is right and simply was not asked here.
+  let tmp, server, board;
+
+  before(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-one-card-'));
+    const repo = path.join(tmp, 'work');
+    const remote = path.join(tmp, 'remote.git');
+    fs.mkdirSync(repo, { recursive: true });
+
+    execFileSync('git', ['init', '--bare', '-b', 'main', remote], { stdio: 'ignore' });
+    const g = git(repo);
+    g('init', '-b', 'main');
+    g('config', 'user.email', 'test@example.invalid');
+    g('config', 'user.name', 'Plot Test');
+    g('config', 'commit.gpgsign', 'false');
+
+    const plans = path.join(repo, 'docs/plans');
+    fs.mkdirSync(path.join(plans, 'active'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, 'CLAUDE.md'),
+      '# Fixture\n\n## Plot Config\n\n'
+        + '- **Branch prefixes:** idea/, feature/, bug/\n'
+        + '- **Plan directory:** docs/plans/\n'
+        + '- **Main branch:** main\n',
+      'utf8',
+    );
+    // One approved plan on main, so the fixture has a second card and a
+    // duplicate cannot hide behind a single-element list.
+    const approvedName = '2026-08-10-board-acts-through-plot.md';
+    fs.writeFileSync(path.join(plans, approvedName), APPROVED_PLAN, 'utf8');
+    g('add', '-A');
+    g('commit', '-m', 'plan: board acts through plot');
+    g('remote', 'add', 'origin', remote);
+    g('push', '-u', 'origin', 'main');
+    g('remote', 'set-head', 'origin', 'main');
+
+    // The plan this test exists for. Committed on its idea branch, pushed, and
+    // then written back onto `main` as an UNTRACKED file.
+    const draftName = '2026-08-16-board-shows-discovery.md';
+    g('checkout', '-b', 'idea/board-shows-discovery');
+    fs.writeFileSync(path.join(plans, draftName), DRAFT_PLAN, 'utf8');
+    fs.symlinkSync(path.join(plans, draftName), path.join(plans, 'active', draftName));
+    g('add', '-A');
+    g('commit', '-m', 'plan: the column that can hold something');
+    g('push', 'origin', 'idea/board-shows-discovery');
+    g('checkout', 'main');
+    // THE LINE THAT MAKES THIS FIXTURE THE ONE THAT REPRODUCES. The checkout
+    // above deleted both paths, because they are tracked on the branch it left.
+    // Re-creating them here puts the plan on disk while `main` does not track
+    // it — the state a machine is in right after `/plot-idea` pushes a plan and
+    // returns. Without this the walk sees nothing and the test is vacuous.
+    // `active/` is re-made first: the checkout removed the only entry it had,
+    // and git does not keep an empty directory, so the symlink below would hit
+    // ENOENT on a path that existed moments earlier.
+    fs.mkdirSync(path.join(plans, 'active'), { recursive: true });
+    fs.writeFileSync(path.join(plans, draftName), DRAFT_PLAN, 'utf8');
+    fs.symlinkSync(path.join(plans, draftName), path.join(plans, 'active', draftName));
+
+    server = await startServer(repo);
+    board = await fetchBoard(server.port);
+  });
+
+  after(async () => {
+    await server?.stop();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('renders the plan once, not once per source that can see it', () => {
+    // The whole slice, in one assertion. Before the join, the working-tree
+    // reader and the branch reader each staged this path and both reached
+    // readPlanMeta, so `board-shows-discovery` appeared TWICE.
+    const slugs = board.columns.flatMap((c) => c.cards.map((x) => x.slug)).sort();
+    assert.deepEqual(slugs, ['board-acts-through-plot', 'board-shows-discovery']);
+  });
+
+  it('keeps the working tree as the surviving source, with its real path', () => {
+    // The skip must drop the BRANCH copy and keep the working-tree one, since
+    // that is the reading `localOnlyPaths` already marks and the one whose
+    // `notPushed` flag is computed from it. A card carrying a staging temp path
+    // would mean the branch copy won instead.
+    const cards = board.columns.flatMap((c) => c.cards);
+    const card = cards.find((c) => c.slug === 'board-shows-discovery');
+    assert.ok(card, 'the plan must still render');
+    assert.equal(card.path, 'docs/plans/2026-08-16-board-shows-discovery.md');
+    assert.ok(!card.path.includes(os.tmpdir()), 'no staging path may reach a card');
+  });
+
+  it('still places it in Discovery — the skip must not cost the phase', () => {
+    // Dropping the wrong copy, or dropping both, would empty the column that
+    // the whole surrounding suite exists to keep full.
+    const discovery = board.columns.find((c) => c.phase === 'Discovery');
+    assert.deepEqual(discovery.cards.map((c) => c.slug), ['board-shows-discovery']);
+  });
+});
