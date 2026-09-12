@@ -409,7 +409,7 @@ describe('a marker names its writer', () => {
       agents: [
         stranded('feature/spent', {
           attempts: MAX_ATTEMPTS,
-          desk: { ...cleanDesk('feature/spent'), merge: { state: 'none' } },
+          desk: { ...cleanDesk('feature/spent'), merge: 'not-merged' },
           ...over,
         }),
       ],

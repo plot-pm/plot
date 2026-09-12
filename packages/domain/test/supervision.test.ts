@@ -54,6 +54,7 @@ const cleanDesk = (over: Partial<DeskReadings> = {}): DeskReadings => ({
 const finished = (over: Partial<SupervisionReadings> = {}): SupervisionReadings => ({
   branch: 'feature/one',
   worktree: '/estate/.worktrees/feature-one',
+  session: '',
   workerAlive: false,
   declaration: {
     read: 'declared',
