@@ -98,7 +98,7 @@ The BuildMonitor's `build failed` finding becomes a file the loop reads on its n
 
 **A correction about a superseded sha is discarded, not delivered** — the monitor already distinguishes `head moved`, and a failure about a sha the agent has replaced is answered by work already done.
 
-### A marker names its writer (Branch: feature/a-marker-names-its-writer)
+### A marker names its writer (Branch: feature/a-marker-names-its-writer, PR: #903)
 
 Branch and agent on every `PLOT-BLOCKED` marker.
 
