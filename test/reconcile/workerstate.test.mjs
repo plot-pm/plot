@@ -700,3 +700,218 @@ test('worker-state: a pid with nothing to measure gets no cue, not a false idle'
   assert.equal(activity('x1'), '', 'a non-numeric pid yields no cue');
   assert.equal(activity(''), '', 'an empty pid yields no cue');
 });
+
+// ---------------------------------------------------------------------------
+// AN ABSENT AGENT IS NOTICED — the wrapper lives, the agent does not
+// ---------------------------------------------------------------------------
+//
+// THE DEFECT. The pid this fleet records is the LOOP SHELL, and `kill -0` on it
+// succeeds for the whole `Worker bound` (28800 s) whether or not an agent still
+// runs inside it. Measured 2026-09-11, in one session: four agents ended
+// mid-slice, none failed a build, none wrote a marker, and every one reported
+// `running` with a plausible quiet time. Three left 8 commits and 9 uncommitted
+// files on their desks — one step from done, and all three would have been
+// reaped as abandoned.
+//
+// Measured again 2026-09-12 while this was built, on three live wrappers: two
+// held an agent process in their subtree and one held only `bash` and `sleep`.
+// That third had been running twelve hours and reported `running`. Every
+// recorded pid was `bash` — the loop shell, never the agent.
+//
+// THE READING IS EXISTENCE, NOT MOTION. `plot_worker_activity` samples CPU
+// twice and asks whether the subtree MOVES; an agent blocked on a network read
+// is `idle` and perfectly alive. This asks whether an agent is in the subtree
+// AT ALL, which is a set-membership test over one snapshot.
+//
+// `PLOT_AGENT_PROCESS` NAMES WHAT TO LOOK FOR and these tests set it to
+// `sleep`, so no real agent binary is needed in a fixture: the reading is about
+// process TOPOLOGY and the name is the project's (Principle 5).
+//
+// THE GRACE IS SET TO 0 WHERE A TEST WANTS AN ANSWER NOW. A wrapper younger
+// than `PLOT_AGENT_GRACE_SECONDS` is deliberately UNASKABLE — it may be forking
+// its agent this instant — and every tree a test builds is milliseconds old.
+
+/** Spawn a detached wrapper holding `child`; returns its pid. */
+function spawnWrapper(child) {
+  // `nohup … &` detaches it from the runner's group, and `exec` replaces the
+  // shell without changing the pid — the surviving-process idiom
+  // `dispatch.test.mjs` records, for the reason this repo already measured:
+  // a child sharing the runner's pipe keeps it open and the runner never exits.
+  return execFileSync('bash', ['-c',
+    `nohup sh -c ${JSON.stringify(child)} </dev/null >/dev/null 2>&1 & echo $!`,
+  ], { encoding: 'utf8', timeout: 30_000 }).trim();
+}
+
+/** Ask the reading about a pid; returns 0 present, 1 absent, 2 unaskable. */
+function agentAlive(pid, { grace = 0, want = 'sleep' } = {}) {
+  const script = `source ${JSON.stringify(wstate)}; `
+    + `PLOT_AGENT_PROCESS=${JSON.stringify(want)} `
+    + `PLOT_AGENT_GRACE_SECONDS=${grace} `
+    + `plot_worker_agent_alive ${JSON.stringify(String(pid))}; echo $?`;
+  return Number(execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 }).trim());
+}
+
+/** The state a worktree reads, with the agent name and grace pinned. */
+function stateWithAgent(wt, hasPr, { grace = 0, want = 'sleep' } = {}) {
+  const script = `source ${JSON.stringify(wstate)}; `
+    + `PLOT_AGENT_PROCESS=${JSON.stringify(want)} `
+    + `PLOT_AGENT_GRACE_SECONDS=${grace} `
+    + `plot_worker_state ${JSON.stringify(wt)} ${JSON.stringify(hasPr)}`;
+  return execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 })
+    .split('\t')[0].trim();
+}
+
+/** The readings line, with the agent name and grace pinned. */
+function readingsWithAgent(wt, { grace = 0, want = 'sleep' } = {}) {
+  const script = `source ${JSON.stringify(wstate)}; `
+    + `PLOT_AGENT_PROCESS=${JSON.stringify(want)} `
+    + `PLOT_AGENT_GRACE_SECONDS=${grace} `
+    + `plot_worker_readings ${JSON.stringify(wt)}`;
+  return execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 }).split('\t');
+}
+
+test('agent presence: a wrapper whose agent is gone reads ABSENT', () => {
+  // THE DEFECT ITSELF. A test that only proves a DEAD wrapper reads `ended`
+  // passes on the code this fixes: the wrapper here is alive and answers
+  // `kill -0`, which is exactly what made four stopped agents read `running`.
+  const pid = spawnWrapper('sleep 300 & exec sleep 300');
+  try {
+    // Nothing named `nosuchagent` is anywhere in the tree.
+    assert.equal(agentAlive(pid, { want: 'nosuchagent' }), 1,
+      'a wrapper with no agent under it must read absent');
+    // And the wrapper really is alive — otherwise this proves nothing.
+    assert.doesNotThrow(() => process.kill(Number(pid), 0),
+      'precondition: the wrapper answers kill -0');
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+  }
+});
+
+test('agent presence: a live agent still reads PRESENT', () => {
+  // THE FALSE-POSITIVE ARM, and without it "always report absent" passes every
+  // other test in this block and takes the fleet down.
+  const pid = spawnWrapper('sleep 300 & exec sleep 300');
+  try {
+    assert.equal(agentAlive(pid), 0, 'an agent in the subtree must read present');
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+  }
+});
+
+test('agent presence: an agent TWO levels down counts', () => {
+  // THE DEPTH ARM. The loop forks the agent, which forks its own tools —
+  // measured 2026-09-12, a healthy agent sat THREE levels below the recorded
+  // pid (`sh` → `bash` → `bash` → agent). A `pgrep -P` at depth 1 passes every
+  // test above and fails in production, which is the real shape.
+  const pid = spawnWrapper('sh -c "sleep 300 & exec sleep 300" & exec sleep 300');
+  try {
+    assert.equal(agentAlive(pid, { want: 'sleep' }), 0,
+      'a grandchild agent must count');
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+  }
+});
+
+test('agent presence: the ROOT is excluded — a wrapper named like the agent is not one', () => {
+  // The recorded pid is the loop shell by construction: measured 2026-09-12,
+  // every recorded pid on this machine was `bash`. So a root match could only
+  // ever be a false positive, and a tree whose ONLY match is the root reads
+  // absent.
+  const pid = spawnWrapper('exec sleep 300');
+  try {
+    assert.equal(agentAlive(pid, { want: 'sleep' }), 1,
+      'the root itself must not satisfy the reading');
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+  }
+});
+
+test('agent presence: a pid nothing holds is UNASKABLE, never absent', () => {
+  // ABSENT IS NOT FALSE. A failure to observe is not evidence of something to
+  // see, and `2` is what the callers resolve to today's behaviour.
+  assert.equal(agentAlive(DEAD), 2, 'a pid naming no process cannot be asked');
+  assert.equal(agentAlive('x1'), 2, 'a non-numeric pid cannot be asked');
+  assert.equal(agentAlive(''), 2, 'an empty pid cannot be asked');
+});
+
+test('agent presence: a wrapper younger than the grace is UNASKABLE', () => {
+  // THE STARTUP WINDOW, and it is a measurement rather than a worry: `kill -0`
+  // succeeds the instant the wrapper exists and the agent is forked some time
+  // after — 37 to 237 ms for a trivial child on 2026-09-12, and a real agent
+  // boots in seconds. A reading taken inside it sees a STARTING worker, and
+  // acting on that hands its desk away as it boots.
+  const pid = spawnWrapper('exec sleep 300');
+  try {
+    assert.equal(agentAlive(pid, { grace: 3600, want: 'nosuchagent' }), 2,
+      'a young wrapper may be forking its agent right now');
+    // The SAME tree, asked without the grace, is a definite absence. This is
+    // what proves the guard is the grace and not a broken reading.
+    assert.equal(agentAlive(pid, { grace: 0, want: 'nosuchagent' }), 1,
+      'and with no grace the absence is definite');
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+  }
+});
+
+test('worker-state: an orphaned wrapper is classified by the DESK, not the process', () => {
+  // WHERE THE FIX LANDS. The wrapper has not exited, so it has written no exit
+  // file and the process has nothing left to say — the desk is the only thing
+  // left to read. Measured 2026-09-11, three of four such desks held work one
+  // step from done, so `ended` would have said the run was over when the WORK
+  // was one push from done.
+  const f = fixture('orphaned');
+  // A wrapper that HOLDS a child, so one tree answers both arms: `nosuchagent`
+  // finds nothing and is a definite absence, `sleep` finds the child and is a
+  // live agent. Asking the same tree both ways is what proves the classification
+  // turns on the READING rather than on the desk having changed.
+  const pid = spawnWrapper('sleep 300 & exec sleep 300');
+  try {
+    fs.writeFileSync(path.join(f.wt, '.plot-worker.pid'), String(pid));
+
+    // A desk holding unlanded work: `stalled`, which is what the plan names.
+    fs.writeFileSync(path.join(f.wt, 'unfinished.txt'), 'work\n');
+    assert.equal(stateWithAgent(f.wt, 0, { want: 'nosuchagent' }), 'stalled',
+      'an orphaned wrapper over uncommitted work is stalled, never running');
+
+    // A marker outranks dirtiness, the order `taskState` already fixes.
+    fs.writeFileSync(path.join(f.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n');
+    assert.equal(stateWithAgent(f.wt, 0, { want: 'nosuchagent' }), 'waiting',
+      'a marker outranks a dirty desk');
+    fs.rmSync(path.join(f.wt, 'PLOT-BLOCKED.md'));
+
+    // A PR outranks everything: the work left the worker's hands.
+    assert.equal(stateWithAgent(f.wt, 'pr', { want: 'nosuchagent' }), 'finished',
+      'a PR outranks leftover local edits');
+
+    // AND THE SAME DESK WITH A LIVE AGENT IS STILL RUNNING. Without this the
+    // block proves only that something changed, not that it changed correctly.
+    assert.equal(stateWithAgent(f.wt, 0, { want: 'sleep' }), 'running',
+      'a live agent on the same desk still reads running');
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+    f.cleanup?.();
+  }
+});
+
+test('worker-readings: the liveness field says `orphaned`, and the rule agrees', () => {
+  // THE FIELD IS WHERE THE READING BELONGS. `stale` set the precedent — the pid
+  // exists and is not our worker — and this is the same kind of fact: the pid
+  // exists and our worker is no longer inside it. A private branch inside
+  // `plot_worker_state` would put it where the domain rule cannot see it, and
+  // the corpus test compares the two.
+  const f = fixture('readings');
+  const pid = spawnWrapper('sleep 300 & exec sleep 300');
+  try {
+    fs.writeFileSync(path.join(f.wt, '.plot-worker.pid'), String(pid));
+    fs.writeFileSync(path.join(f.wt, 'unfinished.txt'), 'work\n');
+
+    const orphaned = readingsWithAgent(f.wt, { want: 'nosuchagent' });
+    assert.equal(orphaned[2], 'orphaned', `liveness must say orphaned: ${orphaned.join('|')}`);
+
+    const live = readingsWithAgent(f.wt, { want: 'sleep' });
+    assert.equal(live[2], 'live', `a live agent must say live: ${live.join('|')}`);
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+    f.cleanup?.();
+  }
+});
