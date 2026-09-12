@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-12, jwloka, in-session
 - **Rounds:** 2
+- **Started:** 2026-09-12, Jan Wloka, `feature/an-absent-agent-is-noticed`
 
 ## Changelog
 
