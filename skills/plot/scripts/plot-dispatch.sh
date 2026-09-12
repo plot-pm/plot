@@ -281,12 +281,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; exit 1; }
-[ -n "$slug" ] || [ "$mode" != dispatch ] || {
-  echo "plot-dispatch: need a plan slug (usage: plot-dispatch.sh [--dry-run] <slug>)" >&2
-  echo "  Which plans could be dispatched: /plot-pulse" >&2
-  exit 1
-}
+# THE TWO PRECONDITIONS OF A DISPATCH, and a sourcing test has neither.
+# `PLOT_DISPATCH_SOURCED=1` is taking the definitions below rather than running
+# a dispatch, so it has no slug and often no git repository; the guard that
+# stops it sits further down, after the function it exists to expose, and these
+# two would exit before it is reached. See that guard for why it cannot simply
+# move up here.
+if [ -z "${PLOT_DISPATCH_SOURCED:-}" ]; then
+  git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; exit 1; }
+  [ -n "$slug" ] || [ "$mode" != dispatch ] || {
+    echo "plot-dispatch: need a plan slug (usage: plot-dispatch.sh [--dry-run] <slug>)" >&2
+    echo "  Which plans could be dispatched: /plot-pulse" >&2
+    exit 1
+  }
+fi
 
 # ---------------------------------------------------------------------------
 # Worker launch, and the identity it records
@@ -743,9 +751,135 @@ brief_staleness_note() { # $1 = branch → prints a hint, or nothing
   echo "      plan commit ${pc%% *} touched $plan_path after the brief's last change; read it before trusting the brief"
 }
 
+# ---------------------------------------------------------------------------
+# WHAT THIS AGENT RUNS
+# ---------------------------------------------------------------------------
+#
+# THE HARNESS IS RESOLVED, NOT ASSUMED. `Worker command` is one key and every
+# dispatched agent got the identical command line, so a fleet could not hold a
+# reviewer on one model beside an implementer on another. A charter
+# (`.plot/charters/<name>.json`) names its own `harness`, `model` and `effort`,
+# and `plot-prompt.mjs --launch` decides which apply.
+#
+# A CHARTER NAMES A HARNESS; IT NEVER CARRIES A COMMAND LINE. Plot exports the
+# three names and the PROMPT FILE holds the invocation — the contract
+# `.plot/worker-prompt.sh` already states: *"Plot exports the variables and
+# cannot write the invocation."* So this sets three variables and never builds
+# a command out of them.
+#
+# NOTHING ON THE ESTATE CHANGES UNTIL A CHARTER EXISTS. `$PLOT_AGENT` unset —
+# which is every worker today, since the estate holds zero charters — exports
+# none of the three, and the command line is byte-identical to what it was.
+# So does a named agent with no charter file on this clone.
+#
+# A REFUSAL IS NOT A FALLBACK, for `resolve_prompt_file`'s reason one field
+# over: a charter that cannot be believed would otherwise RUN, successfully,
+# under an invocation the operator did not ask for, and nothing in
+# `.plot-worker.log` would say so.
+#
+# THE BUNDLE MISSING IS ALSO NOT A REFUSAL. `plot-prompt.mjs` is vendored beside
+# this script, and a checkout without it is a Plot installation problem rather
+# than a statement about this agent — so it falls back and SAYS it could not
+# ask, the shape `plot-dispatch.sh:1502` already uses for an unaskable rule.
+#
+# It sets `launch_harness`, `launch_model`, `launch_effort` and `launch_agent`,
+# and returns 1 on a refusal; the caller decides what a refusal costs.
+resolve_launch() { # $1 = repo root, $2 = agent name ('' when none)
+  local root="$1" agent="$2" resolution="" status=0 verb rest why
+  launch_harness=""
+  launch_model=""
+  launch_effort=""
+  launch_agent=""
+
+  if [ -f "$script_dir/board/plot-prompt.mjs" ]; then
+    resolution=$(node "$script_dir/board/plot-prompt.mjs" --launch "$root" "$agent" 2>/dev/null)
+    status=$?
+  else
+    echo "plot-dispatch: no plot-prompt.mjs beside this script — starting ${agent:-this agent} on the repo's 'Worker command' without asking what it declared" >&2
+    return 0
+  fi
+
+  verb=${resolution%%$'\t'*}
+  rest=${resolution#*$'\t'}
+  launch_harness=${rest%%$'\t'*}
+  rest=${rest#*$'\t'}
+  launch_model=${rest%%$'\t'*}
+  rest=${rest#*$'\t'}
+  launch_effort=${rest%%$'\t'*}
+  why=${rest#*$'\t'}
+
+  if [ "$status" -eq 3 ] || [ "$verb" = "refused" ]; then
+    launch_harness=""
+    launch_model=""
+    launch_effort=""
+    launch_why="$why"
+    return 1
+  fi
+
+  case "$verb" in
+    declared)
+      launch_agent="$why"
+      ;;
+    *)
+      # A fallback, an unrecognised verb, or an empty answer from a bundle that
+      # could not run. Three empty names, which is what every worker exports
+      # today.
+      launch_harness=""
+      launch_model=""
+      launch_effort=""
+      ;;
+  esac
+  return 0
+}
+
+# `PLOT_DISPATCH_SOURCED=1` STOPS HERE, so a test can take `resolve_launch`
+# without dispatching anything — `plot-worker-loop.sh` states this idiom for
+# `resolve_prompt_file`, and this is the same one applied to the function that
+# answers the same question one script over.
+#
+# AFTER THE DEFINITION IT EXISTS TO EXPOSE, and that placement is the whole
+# subtlety. This file is not `plot-worker-loop.sh`, where every definition
+# precedes every executing line: here the argument parsing runs at the TOP and
+# the functions are defined below it, so a guard at the top returns before
+# `resolve_launch` exists. Measured while writing this: `resolve_launch: command
+# not found`, from a guard eleven lines into the file.
+#
+# `script_dir` IS ALREADY RESOLVED at this point, which is what a sourcing test
+# needs and what slicing the file cannot give it — `script_dir` is derived from
+# `BASH_SOURCE`, so a copy written to /tmp resolves every helper to /tmp.
+#
+# THE FLAG IS OPT-IN AND NAMED FOR THIS FILE. An unset variable leaves the
+# script exactly as it was — no caller changes, and a dispatched worker cannot
+# reach this return by accident. `return` rather than `exit` because a sourced
+# script returns to its sourcer.
+[ -n "${PLOT_DISPATCH_SOURCED:-}" ] && return 0
+
 start_worker() {
   local branch="$1" wt="$2"
   local cmd
+
+  # RESOLVED BEFORE `Worker command`, because the charter is the more specific
+  # answer and the config key is the fallback rather than the sole source.
+  #
+  # THE REFUSAL FIRES HERE, WHICH IS BEFORE ANYTHING THIS FUNCTION WRITES. The
+  # plan asks for a refusal "before the desk is touched"; on this codebase the
+  # desk already exists by the time `start_worker` is called — both call sites
+  # (`--restart`, and `--start`'s `git worktree add`) hand it a worktree path.
+  # What this position does guarantee is that NO WORKER IS LAUNCHED, no manifest
+  # is written and no `.plot-worker.exit` is removed, and `start_worker` pushes
+  # no claim at all — so the slice stays claimable by an agent that can run it,
+  # which is the property the plan's sentence is protecting. A desk with no
+  # worker is what `--start` already creates for a free agent, and the reaper
+  # handles it. See the PR body.
+  if ! resolve_launch "$repo_root" "${PLOT_AGENT:-}"; then
+    echo "  refusing to start ${branch:-a free agent} — $launch_why" >&2
+    echo "    A charter that cannot be read is a person's typo, and the repo's 'Worker command'" >&2
+    echo "    would run successfully under an invocation nobody asked for." >&2
+    echo "    Fix $repo_root/.plot/charters/${PLOT_AGENT:-?}.json, or unset PLOT_AGENT to start it" >&2
+    echo "    on the repo's configured command deliberately." >&2
+    return 1
+  fi
+
   cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
   # `none` means "asked, and this repo starts them by hand". Running it would
   # spawn a worker per branch that fails with `none: command not found` — a
@@ -1014,9 +1148,23 @@ start_worker() {
   [ -x "$script_dir/plot-build-monitor.sh" ] && build_monitor="$script_dir/plot-build-monitor.sh"
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  # THE THREE NAMES THE CHARTER DECLARED, and they travel as env vars for the
+  # reason every other path here does: the `sh -c` body is single-quoted, so a
+  # value with spaces would not survive interpolation into it.
+  #
+  # EMPTY IS THE ESTATE TODAY and must stay indistinguishable from before. An
+  # agent with no charter exports three empty strings, a prompt file
+  # interpolating `${PLOT_MODEL:-}` gets nothing, and the command line is
+  # byte-identical to what it was — which is the 100% case, since zero charters
+  # exist. `PLOT_AGENT` is forwarded too, so the loop's own `resolve_prompt_file`
+  # asks about the same agent this launch resolved.
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
       PLOT_SLUG="$slug" \
       PLOT_SESSION_ID="$session" \
+      PLOT_AGENT="${PLOT_AGENT:-}" \
+      PLOT_HARNESS="$launch_harness" \
+      PLOT_MODEL="$launch_model" \
+      PLOT_EFFORT="$launch_effort" \
       PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
       PLOT_STAMP_STARTED="$stamp_now" \
       PLOT_WORKER_MONITOR="$worker_monitor" \
