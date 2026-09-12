@@ -204,6 +204,10 @@ const readAgent = async (
   return {
     branch,
     worktree,
+    // The identity, straight off the manifest the registry already read. `''`
+    // when no dispatcher minted one, which a marker reports as undeclared
+    // rather than inventing a name for.
+    session: entry.session,
     workerAlive,
     declaration: declarationOf(worktree, world),
     desk,

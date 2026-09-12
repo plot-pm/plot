@@ -34,6 +34,24 @@ export interface SupervisionReadings {
   /** The desk it works, absolute. */
   worktree: string;
   /**
+   * The session id the dispatcher minted for this agent; `''` when none was.
+   *
+   * A READING, NOT A DERIVATION. The session is measured of the agent — the
+   * manifest carries it — rather than computed from the verdict, which is why
+   * it arrives here beside `branch` and `worktree` instead of being assembled
+   * where the marker is written.
+   *
+   * **The identity, and not the branch, the worktree or the pid.**
+   * `entities/agent.ts:66` states that each of those changes while the agent
+   * lives, and a marker naming one of them cannot answer *who wrote this*.
+   *
+   * **`''` IS UNDECLARED AND NEVER A NAMELESS AGENT.** A hand-started loop has
+   * no dispatcher to mint one, and a marker that invented an identity would be
+   * worse than one with no field: the next foreign-marker incident would be
+   * debugged against a name nobody minted.
+   */
+  session: string;
+  /**
    * Whether a worker process is alive in that desk.
    *
    * The first question of the tick and the cheapest: a live worker is doing
@@ -137,6 +155,14 @@ export interface Supervision {
   branch: string;
   /** The desk it is about. */
   worktree: string;
+  /**
+   * The session that held this branch; `''` when the agent declared none.
+   *
+   * Carried on the verdict so a marker can name its writer without the caller
+   * re-reading the manifest — the reason `correction` and `resume` travel here
+   * rather than being re-derived.
+   */
+  session: string;
   /** One message per failed gate, in `ALL_GATES` order; empty when none failed. */
   failures: readonly string[];
   /**
@@ -235,6 +261,7 @@ export const supervise = (readings: SupervisionReadings): Supervision => {
     cause,
     branch: readings.branch,
     worktree: readings.worktree,
+    session: readings.session,
     failures,
     correction: verdict === 'correct' ? correctionPrompt(readings.branch, failures) : '',
     resume,

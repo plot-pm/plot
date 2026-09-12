@@ -3,6 +3,7 @@ import { supervise } from '../src/workflows/supervise.js';
 import { MAX_ATTEMPTS, type SupervisionReadings } from '../src/rules/supervision.js';
 import type { DeskReadings } from '../src/rules/gates.js';
 import type { Write } from '../src/workflows/decision.js';
+import { firstMarkerLine } from '../src/adapters/agents/agents-fs.js';
 
 const OPEN = '<!' + '--';
 const CLOSE = '--' + '>';
@@ -42,6 +43,7 @@ const agent = (
 ): SupervisionReadings => ({
   branch,
   worktree: `/estate/.worktrees/${branch.replace(/\//g, '-')}`,
+  session: `sess-${branch.replace(/\//g, '-')}`,
   workerAlive: false,
   declaration: {
     read: 'declared',
@@ -390,6 +392,69 @@ describe('a daemon’s first tick picks up desks that predate it', () => {
     for (const row of result.detail.agents) {
       expect(row.supervision.verdict).toBe('correct');
       expect(row.supervision.correction).toContain('No merged PR');
+    }
+  });
+});
+
+describe('a marker names its writer', () => {
+  // A marker written by ONE branch's worker into ANOTHER's tree made a finished
+  // branch read as blocked. Measured 2026-08-20 in
+  // `plot-wt-bug-the-timeout-test-does-not-race-the-clock`: a marker appeared
+  // reading "Wrong worktree - need reassignment from … to …", written by the
+  // other branch's worker, and the only way to tell was a person recognising a
+  // branch name that was not theirs.
+
+  const spent = (over: Partial<SupervisionReadings> = {}) =>
+    supervise({
+      agents: [
+        stranded('feature/spent', {
+          attempts: MAX_ATTEMPTS,
+          desk: { ...cleanDesk('feature/spent'), merge: 'not-merged' },
+          ...over,
+        }),
+      ],
+    }).writes[0];
+
+  it('names the session that wrote it, below the question', () => {
+    const marker = spent({ session: 'sess-abc123' });
+    expect(marker.kind).toBe('blocked-marker');
+    if (marker.kind !== 'blocked-marker') return;
+    expect(marker.question).toContain('sess-abc123');
+  });
+
+  it('keeps the question on the FIRST line, where the board reads it', () => {
+    // THE DEFECT THIS SLICE IS MOST LIKELY TO SHIP. `firstMarkerLine` takes the
+    // first non-empty line and truncates at QUESTION_MAX = 120. The supervisor's
+    // own head is already long, so an identity PREPENDED to it would push the
+    // question out of the 120 entirely — the field would arrive by destroying
+    // the thing it annotates.
+    //
+    // Asserted against the rendered line rather than the raw text, because the
+    // raw text contains the session either way and only the render can show
+    // whether the question survived.
+    const marker = spent({ session: 'sess-abc123' });
+    if (marker.kind !== 'blocked-marker') return;
+    const rendered = firstMarkerLine(marker.question);
+    expect(rendered.startsWith('PLOT-BLOCKED:')).toBe(true);
+    expect(rendered).toContain('the supervisor gave up');
+    expect(rendered).not.toContain('sess-abc123');
+  });
+
+  it('says the agent is undeclared rather than naming a session it has none of', () => {
+    // ABSENT IS NOT FALSE. An agent with no minted session is UNDECLARED, and a
+    // marker that invented an identity would be worse than one with no field:
+    // the next foreign-marker incident would be debugged against a name nobody
+    // minted.
+    const marker = spent({ session: '' });
+    if (marker.kind !== 'blocked-marker') return;
+    expect(marker.question).toContain('undeclared');
+    expect(marker.question).not.toMatch(/agent `\s*`/);
+  });
+
+  it('names the branch it is about, on both causes', () => {
+    const gaveUp = spent({ session: 'sess-abc123' });
+    if (gaveUp.kind === 'blocked-marker') {
+      expect(gaveUp.question).toContain('feature/spent');
     }
   });
 });
