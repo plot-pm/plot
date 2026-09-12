@@ -71,7 +71,7 @@ Bind loopback dual-stack rather than a name. `index.ts:49` reads `HOST = process
 
 **It must not widen the write surface.** `index.ts:141` records that `HOST=0.0.0.0` published every write endpoint, and that the value was read and never checked. Binding both loopback families reaches a browser on this machine; binding every interface reaches the network. This slice does the first, and the `0.0.0.0` path keeps whatever check it has. The same-origin allowlist reads the bound address, so its reading moves with the bind.
 
-### One plan is one card (Branch: bug/one-plan-is-one-card)
+### One plan is one card (Branch: bug/one-plan-is-one-card, PR: #895)
 
 Pass `localOnlyPaths` to the staging site so the branch reader skips a path the working-tree reader already supplied.
 
