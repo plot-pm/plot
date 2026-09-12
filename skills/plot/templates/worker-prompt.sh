@@ -53,4 +53,61 @@
 session_args=()
 [ -n "${PLOT_SESSION_ID:-}" ] && session_args=("${PLOT_SESSION_FLAG:---session-id}" "$PLOT_SESSION_ID")
 
-claude -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the repo's gates, and never skip a failing test. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." ${session_args[@]+"${session_args[@]}"} --permission-mode bypassPermissions
+# WHAT THIS AGENT MAY TOUCH — the capability names its charter declared.
+#
+# Plot exports the NAMES and this file owns the SPELLING, the same division the
+# session flag above follows. A capability is whatever this project decided it
+# means; the harness's flag for it is this file's business, because the flag
+# differs per harness and Plot must learn none of them.
+#
+# THE DENY FORM, AND IT IS A MEASUREMENT RATHER THAN A PREFERENCE. Measured
+# 2026-09-12 against the installed CLI: `--allowedTools "Read" "Grep"` left the
+# agent's tool list FULL — `Write`, `Edit` and a shell all present — with and
+# without `--permission-mode bypassPermissions`. That flag shapes permission to
+# call a tool, and the last line of this file grants that permission anyway. Only
+# `--disallowedTools` removes a tool from the list, and it survives the bypass.
+# An allow-list here would ship a gate that does not gate.
+#
+# EDIT THE MAPPING BELOW. It is an EXAMPLE and the names are this project's to
+# choose — `read-only` is not a word Plot knows. Add an arm per capability the
+# charters in `.plot/charters/` declare.
+#
+# <<<CAPABILITY_MAPPING>>>
+#
+# AN UNMAPPED CAPABILITY IS SAID OUT LOUD, NEVER SWALLOWED. An agent whose
+# charter declares a bound this file does not implement runs UNBOUNDED, and
+# that is the honest failure — Plot invents no fallback scope, because a scope
+# nobody wrote is a scope nobody agreed to. What it must not do is happen
+# quietly, so it is named on stderr where the launch log keeps it.
+# THE EXAMPLE MAPPING'S DENY LIST, and it names an EXECUTION surface rather
+# than a pair of write tools. Measured 2026-09-12: with Write, Edit, Bash and
+# NotebookEdit all denied under bypassPermissions, a sandbox agent overwrote
+# the target file anyway, through an MCP plugin's Python REPL — `open(p, "w")`
+# is a filesystem write like any other. Disabling a named write tool removes
+# one interface to the filesystem; it does not remove the filesystem.
+#
+# DELEGATION IS DENIED FOR THE SAME REASON: a subagent inherits no bound, so an
+# agent that may spawn one is not bounded at all.
+#
+# It is a DEFAULT a project overrides, not a rule — the mapping lives in this
+# file, which every project rewrites, and Plot has no opinion about what a
+# capability means here.
+: "${PLOT_READ_ONLY_DENY:=Write,Edit,NotebookEdit,Bash,Agent,Task}"
+
+cap_args=()
+if [ -n "${PLOT_CAPABILITIES:-}" ]; then
+  while IFS= read -r capability; do
+    [ -n "$capability" ] || continue
+    case "$capability" in
+      read-only) cap_args+=(--disallowedTools "${PLOT_READ_ONLY_DENY}") ;;
+      *)
+        echo "worker-prompt: charter capability '$capability' has no mapping here — the agent runs UNBOUNDED for it" >&2
+        echo "  Add a case arm in .plot/worker-prompt.sh, or remove it from the charter." >&2
+        ;;
+    esac
+  done <<EOF
+$PLOT_CAPABILITIES
+EOF
+fi
+
+claude ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the repo's gates, and never skip a failing test. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions

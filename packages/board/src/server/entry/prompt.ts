@@ -30,6 +30,14 @@ import { pathToFileURL } from 'node:url';
  *
  * **Tab-separated out.** The caller is bash reading one line, and JSON would
  * mean a `jq` dependency on the launch path.
+ *
+ * **TWO QUESTIONS, ONE CHARTER READ.** `--capabilities` answers what the same
+ * charter declares an agent may do, for `plot-dispatch.sh`'s launch. A
+ * subcommand rather than a fourth field on the default line: that line is
+ * parsed positionally by `plot-worker-loop.sh`, whose `${rest#*\t}` takes the
+ * whole tail, so an appended field lands inside the agent name it prints. And a
+ * SEVENTH artifact rather than a subcommand would pay the charter's parse twice
+ * to answer two questions about one file.
  */
 
 /**
@@ -111,6 +119,38 @@ export const launch = (repoRoot: string, name: string): string => {
 };
 
 /**
+ * What the named agent's charter declares it may do.
+ *
+ * ONE NAME PER LINE, because a capability is a name a person wrote and the
+ * caller is bash: a separator would be a character a name could contain, and
+ * the shell that reads this splits on newlines already.
+ *
+ * AN AGENT THAT DECLARED NONE PRINTS NOTHING, and so does one with no charter.
+ * The two are the same answer to this question — *nothing bounds this agent* —
+ * and they stay distinguishable to the caller through the EXIT CODE, which is
+ * what separates them from the charter that could not be read at all.
+ *
+ * @param repoRoot - the repo root the charter path is relative to.
+ * @param name - the agent name, or `''` when nothing named one.
+ * @returns the capability names, one per line, or the refusal's reason.
+ */
+export const capabilities = (repoRoot: string, name: string): { text: string; refused: boolean } => {
+  const reading = read(repoRoot, name);
+  switch (reading.read) {
+    case 'declared':
+      return { text: reading.charter.capabilities.map((c) => `${c}\n`).join(''), refused: false };
+    case 'unnamed':
+    case 'absent':
+      return { text: '', refused: false };
+    case 'unreadable':
+      // THE SAME REFUSAL THE PROMPT QUESTION GIVES, for the same reason: a
+      // charter that exists and cannot be believed is a person's typo, and an
+      // empty capability list would launch an UNBOUNDED agent silently.
+      return { text: `charter '${reading.name}' ${reading.why}\n`, refused: true };
+  }
+};
+
+/**
  * Print the answer.
  *
  * `--launch` ASKS THE SECOND QUESTION, and it is a flag rather than a
@@ -120,6 +160,11 @@ export const launch = (repoRoot: string, name: string): string => {
  * not update — keeps working unchanged.
  *
  * @param argv - the repo root and the agent name, optionally after `--launch`.
+ * `--capabilities` asks the second question; without it the prompt line is
+ * printed exactly as before, because `plot-worker-loop.sh` parses that line
+ * positionally and takes the whole tail as its last field.
+ *
+ * @param argv - the flag, if any, then the repo root and the agent name.
  * @param write - where the answer goes.
  * @returns the process exit code — 0 resolved, 2 bad arguments, 3 refused.
  */
@@ -128,10 +173,22 @@ export const run = (
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): number => {
   const wantsLaunch = argv[0] === '--launch';
-  const [repoRoot, name = ''] = wantsLaunch ? argv.slice(1) : argv;
+  const asked = argv[0] === '--capabilities';
+  const [repoRoot, name = ''] = wantsLaunch || asked ? argv.slice(1) : argv;
   if (repoRoot === undefined || repoRoot === '') {
-    process.stderr.write('plot-prompt: usage: plot-prompt.mjs [--launch] <repo-root> [agent-name]\n');
+    process.stderr.write(
+      'plot-prompt: usage: plot-prompt.mjs [--launch|--capabilities] <repo-root> [agent-name]\n',
+    );
     return 2;
+  }
+  if (asked) {
+    const { text, refused } = capabilities(repoRoot, name);
+    // THE REFUSAL GOES TO STDERR, so a caller reading stdout into a list never
+    // takes the reason for a capability name. The prompt question can afford
+    // one stream because its answer is a fixed three fields; a list cannot.
+    if (refused) process.stderr.write(text);
+    else write(text);
+    return refused ? 3 : 0;
   }
   const line = wantsLaunch ? launch(repoRoot, name) : answer(repoRoot, name);
   write(line);
