@@ -67,7 +67,7 @@ This slice does not depend on that one — an unbounded panel works — but the 
 
 ## Slices
 
-### A panel questions one plan (Branch: feature/a-panel-questions-one-plan)
+### A panel questions one plan (Branch: feature/a-panel-questions-one-plan, PR: #899)
 
 The panel helper: fan-out over one prompt, verdict files, the commitment gate, and the moderator that reconciles.
 
