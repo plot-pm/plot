@@ -228,6 +228,31 @@ const position = (supervision: Supervision): Pick<SupervisedAgent, 'branch' | 'w
 });
 
 /**
+ * The line that says who wrote a marker.
+ *
+ * **A MARKER YOU DID NOT WRITE IS NOT YOURS TO ANSWER**, and until this line
+ * existed nothing in the file said which agent's question it was. One sentence
+ * a person reads at a glance, rather than a field a reader must parse: the
+ * marker's body is read by a person (`stopNotice` says so), the board's only
+ * machine read is `firstMarkerLine`, and that takes one line without parsing
+ * fields. A parseable form here would be a second contract with no reader.
+ *
+ * **`''` SAYS UNDECLARED AND NAMES NO SESSION.** A hand-started loop has no
+ * dispatcher to mint one, so the absence is a real shape rather than a failure
+ * — and inventing an identity would leave the next foreign-marker incident to
+ * be debugged against a name nobody minted. `identityWasDeclared` draws the
+ * same line one entity over.
+ *
+ * @param branch - the branch the writer held.
+ * @param session - the writer's session id, or `''` when it declared none.
+ * @returns one line naming the writer.
+ */
+const writtenBy = (branch: string, session: string): string =>
+  session === ''
+    ? `Written by the agent on \`${branch}\` (session undeclared — no dispatcher minted one).`
+    : `Written by the agent on \`${branch}\`, session \`${session}\`.`;
+
+/**
  * What the supervisor leaves on a desk it has stopped working on.
  *
  * Written as a `PLOT-BLOCKED` marker's body, which means it is read by a person
@@ -235,6 +260,20 @@ const position = (supervision: Supervision): Pick<SupervisedAgent, 'branch' | 'w
  * is being asked to decide. The gate failures follow verbatim: they are already
  * the specification of the fix, and the person deciding whether to restart this
  * branch needs the same list the next attempt would have been handed.
+ *
+ * **IT NAMES ITS WRITER, ON ITS OWN LINE.** Measured 2026-08-20 in
+ * `plot-wt-bug-the-timeout-test-does-not-race-the-clock`: a marker written by
+ * ANOTHER branch's worker into that tree made a finished branch read as
+ * blocked, and the only way to tell was a person recognising a branch name that
+ * was not theirs. The fleet scan reads the marker from the TREE, so the tree
+ * cannot say who wrote it.
+ *
+ * **BELOW THE QUESTION AND NEVER BESIDE IT**, and that placement is the whole
+ * constraint. `firstMarkerLine` takes the FIRST non-empty line and truncates at
+ * `QUESTION_MAX = 120`; this head already runs past that, so an identity
+ * prepended to it would push the question out of the render entirely — the
+ * field would arrive by destroying the thing it annotates. A line below the
+ * first is never read by the board and always read by the person.
  *
  * @param supervision - the verdict that stopped.
  * @returns the marker's body.
@@ -245,8 +284,9 @@ const stopNotice = (supervision: Supervision): string => {
       ? `PLOT-BLOCKED: the agent on \`${supervision.branch}\` declared itself blocked and stopped. It reported that it cannot proceed, so a correction is not an answer — read its declaration and decide what it needs.`
       : `PLOT-BLOCKED: the supervisor gave up on \`${supervision.branch}\` after ${supervision.nextAttempts} attempts. Decide whether to restart it with \`plot-dispatch.sh --restart\`, finish it by hand, or defer the branch in the plan.`;
 
-  if (supervision.failures.length === 0) return `${head}\n`;
-  return [head, '', 'What the gates found:', ...supervision.failures.map((f) => `- ${f}`), ''].join(
+  const body = [head, '', writtenBy(supervision.branch, supervision.session)];
+  if (supervision.failures.length === 0) return `${body.join('\n')}\n`;
+  return [...body, '', 'What the gates found:', ...supervision.failures.map((f) => `- ${f}`), ''].join(
     '\n',
   );
 };
