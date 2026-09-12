@@ -39,7 +39,7 @@ Then two halves, and neither is expressible today.
 - [x] [one-cap-holds-across-boards](../plans/2026-09-11-one-cap-holds-across-boards.md) — the parallel-agent cap holds across every board on one repository; the in-flight set moves out of one process's memory (story: `the-master-agent-holds-the-fleet`)
 - [x] [the-board-answers-where-the-browser-asks](../plans/2026-09-11-the-board-answers-where-the-browser-asks.md) — the board binds both loopback families, and one plan renders as one card. Both were open points the 2026-09-11 sweep confirmed against current code (story: `plot-board`)
 - [x] [an-agent-declares-what-it-runs](../plans/2026-09-12-an-agent-declares-what-it-runs.md) — the charter's `harness`, `model` and `effort` reach `start_worker`, and a harness this machine cannot run refuses rather than falling back
-- [ ] [a-charter-bounds-what-an-agent-may-touch](../plans/2026-09-12-a-charter-bounds-what-an-agent-may-touch.md) — `capabilities` becomes a tool scope the harness enforces, which is the only differentiation that is a gate rather than a rule
+- [x] [a-charter-bounds-what-an-agent-may-touch](../plans/2026-09-12-a-charter-bounds-what-an-agent-may-touch.md) — `capabilities` becomes a tool scope the harness enforces, which is the only differentiation that is a gate rather than a rule
 - [ ] [a-failed-gate-becomes-a-correction](../plans/2026-09-12-a-failed-gate-becomes-a-correction.md) — an absent agent is noticed and its slice handed on under `--restart`'s own guards; a failing build becomes a correction in the agent's session; every marker names its writer
 
 ### Should Have
