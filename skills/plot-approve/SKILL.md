@@ -152,6 +152,75 @@ Read the plan file and check for a `### Tracer` subsection under `## Branches`:
 
 > **Smaller models:** Skip heuristic evaluation. Only check for an existing `### Tracer` subsection. If present and incomplete, warn. Otherwise proceed silently.
 
+### 2c. The panel verdict gate
+
+**A juror returning `reject` refuses the approval. A panel that ran and found
+nothing refuses nothing. A plan nobody has questioned approves exactly as it does
+today.**
+
+**The gate fires on a verdict, never on a ritual**, and that is the whole design.
+Measured 2026-09-12: **268 plans, 73 carrying a `Rounds:` field — 27.2%.** A gate
+that refused an unquestioned plan would make 72.8% of this estate unapprovable
+overnight, and a gate people turn off protects nothing. This is
+`a-merged-pr-carried-work`'s call, made again here.
+
+**Absent is not false.** A plan with no panel record is *unquestioned*, not
+*questioned and clean*. Both approve; only one of them was reviewed, and the
+difference is recorded in `Rounds:` rather than enforced here.
+
+Read the panel's moderation for this plan:
+
+```bash
+SUBJECT=$(basename "$PLAN" .md)
+PANEL=".plot/panels/$SUBJECT"
+```
+
+| What is there | What this step does |
+|---|---|
+| No `$PANEL` directory | **Proceed.** Unquestioned, which is approvable. |
+| Verdicts, none `reject` | **Proceed.** The panel found nothing that holds. |
+| Any juror holds `reject` | **Refuse.** Name the lens and its finding. |
+
+**A `reject` is cleared by a later round that no longer rejects — never by an
+override.** There is no waiver flag, no `--force`, and no recorded reason, by
+design. The plan is amended and re-questioned; approval unblocks when the newest
+round holds no `reject`. An override is a claim about a conversation nobody else
+saw; **a round is re-derivable by anyone who reads the plan later.**
+
+So the refusal names the way out, and the way out is work rather than a flag:
+
+```
+plan 'the-slug' is held by a panel reject.
+
+  estate — "packages/domain/src/rules/free.ts already answers this"
+
+  A reject is cleared by a later round that no longer rejects. Amend the plan
+  and re-run /challenge-the-plan; approval unblocks when no juror rejects.
+  There is deliberately no override.
+```
+
+**Read the newest round only.** An older `reject` that a later round did not
+repeat is already cleared — that is what "cleared by a later round" means, and
+re-reading a superseded verdict would make the gate unclearable by its own rule.
+
+**Read the exit code, not the emptiness.** `plot-panel.mjs` exits `3` for a
+refusal and `2` for unusable arguments. **A missing bundle is a broken
+installation, not a clean panel** — if the mechanism cannot be asked, say the
+verdict went unread rather than reporting no reject.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** apply the gate unchanged. It reads files
+> and needs nobody: a `reject` refuses, everything else proceeds. `PLOT_UNATTENDED`
+> says nobody can be asked; it never says a check may be skipped.
+> `PLOT-UNASKED: Approve over a panel reject? — refused — no override exists; amend and re-question`
+
+**Why this lives in the skill and not in `plot-approve.sh`.** The script
+**dies** on `Review: in-session` (`plot-approve.sh:194`) and `Review: ballot`
+(`:197`) before doing any work — *"a script cannot stand in for a human reviewer
+or read a ballot."* So those two channels never reach it, and a gate inside it
+would be invisible to exactly the reviews that most need one. This plan's own
+`Review:` is `in-session`. The skill is where all three channels converge, so
+the gate is here.
+
 ### 3. Effect and Record the Approval
 
 **`Review: pr` — one call. Do not do this by hand:**
