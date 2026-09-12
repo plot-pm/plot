@@ -867,6 +867,12 @@ test('worker-state: an orphaned wrapper is classified by the DESK, not the proce
   const pid = spawnWrapper('sleep 300 & exec sleep 300');
   try {
     fs.writeFileSync(path.join(f.wt, '.plot-worker.pid'), String(pid));
+    // A DESK PLOT LAUNCHED A WORKER INTO. The agent question is asked only
+    // where `.plot-worker.wrapper.pid` stands, because only the wrapper writes
+    // it — a recorded pid without one was never started by `start_worker`, and
+    // Plot has no grounds to expect an agent beneath a passer-by. Measured in
+    // CI 2026-09-12: a desk whose pid was the test runner read `finished`.
+    fs.writeFileSync(path.join(f.wt, '.plot-worker.wrapper.pid'), String(pid));
 
     // A desk holding unlanded work: `stalled`, which is what the plan names.
     fs.writeFileSync(path.join(f.wt, 'unfinished.txt'), 'work\n');
@@ -903,6 +909,7 @@ test('worker-readings: the liveness field says `orphaned`, and the rule agrees',
   const pid = spawnWrapper('sleep 300 & exec sleep 300');
   try {
     fs.writeFileSync(path.join(f.wt, '.plot-worker.pid'), String(pid));
+    fs.writeFileSync(path.join(f.wt, '.plot-worker.wrapper.pid'), String(pid));
     fs.writeFileSync(path.join(f.wt, 'unfinished.txt'), 'work\n');
 
     const orphaned = readingsWithAgent(f.wt, { want: 'nosuchagent' });
@@ -910,6 +917,43 @@ test('worker-readings: the liveness field says `orphaned`, and the rule agrees',
 
     const live = readingsWithAgent(f.wt, { want: 'sleep' });
     assert.equal(live[2], 'live', `a live agent must say live: ${live.join('|')}`);
+  } finally {
+    try { process.kill(Number(pid)); } catch { /* gone */ }
+    f.cleanup?.();
+  }
+});
+
+test('worker-state: a desk Plot never launched a worker into is not asked about its agent', () => {
+  // THE GATE, AND CI FOUND IT. `plot_worker_state` is called on desks whose
+  // `.plot-worker.pid` Plot never wrote — a hand-made checkout, or a fixture
+  // recording a pid by hand. For those the question *is an agent running under
+  // this pid?* is malformed: Plot has no grounds to expect one, and asking
+  // reinterprets every passer-by pid as an orphaned wrapper.
+  //
+  // Measured 2026-09-12 in CI: `--status` reported `finished` for a desk whose
+  // recorded pid was the TEST RUNNER — alive 1436 s with no agent beneath it.
+  // The grace window cannot catch that, because the process is old.
+  //
+  // `.plot-worker.wrapper.pid` IS THE PROOF, because only the wrapper writes
+  // it. The manifest was tried first and defeated the detection outright — the
+  // one genuinely orphaned desk on this machine carries none, its registry
+  // having moved — so the gate would have excluded exactly the population the
+  // reading exists to serve.
+  const f = fixture('unlaunched');
+  const pid = spawnWrapper('exec sleep 300');
+  try {
+    // A live pid with no agent under it, and nothing saying Plot started it.
+    fs.writeFileSync(path.join(f.wt, '.plot-worker.pid'), String(pid));
+    fs.writeFileSync(path.join(f.wt, 'unfinished.txt'), 'work\n');
+    assert.equal(stateWithAgent(f.wt, 0, { want: 'nosuchagent' }), 'running',
+      'without a wrapper file the pid is trusted, exactly as before this reading');
+
+    // The SAME tree, once the wrapper's own file stands, is asked and answers.
+    // One fixture, both arms: this is what proves the gate is the file rather
+    // than something else about the desk.
+    fs.writeFileSync(path.join(f.wt, '.plot-worker.wrapper.pid'), String(pid));
+    assert.equal(stateWithAgent(f.wt, 0, { want: 'nosuchagent' }), 'stalled',
+      'a desk Plot launched a worker into is asked, and its orphan is seen');
   } finally {
     try { process.kill(Number(pid)); } catch { /* gone */ }
     f.cleanup?.();
