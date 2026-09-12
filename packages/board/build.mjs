@@ -305,6 +305,30 @@ await esbuild.build({
 fs.copyFileSync(taskArtifact, shippedTask);
 fs.chmodSync(shippedTask, 0o755);
 
+// The panel's commitment gate, for the skill that runs the panel.
+//
+// AN EIGHTH artifact, for the reason the third through seventh give:
+// plot-ask.mjs answers by RUNNING plot-fleet-scan.sh — 18.3 s — so a skill
+// asking it whether one juror committed would start a whole fleet scan to read
+// one file. This entry reads stdin, spawns nothing and opens nothing.
+const panelArtifact = path.join(here, 'dist/plot-panel.mjs');
+const shippedPanel = path.join(here, '../../skills/plot/scripts/board/plot-panel.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/panel.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: panelArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(panelArtifact, shippedPanel);
+fs.chmodSync(shippedPanel, 0o755);
+
 // The agent state, for the callers already in node.
 //
 // The same reason the seventh gives, and it is NOT on the hot path the seventh
