@@ -51,6 +51,7 @@ skills/plot/scripts/board/plot-branch-state.mjs -merge
 skills/plot/scripts/board/plot-delta.mjs -merge
 skills/plot/scripts/board/plot-landed.mjs -merge
 skills/plot/scripts/board/plot-movable.mjs -merge
+skills/plot/scripts/board/plot-panel.mjs -merge
 skills/plot/scripts/board/plot-prompt.mjs -merge
 skills/plot/scripts/board/plot-propose-stack.mjs -merge
 skills/plot/scripts/board/plot-reconcile.mjs -merge

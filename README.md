@@ -188,6 +188,7 @@ The keys cover plan and sprint directories, branch prefixes, git host and CI, th
 | [plot-fleet](skills/plot-fleet/) | Fleet control — `--start`, `--stop`, `--status` over the supervisor and the agents it runs |
 | [plot-merge-queue](skills/plot-merge-queue/) | Safe merge order with collision prediction |
 | [plot-reslice](skills/plot-reslice/) | Slice a multi-branch wave into one wave per branch |
+| [plot-panel](skills/plot-panel/) | Question one plan with N lenses at once — verdict files, a commitment gate, a moderator |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
 
 ### Companions
