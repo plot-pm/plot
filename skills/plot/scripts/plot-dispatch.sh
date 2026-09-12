@@ -832,28 +832,6 @@ resolve_launch() { # $1 = repo root, $2 = agent name ('' when none)
   return 0
 }
 
-# `PLOT_DISPATCH_SOURCED=1` STOPS HERE, so a test can take `resolve_launch`
-# without dispatching anything — `plot-worker-loop.sh` states this idiom for
-# `resolve_prompt_file`, and this is the same one applied to the function that
-# answers the same question one script over.
-#
-# AFTER THE DEFINITION IT EXISTS TO EXPOSE, and that placement is the whole
-# subtlety. This file is not `plot-worker-loop.sh`, where every definition
-# precedes every executing line: here the argument parsing runs at the TOP and
-# the functions are defined below it, so a guard at the top returns before
-# `resolve_launch` exists. Measured while writing this: `resolve_launch: command
-# not found`, from a guard eleven lines into the file.
-#
-# `script_dir` IS ALREADY RESOLVED at this point, which is what a sourcing test
-# needs and what slicing the file cannot give it — `script_dir` is derived from
-# `BASH_SOURCE`, so a copy written to /tmp resolves every helper to /tmp.
-#
-# THE FLAG IS OPT-IN AND NAMED FOR THIS FILE. An unset variable leaves the
-# script exactly as it was — no caller changes, and a dispatched worker cannot
-# reach this return by accident. `return` rather than `exit` because a sourced
-# script returns to its sourcer.
-[ -n "${PLOT_DISPATCH_SOURCED:-}" ] && return 0
-
 start_worker() {
   local branch="$1" wt="$2"
   local cmd
@@ -1210,6 +1188,30 @@ start_worker() {
   echo "    started worker (log: $log)"
   return 0
 }
+
+# `PLOT_DISPATCH_SOURCED=1` STOPS HERE, so a test can take `resolve_launch` and
+# `start_worker` without dispatching anything — `plot-worker-loop.sh` states
+# this idiom for `resolve_prompt_file`, and this is the same one applied to the
+# functions that answer the same question one script over.
+#
+# AFTER BOTH DEFINITIONS IT EXISTS TO EXPOSE, and that placement is the whole
+# subtlety. This file is not `plot-worker-loop.sh`, where every definition
+# precedes every executing line: here the argument parsing runs at the TOP and
+# the functions are defined below it. Measured while writing this: a guard at
+# the top of the file returned before `resolve_launch` existed
+# (`resolve_launch: command not found`), and a guard between the two functions
+# hid `start_worker` the same way — which is the one a test must call to prove
+# a refusal touches no desk.
+#
+# `script_dir` IS ALREADY RESOLVED at this point, which is what a sourcing test
+# needs and what slicing the file cannot give it: `script_dir` is derived from
+# `BASH_SOURCE`, so a copy written to /tmp resolves every helper to /tmp.
+#
+# THE FLAG IS OPT-IN AND NAMED FOR THIS FILE. An unset variable leaves the
+# script exactly as it was — no caller changes, and a dispatched worker cannot
+# reach this return by accident. `return` rather than `exit` because a sourced
+# script returns to its sourcer.
+[ -n "${PLOT_DISPATCH_SOURCED:-}" ] && return 0
 
 # ---------------------------------------------------------------------------
 # Inspection and shutdown

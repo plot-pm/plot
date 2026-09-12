@@ -202,3 +202,90 @@ test('a MISSING bundle falls back and says it could not ask', () => {
     fs.rmSync(empty, { recursive: true, force: true });
   }
 });
+
+/**
+ * Call `start_worker` with a charter and report what it did to the desk.
+ *
+ * The refusal's WHOLE POINT is that it happens before anything is written, so
+ * the assertion has to be about side effects rather than about the return code
+ * alone: a test asserting only the refusal passes an implementation that
+ * refuses after cutting the desk.
+ */
+const startWorker = (root, agent, wt) => {
+  const script = `
+    PLOT_DISPATCH_SOURCED=1
+    . "${dispatch}"
+    repo_root="${root}"
+    PLOT_AGENT="${agent}"
+    worker_cmd_declined=0
+    slug=''
+    if start_worker 'some/branch' '${wt}'; then echo 'STARTED'; else echo "REFUSED $?"; fi
+  `;
+  const err = path.join(os.tmpdir(), `plot-sw-err-${process.pid}-${Math.random()}`);
+  let stdout = '';
+  try {
+    stdout = execFileSync('bash', ['-c', `{ ${script} } 2>"${err}"`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    stdout = e.stdout ?? '';
+  }
+  let stderr = '';
+  try {
+    stderr = fs.readFileSync(err, 'utf8');
+  } catch {
+    stderr = '';
+  }
+  fs.rmSync(err, { force: true });
+  return { stdout: stdout.trim(), stderr };
+};
+
+test('the refusal fires BEFORE the desk is touched', () => {
+  // BOTH HALVES, because the non-zero outcome alone would pass an
+  // implementation that refuses after cutting the desk — which is the thing the
+  // plan says not to build. `.plot-worker.exit` is the tell: `start_worker`
+  // removes it four lines into its own body, so a file that survives proves the
+  // refusal came first. No manifest and no pid file are the other two.
+  const root = sandbox();
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-desk-'));
+  try {
+    fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '0');
+    const { stdout } = startWorker(root, 'broken', wt);
+
+    assert.match(stdout, /^REFUSED/, 'an unbelievable charter must not start a worker');
+    assert.ok(
+      fs.existsSync(path.join(wt, '.plot-worker.exit')),
+      'the desk was touched: start_worker removed .plot-worker.exit before refusing',
+    );
+    assert.ok(!fs.existsSync(path.join(wt, '.plot-worker.pid')), 'no pid file may be written');
+    assert.equal(
+      fs.existsSync(path.join(root, '.plot', 'agents'))
+        ? fs.readdirSync(path.join(root, '.plot', 'agents')).length
+        : 0,
+      0,
+      'no manifest may be written',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
+
+test('the refusal names the charter, its path and the remedy', () => {
+  // Catches a bare non-zero return. `resolve_prompt_file`'s refusal prints the
+  // charter path and the way out; a refusal reading only "could not start"
+  // sends the operator nowhere.
+  const root = sandbox();
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-desk-'));
+  try {
+    const { stderr } = startWorker(root, 'broken', wt);
+
+    assert.match(stderr, /charter 'broken'/, 'the charter is named');
+    assert.match(stderr, /\.plot\/charters\/broken\.json/, 'the path to fix is named');
+    assert.match(stderr, /unset PLOT_AGENT/, 'the deliberate way out is named');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
