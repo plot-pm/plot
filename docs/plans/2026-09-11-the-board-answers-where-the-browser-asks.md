@@ -62,7 +62,7 @@ Both sources are legitimate. A plan may exist only in the working tree, and a pl
 
 ## Slices
 
-### The board answers on both families (Branch: bug/the-board-answers-on-both-loopback-families)
+### The board answers on both families (Branch: bug/the-board-answers-on-both-loopback-families, PR: #894)
 
 Bind loopback dual-stack rather than a name. `index.ts:49` reads `HOST = process.env.HOST ?? 'localhost'`, and `git log -S"HOST = process.env.HOST"` returns exactly one commit — `c0cbbc764`, the scaffold. Node resolves that name to one family, so a browser reaching for the other finds nothing while the process is healthy.
 
