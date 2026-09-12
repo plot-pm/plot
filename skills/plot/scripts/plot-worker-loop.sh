@@ -230,6 +230,38 @@ case "$WAIT_POLL_SECONDS" in (*[!0-9]*|''|0) WAIT_POLL_SECONDS=60 ;; esac
 WAIT_BUDGET_SECONDS="${PLOT_WAIT_BUDGET_SECONDS:-$WORKER_BOUND_SECONDS}"
 case "$WAIT_BUDGET_SECONDS" in (*[!0-9]*|'') WAIT_BUDGET_SECONDS="$WORKER_BOUND_SECONDS" ;; esac
 
+# ---------------------------------------------------------------------------
+# HOW MANY TIMES A FAILING BUILD IS HANDED BACK — `Correction budget`
+# ---------------------------------------------------------------------------
+#
+# A CORRECTION IS A RETRY, SO IT NEEDS A FLOOR. The BuildMonitor publishes
+# `build failed` and the loop hands it to the agent that caused it; without a
+# bound an agent whose build fails for a reason it cannot fix — a broken runner,
+# a gate it has no permission over — is corrected for the whole of
+# `Worker bound`, which is the spin `START_ATTEMPT_BUDGET` exists to stop one
+# floor above.
+#
+# THE DEFAULT IS TWO AND IT IS A GUESS. Nothing has measured it. Two says *try
+# once more, then ask*, which is the smallest number that is not zero-or-once;
+# the first real number comes from watching the fleet correct real builds.
+# Recording the guess AS a guess is what stops it hardening into a decision
+# nobody made — so this paragraph is the record, and the CLAUDE.md key carries
+# the same sentence.
+#
+# IT IS A PLOT CONFIG KEY, AND `START_ATTEMPT_BUDGET` DELIBERATELY IS NOT. That
+# budget's own comment states the split: a project has no separate opinion about
+# how many times a BROKEN INVOCATION should be retried before a person is asked,
+# because a prompt that cannot run is Plot's problem in every project. A project
+# does have an opinion about how many times ITS failing build is handed back —
+# a repo whose CI is flaky wants more, one whose gates are deterministic wants
+# one. Two budgets, two defaults, two mechanisms; collapsing them would
+# contradict a comment already in this file.
+#
+# THE ENV OVERRIDE IS A TEST SEAM ON TOP OF THE KEY, not instead of it: a test
+# proving the budget ENDS in a marker would otherwise have to write a CLAUDE.md.
+CORRECTION_BUDGET="${PLOT_CORRECTION_BUDGET:-$(cfg "Correction budget" "2")}"
+case "$CORRECTION_BUDGET" in (*[!0-9]*|'') CORRECTION_BUDGET=2 ;; esac
+
 # Update the manifest when the worker hops to a new branch.
 #
 # The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
@@ -409,6 +441,73 @@ raise_manifest_attempts() { # $1=manifest
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# ---------------------------------------------------------------------------
+# THE CORRECTION COUNTER — `correctionAttempts`, and why it is not `attempts`
+# ---------------------------------------------------------------------------
+#
+# ITS OWN FIELD, DECIDED RATHER THAN INHERITED. `attempts` already answers two
+# questions: the supervisor's budget reads it (`rules/supervision.ts:203`) and
+# the start budget above writes it. A third reader would make one number answer
+# *how many times did the prompt fail to run*, *how many times did the
+# supervisor retry this desk*, and *how many times was this build handed back* —
+# three different questions about one agent, and a reader would have to
+# re-derive the split from the number.
+#
+# THE COLLISION IS CONCRETE, not a tidiness argument. The two budgets differ in
+# default (three against two) and in configurability (an env seam against a Plot
+# Config key), so a shared counter would let a spent START budget pre-consume the
+# CORRECTION budget: an agent whose prompt failed twice and then ran would arrive
+# at its first failing build with no corrections left, and the marker would name
+# a build failure for attempts spent on a broken invocation.
+#
+# IT IS STILL THE AUTOMATIC SIDE OF THE LINE. `relaunches` is a person's record
+# — three manual `--restart`s must never spend an automatic budget — and a
+# correction is automatic by every property that distinction was made for.
+#
+# ABSENT, UNREADABLE AND NON-NUMERIC ALL READ ZERO, the same permissive
+# direction `manifest_attempts` documents and for the same reason: a manifest
+# that cannot be read is not evidence a correction spin is under way. A counter
+# that cannot be read also cannot be raised, so the budget still ends the loop.
+manifest_corrections() { # $1=manifest → prints a count
+  local manifest="$1" n
+  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
+  n=$(node -e '
+    const fs = require("fs");
+    try {
+      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const n = manifest.correctionAttempts;
+      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
+    } catch { process.stdout.write("0"); }
+  ' "$manifest" 2>/dev/null) || n=0
+  case "$n" in (*[!0-9]*|'') n=0 ;; esac
+  printf '%s' "$n"
+}
+
+# Record one more correction of this agent.
+#
+# IT RAISES `correctionAttempts` AND TOUCHES NOTHING ELSE — in particular not
+# `branch`, the shape `raise_manifest_attempts` already takes: the slice stays
+# claimed across a correction, because the agent is being asked to fix the work
+# it still holds the desk for.
+#
+# ABSENT IS NOT A FAILURE. A hand-started loop has no manifest, so there is
+# nothing to raise and nothing to report.
+raise_manifest_corrections() { # $1=manifest
+  local manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+
+  local tmp="$manifest.plot-correction-tmp"
+  node -e '
+    const fs = require("fs");
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const n = manifest.correctionAttempts;
+    manifest.correctionAttempts = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
+    fs.writeFileSync(process.argv[2], JSON.stringify(manifest, null, 2) + "\n");
+  ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+
+  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
 # THE MARKER A SPENT BUDGET LEAVES, so the desk is distinguishable from a
 # finished one by the reading every other component already makes.
 #
@@ -466,6 +565,54 @@ write_blocked_marker() { # $1=worktree $2=text
   # marker keeps its old shape and gains no field. That is correct rather than a
   # migration gap — answering a question nobody asked is what the guard refuses.
   printf '%s\n\n%s\n' "$text" "$(marker_writer_line)" > "$file" 2>/dev/null || return 0
+}
+
+# ---------------------------------------------------------------------------
+# THE CORRECTION FILE — what the loop writes and the agent reads
+# ---------------------------------------------------------------------------
+#
+# THE NAME IS ONE FUNCTION so the marker, the writer and the export cannot
+# disagree about it. A marker that named a file the loop does not write would
+# send a person looking for an account of what was tried and find nothing.
+correction_file_name() { printf 'PLOT-CORRECTION.md'; }
+
+# Write one correction into the desk.
+#
+# $1=worktree $2=branch $3=the failure text, verbatim $4=this attempt $5=budget
+#
+# IT APPENDS AND NEVER REPLACES, which is the opposite of
+# `write_blocked_marker`'s no-overwrite guard and for a reason that inverts
+# cleanly. The marker's rule protects a question a PERSON must answer, so a
+# second writer must not speak over it. This file is the account of what was
+# tried, and the marker at the end of the budget points a person at it — so the
+# second correction must not erase the first, or the account says one attempt
+# was made where the budget spent two.
+#
+# THE FAILURE TEXT IS THE MONITOR'S OWN SENTENCE, passed through unread. The run
+# URL and the conclusion are in it already; this adds the attempt count and what
+# the agent is being asked to do, and interprets nothing about the failure.
+#
+# IT IS A `PLOT-CORRECTION` FILE AND DELIBERATELY NOT A `PLOT-BLOCKED*` ONE.
+# `plot-worker-state.sh:309`, `plot-reap.sh` and `plot-fleet-scan.sh` all read
+# the marker prefix as *this desk owes a person an answer*, and a correction owes
+# a person nothing — it is the agent's to answer. A correction file matching that
+# glob would make every corrected desk read as blocked, stop the reaper, and
+# stall the fleet on work that is being fixed automatically.
+#
+# THE HEADING SAYS THE FILE SUPERSEDES NOTHING. The brief is still the
+# specification; a correction is one gate's verdict on the work already done
+# against it. An agent told the file replaces its brief would rewrite the slice.
+write_correction() { # $1=worktree $2=branch $3=text $4=attempt $5=budget
+  local wt="$1" branch="$2" text="$3" attempt="$4" budget="$5" file
+  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  file="$wt/$(correction_file_name)"
+  {
+    printf '## Correction %s of %s — the build failed on `%s`\n\n' \
+      "$attempt" "$budget" "${branch:-?}"
+    printf 'CI reported: %s\n\n' "$text"
+    printf 'This is the build gate'\''s verdict on the work you have already pushed. Your brief is still the specification and this replaces none of it — fix what CI is failing on, commit, and push. Read the run at the URL above for what failed.\n\n'
+    printf -- '---\n\n'
+  } >> "$file" 2>/dev/null || return 0
 }
 
 # Read the slice the registry handed this agent, or nothing while it holds none.
@@ -1222,6 +1369,115 @@ monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
   return 1
 }
 
+# ---------------------------------------------------------------------------
+# THE BUILD'S VERDICT — the finding this loop now corrects on
+# ---------------------------------------------------------------------------
+#
+# `plot-build-monitor.sh` detects a failing run and publishes `build failed`
+# with the run URL, the head sha and the conclusion. Until this slice, consumers
+# of that finding on the estate were NONE: `buildMonitorPid` was read by the
+# board's registry and the finding itself by nothing, so CI's verdict was
+# measured, published, and dropped.
+#
+# WHERE THE FINDINGS ARE. The same derivation `monitor_findings_file` makes for
+# the WorkerMonitor, against the BuildMonitor's own filename. It is duplicated
+# at one line rather than plumbed, for that function's stated reason: the
+# wrapper starts the monitors, the loop is started BY the wrapper's command, and
+# no env var travels between them. `PLOT_BUILD_MONITOR_FILE` is read first so
+# the day the wrapper passes one, this follows it without a second change.
+build_findings_file() {
+  printf '%s' "${PLOT_BUILD_MONITOR_FILE:-${PLOT_WORKTREE:+$PLOT_WORKTREE/.plot-worker.monitor.build.jsonl}}"
+}
+
+# Does the BuildMonitor's LATEST finding say a build failed, and is it about the
+# code this desk is holding right now?
+#
+# → prints the finding's `evidence` when a correction is owed; nothing otherwise
+#
+# THE LAST MATCHING LINE, NEVER ANY LINE. `monitor_says_idle` states the rule
+# and the BuildMonitor makes it sharper: that monitor publishes on a change of
+# ANSWER-ABOUT-A-COMMIT, so a desk whose build failed and whose next push passed
+# carries `build failed` followed by `build passed`, both forever, in one file.
+# Grepping the file for the word would correct an agent whose build has since
+# gone green — the single most likely defect in this path, and the one that
+# wastes a whole correction telling an agent to fix work that is already right.
+#
+# THE MONITOR IS MATCHED BY NAME. The AgentMonitor and the WorkerMonitor write
+# beside this file under the same `.plot-worker.monitor.` prefix with different
+# vocabularies — one reports what an agent OWES, a Registry-side fact, the other
+# what a process is DOING. Taking either as a verdict about a build is exactly
+# the Machine/Registry confusion CLAUDE.md's split exists to prevent, so the
+# match is anchored on the `"monitor":"BuildMonitor"` field the monitor stamps
+# into every line. `monitor_says_idle` is the precedent.
+#
+# GREP RATHER THAN A JSON PARSER, for `monitor_says_idle`'s reason unchanged:
+# the line is written by `printf` in `plot-build-monitor.sh:publish` with a
+# fixed field order, so the fields sit at known positions in a known shape, and
+# a `node -e` per poll would fork an interpreter inside a worker whose whole
+# point is to leave the machine alone for the agent.
+#
+# A FINDING FILE THAT DOES NOT EXIST IS NOT A PASSING BUILD. It is no reading at
+# all — no monitor ran, or none has published yet — and the answer is that
+# nothing is owed, which is the same shape `monitor_says_idle` takes for an
+# unreadable file.
+build_says_failed() { # → prints the evidence, or nothing
+  local f
+  f=$(build_findings_file)
+  [ -n "$f" ] && [ -s "$f" ] || return 1
+  local last
+  last=$(grep '"monitor":"BuildMonitor"' "$f" 2>/dev/null | tail -n 1)
+  [ -n "$last" ] || return 1
+  case "$last" in (*'"finding":"build failed"'*) ;; (*) return 1 ;; esac
+
+  # THE EVIDENCE IS THE MESSAGE, TAKEN VERBATIM. The monitor already wrote *"the
+  # run at <url> for <sha> concluded <conclusion>"* — the run URL and the
+  # conclusion are what a person would read, and a summary here would be a
+  # second interpretation of something CI stated precisely. So the field is
+  # passed through rather than rebuilt.
+  #
+  # THE FIELD IS CUT AT ITS OWN BOUNDARIES rather than by counting: `evidence`
+  # is followed by `measuredAt` in a fixed order, so the prefix is removed up to
+  # the key and the suffix from the next key on.
+  local evidence="${last#*\"evidence\":\"}"
+  evidence="${evidence%%\",\"measuredAt\"*}"
+  [ -n "$evidence" ] || return 1
+
+  # A CORRECTION ABOUT A SUPERSEDED SHA IS DISCARDED, NOT DELIVERED. The monitor
+  # already refuses the inverse — `head moved` exists because *"A green result
+  # for code nobody will merge is worse than no result"* — and a failure about a
+  # sha the agent has already replaced is answered by work that is already done.
+  # Delivering it would spend a correction asking for a fix that landed before
+  # the question arrived.
+  #
+  # THE COMPARISON IS AT CONSUMPTION TIME, and it has to be: the finding was
+  # true when published and the branch has had minutes to move since. The
+  # monitor's own `settled_shas` cannot answer this — it stops the monitor
+  # re-asking, and says nothing about whether a subscriber should still act.
+  #
+  # THE SHA IS READ OUT OF THE EVIDENCE because the finding carries it nowhere
+  # else: `publish` writes seven fields and none of them is the commit. Adding
+  # one would be a monitor change for a fact its own sentence already states, so
+  # the sentence is parsed — `for <sha> concluded` — and the shape is pinned by
+  # a contract test against the monitor's real output rather than assumed.
+  #
+  # AN UNREADABLE SHA ON EITHER SIDE DELIVERS. A finding whose sentence does not
+  # carry one, or a worktree whose HEAD cannot be read, is not evidence that the
+  # failure is stale — and the failing direction matters: discarding on an
+  # unreadable reading would silently drop every correction the moment the
+  # sentence changed shape, where delivering one costs a correction against a
+  # budget that ends in a person either way.
+  local finding_sha head_sha
+  finding_sha="${evidence##*for }"
+  finding_sha="${finding_sha%% concluded*}"
+  case "$evidence" in (*" for "*" concluded "*) ;; (*) finding_sha='' ;; esac
+  head_sha=$(git -C "${PLOT_WORKTREE:-$PWD}" rev-parse --verify --quiet HEAD 2>/dev/null || true)
+  if [ -n "$finding_sha" ] && [ -n "$head_sha" ] && [ "$finding_sha" != "$head_sha" ]; then
+    return 1
+  fi
+
+  printf '%s' "$evidence"
+}
+
 # Could the agent's transcript be read for this worktree at all? `yes` | `no`.
 #
 # THE THIRD READING'S ONLY QUESTION. Wave 2 made `unavailable` a first-class
@@ -1374,6 +1630,19 @@ run_bounded() {
   PLOT_SESSION_FLAG=$(session_flag)
   export PLOT_SESSION_ID
   PLOT_SESSION_ID=$(session_handle) || PLOT_SESSION_ID=""
+
+  # WHERE A CORRECTION WOULD BE, exported so a project's prompt may name the
+  # file in its own wording. It is the PATH and not the text: the prompt is
+  # sourced afresh on every pass, and a correction written between two passes is
+  # read from the desk rather than carried in an environment that was set before
+  # it existed.
+  #
+  # IT IS EXPORTED WHETHER OR NOT A CORRECTION EXISTS, and the absence is the
+  # agent's to observe. A variable that appeared only on a corrected pass would
+  # make a project's prompt guard on its presence, which is a second rule about
+  # the same fact the file already states by existing.
+  export PLOT_CORRECTION_FILE
+  PLOT_CORRECTION_FILE="${PLOT_WORKTREE:-$PWD}/$(correction_file_name)"
 
   # shellcheck source=/dev/null
   bash -c '. "$1"' _ "$prompt_file" &
@@ -1721,6 +1990,87 @@ while true; do
       "the worker prompt exited $_prompt_status without running, on $START_ATTEMPT_BUDGET attempts"
     write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
       "PLOT-BLOCKED: the worker prompt for \`${PLOT_BRANCH:-?}\` exited $_prompt_status without running, $START_ATTEMPT_BUDGET times. Nothing was implemented and the slice is still claimed by this agent. Read \`.plot-worker.log\` for what the runtime said, fix the invocation in the prompt file, then restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
+    exit 1
+  fi
+
+  # ---------------------------------------------------------------------------
+  # THE BUILD FAILED — a fifth ending, and the first one Plot corrects instead
+  # ---------------------------------------------------------------------------
+  #
+  # THE PROMPT RAN AND THE AGENT PUSHED. Every reading above says the slice
+  # finished, and until this slice that was the end of it: the declaration was
+  # sealed, the branch cleared, and CI's verdict arrived minutes later with
+  # nobody left reading it.
+  #
+  # SO THIS IS ASKED BEFORE THE DECLARATION AND BEFORE THE BRANCH IS CLEARED,
+  # and the position is the whole mechanism rather than a tidy place to put it.
+  # Both writes below are about a FINISHED branch — `seal_declaration` records
+  # what the agent did, `clear_manifest_branch` returns the slice to the queue —
+  # and a corrected agent has not finished. Asking after either would mean
+  # correcting an agent that had already let go of the desk, the claim, and the
+  # branch, with the slice available for somebody else to be handed.
+  #
+  # THE CORRECTION IS A FILE IN THE DESK, and that is structural rather than
+  # convenient. A build's verdict arrives minutes after the push, so it cannot be
+  # a return value: the monitor publishes when it learns and the loop consumes
+  # when it next looks. The agent may be mid-slice, already hopped, or dead — a
+  # file survives all three, and the loop already reads the desk on every pass to
+  # decide whether it is resettable.
+  #
+  # WHY A FILE AND NOT A SENTENCE IN THE PROMPT. `.plot/worker-prompt.sh` belongs
+  # to the adopting project (`plot-worker-loop.sh:19`) and Plot reads nothing back
+  # out of it, so there is no line in it Plot may rewrite. What Plot exports is an
+  # environment variable and what it writes is a file; the prompt's own standing
+  # instruction to read the desk is what carries the correction to the agent.
+  # `PLOT_CORRECTION_FILE` is exported beside it for a project that wants to name
+  # the file in its own wording.
+  #
+  # THE FAILURE TEXT GOES IN VERBATIM. The monitor's `evidence` already reads
+  # *"the run at <url> for <sha> concluded <conclusion>"* — the run URL and the
+  # conclusion are what a person would read, and paraphrasing here is the same
+  # error as a lookup table for context windows: usually right, and unexplainable
+  # when wrong.
+  #
+  # THE AGENT NEVER CONTROLS THE RETRY. The budget is this loop's, read from
+  # `Correction budget`, and counted in a manifest field the agent does not
+  # write. An agent cannot extend it by declaring itself unfinished, and that is
+  # the property separating a correction loop from an agent that never stops.
+  #
+  # RESUMING IS `session_flag`'s DECISION AND NOT THIS BLOCK'S. A correction
+  # continues an existing conversation, so it wants `--resume` — but the flag is
+  # decided by the transcript probe on the next pass through `run_bounded`, which
+  # answers `--resume` for exactly the reason this path needs it and answers
+  # `--session-id` when there is no transcript to resume. Hardcoding the flag here
+  # would reintroduce the failure `session_flag` exists to prevent, in the one
+  # place that most looks like it knows better.
+  if [ -n "${PLOT_BRANCH:-}" ] && _correction=$(build_says_failed); then
+    _corrections=$(manifest_corrections "${PLOT_MANIFEST_FILE:-}")
+    if [ "$_corrections" -lt "$CORRECTION_BUDGET" ]; then
+      raise_manifest_corrections "${PLOT_MANIFEST_FILE:-}"
+      write_correction "${PLOT_WORKTREE:-$PWD}" "${PLOT_BRANCH:-}" \
+        "$_correction" "$(( _corrections + 1 ))" "$CORRECTION_BUDGET"
+      echo "plot-worker-loop: the build failed on ${PLOT_BRANCH:-?} — $_correction. The slice stays claimed and the desk is untouched; handing it back to the agent (correction $(( _corrections + 1 )) of $CORRECTION_BUDGET)." >&2
+      continue
+    fi
+
+    # THE BUDGET'S END IS STILL A PERSON. Today's behaviour, reached later
+    # rather than first: the correction loop does not remove the human gate, it
+    # stops reaching for it on the first failure.
+    #
+    # THE MARKER SAYS HOW MANY ATTEMPTS WERE MADE AND WHAT FAILED EACH TIME, or
+    # the person inherits a stopped agent with no account of what was tried. The
+    # per-attempt text is in the correction file the desk still holds, so the
+    # marker names it rather than re-stating findings this loop no longer has.
+    #
+    # IT GOES THROUGH `write_blocked_marker`, which refuses to overwrite. A
+    # marker already in the tree is the agent's own question to a person, and
+    # replacing it with Plot's would answer a question nobody asked. That
+    # function also names the branch and the session that wrote it.
+    echo "plot-worker-loop: the build kept failing on ${PLOT_BRANCH:-?} — $CORRECTION_BUDGET corrections were handed back and the last still failed: $_correction. The slice stays claimed and a person is asked; ending worker." >&2
+    write_ending "${PLOT_WORKTREE:-$PWD}" unstarted agent "${PLOT_BRANCH:-}" \
+      "the build failed on each of $CORRECTION_BUDGET corrections; the last was: $_correction"
+    write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
+      "PLOT-BLOCKED: the build for \`${PLOT_BRANCH:-?}\` failed after $CORRECTION_BUDGET corrections were handed back to the agent. The last failure: $_correction. Every attempt is recorded in \`$(correction_file_name)\` in this worktree, newest last. The work is pushed and the slice is still claimed by this agent. Read the run, fix what CI is failing on, then restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
     exit 1
   fi
 
