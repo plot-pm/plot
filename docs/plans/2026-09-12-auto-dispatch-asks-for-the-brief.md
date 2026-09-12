@@ -60,7 +60,7 @@ A repository that declares none gets today's behaviour exactly: the skip is logg
 
 ## Slices
 
-### Auto-dispatch asks for the brief (Branch: feature/auto-dispatch-asks-for-the-brief)
+### Auto-dispatch asks for the brief (Branch: feature/auto-dispatch-asks-for-the-brief, PR: #902)
 
 The spawn on `no-brief`, the per-plan ask record, and the budget check.
 
