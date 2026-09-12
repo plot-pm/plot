@@ -36,13 +36,48 @@ import { pathToFileURL } from 'node:url';
  */
 
 /**
+ * Every word `plot_worker_readings` can print in the liveness field.
+ *
+ * Held as a value so the parser recognises rather than defaults, and so adding
+ * a word to {@link PidLiveness} without teaching this file fails a test instead
+ * of misreading a fleet.
+ */
+const LIVENESS_WORDS = ['live', 'stale', 'orphaned', 'dead'] as const;
+
+/**
+ * Recognise the liveness field, or refuse the line.
+ *
+ * @param word the field as the shell printed it
+ * @returns the liveness it names
+ * @throws when the word is not one this parser knows
+ */
+const asLiveness = (word: string): PidLiveness => {
+  if ((LIVENESS_WORDS as readonly string[]).includes(word)) return word as PidLiveness;
+  throw new Error(
+    `unknown liveness '${word}' — expected one of ${LIVENESS_WORDS.join(', ')}. ` +
+      'A newer plot-worker-state.sh than this bundle prints a word it does not know; rebuild the board artifact.',
+  );
+};
+
+/**
  * Parse one desk's readings:
  * `here<TAB>pid<TAB>liveness<TAB>exit<TAB>blocked<TAB>dirty<TAB>unpushed`.
  *
  * `here`, `pid`, `blocked` and `dirty` are `1` for true and anything else for
- * false, which is what a shell test writes. `liveness` is one of the three
- * words `plot_worker_readings` prints; anything else reads as `dead`, the
- * answer that cannot invent a running worker.
+ * false, which is what a shell test writes.
+ *
+ * `liveness` IS RECOGNISED, NOT DEFAULTED, and that is a correction. This read
+ * `liveness === 'live' ? 'live' : liveness === 'stale' ? 'stale' : 'dead'`
+ * until 2026-09-12, so a word the shell learned and this did not became `dead`
+ * — silently, for every desk carrying it, with nothing raised anywhere. A whole
+ * live fleet reads as dead that way, and `dead` is not even the conservative
+ * answer: it discards the desk, which for an orphaned wrapper is the only thing
+ * left to read.
+ *
+ * The failure is reachable by ordinary version skew — a checkout whose scripts
+ * are newer than its built bundle — so it is refused rather than guessed, the
+ * same direction the field count one line above already takes. An unrecognised
+ * word names itself in the error.
  *
  * `exit` distinguishes the two records that reach `ended` by different routes:
  * the literal `-` means no record was found, and an empty field means one was
@@ -57,7 +92,8 @@ import { pathToFileURL } from 'node:url';
  *
  * @param line one desk's readings
  * @returns what was measured of the desk
- * @throws when the line is not seven tab-separated fields
+ * @throws when the line is not seven tab-separated fields, or the liveness
+ *   field is a word this parser does not know
  */
 export const readingsFrom = (line: string): AgentStateReadings => {
   const fields = line.split('\t');
@@ -78,8 +114,7 @@ export const readingsFrom = (line: string): AgentStateReadings => {
   const count = Number(aheadText);
   const unpushed: UnpushedReading =
     aheadText !== '' && Number.isInteger(count) && count >= 0 ? count > 0 : null;
-  const live: PidLiveness =
-    liveness === 'live' ? 'live' : liveness === 'stale' ? 'stale' : 'dead';
+  const live = asLiveness(liveness);
   return {
     worktreeHere: here === '1',
     pidRecorded: pid === '1',
