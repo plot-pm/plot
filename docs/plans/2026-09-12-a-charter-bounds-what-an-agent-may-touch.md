@@ -10,6 +10,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-12, jwloka, in-session
+- **Started:** 2026-09-12, jwloka, `feature/a-charter-bounds-what-an-agent-may-touch`
 
 ## Changelog
 
