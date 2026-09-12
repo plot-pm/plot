@@ -8,6 +8,7 @@ import {
   charterPath,
   charterRefusesRunFacts,
   readCharter,
+  resolveLaunch,
   resolvePrompt,
   runFactsIn,
 } from '../src/index.js';
@@ -196,5 +197,75 @@ describe('the prompt resolves through the declaration', () => {
 
   it('refuses a charter carrying a run fact, rather than running the fallback', () => {
     expect(resolvePrompt(readCharter('reviewer', charter({ pid: '4242' }))).resolve).toBe('refused');
+  });
+});
+
+describe('the launch resolves through the declaration', () => {
+  // One field over from the prompt, and the same argument: an agent launched
+  // under the wrong model SUCCEEDS, and nothing in `.plot-worker.log` says so.
+
+  it('carries the harness, model and effort a charter declared', () => {
+    const resolution = resolveLaunch(readCharter('reviewer', charter()));
+
+    expect(resolution).toEqual({
+      resolve: 'declared',
+      harness: 'claude',
+      model: 'opus',
+      effort: 'high',
+      charter: 'reviewer',
+    });
+  });
+
+  it('falls back when nothing named an agent — the estate today', () => {
+    // THE REGRESSION LOCK FOR THE WHOLE ESTATE. Zero charters exist, so this is
+    // the path every current worker takes, and it must export nothing at all.
+    const resolution = resolveLaunch(readCharter('', null));
+
+    expect(resolution.resolve).toBe('fallback');
+    if (resolution.resolve !== 'fallback') throw new Error('unreachable');
+    expect(resolution.why).toBe('no agent named');
+  });
+
+  it('falls back when the named charter is not on this clone', () => {
+    const resolution = resolveLaunch(readCharter('reviewer', null));
+
+    expect(resolution.resolve).toBe('fallback');
+    if (resolution.resolve !== 'fallback') throw new Error('unreachable');
+    expect(resolution.why).toContain('reviewer');
+  });
+
+  it('refuses rather than falls back when a charter cannot be believed', () => {
+    // `absent` and `unreadable` must not collapse: the first means the fallback
+    // is right, the second is a person's typo that would run under an
+    // invocation nobody asked for.
+    const resolution = resolveLaunch(readCharter('reviewer', 'not json {'));
+
+    expect(resolution.resolve).toBe('refused');
+    if (resolution.resolve !== 'refused') throw new Error('unreachable');
+    expect(resolution.why).toContain('reviewer');
+  });
+
+  it('refuses a charter carrying a run fact', () => {
+    expect(resolveLaunch(readCharter('reviewer', charter({ pid: '4242' }))).resolve).toBe('refused');
+  });
+
+  it('resolves a charter declaring ONLY a model, leaving the other two empty', () => {
+    // Catches an all-or-nothing resolution that requires `harness` before it
+    // exports anything. The schema defaults all three to `''` precisely so a
+    // charter may state one and stay silent on the rest.
+    const onlyModel = JSON.stringify({
+      name: 'reviewer',
+      prompt: '.plot/prompts/reviewer.sh',
+      model: 'opus',
+    });
+    const resolution = resolveLaunch(readCharter('reviewer', onlyModel));
+
+    expect(resolution).toEqual({
+      resolve: 'declared',
+      harness: '',
+      model: 'opus',
+      effort: '',
+      charter: 'reviewer',
+    });
   });
 });

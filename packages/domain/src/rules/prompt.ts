@@ -53,3 +53,64 @@ export const resolvePrompt = (reading: CharterReading): PromptResolution => {
       return { resolve: 'refused', why: `charter '${reading.name}' ${reading.why}` };
   }
 };
+
+/**
+ * What an agent's launch exports, and on whose authority.
+ *
+ * THREE OUTCOMES, MIRRORING {@link PromptResolution}, and the third refuses for
+ * its reason one field over. `declared` is a charter naming what to run;
+ * `fallback` is the repo's single `Worker command`, for an agent that named no
+ * charter or whose charter is not on this clone; `refused` is a charter that
+ * exists and cannot be believed.
+ *
+ * An agent launched under the wrong model SUCCEEDS, and nothing in
+ * `.plot-worker.log` says so — the same failure a silently-substituted prompt
+ * produces, which is why the refusal is not a fallback here either.
+ */
+export type LaunchResolution =
+  | { resolve: 'declared'; harness: string; model: string; effort: string; charter: string }
+  | { resolve: 'fallback'; why: string }
+  | { resolve: 'refused'; why: string };
+
+/**
+ * Resolves what an agent runs — the harness, the model and the reasoning
+ * effort its charter declared.
+ *
+ * A CHARTER NAMES A HARNESS; IT NEVER CARRIES A COMMAND LINE. A charter holding
+ * `agent --model gemini-3.1-pro` would put a vendor invocation into a file the
+ * domain parses, which is what {@link RUN_FACTS} exists to keep out. Plot
+ * exports the three names and the prompt file holds the invocation — the
+ * contract `.plot/worker-prompt.sh` already fulfils: *"Plot exports the
+ * variables and cannot write the invocation."*
+ *
+ * NO ENUM AND NO VENDOR LIST. `harness` is `z.string()` deliberately, and
+ * whether a named harness exists on this machine is a question about the
+ * machine rather than about the declaration — so it is the caller's to ask, and
+ * this rule never holds a list of vendors to check a name against.
+ *
+ * EACH FIELD IS INDEPENDENT. A charter declaring only `model` resolves
+ * `declared` with an empty harness and an empty effort, rather than requiring
+ * all three: the fields default to `''` in {@link CharterSchema} precisely so a
+ * charter may state one and stay silent on the others.
+ *
+ * @param reading - what the caller read at the named charter's path.
+ * @returns what to export, or the refusal that stops the launch.
+ */
+export const resolveLaunch = (reading: CharterReading): LaunchResolution => {
+  switch (reading.read) {
+    case 'declared':
+      return {
+        resolve: 'declared',
+        harness: reading.charter.harness,
+        model: reading.charter.model,
+        effort: reading.charter.effort,
+        charter: reading.charter.name,
+      };
+    case 'unnamed':
+      return { resolve: 'fallback', why: 'no agent named' };
+    case 'absent':
+      return { resolve: 'fallback', why: `no charter for '${reading.name}'` };
+    case 'unreadable':
+      return { resolve: 'refused', why: `charter '${reading.name}' ${reading.why}` };
+  }
+};
