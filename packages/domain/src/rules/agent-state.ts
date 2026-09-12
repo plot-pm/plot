@@ -16,9 +16,19 @@ import { taskState, type TaskReadings } from './task.js';
  *   manifest's or nothing recorded a start time to check against.
  * - `stale` — the pid answers and the process began before the manifest was
  *   stamped, so the operating system reused the number.
+ * - `orphaned` — the pid answers and is the right process, and no agent runs
+ *   under it. The recorded pid is the loop shell, which outlives its agent for
+ *   the whole `Worker bound`, so this is a live wrapper around nothing.
  * - `dead` — the pid does not answer.
+ *
+ * `orphaned` IS NOT `dead`, AND THE DIFFERENCE IS WHAT THE DESK IS WORTH.
+ * A dead pid left an exit file, so the process can still say how it ended. An
+ * orphaned wrapper has not exited and never will within its bound, so there is
+ * no exit record and never will be — the only thing left to read is the desk.
+ * Measured 2026-09-11: four agents ended this way in one session, and three of
+ * the four desks held work one step from done.
  */
-export type PidLiveness = 'live' | 'stale' | 'dead';
+export type PidLiveness = 'live' | 'stale' | 'orphaned' | 'dead';
 
 /**
  * What a recorded exit says, as read rather than as parsed.
@@ -94,6 +104,12 @@ const exitIsNumeric = (exit: ExitReading): exit is string =>
  *    `finished` would be the same mistake in the other direction.
  * 3. **A live pid is `running`**, and a `stale` one is `ended` — a reused
  *    number means the worker is dead and no exit file can be trusted either.
+ *    **An `orphaned` one is the DESK's answer**, because the wrapper is still
+ *    alive and has therefore written no exit code: there is no process fact
+ *    left to read. It routes to {@link taskState} rather than to `ended` for
+ *    the reason the measurement gives — three of four such desks held finished
+ *    work, and `ended` would have said the run was over when the WORK was one
+ *    push from done.
  * 4. **Exit 0 is refined by the desk**, and it is the ONLY arm refined. Every
  *    worker exits 0 — the one that opened its PR, the one that would not claim
  *    a test run it had not seen, and the one that stopped to ask a question —
@@ -118,6 +134,10 @@ export const agentState = (readings: AgentStateReadings): AgentState => {
   if (!readings.pidRecorded) return 'none';
   if (readings.liveness === 'live') return 'running';
   if (readings.liveness === 'stale') return 'ended';
+  // BEFORE THE EXIT ARMS, because an orphaned wrapper has written no exit file
+  // and the `-` it reports would otherwise fall through to `ended`, discarding
+  // the desk that is the only thing left to read.
+  if (readings.liveness === 'orphaned') return taskState(readings.task);
   if (!exitIsNumeric(readings.exit)) return 'ended';
   if (readings.exit === '0') return taskState(readings.task);
   return readings.task.hasPr ? taskState(readings.task) : 'failed';
