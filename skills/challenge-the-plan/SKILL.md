@@ -29,6 +29,44 @@ compatibility: Designed for Claude Code and Cursor.
    - `./.cursor/plans/` (Cursor)
 4. If nothing detected, ask the user which file to challenge — do NOT proceed without a confirmed plan file
 
+## Two engines, one surface
+
+**The questioning is parallel or sequential; the skill, the Open Questions
+section and the `Rounds:` record are the same either way.**
+
+| | **Interview** (Phases 3–4) | **Panel** (Phase 3P) |
+|---|---|---|
+| shape | 4 questions per round, one at a time | N lenses at once, each writing a file |
+| needs | a person answering | nobody |
+| subject | the plan | the plan **and its siblings** |
+| output | Open Points + `Rounds:` | Open Points + `Rounds:` |
+
+**Measured 2026-09-12 on this repo: 268 plans, 73 carrying a `Rounds:` field —
+27.2%.** That is a cost measurement rather than a verdict on interviewing. Rounds
+are serial and each one spends a person's attention, so the uptake measures what
+that attention costs. The panel is the unattended shape of the same question.
+
+**The interview is not replaced.** A person who wants to answer questions
+directly still can, and every one of the 73 existing rounds came from that mode.
+Deleting it would delete the only engine with a track record.
+
+**A second interrogation surface was the alternative and it is refused.** Plans
+would get challenged two ways and neither would be authoritative. One surface,
+two engines.
+
+### Choosing the engine
+
+- **`PLOT_UNATTENDED=1`** → the panel. The interview has no shape with nobody to
+  interview; Phase 4 already says so and stops.
+- **A person is present** → ask which, and default to the interview. It is the
+  mode with 73 rounds behind it, and a person who invoked this skill directly is
+  the resource the panel exists to spare.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** run the panel. This is the case the
+> panel was built for, and the interview's own unattended note stops rather than
+> guessing — so with nobody present there is exactly one engine that can run.
+> `PLOT-UNASKED: Interview or panel? — default — panel run; the interview needs a person to answer`
+
 ## Execution Workflow
 
 ### Phase 1: Plan Discovery
@@ -101,6 +139,128 @@ Generate 4 questions focused on a single category or cross-cutting theme:
 **Audience Adaptation:**
 - **Technical phrasing**: Implementation details, code organization
 - **Business phrasing**: Requirements, user needs, domain rules
+
+### Phase 3P: Panel (the parallel engine)
+
+**Runs instead of Phases 3–4, never beside them.** A plan questioned twice in one
+run would count two rounds for one interrogation.
+
+This phase **calls [`/plot-panel`](../plot-panel/SKILL.md) and implements none of
+it.** The verdict gate, the commitment check and the reconciler belong to that
+mechanism. If you find yourself parsing a verdict file here, stop: that is the
+mechanism's job and a second copy will drift from it.
+
+> **If `skills/plot-panel/` is absent, this phase cannot run.** That is a broken
+> or partial installation, not a clean panel — say so and fall back to the
+> interview rather than reporting a plan as questioned. Absent is not false.
+
+#### The subject: the plan and its siblings
+
+**A plan is questioned alone, so a contradiction between siblings is invisible.**
+Measured in this story's own preparation: a plan proposed fixing a per-board cap
+that `fleet.ts:2691` already read from the shared registry. A juror holding the
+sibling plans would have seen it.
+
+Resolve the sibling set:
+
+```bash
+# The active sprint, if there is one.
+SPRINT=$(ls docs/sprints/active/*.md 2>/dev/null | head -1)
+```
+
+- **A sprint is active** → its members are the siblings.
+- **No sprint is active** → every unfinished plan (phase neither `Delivered` nor
+  `Released`) is the sibling set.
+
+**Measured 2026-09-12: sprint `an-agent-is-declared-and-corrected` is Active with
+10 items, and 11 plans on the estate are unfinished.** So the sprint arm is the
+normal case today and the fallback is the exception — the reverse of what this
+plan assumed when it was written. **Both arms are built**; the rule is unchanged.
+
+**The set is bounded and the panel names what it dropped.** Order the siblings
+**most recently amended first** (`git log -1 --format=%cI -- <plan>`), take up to
+N, and **state in the output how many went unread**:
+
+```
+siblings: 10 read, 0 unread (sprint an-agent-is-declared-and-corrected)
+```
+
+**A panel that silently truncates is a panel whose blind spot is invisible** —
+`plot-reconcile-scan.sh`'s rule, that a finding is reported rather than decided.
+With 10 sprint members the bound may not bind today; the report of what was
+dropped is still owed, because it is what makes the bound safe when it does.
+
+**The subject parameter stays ONE plan.** `/plot-panel` refuses a directory or a
+cohort by design — *"four personas asked to interrogate a scheduling cohort
+produce four answers with no shared subject."* The siblings are **context in the
+rubric**, not additional subjects.
+
+#### The lenses
+
+Four is a guess and nobody has measured it — **the first real number comes from
+running this.** Do not hardcode one in the mechanism; it takes N.
+
+| Lens | The reading position |
+|---|---|
+| **Estate** | Does this already exist? Read the siblings and the estate before the plan's claim that it does not. |
+| **Contradiction** | Does this disagree with a sibling plan, or with a decision this repo already made? |
+| **Deliverable** | Does every slice name something that ships, and does the changelog describe what the slices actually build? |
+| **Cost** | What does this spend — attention, CI, blast radius — and is the plan honest about it? |
+
+**Brief each juror to look, not to agree.** A juror told *"you are the estate
+lens"* and asked what it finds is doing the job; one told *"find duplication"*
+will find some whether or not it is there.
+
+**These lenses are this caller's and do not transfer.** An estate lens asking
+*does this already exist?* is meaningless at delivery, where the thing is built.
+They live here and not in `packages/domain/`.
+
+**Prose quality is deliberately not a lens.** A juror reporting awkward wording
+alongside a missed deliverable dilutes both.
+
+#### The commitment
+
+```
+Position: proceed | amend | reject
+```
+
+**`/plot-panel` knows none of these words** — it takes the label and the
+vocabulary as parameters and validates against them. That is what makes the
+delivery caller possible with a different vocabulary.
+
+#### Running it
+
+Hand `/plot-panel` its four parameters — Subject, Lenses, Commitment, Rubric —
+and let it fan out, gate every verdict and reconcile. **Read the exit code, not
+the emptiness**: `plot-panel.mjs` exits `3` for a refusal and `2` for unusable
+arguments, and a missing bundle means the panel ran ungated rather than clean.
+
+The rubric is **identical across lenses**; only the persona line differs. If you
+are writing a second rubric for a second lens, the lens is doing work the rubric
+should.
+
+#### What the panel writes back
+
+The moderation at `.plot/panels/<subject>/panel.md` is the panel's own artifact.
+This phase then does what an interview round does, and **nothing more**:
+
+1. **Open Points** — each juror's unresolved finding becomes an open point, in
+   the section this skill already owns. A `reject` is recorded with the lens that
+   holds it, because that is what a later round must clear.
+2. **Phase 5b, unchanged** — one round, recorded by exactly the rule below.
+
+**A panel round that changed nothing is still a round.** Absent and `0` are
+deliberately different: absent means nobody looked.
+
+**`Rounds:` does not yet distinguish a panel round from an interactive one.** They
+are not equivalent work, and a second field is a plan-format change that needs its
+own argument — it is not invented here.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** run the whole phase. Fan out, gate,
+> reconcile, write Open Points and record the round. The panel exists for this
+> case, and every sub-decision below it has a defined default — except acting on
+> a divided panel, which `/plot-panel` itself stops on.
+> `PLOT-UNASKED: The panel is divided — proceed on the majority, or hold? — stopped — moderation and round written, nothing approved`
 
 ### Phase 4: Interview Execution
 
