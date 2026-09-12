@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** the-master-agent-holds-the-fleet
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-12, jwloka, in-session
 - **Started:** 2026-09-12, jwloka, `feature/auto-dispatch-asks-for-the-brief`
 - **Rounds:** 1
+- **Delivered:** 2026-09-12
 
 ## Changelog
 
