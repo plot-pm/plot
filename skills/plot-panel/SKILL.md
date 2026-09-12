@@ -10,7 +10,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.0.0
+  version: 1.1.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires the `Task` tool for fan-out and
   node ≥ 20 for `skills/plot/scripts/board/plot-panel.mjs`.
