@@ -751,6 +751,74 @@ brief_staleness_note() { # $1 = branch → prints a hint, or nothing
   echo "      plan commit ${pc%% *} touched $plan_path after the brief's last change; read it before trusting the brief"
 }
 
+# WHETHER A DESK MAY BE HANDED TO A NEW WORKER — the ONE gate, two callers.
+#
+# EXTRACTED RATHER THAN COPIED, and that is the whole point. `--restart` asked
+# these three questions inline; `--restart --absent` asks the same three over
+# every orphaned desk. A second, laxer set written for the sweep is the failure
+# `plot-dispatch --stop` already argues against for stop rules, and it would
+# matter more here because the sweep runs with nobody watching.
+#
+# IT RETURNS RATHER THAN EXITS, which is the only change the extraction makes.
+# A verb acting on one branch exits on a refusal; a sweep over several must
+# refuse one desk and carry on to the next. The caller decides which.
+#
+# THE ORDER IS LOAD-BEARING AND IT IS THE MEASURED ONE:
+#
+# 1. THE PR, BEFORE THE STATE WORD. Five of five `failed` worktrees in this
+#    estate held a PR — four open, one already merged. `plot-worker-state.sh`
+#    refines `finished` by the tree but deliberately does NOT refine `failed`,
+#    `ended` or `none`, because a recorded non-zero exit is already a specific
+#    answer about the PROCESS — and silent about the WORK. A gate written on the
+#    state word alone would have restarted all five and discarded exactly what
+#    the `finished` refusal exists to protect. Same lesson `plot-reap.sh` learned
+#    from the other side: it reads `mergedAt` and never `state`, because a merged
+#    PR reports CLOSED. There the state word lies about merging; here the exit
+#    code lies about completion.
+# 2. A LIVE WORKER. There is no --force: a flag overriding this is the flag
+#    typed reflexively, and what it would override is another agent's work in
+#    progress.
+# 3. A `PLOT-BLOCKED` MARKER. A person owes this branch an answer, and a new
+#    worker meets the same question and writes the same marker. Asked through
+#    `plot_worker_blocked_file`, never re-globbed: the marker's spelling lives
+#    with the classification in `plot-worker-state.sh` and only there.
+#
+# `stalled`, `failed`, `ended` and `no worker` all pass. The PR question is what
+# makes `failed` safe to include — and including it is the point: a gate that
+# simply refused `failed` would pass every refusal test and leave the verb
+# unable to do the one thing it exists for.
+handover_refusal() { # $1=branch $2=worktree $3=state → 0 may hand over, 1 refused (reason on stderr)
+  local branch="$1" wt="$2" state="$3" pr_json pr_num pr_state marker
+
+  if reached_review "$branch"; then
+    pr_json=$("$script_dir/plot-host.sh" pr-state "$branch" </dev/null 2>/dev/null || true)
+    pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+    pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+    echo "plot-dispatch: $branch has a pull request (#${pr_num:-?}, ${pr_state:-OPEN}) — refusing." >&2
+    echo "  The work reached review, whatever the worker's exit code says. A" >&2
+    echo "  restart here redoes work someone is already looking at." >&2
+    echo "  Review it, or reap the worktree once it merges." >&2
+    return 1
+  fi
+
+  case "$state" in
+    running*)
+      echo "plot-dispatch: a worker is alive on $branch (pid ${state#running }) — refusing." >&2
+      echo "  Stop it first if you mean to replace it:" >&2
+      echo "    plot-dispatch.sh --stop $branch" >&2
+      return 1
+      ;;
+    waiting*)
+      marker=$(plot_worker_blocked_file "$wt" || true)
+      echo "plot-dispatch: $branch is blocked on a question — refusing." >&2
+      echo "  the question is in $wt/${marker:-the marker file}" >&2
+      echo "  Answer it and delete the marker, then restart." >&2
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # WHAT THIS AGENT RUNS
 # ---------------------------------------------------------------------------
@@ -1345,68 +1413,11 @@ if [ "$mode" = "stop" ]; then
   [ -n "$wt" ] && [ -d "$wt" ] || wt="$wt_guess"
   if [ ! -d "$wt" ]; then
     echo "plot-dispatch: no worktree holds '$stop_branch' — nothing to stop." >&2
-    echo "  Asked git for every worktree, and looked at $wt_guess." >&2
-    echo "  If a worker is running somewhere this cannot see, that machine is" >&2
-    echo "  where to stop it: /plot-dispatch --status names the desks here." >&2
-    echo "  Nothing was killed." >&2
-    exit 1
-  fi
-  st=$(worker_state "$wt" "$stop_branch")
-  case "$st" in
-    running*)
-      pid=${st#running }
-      kill "$pid" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
-        || { echo "plot-dispatch: could not stop pid $pid — it may have exited between the read and the signal, or belong to another user." >&2
-             echo "  Check it: ps -p $pid -o pid=,stat=,command=" >&2
-             echo "  Nothing else was written; the worktree and the claim stand." >&2
-             exit 1; }
-      # The worktree and its claim are left in place: the branch is still taken,
-      # and deleting either would be the kind of write this design avoids.
-      echo "  worktree kept at $wt — the claim stands until you release it"
-      ;;
-    finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
-    *)      echo "$stop_branch has no worker" ;;
-  esac
-  exit 0
-fi
-
-if [ "$mode" = "restart" ]; then
-  # THE COUNTERPART TO --stop, AND THE WHOLE FEATURE. `--stop` kills a worker;
-  # nothing started one on a branch that already holds a claim, because the
-  # dispatcher asks the scan for `--next` and `--next` fills claimable[] only
-  # where the branch is `open` — meaning NO REF EXISTS. A branch that has ever
-  # been claimed is `claimed` or `wip`, so it was never offered and
-  # `plot-dispatch.sh <slug>` answered `dispatched=0`: not a refusal with a
-  # reason, an empty set, which has nothing to say about what it filtered out.
-  #
-  # That `open`-only rule is Plot's LOCK and must not widen — three callers
-  # consume `--next`, and the board's auto-dispatch would begin restarting
-  # stalled work on a five-second timer with nobody deciding anything. So this
-  # is a SECOND QUESTION, asked only when a person asks it.
-  #
-  # HERE, BESIDE --stop AND BEFORE THE PHASE GATE, for the reason that block
-  # already gives: a branch that is already claimed and already has a worktree
-  # is work in flight, and the plan's phase says nothing about whether a
-  # stopped worker on it should be replaced. Refusing on phase would strand
-  # exactly the branch this exists to rescue.
-  if [ -z "$restart_branch" ]; then
-    echo "plot-dispatch: --restart needs a branch name, e.g. --restart feature/x" >&2
-    echo "  A slug is not enough: which stopped branch to hand to a new worker" >&2
-    echo "  is your call, not something this should guess." >&2
-    exit 1
-  fi
-
-  # ASK GIT WHICH WORKTREE HOLDS THE BRANCH — never rebuild the path from the
-  # name. This file's own rule (see resolve_wt_root): path-guessing is confined
-  # to CREATION, because a second naming convention gives it a second way to be
-  # wrong. It matters more here than anywhere: the population this verb serves
-  # includes the worktree a person made by hand after the tool had no verb for
-  # them, and a hand-made worktree rarely follows dispatch's naming.
-  restart_wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$restart_branch" '
-    /^worktree /  { path = substr($0, 10) }
-    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
-  if [ -z "$restart_wt" ] || [ ! -d "$restart_wt" ]; then
-    echo "plot-dispatch: no worktree holds '$restart_branch' — nothing to restart." >&2
+    echo "  Asked git for every worktree, and looked at  # THE GUARDS, ASKED THROUGH THE ONE FUNCTION. See `handover_refusal` for why
+  # the order is what it is and why it is not written twice.
+  restart_state=$(worker_state "$restart_wt" "$restart_branch")
+  handover_refusal "$restart_branch" "$restart_wt" "$restart_state" || exit 1
+t." >&2
     echo "  --restart hands an EXISTING checkout to a new worker; it creates none." >&2
     echo "  To start this branch fresh, dispatch its plan." >&2
     exit 1
