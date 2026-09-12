@@ -143,8 +143,11 @@ export const readJuror = (
   // different ones has hedged in the one place the gate reads, and taking the
   // first would let it. Taking the last would let it too, in the other
   // direction — so neither is taken.
+  // `split` always yields at least one element, so the first is never absent —
+  // no `?? ''` fallback, which would be a branch no input can reach and which
+  // the coverage gate reads as an untested one.
   const positions = claimed.map((c) => {
-    const word = c.split(/\s/)[0] ?? '';
+    const [word] = c.split(/\s/) as [string, ...string[]];
     return commitment.positions.find((p) => p.toLowerCase() === word.toLowerCase());
   });
 
