@@ -40,13 +40,15 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1-4. Parse through Verify PRs | Small | Git/gh commands, helper script, state checks; discovery and existence read each plan's declared phase via `plot-plan-meta.sh` — the index is never asked |
-| 5. Verify Completeness | Frontier (orchestrator) + Small (subagents) | Orchestrator extracts deliverables and consolidates; small subagents gather PR diffs in parallel |
+| 5. Verify Completeness | Frontier (orchestrator + jurors) + Small (the gate) | Orchestrator extracts deliverables and reads the panel's moderation; `/plot-panel` fans out one juror per lens, each running `gh pr diff` across the plan's PRs; the two commitment checks are one script call each |
 | 6. Release Note Check | Small | File existence checks |
 | 7-8. Deliver and Board Status | Small | File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort |
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
 
-Step 5 is the prime example of subagent delegation: a frontier orchestrator handles the judgment (extracting deliverables, consolidating Done/Partial/Missing), while small subagents handle the data collection (running `gh pr diff`, reading PR metadata) in parallel. Without subagents, the frontier model does everything sequentially.
+Step 5 is the prime example of subagent delegation: a frontier orchestrator handles the judgment (extracting deliverables, consolidating Done/Partial/Missing), while the jurors handle the evidence in parallel. Without subagents, the frontier model does everything sequentially.
+
+**Step 5 delegates the fan-out itself to [`/plot-panel`](../plot-panel/SKILL.md).** The jurors are Frontier because judging a delivery against a plan is the whole task; the two commitment checks are Small because an exit code decides them. A run without `skills/plot-panel/` falls back to step 2b's per-PR refutation and is reported as a delivery no lens questioned.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 >
@@ -194,10 +196,140 @@ Compare what the plan promised against what was actually delivered.
 
 1. **Extract deliverables** from the plan file. Look for actionable items in sections like `## Design`, `## Branches`, or bulleted lists that describe what should be built. Number each deliverable for reference.
 
-2. **Try to disprove each deliverable, using parallel subagents.** Ask them to
-   *refute*, not to confirm (Principle 12): an agent asked "which deliverables
-   does this PR cover?" pattern-matches its way to yes, while one asked "show
-   me this was NOT delivered" has to go and look.
+2. **Question the delivery with a panel, through [`/plot-panel`](../plot-panel/SKILL.md).**
+
+   This step **calls the mechanism and implements none of it.** The fan-out, the
+   commitment gate and the reconciler belong to `/plot-panel`. If you find
+   yourself launching `Task` agents here or parsing a verdict file, stop: that is
+   the mechanism's job, and a second copy drifts from it.
+
+   > **If `skills/plot-panel/` is absent, this step cannot run as a panel.** That
+   > is a broken or partial installation, **not a clean delivery** — say so, fall
+   > back to the per-PR refutation in step 2b, and record that the delivery went
+   > unquestioned by lenses. **Absent is not false.**
+
+   **Ask them to *refute*, not to confirm** (Principle 12): an agent asked "which
+   deliverables does this PR cover?" pattern-matches its way to yes, while one
+   asked "show me this was NOT delivered" has to go and look. That is the rubric
+   for every lens below.
+
+   #### The subject, and how lenses compose with the PRs
+
+   **The subject is the PLAN — one panel per delivery, never one per PR.** The
+   lenses read *all* the plan's merged PRs; the PR is not the subject.
+
+   Two reasons, and the first is the mechanism's rule. `/plot-panel` takes **one
+   plan file** and refuses a cohort, because *"four personas asked to interrogate
+   a scheduling cohort produce four answers with no shared subject"* — and a
+   per-PR panel makes the PR the subject, which a plan's deliverables cross.
+   A deliverable implemented across two PRs is invisible to a juror holding one.
+
+   The second is the blast radius. `readPanel` refuses **the whole panel** on any
+   single hedge — *"a juror that hedged has not dissented, it has not reviewed"*
+   — so the cost of one refusal is the panel's size. Measured 2026-09-12 over 268
+   plans: **214 carry at least one merged PR, and 191 of those (89%) carry one to
+   three.** A per-PR panel would spend N panels to read one plan and re-run a
+   whole panel per hedge; per-plan spends one panel of L jurors whatever N is.
+
+   ```
+   subject:  docs/plans/<the plan>.md     ← ONE plan, the panel's subject
+   evidence: every merged PR the plan names ← what the jurors read
+   ```
+
+   **The per-PR fan-out is not deleted; it is what a juror does.** Each juror
+   still runs `gh pr diff` across the plan's PRs — the fan-out moved inside the
+   lens instead of being the only axis.
+
+   #### The lenses
+
+   **These are this caller's and do not transfer from the Draft panel.** An
+   estate lens asking *does this already exist?* is meaningless here, where the
+   thing is built. Four is not a target — `/plot-panel` takes N.
+
+   | Lens | The reading position |
+   |---|---|
+   | **Deliverable** | Does every deliverable the plan named appear in a merged diff? Read the plan's claims against the PRs, not the PR titles. |
+   | **Behaviour** | For each deliverable that names a behaviour — a command works, a flag is honoured, a refusal fires — run it. Report what the command printed. |
+   | **Changelog** | Does the `## Changelog` describe what the diffs actually do? This is the shape step 5 exists for: an entry written at planning time that describes intent nobody built. |
+
+   **Brief each juror to look, not to agree.** A juror told *"you are the
+   behaviour lens"* and asked what it finds is doing the job; one told *"find
+   unimplemented behaviour"* will find some whether or not it is there.
+
+   **Prose quality is deliberately not a lens** — a juror reporting awkward
+   wording beside a missed deliverable dilutes both.
+
+   #### The commitment: two lines, and what each one gates
+
+   ```
+   Position: supported | refuted
+   Evidence: executed | read
+   ```
+
+   **Two commitment lines rather than one, and this is the slice's one real
+   design decision — so here is what it does and does not catch.**
+
+   Step 5 asked in prose for the distinction that matters: *"State separately
+   what you EXECUTED versus what you only READ."* That is a rule in CLAUDE.md's
+   sense — a juror can answer *"did I state that?"* with yes without it being
+   true, and the run still goes green.
+
+   **A command appended to the position line does not fix it.** Measured
+   2026-09-12 against the shipped bundle: `readJuror` splits the claimed line at
+   the first whitespace and discards the remainder (`panel.ts:149-153`), so
+
+   ```
+   Position: supported (ran pnpm test:contracts)   → committed  supported
+   Position: supported ran-nothing-at-all          → committed  supported
+   Position: supported                             → committed  supported
+   ```
+
+   all three pass identically. The command text is never validated.
+
+   So the distinction gets **its own commitment line with its own vocabulary**,
+   checked by a second `check` call. Measured the same day: a file missing the
+   `Evidence:` line exits **3** and names it, and `executed`/`read` become words
+   the gate reads rather than prose it cannot.
+
+   **What this still does not catch, stated plainly:** the gate checks that a
+   juror *claimed* `executed`, not that the command it names ran or that its
+   output matches. Naming the command stays prose in the body, and the
+   moderator's judgement carries it — `/plot-panel` step 5 already asks for
+   *"what each juror actually looked at."* A juror that writes `Evidence:
+   executed` having run nothing defeats this, and only a person reading the
+   verdict will see it.
+
+   **This uses the mechanism as designed and changes nothing in it.**
+   `Commitment { label, positions }` is a parameter, so two labels are two calls
+   — no domain change, and `readJuror` learns no delivery vocabulary.
+
+   #### Running it
+
+   Hand `/plot-panel` its four parameters — Subject, Lenses, Commitment, Rubric
+   — and let it fan out, gate every verdict and reconcile. The rubric is
+   **identical across lenses**; only the persona line differs. If you are writing
+   a second rubric for a second lens, the lens is doing work the rubric should.
+
+   Both labels are gated, once per juror:
+
+   ```bash
+   node skills/plot/scripts/board/plot-panel.mjs check "Position" "supported,refuted" "$LENS" < "$PANEL/$LENS.md"
+   node skills/plot/scripts/board/plot-panel.mjs check "Evidence" "executed,read"     "$LENS" < "$PANEL/$LENS.md"
+   ```
+
+   **Read the exit code, not the emptiness.** `0` is a commitment, `3` a refusal,
+   `2` unusable arguments. A missing bundle means the panel ran **ungated** rather
+   than clean, and a delivery with no panel record is **unquestioned, not clean**.
+
+   > **Unattended (`PLOT_UNATTENDED=1`):** run the panel. Fanning out, gating and
+   > reconciling all have defined behaviour with nobody watching, and this is the
+   > case the panel exists for. Acting on the result is step 5.4's decision and
+   > still stops.
+   > `PLOT-UNASKED: Run the delivery panel, or fall back to the per-PR refutation? — default — panel run, moderation written, nothing delivered`
+
+2b. **Without the panel: the per-PR refutation, unchanged.** This is the fallback
+   when `skills/plot-panel/` is absent — and it is reported as a delivery nobody
+   questioned by lenses, never as a clean one.
 
    Launch one Task agent per merged PR, in parallel, with this shape of brief:
 
@@ -214,13 +346,27 @@ Compare what the plan promised against what was actually delivered.
    reading, and readings are how a promise that was never implemented survives
    review.
 
-3. **Consolidate results.** Merge the per-PR reports into a single checklist.
+3. **Consolidate results.** Read the panel's moderation at
+   `.plot/panels/<subject>/panel.md` — the reconciliation is the mechanism's
+   artifact, and this step acts on it rather than re-deriving it. Without the
+   panel, merge the step 2b per-PR reports instead.
+
    For each deliverable, mark it:
-   - **Done** — a subagent found the specific implementing change and could
-     not refute it
+   - **Done** — a juror found the specific implementing change, could not refute
+     it, and committed `Evidence: executed` where the deliverable names a
+     behaviour
    - **Partial** — some work done but not fully matching the plan
    - **Missing** — no evidence found in any PR, or every attempt to support it
-     came back as a reading rather than an execution
+     came back `Evidence: read` rather than `executed`
+
+   **A divided panel is not a tie to average.** `/plot-panel` reports `divided`
+   with each position and who holds it; carry that into the checklist as the
+   disagreement it is, naming the lens. A number replaces the one thing the user
+   needs to decide.
+
+   **A refused panel is not a finding of nothing.** `readPanel` refuses the whole
+   panel on any hedge, and a refusal means the delivery was **not reviewed** —
+   report it as such rather than as a clean checklist.
 
    **Watch for the shape this catches:** a changelog entry written at planning
    time that describes intent nobody built. It reads as delivered because the
