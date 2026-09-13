@@ -50,6 +50,7 @@ Then two halves, and neither is expressible today.
 
 ### Could Have
 
+- [ ] [a-claimed-slice-does-not-say-nobody-took-it](../plans/2026-09-13-a-claimed-slice-does-not-say-nobody-took-it.md) — a slice somebody is working on stops reading *nobody has taken it*; the sentence follows startability rather than the wave verdict (story: `the-board-is-blank-where-it-matters`)
 - [x] [auto-dispatch-asks-for-the-brief](../plans/2026-09-12-auto-dispatch-asks-for-the-brief.md) — the board runs the configured `Brief command` for a plan it skipped as `no-brief`, closing the last operator step between an approved plan and a working agent (story: `the-master-agent-holds-the-fleet`)
 - [x] [a-slice-shows-that-its-brief-was-asked-for](../plans/2026-09-12-a-slice-shows-that-its-brief-was-asked-for.md) — a slice whose brief was asked for says so, and a writer that died leaving an empty log is named rather than reading as untouched (story: `the-board-is-blank-where-it-matters`)
 
