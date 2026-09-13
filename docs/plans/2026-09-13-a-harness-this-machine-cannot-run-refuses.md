@@ -67,7 +67,7 @@ That distinction is the same one `plot-prompt.mjs` already draws between `fallba
 
 ## Slices
 
-### A harness this machine cannot run refuses (Branch: bug/a-harness-this-machine-cannot-run-refuses)
+### A harness this machine cannot run refuses (Branch: bug/a-harness-this-machine-cannot-run-refuses, PR: #906)
 
 The `command -v` check in `resolve_launch`, the refusal text, and a test covering all three cases: no harness declared (launches), a harness that exists (launches), a harness that does not (refuses, naming it).
 
