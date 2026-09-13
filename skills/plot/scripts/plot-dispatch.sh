@@ -777,6 +777,14 @@ brief_staleness_note() { # $1 = branch → prints a hint, or nothing
 # under an invocation the operator did not ask for, and nothing in
 # `.plot-worker.log` would say so.
 #
+# A HARNESS THIS MACHINE CANNOT RUN IS THE SECOND REFUSAL, and it is a MACHINE
+# fact rather than a charter one. `plot-prompt.mjs` answers what a charter
+# DECLARES and reaches no machine; whether the name is on PATH is the adapter's
+# question, asked here, in the shell that is about to spawn — beside the `node`
+# and `launchd` probes `plot-fleetctl.sh` performs. Without it a typo in a hand
+# written field (`agnet` for `agent`) exports a name the prompt file then
+# ignores, and the work is done by the repo default with nothing saying so.
+#
 # THE BUNDLE MISSING IS ALSO NOT A REFUSAL. `plot-prompt.mjs` is vendored beside
 # this script, and a checkout without it is a Plot installation problem rather
 # than a statement about this agent — so it falls back and SAYS it could not
@@ -819,6 +827,27 @@ resolve_launch() { # $1 = repo root, $2 = agent name ('' when none)
   case "$verb" in
     declared)
       launch_agent="$why"
+      # A HARNESS THIS MACHINE CANNOT RUN REFUSES. `command -v` is the reading
+      # because it is the question the prompt file asks when it interpolates the
+      # name: a check that asked anything else would refuse launches that work
+      # and pass launches that will not. It sits on this arm because only
+      # `declared` carries a harness the launch exports — the refusal above and
+      # the `*)` arm below have both already blanked the field.
+      #
+      # AN UNNAMED HARNESS IS NOT AN UNRUNNABLE ONE. A charter naming none
+      # resolves to '' and launches exactly as it does today, which is every
+      # dispatch on the estate; the guard on a non-empty name is what keeps it
+      # that way.
+      if [ -n "$launch_harness" ] && ! command -v "$launch_harness" >/dev/null 2>&1; then
+        # The name is read BEFORE the fields are blanked: the refusal's whole
+        # job is to name what it looked for, and clearing first loses it.
+        why="charter '$launch_agent' names harness '$launch_harness', which is not on PATH"
+        launch_harness=""
+        launch_model=""
+        launch_effort=""
+        launch_why="$why"
+        return 1
+      fi
       ;;
     *)
       # A fallback, an unrecognised verb, or an empty answer from a bundle that
