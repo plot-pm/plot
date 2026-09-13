@@ -376,7 +376,14 @@ describe('a browser test that stubs its own state starts no board', () => {
 // A PLAIN ADDITION, not a migration — the one thing a rendered page can settle
 // about a PR's checks is that `none` and `unknown` arrive as different things,
 // and no unit test can make a claim about two rows on a screen.
-const EXPECTED_FILES = 47;
+// 47 → 48 on 2026-09-13: `claimed-slice-says-someone-is-on-it.browser.test.ts`,
+// five `it(`. A PLAIN ADDITION, and a rendered page is what settles it: the
+// defect was a note and a status CONTRADICTING EACH OTHER on one line, which is
+// a claim about two cells of one row and nothing a unit test can make. The note
+// is computed in `Row` from the row's own `startability`, so the assertion has
+// to read what the two cells actually rendered side by side.
+// It serves its own state through the catalogue and starts no board.
+const EXPECTED_FILES = 48;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -470,8 +477,21 @@ const EXPECTED_FILES = 47;
  *
  * Raised in the commit that adds them, which is the mechanism this gate names.
  * Each serves its own state through a stubbed `/api/fleet` and starts no board.
+ *
+ * 488 → 493 ON 2026-09-13: the five in
+ * `claimed-slice-says-someone-is-on-it.browser.test.ts`, and they split two
+ * ways. TWO are the defect — a `claimed` branch and a `wip` one, the two states
+ * `startabilityVerdict` answers `someone-is-on-it` for on one line, each
+ * asserting the sentence is gone AND the status word survives. THREE are
+ * controls, and they are what stops the fix over-firing: an unclaimed eligible
+ * branch keeping its sentence word for word, a null startability falling
+ * through to today's behaviour, and the two claimed states agreeing with each
+ * other.
+ *
+ * Re-derived against the main this branch sits on, per this file's own rule,
+ * rather than by arithmetic: the gate reported 48 files and 493 `it(`.
  */
-const EXPECTED_TESTS = 488;
+const EXPECTED_TESTS = 493;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

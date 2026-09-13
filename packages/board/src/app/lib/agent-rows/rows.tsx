@@ -1442,6 +1442,63 @@ export function SliceRow({
 }
 
 /**
+ * The row's note, with a verdict sentence withdrawn where the row's own
+ * `startability` contradicts it.
+ *
+ * A SLICE SOMEBODY IS ON MUST NOT OFFER ITSELF. Reported by the operator from
+ * their own board, 2026-09-13: the branch of
+ * `a-harness-this-machine-cannot-run-refuses` rendered
+ * *"eligible — nobody has taken it"* beside slot 5's *someone is on it*, on ONE
+ * line, while the agent was visibly working. The payload said both:
+ *
+ *     row  kind=wave  verdict=eligible  startability=someone-is-on-it
+ *     AGENT branch=bug/a-harness-…  state=running
+ *
+ * THE TWO FIELDS DISAGREE BY CONSTRUCTION, and the verdict is not the thing
+ * that is wrong. `startabilityVerdict` answers both in one function, in a fixed
+ * order: a `wip` or `claimed` branch returns `someone-is-on-it` and never
+ * reaches the slice-verdict gate below it. `eligible` means *every prior slice
+ * has landed*, which stays true after a claim — a claim does not un-satisfy a
+ * prerequisite. So the row was reading the right field for slot 5 and the wrong
+ * one for its sentence.
+ *
+ * THE NOTE IS THE SERVER'S, WHICH IS WHY THE FIX IS HERE. `ELIGIBLE_NOTE` is
+ * composed in `fleet.ts` from the slice verdict and travels on the row; with no
+ * PR, `noteWithoutPr` passes it through untouched, so the sentence reaches the
+ * reader verbatim. The client's own copy of it — the `sliceNote` chain — was
+ * never reached by this population: NOT STARTED's slice rows are filtered to
+ * `isUnbegun` (`state === 'open'`), so a claimed branch renders through `Row`.
+ *
+ * WITHDRAWN RATHER THAN REPLACED, and that is the narrow claim. Slot 5 already
+ * says *someone is on it* — `stateStatus` has read the field since
+ * `the-row-says-whether-you-can-start-it` — so the fact is on the line already
+ * and a second spelling of it beside the first is the duplication this whole
+ * plan is about. What the row loses is a sentence that was false; what it keeps
+ * is every sentence that was not.
+ *
+ * THE GATE IS THE ONE VERDICT, not truthiness and not the other three. Only
+ * `someone-is-on-it` contradicts *nobody has taken it*; `needs-brief` and
+ * `waiting-on-approval` describe rows whose notes say something else entirely,
+ * and a null from an older server or a merged branch has no startability
+ * question to answer. Each of those falls through and renders as before —
+ * `stateStatus`'s shape, and its reason: *"a null from an older server, or a
+ * merged branch with no startability question, falls through and renders its
+ * git state as before."*
+ *
+ * READS THE FIELD, NEVER THE SENTENCE. `verdict-not-prose.test.ts` is a
+ * structural gate over this source and would fail any `note.includes(…)`
+ * spelling of the same intent; the standing rule at `ELIGIBLE_NOTE` is that
+ * nothing new may be built on matching prose. `startability` is the field that
+ * carries this answer, so this asks it.
+ *
+ * @param row - the row about to render its note.
+ * @returns the note, or "" where the row's startability contradicts it.
+ */
+export function startableNote(row: AgentRow): string {
+  return row.startability === 'someone-is-on-it' ? '' : row.note;
+}
+
+/**
  * A BRANCH, A PR OR A RELEASE, as a tuple — and this is an ADAPTER, not a row.
  *
  * The row itself is `TupleRowView`, and it is the same component a plan and a
@@ -1595,7 +1652,7 @@ export function Row({
     // Same shape as the machine section one line down, and the same reason: a
     // row appearing twice must not say the same thing twice.
     inSliceGroup ? '' :
-    section === 'waiting-on-machine' ? machineNote(row) : row.note,
+    section === 'waiting-on-machine' ? machineNote(row) : startableNote(row),
     row.pr,
   );
 
