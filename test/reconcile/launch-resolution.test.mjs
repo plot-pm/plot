@@ -30,7 +30,29 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const dispatch = path.join(scripts, 'plot-dispatch.sh');
 
-/** A repo root holding four charters — one per arm the resolution can take. */
+// THE HARNESS A TEST NAMES IS MANUFACTURED, NEVER INHERITED. `resolve_launch`
+// reads the field with `command -v`, so from that moment every assertion about
+// a successful launch is also an assertion about the runner's PATH. The
+// `reviewer` charter named `claude`, which resolves on a workstation with the
+// CLI installed and does NOT on `ubuntu-latest`, where `test:contracts` runs
+// and `ci.yml` installs none — so the fixture was green here and red in CI.
+//
+// `binDir()` writes an executable and hands back a directory to prepend, and
+// `MISSING_HARNESS` is a name nothing can provide. Between them no case depends
+// on what happens to be installed.
+const HARNESS = 'plot-test-harness';
+const MISSING_HARNESS = 'no-such-harness-plot-test';
+
+/** A directory holding one executable named `HARNESS`, for prepending to PATH. */
+const binDir = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bin-'));
+  const exe = path.join(dir, HARNESS);
+  fs.writeFileSync(exe, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(exe, 0o755);
+  return dir;
+};
+
+/** A repo root holding a charter per arm the resolution can take. */
 const sandbox = () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-launch-'));
   fs.mkdirSync(path.join(root, '.plot', 'charters'), { recursive: true });
@@ -41,7 +63,19 @@ const sandbox = () => {
     JSON.stringify({
       name: 'reviewer',
       prompt: '.plot/prompts/reviewer.sh',
-      harness: 'claude',
+      harness: HARNESS,
+      model: 'opus',
+      effort: 'high',
+    }),
+  );
+  // Names a harness no machine can provide. The mirror of `reviewer`: one case
+  // manufactures its answer, this one guarantees the absence of one.
+  charter(
+    'unrunnable',
+    JSON.stringify({
+      name: 'unrunnable',
+      prompt: '.plot/prompts/unrunnable.sh',
+      harness: MISSING_HARNESS,
       model: 'opus',
       effort: 'high',
     }),
@@ -60,12 +94,17 @@ const sandbox = () => {
  * Everything above `start_worker()` is definitions, so the slice is safe to
  * source: it defines functions and runs none of them.
  */
-const resolve = (root, agent, { scriptDir = null } = {}) => {
+const resolve = (root, agent, { scriptDir = null, pathPrefix = null } = {}) => {
   // `script_dir` is reassigned AFTER sourcing, for the missing-bundle case:
   // the script derives it from `BASH_SOURCE` and a test cannot pass it in.
   const override = scriptDir === null ? '' : `script_dir="${scriptDir}"`;
+  // PREPENDED RATHER THAN REPLACING. `resolve_launch` shells out to `node`, so
+  // a PATH holding only the manufactured harness fails at the bundle instead of
+  // at the check, and the test would pass for the wrong reason.
+  const withPath = pathPrefix === null ? '' : `export PATH="${pathPrefix}:$PATH"`;
   const script = `
     PLOT_DISPATCH_SOURCED=1
+    ${withPath}
     . "${dispatch}"
     ${override}
     if resolve_launch "${root}" "${agent}"; then
@@ -128,11 +167,59 @@ test('a named agent with no charter on this clone exports nothing', () => {
 });
 
 test('a charter carries its harness, model and effort to the launch', () => {
+  // THE HARNESS IS ON PATH BECAUSE THIS TEST PUT IT THERE. Since the resolution
+  // reads the field with `command -v`, a charter naming a binary the runner
+  // happens to hold would make this assertion a fact about the machine.
+  const root = sandbox();
+  const bin = binDir();
+  try {
+    const { verdict, rest } = resolve(root, 'reviewer', { pathPrefix: bin });
+    assert.equal(verdict, 'ok');
+    assert.deepEqual(rest, [HARNESS, 'opus', 'high', 'reviewer']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('a harness this machine cannot run REFUSES', () => {
+  // The launch would otherwise export a name the prompt file cannot invoke.
+  // Worse than a crash: a prompt file that ignores the variable runs the repo
+  // default successfully, and the wrong agent does the work with nothing
+  // saying so.
   const root = sandbox();
   try {
-    const { verdict, rest } = resolve(root, 'reviewer');
-    assert.equal(verdict, 'ok');
-    assert.deepEqual(rest, ['claude', 'opus', 'high', 'reviewer']);
+    const { verdict, rest } = resolve(root, 'unrunnable');
+    assert.equal(verdict, 'refused');
+    assert.deepEqual(rest.length, 1, 'a refusal reports only its reason');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the refusal names the charter and the harness it looked for', () => {
+  // Catches a bare non-zero return. The name is what makes a typo — `agnet`
+  // for `agent` — visible without opening the charter.
+  const root = sandbox();
+  try {
+    const { rest } = resolve(root, 'unrunnable');
+    assert.match(rest[0], /charter 'unrunnable'/, 'the charter is named');
+    assert.match(rest[0], new RegExp(MISSING_HARNESS), 'the harness it looked for is named');
+    assert.match(rest[0], /not on PATH/, 'the reason is named');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an unnamed harness is not an unrunnable one', () => {
+  // THE ESTATE'S WHOLE POPULATION. Every charter today names no harness, so a
+  // check firing on the empty string refuses every dispatch there is. The
+  // `only-model` charter is the shape: one field declared, `harness` silent.
+  const root = sandbox();
+  try {
+    const { verdict, rest } = resolve(root, 'only-model');
+    assert.equal(verdict, 'ok', 'a charter naming no harness must launch');
+    assert.deepEqual(rest, ['', 'opus', '', 'only-model']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
