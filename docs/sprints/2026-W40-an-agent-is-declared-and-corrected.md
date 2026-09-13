@@ -41,6 +41,7 @@ Then two halves, and neither is expressible today.
 - [x] [an-agent-declares-what-it-runs](../plans/2026-09-12-an-agent-declares-what-it-runs.md) — the charter's `harness`, `model` and `effort` reach `start_worker`, and a harness this machine cannot run refuses rather than falling back
 - [x] [a-charter-bounds-what-an-agent-may-touch](../plans/2026-09-12-a-charter-bounds-what-an-agent-may-touch.md) — `capabilities` becomes a tool scope the harness enforces, which is the only differentiation that is a gate rather than a rule
 - [x] [a-failed-gate-becomes-a-correction](../plans/2026-09-12-a-failed-gate-becomes-a-correction.md) — an absent agent is noticed and its slice handed on under `--restart`'s own guards; a failing build becomes a correction in the agent's session; every marker names its writer
+- [ ] [a-harness-this-machine-cannot-run-refuses](../plans/2026-09-13-a-harness-this-machine-cannot-run-refuses.md) — a charter naming a harness this machine cannot run refuses the launch and names what it looked for; the story's last open Definition-of-Done criterion
 
 ### Should Have
 
