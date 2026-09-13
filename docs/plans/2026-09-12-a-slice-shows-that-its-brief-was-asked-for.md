@@ -11,6 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-13, jwloka, in-session
+- **Started:** 2026-09-13, jwloka, `feature/a-slice-shows-that-its-brief-was-asked-for`
 - **Rounds:** 2
 
 ## Changelog
