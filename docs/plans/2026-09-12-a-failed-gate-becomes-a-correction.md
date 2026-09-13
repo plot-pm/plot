@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** an-agent-is-declared-and-corrected
@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Started:** 2026-09-12, Jan Wloka, `feature/an-absent-agent-is-noticed`
 - **Started:** 2026-09-12, Jan Wloka, `feature/a-failed-gate-becomes-a-correction`
+- **Delivered:** 2026-09-13
 
 ## Changelog
 
