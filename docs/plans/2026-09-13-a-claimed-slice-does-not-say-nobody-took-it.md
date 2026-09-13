@@ -58,7 +58,7 @@ The phrase renders twice — inside the WORKING row and again in NOT STARTED. Fi
 
 ## Slices
 
-### A claimed slice does not say nobody took it (Branch: bug/a-claimed-slice-does-not-say-nobody-took-it)
+### A claimed slice does not say nobody took it (Branch: bug/a-claimed-slice-does-not-say-nobody-took-it, PR: #907)
 
 The wording change in `rows.tsx`, reading `startability` before the wave verdict, plus a fixture where a row carries `startability: 'someone-is-on-it'` with `verdict: 'eligible'` — the combination measured today — asserting both render sites agree.
 
