@@ -26,6 +26,25 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      28800 (a working day) no honest run reaches it and a monitor-less hang
      still cannot burn a night. `0` disables the floor, not the reading. See
      skills/plot/scripts/plot-worker-loop.sh. -->
+- **Correction budget:** 2
+<!-- How many times a FAILING BUILD is handed back to the agent that pushed it
+     before a person is asked. The BuildMonitor publishes `build failed`; the
+     loop reads it on its next pass, writes the failure text verbatim into
+     PLOT-CORRECTION.md in the desk, and resumes the agent's own session. Past
+     the budget it writes a PLOT-BLOCKED marker naming the attempt count — the
+     correction loop does not remove the human gate, it stops reaching for it
+     first.
+
+     TWO IS A GUESS AND IS RECORDED AS ONE. Nothing has measured it; the first
+     real number comes from watching the fleet correct real builds. Two says
+     *try once more, then ask*. Raise it where CI is flaky, lower it to 0 to
+     restore the pre-2026-09-12 behaviour of blocking on the first failure.
+
+     It is NOT `START_ATTEMPT_BUDGET`, which bounds a prompt that never ran, is
+     env-only at a default of three, and is deliberately not a config key: a
+     project has no separate opinion about a broken invocation, and does have
+     one about its own failing builds. See
+     skills/plot/scripts/plot-worker-loop.sh. -->
 - **Agent registry:** /Users/jwloka/Quatico/Agentic-Tools/plot/.plot/agents
 - **Board command:** pnpm board
 - **CI:** github-actions
