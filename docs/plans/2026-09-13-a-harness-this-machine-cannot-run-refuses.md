@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** an-agent-is-declared-and-corrected
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-13, jwloka, in-session
 - **Started:** 2026-09-13, jwloka, `bug/a-harness-this-machine-cannot-run-refuses`
+- **Delivered:** 2026-09-13
 
 ## Changelog
 
