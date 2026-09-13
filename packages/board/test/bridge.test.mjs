@@ -137,6 +137,15 @@ function plantBridge(repo, { at, plan, branch }) {
 }
 
 /**
+ * How long a test waits for a real scan to land.
+ *
+ * 120 SECONDS, NOT 20, AND THE EXPIRY THROWS. The old bound was 80 iterations
+ * of 250 ms and a runner slower than a development machine reached it on two
+ * pull requests that touched neither the bridge nor the scan.
+ */
+const WAIT_MS = 120_000;
+
+/**
  * Poll until the scan has landed AND been written down.
  *
  * The two are not the same moment, and conflating them made an earlier version
@@ -151,12 +160,22 @@ function plantBridge(repo, { at, plan, branch }) {
  */
 async function waitForBridge(repo, port, { rows = 1 } = {}) {
   const file = path.join(repo, BRIDGE);
-  for (let i = 0; i < 80; i++) {
-    const fleet = await fetchFleet(port);
-    if (fleet.ready && fleet.rows.length >= rows && fs.existsSync(file)) return fleet;
+  // A BOUND THAT EXPIRES MUST SAY SO. 80 x 250 ms was 20 seconds, and a runner
+  // slower than this machine reached it: the loop returned a fleet that had not
+  // scanned yet, and an assertion two lines later reported the SYMPTOM -- a
+  // bridged row surviving -- rather than the cause. Measured 2026-09-13 by
+  // shrinking the loop to 3 iterations here, which reproduces CI's failure
+  // exactly. The bound is now 120 seconds and its expiry throws.
+  const deadline = Date.now() + WAIT_MS;
+  let last;
+  while (Date.now() < deadline) {
+    last = await fetchFleet(port);
+    if (last.ready && last.rows.length >= rows && fs.existsSync(file)) return last;
     await new Promise((r) => setTimeout(r, 250));
   }
-  return fetchFleet(port);
+  assert.fail(
+    `the scan did not land within ${WAIT_MS}ms: ready=${last?.ready} rows=${last?.rows?.length ?? 0} file=${fs.existsSync(file)}`,
+  );
 }
 
 describe('bridge: the last good pulse outlives the process', () => {
@@ -286,13 +305,22 @@ describe('bridge: a real scan wins immediately over the file', () => {
     // Wait for the REAL scan to land AND be written down — identified by the
     // branch only git knows about. The two moments differ (see
     // `waitForBridge`), and the second assertion below is about the file.
-    for (let i = 0; i < 80; i++) {
+    // Same bound and the same reason as `waitForBridge`: an expiry that only
+    // `break`s hands the assertions a pre-scan fleet, and they then fail about
+    // the bridged row rather than about the scan that never arrived.
+    const deadline = Date.now() + WAIT_MS;
+    let landed = false;
+    while (Date.now() < deadline) {
       fleet = await fetchFleet(server.port);
       const live = fleet.rows.some((r) => r.branch === 'feature/board-bridges-its-restart');
       const written = fs.readFileSync(path.join(fixture.repo, BRIDGE), 'utf8');
-      if (live && written.includes('board-bridges-its-restart')) break;
+      if (live && written.includes('board-bridges-its-restart')) {
+        landed = true;
+        break;
+      }
       await new Promise((r) => setTimeout(r, 250));
     }
+    assert.ok(landed, `the real scan did not land within ${WAIT_MS}ms — the assertions below would report its absence as a bridge defect`);
   });
 
   after(() => {
