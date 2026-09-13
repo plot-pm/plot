@@ -167,6 +167,82 @@ export function briefGapNote(branch: string): string {
 }
 
 /**
+ * How long ago the brief was asked for, as the row says it.
+ *
+ * THE ONLY DURATION ON THIS BOARD MEASURED IN SECONDS, and that is why it does
+ * not delegate to `ageLabel`. That one takes minutes and floors at `45m`,
+ * because a branch's age and a plan's wait are never shorter — a brief ask is,
+ * and the whole state this labels typically lives 60–75 seconds. Handing it to
+ * `ageLabel` would render the normal case as `0m`, which is the stopped clock
+ * `waitingLabel` returns `today` to avoid.
+ *
+ * Exported for test — the boundaries are where a unit change reads wrong.
+ *
+ * @param elapsedMs - milliseconds since the ask; never negative in practice, but
+ *                    a clock that moved backwards must still print something.
+ * @returns The age, in the coarsest unit that still says something true.
+ */
+export function askedLabel(elapsedMs: number): string {
+  // SECONDS EARN THEIR PLACE, and the reason is the measurement this whole
+  // reading exists for: a 40-second-old ask was read as a dead writer. `40s`
+  // says young; `just now` would too, but it hides the difference between five
+  // seconds and fifty-five — which is exactly the difference between waiting
+  // once more and waiting again.
+  //
+  // A CLOCK THAT MOVED BACKWARDS STILL PRINTS. Negative input floors at zero
+  // rather than rendering `-3s`, because a row is read by someone deciding
+  // whether to act and a negative age answers nothing.
+  const secs = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h`;
+}
+
+/**
+ * Has this row's brief been ASKED for, whether or not it has arrived?
+ *
+ * READS THE FIELD, the rule `isStartable` and `needsBrief` both follow. The
+ * server stat'd the asker's log; this asks the answer rather than the
+ * filesystem, so the row and anything else reading it cannot disagree.
+ *
+ * **NULL IS NOT FALSE, AND HERE THAT COSTS NOTHING.** `briefAskedAt` is null
+ * both where nobody asked and where the board could not look — collapsed on
+ * purpose, because the negative asserts nothing: the row falls back to the
+ * sentence it has said all along. That is the opposite of `brief: 'missing'`,
+ * which IS a claim and therefore needs its third value.
+ *
+ * Exported for test.
+ */
+export function briefAsked(row: Pick<AgentRow, 'briefAskedAt'>): boolean {
+  return row.briefAskedAt !== null;
+}
+
+/**
+ * What a row whose brief has been asked for SAYS.
+ *
+ * **IT STATES THE AGE AND STOPS.** No verdict on the writer, and the omission is
+ * the design rather than an absence in it. This plan's own author checked a
+ * brief log twice, found 0 bytes with no visible process, and recorded that the
+ * writer had died — it had not, and the brief landed minutes later. A reading
+ * that judged would have shipped that mistake as a feature.
+ *
+ * So the row invites the reader to WAIT, where `nobody has taken it` invited
+ * them to dispatch. *Asked 40s ago* is a fact an operator can act on without
+ * being told what it means; *the writer died* is a conclusion the board has no
+ * evidence for.
+ *
+ * IT NAMES NO COMMAND, unlike {@link briefGapNote} beside it, and that asymmetry
+ * is the point of both. A missing brief has an errand — run `/plot-implement`.
+ * A brief being written has none: the only correct action is to let it finish,
+ * and naming a command here would offer a second asker for a file already on its
+ * way.
+ */
+export function briefAskedNote(elapsedMs: number): string {
+  return `a brief was asked for ${askedLabel(elapsedMs)} ago`;
+}
+
+/**
  * The note's colour, by what the row is waiting for.
  *
  * ONLY ONE OF THE THREE IS LOUD, and that is the whole design. `needs you` is

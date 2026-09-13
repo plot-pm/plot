@@ -2630,6 +2630,45 @@ export const AgentRowSchema = z.object({
    */
   brief: BriefStateSchema.default('unknown'),
   /**
+   * WHEN THIS BRANCH'S BRIEF WAS ASKED FOR, in epoch milliseconds — or null.
+   *
+   * The second state `brief: 'missing'` could not tell apart, and the reason
+   * this field exists. Measured 2026-09-12 on the operator's own board:
+   * `a-marker-names-its-writer` read *approved — nobody has taken it* while a
+   * brief was being written for it, and the operator asked the question the
+   * board could not answer — *"shall we indicate that the slice is claimed and
+   * the brief is currently written?"*
+   *
+   *   nobody has asked for a brief   `approved — nobody has taken it`
+   *   a brief is being written now   `approved — nobody has taken it`
+   *
+   * THE WRONG WORD SENDS THE OPERATOR TO THE WRONG COMMAND. `row-identity.ts`
+   * draws that distinction for the adjacent case: *an operator told `nobody has
+   * taken it` runs `/plot-dispatch`; an operator told this runs the thing that
+   * helps.* A slice already having its brief written needs neither — it needs
+   * waiting.
+   *
+   * **A TIMESTAMP RATHER THAN A VERDICT, and the age is all the renderer says.**
+   * No liveness check and no staleness bound. Whether a writer is still running
+   * is a question this deliberately does not answer: a process check tempted
+   * this plan's own author to call an absent process a dead one, when a brief
+   * writer that has not yet written is the normal case. Nothing measures how
+   * long a brief takes — 60–75 seconds was typical on 2026-09-12 and one took
+   * several minutes — so a threshold would be invented, and a wrong one reports
+   * a healthy long brief as stalled. *Asked 40s ago* invites waiting; *the
+   * writer died* invites a person to interrupt work that is proceeding normally.
+   *
+   * **NULL IS THE DEFAULT AND MAKES NO CLAIM**, the rule `brief` states above
+   * and `waitingOn` before it: a pulse from a server predating this field
+   * validates to null and renders exactly as the board does today, word for
+   * word. A repository that never asks for briefs sees no change at all.
+   *
+   * It is also PER-MACHINE. A brief asked for elsewhere leaves no log here, so
+   * the row falls back to *nobody has asked* — which is what this machine can
+   * truthfully say. See `briefAskedAt`.
+   */
+  briefAskedAt: z.number().nullable().default(null),
+  /**
    * The name of the earlier slice blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.
    *
