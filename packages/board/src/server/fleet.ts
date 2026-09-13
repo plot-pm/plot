@@ -77,6 +77,7 @@ import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 import { briefPath as briefPathOf } from './brief-path.js';
+import { briefAskedAt } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
 
 /**
@@ -6079,6 +6080,21 @@ export function rowsFromPulse(
           // `unknown` where no root was passed: a caller that did not look, and
           // the renderer says nothing at all for it.
           brief: repoRoot ? briefState(repoRoot, b.branch) : 'unknown',
+          // AND WHETHER ANYONE ASKED FOR IT — the state `brief: 'missing'`
+          // could not tell apart. A slice nobody asked about and a slice whose
+          // brief is being written right now both read `missing`, and both read
+          // *approved — nobody has taken it* to the operator who reported this.
+          //
+          // ONE `statSync` PER BRANCH, the cost `brief` above already licenses
+          // and for its reason: asked for every row rather than only the
+          // startable ones, so the field cannot mean *asked* on some rows and
+          // *not asked* on others. No host call, and nothing for a machine that
+          // never asks.
+          //
+          // Null where no root was passed — a caller that did not look — which
+          // is the same value an older server's pulse validates to, so the
+          // renderer says nothing extra for either.
+          briefAskedAt: repoRoot ? briefAskedAt(repoRoot, b.branch) : null,
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
@@ -6371,6 +6387,11 @@ export function rowsFromPulse(
       // the renderer says nothing for `unknown`, which is what a row with no
       // brief question should show.
       brief: 'unknown',
+      // AND NOBODY ASKED FOR ONE, because nothing would. The ask is made by the
+      // dispatcher for a branch a plan names; this row is here because no plan
+      // names it, so the log is absent for a reason rather than by accident. The
+      // stat is skipped rather than made and discarded.
+      briefAskedAt: null,
       blockedBy: null,
       // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -6630,6 +6651,9 @@ export function rowsFromPulse(
       // no plan names this one. Not `missing`: nothing is absent that anything
       // would ever write.
       brief: 'unknown',
+      // And nothing asked for one — the ask follows the plan that names the
+      // branch, and no plan names this one.
+      briefAskedAt: null,
       blockedBy: null,
       verdict: null,
       startability: null,

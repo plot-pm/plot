@@ -22,7 +22,7 @@ import { soleRowStatus, exceptionSummary } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummaryFor } from './sections.js';
 import { roundsBadgeText } from '../../components/PlanCard.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
-import { briefGapNote, needsBrief, waitingTone } from './row-identity.js';
+import { briefAsked, briefAskedNote, briefGapNote, needsBrief, waitingTone } from './row-identity.js';
 // THE DOMAIN'S OWN DISCRIMINATOR, not a re-read of the field. `identity ===
 // 'manifest'` is a rule with a test beside it in
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
@@ -2051,6 +2051,40 @@ export function Row({
               genuinely next. What was wrong was the row stopping there — so the
               fact is added beside the verdict rather than replacing it. */}
           {needsBrief(row) && (
+            briefAsked(row) ? (
+              /* THE SAME ROW, THE OTHER ANSWER. A brief that is missing AND has
+                 been asked for is not an errand — it is a wait, and the two
+                 states read identically until this line. Measured 2026-09-12:
+                 `a-marker-names-its-writer` said *approved — nobody has taken
+                 it* while its brief was being written, and the operator asked
+                 the question the board could not answer.
+
+                 NOT AMBER. The gap note's colour is the `waitingOn: 'you'` one
+                 because a missing brief is a person's errand; this is the
+                 opposite state — somebody already ran the errand, and the only
+                 correct action is to let it finish. Colouring it the same would
+                 tell the reader to act on work already in flight, which is the
+                 whole defect. The quiet tone is `waitingTone('time')`'s
+                 argument: nothing here needs a person. */
+              <span
+                role="gridcell"
+                data-brief-asked
+                className="flex w-full items-baseline gap-x-2 text-xs text-slate-500 sm:col-start-3 sm:col-end-[-1] dark:text-slate-400"
+                title={briefAskedNote(Date.now() - row.briefAskedAt!)}
+              >
+                {/* THE ELAPSED TIME IS READ AT RENDER, never carried in the
+                    payload — the same clock `RegistryRow` reads for an agent's
+                    uptime. The server records WHEN the ask happened, which is a
+                    fact; how long ago it was is a view of that fact against the
+                    reader's own clock. Shipping the elapsed value would freeze
+                    it at pulse time, so a tab left open would go on saying
+                    *asked 5s ago* forever. */}
+                <span className="shrink-0 font-medium">brief asked</span>
+                <span className="min-w-0 max-sm:whitespace-normal">
+                  {briefAskedNote(Date.now() - row.briefAskedAt!)}
+                </span>
+              </span>
+            ) : (
             <span
               role="gridcell"
               data-brief-gap
@@ -2063,6 +2097,7 @@ export function Row({
               <span className="shrink-0 font-medium">needs a brief</span>
               <span className="min-w-0 max-sm:whitespace-normal">{briefGapNote(row.branch)}</span>
             </span>
+            )
           )}
           {/* Mounted only while open — which is what makes the log on-demand in
               fact and not merely in intent. The panel owns its own polling, so
