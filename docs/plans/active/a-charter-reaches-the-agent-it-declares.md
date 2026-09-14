@@ -1,0 +1,1 @@
+../2026-09-14-a-charter-reaches-the-agent-it-declares.md
