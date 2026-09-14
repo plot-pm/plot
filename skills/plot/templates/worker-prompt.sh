@@ -110,4 +110,60 @@ $PLOT_CAPABILITIES
 EOF
 fi
 
-claude ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the repo's gates, and never skip a failing test. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions
+# WHAT THIS AGENT RUNS ON — the harness, model and effort its charter declared.
+#
+# THE SAME DIVISION AS THE TWO BLOCKS ABOVE: Plot exports the NAMES and this
+# file owns the SPELLING. `--model` and the effort flag are this harness's
+# spelling of two names Plot knows nothing about; another harness spells them
+# differently, and Plot must learn none of them.
+#
+# THE HARNESS IS THE COMMAND, so it is substituted rather than passed. A charter
+# naming none runs `claude`, which is every dispatch on an estate with no
+# charter and is what this file did before the charter existed.
+#
+# `[ -n ... ]` AND NOT `${VAR+set}`, AND THE TWO ARE NOT INTERCHANGEABLE HERE.
+# `plot-dispatch.sh` exports these three UNCONDITIONALLY — `resolve_launch`
+# initialises all three to '' and the launch exports them whatever they hold —
+# so a charter-less dispatch hands this file three variables that are SET AND
+# EMPTY. `${PLOT_MODEL+set}` is true for all of them, and testing it would pass
+# `--model ""` on every dispatch that has no charter, which is a malformed
+# argument rather than a missing one.
+#
+# `PLOT_CAPABILITIES` ABOVE IS THE OPPOSITE CASE and keeps the opposite idiom:
+# dispatch exports it CONDITIONALLY, so unset means unstated and the array form
+# `${cap_args[@]+...}` guards an array that may not exist. The two idioms guard
+# two different absences; unifying them would break one.
+harness="${PLOT_HARNESS:-claude}"
+
+model_args=()
+[ -n "${PLOT_MODEL:-}" ] && model_args=(--model "$PLOT_MODEL")
+
+# THE EFFORT FLAG IS THIS HARNESS'S NAME FOR IT. Change the flag, not the
+# variable, when a project runs something that spells it another way.
+effort_args=()
+[ -n "${PLOT_EFFORT:-}" ] && effort_args=(--reasoning-effort "$PLOT_EFFORT")
+
+# WHAT IT BUILT, ON REQUEST — a debug hook, and deliberately not a contract.
+#
+# THE CHAIN IS OTHERWISE UNOBSERVABLE. A worker launches detached, Plot never
+# composes the command line, and reading a live process is timing-sensitive and
+# costs a real agent run. So the one honest way to prove a charter reached the
+# launch is to ask the file that assembled it.
+#
+# IT PRINTS AND EXITS 0 WITHOUT LAUNCHING, immediately before the invocation, so
+# what is printed is the argv that would have run rather than a second
+# assembly of it — a reconstruction here would pass while the real line stayed
+# wrong, which is the failure this probe exists to catch.
+#
+# NOTHING IN PLOT READS IT and nothing branches on it. A prompt file that drops
+# this block simply cannot be probed this way; no caller breaks.
+if [ -n "${PLOT_PRINT_INVOCATION:-}" ]; then
+  printf '%s\n' "$harness" \
+    ${model_args[@]+"${model_args[@]}"} \
+    ${effort_args[@]+"${effort_args[@]}"} \
+    ${cap_args[@]+"${cap_args[@]}"} \
+    ${session_args[@]+"${session_args[@]}"}
+  exit 0
+fi
+
+"$harness" ${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the repo's gates, and never skip a failing test. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions
