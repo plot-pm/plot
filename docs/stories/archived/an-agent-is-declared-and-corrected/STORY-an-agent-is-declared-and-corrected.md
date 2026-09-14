@@ -1,9 +1,10 @@
 ---
 title: An agent is declared and corrected
 author: jwloka
-status: active
+status: done
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-14
+archived: 2026-09-14
 ---
 
 # An agent is declared and corrected
