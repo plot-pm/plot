@@ -66,6 +66,19 @@ point: the first declaration is what turns an untested path into a measured one,
 and a set of speculative agent kinds would be inventing roles this estate has
 not asked for. Which kinds exist is a later question and a person's.
 
+**The first charter is a READ-ONLY REVIEWER**, chosen 2026-09-14, and the
+capability is why. `read-only` is the **one mapped capability** in the shipped
+template (`worker-prompt.sh:101`), denying
+`Write,Edit,NotebookEdit,Bash,Agent,Task` — so a reviewer exercises the
+capability bound on the single path that already works, without inventing a case
+arm. It is also the story's own example of what a declaration is for: *"a
+reviewing agent that edits what it reviews, with nothing recording that it did"*.
+
+**An unmapped capability warns and runs UNBOUNDED** — the template says so at
+`:103`. So the Done-when must observe the deny list on the command line rather
+than the charter's field: a capability that silently failed to apply looks
+identical to one that applied.
+
 **The selector is explicit and not inferred.** `PLOT_AGENT` stays the input;
 this plan adds a `--agent <name>` flag to `plot-dispatch.sh` that sets it, so an
 operator chooses a kind per dispatch. **A slice naming the kind it needs is the
@@ -98,7 +111,8 @@ template and this repo's file, and adds no code to Plot that builds a command.
 
 **Done when** a charter exists under `.plot/charters/`; `plot-dispatch.sh --agent
 <name>` selects it; the launched command line carries the charter's `harness`,
-`model` and `effort` and its `capabilities` reach `--disallowedTools`; a dispatch
+`model` and `effort` and its `capabilities` reach `--disallowedTools` **observed on the launched
+command line, never inferred from the charter file**; a dispatch
 with no `--agent` produces a command line **byte-identical** to today's, which is
 the property `plot-dispatch.sh:770` promises; both existing refusals still fire
 (an unbelievable charter, and a harness not on `PATH`); and `pnpm run
