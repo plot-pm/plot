@@ -10,6 +10,7 @@
 - **Story:** plot-agent-identity
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
@@ -95,6 +96,76 @@ harness this machine cannot run — are correct and tested. A third refusal is n
 wanted: a prompt file that ignores a field is a gap in the file, not a reason for
 dispatch to refuse.
 
+### This repository's prompt file is half a template behind
+
+**Measured 2026-09-14: `.plot/worker-prompt.sh` is 52 lines against the
+template's 113, and carries no `cap_args` block at all.** Its `claude -p` at
+`:52` is an older shape, predating the capability work entirely. So *"interpolate
+into both files"* is not the symmetric edit it sounds like: the template gains
+three variables, and this repository's file needs the capability block **and**
+the three.
+
+**The file is REINSTALLED from the template first, then extended.** Patching the
+52-line file in place would leave the two structurally different in ways nobody
+has compared, which is how it fell a template behind in the first place — and
+`plot-install-prompt.sh --check` cannot report it, because it classifies by what
+a file passes rather than by comparison.
+
+**One line is project-specific and must survive**: the `claude -p "You are
+implementing the branch $PLOT_BRANCH …"` prompt text. Diffed against the
+template, it is the ONLY content the local file holds that the template does
+not. Carry it across; everything else is the template's.
+
+**The installer refuses to overwrite an existing file**, deliberately — *"a
+repository may run one for its own reasons"*. So this is a hand replacement the
+worker makes and a person reviews. The file is **tracked**, so the diff travels
+with the branch and is reviewable like any code.
+
+### Empty is not unset, and the two guards differ for a reason
+
+**`PLOT_HARNESS`, `PLOT_MODEL` and `PLOT_EFFORT` are ALWAYS exported** —
+`resolve_launch` initialises all three to `""` and `plot-dispatch.sh:1314-1316`
+exports them unconditionally. So a charter-less dispatch hands the prompt file
+three *set-but-empty* variables, not absent ones.
+
+**`PLOT_CAPABILITIES` alone is exported conditionally**, and its comment says
+why: bash recognises an assignment prefix before it expands parameters, so
+`${caps:+PLOT_CAPABILITIES="$caps"}` in the prefix is a WORD rather than an
+assignment. The conditional `export` keeps it genuinely unset, so a prompt
+file's `[ -n "$PLOT_CAPABILITIES" ]` probe means what it says.
+
+**So the prompt file guards the three with `[ -n ... ]`**, which is correct for
+a variable that is set and empty, and the template's existing
+`${cap_args[@]+"${cap_args[@]}"}` stays as it is, which is correct for an array
+that may be unset. The two idioms are not an inconsistency: they guard different
+absences, and a plan that unified them would break one of the two cases.
+
+**Dispatch is not changed.** Extending the conditional export to all four would
+be more uniform and would touch a shipped v2.17.0 code path that works today,
+for no behaviour a `-n` test in the prompt file does not already give.
+
+### Proving it, without launching an agent
+
+**The Done-when cannot read a live process.** The worker launches detached, Plot
+never composes the command line, and a `ps` reading is timing-sensitive and
+costs a real agent run — the flake class this repo has measured repeatedly under
+load.
+
+**So the prompt file prints what it built, on request.** `PLOT_PRINT_INVOCATION=1`
+makes `.plot/worker-prompt.sh` echo the argv it assembled and exit 0 **without
+launching**, immediately before its `claude` line (`worker-prompt.sh:113`). One
+guard, and the whole chain is observable in one deterministic command:
+
+```
+PLOT_PRINT_INVOCATION=1 plot-dispatch.sh --agent reviewer <slug> --dry-run
+```
+
+**It goes in the template as well as this repo's copy**, for the same reason the
+interpolation does: an adopting project cannot verify its own charter otherwise.
+
+**It is a debug hook and not a contract.** Nothing in Plot reads it, nothing
+branches on it, and a prompt file that omits it simply cannot be probed this way.
+
 ### Why the prompt file is where the invocation lives, and stays there
 
 `.plot/worker-prompt.sh` is a per-project file, uninstalled by Plot after the
@@ -107,16 +178,18 @@ template and this repo's file, and adds no code to Plot that builds a command.
 
 ### A charter reaches the agent it declares (Branch: feature/a-charter-reaches-the-agent-it-declares)
 
-- `feature/a-charter-reaches-the-agent-it-declares` — add `--agent <name>` to `plot-dispatch.sh` setting `PLOT_AGENT`; interpolate `PLOT_HARNESS`, `PLOT_MODEL` and `PLOT_EFFORT` into the invocation in `skills/plot/templates/worker-prompt.sh` and in `.plot/worker-prompt.sh`; declare one charter under `.plot/charters/`; and prove end to end that its four fields reach the launch
+- `feature/a-charter-reaches-the-agent-it-declares` — add `--agent <name>` to `plot-dispatch.sh` setting `PLOT_AGENT`; interpolate `PLOT_HARNESS`, `PLOT_MODEL` and `PLOT_EFFORT` into the invocation in `skills/plot/templates/worker-prompt.sh`, each guarded by `[ -n ... ]`; reinstall `.plot/worker-prompt.sh` from that template, carrying its project-specific `claude -p` prompt text across; add the `PLOT_PRINT_INVOCATION=1` probe to both; declare one read-only reviewer charter under `.plot/charters/`; and prove the four fields reach the argv
 
-**Done when** a charter exists under `.plot/charters/`; `plot-dispatch.sh --agent
-<name>` selects it; the launched command line carries the charter's `harness`,
-`model` and `effort` and its `capabilities` reach `--disallowedTools` **observed on the launched
-command line, never inferred from the charter file**; a dispatch
-with no `--agent` produces a command line **byte-identical** to today's, which is
-the property `plot-dispatch.sh:770` promises; both existing refusals still fire
-(an unbelievable charter, and a harness not on `PATH`); and `pnpm run
-test:contracts` passes.
+**Done when** a read-only reviewer charter exists under `.plot/charters/`;
+`plot-dispatch.sh --agent reviewer` selects it; `PLOT_PRINT_INVOCATION=1` prints
+an argv carrying the charter's `model` and `effort` and a `--disallowedTools`
+bearing the read-only deny list — **read from the printed argv, never inferred
+from the charter file**; the same probe with no `--agent` prints an argv
+**byte-identical** to today's, which is the property `plot-dispatch.sh:770`
+promises and the case the `[ -n ... ]` guards exist for; both existing refusals
+still fire (an unbelievable charter, and a harness not on `PATH`); this repo's prompt
+file matches the template but for its own `claude -p` prompt text, which is
+preserved; and `pnpm run test:contracts` passes.
 
 ## Notes
 
