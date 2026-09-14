@@ -178,7 +178,7 @@ template and this repo's file, and adds no code to Plot that builds a command.
 
 ## Slices
 
-### A charter reaches the agent it declares (Branch: feature/a-charter-reaches-the-agent-it-declares)
+### A charter reaches the agent it declares (Branch: feature/a-charter-reaches-the-agent-it-declares, PR: #910)
 
 - `feature/a-charter-reaches-the-agent-it-declares` — add `--agent <name>` to `plot-dispatch.sh` setting `PLOT_AGENT`; interpolate `PLOT_HARNESS`, `PLOT_MODEL` and `PLOT_EFFORT` into the invocation in `skills/plot/templates/worker-prompt.sh`, each guarded by `[ -n ... ]`; reinstall `.plot/worker-prompt.sh` from that template, carrying its project-specific `claude -p` prompt text across; add the `PLOT_PRINT_INVOCATION=1` probe to both; declare one read-only reviewer charter under `.plot/charters/`; and prove the four fields reach the argv
 
