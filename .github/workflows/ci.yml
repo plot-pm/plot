@@ -91,6 +91,16 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # THE DOMAIN SUITE READS COMMITS BY SHA. `ports-real-state.test.ts`
+          # asserts what four pinned merge commits changed, and it SKIPS a sha
+          # the checkout does not hold — deliberately, so a fork or a shallow
+          # clone does not fail for the wrong reason. Measured 2026-09-14 in a
+          # `--depth 1` clone: all of those shas are absent, every row takes the
+          # early exit, and the file reports the same pass count it reports with
+          # full history. So at the default depth those rows assert NOTHING and
+          # CI cannot tell a working reading from a broken one.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
