@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** plot-gates
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-14, jwloka, in-session
 
 ## Changelog
 
