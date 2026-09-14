@@ -48,7 +48,7 @@ Then two halves, and neither is expressible today.
 
 - [x] [a-panel-questions-one-plan](../plans/2026-09-12-a-panel-questions-one-plan.md) — the panel mechanism: fan-out over one prompt, verdict files, a commitment gate, a moderator
 - [x] [a-plan-is-questioned-before-it-is-approved](../plans/2026-09-12-a-plan-is-questioned-before-it-is-approved.md) — the Draft panel gating on a verdict, and the delivery panel that shares its mechanism
-- [ ] [the-build-gate-sees-every-bundle](../plans/2026-09-14-the-build-gate-sees-every-bundle.md) — the artifact freshness gate diffs 1 of 24 bundles, so a stale bundle reaches main; and a fleet-opened PR links the plan by the worker desk's absolute path
+- [x] [the-build-gate-sees-every-bundle](../plans/2026-09-14-the-build-gate-sees-every-bundle.md) — the artifact freshness gate diffs 1 of 24 bundles, so a stale bundle reaches main; and a fleet-opened PR links the plan by the worker desk's absolute path
 
 ### Could Have
 

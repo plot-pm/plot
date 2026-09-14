@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** plot-gates
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-14, jwloka, in-session
 - **Started:** 2026-09-14, Jan Wloka, `bug/the-build-gate-sees-every-bundle`
+- **Delivered:** 2026-09-14
 
 ## Changelog
 
