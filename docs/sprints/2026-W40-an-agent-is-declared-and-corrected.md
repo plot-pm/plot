@@ -48,6 +48,7 @@ Then two halves, and neither is expressible today.
 
 - [x] [a-panel-questions-one-plan](../plans/2026-09-12-a-panel-questions-one-plan.md) — the panel mechanism: fan-out over one prompt, verdict files, a commitment gate, a moderator
 - [x] [a-plan-is-questioned-before-it-is-approved](../plans/2026-09-12-a-plan-is-questioned-before-it-is-approved.md) — the Draft panel gating on a verdict, and the delivery panel that shares its mechanism
+- [ ] [the-build-gate-sees-every-bundle](../plans/2026-09-14-the-build-gate-sees-every-bundle.md) — the artifact freshness gate diffs 1 of 24 bundles, so a stale bundle reaches main; and a fleet-opened PR links the plan by the worker desk's absolute path
 
 ### Could Have
 
@@ -79,3 +80,4 @@ Then two halves, and neither is expressible today.
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 - 2026-09-14: Added [a-merge-commit-carried-work] as a Must — found by this sprint's own delivery, and it misreports the delivery gate's finding on every true merge. The sprint's other 13 items were done when it was added; 2.17.0 has not shipped, so the fix belongs to this release rather than the next.
+- 2026-09-14: Added [the-build-gate-sees-every-bundle] as a Should — both goals were already met when it was found, so it is not a goal condition and is not a Must. It is in the window because 2.17.0 has not shipped and the operator chose to carry it in this release.
