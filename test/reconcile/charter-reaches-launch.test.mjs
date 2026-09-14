@@ -158,6 +158,41 @@ for (const [label, file] of [['template', template], ["this repo's file", localP
   });
 }
 
+for (const [label, file] of [['template', template], ["this repo's file", localPrompt]]) {
+  test(`${label}: an unstated field does not abort a strict shell`, () => {
+    // `[ -n ... ] && assign` RETURNS 1 WHEN THE TEST IS FALSE, and a false test
+    // as a file's LAST command makes the source itself exit non-zero. Under
+    // `set -e` that aborts the caller before the agent launches — and it would
+    // abort it on the case that is the whole estate, a dispatch with no
+    // charter, while a dispatch WITH one worked.
+    //
+    // `plot-worker-loop.sh` is `set -uo pipefail` and sources through
+    // `bash -c '. "$1"'`, so neither is strict today. This file belongs to the
+    // adopting project, though, and a project that sources it from a `set -e`
+    // script is doing nothing wrong. The guards are safe because each is
+    // followed by further statements; this pins that rather than trusting the
+    // order to survive an edit.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-strict-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'claude'), '#!/bin/sh\nexit 0\n');
+      fs.chmodSync(path.join(dir, 'claude'), 0o755);
+      const env = { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+        PLOT_BRANCH: 'feature/x', PLOT_WORKTREE: dir };
+      for (const v of ['PLOT_HARNESS', 'PLOT_MODEL', 'PLOT_EFFORT', 'PLOT_CAPABILITIES',
+        'PLOT_PRINT_INVOCATION', 'PLOT_SESSION_ID', 'PLOT_SESSION_FLAG']) delete env[v];
+      // The estate's case: three variables exported set-and-empty by dispatch.
+      execFileSync('bash', ['-c', 'set -euo pipefail; . "$1"', '_', file],
+        { encoding: 'utf8', timeout: 30_000,
+          env: { ...env, PLOT_HARNESS: '', PLOT_MODEL: '', PLOT_EFFORT: '' } });
+      // And a caller that is not dispatch, where they are absent entirely.
+      execFileSync('bash', ['-c', 'set -euo pipefail; . "$1"', '_', file],
+        { encoding: 'utf8', timeout: 30_000, env });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // NOTHING CHANGES UNTIL A CHARTER EXISTS
 // ---------------------------------------------------------------------------
