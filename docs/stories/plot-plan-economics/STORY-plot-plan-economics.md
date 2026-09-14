@@ -3,7 +3,7 @@ title: What a plan costs, and what the approval was worth
 author: jwloka
 status: draft
 created: 2026-08-27
-updated: 2026-08-27
+updated: 2026-09-14
 ---
 
 # What a plan costs, and what the approval was worth
@@ -120,6 +120,39 @@ plan is the honest unit **because the approval is the scarce half** — the
 denominator is the value, and the numerator is the commodity.
 
 ## Current Plan
+
+**Amended 2026-09-14 by measurement. Less is missing than this section
+assumes, and the gap is narrower and more specific.**
+
+`packages/board/src/server/transcript.ts` **already reads token counters** —
+`readTranscriptFacts` exposes a context figure combining `input_tokens` with
+both cache fields, and the board's panel has rendered it since 2026-08-19. The
+join this section relies on also still holds: `registry.ts:137` documents
+`session` as *"the transcript join key"*, though the `:236` citation below has
+drifted and should not be trusted as a line number.
+
+**What is actually missing, measured 2026-09-14:**
+
+| | state |
+|---|---|
+| `input_tokens` | read (4 references) |
+| `cache_read_input_tokens` | read (3 references) |
+| `output_tokens` | **not read** |
+| `cache_creation_input_tokens` | **not read** |
+| a per-plan or per-slice sum | **nothing** — no rule in `packages/domain/src/rules/` computes one |
+
+So the work is **attribution and summation**, not capture from nothing: two
+counters to add, then a rollup from slice to plan. `entities/budget.ts` is not
+the place and is easy to mistake for it — it carries `connector`, `account`,
+`bucket`, `spent`, `limit`, `remaining`, which is an API rate-limit window
+rather than a token ledger.
+
+The narrowing note in `## Objective` — tokens are a derivation, francs are not —
+**was re-checked and still holds**. Nothing here proposes a price table.
+
+Sprint [[2026-W41-a-declared-agent-costs-what-it-costs]] carries this work.
+
+---
 
 No plans yet — `draft` until the first is interrogated. This story is
 downstream of [[plot-agent-identity]] for per-role attribution, but neither

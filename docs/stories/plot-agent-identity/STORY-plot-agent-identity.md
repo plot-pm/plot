@@ -3,7 +3,7 @@ title: An agent is someone, not something running
 author: jwloka
 status: draft
 created: 2026-08-27
-updated: 2026-08-27
+updated: 2026-09-14
 ---
 
 # An agent is someone, not something running
@@ -108,9 +108,40 @@ together**.
 
 ## Current Plan
 
+**Amended 2026-09-14. The first half shipped under another name, and the
+blocker is released.** This section described `.plot/roles/<slug>.md`; what
+landed in v2.17.0 is the **charter**, `.plot/charters/<name>.md`, and
+`CharterSchema` carries `name`, `harness`, `model`, `effort` and
+`capabilities` — the same declaration this story asked for. `plot-dispatch.sh`
+reads it: measured 2026-09-14, **16 readers for `harness`**, 14 each for
+`model` and `effort`, 7 for `capabilities`.
+
+**And nobody has declared one.** `.plot/charters/` holds **zero files**. So the
+mechanism is complete and its adoption is nil — *"where a rule exists and
+nothing calls it, that is a defect to report"*. The remaining work is to USE
+the charter, never to build the noun again.
+
+**What is still unbuilt, both measured 2026-09-14:**
+
+- **A slice naming the kind it needs.** Nothing in the plan format says which
+  kind of agent a slice wants.
+- **A cap that counts by kind.** `rules/fleet-size.ts:145` is still
+  `Math.min(wanted, ceiling)` — one undifferentiated number.
+
+`.plot/worker-prompt.sh` is still tracked and still the implicit default, so the
+paragraph below about not replacing it holds unchanged.
+
+Sprint [[2026-W41-a-declared-agent-costs-what-it-costs]] carries this work.
+
+**The text below is the August design, kept as the record of what was thought
+then. Read the charter before acting on it — the role file it describes was
+superseded while this story sat parked.**
+
+---
+
 No plans yet — the story is `draft` until the first is interrogated.
 
-**It is also blocked, and by something already scheduled.** This story's
+**It WAS blocked, and that blocker is released.** This story's
 subject is an *entity with an identity kind and a state source*, and
 [`the-domain-moves-out-of-the-board`](../../plans/2026-08-28-the-domain-moves-out-of-the-board.md)
 constructs exactly that in its **Entities** slice — `Agent`, `Machine` and
