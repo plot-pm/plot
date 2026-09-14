@@ -534,6 +534,10 @@ No grep separates them, because the difference is what the answer flows into. So
 
 There is deliberately no third kind. A site that would need one is a site that should be reading `plot-pr-merged.sh` — or, in TypeScript, the host port's PR state.
 
+**Two readings answer *what did this merge carry*, and they ask different questions.** `plot-reconcile-scan.sh` §22 diffs `git merge-base "$m^1" "$m^2"` and answers *did the BRANCH ship code while it was open*; `refs-git.ts`'s `commitFiles` reads `git show -m --first-parent` and answers *what did MAIN gain when it landed*. Neither is a fallback for the other, and **agreement is not the contract** — searched over 400 commits they agree on 13 of 14 true merges, and the divergence is `851727039`, a delivery booking commit whose merge-base diff reports 2 plan files while its first-parent diff is empty because main already held those edits. Both answers are right for their own question, so a corpus test asserting they match would fail on the one commit both sides handle correctly.
+
+**`-m` and `--first-parent` are one reading and neither travels alone.** Without `-m`, `git show --name-only` prints nothing at all for a commit with two parents: measured 2026-09-13 over the last 120 commits on `origin/main`, **14 true merges and 14 read as carrying no implementation**, which is how delivery came to report that PR #907 carried none of its 410 insertions. Without `--first-parent`, `-m` emits one diff per parent and returns paths the branch never touched — 6 instead of 5 on `109cce0ac`, the extra one a plan file main gained from the other side.
+
 ## Testing
 
 Plot is a pnpm workspace: the skills live at the repo root, and the board is a

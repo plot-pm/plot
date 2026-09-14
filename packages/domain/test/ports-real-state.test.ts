@@ -174,12 +174,19 @@ describe('Refs reads this repository’s git state', () => {
   });
 
   /**
-   * THE THREE MERGE COMMITS THE DEFECT WAS MEASURED ON, read from real git.
+   * THE MERGE COMMITS THE DEFECT WAS MEASURED ON, read from real git.
    *
    * `5d7644ec` is PR #811 — the claim commit alone, zero files. `dab631d4` is
    * #821 — a `PLOT-BLOCKED.md` and nothing else. `682349a6` is #809, one real
    * file, and it is here so the two empty verdicts are not the only ones the
    * reading can produce.
+   *
+   * `900285499` HAS TWO PARENTS, and it is the discriminating row: a true merge
+   * reads 0 files under `git show --name-only` alone and 3 under
+   * `-m --first-parent`, so this row fails against the unfixed reading and
+   * passes against the fixed one. It is the fixture rather than `109cce0ac`
+   * because that merge carries `board-server.mjs`, a generated artifact whose
+   * path would churn.
    *
    * READ BY SHA, NOT BY BRANCH, which is the property under test: all three
    * branches lost their refs at merge, so nothing here could be expressed as a
@@ -193,6 +200,14 @@ describe('Refs reads this repository’s git state', () => {
     ['5d7644ec73bd71a6f81c323ee8ddf234ba4b4f7a', [] as string[]],
     ['dab631d4e988629b957b737e447aeaeccdc0e58c', ['PLOT-BLOCKED.md']],
     ['682349a6b4877b62526414114a91926250915fa5', ['packages/domain/src/entities/build.ts']],
+    [
+      '900285499433f9109b24884bad0c77f6c7c68aea',
+      [
+        '.changeset/a-harness-this-machine-cannot-run-refuses.md',
+        'skills/plot/scripts/plot-dispatch.sh',
+        'test/reconcile/launch-resolution.test.mjs',
+      ],
+    ],
   ])('reads what merge commit %s changed', async (sha, expected) => {
     const refs = refsGit(context);
     // `rev-parse <full sha>` ECHOES THE ARGUMENT AND EXITS 0 whether or not the

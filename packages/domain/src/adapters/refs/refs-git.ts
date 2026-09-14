@@ -187,10 +187,20 @@ export const refsGit = (context: ShellContext): Refs => {
     },
 
     commitFiles: (sha) =>
-      // `--format=` empties the header so only the name-status body remains,
-      // and the default first-parent diff is what a squash merge needs: its one
-      // parent is the default branch before it landed.
-      runScript('git', ['show', '--name-only', '--format=', sha], asLines, inRepo),
+      // `--format=` empties the header so only the name-status body remains.
+      // `-m --first-parent` is one reading and the two flags are inseparable.
+      // Without `-m`, git prints NOTHING for a commit with two parents, so every
+      // true merge reads as carrying no files. Without `--first-parent`, `-m`
+      // emits one diff per parent and the answer gains paths the branch never
+      // touched — measured on `109cce0ac`, 6 paths instead of 5. What remains is
+      // what the default branch gained, which is also what a squash merge's one
+      // parent already gave.
+      runScript(
+        'git',
+        ['show', '--name-only', '--format=', '-m', '--first-parent', sha],
+        asLines,
+        inRepo,
+      ),
 
     pulse: async () => {
       const run = await runProcess('bash', [scan, '--json'], {
