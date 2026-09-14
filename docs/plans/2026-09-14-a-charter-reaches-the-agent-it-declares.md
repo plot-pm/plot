@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-agent-identity
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 2
+- **Approved:** 2026-09-14, jwloka, in-session
 
 ## Changelog
 
