@@ -10,6 +10,7 @@
 - **Story:** plot-gates
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
