@@ -268,6 +268,14 @@ const argv = (capabilities) => {
     delete env.PLOT_HARNESS;
     delete env.PLOT_MODEL;
     delete env.PLOT_EFFORT;
+    // AND THE PROBE, WHICH FAILS THE OTHER WAY. A leaked harness is a missing
+    // command and says so — `127`, `some-other-harness: command not found`.
+    // `PLOT_PRINT_INVOCATION` makes the template print its argv and exit 0
+    // BEFORE the invocation, so the shim never runs, the file it would have
+    // written is never created, and all six argv assertions fail as `ENOENT` on
+    // a temp path that names neither the variable nor the cause. Measured
+    // 2026-09-14 in a worktree where an operator had exported it by hand.
+    delete env.PLOT_PRINT_INVOCATION;
     if (capabilities !== null) env.PLOT_CAPABILITIES = capabilities;
     const err = path.join(dir, 'err');
     execFileSync('bash', ['-c', `set -uo pipefail; . "$1" 2>${JSON.stringify(err)}`, '_', template],
