@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-09-14, jwloka, in-session
+- **Started:** 2026-09-14, Jan Wloka, `bug/a-merge-commit-carried-work`
 
 ## Changelog
 
