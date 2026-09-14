@@ -57,7 +57,7 @@ Not one fact. Three:
 
 ## Slices
 
-### Section 9 separates its three findings (Branch: bug/the-scan-drift-counter-is-acted-on)
+### Section 9 separates its three findings (Branch: bug/the-scan-drift-counter-is-acted-on, PR: #890)
 
 Split the one section into three counters, each with its own heading and its own `fix:`/`inspect:` line.
 

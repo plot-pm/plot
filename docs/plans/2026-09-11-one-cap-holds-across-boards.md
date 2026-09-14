@@ -46,7 +46,7 @@ Not hypothetical: a second board is started by an operator wanting a view from a
 
 ## Slices
 
-### The dispatch-to-visible window is observable across boards (Branch: bug/one-cap-holds-across-boards)
+### The dispatch-to-visible window is observable across boards (Branch: bug/one-cap-holds-across-boards, PR: #891)
 
 **The shared record exists and the private one is the problem.** Whatever closes this must make a just-dispatched branch visible to a board that did not dispatch it, before that board's next pulse decides.
 

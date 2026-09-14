@@ -72,7 +72,7 @@ A file stat and a process check, per eligible-and-unclaimed slice. No host call,
 
 ## Slices
 
-### A slice shows that its brief was asked for (Branch: feature/a-slice-shows-that-its-brief-was-asked-for)
+### A slice shows that its brief was asked for (Branch: feature/a-slice-shows-that-its-brief-was-asked-for, PR: #905)
 
 The two-way reading, the row's wording for each, and a fixture covering a log that exists but is empty — which means *asked recently*, not *failed*.
 

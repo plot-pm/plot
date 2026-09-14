@@ -45,7 +45,7 @@
 
 ## Slices
 
-### The scan reports a merged branch that carried no changeset (Branch: feature/a-merge-without-a-changeset-is-named)
+### The scan reports a merged branch that carried no changeset (Branch: feature/a-merge-without-a-changeset-is-named, PR: #892)
 
 A new advisory section in `plot-reconcile-scan.sh`, below the `== blocking sections end ==` marker, with its own footer counter.
 
