@@ -154,7 +154,7 @@ passes after it. A lock that passes either way is what this plan is fixing.
 
 ## Slices
 
-### A merge commit carried work (Branch: bug/a-merge-commit-carried-work)
+### A merge commit carried work (Branch: bug/a-merge-commit-carried-work, PR: #908)
 
 - `bug/a-merge-commit-carried-work` — add `-m --first-parent` to `commitFiles` in `packages/domain/src/adapters/refs/refs-git.ts`, amend its comment to state the merge-commit case rather than only the squash one, add the two-parent row to the `it.each` table in `packages/domain/test/ports-real-state.test.ts`, set `fetch-depth: 0` on the `validate` job's checkout in `.github/workflows/ci.yml` so that table asserts at all, and record the two readings in `CLAUDE.md` → #908
 
