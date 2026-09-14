@@ -248,10 +248,24 @@ test('the artifact stays in git and CI still gates its freshness', () => {
   // fail — otherwise this trades a loud conflict for a silent regression.
   const workflow = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
   assert.match(workflow, /pnpm run build:board/, 'CI must rebuild the artifact itself');
+  // THE DIRECTORY, NOT THE ONE FILE. The build writes 23 bundles into
+  // `skills/plot/scripts/board/` and this gate diffed exactly one of them:
+  // measured on PR #908, a change to `adapters/refs/refs-git.ts` restaled
+  // `board-server.mjs`, `plot-ask.mjs` and `plot-registryd.mjs`, and CI named
+  // only the first. Widening costs no false positives because the build's
+  // output set and this pathspec are now the same set.
   assert.match(
     workflow,
-    /git diff --quiet -- skills\/plot\/scripts\/board\/board-server\.mjs/,
-    'CI must byte-diff the rebuilt artifact against the committed one',
+    /git diff --quiet -- skills\/plot\/scripts\/board\//,
+    'CI must byte-diff the rebuilt artifacts against the committed ones',
+  );
+  // And it must report what it FOUND rather than a constant. Naming one file
+  // is what made the three-bundle case cost two runs: the first repair fixed
+  // what the message named and failed again on the next run.
+  assert.match(
+    workflow,
+    /git --no-pager diff --name-only -- skills\/plot\/scripts\/board\//,
+    'CI must name the stale files it found, not a hardcoded filename',
   );
 
   // And the file must still be tracked: `pnpm board` starts it with no build
