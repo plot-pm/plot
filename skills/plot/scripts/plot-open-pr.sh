@@ -185,10 +185,21 @@ if git rev-parse --verify --quiet "$branch" >/dev/null 2>&1 \
   fi
 fi
 
+# THE PR BODY LINKS THE PLAN BY ITS REPOSITORY PATH. `plan_dir` is made absolute
+# above so the glob on :99 resolves from any working directory, and `meta.file`
+# inherits that. Harmless in a checkout at the repo root, and the desk's own path
+# inside a worktree: PR #908 opened linking
+# `/Users/…/.worktrees/free-9e72e356/docs/plans/….md`, dead for every reader on
+# the git host. So the prefix is stripped where the value is USED, never where it
+# is globbed. A prefix removal and not `realpath --relative-to` — a plan outside
+# the repository keeps its absolute path, because a link that cannot be made
+# repo-relative is better absolute than wrong.
+plan_link="${plan_file#"$repo_root"/}"
+
 # ASK THE DOMAIN. JSON in, JSON out: the answer carries a markdown body, and a
 # tab-separated wire would mean re-assembling a shape the rule just composed.
 request=$(PLOT_BRANCH="$branch" PLOT_BASE="$base" PLOT_SLUG="$plan_slug" \
-  PLOT_FILE="$plan_file" PLOT_SLICE="$slice_name" PLOT_BRIEF="$brief_file" \
+  PLOT_FILE="$plan_link" PLOT_SLICE="$slice_name" PLOT_BRIEF="$brief_file" \
   PLOT_PR="$existing_pr" PLOT_COMMITS="$commits" PLOT_WORK="$carried_work" \
   PLOT_DRAFT="$draft" node -e '
     const e = process.env;
