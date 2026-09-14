@@ -4,12 +4,10 @@
 
 ## Status
 
-- **State:** Planning
+- **State:** Active
 - **Start:** 2026-09-15
 - **End:** 2026-10-06
-<!-- No Release: yet. Neither story's shape is settled enough to promise a
-     version, and a Release: field is a gate /plot-release enforces. It is
-     added when the first plan is approved, not before. -->
+- **Release:** 2.18.0
 
 ## Sprint Goal
 
@@ -92,9 +90,15 @@ stories were amended on 2026-09-14 with the measurements above, in place: the
 August text is kept as the record of what was thought then, under a line saying
 so.
 
-**No `Release:` is declared.** A sprint's `Release:` gates `/plot-release`, and
-promising a version for work whose first plan is not yet written would be a gate
-with nothing behind it. It is added when the shape is settled.
+**`Release: 2.18.0`, added 2026-09-14 when the sprint was committed.** It was
+deliberately absent while the sprint was `Planning` — a version promised for work
+whose first plan was unwritten is a gate with nothing behind it. `setSprintState`
+settled when it stops being optional: committing to a sprint **requires** one,
+because *"the release is the gate's key, and a commitment nothing is judged at is
+not one."* So the field arrives with the commitment rather than with the file.
+
+2.18.0 because v2.17.0 shipped on 2026-09-14 and this sprint's first Must is a
+feature.
 
 **Three Musts and one Should for a three-week window is deliberate.** Both
 stories start with zero plans, so each Must carries its own `/plot-idea` and
