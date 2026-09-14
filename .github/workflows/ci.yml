@@ -854,9 +854,10 @@ jobs:
         timeout-minutes: 10
         run: |
           pnpm run build:board
-          if ! git diff --quiet -- skills/plot/scripts/board/board-server.mjs; then
-            echo "::error::skills/plot/scripts/board/board-server.mjs is stale — run 'pnpm build:board' and commit the result."
-            git --no-pager diff --stat -- skills/plot/scripts/board/board-server.mjs
+          if ! git diff --quiet -- skills/plot/scripts/board/; then
+            stale=$(git --no-pager diff --name-only -- skills/plot/scripts/board/ | tr '\n' ' ')
+            echo "::error::Stale board artifacts: ${stale}— run 'pnpm build:board' and commit the result."
+            git --no-pager diff --stat -- skills/plot/scripts/board/
             exit 1
           fi
           echo "Board artifact is fresh."
