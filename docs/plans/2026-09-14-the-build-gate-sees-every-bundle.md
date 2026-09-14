@@ -11,6 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-14, jwloka, in-session
+- **Started:** 2026-09-14, Jan Wloka, `bug/the-build-gate-sees-every-bundle`
 
 ## Changelog
 
