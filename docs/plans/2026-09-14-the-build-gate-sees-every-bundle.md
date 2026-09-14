@@ -97,7 +97,7 @@ a link that cannot be made repo-relative is better absolute than wrong.
 
 ## Slices
 
-### The build gate sees every bundle (Branch: bug/the-build-gate-sees-every-bundle)
+### The build gate sees every bundle (Branch: bug/the-build-gate-sees-every-bundle, PR: #909)
 
 - `bug/the-build-gate-sees-every-bundle` — widen the freshness diff in `.github/workflows/ci.yml` to `skills/plot/scripts/board/` and print the stale filenames it found, and relativise `plan_file` against `$repo_root` where `plot-open-pr.sh` passes it as `PLOT_FILE`
 
