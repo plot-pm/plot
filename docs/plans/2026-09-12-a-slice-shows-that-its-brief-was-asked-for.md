@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** the-board-is-blank-where-it-matters
@@ -14,6 +14,7 @@
 - **Started:** 2026-09-13, jwloka, `feature/a-slice-shows-that-its-brief-was-asked-for`
 - **Rounds:** 2
 - **Delivered:** 2026-09-13
+- **Released:** 2026-09-14, 2.17.0
 
 ## Changelog
 

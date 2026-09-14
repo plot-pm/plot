@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** the-board-is-blank-where-it-matters
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-13, jwloka, in-session
 - **Started:** 2026-09-13, jwloka, `bug/a-claimed-slice-does-not-say-nobody-took-it`
 - **Delivered:** 2026-09-13
+- **Released:** 2026-09-14, 2.17.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** an-agent-is-declared-and-corrected
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-12, Jan Wloka, `feature/an-absent-agent-is-noticed`
 - **Started:** 2026-09-12, Jan Wloka, `feature/a-failed-gate-becomes-a-correction`
 - **Delivered:** 2026-09-13
+- **Released:** 2026-09-14, 2.17.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** an-agent-is-declared-and-corrected
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-12, jwloka, in-session
 - **Started:** 2026-09-12, jwloka, `feature/a-charter-bounds-what-an-agent-may-touch`
 - **Delivered:** 2026-09-12
+- **Released:** 2026-09-14, 2.17.0
 
 ## Changelog
 

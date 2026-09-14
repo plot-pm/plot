@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** plot-gates
@@ -13,6 +13,7 @@
 - **Rounds:** 4
 - **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 - **Delivered:** 2026-09-09
+- **Released:** 2026-09-11, 2.16.0
 
 ## Changelog
 

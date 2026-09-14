@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** plot-gates
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-14, jwloka, in-session
 - **Started:** 2026-09-14, Jan Wloka, `bug/a-merge-commit-carried-work`
 - **Delivered:** 2026-09-14
+- **Released:** 2026-09-14, 2.17.0
 
 ## Changelog
 

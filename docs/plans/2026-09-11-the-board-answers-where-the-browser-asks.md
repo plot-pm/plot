@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** an-agent-is-declared-and-corrected
 - **Story:** plot-board
@@ -14,6 +14,7 @@
 - **Started:** 2026-09-12, jwloka, `bug/the-board-answers-on-both-loopback-families`
 - **Started:** 2026-09-12, Jan Wloka, `bug/one-plan-is-one-card`
 - **Delivered:** 2026-09-12
+- **Released:** 2026-09-14, 2.17.0
 
 ## Changelog
 
