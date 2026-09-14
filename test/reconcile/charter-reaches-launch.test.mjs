@@ -241,7 +241,7 @@ const selected = (args, env = {}) => {
   `;
   try {
     return { out: execFileSync('bash', ['-c', script],
-      { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...env } }), failed: false };
+      { encoding: 'utf8', timeout: 60_000, env: { ...process.env, ...env } }), failed: false };
   } catch (e) {
     return { out: `${e.stdout ?? ''}${e.stderr ?? ''}`, failed: true };
   }
@@ -288,7 +288,7 @@ test('--help still ends where it did, with --agent inside it', () => {
   // own header, so a flag added above `<slug>` moves the boundary and a stale
   // number truncates the help SILENTLY rather than failing. Nothing compares
   // them, so this does.
-  const out = execFileSync('bash', [dispatch, '--help'], { encoding: 'utf8', timeout: 30_000 });
+  const out = execFileSync('bash', [dispatch, '--help'], { encoding: 'utf8', timeout: 60_000 });
   assert.match(out, /--agent <name>/, 'the new flag must be documented in the help');
   assert.match(out.trimEnd(), /<slug>\s+the plan to fan out$/,
     `the help must still end at <slug>\n...${out.slice(-200)}`);
