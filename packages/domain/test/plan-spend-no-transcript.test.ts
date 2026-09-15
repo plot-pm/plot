@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import { sliceSpendFile } from '../src/adapters/slice-spend/slice-spend-file.js';
 import { encodeSliceSpend } from '../src/entities/slice-spend.js';
-import { answered, type PortResult } from '../src/port-result.js';
+import { answered, failed, type PortResult } from '../src/port-result.js';
 import type { SliceSpendRecord } from '../src/ports/slice-spend.js';
 import type { TranscriptLine } from '../src/rules/slice-tokens.js';
 import { readPlanSpend, readSliceSpend } from '../src/workflows/slice-spend.js';
@@ -142,6 +142,25 @@ describe('the rollup opens no transcript', () => {
     await expect(readPlanSpend(trapRecord([]), ['feature/a'])).resolves.toMatchObject({
       tokens: null,
     });
+  });
+
+  it('reports every slice UNREADABLE when the port itself fails', async () => {
+    // READ THE EXIT CODE, NOT THE EMPTINESS, through the workflow rather than
+    // only through the rule. `lines()` answering `failed` must become
+    // `unreadable`, where a missing file answers `answered([])` and becomes
+    // `absent` — the two facts this plan exists to keep apart. A test of
+    // `planSpend(null, …)` alone proves the rule handles null and not that the
+    // workflow can produce one.
+    const broken: SliceSpendRecord = {
+      ...trapRecord([]),
+      lines: async (): Promise<PortResult<readonly string[]>> => failed(),
+    };
+
+    const actual = await readPlanSpend(broken, ['feature/a', 'feature/b']);
+
+    expect(actual.tokens).toBeNull();
+    expect(actual.unreadable).toBe(2);
+    expect(actual.absent).toBe(0);
   });
 
   it('reads the record ONCE, not once per slice', async () => {
