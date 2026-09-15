@@ -140,7 +140,7 @@ to have misbehaved.
 
 ### The board loop reads the same ceiling (Branch: bug/the-board-loop-reads-the-same-ceiling)
 
-- `bug/the-board-loop-reads-the-same-ceiling` — export `ceilingFor` from `rules/fleet-size.ts` and bound the auto-dispatch budget by it, leaving every threshold, the `clear` path and the supervisor untouched
+- `bug/the-board-loop-reads-the-same-ceiling` — export `ceilingFor` from `rules/fleet-size.ts` and bound the auto-dispatch budget by it, leaving every threshold, the `clear` path and the supervisor untouched → #920
 
 **Done when** `ceilingFor` is exported and the auto-dispatch budget is
 `min(parallelAgents - (liveCount + inFlight.size), ceilingFor(headroom))`, pinned
