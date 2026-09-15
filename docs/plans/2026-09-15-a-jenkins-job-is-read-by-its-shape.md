@@ -192,7 +192,7 @@ deliberately not `failed`, which claims the host did not answer.
 
 ## Slices
 
-### A Jenkins job is read by its shape (Branch: bug/a-jenkins-job-is-read-by-its-shape)
+### A Jenkins job is read by its shape (Branch: bug/a-jenkins-job-is-read-by-its-shape, PR: #917)
 
 - `bug/a-jenkins-job-is-read-by-its-shape` — read the job's `_class` from the listing Plot already performs, and resolve a plain `WorkflowJob` through `jen job view` instead of `job list`, keeping the multibranch path byte-identical
 
