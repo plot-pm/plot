@@ -159,7 +159,7 @@ territory, delivered today, and setup asks about the job it is given.
 
 ## Slices
 
-### Setup proves the Jenkins job answers (Branch: bug/setup-proves-the-jenkins-job-answers)
+### Setup proves the Jenkins job answers (Branch: bug/setup-proves-the-jenkins-job-answers, PR: #921)
 
 - `bug/setup-proves-the-jenkins-job-answers` — have `/plot-board-setup` resolve branch jobs from the declared instance value and report what came back, instead of reporting green on reachability alone
 
