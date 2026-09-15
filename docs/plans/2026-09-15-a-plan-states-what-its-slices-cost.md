@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Approved:** 2026-09-15, jwloka, in-session
 
 ## Changelog
 
@@ -37,7 +39,41 @@ lens): a rollup over machine-local records is **structurally unsound**, because
 *"absences from other machines, reaped desks and SIGKILLed workers are each
 honest, and the sum over them is not."*
 
-**That objection stands, and the shipped vocabulary answers it.**
+**The objection stands, and a three-way state does NOT answer it.** Reporting a
+count beside a partial sum makes the number **legible**, not **sound**, and those
+differ. An earlier draft of this plan treated them as the same thing.
+
+**Measured 2026-09-15, the absences are severely biased:**
+
+```
+desk dirs:  live = 4   reaped = 64
+REAPED share of output tokens : 92.12%
+REAPED share of cache-read    : 91.94%
+```
+
+**A desk is reaped when its work LANDS**, so the absences correlate with
+**success**. A reader shown *"3 of 5 measured"* reasonably assumes the missing
+two resemble the three; on this estate they would be nine tenths of the total.
+
+**What makes the rollup sound is that the gap is a COLD START rather than a
+property.** `slice-spend-file.ts:63` resolves the record through
+`--git-common-dir`, so **a record survives its desk's reap** — the 64 reaped
+desks above predate the record's existence. **The rollup is complete going
+forward and empty backward**, and that is the sentence a reader needs.
+
+**One absence stays permanent and must be disclosed.** `seal_declaration` runs
+only after `run_bounded` returns 0, so a worker killed by the `Worker bound`
+never reaches the write site — **the most expensive runs record nothing.** The
+shipped code instructs its successor in exactly these terms
+(`slice-spend.ts:53-61`, `plot-worker-loop.sh:1074-1079`):
+
+> *"a rollup over these records is therefore biased LOW in a direction nobody can
+> see from the records alone, and a reader must be told so."*
+
+**This plan carries that instruction into its gates rather than restating it in
+prose.**
+
+**The three-way state is what makes the disclosure possible.**
 `SpendReadState` (`rules/slice-spend-record.ts:19`) is already three-way:
 
 ```ts
@@ -95,6 +131,13 @@ at `seal_declaration` and this never appends.
 
 **It does not gate anything.** No delivery, release or dispatch consults a cost.
 
+**It does not render.** Nothing reads a per-plan cost today, and the per-slice
+read already ships with no consumer. **The render is a follow-up plan** —
+`a-plan-shows-what-it-cost`, needing one optional `CardSchema` field and one
+component. Naming it is the point: this is the first half of a two-slice
+sequence rather than a reading with no reader, and `CardSchema` takes optional
+fields routinely, so the destination is unbuilt rather than absent.
+
 ## Slices
 
 ### A plan states what its slices cost (Branch: feature/a-plan-states-what-its-slices-cost)
@@ -126,6 +169,18 @@ its own, so nothing mechanical could have caught it.**
 **Deliberately drafted after its dependency landed**, which the sprint note
 called for: *"trivial once a-slice-says-what-it-spent records a number and
 worthless before"*. The inputs are now facts on main rather than intentions.
+
+**Amended 2026-09-15 after a three-lens panel**
+(`.plot/panels/2026-09-15-a-plan-states-what-its-slices-cost/panel.md`),
+unanimous `amend`. **The premise held** — the second plan this week whose
+citations reproduced. The panel found the bias measurement above, the cold-start
+distinction that answers it, and a gate resting on a test that does not exist.
+
+**A defect in the DELIVERED slice, to be filed separately:**
+`a-slice-says-what-it-spent` demanded *"a test that fails if a refresh path opens
+a `.jsonl`"*, its docstring asserts that test exists, and it does not. It was
+merged as #918 and delivered today. **The gate self-certified** — prose claiming
+a gate reads exactly like a gate, and CI was green because nothing checked.
 
 **The panel's objection is answered rather than dismissed.** `locality` was right
 that a sum over machine-local records is unsound; what makes it sound is refusing
