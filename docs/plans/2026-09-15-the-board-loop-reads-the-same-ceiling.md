@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-15, jwloka, in-session
 - **Started:** 2026-09-15, jwloka, `bug/the-board-loop-reads-the-same-ceiling`
+- **Delivered:** 2026-09-15
 
 ## Changelog
 
