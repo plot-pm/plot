@@ -1,9 +1,10 @@
 ---
 title: Setup asks what the repo already knows
 author: jwloka
-status: active
+status: done
 created: 2026-08-26
-updated: 2026-09-08
+updated: 2026-09-15
+archived: 2026-09-15
 ---
 
 # Setup asks what the repo already knows

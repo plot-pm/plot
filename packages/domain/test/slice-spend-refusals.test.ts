@@ -111,6 +111,60 @@ describe('readSliceSpend', () => {
     expect(actual.state).toBe('measured');
     expect(actual.latest?.turns).toBe(1);
   });
+
+  // THE GATE THE DOCSTRING PROMISED, BUILT 2026-09-15.
+  //
+  // `readSliceSpend`'s docstring says "a test pins that this path opens no
+  // transcript" and no such test existed — measured across all four spend test
+  // files, zero hits. The claim shipped in #918 and read exactly like a gate,
+  // which is why it survived a panel, a review and a green CI.
+  //
+  // It is not a hypothetical. ONE port carries both reads: `sessions()` opens
+  // the desk's transcripts and `lines()` opens the record, so this function can
+  // reach a `.jsonl` with no signature change and no reviewer noticing. The
+  // board re-deriving per refresh would pass every correctness test above and
+  // reintroduce the cost the record exists to remove — 90-250 ms per slice
+  // against a 5 s pulse.
+  //
+  // So the stub COUNTS rather than asserting a returned value: a read that
+  // happens and is discarded still costs what the record was written to avoid.
+  it('opens no transcript — the read never reaches sessions()', async () => {
+    let sessionsCalls = 0;
+
+    const actual = await readSliceSpend(
+      stubRecord({
+        sessions: async () => {
+          sessionsCalls += 1;
+          return answered([]);
+        },
+        lines: async () => answered([encodeSliceSpend(aRecord())]),
+      }),
+      'feature/a',
+    );
+
+    expect(sessionsCalls).toBe(0);
+    expect(actual.state).toBe('measured');
+  });
+
+  // The same gate on the path that has nothing to read: an absent record must
+  // not become a reason to fall back to the transcripts.
+  it('opens no transcript even when the record is absent', async () => {
+    let sessionsCalls = 0;
+
+    const actual = await readSliceSpend(
+      stubRecord({
+        sessions: async () => {
+          sessionsCalls += 1;
+          return answered([[turn('feature/a', 10)]]);
+        },
+        lines: async () => answered([]),
+      }),
+      'feature/a',
+    );
+
+    expect(sessionsCalls).toBe(0);
+    expect(actual.state).toBe('absent');
+  });
 });
 
 describe('the lines a sum declines to count', () => {
