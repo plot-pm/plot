@@ -59,7 +59,7 @@ attributed to an undifferentiated worker answers a less useful question.
 
 ### Should Have
 
-- [x] **A plan states what its slices cost** — the per-plan rollup over the recorded counters. **Deliberately unplanned**: it is trivial once [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) records a number and worthless before, so it is drafted after that lands rather than against an intended shape. Reporting is worth less than capture and depends on it, so it is a Should rather than a Must.
+- [ ] **A plan states what its slices cost** — the per-plan rollup over the recorded counters. **Deliberately unplanned**: it is trivial once [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) records a number and worthless before, so it is drafted after that lands rather than against an intended shape. Reporting is worth less than capture and depends on it, so it is a Should rather than a Must. **Still unbuilt — the box was ticked in error on 2026-09-15.** `a-slice-says-what-it-spent` shipped `workflows/slice-spend.ts`, its bundle and the loop write site; no per-plan sum exists on main. The item names no plan, so nothing mechanical scores it.
 
 ### Could Have
 
