@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Approved:** 2026-09-15, jwloka, in-session
 
 ## Changelog
 
@@ -32,7 +34,7 @@ Measured 2026-09-15:
 
 **The supervisor asks how big the fleet should be and subtracts reality**
 (`fleet-size.ts:130`); the board asks whether one more fork is affordable and
-subtracts only its own in-flight marks (`auto-dispatch.ts:479`,
+subtracts only its own in-flight marks (`auto-dispatch.ts:478`,
 `budget = controls.parallelAgents - (liveCount + inFlight.size)`).
 
 **So the board makes twelve dispatch decisions per minute against the
@@ -62,13 +64,51 @@ rejected because **`clear` was observed zero times in 102 readings** (lowest
 41.0 ms against a 10 ms threshold), so the reset never fired and the board would
 have stopped permanently.
 
-**A ceiling has no such failure mode.** It is a pure function of one reading,
-holds no state, needs no reset, and cannot latch. `starved` still permits **one**
+**A ceiling has no such failure mode, and "pure function" is not why.** A pure
+function can still pin a system if the quantity it bounds is a **level**. What
+saves this one is that **the bounded quantity is a difference**: the budget is
+`parallelAgents - (liveCount + inFlight.size)`, a shortfall that shrinks to zero
+on its own as agents come up. The rejected sibling gated on a **reset event** that
+never occurred; this gates on a shortfall that closes itself, so there is no
+reset condition to fail to fire.
+
+**Measured on this estate**, where the board is effectively always `tight` — the
+lowest of 102 readings was 41.0 ms against a 10 ms `clear` threshold: a ceiling
+of 2 per 5-second pulse is a **ramp rate of 24 agents/minute**. The fleet reaches
+`parallelAgents = 3` in **two pulses** and 6 in three. **No plausible cap makes
+it binding.** The latch pinned a board at *stopped*; this converges to the cap in
+under fifteen seconds.
+
+It holds no state, needs no reset, and cannot latch. `starved` still permits **one**
 — deliberately, `fleet-size.ts:78-82`: *"A starved machine that starts nothing is
 a fleet that can never recover on its own."*
 
 **And it is the same answer the supervisor already gives**, so the two callers
 stop disagreeing about one reading rather than gaining a second rule.
+
+### The board cannot call `fleetSize`, and that is why the export is the honest route
+
+`fleetSize` takes `FleetSizeReadings {requested, running, spawnCostMs, headroom}`.
+**The board holds neither `requested` nor `running` in the shape that rule
+means** — it holds a slot budget already net of `liveCount` and its own in-flight
+marks. A board calling `fleetSize` would have to invent two of its four inputs.
+
+**So `ceilingFor` is not a private helper being promoted for convenience.** It
+reads only `headroom` and answers only a ceiling — a rule in its own right,
+private by history rather than by design, gaining its first legitimate second
+caller.
+
+### `starved` never reaches this caller, and the plan must not pretend otherwise
+
+**The board already dispatches zero on `starved`, before the budget line runs.**
+`machineDefers` (`auto-dispatch.ts:411-419`) returns a deferral when
+`dispatchDefers(machine)` — `headroom === 'starved'` (`machine.ts:115`) — and the
+loop returns at `:476`, while the budget is computed at `:478`.
+
+**So `STARVED_CEILING = 1` is unreachable from the board**, except under
+`controls.machineOverride`, which is the operator saying *now anyway*. This plan
+therefore changes nothing about `starved` and pins that it changed nothing,
+rather than pinning a ceiling the caller cannot reach.
 
 ### What this does not do
 
@@ -125,6 +165,15 @@ its existing `fleet-size` tests still passing unmodified; and
 rejected 2026-09-15 after a three-lens panel. That plan named the right caller
 and the wrong mechanism: its premise counted log lines as dispatches, and its
 ratchet's reset condition was never observed on the estate it was written from.
+
+**Amended 2026-09-15 after a three-lens panel**
+(`.plot/panels/2026-09-15-the-board-loop-reads-the-same-ceiling/panel.md`),
+unanimous `amend`. **The premise survived** — the first plan on this subject
+whose central reading no juror could falsify. The panel found one gate the code
+cannot satisfy (`starved` never reaches this caller), a citation off by one line,
+and that the plan's best argument was stated weakly: what prevents a latch is
+that the bounded quantity is a difference rather than a level, measured at a ramp
+of 24 agents/minute.
 
 **The panel's `callers` lens produced this plan's whole argument** and reached
 it while dissenting from its two peers — it was the only lens that asked what the
