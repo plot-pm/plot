@@ -10,14 +10,15 @@
 - **Story:** plot-agent-identity
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
 - A slice can name the agent kind it needs, and a dispatch selects that charter automatically. Until now the kind was an operator's `--agent` flag, so an unattended fleet ran every slice as the same undifferentiated worker.
 
-<!-- Board impact: the plan format gains a per-slice field, so the parser and
-     everything reading its output is affected. `plot-plan-meta.sh` is the
-     contract; the board consumes its JSON. -->
+<!-- Board impact: the plan format gains a per-branch annotation, parsed
+     alongside `waits:` and `builds:`. `plot-plan-meta.sh` is the contract; the
+     board consumes its JSON and ignores a key it does not read. -->
 
 ## Design
 
@@ -32,7 +33,7 @@ a queued slice to a free agent with no `--agent` in sight, which is exactly the
 half of the story that was never started: *"a slice says what kind of agent it
 needs, and the fleet's capacity stops being one undifferentiated number."*
 
-### The field is per-slice, and the plan format leaves one place for it
+### The field is a per-branch annotation, and two already exist
 
 **Every `## Status` field is plan-level.** Measured against
 `.plot/templates/plan.md`: `State`, `Type`, `Sprint`, `Issue`, `Story`,
@@ -40,20 +41,35 @@ needs, and the fleet's capacity stops being one undifferentiated number."*
 only ever declare one kind for a plan with several slices, which is the
 population this exists for: a reviewer slice beside an implementer slice.
 
-**The only per-slice annotation is the wave heading**, and it already carries
-two fields:
+**So it is per-branch, and the shape is already settled by precedent.** Two
+optional per-branch annotations exist today, both HTML comments on the branch
+list item:
 
 ```
-### A charter reaches the agent it declares (Branch: feature/x, PR: #910)
+- `feature/x` — description <!-- waits: bug/other -->
+- `feature/y` — description <!-- builds: normalizeVersion, a shared helper -->
 ```
 
-So the kind joins them — `(Branch: feature/x, Agent: reviewer, PR: #910)` — and
-the parser gains a third optional field. That keeps the slice's facts in one
-place rather than splitting them across two sections.
+The parser reports them as `waves[].branches[].waits_on` and `.builds`, and the
+key is **ABSENT where no annotation was written — never `""`**. `agent:` joins
+them as a third:
 
-**Order is not significant and must not become so.** `Branch:` and `PR:` are
-already read by name rather than by position, and a third field read positionally
-would break every plan that omits `PR:` before it is opened.
+```
+- `feature/x` — description <!-- agent: reviewer -->
+```
+
+**The wave heading was the first draft and is rejected, by measurement.**
+`plot-plan-meta.sh:886` decides a heading's shape with
+`index($0, "(Branch:")` — the literal `(Branch:` must open the parenthesis. A
+heading written `(Agent: reviewer, Branch: feature/x)` parses to **zero
+branches**, *and* the wave name becomes the entire heading text,
+`'N (Agent: reviewer, Branch: feature/x)'`, which the board renders as a prose
+slice name. Both failures are silent.
+
+Requiring `Branch:` first would work and would make the plan format depend on
+field order in one place and not others. The annotation avoids the question
+entirely: **it touches no existing parse path**, so the 280-plan regression risk
+drops to whatever a new, independently-matched comment introduces.
 
 ### The parser is the contract, and four scripts read it
 
@@ -62,11 +78,16 @@ plan-format contract". Its `waves[].branches[]` output is consumed by
 `plot-approve.sh`, `plot-deliver.sh`, `plot-fleet-scan.sh` and
 `plot-boardctl.sh`, and by the board through the scan's JSON.
 
-**A new optional field must not move any existing reader.** An absent `Agent:`
-parses to an empty string, every plan on the estate parses byte-identically to
-today, and no consumer that ignores the field changes behaviour. That is the
-property to test first, across all 275 plans, because the parser is `awk` and a
-widened pattern is exactly where a silent mis-parse hides.
+**A new optional annotation must not move any existing reader.** The key is
+absent where unwritten — the contract `waits_on` and `builds` already state —
+every plan on the estate parses byte-identically to today, and no consumer that
+ignores the field changes behaviour. That is the property to test first, across
+all 280 plans, because the parser is `awk` and a new pattern is exactly where a
+silent mis-parse hides.
+
+**And the risk is smaller than the heading draft's**, which is the point of the
+change: an annotation is matched on its own, so nothing that reads a heading, a
+branch name or a PR number is touched at all.
 
 ### Dispatch prefers the flag, and the plan is the default
 
@@ -103,11 +124,13 @@ inventing a role this estate has not asked for.
 
 ### A slice names the agent it needs (Branch: feature/a-slice-names-the-agent-it-needs)
 
-- `feature/a-slice-names-the-agent-it-needs` — parse an optional `Agent:` field in the wave heading in `plot-plan-meta.sh` and emit it per branch; have `plot-dispatch.sh` read it when `--agent` is absent; report a named-but-missing charter without refusing; document the field in both plan templates
+- `feature/a-slice-names-the-agent-it-needs` — parse an optional `<!-- agent: <name> -->` annotation on a branch line in `plot-plan-meta.sh`, emitted as `waves[].branches[].agent` and absent where unwritten; have `plot-dispatch.sh` read it when `--agent` is absent; report a named-but-missing charter without refusing; document it beside `waits:` and `builds:` in both plan templates
 
-**Done when** a wave heading carrying `Agent: reviewer` parses to that value per
-branch; all 275 existing plans parse **byte-identically** to today, checked by
-diffing the parser's full output before and after; a dispatch of a slice naming
+**Done when** a branch line carrying `<!-- agent: reviewer -->` parses to that
+value on that branch and the key is **absent** on a branch without one; all 280
+existing plans parse **byte-identically** to today, checked by diffing the
+parser's full output before and after; no wave heading is read differently than
+it is today, since no heading shape changes; a dispatch of a slice naming
 `reviewer` selects that charter without `--agent`; `--agent` on the command line
 overrides the field; a slice naming no agent produces a launch byte-identical to
 today; a slice naming a charter that does not exist dispatches anyway and names
