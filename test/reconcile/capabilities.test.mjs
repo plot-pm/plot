@@ -252,9 +252,30 @@ const argv = (capabilities) => {
     };
     // A dispatched worker runs this suite, so its OWN variables are in the
     // environment; deleting them is what makes the absent cases observable.
+    //
+    // THE LAUNCH THREE JOIN THE LIST BECAUSE THE TEMPLATE NOW READS THEM.
+    // Until `a-charter-reaches-the-agent-it-declares` the invocation was a
+    // literal `claude`, so a leaked `PLOT_HARNESS` changed nothing here and the
+    // list was complete without it. The template now runs `"$harness"`, and a
+    // worker dispatched under a charter exports the name of its own harness —
+    // measured 2026-09-14, this file's six argv tests failed `status: 127`,
+    // `some-other-harness: command not found`, against a template that was
+    // correct. The shim is what the assertions read, so a harness that is not
+    // the shim makes every one of them unreadable.
     delete env.PLOT_SESSION_ID;
     delete env.PLOT_SESSION_FLAG;
     delete env.PLOT_CAPABILITIES;
+    delete env.PLOT_HARNESS;
+    delete env.PLOT_MODEL;
+    delete env.PLOT_EFFORT;
+    // AND THE PROBE, WHICH FAILS THE OTHER WAY. A leaked harness is a missing
+    // command and says so — `127`, `some-other-harness: command not found`.
+    // `PLOT_PRINT_INVOCATION` makes the template print its argv and exit 0
+    // BEFORE the invocation, so the shim never runs, the file it would have
+    // written is never created, and all six argv assertions fail as `ENOENT` on
+    // a temp path that names neither the variable nor the cause. Measured
+    // 2026-09-14 in a worktree where an operator had exported it by hand.
+    delete env.PLOT_PRINT_INVOCATION;
     if (capabilities !== null) env.PLOT_CAPABILITIES = capabilities;
     const err = path.join(dir, 'err');
     execFileSync('bash', ['-c', `set -uo pipefail; . "$1" 2>${JSON.stringify(err)}`, '_', template],

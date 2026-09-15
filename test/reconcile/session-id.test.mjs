@@ -86,6 +86,22 @@ const argv = (sh, session, flag = undefined) => {
     // absent cases observable at all.
     delete env.PLOT_SESSION_ID;
     delete env.PLOT_SESSION_FLAG;
+    // AND THE LAUNCH FOUR, WHICH REACH THIS FILE ONLY SINCE
+    // `a-charter-reaches-the-agent-it-declares`. The invocation was a literal
+    // `claude` before that slice, so none of these changed anything here and
+    // the two deletions above were the whole list.
+    //
+    // THEY FAIL IN TWO DIFFERENT WAYS AND NEITHER NAMES ITS CAUSE. A leaked
+    // PLOT_HARNESS is a missing command — `127`, `some-other-harness: command
+    // not found`. PLOT_PRINT_INVOCATION makes the prompt file print its argv
+    // and exit 0 BEFORE the invocation, so the shim never runs, the file it
+    // would have written is never created, and every assertion below fails as
+    // `ENOENT` on a temp path. Measured 2026-09-14: 14 of this file's tests,
+    // in a worktree where an operator had exported the probe by hand.
+    delete env.PLOT_HARNESS;
+    delete env.PLOT_MODEL;
+    delete env.PLOT_EFFORT;
+    delete env.PLOT_PRINT_INVOCATION;
     if (session !== null) env.PLOT_SESSION_ID = session;
     if (flag !== undefined) env.PLOT_SESSION_FLAG = flag;
     execFileSync(sh, ['-c', 'set -uo pipefail; . "$1"', '_', promptFile],

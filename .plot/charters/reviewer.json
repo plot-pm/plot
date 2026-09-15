@@ -1,0 +1,7 @@
+{
+  "name": "reviewer",
+  "prompt": ".plot/worker-prompt.sh",
+  "model": "opus",
+  "effort": "high",
+  "capabilities": ["read-only"]
+}

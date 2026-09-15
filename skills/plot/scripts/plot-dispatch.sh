@@ -56,6 +56,16 @@
 #               tradition of --allow-local: a gate with no exit is one people
 #               route around by never annotating at all. It says so on the
 #               line it overrides, so the override is on the record.
+#   --agent <name>  dispatch this run's agents under the charter
+#               `.plot/charters/<name>.json`. It SETS `PLOT_AGENT`, which was
+#               the input all along and which nothing chose: the charter
+#               mechanism shipped in v2.17.0 with 16 readers for `harness` and
+#               no selector at all, so a kind could be declared and never
+#               asked for. The choice is EXPLICIT and never inferred — a
+#               matcher reading a plan could guess a kind, and a guess that is
+#               usually right produces a fleet whose wrong answers cannot be
+#               explained. An already-exported PLOT_AGENT is overridden, since
+#               a flag on this run is the more specific answer.
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
@@ -230,6 +240,7 @@ allow_waiting=0
 max=0
 slug=""
 migrate_yes=0
+agent=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)  dry_run=1 ;;
@@ -270,16 +281,54 @@ while [ $# -gt 0 ]; do
     --offline|--no-fetch) offline="--offline" ;;
     --allow-local) allow_local=1 ;;
     --allow-waiting) allow_waiting=1 ;;
+    # THE VALUE IS REQUIRED AND ALWAYS CONSUMED, which is the opposite of the
+    # rule `--stop`, `--restart` and `--start` follow — and the difference is
+    # the value's SHAPE rather than a change of mind. Those three take a branch
+    # (`*/*`) or a count (digits), each recognisable on sight, so an absent one
+    # can be left for the parser. An agent name is a bare word and so is a plan
+    # slug: nothing tells `--agent reviewer` from `--agent` followed by the
+    # slug. Leaving it unconsumed would let the `*)` arm below silently take
+    # the agent name as the plan to dispatch, which reads as "no such plan" and
+    # names neither what was asked nor what went wrong. So a missing value
+    # REFUSES rather than guessing.
+    --agent)    agent="${2:?--agent needs a charter name, e.g. --agent reviewer}"
+                case "$agent" in
+                  -*) echo "plot-dispatch: --agent needs a charter name, got '$agent'" >&2; exit 1 ;;
+                esac
+                shift ;;
     --max)      max="${2:?--max needs a value}"
                 case "$max" in
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,59p' "$0"; exit 0 ;;
+    # THE RANGE MOVED WITH THE HEADER IT PRINTS. It ended at `<slug>` and still
+    # does; adding `--agent` above pushed that line from 59 to 69. Two records
+    # of one fact, and nothing compares them — a stale number here silently
+    # truncates the help rather than failing, so it is checked by a test.
+    -h|--help)  sed -n '2,69p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
 done
+
+# `--agent` SETS THE INPUT THAT ALREADY EXISTED, and it sets it in ONE place.
+#
+# `PLOT_AGENT` was read in three places before this flag — `resolve_launch`'s
+# call in `start_worker`, the `--capabilities` block, and the forwarded export
+# into the worker's environment — and assigned in none: `plot-dispatch.sh` held
+# `PLOT_AGENT="${PLOT_AGENT:-}"`, a pass-through of whatever the operator had
+# already exported. So the selector existed as a variable nothing chose.
+#
+# ONE ASSIGNMENT RATHER THAN A THREADED ARGUMENT. Every reader already asks
+# `${PLOT_AGENT:-}`; exporting here reaches all three with no further change and
+# leaves no call site that could be missed when a fourth reader is added. The
+# flag's whole meaning is "set PLOT_AGENT", which is also what keeps it from
+# becoming a second selector competing with the variable.
+#
+# THE FLAG WINS OVER AN INHERITED VALUE. A dispatched worker runs with its own
+# `PLOT_AGENT` in the environment, so a run launched from inside one would
+# otherwise inherit a kind nobody asked for on this dispatch.
+[ -n "$agent" ] && export PLOT_AGENT="$agent"
 
 # THE TWO PRECONDITIONS OF A DISPATCH, and a sourcing test has neither.
 # `PLOT_DISPATCH_SOURCED=1` is taking the definitions below rather than running
