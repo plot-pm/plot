@@ -150,6 +150,16 @@
 #                  BECAUSE annotations already work in both slice dialects from
 #                  one block of code — a field line would need two spellings,
 #                  and the template writes the list dialect.
+#                  `<!-- agent: reviewer -->` names which KIND of agent this
+#                  slice needs, reported as `waves[].branches[].agent` and read
+#                  by plot-dispatch.sh where `--agent` is absent. OPTIONAL, and
+#                  the key is ABSENT where none was written, never "" — dispatch
+#                  reads presence, so a blank would send it looking for a charter
+#                  called "". The value runs to the closing marker, as `builds:`
+#                  does. It CANNOT validate its value the way `waits:` does: a
+#                  charter name is a bare word with no structure to check, so a
+#                  template documents the marker inside an outer comment block,
+#                  where this pattern cannot see it.
 #   prs            PR numbers, sorted and unique, read from EITHER spelling:
 #                  `→ #NNN` / `→ owner/repo#NNN` links in the `## Branches`
 #                  section, OR `PR: #NNN` in a `## Waves` `### ` heading. The
@@ -424,6 +434,7 @@ function reset_state() {
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; n_waves = 0
   delete waits_of; delete waits_set
   delete builds_of; delete builds_set
+  delete agent_of; delete agent_set
   delete started; n_started = 0
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
@@ -584,6 +595,13 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       # names no deliverable emits no key, so a consumer reads a name or
       # nothing. An empty string would read as a deliverable called "".
       if (builds_set[i] == 1) out = out ",\"builds\":\"" jesc(builds_of[i]) "\""
+      # ABSENT, NOT EMPTY, the rule the three annotations above already keep.
+      # Dispatch reads the PRESENCE of this key to decide whether the plan names
+      # a kind at all, so an `"agent":""` would read as a charter called "" and
+      # send it looking for `.plot/charters/.json`.
+      # NOTE: no apostrophe may appear in this awk region — the whole program is
+      # one single-quoted shell string, and one closes it mid-comment.
+      if (agent_set[i] == 1) out = out ",\"agent\":\"" jesc(agent_of[i]) "\""
       out = out "}"
       first = 0
     }
@@ -1012,6 +1030,44 @@ section == "slices" && slice_shape != "heading" {
     if (waits_note ~ "^(" PREFIXES ")/[^ \t]+$") has_waits = 1
     else waits_note = ""
   }
+  # WHICH KIND OF AGENT THIS SLICE NEEDS: `<!-- agent: reviewer -->`.
+  #
+  # `--agent <name>` was the only selector and only an operator could type it.
+  # `plot-registryd` hands a queued slice to a free agent with no `--agent`
+  # anywhere in the path, so an unattended fleet ran every slice as the same
+  # undifferentiated worker. The declaration has to live in the PLAN to reach a
+  # dispatch nobody is watching.
+  #
+  # PER-BRANCH, NEVER A `## Status` FIELD. Every Status field is plan-level, so
+  # one there could declare a single kind for a plan with several slices — and a
+  # reviewer slice beside an implementer slice is the population this is for.
+  #
+  # The value runs to the closing marker, the way `builds:` does and unlike
+  # `waits:`. A charter name is a bare word today, so both rules agree; this one
+  # is chosen because it does not silently truncate if a name grows a space.
+  #
+  # IT CANNOT VALIDATE ITS VALUE, and that is the difference from `waits:` above.
+  # A prerequisite has branch-prefix structure, which is what keeps a SYNTAX
+  # EXAMPLE in prose from reading as a declaration; a charter name is a bare word
+  # with no structure to check. What protects the templates instead is NESTING:
+  # their documentation sits inside an outer `<!-- ... -->` block, so the inner
+  # `agent:` carries no `<!--` of its own and this pattern never matches it —
+  # the same accident of shape that already keeps `builds:` out of the parse of
+  # a template. Documenting it as a bare `<!-- agent: reviewer -->` line would
+  # hand a kind to every plan created from that template. A test pins it.
+  #
+  # `has_agent` carries presence separately from the value, as all three
+  # annotations before it do: a slice naming no kind emits no key, so dispatch
+  # reads a name or nothing and never a blank string that looks like one.
+  agent_note = ""
+  has_agent = 0
+  if ($0 ~ /<!--[ \t]*agent:[ \t]*/) {
+    _ag = $0
+    sub(/^.*<!--[ \t]*agent:[ \t]*/, "", _ag)
+    sub(/[ \t]*-->.*$/, "", _ag)
+    agent_note = trim(_ag)
+    if (agent_note != "") has_agent = 1
+  }
   # ONE LIST ITEM, AT MOST ONE CLAIM — an `if`, not the `while` this was.
   #
   # The old loop walked the line taking every backticked name on it, which is
@@ -1051,6 +1107,10 @@ section == "slices" && slice_shape != "heading" {
     waits_set[n_branches] = has_waits
     builds_of[n_branches] = builds_note
     builds_set[n_branches] = has_builds
+    # The kind travels with the branch, presence tracked separately so a slice
+    # declaring none emits no key.
+    agent_of[n_branches] = agent_note
+    agent_set[n_branches] = has_agent
     ordered_b[n_branches] = b
   }
   line = $0
@@ -1188,6 +1248,19 @@ section == "slices" && slice_shape == "heading" {
     if (waits_note ~ "^(" PREFIXES ")/[^ \t]+$") has_waits = 1
     else waits_note = ""
   }
+  # The agent kind, read exactly as the list-item spelling reads it. Both
+  # dialects emit the same waves[], so a field added to one only would break that
+  # contract the first time a plan migrated. See the list-item block for why the
+  # value runs to the closing marker and why this one cannot validate itself.
+  agent_note = ""
+  has_agent = 0
+  if ($0 ~ /<!--[ \t]*agent:[ \t]*/) {
+    _ag = $0
+    sub(/^.*<!--[ \t]*agent:[ \t]*/, "", _ag)
+    sub(/[ \t]*-->.*$/, "", _ag)
+    agent_note = trim(_ag)
+    if (agent_note != "") has_agent = 1
+  }
 
   # The branch is the `Branch:` value, matched against the known prefixes exactly
   # as the old shape matched the backticked name. Written unquoted in the heading
@@ -1211,6 +1284,8 @@ section == "slices" && slice_shape == "heading" {
     waits_set[n_branches] = has_waits
     builds_of[n_branches] = builds_note
     builds_set[n_branches] = has_builds
+    agent_of[n_branches] = agent_note
+    agent_set[n_branches] = has_agent
     ordered_b[n_branches] = b
   }
 
