@@ -127,7 +127,7 @@ defect `CLAUDE.md` names, with its own plan.
 
 ## Slices
 
-### The skills say Slices (Branch: docs/the-skills-say-slices)
+### The skills say Slices (Branch: docs/the-skills-say-slices, PR: #923)
 
 - `docs/the-skills-say-slices` — replace `## Branches` with `## Slices` across the nine skills that teach it, and say once where a reader can learn why a Slice is not a Wave
 
