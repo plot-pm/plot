@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 4
+- **Rounds:** 5
+- **Approved:** 2026-09-15, jwloka, in-session
 
 ## Changelog
 
@@ -78,9 +79,11 @@ a colleague's checkout would be silently zero.
 So the sum is computed **when the worker finishes**, on the machine that has the
 transcript.
 
-**IT IS WRITTEN MACHINE-LOCAL, UNDER `.plot/state/`, AND THE PLAN SAYS SO
-PLAINLY.** Settled 2026-09-15 by the operator. `.plot/state/` is git-ignored
-(`.gitignore:35`), so the record is machine-local exactly as the transcript is —
+**IT IS WRITTEN MACHINE-LOCAL, UNDER THE COMMON GIT DIR'S `.plot/state/`, AND
+THE PLAN SAYS SO PLAINLY.** Settled 2026-09-15 by the operator. `.plot/state/`
+is git-ignored (`.gitignore:30` — the root pattern; `:35` is the nested one that
+catches test fixtures), so the record is machine-local exactly as the transcript
+is —
 and **that is a stated limit rather than a solved problem**:
 
 - A colleague's checkout reads **nothing**, not zero. The absence must be
@@ -94,6 +97,18 @@ price of per-run token counts entering the repository's permanent history, for a
 number whose only consumer today does not exist yet. **A reading that is cheap
 to re-take does not earn permanent storage in git.**
 
+**THE PATH IS RESOLVED WITH `--git-common-dir`, NEVER `--show-toplevel`.** Every
+existing writer uses `--show-toplevel` (`plot-state-receipt.sh:68,84,159`;
+`plot-commit-record.sh:128`), and **in a linked worktree that returns the
+WORKTREE.** Measured 2026-09-15: **8 dispatch desks under `.worktrees/`, 0 of
+them holding a `.plot/state/`** — and `plot-reap.sh:624` runs
+`git worktree remove --force`. A record written to the desk is destroyed by the
+reap, on the machine that measured it, **with every gate green.**
+
+`plot-install-commit-record.sh:42-43` already solved this and states the reason:
+it writes to the COMMON git dir *"so every dispatch worktree is covered by one
+install"*. This record inherits that rule rather than re-deriving it.
+
 So this plan writes where the transcript already lives, and **the honesty is the
 deliverable**: a reader who sees nothing must be told the difference between *no
 record here* and *a free run*.
@@ -103,6 +118,22 @@ record here* and *a free run*.
 here. A second's scan added to a shutdown that also pushes and opens a PR is
 affordable; a scan that runs on the ALRM path at the bound is not obviously so,
 and the plan must say which exits it runs on.
+
+**THE BOUND PATH RECORDS NOTHING, AND THAT IS A STATED GAP RATHER THAN AN
+OVERSIGHT.** `seal_declaration` runs on exactly one path — its own comment at
+`:992-997` says so (*"run_bounded returned 0"*), and a worker killed by the
+`Worker bound` or ended by the WorkerMonitor takes `exit 124` at `:1956` and
+never reaches it.
+
+**For a declaration that absence is deliberate and load-bearing. For a spend it
+inverts:** a worker that burned the full 28800 s is the most expensive run there
+is, and it is exactly the run this design records nothing for. **The rollup is
+therefore biased LOW, in a direction nobody can see from the records alone.**
+
+This plan does not fix it — a write on the bound path is a second write site with
+its own failure modes — and it must not be silent about it either. **A reader of
+a rollup is told that bound-killed runs are absent**, which is the same honesty
+the `absent`/`not measured here` vocabulary carries elsewhere.
 
 **It is written once and never updated.** A spend is what a run cost; a second
 run is a second record. That keeps the number a measurement rather than a
@@ -181,6 +212,12 @@ Re-measured on this project: **604 session files, 421 of them `agent-*` subagent
 transcripts, 370 with zero main-session turns.** A caller that cannot name the
 session passes `null` rather than reaching for the newest file.
 
+**The session is named by `$PLOT_SESSION_ID`, never by the newest file.** It is
+exported by the loop and in scope at `seal_declaration`. Measured: one desk
+directory holds **9 session files, 6 of them `agent-*` and THREE non-agent main
+sessions** (262 / 26 / 1 turns) — so "the session" picked by mtime is one of
+three, which is exactly what `spend.ts:48-50` forbids.
+
 **Neither subject is optional.** A record that is silent about either is a number
 nobody can place.
 
@@ -250,6 +287,41 @@ record is what every later reader consults. **The board must never re-derive
 it** — a per-refresh scan of even a 7 KB file is a `.jsonl` opened on a path
 that must not open one.
 
+### This overturns a dated story decision, and says so
+
+**`STORY-plot-plan-economics.md:270`, 2026-08-27:**
+
+> *"Cost is derived, never stored — keeps manifesto Q1 (git is the database) and
+> Q8 (no effort tracking). A stored cost is a record that can be wrong."*
+
+**This plan stores a cost. It overturns that decision deliberately, and the
+reason is a measurement the 2026-08-27 entry did not have.**
+
+**Deriving on demand requires the transcript, and the transcript is machine-local
+and unbacked.** `transcriptDir` resolves under `~/.claude/`, not in the
+repository, so a cost derived on demand can be computed on the machine that ran
+the agent **and nowhere else** — and only until that machine's transcripts are
+cleared. The desk goes first: `plot-reap.sh` removes it, and a derivation that
+needed the desk's session file dies with it.
+
+**So "derived, never stored" does not preserve accuracy here; it preserves
+accuracy on one machine and produces silence everywhere else.** A record that
+can be wrong is a real cost, and the plan answers it the way this estate answers
+it elsewhere: **the record is written once, never updated, and a second run
+writes a second record** — so it is a measurement with a timestamp rather than a
+running total nobody can place.
+
+**The story entry is amended rather than quietly broken**, the way
+`CLAUDE.md`'s own superseded paragraphs are: the decision stands for anything
+derivable from git, and this plan records the one quantity that is not in git at
+all.
+
+**Manifesto Q1 and Q8 are unaffected.** Q1 says git is the database for *plan
+state*; this record is machine-local and explicitly not in git. Q8 forbids effort
+tracking as a management artefact; four token counters with no price table and no
+rollup is a measurement, which is why the story narrowed itself to tokens on
+2026-08-29.
+
 ### What this plan does not do
 
 **No price table, no francs.** The story narrowed itself on 2026-08-29 by
@@ -298,7 +370,11 @@ opens a `.jsonl`; a run with no readable transcript **records nothing and says
 so** rather than recording zero; **a reader on a machine that holds no record is
 told it was not measured here**, never shown a zero; `contextTokens` and
 `contextSpend` are unchanged and the board's panel still renders what it
-rendered before; a second run of the same slice writes a second record rather
+rendered before; **the record path is resolved with `--git-common-dir`**, pinned
+by a test that a record written from a dispatch desk is readable from the main
+checkout and survives that desk's removal; **the session is keyed by
+`$PLOT_SESSION_ID`**, pinned by a fixture directory holding three main sessions
+where the record names the right one; a second run of the same slice writes a second record rather
 than mutating the first; and `pnpm run test:contracts` passes.
 
 ## Notes

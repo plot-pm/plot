@@ -268,6 +268,7 @@ denominator.
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-08-27 | Cost is derived, never stored | Keeps manifesto Q1 (git is the database) and Q8 (no effort tracking). A stored cost is a record that can be wrong. |
+| 2026-09-15 | **Amended:** a token count is recorded, because it is not derivable off-machine | The 2026-08-27 entry assumed the source stays readable. It does not: `transcriptDir` resolves under `~/.claude/`, so a cost derived on demand is computable on the machine that ran the agent and nowhere else — and only until `plot-reap.sh` removes the desk. The decision stands for anything derivable from git; [`a-slice-says-what-it-spent`](../../plans/2026-09-15-a-slice-says-what-it-spent.md) records the one quantity that is not in git at all. Written once, never updated, machine-local and labelled as such. |
 | 2026-08-27 | Value is projection, not estimation | The sprint goal, MoSCoW tier and named approver already exist in git. Any plan that asks a human for a value number has misread this story. |
 | 2026-08-27 | The unit is cost per **approved** plan | Tokens per step are a commodity a step-cost runtime gives away; the denominator is what Plot uniquely has. Requested explicitly by Jan Wloka. |
 | 2026-08-27 | Separate story from [[plot-agent-identity]] | Different question, different failure mode; downstream, not inside. |
