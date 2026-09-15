@@ -59,7 +59,7 @@ attributed to an undifferentiated worker answers a less useful question.
 
 ### Should Have
 
-- [ ] [a-plan-states-what-its-slices-cost](../plans/2026-09-15-a-plan-states-what-its-slices-cost.md) — the per-plan rollup over the recorded counters. **Drafted 2026-09-15**, after its dependency landed, as the item said it would be. A sum over machine-local records is only sound if the absences are named, so it reports the measured sum plus the `absent` and `unreadable` counts and refuses a bare total.
+- [x] [a-plan-states-what-its-slices-cost](../plans/2026-09-15-a-plan-states-what-its-slices-cost.md) — the per-plan rollup over the recorded counters. **Drafted 2026-09-15**, after its dependency landed, as the item said it would be. A sum over machine-local records is only sound if the absences are named, so it reports the measured sum plus the `absent` and `unreadable` counts and refuses a bare total.
 
 ### Could Have
 
