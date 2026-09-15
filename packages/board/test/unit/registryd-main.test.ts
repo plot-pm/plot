@@ -10,6 +10,7 @@ import {
   startAgents,
 } from '../../src/server/entry/registryd-main.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
+import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
 import { answered, failed, unaskable } from '@plot-pm/domain';
 import { TICK_INTERVAL_MS, type TickReport } from '../../src/server/entry/registryd.js';
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/server/supervisor.js';
@@ -363,6 +364,209 @@ describe('where a tick’s report goes', () => {
     // next so a reader does not go looking for one.
     const err: string[] = [];
     reportTick(incomplete('scandir failed'), () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain('next=re-reads');
+  });
+});
+
+describe('what a looping tick prints does not follow what grows', () => {
+  // `registryd.log` reached 69,776,046 bytes in seven days while `board.log`
+  // beside it — same machine, same week, same kind of daemon — is 16,745. Each
+  // test here grows ONE input and asserts the line count does not follow it.
+  // Three inputs, three tests: they are proportional to different things, and a
+  // single "grow the estate" test can never fire on the registry one.
+
+  /** A supervision-only tick, as `tick` builds one. */
+  const base = (): TickReport => ({
+    startedAt: 0,
+    costMs: 250,
+    agents: 1,
+    incomplete: '',
+    handOver: null,
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [],
+      detail: {
+        agents: [],
+        left: ['feature/one'],
+        reaping: [],
+        correcting: [],
+        needingAPerson: [],
+        deferred: [],
+        unclaimed: [],
+      },
+    },
+  });
+
+  /** A tick holding `n` slices under `hold`. */
+  const holding = (n: number, hold: HeldSlice['hold']): TickReport => ({
+    ...base(),
+    handOver: {
+      outcome: 'decided',
+      workflow: 'assign',
+      writes: [],
+      detail: {
+        assignments: [],
+        held: Array.from({ length: n }, (_, i) => ({ branch: `feature/b${i}`, hold })),
+        idle: [],
+        scaling: null,
+      },
+    },
+  });
+
+  /** A tick carrying `n` worktrees nobody dispatched. */
+  const unclaiming = (n: number): TickReport => {
+    const report = base();
+    return {
+      ...report,
+      decision: {
+        ...report.decision,
+        detail: {
+          ...report.decision.detail,
+          unclaimed: Array.from({ length: n }, (_, i) => ({
+            path: `/private/tmp/wt${i}`,
+            branch: '',
+            dirtyCount: 0,
+            disposition: 'remove' as const,
+            command: `git worktree remove /private/tmp/wt${i}`,
+          })),
+        },
+      },
+    };
+  };
+
+  /** What a looping tick wrote, as lines. */
+  const looped = (report: TickReport): string[] => {
+    const out: string[] = [];
+    reportTick(report, (s) => out.push(s), () => {}, true);
+    return out.join('').split('\n').filter((line) => line !== '');
+  };
+
+  it('does not follow the held-branch count, which is the 69 MB', () => {
+    // `not-claimable` is a hold over the WHOLE ESTATE'S BACKLOG — 165 branches
+    // here, re-enumerated 7,333 times. Growing it 20× must not grow the output
+    // at all: the count is on the summary line, where it costs one field.
+    expect(looped(holding(400, 'not-claimable')).length).toBe(
+      looped(holding(20, 'not-claimable')).length,
+    );
+  });
+
+  it('does not follow the undispatched-worktree count, which was 10.26%', () => {
+    // PINNED SEPARATELY, and that is the point. `unclaimedLines` was 38,174
+    // lines and 7,132,536 bytes under a comment claiming the unclaimed trees
+    // "were twelve at their worst"; an earlier draft of the plan missed it
+    // entirely, so a single combined test would let a partial fix pass.
+    expect(looped(unclaiming(60)).length).toBe(looped(unclaiming(2)).length);
+  });
+
+  it('does not follow the unparseable-manifest count, which is zero bytes today', async () => {
+    // THE ONE A "GROW THE ESTATE" TEST COULD NEVER FIRE. This emitter is
+    // proportional to the REGISTRY, and it wrote none of the 69 MB — no
+    // manifest was unparseable. It was found by enumerating every emitter
+    // rather than by measuring output, and one malformed file makes it a
+    // permanent per-tick line.
+    const lines = async (n: number): Promise<number> => {
+      const dir = mkdtempSync(join(tmpdir(), 'plot-registry-'));
+      try {
+        for (let i = 0; i < n; i += 1) writeFileSync(join(dir, `bad${i}.json`), 'not json');
+        const err: string[] = [];
+        await readRegistry(dir, (s) => err.push(s), true);
+        return err.length;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    expect(await lines(50)).toBe(await lines(5));
+  });
+
+  it('caps a kept class rather than exempting it, at the peak one host outage makes', () => {
+    // `whyNotReady` tests `merge-unknown` SECOND, before the claimable split,
+    // and `landed` answers `unknown` for every slice when the host cannot be
+    // asked — so ONE host outage moves the entire queue into a class this file
+    // preserves. 574 is the measured peak here. Kept is not unbounded.
+    const out = looped(holding(574, 'merge-unknown'));
+    expect(out.length).toBeLessThan(20);
+    expect(out.join('\n')).toContain('… and 562 more');
+  });
+
+  it('still names the four queue-level classes, because a debugger reads them', () => {
+    // CATCHES OVER-DELETION, the failure mode of the draft that deleted all
+    // five holds to fix one. These four are refusals about slices that were
+    // actually queued: small, churning, and what somebody reads at 3am.
+    for (const hold of ['already-merged', 'merge-unknown', 'no-brief', 'no-free-agent'] as const) {
+      const text = looped(holding(3, hold)).join('\n');
+      expect(text).toContain(`held on ${hold} (3):`);
+      expect(text).toContain('feature/b0');
+      expect(text).toContain('feature/b2');
+    }
+  });
+
+  it('names no branch for the estate-wide class, and still counts it', () => {
+    // The header carries the count for every class. What goes is the
+    // enumeration under the one class that grows with the backlog.
+    const text = looped(holding(400, 'not-claimable')).join('\n');
+    expect(text).toContain('held on not-claimable (400):');
+    expect(text).not.toContain('feature/b0');
+  });
+
+  it('keeps every key the counted summary has, since a zero is a measurement', () => {
+    // A `no-brief=0` says the hold was tested and nothing hit it; a MISSING key
+    // says this build has no such hold. Absent is not false, and the quieter
+    // tick must not have quietened the line that carries the answer.
+    const summary = looped(holding(400, 'not-claimable'))[0];
+    for (const hold of QUEUE_HOLDS) expect(summary).toContain(`${hold}=`);
+    expect(summary).toContain('held=400');
+  });
+
+  it('leaves `--once` byte-identical, which is the path a person runs', () => {
+    // THE DEFAULT IS `--once`'s FULL OUTPUT. A caller that says nothing gets
+    // everything, so the nine tests above this block pin the unchanged path
+    // without being touched.
+    const full = (report: TickReport): string => {
+      const out: string[] = [];
+      reportTick(report, (s) => out.push(s), () => {});
+      return out.join('');
+    };
+    const explicit = (report: TickReport): string => {
+      const out: string[] = [];
+      reportTick(report, (s) => out.push(s), () => {}, false);
+      return out.join('');
+    };
+    for (const report of [holding(30, 'not-claimable'), unclaiming(9), base()]) {
+      expect(full(report)).toBe(explicit(report));
+      expect(full(report)).toContain('plot-registryd tick');
+    }
+    expect(full(holding(30, 'not-claimable'))).toContain('feature/b29');
+    expect(full(unclaiming(9))).toContain('/private/tmp/wt8');
+    expect(full(holding(30, 'not-claimable'))).not.toContain('… and');
+  });
+
+  it('names every unparseable manifest on `--once`, however many there are', () => {
+    // The registry emitter's `--once` path, pinned beside the loop's cap for
+    // the same reason: a person who asked wants the list.
+    const dir = mkdtempSync(join(tmpdir(), 'plot-registry-'));
+    try {
+      for (let i = 0; i < 9; i += 1) writeFileSync(join(dir, `bad${i}.json`), 'not json');
+      const err: string[] = [];
+      return readRegistry(dir, (s) => err.push(s)).then(() => {
+        expect(err).toHaveLength(9);
+        expect(err.join('')).toContain('bad8.json');
+        expect(err.join('')).not.toContain('… and');
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a tick it could not complete, looping or not', () => {
+    // UNCHANGED BY THIS BLOCK. An incomplete tick is one line on stderr and it
+    // is the supervisor's failure signal — the quieter path must not have
+    // reached it.
+    const err: string[] = [];
+    const report: TickReport = { ...base(), incomplete: 'spawn git ENOMEM' };
+    expect(reportTick(report, () => {}, (s) => err.push(s), true)).toBe(1);
+    expect(err.join('')).toContain('incomplete');
+    expect(err.join('')).toContain('spawn git ENOMEM');
     expect(err.join('')).toContain('next=re-reads');
   });
 });
