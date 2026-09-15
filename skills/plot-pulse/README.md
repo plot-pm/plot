@@ -53,7 +53,7 @@ restartable.
 
 ## Wave eligibility, precisely
 
-A wave is a `### ` subheading under `## Branches`. Ordering is document order.
+A wave is a `### ` subheading under `## Slices`. Ordering is document order.
 
 - **complete** — every non-deferred branch in the wave is merged into main
 - **eligible** — every *prior* wave is complete

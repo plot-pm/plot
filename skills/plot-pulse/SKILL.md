@@ -96,7 +96,7 @@ this command as a heartbeat.
 
 | Term | Meaning |
 |------|---------|
-| **wave** | Branches under one `### ` subheading of `## Branches`, runnable concurrently |
+| **wave** | Branches under one `### ` subheading of `## Slices`, runnable concurrently |
 | **complete** | Every non-deferred branch in the wave is merged |
 | **eligible** | A dispatch would take this: every prior wave is complete **and** the plan is approved |
 | **blocked** | A prior wave still has outstanding work — resolves by merging |
