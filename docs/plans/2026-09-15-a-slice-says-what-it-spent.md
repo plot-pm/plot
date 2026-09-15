@@ -10,7 +10,7 @@
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -27,18 +27,32 @@ shaped than *"nothing is recorded"*.
 
 ### What exists reads the LAST TURN, and that is deliberate
 
-`readTranscriptFacts` returns three things: `model`, `contextTokens` and
-`contextSpend`. Both numbers describe **one turn**:
+`readTranscriptFacts` returns four things: `model`, `contextTokens`,
+`contextSpend` and `lastActivity`. The two numbers describe **one turn**:
 
 - `contextTokens` — *"Tokens the last turn read back as context"*,
   `cache_read_input_tokens` alone, rendered by the board's panel since
   2026-08-19.
 - `contextSpend` — *"Every input token the last turn carried"*, `input_tokens`
   plus both cache fields, *"the number a context ceiling is a fraction of"*.
+  **It has no render site**: measured 2026-09-15, zero references in
+  `packages/board/src/app`. It is computed and not yet shown.
 
 The file keeps them apart on purpose. Neither answers *what did this cost*: both
-are snapshots for a ceiling, and **`output_tokens` is read nowhere on the
-estate**.
+are snapshots for a ceiling.
+
+**AND `output_tokens` IS ALREADY EXCLUDED BY A REASONED RULE, which this plan
+must not contradict silently.** `rules/spend.ts:79` defines
+`CONTEXT_USAGE_FIELDS` as the three input fields and says why the fourth is
+missing: *"`output_tokens` IS DELIBERATELY ABSENT. It is what the turn produced,
+not what it carried in; counting it would charge the agent twice for text that
+arrives as input on the next turn anyway."*
+
+That reasoning is correct **for a context ceiling** and does not transfer to a
+cost. Output tokens are generated once and billed once; the double-count the
+rule avoids is a double-count of *context occupancy*, not of spend. So this plan
+records `output_tokens` **and says so against that rule** rather than appearing
+not to have read it.
 
 **So this is a new derivation, not an extended field.** A cost is a sum over
 every turn of the run, including output. Widening `contextSpend` would break the
@@ -62,9 +76,21 @@ read on the machine that ran the agent and nowhere else. A plan's cost read from
 a colleague's checkout would be silently zero.
 
 So the sum is computed **when the worker finishes**, on the machine that has the
-transcript, and written where the slice's other machine-local state already
-lives. A later reader gets a recorded fact rather than a derivation that only
-works in one place.
+transcript.
+
+**AND WHERE IT IS WRITTEN IS THE UNRESOLVED QUESTION, not a detail.**
+`.plot/state/` is **git-ignored** — measured 2026-09-15. A record written there
+is machine-local exactly as the transcript is, so a colleague's checkout still
+reads nothing and the plan would have moved the problem rather than solved it.
+The two honest options are a committed record, which puts per-run numbers in
+git history, or an openly machine-local one that says so. **This plan does not
+settle it**, and the slice must not proceed until it does.
+
+**The exit path is already crowded.** `plot-worker-loop.sh:1591` installs
+`trap _cleanup_on_exit EXIT`, and the loop is bounded by `Worker bound` — 28800s
+here. A second's scan added to a shutdown that also pushes and opens a PR is
+affordable; a scan that runs on the ALRM path at the bound is not obviously so,
+and the plan must say which exits it runs on.
 
 **It is written once and never updated.** A spend is what a run cost; a second
 run is a second record. That keeps the number a measurement rather than a
@@ -78,13 +104,14 @@ turn. The record keeps them **separate rather than pre-summed**, and the reason
 is stronger than *they price differently*.
 
 **Measured 2026-09-15 over three real transcripts on this machine, cache reads
-are 98.6%, 99.3% and 99.6% of a naive four-counter total.** The largest session:
+are 98.6%, 99.3% and 99.36% of a naive four-counter total.** The largest
+session, re-measured after a panel disputed the first reading:
 
 ```
 input_tokens                     86,922
 output_tokens                22,016,579
 cache_creation_input_tokens 117,015,335
-cache_read_input_tokens  21,479,234,105     ← 99.6% of the sum
+cache_read_input_tokens  21,479,234,105     ← 99.36% of the sum
 ```
 
 **So adding the four together answers nothing.** The result is a cache-read
@@ -108,9 +135,12 @@ transcript grows without bound over a long run — six figures of tokens become
 megabytes of JSONL"* — and it walks backwards (`transcript.ts:184`) to find the
 last turn cheaply. A cost is the traversal that bound exists to prevent.
 
-**Measured: the largest transcript here is 387 MB, and a full four-counter sum
-over its 43,488 turns took 885 ms.** That is invisible once per slice at worker
-exit and unacceptable on a board refresh polled every few seconds.
+**Measured: the largest transcript here is 387 MiB (394 MB, 393,738,847 bytes),
+and a full four-counter sum over its 43,488 turns took 885–1087 ms across
+repeated runs.** State the range rather than one figure: the reading varies with
+page cache and load, and a single number invites a budget nobody can hold. That
+is invisible once per slice at worker exit and unacceptable on a board refresh
+polled every few seconds.
 
 So the full scan happens **once, at the end of a run**, and the record is what
 every later reader consults. **The board must never re-derive it**, and the 256
@@ -125,6 +155,16 @@ field** — and that was re-checked on 2026-09-14 and still holds.
 
 **No per-plan rollup.** That is the sprint's Should and depends on this; a sum
 over slices is trivial once the slices carry a number, and worthless before.
+
+## Open Questions
+
+- [ ] **Where does the record live?** `.plot/state/` is git-ignored, so a record
+  there is machine-local and a colleague reads nothing — the problem this plan
+  set out to solve. Committed record, or openly machine-local and labelled?
+  **Blocks the slice.**
+- [ ] **Which exits does the scan run on?** `trap _cleanup_on_exit EXIT` is
+  installed at `plot-worker-loop.sh:1591` and the loop is bounded at 28800s. A
+  clean finish can afford a second; a bound-triggered ALRM path may not.
 
 **No change to `contextTokens` or `contextSpend`.** They answer a ceiling
 question, they are rendered today, and this plan adds a third reading beside
