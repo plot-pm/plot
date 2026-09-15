@@ -11,6 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -47,10 +48,13 @@ shape, and one names a different concept.** The skills teach the legacy one.
 **Verified in this repository**: `plot-reslice` 7/0, `plot-implement` 3/0,
 `plot-deliver` 3/0, `plot-idea` 0/1.
 
-**`plot-idea` is the one skill that writes a plan from scratch, and it is already
-correct.** Every other skill *reads* or *amends* a plan — so the accurate word is
-taught exactly where a new plan is born, and the legacy word everywhere a reader
-learns what to look for.
+**`plot-idea`'s PROSE is correct and the artefact it ships is not.** Measured
+2026-09-15: `skills/plot/templates/plan.md:40` still says `## Branches`, while
+this repository's own `.plot/templates/plan.md:60` says `## Slices`.
+
+**So every adopting project receives a template teaching the legacy word while we
+fixed ours.** That is the highest-value target in this change and an earlier
+draft of this plan did not name it.
 
 ### Why this is more than a rename
 
@@ -65,12 +69,34 @@ parser and in `CLAUDE.md`.
 its own plan, and no new code may add to it."* **The skills are the same defect
 in prose**, and they are what a person reads first.
 
-### The parser is not touched
+### The parser is not touched, and the risk was overstated
 
-**All three spellings keep parsing.** 132 delivered plans carry `## Waves` and
-they must keep working — this plan changes what the skills *teach*, never what
-the parser *accepts*. A docs change that broke a delivered plan would be a far
-worse defect than the one it fixes.
+**All three spellings keep parsing.** This plan changes what the skills *teach*,
+never what the parser *accepts*.
+
+**An earlier draft claimed 132 delivered plans carry `## Waves` and would be
+stranded. Measured on main: ZERO do.** The number was inherited from
+`plot-plan-meta.sh`'s own comment, true when written and stale now, and four
+passages of this plan rested on it. **The migration risk it describes does not
+exist**, which makes this change safer than it was argued to be, not more urgent.
+
+### The word lives in four tiers, and only one is a target
+
+Measured on main, `## Branches` appears **62 times outside the nine skills**:
+
+| Tier | Where | Target? |
+|---|---|---|
+| Skill prose | 9 `SKILL.md` files, 18× | **yes** |
+| The shipped template | `skills/plot/templates/plan.md:40` | **yes** |
+| Script comments | 33 in `.sh`/`.mjs`, 19 in `plot-plan-meta.sh` alone | **no** |
+| Docs and history | `MANIFESTO.md`, `changelog.md`, READMEs | **no** |
+| Test fixtures | 205 occurrences across 45 contract tests | **no** |
+
+**A blanket `grep → 0` gate would falsify the parser's own measurements.**
+`plot-plan-meta.sh:778` records *"renaming its `## Branches` to `## Slices` took
+it from 6 branches to 0"* — a sentence that must keep the word to stay true — and
+the same gate would rewrite historical changelog entries. **Fixtures must keep
+the legacy word**, since they exist to prove the parser still reads it.
 
 ### What this does not do
 
@@ -87,19 +113,28 @@ defect `CLAUDE.md` names, with its own plan.
 
 - `docs/the-skills-say-slices` — replace `## Branches` with `## Slices` across the nine skills that teach it, and say once where a reader can learn why a Slice is not a Wave
 
-**Done when** `grep -c '## Branches'` across `skills/` returns **0**, asserted by
-a test rather than by a reviewer counting; **the parser still reads all three
-spellings**, pinned by parsing one plan of each shape and asserting identical
-output — a docs change that broke `## Waves` would strand 132 delivered plans;
-**every delivered plan parses byte-identically to today**, checked by diffing the
-parser's full output before and after across the whole estate; the distinction
-between a Slice and a Wave is stated **once**, where a reader meets it, rather
-than repeated in nine skills; and `pnpm test` passes.
+**Done when** the nine `SKILL.md` files say `## Slices` and **the shipped
+template `skills/plot/templates/plan.md:40` says `## Slices`**, pinned by a test
+naming those files explicitly rather than by a repository-wide grep; **script
+comments, `MANIFESTO.md`, `changelog.md`, the READMEs and all 205 test-fixture
+occurrences are UNCHANGED**, pinned by asserting their count is exactly what it
+is today — a blanket gate would falsify `plot-plan-meta.sh:778`'s own measurement
+and rewrite shipped history; **the parser still reads all three spellings**,
+pinned by parsing one plan of each shape and asserting identical output; **every
+plan in `docs/plans/` parses byte-identically to today**, checked by diffing the
+parser's full output before and after; the Slice/Wave distinction is stated
+**once**, where a reader meets it; and `pnpm test` passes.
 
 ## Notes
 
 **Filed as #914 with the counts**, verified here before drafting.
 
-**`plot-idea` needs no change** — the one skill that writes a plan already says
-`## Slices`, which is why new plans on this estate are correct and every skill
-that reads one teaches otherwise.
+**Amended 2026-09-15 after a two-lens panel**
+(`.plot/panels/2026-09-15-the-skills-say-slices/`), unanimous `amend`. The
+per-skill counts held. Two claims did not: **zero delivered plans carry
+`## Waves`**, against the 132 this plan inherited from a stale comment, and
+**`plot-idea` ships a template that still says `## Branches`** — the one target
+worth most, unnamed in the first draft. The `grep → 0` gate is replaced by a
+named-file gate, because the blanket form would have rewritten the parser's own
+measurements, shipped changelog entries and 205 fixtures whose whole purpose is
+to carry the legacy word.

@@ -11,6 +11,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -45,21 +46,51 @@ what makes a ceiling safe rather than a trade against forensics.
 appears in `git status` and nobody finds it without going looking. **Seven days
 of growth took a person noticing a disk.**
 
-### launchd owns the write, and that is the constraint
+### Rotation is possible, and an earlier draft said it was not
 
-`skills/plot/units/com.plot-pm.registryd.plist:71` sets `StandardOutPath` with
-`KeepAlive: true`. **The write is launchd's, not the program's** — so nothing in
-the daemon can rotate a file it does not open, and a rotation script would be
-racing a writer that never closes its handle.
+`com.plot-pm.registryd.plist:71-72` does set `StandardOutPath` — **but that is
+the unit template, and it is not what is writing this file.** Measured
+2026-09-15: the running daemon reaches the log by another route, so *"launchd
+owns the write, therefore nothing can rotate it"* is **false**, and this plan no
+longer rests on it.
 
-**So the fix is at the source rather than the sink:** the tick stops re-emitting
-a list nothing reads. A quieter daemon needs no rotation, and a rotation on a
-noisy one is a second mechanism maintaining the first.
+**The fix is still at the source, for a better reason:** a rotation keeps a
+file's size down while the daemon goes on emitting lines nobody reads, and then
+needs its own maintenance. **A quieter tick needs no second mechanism.** Rotation
+remains available as a complement and this plan does not add one.
 
-**A ceiling on the file is the fallback, not the plan.** If a per-tick line is
-still wanted, `plot-fleetctl.sh` already owns the unit and could truncate on
-`--start` — but that repairs a symptom once per restart, and this daemon runs for
-weeks.
+### The volume is TWO re-emissions, not one
+
+**Measured over all 1,585,949 lines, classified by shape:**
+
+| Class | Lines | Bytes | Share |
+|---|---:|---:|---:|
+| held-slice enumeration | — | — | the bulk |
+| **`unclaimedLines` desk report** | 38,174 | 7,132,536 | **10.26%** |
+
+**An earlier draft named only the first.** `unclaimedLines`
+(`registryd.ts:376-391`, printed at `registryd-main.ts:843`) re-emits worktree
+paths every tick: `/private/tmp/plot-baseline` **2,539×**, `.worktrees/free-b2023483`
+**6,413×**. Its own comment at `:836-839` justifies the volume — *"the unclaimed
+trees were twelve at their worst … so a looping daemon can name each one without
+ever writing a line nobody wants"* — and **7.1 MB falsifies that justification**.
+
+**So the plan fixes both, or it ships a ceiling that leaks.** Gating only the
+held block drops the log to ~9.5 MB and leaves the second source re-emitting nine
+scratchpad paths a minute under a comment promising it does not.
+
+### Not all five hold classes are noise, and the plan must not delete them alike
+
+**`not-claimable` is a hold over the WHOLE estate's backlog** — every branch no
+plan makes claimable, 165→~200 branches, re-enumerated **7,333 times**. That one
+class is the volume.
+
+**The other four are holds over the QUEUE** — small, churning, and exactly what a
+debugger wants at 3am. **An earlier draft proposed deleting all five to fix one.**
+
+**The counted summary keeps every key**, so a reader still learns that 233 slices
+were held and why. What goes is the per-branch enumeration of the estate-wide
+class, not the queue's own holds.
 
 ### What a tick should say
 
@@ -95,13 +126,17 @@ bundling them would put a log fix and a process-control fix in one slice.
 
 - `infra/the-supervisor-log-has-a-ceiling` — have the looping daemon print the counted tick summary without the per-branch lists, leaving `--once`'s output unchanged
 
-**Done when** a looping tick prints **no per-branch list**, pinned by a test
-asserting the line count per tick is bounded rather than proportional to the
-branches held; **`--once` output is byte-identical**, pinned explicitly, because
-that is the path a person runs deliberately and its lists are the reason to run
-it; the counted summary **keeps every key it has today** — `held`, `no-brief`,
-`not-claimable` and the rest — pinned by a key-set assertion, since a `no-brief=0`
-is a measurement and a missing key is not; a tick that **cannot complete** still
+**Done when** a looping tick's output is **bounded rather than proportional to
+the estate**, pinned by a test that grows the held-branch count and asserts the
+line count does not follow; **`unclaimedLines` is bounded by the same rule**,
+pinned separately — it is 10.26% of the bytes and an earlier draft missed it, so
+gating only the held block ships a ceiling that leaks; **the four queue-level
+hold classes still name their branches**, pinned explicitly, because they are
+small, they churn, and they are what a debugger reads — only the estate-wide
+`not-claimable` enumeration goes; **`--once` output is byte-identical**, pinned,
+since that is the path a person runs deliberately; the counted summary **keeps
+every key it has today**, pinned by a key-set assertion, since a `no-brief=0` is
+a measurement and a missing key is not; a tick that **cannot complete** still
 reports its reason, unchanged; and `pnpm run test:contracts` passes.
 
 **Not in the gates:** the existing 69 MB file. Its removal is an operator action
@@ -115,6 +150,15 @@ had grown another 5 MB.
 **The ticket's second half is deliberately out of scope.** *"`--stop` cannot
 reach a detached supervisor"* is a process-control defect; I hit it today, and it
 deserves its own plan rather than a ride on a log fix.
+
+**Amended 2026-09-15 after a two-lens panel**
+(`.plot/panels/2026-09-15-the-supervisor-log-has-a-ceiling/`), unanimous `amend`.
+The measurements held and two arguments did not: **launchd is not writing this
+file**, so rotation was never impossible, and **the volume is two re-emissions
+rather than one** — `unclaimedLines` is 10.26% of the bytes, with one worktree
+path repeated 6,413 times under a comment claiming it never writes a line nobody
+wants. The plan also proposed deleting five hold classes to fix one; only the
+estate-wide `not-claimable` enumeration is the volume.
 
 **`board.log` at 16 KB is the strongest evidence.** Two long-lived daemons, one
 machine, one week: the difference is what they print, not what they do.
