@@ -11,7 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -102,7 +102,7 @@ in the repository**, overwhelmingly test fixtures and the parser's own comments.
 | The shipped template | `skills/plot/templates/plan.md:40` | **yes** |
 | The second copy-me example | `skills/plot/intro-to-using-plot.md:88` | **yes** |
 | README instruction lines | `tracer-bullets`, `plot-pulse`, `plot-reslice` | **yes**, by sentence |
-| Everything else | parser comments, changelog history, 205+ fixtures | **no** |
+| Everything else | parser comments, changelog history, **26 in `packages/*/test/`**, all other fixtures | **no** |
 
 **The exemption gate therefore counts what it excludes rather than asserting a
 literal total**, because a total is a number that goes stale between drafting and
@@ -140,9 +140,11 @@ file-level rule would break it; **`plot-deliver/SKILL.md:113` and
 `ralph-plot-sprint/SKILL.md:117` stay TOLERANT** — gaining `## Slices` alongside
 what they already match rather than replacing it — pinned explicitly, because a
 literal replacement narrows them to strict and passes a naive gate silently; **script
-comments, `MANIFESTO.md`, `changelog.md`, the READMEs and all 205 test-fixture
-occurrences are UNCHANGED**, pinned by asserting their count is exactly what it
-is today — a blanket gate would falsify `plot-plan-meta.sh:778`'s own measurement
+comments, `MANIFESTO.md`, `changelog.md`, the READMEs' non-instruction lines,
+**and every occurrence under `packages/board/test/` and `packages/domain/test/`
+— measured at 26, including the `tiny-garden` fixture plan — are UNCHANGED**,
+pinned by asserting those paths are untouched by the diff rather than by
+asserting a count — a blanket gate would falsify `plot-plan-meta.sh:778`'s own measurement
 and rewrite shipped history; **the parser still reads all three spellings**,
 pinned by parsing one plan of each shape and asserting identical output; **every
 plan in `docs/plans/` parses byte-identically to today**, checked by diffing the
@@ -152,6 +154,15 @@ parser's full output before and after; the Slice/Wave distinction is stated
 ## Notes
 
 **Filed as #914 with the counts**, verified here before drafting.
+
+**Amended four times. Round 4 found the round-3 fix incomplete**: the tier table
+and its paragraph were corrected and **the `Done when` was left untouched**, so
+the plan's prose and its gate disagreed — and when they disagree the implementer
+picks, which is the judgement a gate exists to remove. The exemption now asserts
+**paths untouched by the diff** rather than a count, because a count is what went
+stale twice. It also found `packages/board/test/` and `packages/domain/test/` in
+**no list at all** — 26 occurrences including the `tiny-garden` fixture plan,
+which this estate has been burned by writes to before.
 
 **Amended three times. Round 3 blocked on the exemption gate's numbers**: the
 four-tier table pinned counts that are false — 632 occurrences repo-wide against
@@ -172,5 +183,5 @@ per-skill counts held. Two claims did not: **zero delivered plans carry
 **`plot-idea` ships a template that still says `## Branches`** — the one target
 worth most, unnamed in the first draft. The `grep → 0` gate is replaced by a
 named-file gate, because the blanket form would have rewritten the parser's own
-measurements, shipped changelog entries and 205 fixtures whose whole purpose is
+measurements, shipped changelog entries and the fixtures whose whole purpose is
 to carry the legacy word.

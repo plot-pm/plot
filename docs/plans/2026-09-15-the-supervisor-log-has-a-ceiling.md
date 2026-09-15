@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Issue:** #916
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 4
+- **Approved:** 2026-09-15, jwloka, in-session
 
 ## Changelog
 
