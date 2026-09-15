@@ -200,7 +200,7 @@ bundling them would put a log fix and a process-control fix in one slice.
 
 ## Slices
 
-### The supervisor log has a ceiling (Branch: infra/the-supervisor-log-has-a-ceiling)
+### The supervisor log has a ceiling (Branch: infra/the-supervisor-log-has-a-ceiling, PR: #922)
 
 - `infra/the-supervisor-log-has-a-ceiling` — have the looping daemon print the counted tick summary without the per-branch lists, leaving `--once`'s output unchanged
 
