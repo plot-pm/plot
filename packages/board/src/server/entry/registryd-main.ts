@@ -821,9 +821,10 @@ export const run = async (
       max: args.max,
     });
 
-    // `!args.once` IS THE LOOP, and this is the only place that knows. Line
-    // 802 below decides whether to return; until then both paths are here, so
-    // the distinction is passed rather than inferred downstream.
+    // `!args.once` IS THE LOOP, and this is the only place that knows. The
+    // `if (args.once) return code` below is what separates them, so until that
+    // line both paths run here and the distinction is passed rather than
+    // inferred downstream.
     const code = reportTick(report, write, warn, !args.once);
     if (args.startAgents) await startAgents(report, performer, write, warn);
 
