@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Rejected:** 2026-09-15, jwloka, the board dispatched nothing in the window this plan measures
 
 ## Changelog
 
@@ -149,3 +151,97 @@ its own plan, and it is the more interesting one.
 documented, the predicates are deliberate, and `machine.ts:106-110` argues the
 exact distinction. **Caught by reading the code before writing the plan**, which
 is the fourth premise on this estate in one week that a single reading disproved.
+
+## Why this was rejected
+
+**A three-lens panel returned a unanimous `amend` with two incompatible
+arguments, and the moderator verified both.** Full record in
+`.plot/panels/2026-09-15-the-tight-band-remembers-what-it-started/panel.md`.
+
+### The second premise is false: the 63 tight passes dispatched nothing
+
+```
+dispatching anyway lines : 63
+dispatches in the log    :  0
+board boot banners       :  8
+```
+
+**The tight line prints once per 5-second pulse whether or not anything is
+startable.** The deferral line eight lines above it is gated on eligible work
+(`auto-dispatch.ts:1044-1049` — *"a deferral with nothing to dispatch is
+routine, not a decision anybody needs to read every five seconds"*), and the
+tight line at `:1058` carries no such gate, printing before `planAutoDispatch`
+is ever called.
+
+**So 63 is a print cadence, not a count of forks.** This plan's mechanism —
+*"Each pass reads `tight`, dispatches one more"* — describes something that did
+not happen.
+
+**The 84 processes are unattributed.** Nothing joins them to the board's
+auto-dispatch: `.plot/logs/registryd.log` is 67 MB, modified in the same window,
+and `--start-agents` starts up to three desks per tick. This plan scopes the
+supervisor out and then attributes the process count to the component it keeps
+in.
+
+**The framing is also wrong.** *"during a live incident"* and *"parked for the
+entire incident"* describe **six board sessions across 8 restarts**, stated as
+one continuous event.
+
+### The proposed ratchet never resets, on this plan's own evidence
+
+```
+clearBelowMs                       : 10
+lowest reading in 102 measurements : 41.0 ms
+clear readings observed            : ZERO
+```
+
+**The reset condition did not fire once.** This plan contains the sentence *"a
+ratchet that never resets is a refusal wearing another name"*, and that describes
+what it would ship — the `Done when` pins reset with a synthetic `clear` reading
+the incident never produced.
+
+**Worse than the sibling it was warned about.** The ceiling panel found
+`loweredConcurrency` only ever falls, recoverable by restart: that pins a board
+at *slow*. This pins it at **stopped**, with no escape specified.
+
+**The latch's home is unspecified between two opposite answers.** `CacheEntry`
+carries `briefsAsked` as cross-pass state — and `prConcurrency`, the ratchet that
+sibling panel condemned. The controls (`autoDispatch`, `parallelAgents`,
+`machineOverride`) are operator-settable and persisted; `CacheEntry` is neither.
+*"One bit beside the existing controls"* names neither.
+
+**And a fourth headroom value is never mentioned.** `HeadroomSchema` is
+`['clear','tight','starved','unmeasured']`. A ratchet keyed on *not clear*
+latches permanently when sampling fails; one keyed on *clear resets* never
+releases. Both pass every listed gate and differ by *a fleet that never starts
+again*.
+
+### What survives, and it is a better plan than this one
+
+**The scoping decision was right, and the panel argued it better than the plan
+did.** Measured:
+
+| | board auto-dispatch | `plot-registryd` |
+|---|---|---|
+| cadence | **5 s** | 60 s tick |
+| band ceiling | **none** | `TIGHT_CEILING = 2`, `STARVED_CEILING = 1` (`fleet-size.ts:88,99,166-167`) |
+| subtracts running | no | **yes** — `wanted = requested - running` (`:130`) |
+| per-tick rate limit | none | `DESKS_PER_TICK = 3` |
+
+**The supervisor already implements the memory this plan proposed to add**, and
+is bounded twice over. The board runs **12 dispatch decisions per minute against
+the supervisor's one tick** with no band-aware bound at all.
+
+**So the fix is the ceiling the supervisor already has, applied to the caller
+that lacks it** — no new state, no reset condition, no ratchet. Superseded by
+[`the-board-loop-reads-the-same-ceiling`](2026-09-15-the-board-loop-reads-the-same-ceiling.md).
+
+**A second finding is the one the incident actually supports:** the three
+spawners share `parallelAgents` and the agent registry, and share **nothing** of
+the in-flight window or the machine reading — three independent samples of one
+quantity, no coordination. That is its own plan.
+
+**The thresholds are marked *"Provisional: they come from one session's samples
+and are to be re-measured"* (`machine.ts:18-19`) and never were.**
+
+**Nothing was implemented.** No branch, no PR, no `Started:` record.

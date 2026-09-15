@@ -1,0 +1,1 @@
+../2026-09-15-the-board-loop-reads-the-same-ceiling.md
