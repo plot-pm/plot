@@ -10,7 +10,7 @@
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -78,13 +78,25 @@ a colleague's checkout would be silently zero.
 So the sum is computed **when the worker finishes**, on the machine that has the
 transcript.
 
-**AND WHERE IT IS WRITTEN IS THE UNRESOLVED QUESTION, not a detail.**
-`.plot/state/` is **git-ignored** — measured 2026-09-15. A record written there
-is machine-local exactly as the transcript is, so a colleague's checkout still
-reads nothing and the plan would have moved the problem rather than solved it.
-The two honest options are a committed record, which puts per-run numbers in
-git history, or an openly machine-local one that says so. **This plan does not
-settle it**, and the slice must not proceed until it does.
+**IT IS WRITTEN MACHINE-LOCAL, UNDER `.plot/state/`, AND THE PLAN SAYS SO
+PLAINLY.** Settled 2026-09-15 by the operator. `.plot/state/` is git-ignored
+(`.gitignore:35`), so the record is machine-local exactly as the transcript is —
+and **that is a stated limit rather than a solved problem**:
+
+- A colleague's checkout reads **nothing**, not zero. The absence must be
+  legible as *not measured here*.
+- The record is **destructible**. Transcripts are machine-local and unbacked, so
+  a desk reaped on a machine nobody returns to takes its number with it.
+
+**The alternative was weighed and declined.** A committed record would be
+readable from any checkout and would make a per-plan rollup trivial — at the
+price of per-run token counts entering the repository's permanent history, for a
+number whose only consumer today does not exist yet. **A reading that is cheap
+to re-take does not earn permanent storage in git.**
+
+So this plan writes where the transcript already lives, and **the honesty is the
+deliverable**: a reader who sees nothing must be told the difference between *no
+record here* and *a free run*.
 
 **The exit path is already crowded.** `plot-worker-loop.sh:1591` installs
 `trap _cleanup_on_exit EXIT`, and the loop is bounded by `Worker bound` — 28800s
@@ -95,6 +107,42 @@ and the plan must say which exits it runs on.
 **It is written once and never updated.** A spend is what a run cost; a second
 run is a second record. That keeps the number a measurement rather than a
 running total nobody can place in time.
+
+### The record has TWO subjects, and both are named
+
+**A panel found both undefined, and each is a way to pass every gate and be
+wrong.**
+
+**Whose branch — the SLICE, not the worker.** `plot-worker-loop.sh:2088-2297` is
+the finish path and **it does not exit**: it seals a declaration, clears the
+manifest branch, blocks in `wait_for_work`, resets the desk, and loops. The
+loop's own comment at `:1044` states the rule:
+
+> *"a declaration is about a BRANCH, and a worker hops, so one worker writes
+> several. An ending happens once, to the worker, and the branch it held at the
+> time is a field rather than the subject."*
+
+Measured: of the 12 largest worker transcripts, **3 already span two branches**,
+and one desk directory holds 49 session files. So a sum taken at worker exit
+charges every slice the worker ever held to whichever branch it held last.
+
+**The record is therefore written per slice, at `seal_declaration`** — `:2088-2093`
+is explicit that it runs *before* the hop moves `$PLOT_BRANCH`, precisely so it
+names the branch that finished. The transcript carries `gitBranch` per line, so
+the partition is readable.
+
+**Whose session — PER SESSION, NEVER PER WORKTREE.** `spend.ts:42-50` already
+settled this and measured it:
+
+> *"one project directory measured 2026-09-03 held 45 session files, 30 of them
+> subagents, and a sum across them belongs to no one."*
+
+Re-measured on this project: **604 session files, 421 of them `agent-*` subagent
+transcripts, 370 with zero main-session turns.** A caller that cannot name the
+session passes `null` rather than reaching for the newest file.
+
+**Neither subject is optional.** A record that is silent about either is a number
+nobody can place.
 
 ### Four counters, kept apart — and a naive total is FORBIDDEN
 
@@ -133,19 +181,34 @@ which.
 **`readTranscriptFacts` is bounded to a 256 KiB tail on purpose** — *"a
 transcript grows without bound over a long run — six figures of tokens become
 megabytes of JSONL"* — and it walks backwards (`transcript.ts:184`) to find the
-last turn cheaply. A cost is the traversal that bound exists to prevent.
+last turn cheaply. That bound exists for the **master agent's** transcript, which
+does grow without bound; a worker's is bounded in practice by its slice.
 
-**Measured: the largest transcript here is 387 MiB (394 MB, 393,738,847 bytes),
-and a full four-counter sum over its 43,488 turns took 885–1087 ms across
-repeated runs.** State the range rather than one figure: the reading varies with
-page cache and load, and a single number invites a budget nobody can hold. That
-is invisible once per slice at worker exit and unacceptable on a board refresh
-polled every few seconds.
+**The scan is cheap, and an earlier draft of this plan measured the wrong
+population.** That draft timed a 394 MB transcript at 885–1087 ms and argued the
+cost was the reason to write once at exit. **That file is the master agent's own
+console, not a worker's.** Re-measured over the population this plan is about —
+1,966 worker transcript files:
 
-So the full scan happens **once, at the end of a run**, and the record is what
-every later reader consults. **The board must never re-derive it**, and the 256
-KiB bound on the existing reader stays exactly as it is — this plan adds a
-second, bounded-by-frequency path beside it rather than widening the first.
+```
+largest      8,111,230 bytes   (7.7 MiB)
+median           7,084 bytes   (6.9 KiB)
+```
+
+A full four-counter sum over the **largest worker transcript in the estate**
+takes **90–250 ms**; the median will sum in single-digit milliseconds.
+
+**So cost is not the argument for writing once, and the plan no longer makes
+it.** The argument is the subject: the reading must be taken while the worker
+still holds the slice it describes, because `seal_declaration` is the only moment
+that knows which branch just finished. **A cheap scan at the right moment beats
+an expensive one at the wrong moment**, and the 256 KiB bound on the existing
+reader stays exactly as it is.
+
+So the full scan happens **once per slice, as that slice is sealed**, and the
+record is what every later reader consults. **The board must never re-derive
+it** — a per-refresh scan of even a 7 KB file is a `.jsonl` opened on a path
+that must not open one.
 
 ### What this plan does not do
 
@@ -158,13 +221,13 @@ over slices is trivial once the slices carry a number, and worthless before.
 
 ## Open Questions
 
-- [ ] **Where does the record live?** `.plot/state/` is git-ignored, so a record
-  there is machine-local and a colleague reads nothing — the problem this plan
-  set out to solve. Committed record, or openly machine-local and labelled?
-  **Blocks the slice.**
-- [ ] **Which exits does the scan run on?** `trap _cleanup_on_exit EXIT` is
-  installed at `plot-worker-loop.sh:1591` and the loop is bounded at 28800s. A
-  clean finish can afford a second; a bound-triggered ALRM path may not.
+- [x] **Where does the record live?** *Answered 2026-09-15:* machine-local under
+  `.plot/state/`, with the plan stating plainly that a colleague's checkout reads
+  nothing and that the record is destructible. See Design.
+- [x] **Which exits does the scan run on?** *Answered:* the question was mis-posed.
+  `_on_alarm ALRM` (`:1546`) and `_cleanup_on_exit EXIT` (`:1591`) are **two traps,
+  not alternatives**, and EXIT runs on every termination including the bound. The
+  scan does not hang off either — it runs at `seal_declaration`, per slice.
 
 **No change to `contextTokens` or `contextSpend`.** They answer a ceiling
 question, they are rendered today, and this plan adds a third reading beside
@@ -176,21 +239,34 @@ them.
 
 - `feature/a-slice-says-what-it-spent` — sum the four token counters and record the model across a run's whole transcript, write the record when the worker finishes, and read it back per slice without re-deriving
 
-**Done when** a finished slice carries a record naming all four counters and the
-model; the sum is over **every** turn of the run rather than the last; **no
-summed fifth field is written**, and the plan's reason is carried into the code
-that would otherwise invite one; the full scan runs only at worker exit and the
-board reads the record rather than the transcript, pinned by a test that fails
-if a refresh path opens a `.jsonl`; a run with
-no readable transcript records nothing and says so rather than recording zero;
-`contextTokens` and `contextSpend` are unchanged and the board's panel still
-renders what it rendered before; a second run of the same slice writes a second
-record rather than mutating the first; and `pnpm run test:contracts` passes.
+**Done when** a finished slice carries a record naming all four counters and
+every model it used; **the record's subject is the SLICE** — a worker that hops
+between two branches writes **two** records, each covering only its own turns,
+pinned by a fixture transcript carrying two `gitBranch` values; **the sum is per
+SESSION, never per worktree**, pinned by a fixture directory holding a main
+session beside `agent-*` subagent transcripts, where the record counts the main
+session's turns and not the subagents'; **no summed fifth field is written**,
+pinned by a **key-set assertion** rather than prose, since `contextSpend` is
+already on the wire schema and a fifth field beside it is a two-line change no
+review would flag; the scan runs at `seal_declaration` and the board reads the
+record rather than the transcript, pinned by a test that fails if a refresh path
+opens a `.jsonl`; a run with no readable transcript **records nothing and says
+so** rather than recording zero; **a reader on a machine that holds no record is
+told it was not measured here**, never shown a zero; `contextTokens` and
+`contextSpend` are unchanged and the board's panel still renders what it
+rendered before; a second run of the same slice writes a second record rather
+than mutating the first; and `pnpm run test:contracts` passes.
 
 ## Notes
 
 **The third Must of sprint W41**, and the first plan of `plot-plan-economics` —
 a story that has been `draft` with zero plans since 2026-08-27.
+
+**Amended 2026-09-15 after a three-lens panel**
+(`.plot/panels/2026-09-15-a-slice-says-what-it-spent/`), which found two
+undefined subjects, a timing measurement taken from the master agent's own
+transcript rather than a worker's, and an unacknowledged `spend.ts` rule about
+subagent sessions. The operator settled the record's home.
 
 **Zero is the dangerous answer here.** A transcript that cannot be read, a desk
 reaped on another machine, a run that never started — each must record *nothing*

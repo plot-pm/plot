@@ -1,6 +1,6 @@
 # A connector declares its ceiling
 
-> The board stretches its polling against what others are spending and never against what the account is allowed, because no connector but GitHub reports a limit.
+> The cadence rule stretches polling against observed spend alone, because the ceiling every connector already reports reaches the concurrency bound and never the cadence.
 
 ## Status
 
@@ -13,7 +13,7 @@
 
 ## Changelog
 
-- A connector's rate ceiling can be declared in config, so the board's polling backs off against the budget it actually has. Bitbucket and Jenkins report no limit headers, so until now their cadence was tuned only by observed spend.
+- The board's polling cadence reads the rate ceiling its connectors already report. The ceiling reached the concurrency bound and never `refreshIntervalMs`, so cadence stretched on observed spend alone.
 
 <!-- Board impact: the board reads a new optional config key and passes a
      ceiling into an existing rule. No plan format, no template, no layout. -->
@@ -33,42 +33,47 @@ free. Bitbucket already stretches independently of GitHub.
 
 `refreshIntervalMs` (`cadence.ts:244`) takes exactly four things: the base
 interval, the cost per refresh, a `rate` — and the rate is
-`Pick<SpendRate, 'perHour'>`. **One field. No ceiling.**
+`Pick<SpendRate, 'perHour'>`. **One field. No ceiling.** That reading is correct
+and it is the whole gap.
 
-So the cadence answers *"how much is everyone else spending?"* and stretches to
-share fairly, bounded at `MAX_CADENCE_STRETCH = 8`. It never answers *"how close
-am I to the wall?"*
+### The ceiling is ALREADY REPORTED, and already consumed — by something else
 
-Measured live on this estate, 2026-09-15:
+**This section replaces a false one.** An earlier draft of this plan claimed the
+record could not state a limit, and quoted a `spend-rate` line showing
+`limit: null, basis: unknown`. Re-measured live:
 
 ```json
-{"connector":"github","perHour":157.09,"limit":null,"remaining":null,"basis":"unknown"}
+{"connector":"github","account":"jwloka","spent":1083,"perHour":1085.72,
+ "limit":5000,"remaining":3229,"resetAt":1789468250000,"basis":"actual"}
 ```
 
-**157 calls an hour against a limit the record cannot state.** For GitHub that is
-harmless — the real ceiling is 5000/hour and a fair-share stretch is the right
-policy well below it. For the connectors that hurt it is not.
+**`limit: 5000`, `basis: actual`.** And the other two connectors declare one too,
+in the shell rather than from a header — `plot-host.sh:1984` answers
+`bitbucket → 1000 predicted`, and Jenkins `60 predicted`. So the claim that only
+GitHub reports a limit was false for all three.
 
-### The three connectors differ, and only one can self-report
+**The ceiling already has a consumer.** `limitReadingOf` (`fleet.ts:1619`) shapes
+`prLimit`/`prResetAt`/`prLimitBasis` into a `LimitReading`; `boundFromLimit`
+(`concurrency.ts:139`) turns an hourly ceiling into a **simultaneous-call bound**;
+`withHostSlot` enforces it around every host call (`fleet.ts:2476`).
 
-`plot-host.sh` records a budget line per call for all four backends, and
-`BudgetKeySchema` is keyed `connector` / `account` / `bucket` — built for exactly
-this. But the reading depends on the vendor answering:
+**So the board is not blind to the ceiling. It reads it and spends it on
+concurrency.** The gap is exactly one sentence wide:
 
-| connector | limit headers | today's record |
+> **The cadence does not read the ceiling the concurrency bound already reads.**
+
+### The three bases are not interchangeable
+
+| basis | meaning | source |
 |---|---|---|
-| GitHub | yes | real `limit`/`remaining`/`reset` |
-| Bitbucket | no | rate only |
-| Jenkins | no | `limit: 60` hardcoded at `plot-host.sh:3760` |
+| `actual` | the vendor said so | response headers (GitHub) |
+| `predicted` | the adapter's own number from experience | `plot-host.sh:1984` |
+| `unknown` | a call was spent and nothing is visible | the honest dead end |
 
-`plot-host.sh:1648` makes the Jira case explicit: it appends `- - -` with basis
-**`unknown`** — *a call was spent and we cannot see what remains*. That is honest
-and it is a dead end for tuning.
-
-**So the ceiling is declared rather than discovered.** A config key per connector,
-read where the rate is read, passed into the same rule. A connector that reports
-a real limit keeps using it; one that cannot falls back to the declared value;
-one with neither behaves exactly as today.
+A declared value is a **fourth** basis and must rank against these rather than
+replace them: `actual` wins, then a declared value, then `predicted`. A
+declaration overriding a vendor-reported limit would let a typo outrank a
+measurement.
 
 ### Why a declaration and not a probe
 
@@ -92,6 +97,18 @@ gives the existing rule a second input; how it weighs that input is the rule's.
 which `cadence.ts:15` names as the loop that makes an unbounded stretch a trap.
 A ceiling makes the stretch better informed; it never becomes a gate.
 
+**It does not touch the concurrency bound.** `boundFromLimit` reads the same
+ceiling and converts it to a simultaneous-call cap. A ceiling arriving through a
+new path must not move that number — a declared `1000` proposes
+`floor(1000/900) = 1`, which is `MIN_CONCURRENCY` and would serialise every call
+on that connector. **That is a regression this plan must pin against, not a
+benefit.**
+
+**It does not read the ceiling with a new host call.** `cadence.ts:9-31` warns
+that reacting to an error here *"would compound with the division already
+happening and drift the cadence down with nothing to bring it back."* The
+ceiling comes from the reading already taken.
+
 **It hardcodes no vendor's number.** `limit: 60` for Jenkins is a default in the
 shell today; whether that matches a given instance is a question only its
 operator can answer, which is the argument for declaring it.
@@ -102,14 +119,21 @@ operator can answer, which is the argument for declaring it.
 
 - `feature/a-connector-declares-its-ceiling` — read an optional per-connector rate ceiling from `## Plot Config`, prefer a vendor-reported limit where one exists, and pass it into `refreshIntervalMs` beside the observed rate
 
-**Done when** a declared ceiling reaches `refreshIntervalMs`; a connector
-reporting a real limit prefers it over the declared one; a connector with
-neither produces an interval **byte-identical** to today's, pinned by a test
-across gh, bb and jen; the ceiling is keyed by connector and account rather than
-connector alone; no new host call is made to discover a limit, checked by
-asserting the spend-rate path still asks no host; `MAX_CADENCE_STRETCH` and
-`CADENCE_DAMPING` are unchanged; and `pnpm run test:contracts` and the board
-suite pass.
+**Done when** the ceiling already in the spend-rate reading reaches
+`refreshIntervalMs`; **an interval ACTUALLY MOVES** — a connector near its
+ceiling polls measurably slower than the same connector far from it, pinned by
+a test asserting two different numbers, since every other gate here can be met
+by plumbing a value through and ignoring it; the precedence is `actual`, then
+declared, then `predicted`, pinned per basis; a connector with no ceiling at all
+produces an interval **byte-identical** to today's, pinned across gh, bb and
+jen; **the concurrency bound `boundFromLimit` returns is unchanged for every one
+of those inputs**, pinned by a test, because it reads the same ceiling and
+`floor(1000/900)` is `MIN_CONCURRENCY`; the interval **converges** rather than
+oscillating, pinned by iterating the rule to a fixed point; the board says when
+it is at `MAX_CADENCE_STRETCH` rather than silently exceeding a ceiling it
+cannot honour; no new host call is made, checked by asserting the spend-rate
+path still asks no host; `MAX_CADENCE_STRETCH` and `CADENCE_DAMPING` are
+unchanged; and `pnpm run test:contracts` and the board suite pass.
 
 ## Notes
 
@@ -119,7 +143,19 @@ which would have re-implemented `prRefreshMsFor`, working code called at both
 refresh sites since before this was written. What is actually missing is one
 input to a rule that already runs.
 
-**The operator's report was `bb` polling too hard.** GitHub at 157/hour against
-5000 is comfortable; Bitbucket's window is tighter and its limit unreportable, so
-a fair-share stretch against observed spend is the only signal the board has
-there today.
+**The operator's report was `bb` polling too hard**, and it remains the one
+claim behind this plan that no artefact on this estate records. This repository
+is on GitHub, so no Bitbucket cadence is observable here.
+
+**Amended 2026-09-15 after a three-lens panel** (`.plot/panels/2026-09-15-a-connector-declares-its-ceiling/`),
+which found the original Design's headline measurement and subtitle false: the
+record does state a limit, all three connectors report one, and the ceiling
+already has a consumer in `boundFromLimit`. The plan's central code reading —
+`refreshIntervalMs` takes one rate field and no ceiling — was correct and
+survives, which is why this was amended rather than rejected.
+
+**A likelier root cause is named and not adopted.** `plot-budget.sh:281-283`
+drops the limit whenever the newest line's basis is `unknown`, so the ceiling may
+never reach the op the board asks. If that is the whole defect it is a plumbing
+fix inside one script and this plan is unnecessary. **The reading that decides
+it** is `plot-host.sh spend-rate` on the repository whose board polls too hard.
