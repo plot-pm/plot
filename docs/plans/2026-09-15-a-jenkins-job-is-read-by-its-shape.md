@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-09-15, jwloka, in-session
+- **Delivered:** 2026-09-15
 
 ## Changelog
 
