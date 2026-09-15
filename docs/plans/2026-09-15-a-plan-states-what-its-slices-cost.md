@@ -141,7 +141,7 @@ fields routinely, so the destination is unbuilt rather than absent.
 
 ## Slices
 
-### A plan states what its slices cost (Branch: feature/a-plan-states-what-its-slices-cost)
+### A plan states what its slices cost (Branch: feature/a-plan-states-what-its-slices-cost, PR: #919)
 
 - `feature/a-plan-states-what-its-slices-cost` — sum each of the four counters across a plan's measured slices, report the `absent` and `unreadable` counts beside the total, and answer *no total* for a plan with nothing measured
 

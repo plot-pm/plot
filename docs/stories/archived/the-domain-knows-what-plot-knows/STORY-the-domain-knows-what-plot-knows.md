@@ -1,9 +1,10 @@
 ---
 title: The domain knows what Plot knows
 author: jwloka
-status: draft
+status: done
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-15
+archived: 2026-09-15
 ---
 
 # The domain knows what Plot knows

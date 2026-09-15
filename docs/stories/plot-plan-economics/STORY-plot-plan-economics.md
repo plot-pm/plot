@@ -1,9 +1,9 @@
 ---
 title: What a plan costs, and what the approval was worth
 author: jwloka
-status: draft
+status: active
 created: 2026-08-27
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # What a plan costs, and what the approval was worth

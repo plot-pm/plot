@@ -25,7 +25,11 @@ import { SprintStateSchema, StoryStatusSchema } from '../../src/contract/schema.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../../../..');
 
-/** The three the plan names, each carrying `status: archived` until this slice. */
+/**
+ * The three the plan names, each carrying `status: archived` until this slice.
+ *
+ * Resolved through {@link storyRel}, so an archived one is still found.
+ */
 const STORIES = [
   'plot-gates',
   'setup-asks-what-the-repo-already-knows',
@@ -35,8 +39,25 @@ const STORIES = [
 /** The one sprint, which carried `Phase: Planned`. */
 const SPRINT = 'docs/sprints/2026-W36-a-half-landed-workflow-says-so.md';
 
+/**
+ * Where a story lives, active or archived.
+ *
+ * ARCHIVING MOVES THE FILE, AND THAT IS A LIFECYCLE MOVE RATHER THAN A CHANGE
+ * TO WHAT THIS TEST ASSERTS. `setup-asks-what-the-repo-already-knows` was
+ * archived on 2026-09-15 and this file read its active path literally, so a
+ * legitimate archival broke a test about status parsing — the same failure its
+ * own comment below warns against for re-opening, one directory up.
+ *
+ * The assertions are unchanged; only the lookup follows the file.
+ */
+const storyRel = (slug: string): string => {
+  const active = path.join('docs/stories', slug, `STORY-${slug}.md`);
+  if (fs.existsSync(path.join(ROOT, active))) return active;
+  return path.join('docs/stories/archived', slug, `STORY-${slug}.md`);
+};
+
 const storyCard = (slug: string) => {
-  const rel = path.join('docs/stories', slug, `STORY-${slug}.md`);
+  const rel = storyRel(slug);
   const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   return parseStoryContent(content, slug, rel, '');
 };
@@ -64,8 +85,7 @@ describe('the three stories say a status the domain admits', () => {
     //
     // What must hold in both directions is that the two writes agree: `done`
     // carries an `archived:` date, and anything else carries none.
-    const rel = path.join('docs/stories', slug, `STORY-${slug}.md`);
-    const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const content = fs.readFileSync(path.join(ROOT, storyRel(slug)), 'utf8');
     const status = storyCard(slug)!.status;
     const archived = /^archived: \d{4}-\d{2}-\d{2}$/m.test(content);
     expect(archived).toBe(status === 'done');
