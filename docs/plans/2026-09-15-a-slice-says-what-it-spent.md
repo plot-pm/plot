@@ -10,6 +10,7 @@
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -69,18 +70,52 @@ works in one place.
 run is a second record. That keeps the number a measurement rather than a
 running total nobody can place in time.
 
-### Four counters, and the sum states which
+### Four counters, kept apart — and a naive total is FORBIDDEN
 
 `input_tokens`, `output_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` — the four a transcript carries, with the `model` per
-turn. The record keeps them **separate rather than pre-summed**: they price
-differently, the story's own narrowing says tokens are a derivation and francs
-are not, and a single number would force a price table to be invented later to
-take it apart again.
+turn. The record keeps them **separate rather than pre-summed**, and the reason
+is stronger than *they price differently*.
+
+**Measured 2026-09-15 over three real transcripts on this machine, cache reads
+are 98.6%, 99.3% and 99.6% of a naive four-counter total.** The largest session:
+
+```
+input_tokens                     86,922
+output_tokens                22,016,579
+cache_creation_input_tokens 117,015,335
+cache_read_input_tokens  21,479,234,105     ← 99.6% of the sum
+```
+
+**So adding the four together answers nothing.** The result is a cache-read
+count wearing a cost's name, and cache reads are the cheapest tokens there are —
+a slice that re-read a large context cheaply would outrank one that generated
+heavily. A single figure that a person can act on needs a **price-weighted**
+sum, which needs a price table, which the story excluded by measurement on
+2026-08-29 and which this plan does not add.
+
+**A reader wanting one number should be given none.** Four fields, named, and
+the plan says why a fifth summed field is not offered.
 
 **The model is recorded beside them** for the same reason: the same count on two
 models is two different costs, and a reader that has a price table needs to know
 which.
+
+### The scan is affordable exactly once, and never on a refresh
+
+**`readTranscriptFacts` is bounded to a 256 KiB tail on purpose** — *"a
+transcript grows without bound over a long run — six figures of tokens become
+megabytes of JSONL"* — and it walks backwards (`transcript.ts:184`) to find the
+last turn cheaply. A cost is the traversal that bound exists to prevent.
+
+**Measured: the largest transcript here is 387 MB, and a full four-counter sum
+over its 43,488 turns took 885 ms.** That is invisible once per slice at worker
+exit and unacceptable on a board refresh polled every few seconds.
+
+So the full scan happens **once, at the end of a run**, and the record is what
+every later reader consults. **The board must never re-derive it**, and the 256
+KiB bound on the existing reader stays exactly as it is — this plan adds a
+second, bounded-by-frequency path beside it rather than widening the first.
 
 ### What this plan does not do
 
@@ -102,7 +137,11 @@ them.
 - `feature/a-slice-says-what-it-spent` — sum the four token counters and record the model across a run's whole transcript, write the record when the worker finishes, and read it back per slice without re-deriving
 
 **Done when** a finished slice carries a record naming all four counters and the
-model; the sum is over **every** turn of the run rather than the last; a run with
+model; the sum is over **every** turn of the run rather than the last; **no
+summed fifth field is written**, and the plan's reason is carried into the code
+that would otherwise invite one; the full scan runs only at worker exit and the
+board reads the record rather than the transcript, pinned by a test that fails
+if a refresh path opens a `.jsonl`; a run with
 no readable transcript records nothing and says so rather than recording zero;
 `contextTokens` and `contextSpend` are unchanged and the board's panel still
 renders what it rendered before; a second run of the same slice writes a second
