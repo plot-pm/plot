@@ -399,3 +399,168 @@ test('probe: "signed in" alone never reads as ok', () => {
   const stub = stubClis({ jen: { stdout: 'Keycloak:      signed in' } });
   assert.notEqual(probe(r, { env: isolatedPath(stub) }).jen.auth, 'ok');
 });
+
+// --- the JOB PATH, which is a different question from reachability ---------
+//
+// #913: a `Jenkins instance` carrying the slug alone passed adoption as
+// verified, and the board it produced had no build state at all. Measured on
+// that instance with `pr-list --rich`: slug only returned NO ROWS, where
+// `<slug>/quaweb/continuous-build` returned 4 PRs all `checks: green`.
+//
+// The reading is a STRING TEST ON A CONFIG VALUE. Asking Jenkins cannot
+// distinguish the defect — measured live 2026-09-15, a slug-only value
+// resolves a NON-EMPTY job list (four entries, not zero), so the broken
+// configuration answers, and answers `ok`.
+
+/**
+ * A `jen` stub that RECORDS every invocation, for the no-network gate.
+ *
+ * `stubClis` writes stubs that answer and forget, which cannot tell "called
+ * and ignored" from "never called" — and a call that happens and is discarded
+ * still costs what the offline test was chosen to avoid. This appends one line
+ * per invocation to a file the test reads.
+ */
+function countingJen(stubDir, logPath) {
+  fs.writeFileSync(
+    path.join(stubDir, 'jen'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(logPath)}\nexit 0\n`,
+  );
+  fs.chmodSync(path.join(stubDir, 'jen'), 0o755);
+}
+
+/**
+ * Probe a repo whose config declares `instance`, returning the `jen` object.
+ *
+ * `extraEnv` is the environment DIRECTLY rather than nested under an `env`
+ * key: a destructured `{ env = {} } = {}` swallows an unknown key silently, so
+ * a caller passing `{ PLOT_JENKINS_JOB: … }` by mistake would have its input
+ * dropped and the probe asked a different question than the test names. Caught
+ * while writing these gates.
+ */
+function jenFor(instance, extraEnv = {}) {
+  const r = repoWith({}, {
+    config: `- **Plan directory:** docs/plans/\n- **Jenkins instance:** ${instance}\n`,
+  });
+  const stub = stubClis({ jen: { stdout: 'Jenkins auth:  reachable' } });
+  return probe(r, { env: { ...isolatedPath(stub), ...extraEnv } }).jen;
+}
+
+test('probe: a <slug>/<job path> instance reports its job path — the control', () => {
+  const jen = jenFor('apps/quaweb/continuous-build');
+  assert.equal(jen.job, 'quaweb/continuous-build');
+  assert.equal(jen.job_source, 'instance');
+});
+
+test('probe: a slug-only instance reports NO job path — the #913 defect', () => {
+  // The value adoption accepted as verified. It names the SERVER and no
+  // container, so Plot looks for branch jobs at the Jenkins root.
+  const jen = jenFor('apps');
+  assert.equal(jen.job, '');
+  assert.equal(jen.job_source, 'none');
+});
+
+test('probe: https://host/ reports NO job path — the defect wearing a URL', () => {
+  // THE CASE THE NAIVE `${value#*/}` ACCEPTS. Measured before the fix, it
+  // splits to '/jenkins.example.com/' — non-empty, so accepted, while being
+  // exactly the #913 defect. The bare-hostname case above is refused correctly
+  // BY ACCIDENT: hostnames have no slash.
+  const jen = jenFor('https://jenkins.example.com/');
+  assert.equal(jen.job, '');
+  assert.equal(jen.job_source, 'none');
+});
+
+test('probe: https://host/job/path yields a job path NOT carrying the host', () => {
+  // The other direction of the same bug: the naive split yields
+  // '/jenkins.example.com/quaweb/cb', gluing the authority onto the job path.
+  const jen = jenFor('https://jenkins.example.com/quaweb/continuous-build');
+  assert.equal(jen.job, 'quaweb/continuous-build');
+  assert.ok(!jen.job.includes('jenkins.example.com'), 'job path carries the host');
+});
+
+test('probe: http:// is stripped as well as https://', () => {
+  assert.equal(jenFor('http://jenkins.example.com/quaweb/cb').job, 'quaweb/cb');
+});
+
+test('probe: a slug-only instance WITH PLOT_JENKINS_JOB is accepted', () => {
+  // THE ONE CASE A PURE SHAPE TEST GETS WRONG. `plot-host.sh:3197` honours the
+  // override, so a caller holding the job path separately has a working
+  // configuration and must not be refused for it.
+  const jen = jenFor('apps', { PLOT_JENKINS_JOB: 'quaweb/continuous-build' });
+  assert.equal(jen.job, 'quaweb/continuous-build');
+  assert.equal(jen.job_source, 'override');
+});
+
+test('probe: PLOT_JENKINS_JOB overrides a job path the instance already names', () => {
+  const jen = jenFor('apps/from/instance', { PLOT_JENKINS_JOB: 'from/override' });
+  assert.equal(jen.job, 'from/override');
+  assert.equal(jen.job_source, 'override');
+});
+
+test('probe: a repo declaring no Jenkins at all still reads unknown', () => {
+  // Setup already refuses a MISSING key correctly, and must keep doing so: the
+  // defect is that a PRESENT BUT INCOMPLETE value scored better than an absent
+  // one. A refusal that fires on absence would be a new bug.
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubClis({ jen: { stdout: 'Jenkins auth:  reachable' } });
+  const jen = probe(r, { env: isolatedPath(stub) }).jen;
+  assert.equal(jen.instance, '');
+  assert.equal(jen.job, '');
+  assert.equal(jen.job_source, 'none');
+  assert.equal(jen.auth, 'unknown');
+});
+
+test('probe: the job-path reading answers with jen NOT installed', () => {
+  // It is a string test on a config value, so it sits OUTSIDE the
+  // `jen_installed` block. A machine holding the value and not the tool must
+  // still get the reading.
+  const r = repoWith({}, {
+    config: '- **Plan directory:** docs/plans/\n- **Jenkins instance:** apps/quaweb/cb\n',
+  });
+  const stub = stubClis({});
+  const jen = probe(r, { env: isolatedPath(stub) }).jen;
+  assert.equal(jen.installed, false);
+  assert.equal(jen.job, 'quaweb/cb');
+});
+
+test('probe: the job-path reading invokes jen ZERO times', () => {
+  // THE MECHANISM THE PLAN EXPLICITLY REJECTED. A slug-only value resolves a
+  // non-empty job list on the real #913 instance, so a live call cannot make
+  // the distinction — and would cost a network round trip in a stranger's repo.
+  //
+  // The instance is slug-only, so the `jen auth status` call at the top of the
+  // block is the ONLY invocation this may produce; asserting on the recorded
+  // arguments proves no job lookup joined it.
+  const r = repoWith({}, {
+    config: '- **Plan directory:** docs/plans/\n- **Jenkins instance:** apps\n',
+  });
+  const stub = stubClis({});
+  const log = path.join(stub, 'jen-calls.log');
+  countingJen(stub, log);
+
+  const jen = probe(r, { env: isolatedPath(stub) }).jen;
+  assert.equal(jen.job, '');
+
+  const calls = fs.existsSync(log)
+    ? fs.readFileSync(log, 'utf8').split('\n').filter((l) => l !== '')
+    : [];
+  assert.deepEqual(
+    calls.filter((c) => /\bjob\b|\bpr-list\b|\bbuild\b/.test(c)),
+    [],
+    'the job-path reading asked Jenkins',
+  );
+  assert.equal(calls.length, 1, `expected only the auth call, got: ${calls.join(' | ')}`);
+  assert.match(calls[0], /auth status/);
+});
+
+test('probe: a job path naming a container with no children is NOT flagged', () => {
+  // A fresh multibranch container is legitimate — it NAMES a job path, and the
+  // reading stops there. A check that went on to ask about contents would
+  // refuse a repo whose pipeline has simply not run yet.
+  const jen = jenFor('apps/brand-new-container');
+  assert.equal(jen.job, 'brand-new-container');
+  assert.equal(jen.job_source, 'instance');
+});
+
+test('probe: a trailing slash on a job path does not invent an empty segment', () => {
+  assert.equal(jenFor('apps/quaweb/cb/').job, 'quaweb/cb');
+});
