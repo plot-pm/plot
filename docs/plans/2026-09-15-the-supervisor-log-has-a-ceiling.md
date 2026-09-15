@@ -11,7 +11,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -75,7 +75,30 @@ paths every tick: `/private/tmp/plot-baseline` **2,539×**, `.worktrees/free-b20
 trees were twelve at their worst … so a looping daemon can name each one without
 ever writing a line nobody wants"* — and **7.1 MB falsifies that justification**.
 
-**So the plan fixes both, or it ships a ceiling that leaks.** Gating only the
+### A THIRD re-emitter, found by enumerating emitters rather than measuring output
+
+**`registryd-main.ts:205` contributes 0 bytes today and is unbounded tomorrow:**
+
+```ts
+warn(`plot-registryd: ${name} is not a manifest this parse understands — skipped\n`);
+```
+
+It sits inside `readRegistry`'s per-name loop, and `readRegistry` runs **every
+tick** (`:781`). **One line per unparseable manifest per tick, forever**, for as
+long as the file sits in the agent registry.
+
+**Measured: zero occurrences in the current log** — no manifest is unparseable
+today. That is exactly why two rounds of classifying the log missed it. **One
+malformed file in `.plot/agents/` makes it a permanent per-tick emitter.**
+
+**And it is proportional to the REGISTRY, not the estate**, so the gate below had
+to change: *"grow the held-branch count"* could never fire on it.
+
+**The daemon has seven emitters**, enumerated from every `write(`/`warn(` site.
+Three re-emit per tick in proportion to something that grows; the other four are
+bounded by agents, assignments or nothing at all and stay exactly as they are.
+
+**So the plan fixes all three, or it ships a ceiling that leaks.** Gating only the
 held block drops the log to ~9.5 MB and leaves the second source re-emitting nine
 scratchpad paths a minute under a comment promising it does not.
 
@@ -127,8 +150,12 @@ bundling them would put a log fix and a process-control fix in one slice.
 - `infra/the-supervisor-log-has-a-ceiling` — have the looping daemon print the counted tick summary without the per-branch lists, leaving `--once`'s output unchanged
 
 **Done when** a looping tick's output is **bounded rather than proportional to
-the estate**, pinned by a test that grows the held-branch count and asserts the
-line count does not follow; **`unclaimedLines` is bounded by the same rule**,
+ANY input that grows**, pinned by three tests that each grow one input — the
+held-branch count, the undispatched-worktree count, and **the number of
+unparseable manifests in the agent registry** — and assert the line count does
+not follow; that third gate is the one a *"grow the estate"* test could never
+fire, since `registryd-main.ts:205` is proportional to the registry and
+contributes zero bytes today; **`unclaimedLines` is bounded by the same rule**,
 pinned separately — it is 10.26% of the bytes and an earlier draft missed it, so
 gating only the held block ships a ceiling that leaks; **the four queue-level
 hold classes still name their branches**, pinned explicitly, because they are
@@ -150,6 +177,12 @@ had grown another 5 MB.
 **The ticket's second half is deliberately out of scope.** *"`--stop` cannot
 reach a detached supervisor"* is a process-control defect; I hit it today, and it
 deserves its own plan rather than a ride on a log fix.
+
+**Amended twice. Round 2 classified every line with no residual bucket** — six
+classes, the whole 69.6 MB file — and then enumerated the daemon's **seven
+emitters** rather than only what appeared in the log. That found a third:
+`registryd-main.ts:205`, silent today and unbounded the moment one manifest fails
+to parse. Measuring output could not have found it; enumerating emitters did.
 
 **Amended 2026-09-15 after a two-lens panel**
 (`.plot/panels/2026-09-15-the-supervisor-log-has-a-ceiling/`), unanimous `amend`.
