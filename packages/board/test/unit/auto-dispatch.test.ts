@@ -25,7 +25,7 @@ import {
   inFlightPath,
   IN_FLIGHT_TTL_MS,
 } from '../../src/server/in-flight-store.js';
-import { measureMachine, type Machine as MachineEntity } from '@plot-pm/domain';
+import { measureMachine, ceilingFor, HEADROOM_THRESHOLDS, type Machine as MachineEntity } from '@plot-pm/domain';
 import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
@@ -1048,6 +1048,9 @@ describe('planAutoDispatch — a starved machine defers', () => {
     // THE ASYMMETRY THAT MATTERS. `hasRoomToDispatch` is false at 25 ms, but
     // `tight` is fit to work on. Gating on `!hasRoomToDispatch` would stop the
     // fleet on every tight reading — which is most of a working day.
+    //
+    // It dispatches, AND it is bounded: `tight` is not a deferral and not a free
+    // hand either. The band ceiling is what makes the second half true.
     const plans = planAutoDispatch({
       controls: controls(true, 5),
       pulse: workToDo(),
@@ -1056,7 +1059,8 @@ describe('planAutoDispatch — a starved machine defers', () => {
       missingBriefs: new Set(),
       machine: reading(25),
     });
-    expect(total(plans)).toBe(3);
+    expect(total(plans)).toBeGreaterThan(0);
+    expect(total(plans)).toBe(ceilingFor('tight'));
   });
 
   it('dispatches on an unmeasured reading — silence is never a refusal', () => {
@@ -1091,6 +1095,12 @@ describe('planAutoDispatch — a starved machine defers', () => {
     // `DESIGN-machine.md` §10: the three forbidden actions each take something
     // from the operator permanently, and "not yet" takes nothing away. Without
     // this the gate would be the veto §7 forbids.
+    //
+    // ONE, NOT THREE, and the override is still honoured. It stands down the
+    // DEFERRAL — the fleet starts where it would have started nothing — and the
+    // band ceiling then bounds the pass at the rate a starved machine bears.
+    // This is the only route by which `STARVED_CEILING` is reachable from the
+    // board: a plain starved reading returns before the budget is computed.
     const plans = planAutoDispatch({
       controls: controls(true, 5, true),
       pulse: workToDo(),
@@ -1099,7 +1109,9 @@ describe('planAutoDispatch — a starved machine defers', () => {
       missingBriefs: new Set(),
       machine: reading(287),
     });
-    expect(total(plans)).toBe(3);
+    expect(total(plans)).toBe(ceilingFor('starved'));
+    // Still a dispatch, which is what "now anyway" bought.
+    expect(total(plans)).toBeGreaterThan(0);
   });
 
   it('defers before the free-agent fall-through, not after it', () => {
@@ -1120,6 +1132,181 @@ describe('planAutoDispatch — a starved machine defers', () => {
       machine: reading(287),
     });
     expect(plans).toEqual([]);
+  });
+});
+
+// bug/the-board-loop-reads-the-same-ceiling. Two callers dispatch agents on this
+// estate against ONE machine reading, and only one acted on it: `plot-registryd`
+// decides once a minute and applies `ceilingFor(headroom)`; this loop decided
+// twelve times a minute and applied no band-aware bound at all.
+//
+// The load-bearing property is that the bound ONLY EVER LOWERS, and that it
+// lowers on both budget paths. `clear` and `unmeasured` answer `Infinity`, so a
+// healthy or unsampled machine must come out byte-identical to before — that is
+// the gate proving no healthy machine is slowed.
+describe('planAutoDispatch — the machine bounds the pass', () => {
+  it('bounds a tight pass to the tight ceiling, read from the rule', () => {
+    // Five slots free and three branches startable: nothing but the machine
+    // reading can explain an answer below three. The number is READ from
+    // `ceilingFor`, never written, so changing `TIGHT_CEILING` cannot leave this
+    // asserting a stale 2.
+    const plans = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(25),
+    });
+    expect(total(plans)).toBe(ceilingFor('tight'));
+  });
+
+  it('leaves a CLEAR reading byte-identical to no reading at all', () => {
+    // THE GATE THAT PROVES NO HEALTHY MACHINE IS SLOWED. `ceilingFor('clear')`
+    // is `Infinity`, so `min` must be a no-op — an implementation that coerced
+    // it to any finite cap would pass every band test above and fail here.
+    const args = {
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set<string>(),
+      missingBriefs: new Set<string>(),
+    };
+    const clear = planAutoDispatch({ ...args, machine: reading(4.8) });
+    const unasked = planAutoDispatch(args);
+    expect(clear).toEqual(unasked);
+    expect(total(clear)).toBe(3);
+  });
+
+  it('leaves an UNMEASURED reading byte-identical to no reading at all', () => {
+    // Absent is not starved, and an unmeasured machine is not a vetoing one.
+    const args = {
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set<string>(),
+      missingBriefs: new Set<string>(),
+    };
+    const unmeasured = planAutoDispatch({ ...args, machine: reading(null) });
+    expect(unmeasured).toEqual(planAutoDispatch(args));
+    expect(total(unmeasured)).toBe(3);
+  });
+
+  it('answers Infinity for clear and unmeasured alike, at the rule', () => {
+    // The property the two tests above depend on, asserted where it lives.
+    expect(ceilingFor('clear')).toBe(Number.POSITIVE_INFINITY);
+    expect(ceilingFor('unmeasured')).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('bounds the FREE-AGENT FALL-THROUGH too, not just the first budget', () => {
+    // THERE ARE TWO BUDGET ASSIGNMENTS. When the slot budget is spent, `:493`
+    // REPLACES it with the free-agent count — the deliberate fall-through that
+    // lets the fleet reuse a slot it already holds. A bound applied only to the
+    // first leaves this path unbounded, and it is reached exactly when the fleet
+    // is at its cap, which is when a tight machine most needs bounding.
+    //
+    // Three RUNNING agents whose branches have all merged — "occupied and free
+    // at once", the shape `freeAgentCount` exists for: each holds a slot the cap
+    // counts, and each can take the next slice right now. The fall-through
+    // offers 3 and the tight reading must cut it to the ceiling.
+    const agents = [
+      agent('feature/x', 'running'),
+      agent('feature/y', 'running'),
+      agent('feature/z', 'running'),
+    ];
+    const p = pulse([['2026-08-30-m.md', 'approved', [
+      slice('W', 'eligible', [
+        ['feature/x', 'merged'], ['feature/y', 'merged'], ['feature/z', 'merged'],
+        ['feature/a', 'open'], ['feature/b', 'open'], ['feature/c', 'open'],
+      ]),
+    ]]]);
+    const args = {
+      controls: controls(true, 3),
+      pulse: p,
+      // At the cap: the first budget is 3 - 3 = 0, so the fall-through runs.
+      liveCount: 3,
+      agents,
+      inFlight: new Set<string>(),
+      missingBriefs: new Set<string>(),
+    };
+    // Unbounded, the fall-through offers every free agent.
+    expect(freeAgentCount(agents, p)).toBe(3);
+    expect(total(planAutoDispatch(args))).toBe(3);
+    // A tight machine cuts the same path to the ceiling.
+    const tight = planAutoDispatch({ ...args, machine: reading(25) });
+    expect(total(tight)).toBe(ceilingFor('tight'));
+  });
+
+  it('never RAISES a budget, whatever the reading says', () => {
+    // `min` can only lower. Adding the ceiling instead of taking the minimum
+    // would re-invert bug/a-landed-branch-still-holds-a-slot (2026-08-25), which
+    // the board's own comment at `:492` forbids. One slot free, a tight ceiling
+    // of 2 above it: the answer is the budget, not the ceiling.
+    const p = pulse([['2026-08-30-m.md', 'approved', [
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 3),
+      pulse: p,
+      liveCount: 2,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(25),
+    });
+    expect(total(plans)).toBe(1);
+    expect(total(plans)).toBeLessThan(ceilingFor('tight'));
+  });
+
+  it('still dispatches ZERO on a plain starved reading', () => {
+    // The deferral outranks the ceiling and runs first, so `STARVED_CEILING = 1`
+    // is not reached here. Pinned because a ceiling of one could otherwise be
+    // mistaken for the board having started to dispatch on starved readings.
+    const plans = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(287),
+    });
+    expect(plans).toEqual([]);
+  });
+
+  it('permits ONE on starved at the rule, never zero', () => {
+    // `fleet-size.ts:78-89`: a starved machine that starts nothing is a fleet
+    // that can never recover on its own. Asserted at the rule, where it IS
+    // reachable, so an implementation treating starved as a veto is caught.
+    expect(ceilingFor('starved')).toBe(1);
+    expect(ceilingFor('starved')).toBeGreaterThan(0);
+  });
+
+  it('holds NO CROSS-PASS STATE — two identical passes answer identically', () => {
+    // The rejected sibling `the-tight-band-remembers-what-it-started` proposed a
+    // ratchet: a tight reading forbidding the next dispatch until `clear`. It was
+    // rejected because `clear` was observed zero times in 102 readings, so the
+    // reset never fired and the board would have stopped permanently. Two
+    // identical passes with no dispatch between them must answer identically.
+    const args = {
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set<string>(),
+      missingBriefs: new Set<string>(),
+      machine: reading(25),
+    };
+    const first = planAutoDispatch(args);
+    const second = planAutoDispatch(args);
+    const third = planAutoDispatch(args);
+    expect(second).toEqual(first);
+    expect(third).toEqual(first);
+    expect(total(third)).toBe(ceilingFor('tight'));
+  });
+
+  it('leaves HEADROOM_THRESHOLDS where it found them', () => {
+    // A drive-by tune moves two things at once: re-measuring these is a separate
+    // plan, and they are marked provisional precisely so nobody adjusts them to
+    // make a band test pass.
+    expect(HEADROOM_THRESHOLDS).toEqual({ clearBelowMs: 10, starvedAboveMs: 50 });
   });
 });
 

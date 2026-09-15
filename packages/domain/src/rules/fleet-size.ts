@@ -159,10 +159,13 @@ export const fleetSize = (readings: FleetSizeReadings): FleetSize => {
 /**
  * The most agents one start may bring up at this headroom.
  *
+ * Read by every caller that decides how many agents to bring up at once, so the
+ * band a reading falls in has one answer rather than one per spawner.
+ *
  * @param headroom - what the machine reading came to.
  * @returns the ceiling; `Infinity` where the machine does not bound it.
  */
-const ceilingFor = (headroom: Headroom): number => {
+export const ceilingFor = (headroom: Headroom): number => {
   if (headroom === 'starved') return STARVED_CEILING;
   if (headroom === 'tight') return TIGHT_CEILING;
   // `clear` and `unmeasured` alike: the machine is not vetoing, so the request
