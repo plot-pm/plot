@@ -716,8 +716,41 @@ EOF
 #   failed  — Jenkins is unreachable (`jen auth status` says so, while EXITING
 #             0 — Done-when 4: the wording decides, never `$?`), or the listing
 #             was empty/garbled. `map` is {}; the caller renders rows `unknown`.
-#   unknown — the auth wording was unrecognised; degrade to failure-shaped
-#             (cannot verify), never to ok. `map` is {}.
+#   unknown — the auth wording was unrecognised, or the configured job is a
+#             SHAPE NOBODY MEASURED; degrade to failure-shaped (cannot verify),
+#             never to ok. `map` is {}.
+#
+# THE JOB'S SHAPE DECIDES THE VERB, and reading the shape off the wrong object
+# is the defect this function carried until 2026-09-15.
+#
+# `job list` enumerates a CONTAINER'S CHILDREN. A `WorkflowMultiBranchProject`
+# has one child per branch, so listing it yields exactly the branch→colour map
+# below. A plain `WorkflowJob` has no children, so the same call yields `null` —
+# not an error, not an empty array — and the `type=="array"` guard reported
+# `failed`, which is the word for an unreachable host. Measured live 2026-09-15
+# on `Quatico.Webseite/quaweb-website`: `job list quaweb/continuous-deploy`
+# answered `null` while `job view` on the same path answered `color blue`,
+# `lastBuild #938 SUCCESS`. A healthy, signed-in, correctly declared pipeline
+# read as *the connector cannot be asked*.
+#
+# THE DECIDING `_class` IS THE CONFIGURED JOB'S OWN, AND IT IS NOT IN THE
+# LISTING THIS FUNCTION ALREADY PERFORMS. A child's `_class` describes the
+# CHILD: measured live, every child of the multibranch `quaweb/continuous-build`
+# carries `...job.WorkflowJob`, and this repository's own fixture agrees. So
+# reading `.[0]._class` from the listing would read a healthy multibranch job as
+# plain, route it to `job view`, and break the half that works today — while
+# every gate still passed. That mistake sank an earlier draft of the plan.
+#
+# SO `job view` IS ASKED FIRST, and it answers BOTH questions in ONE call: the
+# job's own `_class`, and — for a plain job — the `color` and `lastBuild` that
+# are its state. The multibranch path then makes the single `job list` it has
+# always made, so a multibranch refresh costs two calls rather than one per
+# branch, and the branch→checks map it returns is byte-identical.
+#
+# EXACTLY TWO SHAPES ARE READ, and anything else is `unknown` rather than a
+# guess. A `FreeStyleProject` has a `color` and would be readable; it still
+# reports `unknown`, which is the honest word — *a shape nobody measured*. It is
+# deliberately NOT `failed`, which claims the host did not answer.
 jenkins_build_map() {
   local instance="$1"
   local slug job
@@ -750,6 +783,67 @@ jenkins_build_map() {
   if ! printf '%s' "$auth_out" | grep -qiE 'jenkins auth:[[:space:]]*(ok|reachable)'; then
     printf '{"status":"unknown","map":{}}\n'; return 0
   fi
+
+  # THE SHAPE, READ FROM THE CONFIGURED JOB ITSELF. `job view` returns that
+  # job's own `_class` — never a child's — plus the `color` and `lastBuild` a
+  # plain job's state is made of. One call, two answers.
+  #
+  # A BARE-HOST INSTANCE NAMES NO JOB, so there is nothing to view: `job` is
+  # empty, the root scope has no `_class` of its own, and the multibranch path
+  # below already handles it by listing at the root. Probing with an empty path
+  # would ask about the instance rather than about a job.
+  local shape="" view_out=""
+  if [ -n "$job" ]; then
+    view_out=$(jen -I "$slug" job view "$job" --json 2>&1) || true
+    if [ -n "$view_out" ]; then
+      shape=$(printf '%s' "$view_out" | jq -r 'if type=="object" then (._class // "") else "" end' 2>/dev/null || echo "")
+    fi
+  fi
+
+  case "$shape" in
+    # A PLAIN PIPELINE — the case that reported `failed` until 2026-09-15. Its
+    # state is already in hand: `job view` answered it, and no `job list`
+    # follows, because listing a job with no children is what returned `null`.
+    #
+    # THE BRANCH KEY IS THE JOB PATH'S LAST SEGMENT. A plain job builds one
+    # thing and Jenkins names no branch for it, so there is no branch→colour
+    # map to build. Keying on the job's own name is what lets `.map[$branch]`
+    # find it — `runs` reads that key, and the op's caller asks by the name the
+    # instance declares.
+    *'.WorkflowJob')
+      printf '%s' "$view_out" | jq -c --arg job "$job" '
+        def color_to_checks:
+          if . == null or . == "" then "none"
+          elif endswith("_anime") then "pending"
+          elif . == "blue" then "green"
+          elif . == "red" or . == "yellow" then "failing"
+          else "none"
+          end;
+        ($job | split("/") | last) as $name
+        | { status: "ok",
+            map: { ($name): { color: .color,
+                              checks: (.color | color_to_checks),
+                              job: $job } } }
+      ' 2>/dev/null || printf '{"status":"failed","map":{}}\n'
+      return 0
+      ;;
+    *'.WorkflowMultiBranchProject')
+      : # fall through to the listing below — the path that has always worked
+      ;;
+    '')
+      # `job view` answered nothing usable. NOT a shape verdict: an instance
+      # naming no job reaches here by design, and so does a `jen` too old to
+      # know the verb. Fall through and let the listing decide, which is
+      # exactly what this function did before the probe existed.
+      :
+      ;;
+    *)
+      # A SHAPE NOBODY MEASURED. `unknown` says that; `failed` would claim
+      # Jenkins did not answer, when it answered clearly and said something
+      # this reader has never been taught to read.
+      printf '{"status":"unknown","map":{}}\n'; return 0
+      ;;
+  esac
 
   # One call, every branch — the spike's whole point (Done-when 5).
   local out=""
