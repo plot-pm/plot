@@ -11,7 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -92,6 +92,38 @@ Measured on main, `## Branches` appears **62 times outside the nine skills**:
 | Docs and history | `MANIFESTO.md`, `changelog.md`, READMEs | **no** |
 | Test fixtures | 205 occurrences across 45 contract tests | **no** |
 
+### The unit is the SENTENCE, not the file — and six files sat in neither list
+
+**An earlier draft exempted "the READMEs" as a file type. That cannot be meant.**
+`plot-reslice/README.md:57` reads *"the same `## Branches` / `## Waves` shapes
+`plot-plan-meta.sh` already parses"* and **must keep both words to stay true** —
+while three lines in the same file should change. **A file-level exemption says
+the same sentence is drift in `SKILL.md` and correct in `README.md`.**
+
+**So each occurrence is classified by what the sentence DOES:**
+
+| The sentence… | Action |
+|---|---|
+| tells a reader what to write, or shows a plan to copy | **change** |
+| states what the parser accepts, or records history | **keep** |
+
+**`intro-to-using-plot.md:88-95` is the second copy-me source and was unnamed.**
+It is a fenced `markdown` block headed `## Branches`, introduced by *"Group your
+branches under `### ` subheadings"*. **A reader following the intro writes a plan
+CI refuses** — the identical defect this plan calls the highest-value target in
+the template, in the document a newcomer reads first.
+
+### Two tolerant instructions must NOT become strict
+
+`plot-deliver/SKILL.md:113` and `ralph-plot-sprint/SKILL.md:117` say *"any
+heading containing the word 'Branches'"* and *"matches `## Branches`,
+`## Implementation Branches`, `### Implementation Branches`"*.
+
+**A literal find-and-replace turns those into "the word 'Slices'" — narrowing a
+tolerant instruction to a strict one, against an estate this plan swears keeps
+reading all three spellings.** It would pass a named-file gate silently. **These
+two gain `## Slices` alongside what they already match; they lose nothing.**
+
 **A blanket `grep → 0` gate would falsify the parser's own measurements.**
 `plot-plan-meta.sh:778` records *"renaming its `## Branches` to `## Slices` took
 it from 6 branches to 0"* — a sentence that must keep the word to stay true — and
@@ -113,9 +145,17 @@ defect `CLAUDE.md` names, with its own plan.
 
 - `docs/the-skills-say-slices` — replace `## Branches` with `## Slices` across the nine skills that teach it, and say once where a reader can learn why a Slice is not a Wave
 
-**Done when** the nine `SKILL.md` files say `## Slices` and **the shipped
-template `skills/plot/templates/plan.md:40` says `## Slices`**, pinned by a test
-naming those files explicitly rather than by a repository-wide grep; **script
+**Done when** the nine `SKILL.md` files, **the shipped template
+`skills/plot/templates/plan.md:40`**, **`skills/plot/intro-to-using-plot.md:88`**
+— the second copy-me example — and the instruction lines in
+`tracer-bullets/README.md:28`, `plot-pulse/README.md:56` and
+`plot-reslice/README.md` teach `## Slices`, pinned by a test naming each file
+explicitly rather than by a repository-wide grep; **`plot-reslice/README.md:57`
+keeps BOTH words**, pinned by name, since it states what the parser accepts and a
+file-level rule would break it; **`plot-deliver/SKILL.md:113` and
+`ralph-plot-sprint/SKILL.md:117` stay TOLERANT** — gaining `## Slices` alongside
+what they already match rather than replacing it — pinned explicitly, because a
+literal replacement narrows them to strict and passes a naive gate silently; **script
 comments, `MANIFESTO.md`, `changelog.md`, the READMEs and all 205 test-fixture
 occurrences are UNCHANGED**, pinned by asserting their count is exactly what it
 is today — a blanket gate would falsify `plot-plan-meta.sh:778`'s own measurement
@@ -128,6 +168,12 @@ parser's full output before and after; the Slice/Wave distinction is stated
 ## Notes
 
 **Filed as #914 with the counts**, verified here before drafting.
+
+**Amended twice. Round 2 found the boundary still wrong in two ways**: six files
+under `skills/` sat in neither list, including `intro-to-using-plot.md`'s
+copy-me example, and the exemption unit was the FILE where the real unit is the
+SENTENCE. It also found the literal-execution hazard — two tolerant instructions
+that a find-and-replace would silently narrow to strict while passing the gate.
 
 **Amended 2026-09-15 after a two-lens panel**
 (`.plot/panels/2026-09-15-the-skills-say-slices/`), unanimous `amend`. The

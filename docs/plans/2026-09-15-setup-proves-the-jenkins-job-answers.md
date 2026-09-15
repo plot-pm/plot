@@ -11,7 +11,7 @@
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -89,6 +89,39 @@ children** is a fresh container — benign, and a different sentence.
 **Those are two findings with two next actions**, which is what the Open Question
 asked for and what asking the instance could never give.
 
+### The split is on the JOB PATH, not on a slash — and a URL form breaks a naive test
+
+**`${value#*/}` is the wrong test, and `plot-host.sh:3197` carries the same latent
+bug.** The estate accepts a URL form (`plot-host.sh:616` matches `https://*`), and
+measured:
+
+```
+jenkins.example.com                   → job=''                              refuse  ✓
+jenkins.example.com/quaweb/cb         → job='quaweb/cb'                     accept  ✓
+https://jenkins.example.com/          → job='/jenkins.example.com/'         ACCEPT  ✗
+https://jenkins.example.com/quaweb/cb → job='/jenkins.example.com/quaweb/cb' host glued on ✗
+```
+
+**A URL with no job path is ACCEPTED while being exactly the #913 defect**, and a
+URL with one produces a path carrying the host. **The bare-hostname case is
+refused correctly by accident** — hostnames have no slash.
+
+**So the check strips the scheme and authority before splitting.** In
+`plot-host.sh` this bug is confined to one op that exits 4; **promoting it into a
+refusal that blocks adoption widens the blast radius**, which is why this plan
+fixes the test rather than copying it.
+
+### The rule lands in a script, not in skill prose
+
+**A rule written only in `SKILL.md` is unenforceable** — four of the gates below
+can only be tested if the check executes somewhere a test can call it. The
+existing probe `plot-board-probe.sh` already reports `jen_auth` and is the
+established home for a reading adoption consults, so the job-path reading joins
+it and the skill acts on what the probe reports.
+
+**That is this estate's own split** — *scripts collect and report, skills
+interpret and adapt* — and it is what makes the gates real rather than described.
+
 ### Refuse the key, do not record it with a note
 
 **The skill's own precedent settles the severity**, and an earlier draft invented
@@ -128,8 +161,13 @@ territory, delivered today, and setup asks about the job it is given.
 
 - `bug/setup-proves-the-jenkins-job-answers` — have `/plot-board-setup` resolve branch jobs from the declared instance value and report what came back, instead of reporting green on reachability alone
 
-**Done when** a `Jenkins instance` naming **no job path** and carrying no
-`PLOT_JENKINS_JOB` is **refused** rather than recorded, in the shape
+**Done when** the job-path reading is emitted by **`plot-board-probe.sh`** rather
+than described in skill prose, so every gate below is executable — pinned by a
+test calling the probe directly; **a URL-form instance is split correctly**,
+pinned across all four measured forms: `host` refused, `host/job/path` accepted,
+`https://host/` **refused** and `https://host/job/path` accepted with a job path
+that does **not** carry the host; a `Jenkins instance` naming **no job path** and
+carrying no `PLOT_JENKINS_JOB` is **refused** rather than recorded, in the shape
 `SKILL.md:275-281` already uses for a guessed slug, pinned by a test; **a
 slug-only value WITH `PLOT_JENKINS_JOB` set is accepted**, pinned explicitly,
 since the override makes it legitimate and this is the one case a shape test
@@ -142,6 +180,12 @@ container with no children is NOT flagged**, pinned by a fixture, since it names
 a job path and is legitimate; the refusal sentence names `<slug>/<job/path>` and
 what to check, following `plot-host.sh:3200-3203`; **no new config key**; and
 `pnpm run test:contracts` passes.
+
+**Amended twice. Round 2 confirmed the mechanism is fixed** — *"This gate pins a
+behaviour the estate produces on the exact #913 value, and I fired it"* — and
+found two things the first amendment missed: the URL form breaking the split in
+both directions, and the rule having no stated home, which left four of nine
+gates unenforceable.
 
 **Nothing is verified separately any more.** An earlier draft deferred its
 central check to a live instance; the job-path test is a string test on a config
