@@ -1,6 +1,6 @@
-# Setup proves the Jenkins job answers
+# Setup refuses a Jenkins instance that names no job
 
-> Adoption accepts a Jenkins instance without its job path and reports the configuration healthy, so the board shows `checks: unknown` for every PR while setup has already said everything checked out.
+> Adoption records a Jenkins instance that names no job path and calls it verified — scoring a half value strictly better than a missing one, which setup already refuses.
 
 ## Status
 
@@ -11,6 +11,7 @@
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -48,25 +49,65 @@ that anything was found inside it.
 **So the two questions are: can I reach Jenkins, and does this value name a job
 that answers for a branch?** Setup asked the first and reported on the second.
 
-### The proof is one call, and the estate already makes it
+### Asking the instance does NOT distinguish the defect, and an earlier draft got this wrong
 
-`jenkins_build_map` resolves branch jobs from the configured value. **A setup
-that runs the same resolution and finds zero branch jobs has its answer** — not
-from a shape check on the string, but from asking.
+**This plan first proposed resolving branch jobs and reporting zero.** Measured
+live 2026-09-15 against the instance in #913, a slug-only value resolves a
+**non-empty** list:
 
-**A shape check is explicitly not the fix.** `PLOT_JENKINS_JOB` overrides the
-path separately (`plot-host.sh:708`), so a slug-only value is legitimate where
-that variable is set. **Refusing a value by its shape would refuse a working
-configuration**; asking whether it answers cannot.
+```
+jen -I <slug> job list --json
+  → demos (Folder), quaweb (Folder), set-image-name (WorkflowJob), webbloqs-website (Folder)
+```
 
-### An empty answer is reported, never refused
+**Four entries, not zero.** The broken configuration *answers*, and answers `ok`.
+So a gate pinning *"resolves zero branch jobs"* pins a behaviour this estate
+never produces — greenable only by stubbing an empty array, which is **a Jenkins
+with no jobs at all**, the case this plan calls legitimate. The fixture would
+prove the check works on a case that was never broken.
 
-**A repository may declare Jenkins before any branch job exists** — a fresh
-multibranch container has no children until its first scan. So zero branch jobs
-is **reported with what it means and what to check**, and adoption continues.
+### The distinguishing test is the JOB PATH, and the estate already has it
 
-**What must not happen is silence.** The defect is not that setup accepted the
-value; it is that setup called it verified.
+`plot-host.sh:3197-3205` separates the two zero-cases exactly, and does it
+**offline**:
+
+```sh
+[ -n "${PLOT_JENKINS_JOB:-}" ] && _jen_job="$PLOT_JENKINS_JOB"
+if [ -z "$_jen_job" ]; then
+  echo "plot-host: run-for-sha — the Jenkins instance names no job path" >&2
+  echo "  A sha is a fact about a job's builds, so the instance must be" >&2
+  echo "  <slug>/<job/path> rather than a bare host." >&2
+  exit 4
+fi
+```
+
+**The value names no job** is a config defect — actionable, checkable without a
+network call, and it honours `PLOT_JENKINS_JOB`, so a legitimate slug-only value
+with the override set is **not** refused. **The value names a job with no
+children** is a fresh container — benign, and a different sentence.
+
+**Those are two findings with two next actions**, which is what the Open Question
+asked for and what asking the instance could never give.
+
+### Refuse the key, do not record it with a note
+
+**The skill's own precedent settles the severity**, and an earlier draft invented
+a new one. `SKILL.md:275-281`, on this very key:
+
+> *"A wrong instance is worse than an absent one — `jen -I <bogus> auth status`
+> prints `Keycloak: signed in` and exits 0, so a guessed slug buys a green light
+> that verifies nothing. Write no `Jenkins instance` key."*
+
+**And the failure is already narrower than "setup reports green".** `jen_auth`
+returns `unknown` when **no** instance resolves, and step 4a maps that to *cannot
+verify*. So setup already refuses a **missing** key — the defect is that a
+**present but incomplete** value reads `ok` while a wholly absent one reads
+`unknown`. **A partial value scores strictly better than no value**, which is the
+worse of the two failures.
+
+**So a value naming no job path and carrying no override is refused the way a
+guessed slug is**, rather than recorded with a finding. A finding an adopter must
+never act on trains them to skip the run where it is real.
 
 ### What this does not do
 
@@ -81,39 +122,47 @@ adoption check is missing.
 [`a-jenkins-job-is-read-by-its-shape`](2026-09-15-a-jenkins-job-is-read-by-its-shape.md)'s
 territory, delivered today, and setup asks about the job it is given.
 
-## Open Questions
-
-- [ ] **Does a zero-branch-job answer belong in the summary or as a question?**
-  Reporting it is settled; whether adoption pauses on it is a judgement about
-  how much a fresh container should interrupt. **Does not block:** either way
-  the finding is stated.
-
 ## Slices
 
 ### Setup proves the Jenkins job answers (Branch: bug/setup-proves-the-jenkins-job-answers)
 
 - `bug/setup-proves-the-jenkins-job-answers` — have `/plot-board-setup` resolve branch jobs from the declared instance value and report what came back, instead of reporting green on reachability alone
 
-**Done when** a slug-only value against a real multibranch container resolves
-**zero branch jobs and setup says so**, pinned by a fixture carrying the measured
-empty answer; a `<slug>/<job path>` value resolving branch jobs reports them and
-stays green, pinned by the measured four-PR answer; **a slug-only value with
-`PLOT_JENKINS_JOB` set is NOT refused**, pinned explicitly, since the override
-makes it legitimate and a shape check would break it; **zero branch jobs is
-reported and adoption continues**, pinned explicitly, because a fresh container
-legitimately has none; a repository declaring no Jenkins at all is **unaffected**,
-pinned by a test; the check adds **no new config key**; and
+**Done when** a `Jenkins instance` naming **no job path** and carrying no
+`PLOT_JENKINS_JOB` is **refused** rather than recorded, in the shape
+`SKILL.md:275-281` already uses for a guessed slug, pinned by a test; **a
+slug-only value WITH `PLOT_JENKINS_JOB` set is accepted**, pinned explicitly,
+since the override makes it legitimate and this is the one case a shape test
+could get wrong; a `<slug>/<job path>` value is accepted unchanged, pinned; **the
+check makes no network call**, pinned by asserting `jen` is invoked zero times —
+the distinction is in the value, and a live call cannot make it; a repository
+declaring **no Jenkins at all** still reads `unknown` exactly as today, pinned,
+because setup already refuses that case correctly; **a fresh multibranch
+container with no children is NOT flagged**, pinned by a fixture, since it names
+a job path and is legitimate; the refusal sentence names `<slug>/<job/path>` and
+what to check, following `plot-host.sh:3200-3203`; **no new config key**; and
 `pnpm run test:contracts` passes.
 
-**Verified separately on an instance declaring `CI: jenkins`**: setup reports the
-job path missing before the board is ever started. That cannot be checked in this
-repository, which declares `CI: github-actions`, and is not in the slice's gates —
-the fixtures carry the measured payloads instead.
+**Nothing is verified separately any more.** An earlier draft deferred its
+central check to a live instance; the job-path test is a string test on a config
+value, so **every gate above runs in this repository** with no Jenkins and no
+fixture anybody cannot regenerate.
 
 ## Notes
 
 **Filed as #913 from a live adoption.** The config carried the slug alone, setup
 reported healthy, and the board showed no build state for any PR.
+
+**Amended 2026-09-15 after a three-lens panel**
+(`.plot/panels/2026-09-15-setup-proves-the-jenkins-job-answers/panel.md`),
+unanimous `amend`. **The premise was confirmed independently** — a grep for
+`job path|branch job|job list|jenkins_build_map|pr-list` over the 498-line setup
+skill returns **zero**, so setup has no concept of the job path at all.
+
+**The mechanism was wrong and the panel measured it.** A slug-only value resolves
+a non-empty list, so the zero-branch-jobs gate pinned a behaviour the estate
+never produces. The job-path test replaces it: offline, override-aware, and it
+distinguishes the two zero-cases the Open Question could not.
 
 **This is the ticket behind the blank Jenkins board**, and it is a different
 defect from the reader that
