@@ -89,3 +89,72 @@ The plan's strongest gate — *"asked exactly once per refresh, pinned by counti
 4. **Re-scope to PR rows targeting main**, or write the default-branch row as its own plan first. Decide which; they are different sizes.
 5. **Re-count the call cost as +2**, against a 60/hr ceiling.
 6. Keep the plan's honest split of what can and cannot be verified here — `verifiability` confirms that part was right.
+
+## The measurement the panel could not take (2026-09-15)
+
+**Taken on a real bb/jen/jira repository** — `Quatico.Webseite/quaweb-website` — after the operator named it. Everything below is a live reading, not an inference. **It refutes this plan's design and vindicates its motivation.**
+
+### `buildNone` is NOT the explanation — the config is complete
+
+`premise`'s strongest objection was a sequencing one: if `CI` is empty, `buildFor` returns `buildNone`, nothing is fetched, and a second job would be equally invisible. **Measured, that hypothesis is false:**
+
+```
+CI                = jenkins
+Jenkins instance  = jenkins-ci-webbloqs.internal.quatico.dev/quaweb/continuous-build
+Git host          = bitbucket
+Tracker           = jira https://quatico.atlassian.net
+```
+
+`jen auth status` against that slug: **signed in**, token in keychain. So the connector resolves, the instance is reachable, and the CI half genuinely works — `job list quaweb/continuous-build` returns branch children with colours (`bugfix%2FQUACDS-915-anchor-hash` → `red`, others `blue`).
+
+### There are FIVE jobs, not two — the plan's central shape claim is false
+
+```
+continuous-build         WorkflowMultiBranchProject   ← the only one Plot reads
+continuous-deploy        WorkflowJob
+continuous-deploy-stable WorkflowJob
+release                  WorkflowJob
+set-image-name           WorkflowJob
+```
+
+This plan says: *"It does not generalise to N jobs. **Two is the shape a team has**: one job that builds branches, one that deploys the integrated result. A list of jobs would be inventing a structure nobody has asked for."*
+
+**The first real instance measured has four CD-side jobs.** The fixed count of two is what the whole cost argument rests on (*"+1 call per refresh, fixed"*), and it does not survive its own motivating example.
+
+### The real defect: `job list` cannot read a plain job's state
+
+**This is the mechanism, and no juror found it because none had an instance.**
+
+```
+jen job list quaweb/continuous-deploy --json   →  null
+jen job view quaweb/continuous-deploy --json   →  color: blue,
+                                                  lastBuild: #938 SUCCESS,
+                                                  duration 453365ms
+```
+
+`job list` enumerates a folder's **children**. A `WorkflowMultiBranchProject` has children — one per branch — so listing it yields the CI answer. A plain `WorkflowJob` has none, so the same call yields `null`.
+
+**`plot-host.sh` calls only `job list` (`:756`) and never `job view` — zero occurrences.** So the CD side is unreachable through the verb Plot uses, *whatever* job is declared.
+
+**That is a different defect from the one this plan names.** The plan says the gap is *"a second thing to ask"*. The gap is **a second way to ask**: `job view`, which Plot does not call, and `build list`, which returns full stage detail for the same job.
+
+### The target repo had already diagnosed this, in writing
+
+`AGENTS.md` carries a table of the two pipelines, and this sentence:
+
+> *"`Jenkins instance` nimmt nur einen Wert, und «deploy» kommt in `plot-host.sh` kein einziges Mal vor: Plot hat fuer die CD-Seite kein Konzept."*
+
+Verified: `grep -ic deploy skills/plot/scripts/plot-host.sh` → **0**.
+
+It also records the cost of getting the key wrong (PR #874, 2026-09-15): the path must carry `<slug>/<job-path>`, or *"das Board meldet dann fuer jeden PR `checks: unknown`"*.
+
+**An operating team wrote the diagnosis into its own repo and Plot never read it.** That is worth more than the plan it corrects.
+
+### What this means for the plan
+
+- **The need is confirmed.** A real team runs a separate CD pipeline and cannot see it.
+- **The declared-key design survives** — a naming convention would have to guess among `continuous-deploy`, `continuous-deploy-stable`, `release` and `set-image-name`.
+- **"Two is the shape" must go.** Five jobs, four of them CD-side.
+- **The `+1 call per refresh` gate is unsound** — `jenkins_build_map()` already makes two calls, and a plain job needs `job view`, a verb the map does not use.
+- **The plan's stated mechanism is wrong.** It is not a missing config key in front of a working reader; it is a reader that cannot answer for this job shape.
+- **The destination problem is untouched** by any of this. The board still has no default-branch row, and `build` is still a RowKind with no producer.
