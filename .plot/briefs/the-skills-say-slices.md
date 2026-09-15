@@ -58,12 +58,14 @@ Also unchanged: script comments, `MANIFESTO.md`, `changelog.md`, the READMEs' no
 | `skills/plot-deliver/SKILL.md:113` | **add** `## Slices` to the tolerated set; keep `Branches` |
 | `skills/ralph-plot-sprint/SKILL.md:117` | **add** `## Slices` to the tolerated set; keep `Branches` |
 | `skills/plot/templates/plan.md:40` | `## Branches` → `## Slices` — the shipped template |
-| `skills/plot/intro-to-using-plot.md:88` | the second copy-me example |
+| `skills/plot/intro-to-using-plot.md:89` | the second copy-me example — **the plan says 88; it is 89** |
 | `skills/tracer-bullets/README.md:28` | *"Add `### Tracer` subsection to plan's `## Branches`"* |
 | `skills/plot-pulse/README.md:56` | *"A wave is a `### ` subheading under `## Branches`"* |
 | `skills/plot-reslice/README.md` | `:17`, `:37`, `:50` change · **`:57` keeps both words** |
 
 Plus: **state the Slice/Wave distinction once**, where a reader meets it. Once — not in all nine.
+
+**Find these by content, not by line number.** Every line number above was verified on `origin/main` at dispatch, and one had already moved: the plan says `intro-to-using-plot.md:88` and it is at **89**. The files keep changing under an approved plan, which is what the whole staleness preflight exists to catch.
 
 ## The parser is not touched
 
