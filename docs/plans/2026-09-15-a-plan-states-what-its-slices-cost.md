@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-15, jwloka, in-session
+- **Started:** 2026-09-15, jwloka, `feature/a-plan-states-what-its-slices-cost`
 
 ## Changelog
 
