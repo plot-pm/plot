@@ -56,8 +56,17 @@
      `### Wave 3`, `### Wave 4`, … for anything that must follow.
      No subheadings at all = one wave = every branch eligible at once (the
      pre-wave behaviour). Check state with /plot-pulse.
-     Annotations (deferred:/claimed:/moved:) must sit on the SAME line as
-     the backticked branch name — a wrapped continuation line is not read. -->
+     Annotations (deferred:/claimed:/moved:/agent:) must sit on the SAME line
+     as the backticked branch name — a wrapped continuation line is not read. -->
+
+<!-- Agent: name which KIND of agent a slice needs, and a dispatch selects that
+     charter with no operator present. Write it as an `agent:` annotation on the
+     branch line — a slice reviewed rather than implemented annotates
+     `agent: reviewer`, and the name is the stem of a file in .plot/charters/.
+     Optional, and the default is what every slice does today: a slice naming no
+     kind launches on the repo's own `Worker command`, unchanged.
+     A charter this clone does not hold is REPORTED, never refused — a plan
+     written where `reviewer` is declared stays dispatchable where it is not. -->
 
 - `feature/<slug>` — <description>
 

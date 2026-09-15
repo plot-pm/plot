@@ -2110,3 +2110,182 @@ test('plan-meta: State: and Phase: are one field, and the values agree', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// `agent:` — WHICH KIND OF AGENT A SLICE NEEDS, the third per-branch annotation.
+//
+// `--agent <name>` shipped in v2.18.0 and only an operator can type it.
+// `plot-registryd` hands a queued slice to a free agent with no `--agent` in the
+// path at all, so an unattended fleet runs every slice as the same
+// undifferentiated worker. A slice that declares its own kind is what lets the
+// declaration reach a dispatch nobody is watching.
+//
+// IT IS PER-BRANCH AND NOT A `## Status` FIELD. Every existing Status field is
+// plan-level — `State`, `Type`, `Sprint`, `Issue`, `Story`, `Review`, `Impl`,
+// `Rounds` — so an `Agent:` line there could declare only one kind for a plan
+// with several slices, and a reviewer slice beside an implementer slice is the
+// population this exists for.
+//
+// THE VALUE RUNS TO THE CLOSING MARKER, copying `builds:` rather than `waits:`.
+// A charter name is a bare word today, so either rule would work; `builds:`'s is
+// the one that does not silently truncate if a name ever grows a space.
+
+test('plan-meta: `agent:` reports the charter, and is absent otherwise', () => {
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/review\` <!-- agent: reviewer --> — read the estate and report.
+- \`feature/build\` — ordinary implementation work.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.equal(byName['feature/review'].agent, 'reviewer',
+    'the annotation names one charter, and that charter is reported');
+  // ABSENT, NOT EMPTY — the rule `waits_on` and `builds` already keep. Every
+  // consumer that checks truthiness survives a `""`; every consumer that checks
+  // presence does not, and dispatch reads presence.
+  assert.ok(!('agent' in byName['feature/build']),
+    'a slice naming no kind carries no agent key at all');
+});
+
+test('plan-meta: `agent:` reads identically in the heading dialect', () => {
+  // BOTH DIALECTS OR NEITHER. The parser chooses a dialect per section from
+  // `(Branch:` in the first heading, and the template writes the LIST dialect —
+  // so a spelling that only worked in headings would be absent from every plan
+  // created from the template, and one that only worked in lists would be absent
+  // from every plan written in the newer shape.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Slices
+
+### Review the estate (Branch: feature/review, PR: #12) <!-- agent: reviewer -->
+
+Prose describing the slice, which is never scanned for meta.
+
+### Write the guide (Branch: docs/guide)
+
+Prose only.
+`);
+  const byName = Object.fromEntries(meta.waves.flatMap((w) => w.branches).map((b) => [b.branch, b]));
+  assert.equal(byName['feature/review'].agent, 'reviewer',
+    'the heading dialect reads the same annotation from the heading line');
+  assert.ok(!('agent' in byName['docs/guide']),
+    'and absence is absence in this dialect too');
+});
+
+test('plan-meta: `agent:` keeps the whole value, not just its first word', () => {
+  // IT RUNS TO THE CLOSING MARKER, the way `builds:` does and unlike `waits:`.
+  // A charter name is a bare word on this estate, so nothing exercises this
+  // today — which is exactly why it is pinned: the rule was CHOSEN, and a later
+  // edit copying `waits:`'s `sub(/[ \t].*$/, "", ...)` would silently truncate a
+  // name that grew a space and nothing would report it.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/review\` <!-- agent: slow reviewer --> — a two-word kind.
+`);
+  assert.equal(meta.waves[0].branches[0].agent, 'slow reviewer',
+    'the value survives whole, space included');
+});
+
+test('plan-meta: `agent:` and the other annotations do not clobber each other', () => {
+  // Every annotation is read off the whole line before the branch match runs,
+  // and each uses a greedy `sub()`. A shared line is where a sloppy pattern for
+  // one eats another — which is why `waits:`, `deferred:` and `builds:` each
+  // have this test, and why `agent:` joins it rather than getting a weaker one.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/all\` <!-- agent: reviewer --> <!-- builds: normalizeVersion --> <!-- waits: bug/prereq --> <!-- deferred: superseded 2026-09-01 --> — everything at once.
+- \`feature/reordered\` <!-- deferred: not now --> <!-- builds: computeStatusDrift --> <!-- agent: reviewer --> <!-- waits: bug/other --> — a different order.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.equal(byName['feature/all'].agent, 'reviewer',
+    'agent survives three annotations after it');
+  assert.equal(byName['feature/all'].builds, 'normalizeVersion', 'and builds still binds');
+  assert.equal(byName['feature/all'].waits_on, 'bug/prereq', 'and waits still binds');
+  assert.equal(byName['feature/all'].deferred_reason, 'superseded 2026-09-01',
+    'and the deferral reason is intact');
+  assert.equal(byName['feature/reordered'].agent, 'reviewer', 'order does not matter');
+  assert.equal(byName['feature/reordered'].builds, 'computeStatusDrift',
+    'and the annotations around it are untouched');
+  assert.equal(byName['feature/reordered'].deferred_reason, 'not now',
+    'including the one before them all');
+});
+
+test('plan-meta: a plan carrying no `agent:` parses exactly as before', () => {
+  // THE GUARANTEE THIS SLICE OWES THE ESTATE: 280 plan files carry no such
+  // annotation, and none of them may change shape. Asserted on the KEY SET
+  // rather than on one absent key, so a stray `"agent":""` — the defect every
+  // truthiness-checking consumer would survive — fails here.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/one\` — ordinary.
+- \`feature/two\` <!-- deferred: not needed --> — shelved.
+`);
+  for (const b of meta.waves[0].branches) {
+    assert.ok(!('agent' in b), `${b.branch} must carry no agent key`);
+    assert.deepEqual(Object.keys(b).sort(), ['branch', 'claimed', 'deferred', 'deferred_reason'],
+      `${b.branch} keeps exactly the keys it had before this field existed`);
+  }
+});
+
+// THE TEMPLATES DOCUMENT THE MARKER AND MUST NOT DECLARE IT — and this is the
+// trap in this slice, stated by the parser's own comment at `waits:`:
+//
+//   "THE VALUE MUST LOOK LIKE A BRANCH, and that check is what keeps a SYNTAX
+//    EXAMPLE from becoming a declaration."
+//
+// `waits:` escapes it because a prerequisite HAS branch-prefix structure to
+// check. A charter name is a bare word like `reviewer` with no structure at all,
+// so the same guard is unavailable — and this slice writes the literal marker
+// into two template files.
+//
+// WHAT MAKES IT SAFE IS THE NESTING. The template's documentation sits inside an
+// outer `<!-- ... -->` block, so the inner `agent:` has no `<!--` immediately
+// before it and the parser's `<!--[ \t]*agent:` pattern never matches — exactly
+// how `builds:` is documented across eleven lines of `.plot/templates/plan.md`
+// and parses with no `builds` key. This pins that property on BOTH templates,
+// because the alternative failure is silent: a template that declared a kind
+// would hand one to every plan created from it.
+test('plan-meta: the plan templates document `agent:` without declaring it', () => {
+  for (const rel of ['.plot/templates/plan.md', 'skills/plot/templates/plan.md']) {
+    const file = path.join(here, '..', '..', rel);
+    const src = readFileSync(file, 'utf8');
+    assert.match(src, /agent:/,
+      `${rel} must document the annotation — a format nobody can find is not one`);
+    const meta = JSON.parse(execFileSync('bash', [parser, file], { encoding: 'utf8' }));
+    for (const b of meta.waves.flatMap((w) => w.branches)) {
+      assert.ok(!('agent' in b),
+        `${rel} documents the marker and must not DECLARE one: ${b.branch} parsed agent=${b.agent}`);
+    }
+  }
+});

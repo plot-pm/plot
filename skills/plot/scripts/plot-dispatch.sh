@@ -66,6 +66,15 @@
 #               usually right produces a fleet whose wrong answers cannot be
 #               explained. An already-exported PLOT_AGENT is overridden, since
 #               a flag on this run is the more specific answer.
+#               AMENDED 2026-09-15: a slice may now DECLARE its kind, and
+#               `start_worker` reads it where this flag left `PLOT_AGENT`
+#               unset. That is not the matcher refused above — a declaration is
+#               a field a person wrote, and nothing here ranks candidates or
+#               infers a kind from a slice's contents. The flag still wins,
+#               because a flag typed on this run is more specific than a field
+#               written when the plan was drafted. A charter this clone does
+#               not hold is REPORTED and dispatched anyway; see
+#               `plan_declared_agent`.
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
@@ -302,10 +311,11 @@ while [ $# -gt 0 ]; do
                 esac
                 shift ;;
     # THE RANGE MOVED WITH THE HEADER IT PRINTS. It ended at `<slug>` and still
-    # does; adding `--agent` above pushed that line from 59 to 69. Two records
+    # does; adding `--agent` above pushed that line from 59 to 69, and
+    # documenting the plan-declared kind pushed it from 69 to 78. Two records
     # of one fact, and nothing compares them — a stale number here silently
     # truncates the help rather than failing, so it is checked by a test.
-    -h|--help)  sed -n '2,69p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,78p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -979,6 +989,42 @@ start_worker() {
   local branch="$1" wt="$2"
   local cmd
 
+  # THE PLAN IS THE DEFAULT AND THE FLAG IS THE OVERRIDE.
+  #
+  # `[ -z "${PLOT_AGENT:-}" ]` is the whole precedence rule: `--agent` exported
+  # the variable before this line was reached, so a flag typed on this run stops
+  # the plan being read at all. A field written when the plan was drafted is the
+  # less specific answer — the same order `--agent` already applies to an
+  # inherited `PLOT_AGENT`.
+  #
+  # ONE ASSIGNMENT, FOR THE REASON `--agent` GIVES ONE FIELD OVER. Four readers
+  # ask `${PLOT_AGENT:-}` — `resolve_launch` below, the capabilities block, the
+  # manifest, and the export into the worker environment — so setting the
+  # variable reaches all four and leaves no call site to miss when a fifth
+  # appears.
+  #
+  # A FREE AGENT HAS NO BRANCH and so has no plan to read: `--start` calls this
+  # with `branch` empty, and `plan_declared_agent` returns 1 on it immediately.
+  if [ -z "${PLOT_AGENT:-}" ] && [ -n "$branch" ]; then
+    local declared charter
+    if declared=$(plan_declared_agent "$branch"); then
+      export PLOT_AGENT="$declared"
+      # A MISSING CHARTER IS REPORTED AND DISPATCHED ANYWAY. Said HERE rather
+      # than only in the manifest, because this is where a person watching the
+      # run can still act on it: the launch below falls back to the repo default
+      # and is otherwise silent about a declaration that reached nothing.
+      charter=$(charter_file_for "$declared")
+      if [ -n "$charter" ] && [ ! -f "$charter" ]; then
+        echo "    $branch declares agent '$declared', and no charter answers to that name"
+        echo "      looked for $charter"
+        echo "      starting it on the repo's 'Worker command' — a plan written where that"
+        echo "      charter exists must stay dispatchable on a clone that lacks it."
+      else
+        echo "    $branch declares agent '$declared' — its plan selected the charter"
+      fi
+    fi
+  fi
+
   # RESOLVED BEFORE `Worker command`, because the charter is the more specific
   # answer and the config key is the fallback rather than the sole source.
   #
@@ -1406,6 +1452,78 @@ start_worker() {
       >"$log" 2>&1 </dev/null & )
   echo "    started worker (log: $log)"
   return 0
+}
+
+# WHICH KIND OF AGENT A BRANCH'S PLAN DECLARES — the selector nobody has to type.
+#
+# `--agent` was the only one, and an operator is the only thing that can type a
+# flag. The registry hands a queued slice to a free agent with no `--agent`
+# anywhere in the path, so an unattended fleet ran every slice as the same
+# undifferentiated worker. A plan that names the kind is what reaches a dispatch
+# nobody is watching.
+#
+# IT ANSWERS AND EXPORTS NOTHING. The caller decides, because the precedence is
+# the caller's: `--agent` already won over an inherited `PLOT_AGENT` and must win
+# over this too — a flag typed on this run is more specific than a field written
+# when the plan was drafted.
+#
+# THE PLAN DIRECTORY IS SEARCHED, NOT THE ACTIVE INDEX, and the candidates are
+# grepped before any is parsed — both `plot-open-pr.sh`'s rules, measured there:
+# a plan governing a branch may carry no symlink, and parsing 253 plans took
+# 103 s against 0.6 s for one `grep -lF` over the directory. A branch name is a
+# literal string, so a plan that does not contain it cannot name it.
+#
+# ABSENCE IS THE COMMON ANSWER AND NEVER AN ERROR. Every plan on the estate
+# names no kind, a `--restart` may run on a branch no plan names at all, and the
+# annotation is optional by design. All three print nothing and return 1.
+plan_declared_agent() { # $1 = branch → prints the declared kind, or nothing
+  local branch="$1" plan_dir root cands f found
+  [ -n "$branch" ] || return 1
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  plan_dir=$("$script_dir/plot-config.sh" get "Plan directory" "docs/plans/")
+  case "$plan_dir" in /*) ;; *) plan_dir="$root/$plan_dir" ;; esac
+
+  cands=$(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true)
+  for f in $cands; do
+    [ -e "$f" ] || continue
+    # The PARSER answers, never a grep of the plan file. A `grep agent:` would
+    # read the marker out of prose documenting it and out of a DIFFERENT branch
+    # line in the same plan — the annotation binds to one branch, and only the
+    # parser knows which.
+    found=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null \
+      | PLOT_WANT_BRANCH="$branch" node -e '
+        let s = "";
+        process.stdin.on("data", (d) => (s += d)).on("end", () => {
+          let meta;
+          try { meta = JSON.parse(s); } catch { return; }
+          const want = process.env.PLOT_WANT_BRANCH;
+          for (const wave of meta.waves ?? []) {
+            for (const b of wave.branches ?? []) {
+              // PRESENCE, not truthiness. The parser emits no `agent` key where
+              // the plan declares none, which is every plan on the estate.
+              if (b.branch === want && "agent" in b) { console.log(b.agent); return; }
+            }
+          }
+        });
+      ') || found=""
+    if [ -n "$found" ]; then printf '%s\n' "$found"; return 0; fi
+  done
+  return 1
+}
+
+# DOES THIS CLONE HOLD THE CHARTER? Answered so a MISSING one can be REPORTED.
+#
+# A DELIBERATE ASYMMETRY, and the plan settles it: `resolve_launch` refuses a
+# charter it cannot BELIEVE (malformed) and a harness not on PATH, and both
+# stay. A charter that simply does not EXIST is the adoption case — a plan
+# written where `reviewer` is declared, dispatched on a clone that declares
+# nothing — and refusing it would make that plan undispatchable on every such
+# clone. So the kind still travels, the launch falls back to the repo default,
+# and the run SAYS which name it looked for.
+charter_file_for() { # $1 = agent name → prints the path it would read
+  local name="$1" root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  printf '%s/.plot/charters/%s.json\n' "$root" "$name"
 }
 
 # `PLOT_DISPATCH_SOURCED=1` STOPS HERE, so a test can take `resolve_launch` and
