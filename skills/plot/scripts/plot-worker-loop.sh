@@ -1041,6 +1041,56 @@ seal_declaration() { # $1=worktree $2=branch
   mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# RECORD WHAT THIS SLICE SPENT, in tokens, summed over its whole run.
+#
+# CALLED BESIDE `seal_declaration` AND FOR ITS REASON. Both are about a FINISHED
+# BRANCH, and this is the only moment that knows which one that is: it runs
+# before `--next` is asked and before any hop moves `$PLOT_BRANCH`. A worker does
+# not exit between slices — it seals, clears the manifest branch, blocks in
+# `wait_for_work`, resets the desk and loops — so a sum taken at worker exit
+# charges every slice the worker ever held to whichever branch it held last. Of
+# the 12 largest worker transcripts, 3 already span two branches.
+#
+# IT ASKS THE DOMAIN RATHER THAN SUMMING HERE. `docs/shell-and-domain.md` sets
+# the cost rule by measurement: a script running once per OPERATOR COMMAND calls
+# the domain, and one running once per agent per PASS duplicates the rule. This
+# runs once per slice, which is the first tier — and the sum it would otherwise
+# duplicate is a per-branch partition over `gitBranch` with a detached-segment
+# rule, which is not a thing to write twice in two languages.
+#
+# NOTHING IT DOES MAY CHANGE HOW THE WORKER ENDS. The bundle exits 0 on every
+# refusal, and this adds `|| true` besides, for `seal_declaration`'s own reason:
+# a declaration that cannot be written is left alone rather than failing the
+# seal, and a spend is strictly less load-bearing than the declaration it rides
+# beside. A missing bundle — a checkout that vendored the skills without building
+# the board — records nothing and says nothing.
+#
+# THE RECORD IS NOT WRITTEN HERE AND NOT WRITTEN TO THE DESK. It goes under the
+# COMMON git dir's `.plot/state/`, resolved by the adapter with
+# `--git-common-dir`: `plot-reap.sh` runs `git worktree remove --force` over
+# these desks, so a record written to one is destroyed by the reap on the machine
+# that measured it, with every gate green.
+#
+# THE BOUND PATH NEVER REACHES THIS, WHICH IS A STATED GAP RATHER THAN AN
+# OVERSIGHT. A worker killed by `Worker bound` or ended by the WorkerMonitor
+# takes `exit 124` and never gets here — and that is the most expensive run there
+# is, so a rollup over these records is biased LOW in a direction nobody can see
+# from the records alone.
+record_slice_spend() { # $1=worktree $2=branch
+  local worktree="$1" branch="$2" bundle
+  # NO BRANCH, NO RECORD — the same refusal `seal_declaration` makes, and for
+  # the same reason: the record is ABOUT a branch, so one naming none cannot be
+  # attributed. The bundle refuses this too; refusing here as well keeps the
+  # loop's own contract readable without starting a process to be told it.
+  [ -n "$branch" ] || return 0
+  [ -n "$worktree" ] || return 0
+  [ -d "$worktree" ] || return 0
+  bundle="$script_dir/board/plot-slice-spend.mjs"
+  [ -f "$bundle" ] || return 0
+
+  node "$bundle" record "$worktree" "$branch" >/dev/null 2>&1 || true
+}
+
 # THE ENDING FILE, per WORKER. This is the opposite of the declaration above and
 # for the reason that separates them: a declaration is about a BRANCH, and a
 # worker hops, so one worker writes several. An ending happens once, to the
@@ -2090,6 +2140,12 @@ while true; do
   # the hop would name the branch the worker moved TO, and one written after the
   # loop ends would never exist for any branch but the last.
   seal_declaration "${PLOT_WORKTREE:-$PWD}" "${PLOT_BRANCH:-}"
+
+  # AND RECORD WHAT IT SPENT, at the same moment and for the same reason: this
+  # is the last point at which `$PLOT_BRANCH` still names the branch that
+  # finished. It records nothing and stays silent on every refusal, and cannot
+  # change how this worker ends.
+  record_slice_spend "${PLOT_WORKTREE:-$PWD}" "${PLOT_BRANCH:-}"
 
   # THE AGENT IS NOW FREE, so the manifest stops naming a slice — before
   # `--next` is asked, for the same reason the declaration is written before it.

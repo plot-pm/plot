@@ -682,6 +682,49 @@ await esbuild.build({
 fs.copyFileSync(slicePrArtifact, shippedSlicePr);
 fs.chmodSync(shippedSlicePr, 0o755);
 
+// What one finished slice spent, for `seal_declaration` and its readers.
+//
+// ONCE PER SLICE, at the one moment that knows which branch just finished. A
+// worker does not exit between slices, so a sum taken at worker exit charges
+// every slice the worker ever held to whichever branch it held last — 3 of the
+// 12 largest worker transcripts already span two branches.
+//
+// IT READS THE DISK, WHICH THE BUNDLES ABOVE DELIBERATELY DO NOT. They take
+// their readings on stdin from the shell that measured them, which is right
+// where a reading is a handful of git answers. A transcript is not: median
+// 6.9 KiB, largest 7.7 MiB, and handing those to a shell means bash parsing
+// JSONL. The reading is taken by the adapter instead, which is where the
+// layering rule puts anything that reaches the world — so this bundle carries
+// a `child_process` path, for the ONE `git rev-parse --git-common-dir` the
+// record's location needs, and reaches no host and no network.
+//
+// 329.3 KB RATHER THAN plot-slice-pr.mjs's 2.7, AND THE REASON IS THE SCHEMA
+// rather than the adapter. Measured with `esbuild --analyze`: ~5 KB is this
+// entry plus the rule and the adapter, and ~324 KB is zod — 31.1 KB of core
+// schemas and the rest its locale table — reached because the record's format
+// lives in `entities/slice-spend.ts` as a `z.object` that a VALUE import
+// (`decodeSliceSpend`) runs at the top level. That is `plot-delta.mjs`'s case
+// and `plot-reconcile.mjs`'s, stated above. The alternative is hand-rolling
+// the record's validation, which is a second implementation of one format —
+// the defect the corpus tier exists to catch.
+const sliceSpendArtifact = path.join(here, 'dist/plot-slice-spend.mjs');
+const shippedSliceSpend = path.join(here, '../../skills/plot/scripts/board/plot-slice-spend.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/slice-spend.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: sliceSpendArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(sliceSpendArtifact, shippedSliceSpend);
+fs.chmodSync(shippedSliceSpend, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -844,6 +887,7 @@ const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
 const planUndeliverKb = (fs.statSync(shippedPlanUndeliver).size / 1024).toFixed(1);
 const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
+const sliceSpendKb = (fs.statSync(shippedSliceSpend).size / 1024).toFixed(1);
 const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
@@ -865,5 +909,6 @@ console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/s
 console.log(`Built plot-plan-undeliver.mjs (${planUndeliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-slice-spend.mjs (${sliceSpendKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

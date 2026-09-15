@@ -203,8 +203,52 @@ and both facts are in the transcript. Nothing is inferred.
 recorded as such — 4 of the 44 files carry no real branch at all, and those are
 the honest `none` case.
 
-**Whose session — PER SESSION, NEVER PER WORKTREE.** `spend.ts:42-50` already
-settled this and measured it:
+**Whose session — THE BRANCH WITHIN A DESK, ACROSS EVERY MAIN SESSION.**
+
+> **Amended 2026-09-15 during implementation preflight, by measurement.** This
+> section read *"the session is named by `$PLOT_SESSION_ID`, never by the newest
+> file"*, and implementing that ships a number wrong by a factor of five that
+> looks right. The paragraph is amended rather than quietly broken, the way
+> `CLAUDE.md`'s own superseded paragraphs are.
+>
+> The reasoning below is sound and its source is real. `spend.ts:42-50` does say
+> *"READ PER SESSION, NEVER PER WORKTREE"* — and that rule is correct **for a
+> context ceiling**: one turn, one session, one window. **It does not transfer to
+> a sum over a RUN**, for exactly the reason this plan already argues
+> `output_tokens` does not transfer. The plan caught that inversion for the
+> output field and missed it for the session key.
+>
+> Measured over every dispatch desk transcript directory on this machine:
+>
+> ```
+> branch desks (free-* excluded)      : 40
+>   holding MORE THAN ONE main session: 39      ← one is the exception, not the rule
+>   largest-session share, median     : 92.5%
+>   largest-session share, worst case : 39.1%
+>
+> one free-* desk, ONE branch throughout:
+>   main sessions                     : 41
+>   sum across all of them            : 401,603,037 tokens
+>   largest single session            :  73,028,938 = 18.2%
+> ```
+>
+> A worker runs **many prompts per slice** — `run_bounded` is re-entered on every
+> correction and every continuation — and `session_flag()`
+> (`plot-worker-loop.sh:779`) hands out `--session-id` for a fresh conversation
+> and `--resume` for a continuing one, so each new id is a new `.jsonl`. A sum
+> keyed on one id reads one file and silently omits the rest.
+>
+> **So the subject is the BRANCH within a desk**, partitioned by the `gitBranch`
+> each line carries — the partition this plan already specifies for the branch
+> subject — summed over every main session that contributed turns to it.
+> **`agent-*` files stay excluded**, so the concern below is preserved exactly:
+> subagent transcripts still belong to no one. What changes is only the key.
+>
+> **This is NOT "take the newest file"**, which is what `spend.ts:48-50`
+> genuinely forbids, and the 41-session desk above is precisely the case where
+> mtime picks one of 41.
+
+The concern that stands, and the measurement behind it — `spend.ts:42-50`:
 
 > *"one project directory measured 2026-09-03 held 45 session files, 30 of them
 > subagents, and a sum across them belongs to no one."*
@@ -213,11 +257,12 @@ Re-measured on this project: **604 session files, 421 of them `agent-*` subagent
 transcripts, 370 with zero main-session turns.** A caller that cannot name the
 session passes `null` rather than reaching for the newest file.
 
-**The session is named by `$PLOT_SESSION_ID`, never by the newest file.** It is
-exported by the loop and in scope at `seal_declaration`. Measured: one desk
-directory holds **9 session files, 6 of them `agent-*` and THREE non-agent main
-sessions** (262 / 26 / 1 turns) — so "the session" picked by mtime is one of
-three, which is exactly what `spend.ts:48-50` forbids.
+**Every main session of the desk is summed, and the newest file is never
+picked.** Measured: one desk directory holds **9 session files, 6 of them
+`agent-*` and THREE non-agent main sessions** (262 / 26 / 1 turns). Under the
+amended rule all three are summed and the six subagent files are not — where
+"the session" picked by mtime would be one of three, which is exactly what
+`spend.ts:48-50` forbids.
 
 **Neither subject is optional.** A record that is silent about either is a number
 nobody can place.
@@ -359,10 +404,10 @@ pinned by a fixture transcript carrying **`B → HEAD → B`**, the shape that
 actually occurs — a two-distinct-`gitBranch` fixture does not contain it, and the
 measured maximum is five branches in one session; **a detached segment is charged
 to the preceding real branch**, and one with no preceding real branch is charged
-to no slice; **the sum is per
-SESSION, never per worktree**, pinned by a fixture directory holding a main
-session beside `agent-*` subagent transcripts, where the record counts the main
-session's turns and not the subagents'; **no summed fifth field is written**,
+to no slice; **the sum covers every main session the desk holds and no `agent-*`
+one**, pinned by a fixture directory holding several main sessions beside a
+subagent transcript, where the record counts all of the main sessions' turns and
+none of the subagent's; **no summed fifth field is written**,
 pinned by a **key-set assertion** rather than prose, since `contextSpend` is
 already on the wire schema and a fifth field beside it is a two-line change no
 review would flag; the scan runs at `seal_declaration` and the board reads the
@@ -373,15 +418,25 @@ told it was not measured here**, never shown a zero; `contextTokens` and
 `contextSpend` are unchanged and the board's panel still renders what it
 rendered before; **the record path is resolved with `--git-common-dir`**, pinned
 by a test that a record written from a dispatch desk is readable from the main
-checkout and survives that desk's removal; **the session is keyed by
-`$PLOT_SESSION_ID`**, pinned by a fixture directory holding three main sessions
-where the record names the right one; a second run of the same slice writes a second record rather
+checkout and survives that desk's removal; **the sum is keyed by the BRANCH
+within the desk** — amended 2026-09-15, see Design — pinned by a fixture
+directory holding three main sessions where the record counts all three and none
+of the `agent-*` ones; a second run of the same slice writes a second record rather
 than mutating the first; and `pnpm run test:contracts` passes.
 
 ## Notes
 
 **The third Must of sprint W41**, and the first plan of `plot-plan-economics` —
 a story that has been `draft` with zero plans since 2026-08-27.
+
+**Amended a third time 2026-09-15, during implementation preflight**, where a
+measurement contradicted the plan's own `$PLOT_SESSION_ID` clause: 39 of 40
+branch desks hold more than one main session, and one desk holds 41 whose largest
+is 18.2% of the total — so a session-keyed sum reads one file, omits the rest,
+and ships a number wrong by a factor of five that looks right. The subject is the
+BRANCH within the desk; `agent-*` transcripts stay excluded, which is the half of
+`spend.ts:42-50` that transfers. The clause is amended in Design and in
+`Done when` rather than quietly broken.
 
 **Amended again 2026-09-15 after a decision panel** settled where a `HEAD`
 segment belongs — divided 2-1, with the dissent's objection dissolved by a

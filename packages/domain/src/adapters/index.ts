@@ -48,6 +48,14 @@ export { buildFor, buildShell } from './build/build-resolve.js';
 export { buildFixture, type BuildFixture } from './build/build-fixture.js';
 
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
+
+export {
+  sliceSpendFile,
+  transcriptDirFor,
+  SLICE_SPEND_HOME_ENV,
+  TRANSCRIPT_HOME_ENV,
+  type SliceSpendFileOptions,
+} from './slice-spend/slice-spend-file.js';
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';

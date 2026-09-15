@@ -58,6 +58,7 @@ skills/plot/scripts/board/plot-reconcile.mjs -merge
 skills/plot/scripts/board/plot-registryd.mjs -merge
 skills/plot/scripts/board/plot-release-gate.mjs -merge
 skills/plot/scripts/board/plot-slice-pr.mjs -merge
+skills/plot/scripts/board/plot-slice-spend.mjs -merge
 skills/plot/scripts/board/plot-sprint-score.mjs -merge
 skills/plot/scripts/board/plot-sprint-transition.mjs -merge
 skills/plot/scripts/board/plot-plan-undeliver.mjs -merge
