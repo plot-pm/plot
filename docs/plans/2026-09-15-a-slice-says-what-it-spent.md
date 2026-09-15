@@ -348,7 +348,7 @@ them.
 
 ## Slices
 
-### A slice says what it spent (Branch: feature/a-slice-says-what-it-spent)
+### A slice says what it spent (Branch: feature/a-slice-says-what-it-spent, PR: #918)
 
 - `feature/a-slice-says-what-it-spent` — sum the four token counters and record the model across a run's whole transcript, write the record when the worker finishes, and read it back per slice without re-deriving
 
