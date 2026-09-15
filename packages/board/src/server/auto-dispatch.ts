@@ -12,6 +12,7 @@ import {
   dispatchDefers,
   deferralMessage,
   hasRoomToDispatch,
+  ceilingFor,
   type Machine as MachineEntity,
 } from '@plot-pm/domain';
 import type { AgentEntry } from './registry.js';
@@ -492,6 +493,41 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
   if (budget <= 0) {
     budget = freeAgentCount(agents, pulse);
     if (budget <= 0) return [];
+  }
+
+  // THE MACHINE BOUNDS THE PASS, the way the supervisor's own start already is.
+  // `plot-registryd` decides once a minute and applies `ceilingFor(headroom)`;
+  // this loop decided twelve times a minute and applied nothing, against the
+  // same reading. One rule, two callers — not a second rule.
+  //
+  // AFTER BOTH ASSIGNMENTS, because there are two. The free-agent fall-through
+  // above REPLACES the budget rather than adding to it, so a bound applied only
+  // to the first is no bound at all on the path that reaches it — and that path
+  // is taken exactly when the fleet is at its cap, which is when a tight machine
+  // most needs bounding.
+  //
+  // `min` ONLY EVER LOWERS. The comment above forbids raising the budget, for
+  // `bug/a-landed-branch-still-holds-a-slot` (2026-08-25); this cannot, whatever
+  // the reading says. `clear` and `unmeasured` answer `Infinity`, so a healthy
+  // or unsampled machine is bounded by exactly what bounded it before.
+  //
+  // NO STATE CROSSES A PASS. The ceiling is a pure function of this pulse's
+  // reading, and the quantity it bounds is a DIFFERENCE that closes itself as
+  // agents come up — not a level that could pin the fleet where it stands. A
+  // ratchet holding a `tight` reading against the next pass was proposed and
+  // rejected (`the-tight-band-remembers-what-it-started`): `clear` was observed
+  // zero times in 102 readings, so its reset never fired.
+  //
+  // THE OVERRIDE IS NOT CONSULTED, and that is the one subtle call here. It
+  // stands down THE DEFERRAL — {@link FleetSettings.machineOverride} is *"dispatch
+  // even while the machine reads `starved`"* — and a ceiling is not a deferral:
+  // *now anyway* still starts work, at the rate the reading bears. Exempting it
+  // would also exempt `tight`, which never deferred and so was never what the
+  // operator overrode. This is the ONLY route by which `STARVED_CEILING` is
+  // reachable from the board: a plain starved reading has already returned at
+  // {@link machineDefers} above.
+  if (machine) {
+    budget = Math.min(budget, ceilingFor(machine.headroom));
   }
 
   const plans: AutoDispatchPlan[] = [];
