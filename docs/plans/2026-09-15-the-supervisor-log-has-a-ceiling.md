@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 4
 - **Approved:** 2026-09-15, jwloka, in-session
+- **Started:** 2026-09-15, jwloka, `infra/the-supervisor-log-has-a-ceiling`
 
 ## Changelog
 
