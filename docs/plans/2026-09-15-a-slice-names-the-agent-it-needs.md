@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-agent-identity
@@ -13,6 +13,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-15, jwloka, in-session
 - **Started:** 2026-09-15, jwloka, `feature/a-slice-names-the-agent-it-needs`
+- **Delivered:** 2026-09-15
 
 ## Changelog
 

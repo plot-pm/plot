@@ -54,7 +54,7 @@ attributed to an undifferentiated worker answers a less useful question.
 ### Must Have
 
 - [x] [a-charter-reaches-the-agent-it-declares](../plans/2026-09-14-a-charter-reaches-the-agent-it-declares.md) — a read-only reviewer charter, a `--agent` selector, and a prompt file that honours what Plot exports. Closes a zero-adoption gap on a mechanism that is already complete.
-- [ ] [a-slice-names-the-agent-it-needs](../plans/2026-09-15-a-slice-names-the-agent-it-needs.md) — a per-slice `Agent:` field in the wave heading, read by dispatch when `--agent` is absent. Without it an unattended fleet runs every slice as the same undifferentiated worker.
+- [x] [a-slice-names-the-agent-it-needs](../plans/2026-09-15-a-slice-names-the-agent-it-needs.md) — a per-slice `Agent:` field in the wave heading, read by dispatch when `--agent` is absent. Without it an unattended fleet runs every slice as the same undifferentiated worker.
 - [ ] [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) — sum the four token counters and the model across a run's whole transcript and record it per slice. The existing readings describe the LAST TURN and are a context ceiling, not a cost.
 
 ### Should Have
