@@ -68,8 +68,8 @@ attributed to an undifferentiated worker answers a less useful question.
      goal is a declared agent and its cost; these are connector defects found in
      the same window. Ordered by dependency. -->
 
-- [ ] [the-board-asks-the-build-resolver](../plans/2026-09-15-the-board-asks-the-build-resolver.md) — `buildPortFor` constructs `buildShell` directly, so `CI: jenkins` gets the shell arm and `buildFor` has no caller. One line; it is why Jenkins builds never appear.
-- [ ] [the-deploy-job-shows-on-main](../plans/2026-09-15-the-deploy-job-shows-on-main.md) — Plot models one Jenkins job, the multibranch one. A separate CD job is invisible. Depends on the resolver fix.
+<!-- [the-board-asks-the-build-resolver] REJECTED 2026-09-15: its premise was false. `buildShell` IS the resolver's caller (build-resolve.ts:64) and the Jenkins arm already resolves. The operator's blank board is unexplained and needs a different plan. -->
+- [ ] [the-deploy-job-shows-on-main](../plans/2026-09-15-the-deploy-job-shows-on-main.md) — Plot models one Jenkins job, the multibranch one. A separate CD job is invisible. Its dependency on the resolver fix is void — that plan was rejected; the chain already resolves.
 - [ ] [a-connector-declares-its-ceiling](../plans/2026-09-15-a-connector-declares-its-ceiling.md) — `refreshIntervalMs` takes `perHour` and no limit, so the board shares fairly and never knows how close the wall is. bb and jen report no limit headers.
 
 ### Deferred

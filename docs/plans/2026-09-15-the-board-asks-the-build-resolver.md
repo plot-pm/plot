@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Rejected
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-15, jwloka, in-session
+- **Rejected:** 2026-09-15, jwloka, premise disproved before implementation
 
 ## Changelog
 
@@ -91,3 +92,31 @@ of the three connectors. Once builds are actually fetched, that budget starts
 being spent — which is why
 [`a-connector-declares-its-ceiling`](2026-09-15-a-connector-declares-its-ceiling.md)
 matters more after this lands than before.
+
+## Why this was rejected
+
+**The premise was false, and the brief writer caught it before any code was
+written.** Measured on main 2026-09-15, after the plan was approved:
+
+- **`buildShell` does not bypass the resolver — it IS the resolver's caller.**
+  `build-resolve.ts:64` reads the `CI` key through `plot-config.sh` and returns
+  `buildFor(said.stdout, context)`.
+- **`buildFor` has a caller**, contrary to this plan's central measurement.
+- **The Jenkins arm already resolves**: `case 'jenkins': return buildJenkins(context)`.
+
+So the chain the plan proposed to connect is already connected, and its
+`Done when` list was largely satisfied before it was written.
+
+**Two errors produced it.** `buildShell` is defined in `build-resolve.ts`, not in
+`build-shell.ts` — its name says *shell* and its behaviour is *resolver*. And the
+grep that reported *"`buildFor` has no caller"* excluded `adapters/build/`, the
+one directory holding the line that disproves it.
+
+**The operator's report is unexplained and still open.** Jenkins builds genuinely
+do not appear on their board; the cause is not this. The cheapest next reading is
+`plot-config.sh get CI ''` in the repository whose board is blank — an empty
+answer sends `buildFor` to `buildNone` and no build is ever fetched.
+
+**Nothing was implemented.** No branch, no PR, no `Started:` record — the brief
+gate refused to hand the slice to an agent without a spec, and that refusal is
+what stopped a worker building a fix to a non-problem.
