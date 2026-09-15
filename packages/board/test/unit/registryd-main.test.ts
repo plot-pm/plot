@@ -541,18 +541,24 @@ describe('what a looping tick prints does not follow what grows', () => {
     expect(full(holding(30, 'not-claimable'))).not.toContain('… and');
   });
 
-  it('names every unparseable manifest on `--once`, however many there are', () => {
+  it('names every unparseable manifest on `--once`, however many there are', async () => {
     // The registry emitter's `--once` path, pinned beside the loop's cap for
     // the same reason: a person who asked wants the list.
+    //
+    // `await` INSIDE THE `try`, NOT A RETURNED PROMISE. A `finally` fires when
+    // the block exits synchronously, so returning the promise deletes the
+    // directory while `readRegistry` is still reading it — `readdir` then
+    // throws, the function answers `[]` by its no-registry path, and the
+    // assertion sees no warnings at all. That passed here on a warm disk and
+    // failed in CI on a slow one.
     const dir = mkdtempSync(join(tmpdir(), 'plot-registry-'));
     try {
       for (let i = 0; i < 9; i += 1) writeFileSync(join(dir, `bad${i}.json`), 'not json');
       const err: string[] = [];
-      return readRegistry(dir, (s) => err.push(s)).then(() => {
-        expect(err).toHaveLength(9);
-        expect(err.join('')).toContain('bad8.json');
-        expect(err.join('')).not.toContain('… and');
-      });
+      await readRegistry(dir, (s) => err.push(s));
+      expect(err).toHaveLength(9);
+      expect(err.join('')).toContain('bad8.json');
+      expect(err.join('')).not.toContain('… and');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
