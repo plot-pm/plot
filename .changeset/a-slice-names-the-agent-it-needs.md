@@ -1,0 +1,13 @@
+---
+'plot': minor
+---
+
+A slice now names the agent kind it needs, and a dispatch selects that charter with no operator present. `--agent <name>` shipped in v2.18.0 and an operator is the only thing that can type a flag: `plot-registryd` hands a queued slice to a free agent with no `--agent` anywhere in the path, so an unattended fleet ran every slice as the same undifferentiated worker — the half of `plot-agent-identity` that was never started. `plot-plan-meta.sh` parses an optional `<!-- agent: reviewer -->` annotation on a branch line, reported as `waves[].branches[].agent` and ABSENT where unwritten, never `""` — the contract `waits_on` and `builds` already keep, and the one that matters here because dispatch reads presence and a blank would send it looking for a charter called "". It is per-branch rather than a `## Status` field, since every Status field is plan-level and could declare only one kind for a plan with several slices, which is the population this exists for: a reviewer slice beside an implementer slice. The wave heading was the first draft and measurement rejected it — the parser decides a heading's shape with `index($0, "(Branch:")`, so `(Agent: reviewer, Branch: feature/x)` parses to zero branches AND makes the wave name the whole heading text, both silently. The value runs to the closing marker, copying `builds:` rather than `waits:`, which does not truncate if a name grows a space. It cannot validate its value the way `waits:` does — a prerequisite has branch-prefix structure and a charter name is a bare word with none — so what keeps a documented marker from becoming a declaration is NESTING: both templates document it inside an outer comment block, where the parser's `<!--[ \t]*agent:` pattern cannot see it, and a test pins that on both. `plot-dispatch.sh` reads the field in `start_worker` where `--agent` left `PLOT_AGENT` unset, which is one assignment reaching all four readers of that variable. The flag still wins, because a flag typed on this run is more specific than a field written when the plan was drafted. A charter this clone does not hold is REPORTED and dispatched anyway, naming the path it looked at: `resolve_launch`'s refusals for a charter it cannot believe and a harness not on `PATH` both stay, but a charter that does not EXIST is the adoption case, and refusing it would make a plan undispatchable on every clone lacking the charter. All 280 existing plans parse byte-identically, diffed before and after, and a slice naming no agent produces the launch it produces today — which is the whole estate.
+
+<!--
+plan: docs/plans/2026-09-15-a-slice-names-the-agent-it-needs.md
+bumps:
+  skills:
+    plot: minor
+    plot-dispatch: minor
+-->
