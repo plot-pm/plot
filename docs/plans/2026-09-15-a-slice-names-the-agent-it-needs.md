@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-09-15, jwloka, in-session
+- **Started:** 2026-09-15, jwloka, `feature/a-slice-names-the-agent-it-needs`
 
 ## Changelog
 
