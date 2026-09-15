@@ -10,6 +10,7 @@
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -73,26 +74,58 @@ proposed a deploy-job config key and was rejected for exactly this reason: the
 key would have been read correctly and the reader would still have returned
 `null`.
 
-### What a job's shape is called, and why it is the right test
+### A healthy Jenkins reports `unreachable`, and the port calls it `unaskable`
 
-Jenkins names the kind in every listing:
+**The consequence is worse than a missing reading, and this is what the operator
+actually sees.** `jenkins_build_map` answers `failed`, and its consumers say so
+in words:
+
+- `plot-host.sh:2717-2718` — *"plot-host: jenkins unreachable (failed) — checks reported as unknown"*
+- `plot-host.sh:3024-3025` — the same sentence, then **`exit 4`**
+
+`build-shell.ts:139-145` converts exit 4 to **`unaskable` with `refusal: null`**,
+and `:133-135` states the rule deliberately: exit 4 is *not* a refusal, because
+it means *"standing configuration fact, not an incident worth waiting out"*.
+
+**So a correctly configured, reachable, signed-in Jenkins reports through the
+port as "this repository has no CI to ask" — and the one signal a team could
+retry on is discarded by design.** That is why the board is blank even though
+every configuration value is right.
+
+### The job's shape is named in its PARENT's listing, not in the one Plot performs
+
+**This is the sentence to get right, and an earlier draft of this plan got it
+wrong in the way that matters.**
+
+Jenkins names a job's kind in `_class`. But `job list <container>` returns the
+container's **children**, and their `_class` describes *them*:
 
 ```
-continuous-build         org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject
-continuous-deploy        org.jenkinsci.plugins.workflow.job.WorkflowJob
-continuous-deploy-stable org.jenkinsci.plugins.workflow.job.WorkflowJob
-release                  org.jenkinsci.plugins.workflow.job.WorkflowJob
-set-image-name           org.jenkinsci.plugins.workflow.job.WorkflowJob
+jen job list quaweb/continuous-build   ->  every child: ...job.WorkflowJob
+jen job list quaweb                    ->  continuous-build: ...multibranch.WorkflowMultiBranchProject
+                                           continuous-deploy: ...job.WorkflowJob
 ```
 
-**The `_class` is the fact, and asking for it costs nothing** — the parent
-listing Plot already performs carries it for every job. So the shape is read
-from a call already being made, and the verb follows from the shape rather than
-from a guess or a second config key.
+**Both measured live 2026-09-15**, and the repository's own fixture says the same:
+`test/reconcile/host.test.mjs:1505-1509` gives all five children of a multibranch
+container `_class: ...job.WorkflowJob`.
 
-**Five jobs, four of them plain.** A rejected plan asserted *"two is the shape a
-team has"*; the first instance measured has five, which is why this plan tests
-the shape rather than counting jobs.
+**So reading `.[0]._class` from the listing Plot already performs reads a healthy
+multibranch job as plain**, routes it to `job view`, and breaks the CI half that
+works today — while every gate still passes.
+
+The deciding `_class` is the **configured job's own**, and it appears one level
+up. `Jenkins instance` already carries `<slug>/<job-path>`, so the parent path is
+the job path minus its last segment — a second `job list` on that parent, or
+`job view` on the job itself, which returns the job's own `_class` directly.
+
+**`job view` answers both questions at once**: it returns `_class`, `color` and
+`lastBuild` for the configured job. So the shape test and the plain-job reading
+are one call, and the multibranch path keeps the single `job list` it has today.
+
+**Five jobs under `quaweb`, four of them plain.** A rejected plan asserted *"two
+is the shape a team has"*; the shape is tested rather than counted for that
+reason.
 
 ### What this does not do
 
@@ -130,18 +163,29 @@ unreachable.
 
 - `bug/a-jenkins-job-is-read-by-its-shape` — read the job's `_class` from the listing Plot already performs, and resolve a plain `WorkflowJob` through `jen job view` instead of `job list`, keeping the multibranch path byte-identical
 
-**Done when** a plain `WorkflowJob` reports its real state rather than `failed`,
-pinned by a fixture carrying the measured `job view` payload (`color: blue`,
-`lastBuild.result: SUCCESS`); a `WorkflowMultiBranchProject` produces a
-branch→checks map **byte-identical** to today's, pinned by a fixture of the
-measured `job list` output including a percent-encoded branch name and a `red`
-child; an unreachable Jenkins still reports `failed` and an unrecognised auth
-line still reports `unknown`, both unchanged; a job whose `_class` is neither
-kind is read as **unknown rather than failed**, since a shape this plan did not
-measure is not the same fact as a host that did not answer; the number of `jen`
-calls per refresh is unchanged for a multibranch job and pinned by counting;
-`grep -c 'job view' plot-host.sh` is no longer 0; and `pnpm run test:contracts`
-passes.
+**Done when** the job's shape is decided from **the configured job's own
+`_class`** and never from the `_class` of the children `job list` returns —
+pinned by a test in which a multibranch container's children all carry
+`...job.WorkflowJob` (the shape `test/reconcile/host.test.mjs:1505-1509` already
+holds) and the container is still read as multibranch; a plain `WorkflowJob`
+reports its real state rather than `failed`, pinned by a fixture carrying the
+measured `job view` payload (`color: blue`, `lastBuild.result: SUCCESS`); **the
+`runs` op emits a line for a plain job rather than exiting 4**, pinned by a test,
+since `:3027` reads `.map[$branch]` and a plain job has no branch key — without
+this gate every other one can pass while the port still answers `unaskable`; a
+`WorkflowMultiBranchProject` produces a branch→checks map **byte-identical** to
+today's, pinned by a fixture of the measured `job list` output including a
+percent-encoded branch name and a `red` child; an unreachable Jenkins still
+reports `failed` and an unrecognised auth line still reports `unknown`, both
+unchanged; a job whose `_class` is neither kind is read as **unknown rather than
+failed**, since a shape this plan did not measure is not the same fact as a host
+that did not answer; **the jen stub learns to tell `list` from `view`** —
+`test/reconcile/host.test.mjs:1462` dispatches on `group == "job"` alone and
+would answer `job view` with the array fixture; **the call count is asserted on
+TOTAL `jen` invocations, not on the literal string `job list`** — the existing
+filter cannot see a `job view` call at all, so a per-branch storm against
+Jenkins' declared limit of 60 would pass it; `grep -c 'job view' plot-host.sh`
+is no longer 0; and `pnpm run test:contracts` passes.
 
 **Verified separately on an instance declaring `CI: jenkins`**: the deploy job's
 state is readable through `plot-host.sh`. That cannot be checked in this
@@ -161,6 +205,12 @@ a table of its two pipelines and the cost of misconfiguring the instance key
 (PR #874, where every PR read `checks: unknown`). **A team wrote the finding
 into its own repo and Plot never read it**; that is worth more than the plan it
 corrects.
+
+**Amended 2026-09-15 after its first panel**, which found the mechanism sentence
+naming the wrong object as carrying `_class` — the same error class as the two
+rejections this plan supersedes, surviving into the plan written to correct them.
+Caught before dispatch this time. The panel also found three gates that could
+pass while the defect stood; all three are now pinned.
 
 **Third plan on this subject in one week, and the first with a measurement
 behind it.** The two before it —
