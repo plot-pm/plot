@@ -1,5 +1,6 @@
 import type { SliceSpend } from '../entities/slice-spend.js';
 import type { SliceSpendRecord } from '../ports/slice-spend.js';
+import { planSpend, type PlanSpend } from '../rules/plan-spend.js';
 import { tokensForBranch } from '../rules/slice-tokens.js';
 import { readSpend, type SpendRead } from '../rules/slice-spend-record.js';
 
@@ -105,4 +106,28 @@ export const readSliceSpend = async (
 ): Promise<SpendRead> => {
   const lines = await record.lines();
   return readSpend(lines.ok ? lines.value : null, branch);
+};
+
+/**
+ * Reads what a plan's slices cost, summed over the ones measured here.
+ *
+ * **THE RECORD IS READ ONCE, NOT ONCE PER SLICE.** One file holds every branch
+ * the machine has measured, so composing this as N calls to
+ * {@link readSliceSpend} would re-read the whole file N times. The port hands
+ * back every line and {@link planSpend} partitions them.
+ *
+ * **IT OPENS NO TRANSCRIPT AND WRITES NOTHING.** A rollup is a read, and the
+ * sum lives in a pure function that has no port to reach one with.
+ *
+ * @param record - the port that keeps the record.
+ * @param branches - the branches the plan names, in plan order.
+ * @returns the per-counter sums with `tokens` null where nothing was measured,
+ *   the `absent` and `unreadable` counts, and one entry per branch.
+ */
+export const readPlanSpend = async (
+  record: SliceSpendRecord,
+  branches: readonly string[],
+): Promise<PlanSpend> => {
+  const lines = await record.lines();
+  return planSpend(lines.ok ? lines.value : null, branches);
 };

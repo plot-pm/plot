@@ -49,6 +49,7 @@ export * from './rules/verdict.js';
 export * from './rules/attention.js';
 export * from './rules/budget-record.js';
 export * from './rules/slice-spend-record.js';
+export * from './rules/plan-spend.js';
 export * from './rules/cadence.js';
 export * from './rules/reaction.js';
 export * from './rules/concurrency.js';
