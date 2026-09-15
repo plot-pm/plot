@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 5
 - **Approved:** 2026-09-15, jwloka, in-session
+- **Started:** 2026-09-15, jwloka, `feature/a-slice-says-what-it-spent`
 
 ## Changelog
 
