@@ -124,7 +124,7 @@ inventing a role this estate has not asked for.
 
 ## Slices
 
-### A slice names the agent it needs (Branch: feature/a-slice-names-the-agent-it-needs)
+### A slice names the agent it needs (Branch: feature/a-slice-names-the-agent-it-needs, PR: #915)
 
 - `feature/a-slice-names-the-agent-it-needs` — parse an optional `<!-- agent: <name> -->` annotation on a branch line in `plot-plan-meta.sh`, emitted as `waves[].branches[].agent` and absent where unwritten; have `plot-dispatch.sh` read it when `--agent` is absent; report a named-but-missing charter without refusing; document it beside `waits:` and `builds:` in both plan templates
 
