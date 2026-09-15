@@ -28,6 +28,7 @@ export * from './entities/sprint.js';
 export * from './entities/issue.js';
 export * from './entities/limit.js';
 export * from './entities/budget.js';
+export * from './entities/slice-spend.js';
 export * from './entities/wave.js';
 export * from './entities/finding.js';
 export * from './entities/subscription.js';
@@ -47,6 +48,7 @@ export * from './rules/pulse.js';
 export * from './rules/verdict.js';
 export * from './rules/attention.js';
 export * from './rules/budget-record.js';
+export * from './rules/slice-spend-record.js';
 export * from './rules/cadence.js';
 export * from './rules/reaction.js';
 export * from './rules/concurrency.js';
@@ -84,6 +86,7 @@ export type {
   WaitsReading,
 } from './rules/branch-state.js';
 export * from './rules/spend.js';
+export * from './rules/slice-tokens.js';
 export * from './rules/timebox.js';
 /**
  * The per-agent half of the tick, disambiguated for the same reason the phase
@@ -465,6 +468,7 @@ export type * from './ports/host.js';
 export type * from './ports/tracker.js';
 export type * from './ports/build.js';
 export type * from './ports/budget.js';
+export type * from './ports/slice-spend.js';
 export type * from './ports/slots.js';
 export type * from './ports/processes.js';
 export type * from './ports/performer.js';
