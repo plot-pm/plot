@@ -76,7 +76,12 @@ export const readSpend = (lines: readonly string[] | null, branch: string): Spen
   }
   return {
     state: history.length === 0 ? 'absent' : 'measured',
-    latest: history.length === 0 ? null : (history[history.length - 1] ?? null),
+    // `.at(-1) ?? null` RATHER THAN A LENGTH TEST AND AN INDEX. Both spellings
+    // answer the same, and only this one has two reachable branches: guarded by
+    // `history.length === 0` the fallback can never be taken, so it is a branch
+    // no test can enter — dead code appeasing `noUncheckedIndexedAccess` rather
+    // than handling a case. Here the empty record IS the fallback.
+    latest: history.at(-1) ?? null,
     history,
     unreadable,
   };
