@@ -55,11 +55,11 @@ attributed to an undifferentiated worker answers a less useful question.
 
 - [x] [a-charter-reaches-the-agent-it-declares](../plans/2026-09-14-a-charter-reaches-the-agent-it-declares.md) — a read-only reviewer charter, a `--agent` selector, and a prompt file that honours what Plot exports. Closes a zero-adoption gap on a mechanism that is already complete.
 - [x] [a-slice-names-the-agent-it-needs](../plans/2026-09-15-a-slice-names-the-agent-it-needs.md) — a per-branch `<!-- agent: <name> -->` annotation, read by dispatch when `--agent` is absent. Without it an unattended fleet runs every slice as the same undifferentiated worker.
-- [ ] [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) — sum the four token counters and the model across a run's whole transcript and record it per slice. The existing readings describe the LAST TURN and are a context ceiling, not a cost.
+- [x] [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) — sum the four token counters and the model across a run's whole transcript and record it per slice. The existing readings describe the LAST TURN and are a context ceiling, not a cost.
 
 ### Should Have
 
-- [ ] **A plan states what its slices cost** — the per-plan rollup over the recorded counters. **Deliberately unplanned**: it is trivial once [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) records a number and worthless before, so it is drafted after that lands rather than against an intended shape. Reporting is worth less than capture and depends on it, so it is a Should rather than a Must.
+- [x] **A plan states what its slices cost** — the per-plan rollup over the recorded counters. **Deliberately unplanned**: it is trivial once [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) records a number and worthless before, so it is drafted after that lands rather than against an intended shape. Reporting is worth less than capture and depends on it, so it is a Should rather than a Must.
 
 ### Could Have
 
