@@ -11,7 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -82,47 +82,31 @@ exist**, which makes this change safer than it was argued to be, not more urgent
 
 ### The word lives in four tiers, and only one is a target
 
-Measured on main, `## Branches` appears **62 times outside the nine skills**:
+**Measured on `origin/main` 2026-09-15** — an earlier draft's numbers were wrong
+and its framing worse, so these are stated as they were derived:
+
+```
+git grep -c '## Branches' origin/main                       → 632 total
+git grep -c '## Branches' origin/main -- 'skills/*/SKILL.md' →  18
+git grep -c '## Branches' origin/main -- 'skills/'           →  61
+```
+
+**61 sit under `skills/` and they CONTAIN the 18** — an earlier draft wrote
+*"62 occurrences outside the nine skills"*, which is both the wrong number and
+additive where the real relation is inclusive. **The remaining 571 are elsewhere
+in the repository**, overwhelmingly test fixtures and the parser's own comments.
 
 | Tier | Where | Target? |
 |---|---|---|
-| Skill prose | 9 `SKILL.md` files, 18× | **yes** |
+| Skill prose | 9 `SKILL.md` files | **yes**, 18 |
 | The shipped template | `skills/plot/templates/plan.md:40` | **yes** |
-| Script comments | 33 in `.sh`/`.mjs`, 19 in `plot-plan-meta.sh` alone | **no** |
-| Docs and history | `MANIFESTO.md`, `changelog.md`, READMEs | **no** |
-| Test fixtures | 205 occurrences across 45 contract tests | **no** |
+| The second copy-me example | `skills/plot/intro-to-using-plot.md:88` | **yes** |
+| README instruction lines | `tracer-bullets`, `plot-pulse`, `plot-reslice` | **yes**, by sentence |
+| Everything else | parser comments, changelog history, 205+ fixtures | **no** |
 
-### The unit is the SENTENCE, not the file — and six files sat in neither list
-
-**An earlier draft exempted "the READMEs" as a file type. That cannot be meant.**
-`plot-reslice/README.md:57` reads *"the same `## Branches` / `## Waves` shapes
-`plot-plan-meta.sh` already parses"* and **must keep both words to stay true** —
-while three lines in the same file should change. **A file-level exemption says
-the same sentence is drift in `SKILL.md` and correct in `README.md`.**
-
-**So each occurrence is classified by what the sentence DOES:**
-
-| The sentence… | Action |
-|---|---|
-| tells a reader what to write, or shows a plan to copy | **change** |
-| states what the parser accepts, or records history | **keep** |
-
-**`intro-to-using-plot.md:88-95` is the second copy-me source and was unnamed.**
-It is a fenced `markdown` block headed `## Branches`, introduced by *"Group your
-branches under `### ` subheadings"*. **A reader following the intro writes a plan
-CI refuses** — the identical defect this plan calls the highest-value target in
-the template, in the document a newcomer reads first.
-
-### Two tolerant instructions must NOT become strict
-
-`plot-deliver/SKILL.md:113` and `ralph-plot-sprint/SKILL.md:117` say *"any
-heading containing the word 'Branches'"* and *"matches `## Branches`,
-`## Implementation Branches`, `### Implementation Branches`"*.
-
-**A literal find-and-replace turns those into "the word 'Slices'" — narrowing a
-tolerant instruction to a strict one, against an estate this plan swears keeps
-reading all three spellings.** It would pass a named-file gate silently. **These
-two gain `## Slices` alongside what they already match; they lose nothing.**
+**The exemption gate therefore counts what it excludes rather than asserting a
+literal total**, because a total is a number that goes stale between drafting and
+dispatch — and did.
 
 **A blanket `grep → 0` gate would falsify the parser's own measurements.**
 `plot-plan-meta.sh:778` records *"renaming its `## Branches` to `## Slices` took
@@ -168,6 +152,12 @@ parser's full output before and after; the Slice/Wave distinction is stated
 ## Notes
 
 **Filed as #914 with the counts**, verified here before drafting.
+
+**Amended three times. Round 3 blocked on the exemption gate's numbers**: the
+four-tier table pinned counts that are false — 632 occurrences repo-wide against
+a table implying 62 — and framed 61 under `skills/` as additive to the 18 they
+contain. It also found a gate that could not fail. Both are fixed by counting
+what is excluded rather than asserting a total.
 
 **Amended twice. Round 2 found the boundary still wrong in two ways**: six files
 under `skills/` sat in neither list, including `intro-to-using-plot.md`'s

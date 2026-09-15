@@ -11,11 +11,11 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
-- The supervisor's log stops growing without bound. It reached 69 MB in seven days re-emitting a branch list the daemon rebuilds every tick, and nothing rotated it.
+- The supervisor's log stops growing with the estate. It reached 69 MB in seven days re-emitting a branch list the daemon rebuilds every tick; what remains is a fixed 262 bytes per tick, and a ceiling on the file is a separate slice.
 
 <!-- Board impact: none. The unit template and what the daemon prints. No plan
      format, no template, no layout. -->
@@ -115,10 +115,19 @@ the filed size returns within a year.** The gates bound *proportionality* — no
 line count growing with an input — and an earlier draft mistook that for bounding
 growth.
 
-**So the file gets a ceiling too**, and the plan no longer declines rotation. Its
-own round-1 correction makes that cheap: **launchd is not writing this log**, a
-`>>` redirect from a bash loop is, so a size cap costs one `copytruncate`-style
-truncation rather than a fight with an open handle.
+**So the residual is stated rather than hidden, and a ceiling on the file is a
+SEPARATE slice** — because **no file in this slice writes the log.** The daemon
+prints to stdout; the file belongs to a hand-started `>>` loop. A byte gate here
+would name a write this branch does not perform, and the likeliest implementer
+guess — a filesystem sink in `registryd-main.ts` — is what a reviewer rejects on
+layering.
+
+**The ceiling's owner is `plot-fleetctl.sh`**, which already prints the log path
+at `:509` and owns the unit templates. That is a small follow-up with a real
+owner, and this plan names it rather than smuggling it into a gate.
+
+**What this slice therefore promises is exact**: the log stops growing **with the
+estate**. It does not stop growing.
 
 ### A kept class has an unbounded case, and it is a host outage
 
@@ -165,6 +174,12 @@ about honouring an existing rule rather than inventing a quieter one.
 
 ### What this does not do
 
+**It does not put a ceiling on the file.** The residual after this slice is a
+fixed **262 B/tick — 131 MB/year**, stated here rather than left for a reader to
+discover. Bounding the file is `plot-fleetctl.sh`'s, which owns the unit
+templates and already prints the path at `:509`, and it is a follow-up rather
+than a gate in a slice that writes no file.
+
 **It does not delete the existing file.** That is an operator's call on their own
 disk, and a plan that deleted 69 MB of someone's log to prove a point would be
 the wrong kind of fix. The repair is stated; the existing file is named.
@@ -187,10 +202,7 @@ bundling them would put a log fix and a process-control fix in one slice.
 
 - `infra/the-supervisor-log-has-a-ceiling` — have the looping daemon print the counted tick summary without the per-branch lists, leaving `--once`'s output unchanged
 
-**Done when** the log has a **stated ceiling in bytes** and a tick that would
-exceed it truncates rather than grows, pinned by a test — proportionality alone
-leaves 262 B/tick, which is 131 MB/year and larger than the 69 MB that prompted
-this plan; **the four kept hold classes are CAPPED with `… and N more`**, pinned
+**Done when** the **four kept hold classes are CAPPED with `… and N more`**, pinned
 by a test that pushes 574 slices into `merge-unknown` — the measured peak, which
 one host outage produces via `queue.ts:206` and `landed.ts:66` — and asserts the
 line count stays bounded; a looping tick's output is **bounded rather than
@@ -222,8 +234,15 @@ had grown another 5 MB.
 reach a detached supervisor"* is a process-control defect; I hit it today, and it
 deserves its own plan rather than a ride on a log fix.
 
-**Amended three times. Round 2's full report carried a decisive arithmetic
-finding**: the gates bound proportionality, not growth. After both re-emitter
+**Amended four times. Round 3 closed completeness** — twelve emitter sites
+enumerated, no fourth unbounded one, `:205` the only latent one and named — and
+blocked on one defect: **the byte-ceiling gate named a write no file in this
+slice performs.** The ceiling moves to `plot-fleetctl.sh` as a follow-up, the
+residual is stated at 262 B/tick, and the Changelog no longer claims the log
+stops growing without bound — it stops growing **with the estate**, which is what
+this slice does.
+
+**Round 2's full report carried a decisive arithmetic finding**: the gates bound proportionality, not growth. After both re-emitter
 fixes the residual is 262 B/tick — **131 MB/year**, larger than the file that
 prompted the plan — so an implementation satisfying every gate would have shipped
 *"stops growing without bound"* as false. The plan now takes a byte ceiling and

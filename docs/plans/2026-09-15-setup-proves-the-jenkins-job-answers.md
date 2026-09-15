@@ -4,14 +4,15 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Issue:** #913
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
+- **Approved:** 2026-09-15, jwloka, in-session
 
 ## Changelog
 
