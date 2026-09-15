@@ -11,7 +11,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -98,7 +98,45 @@ to change: *"grow the held-branch count"* could never fire on it.
 Three re-emit per tick in proportion to something that grows; the other four are
 bounded by agents, assignments or nothing at all and stay exactly as they are.
 
-**So the plan fixes all three, or it ships a ceiling that leaks.** Gating only the
+**So the plan fixes all three, or it ships a ceiling that leaks.**
+
+### Proportionality is not a ceiling, and the gates alone do not bound the file
+
+**Measured: after BOTH re-emitter fixes the residual is 262 B/tick** — summary
+207, held-header 31, supervision 24 — at 1,440 ticks a day:
+
+```
+262 B/tick × 1,440 ticks/day × 365 = 131 MB/year
+the file that prompted this plan  =  69 MB
+```
+
+**An implementation doing exactly what the gates ask passes every one of them and
+the filed size returns within a year.** The gates bound *proportionality* — no
+line count growing with an input — and an earlier draft mistook that for bounding
+growth.
+
+**So the file gets a ceiling too**, and the plan no longer declines rotation. Its
+own round-1 correction makes that cheap: **launchd is not writing this log**, a
+`>>` redirect from a bash loop is, so a size cap costs one `copytruncate`-style
+truncation rather than a fight with an open handle.
+
+### A kept class has an unbounded case, and it is a host outage
+
+**`queue.ts:205-209` tests `merge-unknown` SECOND, before the claimable split:**
+
+```ts
+if (slice.landed === 'landed') return 'already-merged';
+if (slice.landed === 'unknown') return 'merge-unknown';
+```
+
+And `landed.ts:60-68` returns `unknown` for **every** slice when the host cannot
+be asked. **So one host outage moves the entire queue into a class this plan
+preserves in full** — measured peak here, 574 slices.
+
+**The four kept classes are capped rather than exempted**: each names its
+branches up to a bound and then says `… and N more`. A debugger reading at 3am
+gets the branches; a host outage cannot turn a kept class into the volume the
+plan set out to remove. Gating only the
 held block drops the log to ~9.5 MB and leaves the second source re-emitting nine
 scratchpad paths a minute under a comment promising it does not.
 
@@ -149,8 +187,14 @@ bundling them would put a log fix and a process-control fix in one slice.
 
 - `infra/the-supervisor-log-has-a-ceiling` — have the looping daemon print the counted tick summary without the per-branch lists, leaving `--once`'s output unchanged
 
-**Done when** a looping tick's output is **bounded rather than proportional to
-ANY input that grows**, pinned by three tests that each grow one input — the
+**Done when** the log has a **stated ceiling in bytes** and a tick that would
+exceed it truncates rather than grows, pinned by a test — proportionality alone
+leaves 262 B/tick, which is 131 MB/year and larger than the 69 MB that prompted
+this plan; **the four kept hold classes are CAPPED with `… and N more`**, pinned
+by a test that pushes 574 slices into `merge-unknown` — the measured peak, which
+one host outage produces via `queue.ts:206` and `landed.ts:66` — and asserts the
+line count stays bounded; a looping tick's output is **bounded rather than
+proportional to ANY input that grows**, pinned by three tests that each grow one input — the
 held-branch count, the undispatched-worktree count, and **the number of
 unparseable manifests in the agent registry** — and assert the line count does
 not follow; that third gate is the one a *"grow the estate"* test could never
@@ -178,7 +222,17 @@ had grown another 5 MB.
 reach a detached supervisor"* is a process-control defect; I hit it today, and it
 deserves its own plan rather than a ride on a log fix.
 
-**Amended twice. Round 2 classified every line with no residual bucket** — six
+**Amended three times. Round 2's full report carried a decisive arithmetic
+finding**: the gates bound proportionality, not growth. After both re-emitter
+fixes the residual is 262 B/tick — **131 MB/year**, larger than the file that
+prompted the plan — so an implementation satisfying every gate would have shipped
+*"stops growing without bound"* as false. The plan now takes a byte ceiling and
+withdraws its refusal of rotation, which its own launchd correction had already
+made cheap. It also caps the four kept classes: `merge-unknown` is tested before
+the claimable split, so one host outage moves the whole queue into a class that
+was being preserved in full.
+
+**Round 2 classified every line with no residual bucket** — six
 classes, the whole 69.6 MB file — and then enumerated the daemon's **seven
 emitters** rather than only what appeared in the log. That found a third:
 `registryd-main.ts:205`, silent today and unbounded the moment one manifest fails
