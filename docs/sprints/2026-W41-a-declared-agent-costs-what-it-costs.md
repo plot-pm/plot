@@ -54,7 +54,7 @@ attributed to an undifferentiated worker answers a less useful question.
 ### Must Have
 
 - [x] [a-charter-reaches-the-agent-it-declares](../plans/2026-09-14-a-charter-reaches-the-agent-it-declares.md) — a read-only reviewer charter, a `--agent` selector, and a prompt file that honours what Plot exports. Closes a zero-adoption gap on a mechanism that is already complete.
-- [x] [a-slice-names-the-agent-it-needs](../plans/2026-09-15-a-slice-names-the-agent-it-needs.md) — a per-branch `<!-- agent: <name> -->` annotation, read by dispatch when `--agent` is absent. Without it an unattended fleet runs every slice as the same undifferentiated worker.
+- [ ] [a-slice-names-the-agent-it-needs](../plans/2026-09-15-a-slice-names-the-agent-it-needs.md) — a per-slice `Agent:` field in the wave heading, read by dispatch when `--agent` is absent. Without it an unattended fleet runs every slice as the same undifferentiated worker.
 - [ ] [a-slice-says-what-it-spent](../plans/2026-09-15-a-slice-says-what-it-spent.md) — sum the four token counters and the model across a run's whole transcript and record it per slice. The existing readings describe the LAST TURN and are a context ceiling, not a cost.
 
 ### Should Have
@@ -69,7 +69,7 @@ attributed to an undifferentiated worker answers a less useful question.
      the same window. Ordered by dependency. -->
 
 <!-- [the-board-asks-the-build-resolver] REJECTED 2026-09-15: its premise was false. `buildShell` IS the resolver's caller (build-resolve.ts:64) and the Jenkins arm already resolves. The operator's blank board is unexplained and needs a different plan. -->
-- [ ] [the-deploy-job-shows-on-main](../plans/2026-09-15-the-deploy-job-shows-on-main.md) — Plot models one Jenkins job, the multibranch one. A separate CD job is invisible. Its dependency on the resolver fix is void — that plan was rejected; the chain already resolves.
+- [ ] [a-jenkins-job-is-read-by-its-shape](../plans/2026-09-15-a-jenkins-job-is-read-by-its-shape.md) — `plot-host.sh` asks Jenkins with `job list`, which answers for a multibranch job and returns `null` for a plain one, so a CD pipeline reads as `failed`. Measured on a live instance 2026-09-15. Supersedes [the-deploy-job-shows-on-main](../plans/2026-09-15-the-deploy-job-shows-on-main.md), rejected: it named the need correctly and the mechanism wrongly — a config key would have been read correctly and the reader would still have returned `null`.
 - [ ] [a-connector-declares-its-ceiling](../plans/2026-09-15-a-connector-declares-its-ceiling.md) — `refreshIntervalMs` takes `perHour` and no limit, so the board shares fairly and never knows how close the wall is. bb and jen report no limit headers.
 
 ### Deferred

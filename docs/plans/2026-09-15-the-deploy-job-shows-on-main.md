@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Rejected:** 2026-09-15, jwloka, premise disproved by measurement on a live Jenkins instance
 
 ## Changelog
 
@@ -104,3 +106,114 @@ at all, and a second job would be invisible for the same reason the first one is
 **Raised by the operator 2026-09-15**, naming the split directly: *"we do have
 different pipelines for CI multi-branch builds and CD the main / develop branch
 integration build."*
+
+## Why this was rejected
+
+**A three-lens panel divided (amend/amend/reject), and then a live Jenkins
+instance settled it.** Measured 2026-09-15 on `Quatico.Webseite/quaweb-website`
+— the repository whose board prompted this plan — after the operator named it.
+Every finding below is a reading, not an inference.
+
+### The mechanism this plan names is not the defect
+
+The plan says the gap is *"a second thing to ask, not somewhere to put the
+answer."* Measured, it is **a second WAY to ask**:
+
+```
+jen job list quaweb/continuous-deploy --json   ->  null
+jen job view quaweb/continuous-deploy --json   ->  color blue,
+                                                   lastBuild #938 SUCCESS,
+                                                   duration 453365ms
+```
+
+`job list` enumerates a folder's CHILDREN. A `WorkflowMultiBranchProject` has
+one child per branch, so listing it yields the CI answer Plot renders today. A
+plain `WorkflowJob` has none, so the same call yields `null`.
+
+**`plot-host.sh` calls only `job list` (`:756`) and never `job view`** — zero
+occurrences. So the CD side is unreachable through the verb Plot uses, whatever
+job is declared. **A deploy-job key implemented exactly as this plan specifies
+would pass every gate and still read `null`.**
+
+### "Two is the shape a team has" is false
+
+Under `quaweb`, measured:
+
+```
+continuous-build         WorkflowMultiBranchProject   <- the only one Plot reads
+continuous-deploy        WorkflowJob
+continuous-deploy-stable WorkflowJob
+release                  WorkflowJob
+set-image-name           WorkflowJob
+```
+
+**Five jobs, four of them CD-side.** This plan refuses to generalise on the
+grounds that *"a list of jobs would be inventing a structure nobody has asked
+for, and the cost argument above holds only because the count is fixed."* The
+first real instance measured has four, so the fixed count — and the
+`+1 call per refresh` argument resting on it — does not survive its own
+motivating example.
+
+### The entity claim was false, and it was read from the neighbour
+
+`BuildRun` (`entities/build.ts:113-124`) carries exactly four fields:
+`workflow`, `conclusion`, `startedAt`, `url`. The six this plan lists — with
+`pipeline` among them — belong to `Build` at `:51-64`, a different interface in
+the same file. **`Build` is returned by no port operation.** So *"the entity
+already distinguishes them"* asserts a capability of a type nothing returns.
+
+That is the sibling's error class exactly: reading a neighbouring definition and
+attributing it to the one in use.
+
+### There is no destination
+
+`board.ts:705-707` filters the default branch out of the branch list before any
+plan card is built, and `fleet.ts:1243` does it again — its comment calling such
+a row *"a row named `HEAD` that no reader can act on."* `checks` is a field on
+`PrRecord`, consumed per-PR; the default branch has no PR.
+
+And `build` is a `RowKind` with **no producer**: `rowKind` returns only
+`release`, `plan`, `branch`, `wave`, and `schema.ts:1275-1280` records that
+`build` *"never rendered outside `mock-fleet.ts`"*. The enum keeps it so the two
+`Record<RowKind, …>` tables stay a compile error — so an implementer would find
+the types accept a build row and nothing appear.
+
+### The declared dependency restated a disproved sentence
+
+The Notes claimed *"Until `buildPortFor` reaches `buildFor`, no Jenkins reading
+arrives at the board at all."* That is
+[`the-board-asks-the-build-resolver`](2026-09-15-the-board-asks-the-build-resolver.md)'s
+premise, rejected the same day. `buildPortFor` already reaches `buildFor` one hop
+through `buildShell`. **Two plans in two days carried that sentence.**
+
+### The gates were satisfiable by rendering nothing
+
+*"Lands on the default branch's row AND ON NO OTHER"* is phrased as an
+exclusion, so **zero rows satisfies it vacuously.** Add the key, add the call,
+store the answer, render it nowhere — every gate green, both suites pass, the
+operator sees exactly what they see today.
+
+### What was right, and where it goes
+
+**The need is confirmed.** A real team runs a separate CD pipeline and cannot
+see it, and `premise`'s sequencing objection — that the config might be empty —
+is disproved: `CI: jenkins` resolves, `jen auth status` reports signed in, and
+the CI half works.
+
+**The declared-key design was right**, since a naming convention would have to
+guess among four CD-side jobs.
+
+**The team had already written the diagnosis into their own repo.** That
+repository's `AGENTS.md` states *"«deploy» kommt in `plot-host.sh` kein einziges
+Mal vor: Plot hat fuer die CD-Seite kein Konzept"* — verified, `grep -ic deploy`
+returns 0 — and records the cost of misconfiguring the key at PR #874, where
+every PR read `checks: unknown`.
+
+Superseded by
+[`a-jenkins-job-is-read-by-its-shape`](2026-09-15-a-jenkins-job-is-read-by-its-shape.md),
+which fixes the reader rather than the declaration.
+
+**Nothing was implemented.** No branch, no PR, no `Started:` record.
+
+The full panel record is at
+`.plot/panels/2026-09-15-the-deploy-job-shows-on-main/`.
