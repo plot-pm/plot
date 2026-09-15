@@ -35,7 +35,7 @@ import {
   TICK_INTERVAL_MS,
   type TickReport,
 } from './registryd.js';
-import { QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
+import { QUEUE_HOLDS, type QueueHold } from '@plot-pm/domain/rules/queue';
 
 /**
  * `plot-registryd` — the supervisor, one per repository.
@@ -174,19 +174,42 @@ export const registryDirFor = (repoRoot: string, scriptsDir: string): string => 
 };
 
 /**
+ * How many unparseable manifests a looping tick names before it counts the
+ * rest.
+ *
+ * **THIS EMITTER IS PROPORTIONAL TO THE REGISTRY, NOT THE ESTATE**, and it
+ * wrote zero bytes of the 69 MB log that prompted the cap — no manifest was
+ * unparseable. It was found by enumerating every emitter rather than by
+ * measuring output, and one malformed file in the registry makes it a
+ * permanent per-tick line for as long as the file sits there.
+ */
+const NAMED_BAD_MANIFESTS = 3;
+
+/**
  * Reads every manifest in the registry.
  *
  * A manifest that does not parse is SKIPPED rather than refusing the tick: one
  * unreadable file must not stop a supervisor from picking up every other agent,
  * and the file is reported so it is not silently ignored.
  *
+ * **A LOOPING TICK CAPS THE REPORT RATHER THAN DROPPING IT.** The held and
+ * unclaimed blocks may go quiet on the loop because their counts survive on the
+ * summary line; this line has no count anywhere else, and a broken manifest
+ * that reports nothing is the silent skip the paragraph above refuses. So the
+ * loop names three files and counts the rest, which follows the registry no
+ * further however many break.
+ *
  * @param dir - the registry directory.
  * @param warn - where to report a manifest that did not parse.
+ * @param looping - whether this is the looping daemon rather than `--once`.
+ *   Defaults to `--once`'s full report, so a caller that says nothing gets
+ *   every name.
  * @returns the agents the registry declares, in directory order.
  */
 export const readRegistry = async (
   dir: string,
   warn: (s: string) => void = (s) => process.stderr.write(s),
+  looping = false,
 ): Promise<readonly AgentEntry[]> => {
   let names: string[];
   try {
@@ -198,14 +221,22 @@ export const readRegistry = async (
     return [];
   }
   const entries: AgentEntry[] = [];
+  let skipped = 0;
   for (const name of names) {
     const text = await readFile(join(dir, name), 'utf8').catch(() => null);
     const entry = text === null ? null : parseManifest(text);
     if (entry === null) {
-      warn(`plot-registryd: ${name} is not a manifest this parse understands — skipped\n`);
+      skipped += 1;
+      if (!looping || skipped <= NAMED_BAD_MANIFESTS) {
+        warn(`plot-registryd: ${name} is not a manifest this parse understands — skipped\n`);
+      }
       continue;
     }
     entries.push(entry);
+  }
+  const unnamed = skipped - NAMED_BAD_MANIFESTS;
+  if (looping && unnamed > 0) {
+    warn(`plot-registryd: … and ${unnamed} more manifests this parse does not understand\n`);
   }
   return entries;
 };
@@ -779,7 +810,7 @@ export const run = async (
     // of the daemon's state: there is nothing else to lose, so `kill -9` costs
     // one tick.
     const report = await tick({
-      registry: () => readRegistry(registryDir, warn),
+      registry: () => readRegistry(registryDir, warn, !args.once),
       world,
       queue,
       // THE CAP IS ASKED ONLY WHERE THE DAEMON MAY ACT ON IT. A tick that read
@@ -790,7 +821,10 @@ export const run = async (
       max: args.max,
     });
 
-    const code = reportTick(report, write, warn);
+    // `!args.once` IS THE LOOP, and this is the only place that knows. Line
+    // 802 below decides whether to return; until then both paths are here, so
+    // the distinction is passed rather than inferred downstream.
+    const code = reportTick(report, write, warn, !args.once);
     if (args.startAgents) await startAgents(report, performer, write, warn);
 
     // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.
@@ -805,6 +839,42 @@ export const run = async (
 };
 
 /**
+ * What a hold is proportional to, which is what decides whether a looping
+ * daemon may name its branches.
+ *
+ * **A HOLD OVER THE ESTATE GROWS WITH THE BACKLOG; A HOLD OVER THE QUEUE DOES
+ * NOT.** `not-claimable` is every branch no plan makes claimable — 165 on this
+ * estate, re-enumerated 7,333 times in seven days, and the bulk of a 69 MB
+ * log. The other four are refusals about slices that were actually queued:
+ * small, churning, and what a debugger reads at 3am.
+ *
+ * **IT IS A TOTAL RECORD RATHER THAN A STRING TEST**, because a sixth hold
+ * must not default into silence. `hold === 'not-claimable'` compiles forever
+ * and re-opens this hole the day an estate-wide hold is added; a missing key
+ * here fails the build.
+ */
+const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
+  'already-merged': 'queue',
+  'merge-unknown': 'queue',
+  'no-brief': 'queue',
+  'not-claimable': 'estate',
+  'no-free-agent': 'queue',
+};
+
+/**
+ * How many branches a kept hold names on a looping tick before it counts the
+ * rest.
+ *
+ * **A KEPT CLASS IS CAPPED, NOT EXEMPTED.** `whyNotReady` tests
+ * `merge-unknown` second, before the claimable split, and `landed` answers
+ * `unknown` for every slice when the host cannot be asked — so ONE host outage
+ * moves the entire queue into a class this file preserves. Measured peak here:
+ * 574 slices. Twelve names say which branches and that there are many more; 574
+ * names are the volume this file exists to remove, arriving by another door.
+ */
+const KEPT_HOLD_NAMES = 12;
+
+/**
  * Writes one tick's report, and says what a one-shot run would exit with.
  *
  * **AN INCOMPLETE TICK GOES TO STDERR, A COMPLETED ONE TO STDOUT.** Both units
@@ -816,15 +886,25 @@ export const run = async (
  * `Type=oneshot` unit read it; the looping daemon's failure signal is the log,
  * and it never exits on a tick it could not take.
  *
+ * **THE TWO CALLERS PRINT DIFFERENT AMOUNTS, AND THE CALLER SAYS WHICH.** A
+ * person runs `--once` and reads the tick they asked for; the loop writes to a
+ * file nobody is watching at the time, 1,440 times a day. `looping` is a
+ * parameter rather than module state because every test calls this function
+ * directly, and a distinction the tests cannot set is one they cannot pin.
+ *
  * @param report - what the tick decided, or why it could not.
  * @param write - where a completed tick's lines go.
  * @param warn - where an incomplete tick's line goes.
+ * @param looping - whether this is the looping daemon rather than `--once`.
+ *   Defaults to `--once`'s full output, so a caller that says nothing gets
+ *   everything.
  * @returns 0 when the tick completed, 1 when it could not.
  */
 export const reportTick = (
   report: TickReport,
   write: (s: string) => void,
   warn: (s: string) => void,
+  looping = false,
 ): number => {
   if (report.incomplete !== '') {
     warn(`${tickLine(report)}\n`);
@@ -835,15 +915,22 @@ export const reportTick = (
     if (row.supervision.verdict === 'leave') continue;
     write(`  ${row.branch}: ${row.supervision.verdict} (${row.supervision.cause})\n`);
   }
-  // NAMED ON EVERY TICK, unlike the held slices below, and the difference is
-  // how many there are. The holds run to hundreds on this estate and are a
-  // `--once` inspection; the unclaimed trees were twelve at their worst and
-  // are zero on a healthy estate, so a looping daemon can name each one
-  // without ever writing a line nobody wants.
-  for (const line of unclaimedLines(report)) write(`${line}\n`);
+  // NAMED ON `--once` AND COUNTED ON THE LOOP, like the held slices below.
+  //
+  // This comment used to justify naming them on every tick — *"the unclaimed
+  // trees were twelve at their worst … so a looping daemon can name each one
+  // without ever writing a line nobody wants."* **Measured 2026-09-15, that
+  // was false by 7.1 MB**: this block was 38,174 lines and 10.26% of the log,
+  // with `/private/tmp/plot-baseline` named 2,539 times and one worktree path
+  // 6,413 times. The count is on the summary line, where it costs one field.
+  if (!looping) for (const line of unclaimedLines(report)) write(`${line}\n`);
   // THE HAND-OVER IS NAMED PER SLICE, where supervision is named per agent.
   // A tick that handed nothing over prints its counts and no rows, the same
   // way a quiet estate prints `left=3` and nothing else.
+  //
+  // IT IS NOT GATED: an assignment is an EVENT, not a re-emission. It is
+  // bounded by the free agents a tick had, it says something that happened
+  // once, and a log of what the fleet actually did is what this file is for.
   for (const assignment of report.handOver?.detail?.assignments ?? []) {
     write(`  ${assignment.branch}: hand over to ${assignment.session}\n`);
   }
@@ -861,7 +948,14 @@ export const reportTick = (
       const branches = held.filter((slice) => slice.hold === hold);
       if (branches.length === 0) continue;
       write(`  held on ${hold} (${branches.length}):\n`);
-      for (const slice of branches) write(`    ${slice.branch}\n`);
+      // ON THE LOOP, THE ESTATE-WIDE CLASS IS COUNTED AND THE QUEUE'S ARE
+      // CAPPED. The header above already carries the count for both, so a
+      // reader of either learns how many were held and why.
+      if (looping && HOLD_SCOPE[hold] === 'estate') continue;
+      const named = looping ? branches.slice(0, KEPT_HOLD_NAMES) : branches;
+      for (const slice of named) write(`    ${slice.branch}\n`);
+      const rest = branches.length - named.length;
+      if (rest > 0) write(`    … and ${rest} more\n`);
     }
   }
   return 0;
