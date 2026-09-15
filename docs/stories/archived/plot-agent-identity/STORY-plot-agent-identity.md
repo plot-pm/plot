@@ -1,9 +1,10 @@
 ---
 title: An agent is someone, not something running
 author: jwloka
-status: draft
+status: done
 created: 2026-08-27
-updated: 2026-09-14
+updated: 2026-09-15
+archived: 2026-09-15
 ---
 
 # An agent is someone, not something running
