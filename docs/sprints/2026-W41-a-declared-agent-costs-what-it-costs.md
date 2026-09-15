@@ -63,7 +63,14 @@ attributed to an undifferentiated worker answers a less useful question.
 
 ### Could Have
 
-<!-- add items here -->
+<!-- Raised by the operator 2026-09-15: bb polling too hard, and Jenkins builds
+     absent from the board entirely. Could rather than Must because the sprint's
+     goal is a declared agent and its cost; these are connector defects found in
+     the same window. Ordered by dependency. -->
+
+- [ ] [the-board-asks-the-build-resolver](../plans/2026-09-15-the-board-asks-the-build-resolver.md) — `buildPortFor` constructs `buildShell` directly, so `CI: jenkins` gets the shell arm and `buildFor` has no caller. One line; it is why Jenkins builds never appear.
+- [ ] [the-deploy-job-shows-on-main](../plans/2026-09-15-the-deploy-job-shows-on-main.md) — Plot models one Jenkins job, the multibranch one. A separate CD job is invisible. Depends on the resolver fix.
+- [ ] [a-connector-declares-its-ceiling](../plans/2026-09-15-a-connector-declares-its-ceiling.md) — `refreshIntervalMs` takes `perHour` and no limit, so the board shares fairly and never knows how close the wall is. bb and jen report no limit headers.
 
 ### Deferred
 
