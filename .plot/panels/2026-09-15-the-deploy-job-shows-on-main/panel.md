@@ -27,7 +27,9 @@ That sentence is the one `the-board-asks-the-build-resolver` was rejected for. `
 
 The plan rests on `BuildRun` carrying a `pipeline` field. Both `connector` and `verifiability` read the port: `ports/build.ts` returns `readonly BuildRun[]`, `ShaRun | null`, `readonly LimitReading[]` (`:76`, `:105`, `:126`). **`Build` — the entity that has `pipeline` — is returned by no port operation.** It is unreachable from the board.
 
-What actually flows is `BuildRun`, whose only job-identifying field is the free-text `workflow`, documented as *"the workflow's name; `''` where the CI system did not name it"*. So *"two runs on one branch are expressible today without a schema change"* is unsupported by the entity the plan cites.
+What actually flows is `BuildRun` (`entities/build.ts:113-124`), which carries **exactly four** fields — `workflow`, `conclusion`, `startedAt`, `url`. The six the plan lists belong to `Build` at `:51-64`, a different interface in the same file whose own docstring at `:96-102` explains the split. Its only job-identifying field is the free-text `workflow`, documented as *"the workflow's name; `''` where the CI system did not name it"*.
+
+So *"two runs on one branch are expressible today without a schema change"* is unsupported by the entity the plan cites — **and the plan read the neighbouring interface in the same file**, which is the sibling's error class exactly.
 
 ### 3. There is no target row — the defect that makes it unimplementable
 
@@ -42,6 +44,26 @@ return tips.value.filter(
 **The default branch is explicitly filtered out of the branch list.** And `checks` is a field on `PrRecord` (`fleet.ts:346`), consumed per-PR. Every rendered check state on this board hangs off a pull request; the default branch has no PR.
 
 So the slice — *"render its state on that branch's row beside the CI state"* — names a row that does not exist **and** a CI state that is not rendered there either. An implementer reaching this point must first invent a default-branch row: a new section, a new `classifyGroup` arm for *a branch with no PR that is nonetheless shown*, its own layout. That is a board change with its own plan. The Board-impact comment calls it *"one extra reading on the default branch's row"*.
+
+### 3b. The destination gap is larger than it first reported
+
+`premise` returned two further verified facts after the panel closed, both re-read independently.
+
+**The default branch is excluded in BOTH row populations, and one calls such a row a defect.** `board.ts:705-707` filters it before any plan card is built; `fleet.ts:1243` does it again (`if (!short || short === main) continue;`), its comment at `:1238-1241` explaining that a default-branch row *"renders a row named `HEAD` that no reader can act on."* The plan asks the state to land on a row that two producers remove by name, one of them describing the removal as the fix.
+
+**And there is a `build` RowKind with no producer — the nearest precedent, and it is negative.** `schema.ts:1289-1291` lists eight kinds including `build`; `:1275-1280` records that its arm was removed and that *"`build` never rendered outside `mock-fleet.ts`"*. Verified at the producer: `rowKind` returns only `release`, `plan`, `branch`, `wave`.
+
+**The enum keeping `build` is not evidence of support.** Its own docstring says kinds stay in the enum so the two `Record<RowKind, …>` tables become a compile error — *"a gate rather than a rule"*. So an implementer would find the types accept a build row and nothing render. **The one row kind that could have named a pipeline run was tried, never rendered, and deleted**, and the plan does not mention it.
+
+### 3c. The gates can be met while rendering nothing
+
+*"Lands on the default branch's row AND ON NO OTHER"* is phrased as an **exclusion**, so **zero rows satisfies it vacuously.** Add the key, add the call, store the answer, render it nowhere — every gate green, both suites pass, the operator sees exactly what they see today.
+
+Also unpinned: `"byte-identically"` names no measurement; *"reports that it was not found"* names no surface; and no gate covers the **second job-resolution site** at `plot-host.sh:3101-3108`, where `run-for-sha` resolves the job independently — a deploy job added to the `pr-list` arm alone leaves the two arms disagreeing.
+
+### 3d. The existing job is not a dedicated key
+
+It is a **suffix on `Jenkins instance`** (`<slug>/<job/path>`, `plot-host.sh:702-708`) with a `PLOT_JENKINS_JOB` env override, resolved independently in two places. A second job as a standalone key sits asymmetrically beside the first — and `docs/plans/2026-08-18-plot-board-setup.md:117` already records the open question *"Should `CI` + `Jenkins instance` generalise to `CI` + `CI instance`"*. The plan does not engage with it.
 
 ## What the lenses had in common — and what it cost
 
@@ -63,6 +85,7 @@ The plan's strongest gate — *"asked exactly once per refresh, pinned by counti
 
 1. **Do not dispatch this.** Unanimous in substance across all three lenses.
 2. **Delete the dependency on the rejected plan** — it is false and it is the second document to carry that sentence.
-3. **Re-scope to PR rows targeting main**, or write the default-branch row as its own plan first. Decide which; they are different sizes.
-4. **Re-count the call cost as +2**, against a 60/hr ceiling.
-5. Keep the plan's honest split of what can and cannot be verified here — `verifiability` confirms that part was right.
+3. **Run the two readings first** — `plot-config.sh get CI ''` and `Jenkins instance` in the operator's repository. If `CI` is empty, `buildFor` returns `buildNone` (`build-resolve.ts:43-44`), which answers `unaskable` on every operation and fetches **no** job, first or second — a deploy job on top would be equally invisible, and that would be the third implementation on one subject in one week reported as not working. **This is a sequencing objection, not a reason to drop the operator's need.**
+4. **Re-scope to PR rows targeting main**, or write the default-branch row as its own plan first. Decide which; they are different sizes.
+5. **Re-count the call cost as +2**, against a 60/hr ceiling.
+6. Keep the plan's honest split of what can and cannot be verified here — `verifiability` confirms that part was right.
