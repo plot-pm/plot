@@ -4,13 +4,15 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Issue:** #912
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Rejected:** 2026-09-15, jwloka, two false premises — no fixed page size, and nothing consumes the warning
 
 ## Changelog
 
@@ -99,3 +101,50 @@ far below any page limit, and the board discarded them.
 **Follow-up to #333, which stays open.** The two are opposite ends of one code
 path — that one is the join going partial past 50, this one is a page of 3 read
 as unprovable. Fixing this does not close that.
+
+## Why this was rejected
+
+**A three-lens panel returned a unanimous `reject`** — the first this week — and
+the moderator verified both findings. Record in
+`.plot/panels/2026-09-15-a-complete-page-is-not-truncated/`.
+
+### The warning has NO consumer, and this plan claimed it did
+
+**Measured: `grep -rn 'possibly truncated' packages/board/src packages/domain/src`
+returns ZERO.** This plan's own Board-impact comment asserts *"the board consumes
+the warning this changes"*. It does not.
+
+`pr_list_report_truncation` writes to stderr and **returns 0** — it never touches
+an exit code. On a Bitbucket page of 3 the warning fires, `rc` is 0,
+`HOST_VERDICT` is `ok`, and `host_err` is discarded unread. **Removing the
+warning would change an unread string into a shorter unread string.**
+
+**So the rendering the ticket reports is decided somewhere this plan never
+looked.** Its *"What the wrong answer costs"* paragraph is the one connecting the
+warning to the rendering, and it is the one paragraph with no `file:line`.
+
+### `bb` has no fixed page size, and the comment saying so is stale
+
+The plan read `plot-host.sh`'s *"bb returns a fixed page (50 at 1.0.0)"* as a
+standing fact about the host. **Installed here is `bb` 1.9.0**, and the value is
+a **client-side accumulator cap after a bounded page walk**, not a server page
+size. Bitbucket's own `pagelen` is a separate number this plan never mentions.
+
+**And a short page can still be truncated.** The walk breaks at page 10, so a
+repository whose server `pagelen` is small enough returns **fewer than 50 rows
+that are genuinely incomplete** — and an author-filter fallback filters
+client-side from a truncated superset. **This plan's rule would call those
+complete and silence the warning on exactly the case it exists for.**
+
+**The GitHub argument does not transfer.** Its `--limit` is a value the script
+requested and the host honoured, so `count < limit` means the host ran out of
+rows. Bitbucket's 50 is a cap the script never requested and cannot observe.
+
+### What survives
+
+**The ticket is real and unexplained.** Three open PRs rendered as
+`no PR ever opened` is a measured defect on `quaweb-website`. **This plan found
+the wrong cause**, and the next one should start where the discard is actually
+decided rather than at the warning.
+
+**Nothing was implemented.** No branch, no PR, no `Started:` record.
