@@ -1436,7 +1436,28 @@ function makeJenkinsRepo({ instance = 'ci.test/webbloqs/continuous-build-multi',
 // status` — including that jen exits 0 while printing NOT reachable, the trap
 // Done-when 4 exists for. `authReachable:false` prints the failure wording and
 // STILL exits 0.
-function makeJenStub({ jobsJson = '[]', authReachable = true, jobListExit = 0 } = {}) {
+//
+// IT TELLS `job list` FROM `job view`, AND IT DID NOT UNTIL 2026-09-15. The
+// stub branched on `group == "job"` alone and never read the subcommand, so
+// both verbs returned the same array — and an implementation calling NEITHER
+// verb was indistinguishable from one calling both. Every assertion about which
+// verb ran is worthless against a verb-blind stub, so this teaches it the
+// difference before any such assertion is written.
+//
+// `viewJson` DEFAULTS TO THE MULTIBRANCH CONTAINER, because that is what every
+// test written before the shape probe existed is implicitly about: those tests
+// pass a `jobsJson` of branch children and expect the branch map, which is the
+// multibranch path. A default of `null` would have routed all of them through
+// the plain-job arm.
+function makeJenStub({
+  jobsJson = '[]',
+  authReachable = true,
+  jobListExit = 0,
+  viewJson = JSON.stringify({
+    _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
+    name: 'continuous-build-multi',
+  }),
+} = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-jenbin-'));
   const callsFile = path.join(dir, 'jen.calls');
   const authLine = authReachable
@@ -1447,11 +1468,12 @@ printf '%s\\n' "$*" >> "${callsFile}"
 # jen [-I slug] [--json] <group> <sub> [path] — consume -I's VALUE too, or the
 # slug is mistaken for the group.
 group=""
+sub=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -I) shift 2 ;;
     --json) shift ;;
-    *) group="$1"; break ;;
+    *) group="$1"; shift; sub="\${1:-}"; break ;;
   esac
 done
 if [ "$group" = auth ]; then
@@ -1459,7 +1481,15 @@ if [ "$group" = auth ]; then
   printf '%s\\n' '${authLine}'
   exit 0
 fi
-if [ "$group" = job ]; then
+# THE SUBCOMMAND DECIDES, which is the whole point of this stub's 2026-09-15
+# change. \`job view\` answers for the CONFIGURED job; \`job list\` answers with
+# its children. A stub conflating them cannot witness which verb an
+# implementation used.
+if [ "$group" = job ] && [ "$sub" = view ]; then
+  printf '%s' '${String(viewJson ?? '').replace(/'/g, `'\\''`)}'
+  exit 0
+fi
+if [ "$group" = job ] && [ "$sub" = list ]; then
   printf '%s' '${jobsJson.replace(/'/g, `'\\''`)}'
   exit ${jobListExit}
 fi
@@ -1606,16 +1636,33 @@ test('host: a slashed branch name joins after decoding the percent-encoding', ()
     'the slashed branch must join its red build, not fall through to none');
 });
 
-test('host: one job-list call serves every branch — no per-branch call', () => {
+test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {
   // Done-when 5, free by the spike: a multibranch job returns every branch in
   // one `job list`. Joining locally means the scan pays for Jenkins once per
   // refresh, never once per branch on the 5s pulse.
+  //
+  // COUNTED ON TOTAL `jen` INVOCATIONS, AND IT WAS COUNTED ON `'job list'`
+  // UNTIL 2026-09-15. That filter is blind to every other verb: a per-branch
+  // `job view` storm — three branches here, and against Jenkins' declared limit
+  // of 60 in the field — passed it while making one call per branch. The budget
+  // is what this test is about, so the budget is what it counts.
+  //
+  // THE EXPECTED TOTAL IS FIXED RATHER THAN BOUNDED, so a fourth call has to be
+  // justified here by whoever adds it. Three: `auth status`, the `job view`
+  // that reads the shape, and the one `job list` that reads every branch.
   const repo = makeJenkinsRepo();
-  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green', 'feature/red', 'feature/unstable']) });
+  const heads = ['feature/green', 'feature/red', 'feature/unstable'];
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(heads) });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen });
-  const calls = callsOf(jen.callsFile).filter((c) => c.includes('job list'));
-  assert.equal(calls.length, 1, 'exactly one job list, regardless of branch count');
+  const calls = callsOf(jen.callsFile);
+  assert.equal(calls.length, 3,
+    `a refresh of ${heads.length} branches must cost 3 jen calls, not one per branch\n`
+    + calls.join('\n'));
+  assert.equal(calls.filter((c) => c.includes('job list')).length, 1,
+    'exactly one job list, regardless of branch count');
+  assert.equal(calls.filter((c) => c.includes('job view')).length, 1,
+    'the shape is read once per refresh, never once per branch');
 });
 
 test('host: the Jenkins arm splits the instance into an -I slug and a job path', () => {
@@ -1627,10 +1674,17 @@ test('host: the Jenkins arm splits the instance into an -I slug and a job path',
   const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green']) });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen });
-  const jobCall = callsOf(jen.callsFile).find((c) => c.includes('job list'));
+  const calls = callsOf(jen.callsFile);
+  const jobCall = calls.find((c) => c.includes('job list'));
   assert.match(jobCall, /-I ci\.test\b/, 'the -I slug is the instance value up to the first /');
   assert.match(jobCall, /job list webbloqs\/continuous-build-multi/,
     'the job path is the remainder of the instance value');
+  // THE SHAPE PROBE ASKS ABOUT THE SAME JOB. Two verbs reading one coordinate
+  // differently is how a reader answers about a job nobody configured.
+  const viewCall = calls.find((c) => c.includes('job view'));
+  assert.match(viewCall, /-I ci\.test\b/, 'the shape probe takes the same -I slug');
+  assert.match(viewCall, /job view webbloqs\/continuous-build-multi/,
+    'and asks about the configured job itself, not about a child of it');
 });
 
 test('host: an unreachable Jenkins marks rows unknown and does NOT blank the list', () => {
@@ -1688,8 +1742,11 @@ test('host: a repo without CI jenkins reads its GitHub rollup exactly as today',
   const row = JSON.parse(out.trim());
   assert.equal(row.checks, 'failing');
   assert.deepEqual(row.failing_checks, ['validate']);
-  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 0,
-    'jen is not called when CI is not jenkins');
+  // COUNTED ON EVERY `jen` CALL, not on `'job list'`. The claim is that the arm
+  // is INERT, and an arm that probed a job's shape before noticing CI is not
+  // Jenkins would satisfy a `'job list'` filter while still reaching the host.
+  assert.deepEqual(callsOf(jen.callsFile), [],
+    'jen is not called at all when CI is not jenkins');
 });
 
 test('host: the Jenkins arm rides on the Bitbucket backend too — CI is orthogonal', () => {
@@ -1711,6 +1768,254 @@ test('host: the Jenkins arm rides on the Bitbucket backend too — CI is orthogo
   assert.deepEqual(row.failing_checks, ['webbloqs/continuous-build-multi/feature/red']);
 });
 
+// --- the job's SHAPE decides the verb ---------------------------------------
+//
+// `job list` enumerates a container's CHILDREN. A `WorkflowMultiBranchProject`
+// has one child per branch, so listing it yields the branch map above; a plain
+// `WorkflowJob` has no children, so the same call yields `null` and the
+// `type=="array"` guard reported `failed` — the word for an unreachable host.
+//
+// MEASURED LIVE 2026-09-15 on `Quatico.Webseite/quaweb-website`:
+//
+//   jen job list quaweb/continuous-deploy --json  ->  null
+//   jen job view quaweb/continuous-deploy --json  ->  color blue,
+//                                                     lastBuild #938 SUCCESS
+//
+// A healthy, signed-in, correctly declared pipeline read as *the connector
+// cannot be asked*, and `runs` turned that into exit 4, which the build port
+// converts to `unaskable` with the retry signal deliberately discarded.
+
+// THE PLAIN JOB'S `job view` PAYLOAD, CAPTURED VERBATIM.
+//
+// Raw `--json` stdout, not a two-field summary — the habit `plot-host.sh:741`
+// already models for `jen auth status`. A summary would have had to assert that
+// `color` and `lastBuild.result` agree, and they are not structurally
+// consistent: `color` is the job's CURRENT state (it goes `blue_anime` while a
+// build runs) and `lastBuild.result` is the LAST FINISHED build's verdict.
+//
+// Instance: jenkins-ci-webbloqs.internal.quatico.dev, job quaweb/continuous-deploy.
+// Captured 2026-09-15. Trimmed to the fields this reader touches, with the
+// shape of the rest left intact.
+const JEN_VIEW_PLAIN = JSON.stringify({
+  _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob',
+  name: 'continuous-deploy',
+  fullName: 'quaweb/continuous-deploy',
+  color: 'blue',
+  lastBuild: { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowRun', number: 938, result: 'SUCCESS', duration: 453365 },
+});
+
+// The multibranch container's OWN `job view` payload — the object whose
+// `_class` decides, one level up from the children `job list` returns.
+const JEN_VIEW_MULTI = JSON.stringify({
+  _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
+  name: 'continuous-build-multi',
+  fullName: 'webbloqs/continuous-build-multi',
+});
+
+test('host: a multibranch container whose children are all WorkflowJob is still read as multibranch', () => {
+  // THE SINGLE MOST LIKELY DEFECT, AND IT IS INVISIBLE TO EVERY OTHER GATE.
+  //
+  // A child's `_class` describes the CHILD. Measured live, every child of the
+  // multibranch `quaweb/continuous-build` carries `...job.WorkflowJob` — and
+  // `JEN_JOBS` above, written long before this slice, gives all five children
+  // exactly that. So an implementation reading `.[0]._class` off the listing it
+  // already performs finds `WorkflowJob`, calls the plain job a plain job, and
+  // breaks the CI half that works today.
+  //
+  // This test is that scenario exactly: children all `WorkflowJob`, container
+  // `WorkflowMultiBranchProject`, and the branch map must still appear.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green', 'feature/red']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, viewJson: JEN_VIEW_MULTI });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('feature/green').checks, 'green',
+    'the container is multibranch however its children are classed');
+  assert.equal(rows.get('feature/red').checks, 'failing',
+    'and every branch still joins its own colour');
+  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 1,
+    'the multibranch path still makes its one listing');
+});
+
+test('host: the shape is read with `job view`, and the verb is witnessed on jen.calls', () => {
+  // ASSERTED BEHAVIOURALLY, NEVER BY A SOURCE GREP. `grep -c 'job view'` over
+  // `plot-host.sh` is satisfied by a COMMENT — and this function now carries
+  // several. `jen.calls` is the record of what actually ran.
+  //
+  // THE STUB HAD TO LEARN THE DIFFERENCE FIRST. Until 2026-09-15 `makeJenStub`
+  // branched on `group == "job"` and never read the subcommand, so both verbs
+  // returned the same array and this assertion could not have been trusted.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, viewJson: JEN_VIEW_MULTI });
+  runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen });
+  const calls = callsOf(jen.callsFile);
+  const view = calls.filter((c) => c.includes('job view'));
+  assert.equal(view.length, 1, `exactly one shape probe ran\n${calls.join('\n')}`);
+  assert.match(view[0], /job view webbloqs\/continuous-build-multi/,
+    'it asks about the configured job, which is the only object whose _class decides');
+});
+
+test('host: the stub tells `job list` from `job view` — the gate under every verb assertion', () => {
+  // A META-TEST, AND IT EARNS ITS PLACE. Every assertion about which verb ran
+  // is worthless if the stub answers both the same way, and that is precisely
+  // what it did until this slice. If this test fails, the verb assertions above
+  // are not measuring anything — so the stub's discrimination is pinned
+  // directly rather than trusted.
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, viewJson: JEN_VIEW_PLAIN });
+  const run = (args) => execFileSync('bash', ['-c', `"$1" $2`, '_', path.join(jen.dir, 'jen'), args],
+    { encoding: 'utf8' });
+  const listed = run('-I ci.test job list some/path --json');
+  const viewed = run('-I ci.test job view some/path --json');
+  assert.notEqual(listed, viewed, 'a verb-blind stub cannot witness which verb ran');
+  assert.equal(JSON.parse(listed).length, 5, '`job list` answers with the children');
+  assert.equal(JSON.parse(viewed)._class,
+    'org.jenkinsci.plugins.workflow.job.WorkflowJob',
+    '`job view` answers with the configured job itself');
+});
+
+test('host: a plain WorkflowJob reports its real state instead of failed', () => {
+  // THE DEFECT, FROM THE OPERATOR'S SIDE. This job is healthy — `color blue`,
+  // `lastBuild #938 SUCCESS` — and Plot called it `failed`, which is the word
+  // for a Jenkins nobody can reach.
+  //
+  // NO `job list` FOLLOWS. Listing a job with no children is what returned
+  // `null` in the first place, so the plain arm must not make that call at all.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['continuous-deploy']) });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('continuous-deploy').checks, 'green',
+    'a blue plain pipeline is green, not failed');
+  const calls = callsOf(jen.callsFile);
+  assert.equal(calls.filter((c) => c.includes('job view')).length, 1);
+  assert.equal(calls.filter((c) => c.includes('job list')).length, 0,
+    'a plain job has no children to list — that call is what returned null');
+});
+
+test('host: runs on a plain job emits a line rather than exiting 4', () => {
+  // WITHOUT THIS GATE EVERY OTHER ONE CAN PASS WHILE THE PORT STILL ANSWERS
+  // `unaskable`. `plot-host.sh` reads `.map[$branch]`, and a plain job has no
+  // branch key at all — so a reader that fixed `jenkins_build_map` and left the
+  // key shape alone would emit nothing here, exit 4, and
+  // `build-shell.ts:130-145` would turn that into `unaskable` with
+  // `refusal: null`, discarding the retry signal by design.
+  //
+  // The key is the job path's last segment, which is the name the instance
+  // declares and the name a caller asks by.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const res = runJenkinsAllowFail(['runs', 'continuous-deploy'], { repo, hostStubs, jen });
+  assert.equal(res.code, 0, `a readable plain job must not exit 4\n${res.stderr}`);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.conclusion, 'green', 'the state Jenkins reported, not a refusal');
+  assert.equal(row.workflow, 'quaweb/continuous-deploy',
+    'the job is named, because that is what a reader opens');
+});
+
+test('host: a shape nobody measured reports unknown, never failed', () => {
+  // EXACTLY TWO SHAPES ARE READ, and the third answer is honest rather than
+  // convenient. A `FreeStyleProject` HAS a `color` and would be readable — this
+  // still reports `unknown` rather than guessing at it.
+  //
+  // `unknown` AND `failed` ARE DIFFERENT CLAIMS. `failed` says Jenkins did not
+  // answer; here it answered clearly and said something this reader has never
+  // been taught to read. Reporting that as `failed` is the same lie this slice
+  // removes for plain jobs.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/legacy' });
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['legacy']) });
+  const jen = makeJenStub({
+    jobsJson: 'null',
+    viewJson: JSON.stringify({ _class: 'hudson.model.FreeStyleProject', name: 'legacy', color: 'blue' }),
+  });
+  const res = runJenkinsAllowFail(['pr-list', '--rich'], { repo, hostStubs, jen });
+  assert.equal(res.code, 0, 'an unreadable shape must not blank the PR list');
+  assert.equal(rowsByHead(res.stdout).get('legacy').checks, 'unknown',
+    'a shape nobody measured is unknown — the host answered, and we cannot read it');
+});
+
+test('host: an unreachable Jenkins still reports failed, and never probes a shape', () => {
+  // UNCHANGED BY THIS SLICE, and pinned because the shape probe sits near the
+  // auth gate. Auth is decided FIRST: a Jenkins that cannot be reached must not
+  // be asked what shape its jobs are, and `failed` remains the right word.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, viewJson: JEN_VIEW_MULTI, authReachable: false });
+  const res = runJenkinsAllowFail(['pr-list', '--rich'], { repo, hostStubs, jen });
+  assert.equal(res.code, 0);
+  assert.equal(rowsByHead(res.stdout).get('feature/green').checks, 'unknown',
+    'rows degrade to unknown, as they always have');
+  assert.deepEqual(callsOf(jen.callsFile).filter((c) => c.includes('job ')), [],
+    'an unreachable Jenkins is asked no job question at all');
+});
+
+// THE MULTIBRANCH MAP, PINNED AS BYTES.
+//
+// Captured from `jenkins_build_map`'s own stdout on `origin/main` before this
+// slice touched the function, driven by the `JEN_JOBS` fixture and the instance
+// `ci.test/webbloqs/continuous-build-multi`. 572 bytes.
+//
+// A GOLDEN STRING RATHER THAN A FIXTURE COMPARISON, because "byte-identical" is
+// a claim about bytes. A `deepEqual` over parsed JSON passes when the key order
+// changes, when `jq -c`'s spacing changes, and when `from_entries` reorders the
+// branches — none of which a consumer reading this payload with `sed` would
+// survive, and `plot-host.sh` has such consumers.
+const JENKINS_MAP_GOLDEN_MAIN = '{"status":"ok","map":{'
+  + '"feature/green":{"color":"blue","checks":"green","job":"webbloqs/continuous-build-multi/feature/green"},'
+  + '"feature/red":{"color":"red","checks":"failing","job":"webbloqs/continuous-build-multi/feature/red"},'
+  + '"feature/unstable":{"color":"yellow","checks":"failing","job":"webbloqs/continuous-build-multi/feature/unstable"},'
+  + '"feature/disabled":{"color":"disabled","checks":"none","job":"webbloqs/continuous-build-multi/feature/disabled"},'
+  + '"feature/running":{"color":"blue_anime","checks":"pending","job":"webbloqs/continuous-build-multi/feature/running"}}}';
+
+test('host: the multibranch branch map is byte-identical to origin/main', () => {
+  // The slice's central promise: a plain job becomes readable and the half that
+  // already worked does not move a byte.
+  //
+  // THE FUNCTION'S OWN STDOUT IS COMPARED, not a row that survived a join.
+  // `plot-host.sh` has no sourced guard and dispatches on `$1`, so the function
+  // is lifted out of the real source by `awk` and run alone. Reading the
+  // SOURCE FILE is what makes this a gate: a copy of the function pasted into
+  // this test would pass forever.
+  const fnRunner = `
+    set -uo pipefail
+    awk '/^jenkins_build_map\\(\\) \\{/{f=1} f{print} f&&/^}$/{exit}' "$1" > "$2/fn.sh"
+    . "$2/fn.sh"
+    jenkins_build_map "$3"
+  `;
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-golden-'));
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, viewJson: JEN_VIEW_MULTI });
+  const out = execFileSync('bash',
+    ['-c', fnRunner, '_', adapter, dir, 'ci.test/webbloqs/continuous-build-multi'],
+    { encoding: 'utf8', env: { ...process.env, PATH: `${jen.dir}:${process.env.PATH}` } });
+
+  // THE TRAILING NEWLINE IS PART OF THE CAPTURE and deliberately trimmed from
+  // both sides: `printf`/`jq -c` end the payload with one, and a comparison
+  // that included it would be asserting about the shell rather than about the
+  // map.
+  assert.equal(out.trimEnd(), JENKINS_MAP_GOLDEN_MAIN,
+    'the multibranch payload must match origin/main byte for byte');
+  // AND THE PROBE RAN, so this is the post-slice function rather than a copy of
+  // the old one that would trivially match.
+  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job view')).length, 1,
+    'the shape was probed — otherwise this asserts nothing about the new reader');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('host: a bare-host instance names no job, so no shape is probed', () => {
+  // AN INSTANCE WITH NO JOB PATH HAS NOTHING TO VIEW. `job view` with an empty
+  // path would ask about the instance rather than about a job, so the probe is
+  // skipped and the root listing — the behaviour a bare-host instance has
+  // always had — is what runs.
+  const repo = makeJenkinsRepo({ instance: 'ci.test' });
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, viewJson: JEN_VIEW_MULTI });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('feature/green').checks, 'green',
+    'the root listing still joins, exactly as before');
+  assert.deepEqual(callsOf(jen.callsFile).filter((c) => c.includes('job view')), [],
+    'there is no job to view, so no shape probe is made');
+});
+
 // --- runs / run-for-sha: the Jenkins arms -----------------------------------
 //
 // A Jenkins repository asking for runs reached `gh` or nothing until
@@ -1730,7 +2035,13 @@ test('host: runs on a Jenkins repository reaches jenkins_build_map, never gh', (
   assert.equal(row.workflow, 'webbloqs/continuous-build-multi/feature/red',
     'the job is named, because that is what a reader opens');
   assert.equal(argvOf(hostStubs.ghArgv), null, 'gh is never asked about a Jenkins pipeline');
-  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 1,
+  // COUNTED ON TOTAL `jen` INVOCATIONS — `runs` pays the same fixed price
+  // `pr-list --rich` pays, and a filter on `'job list'` could not see a second
+  // verb being added per branch.
+  const runsCalls = callsOf(jen.callsFile);
+  assert.equal(runsCalls.length, 3,
+    `runs costs the same 3 jen calls pr-list --rich costs\n${runsCalls.join('\n')}`);
+  assert.equal(runsCalls.filter((c) => c.includes('job list')).length, 1,
     'one call, the same one pr-list --rich makes');
 });
 
@@ -1810,8 +2121,11 @@ test('host: run-for-sha on Jenkins without a credential exits 4, never empty', (
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /no Jenkins API credential|names no job path/);
-  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 0,
-    'the sha route does not go through `jen`, which carries no commit');
+  // COUNTED ON EVERY `jen` CALL. `run-for-sha` reaches Jenkins by curl against
+  // REST, so it must reach `jen` by no verb at all — a `job view` here would be
+  // the shape probe leaking into a path the plan scoped out explicitly.
+  assert.deepEqual(callsOf(jen.callsFile), [],
+    'the sha route does not go through `jen` at all, which carries no commit');
 });
 
 // --- Jira issue-list / issue-view: REST, no CLI, pinned to the contract ------
