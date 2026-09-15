@@ -1,1 +1,0 @@
-../2026-09-15-a-connector-declares-its-ceiling.md

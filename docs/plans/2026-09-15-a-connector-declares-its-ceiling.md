@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-gates
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 2
+- **Rejected:** 2026-09-15, jwloka, the cadence is already clamped; the output cannot move
 
 ## Changelog
 
@@ -159,3 +161,70 @@ drops the limit whenever the newest line's basis is `unknown`, so the ceiling ma
 never reach the op the board asks. If that is the whole defect it is a plumbing
 fix inside one script and this plan is unnecessary. **The reading that decides
 it** is `plot-host.sh spend-rate` on the repository whose board polls too hard.
+
+## Why this was rejected
+
+**Two three-lens panels, then a decision panel. Rejected on arithmetic rather
+than on judgement.** Full record in
+`.plot/panels/2026-09-15-a-connector-declares-its-ceiling/`.
+
+### The cadence is already clamped on every live connector
+
+`targetStretch` returns `MAX_CADENCE_STRETCH` the moment `others >= share`
+(`cadence.ts:139`), and `MAX_CADENCE_STRETCH = 8` (`:32`). The share is taken at
+the **unstretched** cadence (`:131`), so it is 60/hr on both hosts and **any
+account above roughly 120/hr is pinned at 8x**.
+
+Measured 2026-09-15: **Bitbucket 721/hr, GitHub 268/hr** — 6x and 2.2x past the
+clamp. The Bitbucket board refreshes **once every 32 minutes.**
+
+**So a ceiling input cannot move the number.** It can only ever say *slow down
+further*, which the clamp already refuses. Ship the wiring and the board
+refreshes every 32 minutes the day before and the day after — **zero observable
+change on this plan's only named beneficiary.**
+
+### The board is not the spender
+
+**The board contributes 7.5 requests an hour — 0.75% of Bitbucket's spend**, while
+the account burns 721/hr. This plan touches none of the other 99.25%, because it
+refuses no call: *"It does not refuse a call"*, its own words.
+
+**The operator's report was real and this plan was never aimed at it.** The
+traffic is eleven scripts, dispatched workers and a person at a terminal — the
+population `cadence.ts:150-153` says the record exists to capture.
+
+### No connector needs the declaration
+
+Unanimous across two panels, and **no juror ever chose to ship the config key**.
+Bitbucket already answers `1000 predicted` (`plot-host.sh:1984`) on 100% of its
+lines; Jenkins has **no arm** in `budget_reading` and reads `perHour: null`
+across 8,324 lines, so its cadence never consults a ceiling; GitHub reports
+`actual` on **42 of 73,097 lines — 0.057%** — and the field self-evicts hourly.
+
+### The headline measurement was overturned twice, in opposite directions
+
+The original plan quoted `limit: null`; round 1 called it false and the
+amendment replaced it with `limit: 5000, basis: actual`; round 2 found **six
+consecutive live runs** returning `limit: null` again. **Both readings were true
+when taken.** A reading announces the reset window that then evicts it, so a
+single sample of this field is never a standing fact — and three of this plan's
+versions rested on one.
+
+### What survives, and where it goes
+
+**The code reading is correct and worth keeping:** `refreshIntervalMs`
+(`cadence.ts:244`) takes `Pick<SpendRate,'perHour'>` and no ceiling. It is a real
+gap with **no consequence** while the cadence is clamped.
+
+**Three candidates that would move an observable number**, none of them this plan:
+
+1. **`MAX_CADENCE_STRETCH = 8` is where every connector sits.** The board is
+   clamped, not tuned; revisiting the constant is the only change that alters its
+   cadence today.
+2. **Attribute the 721/hr to its real spenders.** The board is 0.75% of it, and
+   the ledger already carries per-caller lines.
+3. **A second Bitbucket account, `plot-pm`, runs at 2030/hr — 203% of its own
+   declared ceiling**, and nothing watches it. Found by a juror; nobody had named
+   it.
+
+**Nothing was implemented.** No branch, no PR, no `Started:` record.

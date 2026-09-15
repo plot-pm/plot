@@ -10,7 +10,7 @@
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -131,6 +131,46 @@ is explicit that it runs *before* the hop moves `$PLOT_BRANCH`, precisely so it
 names the branch that finished. The transcript carries `gitBranch` per line, so
 the partition is readable.
 
+**A detached (`HEAD`) segment belongs to the branch it returns to.** Settled
+2026-09-15 by a three-lens decision panel
+(`.plot/panels/2026-09-15-a-slice-says-what-it-spent/decision-head.md`).
+
+**An earlier draft of this plan claimed a `HEAD` segment appears BETWEEN slices.
+That is true of the code and false of the transcript.** `reset_desk`
+(`plot-worker-loop.sh:937`) detaches at `:962` and re-attaches at `:967-968` —
+two consecutive `git` calls inside one shell function, with **no agent turn
+emitted between them**. A transcript line carries `gitBranch` as read when the
+turn is written, and the loop writes no turns between prompts, so the
+between-slice detach is **invisible by construction**.
+
+Measured over 938 worker transcripts:
+
+```
+files carrying a HEAD segment      : 44
+  HEAD returning to the SAME branch: 37   ← a mid-slice baseline
+  HEAD between DIFFERENT branches  :  0   ← does not occur
+```
+
+**So every `HEAD` segment that carries tokens is a mid-slice baseline** — an
+agent detaching to A/B against main, which is this estate's own recommended
+practice. It is not an orphan; it is work done **for** the slice around it, and
+one measured segment carries 4,792,932 cache reads.
+
+**The test is one-sided and backward-looking: a `HEAD` segment belongs to the
+preceding real branch.** No lookahead — and that matters, because
+`seal_declaration` runs at `:2092` while `--next` is asked at `:2196`, so at the
+moment the record is written **the branch after has not been chosen.** A rule
+needing the following branch could not be computed here at all.
+
+**This is not a heuristic**, which is why it survives this estate's documented
+refusal to guess (`plot-host.sh:1966` — *"a guess as a measurement. `unknown` is
+the honest word"*). The agent detached **from** a branch and returned **to** it,
+and both facts are in the transcript. Nothing is inferred.
+
+**A `HEAD` segment with no preceding real branch belongs to no slice** and is
+recorded as such — 4 of the 44 files carry no real branch at all, and those are
+the honest `none` case.
+
 **Whose session — PER SESSION, NEVER PER WORKTREE.** `spend.ts:42-50` already
 settled this and measured it:
 
@@ -242,7 +282,11 @@ them.
 **Done when** a finished slice carries a record naming all four counters and
 every model it used; **the record's subject is the SLICE** — a worker that hops
 between two branches writes **two** records, each covering only its own turns,
-pinned by a fixture transcript carrying two `gitBranch` values; **the sum is per
+pinned by a fixture transcript carrying **`B → HEAD → B`**, the shape that
+actually occurs — a two-distinct-`gitBranch` fixture does not contain it, and the
+measured maximum is five branches in one session; **a detached segment is charged
+to the preceding real branch**, and one with no preceding real branch is charged
+to no slice; **the sum is per
 SESSION, never per worktree**, pinned by a fixture directory holding a main
 session beside `agent-*` subagent transcripts, where the record counts the main
 session's turns and not the subagents'; **no summed fifth field is written**,
@@ -261,6 +305,11 @@ than mutating the first; and `pnpm run test:contracts` passes.
 
 **The third Must of sprint W41**, and the first plan of `plot-plan-economics` —
 a story that has been `draft` with zero plans since 2026-08-27.
+
+**Amended again 2026-09-15 after a decision panel** settled where a `HEAD`
+segment belongs — divided 2-1, with the dissent's objection dissolved by a
+measurement rather than outvoted: `nearest` needed a lookahead that cannot exist
+at the write site, and the case requiring it has zero occurrences.
 
 **Amended 2026-09-15 after a three-lens panel**
 (`.plot/panels/2026-09-15-a-slice-says-what-it-spent/`), which found two
