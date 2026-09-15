@@ -4,7 +4,7 @@ description: >-
   Repair a plan whose wave holds several branches: read the entangled
   branches — their diffs, PRs and conflicts — propose one named wave per
   branch in an argued dependency order, confirm the order with a person,
-  then rewrite only that plan's `## Branches` section. Proposes; a person
+  then rewrite only that plan's `## Slices` section. Proposes; a person
   confirms. Part of the Plot workflow. Use on /plot-reslice.
 globs: []
 license: MIT
@@ -30,7 +30,7 @@ well-defined verdict. Whether anyone then builds the branches is a separate
 question with a separate answer — this command **does not build them**.
 
 **What it never does.** It does not rename a branch (the names are already
-in `## Branches`, and a rename breaks every claim ref pointing at one). It
+in `## Slices`, and a rename breaks every claim ref pointing at one). It
 does not reorder work that has landed (a `complete` wave is history — its
 ordering already happened). It does not merge or dispatch (it produces a
 sliced plan; `/plot-dispatch` then does what it always does, now one
@@ -50,7 +50,7 @@ sliceable wave — propose it).
 | 3. Read the Branches | Frontier | Reading diffs, PRs and conflicts to say what each branch IS — not what it is named — is interpretation, not extraction |
 | 4. Propose One Wave per Branch | Frontier | Naming each slice and arguing a dependency order is the judgement this command exists for; a smaller tier proposes the split but asks a person for the names and the order |
 | 5. Ask — the order is the part a person owns | Frontier | Present the proposed order with its argument; the order is confirmed, never assumed |
-| 6. Rewrite the `## Branches` section | Small | Once the order is confirmed, the edit is mechanical: one `### ` heading per branch, branch lines byte-identical, the rest of the file untouched |
+| 6. Rewrite the `## Slices` section | Small | Once the order is confirmed, the edit is mechanical: one `### ` heading per branch, branch lines byte-identical, the rest of the file untouched |
 | 7. Commit and orient | Small | One commit on the plan's branch; summary |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all proposals and confirmations.
@@ -158,19 +158,19 @@ dependency lets two agents collide on the same files. Offer the argued order,
 name the dependencies you inferred, and let the person reorder or rename.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** stop — the order has no safe default,
-> and rewriting a plan's `## Branches` section without confirmation would edit
+> and rewriting a plan's `## Slices` section without confirmation would edit
 > the one artifact Plot treats as the source of truth. Emit the proposal (the
 > slice names and the argued order) so the work is not lost, and **write
 > nothing**.
 > `PLOT-UNASKED: In what dependency order must these waves land? — stopped — the proposed slicing is printed above; the plan file is untouched`
 
-### 6. Rewrite the `## Branches` section — and only it
+### 6. Rewrite the `## Slices` section — and only it
 
-Once the order is confirmed, rewrite the plan file's `## Branches` section so
+Once the order is confirmed, rewrite the plan file's `## Slices` section so
 each branch sits under its own `### ` heading, in the confirmed order. The
 edit is deliberately surgical:
 
-- **Only the `## Branches` section changes.** Every other section of the plan
+- **Only the `## Slices` section changes.** Every other section of the plan
   file — `## Status`, `## Problem`, `## Design`, `## Notes`, the
   challenge-the-plan metadata block — is **byte-identical** after the rewrite.
   A rewriter that reformats the whole file passes a test that only counts

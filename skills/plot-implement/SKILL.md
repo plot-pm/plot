@@ -106,7 +106,7 @@ Never re-decide it; if it's missing (pre-Plot-2 plan), ask the two
 ceremony questions now and record the answers first.
 
 - **`own-branches`** — create the branches named in the plan's
-  `## Branches` section from the default branch (worktree-safe):
+  `## Slices` section from the default branch (worktree-safe):
 
   ```bash
   DEFAULT_BRANCH=$(../plot/scripts/plot-host.sh default-branch)
@@ -121,7 +121,7 @@ ceremony questions now and record the answers first.
   record `Started:` if missing, and re-orient as a resume.
 
   **Which branch, and claiming it.** When the plan groups its branches
-  into waves (`### ` subheadings under `## Branches`), do not pick by
+  into waves (`### ` subheadings under `## Slices`), do not pick by
   hand and do not take them in file order — ask:
 
   ```bash
@@ -280,7 +280,7 @@ work nobody could see because no PR was raised at all.
 
 **When the PR is created, append `→ #<number>`** (from another repo:
 `→ <owner>/<repo>#<number>`) to this branch's line in the plan's
-`## Branches` section — `/plot-deliver` back-fills missed ones via the
+`## Slices` section — `/plot-deliver` back-fills missed ones via the
 host adapter, but written-at-creation keeps the plan current. Where a
 project board is configured, the same moment sets the new PR to "Ready"
 (step 5) — it is the only point at which the PR both exists and has not

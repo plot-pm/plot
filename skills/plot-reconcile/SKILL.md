@@ -83,7 +83,7 @@ Run the scanner (it lives in the plot skill's `scripts/` directory, next to the 
 It reads `origin/*` refs, the configured plan directory and the repository's worktrees, and emits nineteen sections, each finding carrying its exact remediating command as copy-paste text. The ones an operator acts on most often:
 
 1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode.
-2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Branches` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
+2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Slices` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
 3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment, unless the branch is *contained in an open PR* (see below). The main branch and `release/*` are never listed.
 ### Contained in an open PR (inside section 3)
 

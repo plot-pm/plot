@@ -83,10 +83,16 @@ For one branch at a time, that is `/plot-implement <slug>` and you are done. The
 
 Two questions have to be answered before several people or agents can share a plan: **which branches may run at the same time**, and **how does one person take a branch without someone else taking it too**.
 
-**Waves** answer the first. Group your branches under `### ` subheadings:
+**Waves** answer the first. Group your slices under `### ` subheadings:
+
+> **A slice is not a wave.** A **slice** holds one branch and belongs to one
+> plan — that is what `## Slices` lists, one line per branch. A **wave** is the
+> cohort that runs together, and the fleet's waves span plans. So a plan names
+> its slices, and grouping them under `### ` headings is what says which may run
+> at the same time.
 
 ```markdown
-## Branches
+## Slices
 
 ### Tracer
 - `feature/checkout-tracer` — thinnest slice through all layers

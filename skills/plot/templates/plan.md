@@ -37,7 +37,7 @@
 
 - [ ] ...
 
-## Branches
+## Slices
 
 <!-- Optional: define a tracer bullet (thin vertical slice) first. -->
 <!-- See the tracer-bullets skill for guidance. -->

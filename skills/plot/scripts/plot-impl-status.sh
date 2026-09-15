@@ -118,15 +118,28 @@ BRANCH_LINES=$({ { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
 # Branches carries a trailing `→ #N`, Waves carries `PR: #N` INSIDE the heading.
 # A trailing arrow on a Waves plan parses as no annotation at all, which is why
 # both forms are read here rather than one being normalised into the other.
+#
+# BOTH ANNOTATION FORMS RUN OVER BOTH SECTIONS, for the reason `BRANCH_LINES`
+# above already gives: the layout and the heading word are independent, so a
+# plan may say `## Slices` and still carry LIST-ITEM branches with a trailing
+# `→ #N`. Reading the arrow out of `BRANCHES_SECTION` alone found nothing for
+# those — measured 2026-09-15 on a plan written from the shipped template,
+# where `feature/one — … → #1` resolved to NO annotation from either lookup.
+# The branch was still found (that cross product was already correct) and only
+# its PR number was lost, so the plan reported every branch unmerged.
 annotation_for() { # $1=branch → "#N" | "owner/repo#N" | ""
   local a
-  a=$({ echo "$BRANCHES_SECTION" \
+  a=$({ printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
     | grep -F -- "\`$1\`" \
     | grep -oE '→ [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
     | head -1 \
     | sed 's/^→ //'; } || true)
   [ -n "$a" ] && { printf '%s' "$a"; return; }
-  { echo "$WAVES_SECTION" \
+  # The heading form reads both sections for the same reason, in the mirror
+  # direction: a plan mid-reslice carries `## Branches` AND `## Waves` at once,
+  # and a `### Name (Branch: x, PR: #N)` heading under the former would
+  # otherwise be invisible here while `BRANCH_LINES` finds its branch.
+  { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
     | grep -F -- "(Branch: $1" \
     | grep -oE 'PR: [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
     | head -1 \
