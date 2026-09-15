@@ -39,7 +39,16 @@
 #   plan_files      count of *.md under plan_dir (0 when it does not exist)
 #   git_host        the configured `Git host` key, or ""
 #   gh|bb|jen       {"installed":bool,"auth":"ok|failed|unknown"}
-#                   jen additionally carries "instance"
+#                   jen additionally carries "instance", "job" and
+#                   "job_source" (instance|override|none).
+#
+#                   `job` IS A DIFFERENT QUESTION FROM `auth`. Auth says the
+#                   SERVER answers; `job` says whether the value names the
+#                   multibranch CONTAINER a branch's builds live in. A slug
+#                   alone reaches Jenkins and finds no branch jobs — #913,
+#                   where adoption reported healthy and the board showed no
+#                   build state for any PR. It is a string test on the config
+#                   value and makes no network call.
 #   ci_signals      {"jenkinsfile":bool,"gh_workflows":bool}
 #
 # `auth` IS A THREE-STATE ENUM, NEVER A BOOLEAN. "unknown" is what an
