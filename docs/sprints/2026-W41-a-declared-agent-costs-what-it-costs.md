@@ -53,7 +53,7 @@ attributed to an undifferentiated worker answers a less useful question.
 
 ### Must Have
 
-- [ ] [a-charter-reaches-the-agent-it-declares](../plans/2026-09-14-a-charter-reaches-the-agent-it-declares.md) — a read-only reviewer charter, a `--agent` selector, and a prompt file that honours what Plot exports. Closes a zero-adoption gap on a mechanism that is already complete.
+- [x] [a-charter-reaches-the-agent-it-declares](../plans/2026-09-14-a-charter-reaches-the-agent-it-declares.md) — a read-only reviewer charter, a `--agent` selector, and a prompt file that honours what Plot exports. Closes a zero-adoption gap on a mechanism that is already complete.
 - [ ] **A slice names the agent kind it needs, and dispatch matches it** — the second half of `plot-agent-identity`, never started. The plan declares a kind; the fleet's capacity stops being one undifferentiated number.
 - [ ] **A slice's token spend is attributed to it** — `transcript.ts` already reads `input_tokens` and `cache_read_input_tokens`; `output_tokens` and `cache_creation_input_tokens` are read nowhere, and no rule ties any of them to a slice. Add the two missing counters and the attribution. Measured 2026-09-14, so this is narrower than *capture from nothing*.
 
