@@ -279,6 +279,60 @@ test('scan: summary footer carries machine-countable finding counts', () => {
     'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 pr_source=degraded main=main');
 });
 
+// A docs plan that also names a Sprint. Section 6 exempts docs/infra plans by
+// `case "$ptype" in docs|infra) continue`, and the exemption silently stopped
+// working when `sprint` was appended to the jq row: the loop read EIGHT
+// variables for NINE fields, so bash's last-variable-takes-the-rest rule gave
+// `ptype` the value `docs<US>the-sprint`, which matches neither arm.
+//
+// Measured 2026-09-16 on the live estate: two docs/infra plans were reported
+// as `unreleased_delivered`, and /plot-release's gate is a hard stop on any
+// non-zero. The two other readers of the same row were unaffected only because
+// they discard the field (`_ptype`) rather than test it.
+//
+// THE SPRINT FIELD IS THE POINT. A docs plan with no sprint produces a bare
+// `docs` even with the shifted read, so a fixture without one passes either
+// way and pins nothing.
+test('scan: a docs plan naming a sprint is still exempt from section 6', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-docs-'));
+  const origin = path.join(tmp, 'origin.git');
+  const repo = path.join(tmp, 'repo');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const f = path.join(repo, rel);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, content);
+  };
+  w('CLAUDE.md', ['# Fixture', '', '## Plot Config', '',
+    '- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/',
+    '- **Plan directory:** plans/', '- **Active index:** plans/active/',
+    '- **Delivered index:** plans/delivered/', ''].join('\n'));
+  w('plans/2026-01-01-a-docs-plan.md', ['# A docs plan', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** docs',
+    '- **Sprint:** a-sprint-with-a-long-name', '- **Delivered:** 2026-01-01', '',
+    '## Slices', '', '### One (Branch: docs/a-docs-plan, PR: #1)', '',
+    '- `docs/a-docs-plan` — the slice', ''].join('\n'));
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+  git(repo, 'tag', 'v1.0.0');
+
+  const out = execFileSync('bash', [scan, '--offline'], {
+    encoding: 'utf8', cwd: repo,
+  });
+  const footer = out.trim().split('\n').at(-1);
+  assert.match(footer, /unreleased_delivered=0/,
+    `a docs plan naming a sprint must stay exempt from section 6: ${footer}`);
+  assert.equal(lineMatching(out, /a-docs-plan.*still Delivered/).length, 0,
+    'section 6 named a docs plan');
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
   // A separate run with --offline. The fixture origin is a local path (no
   // git host), so a plain run is already `degraded`; --offline must instead

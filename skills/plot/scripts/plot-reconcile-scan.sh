@@ -698,7 +698,7 @@ drift_out=""
 attention_out=""
 index_out=""
 
-while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
+while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype _psprint; do
   [ -n "$f" ] || continue
   base=$(basename "$f")
 
@@ -903,7 +903,7 @@ branch_merged() { # $1=branch → 0 when its work landed
 }
 
 mnd_out=""
-while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype; do
+while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype _psprint; do
   [ -n "$f" ] || continue
   [ "$st" = approved ] || continue
   base=$(basename "$f")
@@ -1134,7 +1134,7 @@ echo
 # date, so day resolution cannot separate them even in principle.
 echo "== 6. Delivered but already released (candidate /plot-release) =="
 unrel_out=""
-while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype; do
+while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   [ -n "$f" ] || continue
   [ "$st" = delivered ] || continue
   # docs/infra plans end at Delivered: /plot-deliver already tells their authors
