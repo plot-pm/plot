@@ -41,7 +41,9 @@ import {
   type PlanStore,
   type Refs,
   type Scripts,
+  type SliceSpendRecord,
   type Trees,
+  planSpend,
 } from '@plot-pm/domain';
 import {
   buildShell,
@@ -49,6 +51,7 @@ import {
   planStoreShell,
   refsGit,
   scriptsShell,
+  sliceSpendFile,
   treesGit,
 } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
@@ -133,6 +136,16 @@ export interface BuildBoardOptions {
    * configuration — and a single field could not express it.
    */
   buildAdapter?: BuildPort;
+  /**
+   * Where per-slice spend records are read from. Absent means this repository.
+   *
+   * A port rather than a path so the read is substitutable, and specifically so
+   * the HOIST is testable: the gate on this reading is that `lines()` is called
+   * ONCE PER BOARD BUILD, and a returned value is identical whether the record
+   * was read once or 290 times. Only a counting stub can tell those apart, and
+   * a stub needs a seam.
+   */
+  spendRecord?: SliceSpendRecord;
 }
 
 /**
@@ -176,6 +189,15 @@ export const treesFor = (opts: BuildBoardOptions): Trees =>
  */
 export const planStoreFor = (opts: BuildBoardOptions): PlanStore =>
   opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * Where this board reads per-slice spend records from.
+ *
+ * Built per call for the same reason as {@link refsFor}: the adapter is a
+ * value, not a singleton, and a board handed a fixture takes no filesystem.
+ */
+export const spendRecordFor = (opts: BuildBoardOptions): SliceSpendRecord =>
+  opts.spendRecord ?? sliceSpendFile({ cwd: opts.repoRoot });
 
 /**
  * The script runner for these options — the ONE way this package invokes a
@@ -1893,6 +1915,31 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // today and would have to move to be used from `src/`.
     if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
   }
+  // WHAT EACH PLAN'S SLICES COST — READ ONCE, ABOVE THE LOOP.
+  //
+  // THE HOIST IS THE WHOLE POINT AND THE LOOP BELOW IS WHY. `planStatus` is
+  // called per plan a few lines down, and the obvious reading — take the spend
+  // beside it — is one `readFile` PER PLAN PER REFRESH: `sliceSpendFile`
+  // caches the resolved DIRECTORY and never the contents, so `lines()` opens
+  // the record on every call. Roughly 290 plans on this estate, on a board
+  // that refreshes every few seconds.
+  //
+  // `readPlanSpend` is deliberately NOT used here for the same reason: it
+  // re-reads the record per call by design, so calling it per plan is the same
+  // defect wearing a helper's name. One `lines()` call, then `planSpend` —
+  // which is a PURE function over those lines and reaches nothing — per plan.
+  //
+  // A FAILED READ IS `null`, NOT AN EMPTY RECORD, and the distinction survives
+  // all the way to the card: `planSpend(null, …)` reports every slice
+  // `unreadable`, where `planSpend([], …)` reports them `absent`. A missing
+  // file is an empty record — the state of every checkout that has measured
+  // nothing yet — and only a failed call is unreadable.
+  const spendLines = await (async () => {
+    const read = await spendRecordFor(opts).lines();
+    return read.ok ? read.value : null;
+  })();
+
+
   for (const meta of metas) {
     // A plan's identity is its canonical path, never wherever it was staged for
     // parsing. Restored here, BEFORE anything is derived from it, so the slug
@@ -1971,6 +2018,30 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // must survive to the client as 0. Only the parser's OWN silence — no block,
     // or an unreadable one — leaves the field off the card.
     if (meta.rounds !== undefined) card.rounds = meta.rounds;
+    // WHAT THIS PLAN'S SLICES COST, partitioned out of the ONE read taken
+    // above the loop. `planSpend` is pure — it takes the lines as a value and
+    // reaches nothing — so this costs no I/O per plan.
+    //
+    // THE BRANCHES COME FROM THE PLAN, never from globbing the record: one
+    // file holds every branch this machine has measured, and a record naming a
+    // branch no plan lists is not this plan's cost.
+    //
+    // ATTACHED ONLY WHERE THE PLAN NAMES SLICES. A plan with no branches has
+    // no coverage to report — `0 of 0` is not a fact about cost — and leaving
+    // the field off is the same silence `rounds` keeps for an unrecorded count.
+    // `tokens: null` still ATTACHES: that is a plan whose slices exist and were
+    // not measured here, which is exactly the state the card must distinguish
+    // from a free run.
+    if (meta.branches.length > 0) {
+      const spend = planSpend(spendLines, meta.branches);
+      card.cost = {
+        tokens: spend.tokens,
+        measured: spend.measured,
+        absent: spend.absent,
+        unreadable: spend.unreadable,
+        slices: spend.slices.length,
+      };
+    }
     // Kept for the tile's Ready/In-progress badge; the column now says the same
     // thing, but a Development card still benefits from the explicit flag. Gated
     // on the card's OWN phase, not the plan's: an approved plan whose slices have

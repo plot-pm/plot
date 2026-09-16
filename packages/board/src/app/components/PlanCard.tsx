@@ -139,6 +139,90 @@ export function sliceBadgeText(s: NonNullable<Card['sliceSummary']>): string {
  * Exported for test — "only Draft cards, and no badge where nothing is known"
  * are the two assertions the plan names, and both are this one expression.
  */
+/**
+ * What a plan's cost badge SAYS, or "" when there is nothing honest to say.
+ *
+ * **COVERAGE, NOT COUNTERS, AND THE REASON IS THE EYE RATHER THAN THE
+ * ARITHMETIC.** The rollup refuses to sum the four counters because cache reads
+ * measured 99.36% of a naive total. That gates the arithmetic and gates nothing
+ * about what a reader does: over a real plan the counters span five orders of
+ * magnitude — `in 502 · out 107,182 · cache-write 528,331 · cache-read
+ * 40,690,450` — so the largest is 81,000x the smallest and a two-second reader
+ * reads the big one as the cost. NOT SUMMING IS NOT THE SAME AS NOT BEING READ
+ * AS A SUM, so the glance-level text is what the number is good for: how much
+ * of this plan was measured here.
+ *
+ * The counters are not hidden — {@link costBadgeDetail} puts all four on the
+ * badge's tooltip, so refusing them at a glance is not refusing them.
+ *
+ * **NOTHING MEASURED SHOWS NO COST, NEVER A ZERO.** `tokens: null` is the
+ * rollup's answer for a plan nothing was measured for, because "`reduce(…, 0)`
+ * over nothing is correct arithmetic and a lie". The badge says *not measured
+ * here* — the muted form of the open question, chosen over rendering nothing so
+ * a reader can tell "this machine has no record" from "this board is too old to
+ * have looked", which renders nothing at all.
+ *
+ * **ABSENT AND UNREADABLE STAY TWO COUNTS.** A branch nobody measured here and
+ * a record that could not be read are different facts, and collapsing them is
+ * the failure this repo has shipped twice.
+ *
+ * Exported for test, like its two neighbours and for their reason: this is
+ * display logic with real edge cases, and an empty badge on screen is exactly
+ * the kind of thing prose promises and code forgets.
+ */
+export function costBadgeText(card: Card): string {
+  const cost = card.cost;
+  if (cost === undefined) return '';
+  if (cost.slices === 0) return '';
+  if (cost.tokens === null) {
+    // No number, and the reason named. `unreadable` leads where both are
+    // present: a record that could not be read is a fault to fix, where an
+    // absence is usually just another machine's work.
+    if (cost.unreadable > 0) return `not measured here (${cost.unreadable} unreadable)`;
+    return 'not measured here';
+  }
+  const base = `measured on ${cost.measured} of ${cost.slices} slices`;
+  if (cost.unreadable > 0) return `${base} · ${cost.unreadable} unreadable`;
+  return base;
+}
+
+/**
+ * The four counters, for the badge's tooltip — where a reader who wants the
+ * numbers finds them without leaving the board.
+ *
+ * This is the other half of {@link costBadgeText}'s refusal: the counters are
+ * DEFERRED, not withheld. They are listed apart and never summed, for the
+ * reason the rollup states — a four-field total is a cache-read count wearing a
+ * cost's name.
+ *
+ * It also states the two things a coverage figure cannot: which models the
+ * measured slices ran on is not carried here, and the sum is biased LOW because
+ * a worker killed by the `Worker bound` never reaches the write site, so the
+ * most expensive runs record nothing.
+ */
+export function costBadgeDetail(card: Card): string {
+  const cost = card.cost;
+  if (cost === undefined || cost.slices === 0) return '';
+  const scope =
+    `${cost.measured} of ${cost.slices} slices measured on this machine` +
+    (cost.absent > 0 ? `, ${cost.absent} not measured here` : '') +
+    (cost.unreadable > 0 ? `, ${cost.unreadable} unreadable` : '');
+  if (cost.tokens === null) {
+    return `${scope}. A run that was never measured here records nothing rather than zero.`;
+  }
+  const t = cost.tokens;
+  // Grouped digits: these run to eight figures and an ungrouped number of that
+  // size is unreadable at a glance, which is the whole complaint above.
+  const n = (v: number) => v.toLocaleString('en-US');
+  return (
+    `in ${n(t.inputTokens)} · out ${n(t.outputTokens)} · ` +
+    `cache-write ${n(t.cacheCreationTokens)} · cache-read ${n(t.cacheReadTokens)}. ` +
+    `${scope}. Counters are listed apart rather than summed — cache reads are ` +
+    `the overwhelming majority of any total. Runs killed by the worker bound ` +
+    `record nothing, so this is biased low.`
+  );
+}
+
 export function roundsBadgeText(card: Card): string {
   if (!isDraft(card)) return '';
   if (card.rounds === undefined) return '';
@@ -327,6 +411,16 @@ export function PlanCard({
             plan records no interrogation: silence, not a zero. */}
         {roundsBadgeText(card) && (
           <Badge variant="neutral">{roundsBadgeText(card)}</Badge>
+        )}
+        {/* What this plan's slices cost, as COVERAGE rather than counters: the
+            four numbers span five orders of magnitude, so a glance reads the
+            largest — the cache-read count — as the cost. The counters are on
+            the tooltip, so this defers them rather than hiding them. A plan
+            nothing was measured for says so; it never renders a zero. */}
+        {costBadgeText(card) && (
+          <Badge variant="neutral" title={costBadgeDetail(card)}>
+            {costBadgeText(card)}
+          </Badge>
         )}
         {/* This plan is in THIS checkout and on no ref the board can read — it
             was written here and not yet pushed.
