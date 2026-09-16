@@ -78,7 +78,7 @@ attributed to an undifferentiated worker answers a less useful question.
 - [x] [the-supervisor-log-has-a-ceiling](../plans/2026-09-15-the-supervisor-log-has-a-ceiling.md) — **#916.** `registryd.log` reached 69 MB in 7 days re-emitting a branch list nothing reads, against `board.log` at 16 KB on the same machine. launchd owns the write, so the fix is a quieter tick rather than rotation.
 - [x] [the-skills-say-slices](../plans/2026-09-15-the-skills-say-slices.md) — **#914.** Nine skills teach `## Branches` 18×, `plot-idea` teaches `## Slices` once, and the parser calls Slices the accurate name. The parser keeps reading all three spellings.
 
-- [ ] [a-plan-has-one-phase](../plans/2026-09-16-a-plan-has-one-phase.md) — **#924.** Three scripts write the phase into `## Status`; the parser prefers front matter whenever it exists, so a delivery reports `phase=flipped` while the parser keeps answering `approved`. A second run reports `phase=already` and cannot repair it. Filed from a real delivery 2026-09-16.
+- [ ] [a-plan-has-one-phase](../plans/2026-09-16-a-plan-has-one-phase.md) — **#924.** `/plot-deliver` writes the phase, reports `phase=flipped`, and never reads the file back, so where the parser disagrees it claims a success it did not achieve and a second run reports `already`. A gate rather than a report: re-parse after writing and refuse on a mismatch.
 
 ### Deferred
 
