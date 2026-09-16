@@ -1,5 +1,94 @@
 # plot — entries before 2026-08-30 may show a bare comment marker instead of a description ([why](#a-note-on-entries-before-2026-08-30))
 
+## 2.18.0
+
+### Minor Changes
+
+- [#910](https://github.com/plot-pm/plot/pull/910) [`c9c2e32`](https://github.com/plot-pm/plot/commit/c9c2e3238565e5e29ad718d42fba53785580b07c) Thanks [@jwloka](https://github.com/jwloka)! - A charter now reaches the agent it declares. The mechanism shipped in v2.17.0 and reached nothing: measured 2026-09-14, `harness` had 16 readers, `model` and `effort` 14 each, and the estate held zero charters. The gap was three layers deep. `.plot/charters/` was empty; `PLOT_AGENT` had one assignment on the estate, `PLOT_AGENT="${PLOT_AGENT:-}"`, a pass-through of whatever an operator had already exported, so nothing chose a charter; and the shipped prompt template named `PLOT_HARNESS`, `PLOT_MODEL` and `PLOT_EFFORT` zero times. The third layer is the one that made this look finished and change nothing — a charter declared before this exported three variables into a prompt file that read none of them, so the agent launched exactly as before, and silently, because Plot never composes the command line and nothing downstream can report that a declaration was dropped. `plot-dispatch.sh` gains `--agent <name>`, which sets the input that already existed, in one place, and overrides an inherited value because a flag on this run is the more specific answer. Its value is required and always consumed, unlike `--stop`/`--restart`/`--start`: those take a branch or a count, each recognisable on sight, while an agent name is a bare word and so is a plan slug, so an unconsumed value would let the `*)` arm take the agent name as the plan and report "no such plan". The template interpolates the harness as the command and the model and effort as flags, each guarded by `[ -n ... ]` rather than `${VAR+set}` — dispatch exports the three unconditionally, so a charter-less run hands the file three set-but-empty variables and a `+set` test would pass `--model ""` on every dispatch. `PLOT_CAPABILITIES` keeps the opposite idiom because dispatch exports it conditionally; the two guard different absences. `PLOT_PRINT_INVOCATION=1` prints the assembled argv and exits 0 without launching, immediately before the invocation, so the chain is observable without a live process — a debug hook and not a contract, read by nothing in Plot. One read-only reviewer charter is declared, `read-only` being the one mapped capability in the shipped template. It names no harness deliberately: `resolve_launch` refuses a harness not on `PATH`, and CI installs no Claude CLI, so a charter naming one would be green on a workstation and red in CI. A charter-less launch stays byte-identical, which is the whole estate today.
+
+  <!--
+  plan: docs/plans/2026-09-14-a-charter-reaches-the-agent-it-declares.md
+  bumps:
+    skills:
+      plot: minor
+      plot-dispatch: minor
+  -->
+
+- [#919](https://github.com/plot-pm/plot/pull/919) [`89f556a`](https://github.com/plot-pm/plot/commit/89f556aa3b8a5836f91f2ae0aacd897f54a15ed4) Thanks [@jwloka](https://github.com/jwloka)! - A plan now states what its slices cost, summed over the slices measured on this machine and naming the ones that were not. Slices have recorded four token counters since `a-slice-says-what-it-spent` shipped and nothing read them together: `readSliceSpend` answers for one branch, and there was no `planSpend`, no `spendForPlan` and no per-plan sum anywhere in the domain or the board. `planSpend` takes the record's raw lines and the branches a plan names, sums each counter across the `measured` slices, and reports the `absent` and `unreadable` counts **beside** the sum rather than folding them into it. THE SUM IS DELIBERATELY NOT ONE NUMBER. A panel found that a rollup over machine-local records is structurally unsound: reaped desks hold 92.12% of output tokens and 91.94% of cache reads, and a desk is reaped when its work LANDS, so the absences correlate with success — a reader shown _"3 of 5 measured"_ reasonably assumes the missing two resemble the three, where on this estate they would be nine tenths of the total. What answers the objection is that the record resolves through `--git-common-dir` and so survives its desk's reap, which makes the gap a COLD START rather than a property: the rollup is complete going forward and empty backward, and that is the sentence a reader needs. One absence stays permanent and is disclosed rather than fixed — `seal_declaration` runs only after `run_bounded` returns 0, so a worker killed by the `Worker bound` never reaches the write site and the most expensive runs record nothing, biasing any rollup LOW in a direction invisible from the records alone. A plan with zero measured slices reports NO total rather than zero, because `reduce(…, 0)` is correct arithmetic and a lie that reports a plan nobody measured as a free one. `absent` and `unreadable` stay two counts and are never collapsed into one, the failure `DeclarationReading`'s docstring records this repo shipping twice, pinned by a fixture holding one of each. No combined fifth total is written, pinned by a key-set assertion on both the counters and the result rather than by prose, since cache reads are 99.36% of a naive four-counter sum and a total would be a cache-read count wearing a cost's name — a helpful `total` beside the four is a two-line change no review would flag. The branches come from the plan file and never from globbing the record, so a record naming an unlisted branch is ignored: one file holds every branch the machine has measured. The record is read ONCE and partitioned rather than re-read per slice. It writes nothing, gates nothing and renders nothing — the render is the named follow-up `a-plan-shows-what-it-cost`, and this is deliberately the first half of a two-slice sequence. **The no-transcript gate is now written rather than claimed**: `workflows/slice-spend.ts` asserted such a test existed and none did, so the delivered slice self-certified in prose while CI stayed green because nothing checked. It is pinned twice, because either half alone is escapable — that the port's `sessions()` is never called, and that no path under a `projects/` transcript directory is opened, watching `node:fs/promises` itself — and verified by mutation: a `record.sessions()` added to `readPlanSpend` fails four of the five. The equivalent claim on the per-slice read is backfilled too.
+
+  <!--
+  plan: docs/plans/2026-09-15-a-plan-states-what-its-slices-cost.md
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#915](https://github.com/plot-pm/plot/pull/915) [`ced566c`](https://github.com/plot-pm/plot/commit/ced566c8ac82938bf6fa9a84a4c8c2637263ab93) Thanks [@jwloka](https://github.com/jwloka)! - A slice now names the agent kind it needs, and a dispatch selects that charter with no operator present. `--agent <name>` shipped in v2.18.0 and an operator is the only thing that can type a flag: `plot-registryd` hands a queued slice to a free agent with no `--agent` anywhere in the path, so an unattended fleet ran every slice as the same undifferentiated worker — the half of `plot-agent-identity` that was never started. `plot-plan-meta.sh` parses an optional `<!-- agent: reviewer -->` annotation on a branch line, reported as `waves[].branches[].agent` and ABSENT where unwritten, never `""` — the contract `waits_on` and `builds` already keep, and the one that matters here because dispatch reads presence and a blank would send it looking for a charter called "". It is per-branch rather than a `## Status` field, since every Status field is plan-level and could declare only one kind for a plan with several slices, which is the population this exists for: a reviewer slice beside an implementer slice. The wave heading was the first draft and measurement rejected it — the parser decides a heading's shape with `index($0, "(Branch:")`, so `(Agent: reviewer, Branch: feature/x)` parses to zero branches AND makes the wave name the whole heading text, both silently. The value runs to the closing marker, copying `builds:` rather than `waits:`, which does not truncate if a name grows a space. It cannot validate its value the way `waits:` does — a prerequisite has branch-prefix structure and a charter name is a bare word with none — so what keeps a documented marker from becoming a declaration is NESTING: both templates document it inside an outer comment block, where the parser's `<!--[ \t]*agent:` pattern cannot see it, and a test pins that on both. `plot-dispatch.sh` reads the field in `start_worker` where `--agent` left `PLOT_AGENT` unset, which is one assignment reaching all four readers of that variable. The flag still wins, because a flag typed on this run is more specific than a field written when the plan was drafted. A charter this clone does not hold is REPORTED and dispatched anyway, naming the path it looked at: `resolve_launch`'s refusals for a charter it cannot believe and a harness not on `PATH` both stay, but a charter that does not EXIST is the adoption case, and refusing it would make a plan undispatchable on every clone lacking the charter. All 280 existing plans parse byte-identically, diffed before and after, and a slice naming no agent produces the launch it produces today — which is the whole estate.
+
+  <!--
+  plan: docs/plans/2026-09-15-a-slice-names-the-agent-it-needs.md
+  bumps:
+    skills:
+      plot: minor
+      plot-dispatch: minor
+  -->
+
+- [#918](https://github.com/plot-pm/plot/pull/918) [`35dfc8f`](https://github.com/plot-pm/plot/commit/35dfc8f6908926cd1ec00131de71369b9ede9f53) Thanks [@jwloka](https://github.com/jwloka)! - A finished slice now records the tokens its agent actually used, summed across its whole run rather than sampled from the last turn. Plot could already source the number and had never stated it: `readTranscriptFacts` returns `contextTokens` and `contextSpend`, both snapshots of the newest assistant line, both answering _how full is this agent's window_ — and neither answering _what did this slice cost_. `rules/slice-tokens.ts` is a new derivation beside them and not a widening of either, which matters because `output_tokens` is counted here and stays deliberately absent from `CONTEXT_USAGE_FIELDS`: that rule guards a context CEILING, where counting output would charge an agent twice for text arriving as input next turn, while this counts SPEND, where output is generated once and billed once. The four counters are kept APART and a summed fifth field is refused by a `.strict()` schema and pinned by key-set assertions on both the schema and the line as it lands on disk — measured over three real transcripts, cache reads are 98.6%, 99.3% and 99.36% of a naive four-counter total, so a four-field sum is a cache-read count wearing a cost's name, and a slice that re-read a large context cheaply would outrank one that generated heavily; a figure a person can act on needs a price table, which this estate excluded by measurement on 2026-08-29. THE SUBJECT IS THE BRANCH WITHIN A DESK, which overturns the plan's own `$PLOT_SESSION_ID` clause by measurement taken in preflight: 39 of 40 branch desks hold more than one main session and one holds 41 whose largest is 18.2% of the total, because `run_bounded` is re-entered on every correction and continuation and each new session id is a new file — so a session-keyed sum reads one file, omits the rest, and ships a number wrong by a factor of five that looks right. `spend.ts:42-50`'s actual concern is preserved exactly: `agent-*` subagent transcripts still belong to no one and are still excluded. A detached `HEAD` segment is charged to the PRECEDING real branch, one-sided and with no lookahead — structural rather than a simplification, since at the write site the next branch has not been chosen — and a `HEAD` segment with no preceding real branch is charged to no slice at all. The record is written at `seal_declaration`, the only moment that still knows which branch just finished: a worker does not exit between slices, so a sum taken at worker exit would charge every slice the worker ever held to whichever branch it held last, and 3 of the 12 largest worker transcripts already span two branches. It is machine-local under the COMMON git dir's `.plot/state/`, resolved with `--git-common-dir` and never `--show-toplevel`, because in a linked worktree the latter returns the DESK and `plot-reap.sh` runs `git worktree remove --force` over exactly those — a record written to the desk is destroyed by the reap on the machine that measured it, with every gate green. It is written once and never updated, so a second run writes a second record and each line stays a measurement with a timestamp. Every failure records NOTHING rather than a zero, and a reader on a machine holding no record is told _not measured here_ — a recorded zero is indistinguishable from a free run, and a sum over one is wrong in the direction nobody checks. Two stated limits rather than solved problems: a colleague's checkout reads nothing, and a worker killed by `Worker bound` never reaches the write site, so a rollup over these records is biased LOW in a direction nobody can see from the records alone.
+
+  <!--
+  plan: docs/plans/2026-09-15-a-slice-says-what-it-spent.md
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#921](https://github.com/plot-pm/plot/pull/921) [`739dd59`](https://github.com/plot-pm/plot/commit/739dd59b4af5c5c63064122674a71f7c7a14276e) Thanks [@jwloka](https://github.com/jwloka)! - `/plot-board-setup` now refuses a `Jenkins instance` that names no job path, instead of reporting it verified. Filed as [#913](https://github.com/plot-pm/plot/issues/913) from a live adoption: the config carried the slug alone, setup reported healthy, and every PR on the resulting board rendered `checks: unknown` under _"WAITING ON A MACHINE — could not reach the host"_. Measured on that instance with `pr-list --rich`, a slug-only value returned **no rows** where `<slug>/quaweb/continuous-build` returned **4 PRs, all `checks: green`** — `plot-host.sh:702` states the contract (`<slug>` or `<slug>/<job/path>`, the remainder being the multibranch container) and adoption never enforced it. THE FAILURE IS NARROWER THAN "SETUP REPORTS GREEN": `jen_auth` already answers `unknown` when no instance resolves, so a **missing** key was refused correctly all along; the defect was that a **present but incomplete** value read `ok` while a wholly absent one read `unknown`, so a partial value scored strictly better than no value — the worse of the two failures passing the gate. Reachability and usefulness are different questions, and setup asked the first while reporting on the second: `auth` says the _server_ answers, and the job path addresses the _container_ a branch's builds live in. `plot-board-probe.sh` now emits `jen.job` and `jen.job_source` (`instance`, `override` or `none`) and the skill acts on them, which is this estate's own split — scripts collect and report, skills interpret and refuse — and is what makes the gates executable, since a test can call the probe and cannot call skill prose. **It makes no network call, and asking Jenkins could not answer it:** measured live 2026-09-15 against the [#913](https://github.com/plot-pm/plot/issues/913) instance, a slug-only value resolves a **non-empty** job list — four entries, not zero — so the broken configuration answers and answers `ok`, and a gate pinning _"resolves zero branch jobs"_ would pin a behaviour this estate never produces. **The scheme and authority are stripped before splitting**, because the estate accepts a URL form and the naive `${value#*/}` is wrong in both directions — reproduced across all four measured forms before the fix: `https://host/` yields `/jenkins.example.com/`, non-empty and therefore **accepted while being exactly the [#913](https://github.com/plot-pm/plot/issues/913) defect**, and `https://host/job/path` yields a job path with the host glued on; the bare-hostname case is refused correctly only by accident, since hostnames have no slash. A slug-only value **with `PLOT_JENKINS_JOB` set is accepted**, since `plot-host.sh:3197` honours that variable and a caller holding the path separately has a working configuration; a fresh multibranch container with no children is **not** flagged, because it names a path and the reading stops there; and a repository declaring no Jenkins at all still reads `unknown` exactly as before, since a refusal firing on absence would be a new bug. Twelve tests call the probe directly and were verified by mutation rather than by passing: replacing the strip with the naive split kills exactly the four URL and trailing-slash gates. `jen` is invoked **zero times** by the new reading, pinned with a stub that records each invocation rather than one that answers and forgets. No new config key — the job path rides the instance value, since a multibranch container is the _parent_ of the branch and cannot be derived from it. `plot-host.sh` is deliberately unchanged: the same latent split bug lives there confined to one op that exits 4, and promoting it into a refusal that blocks adoption would widen the blast radius.
+
+  <!--
+  plan: docs/plans/2026-09-15-setup-proves-the-jenkins-job-answers.md
+  bumps:
+    skills:
+      plot-board-setup: minor
+      plot: patch
+  -->
+
+### Patch Changes
+
+- [#917](https://github.com/plot-pm/plot/pull/917) [`b3d72eb`](https://github.com/plot-pm/plot/commit/b3d72ebe0027a62d698280a656d9dd8843ad6aa3) Thanks [@jwloka](https://github.com/jwloka)! - Plot reads a plain Jenkins pipeline's state instead of reporting it as an unreachable host. `jenkins_build_map` asked one verb, and `job list` enumerates a container's CHILDREN: a `WorkflowMultiBranchProject` has one child per branch, so listing it yields the branch→colour map Plot renders, while a plain `WorkflowJob` has no children and the same call yields `null` — not an error, not an empty array — which the `type=="array"` guard turned into `failed`, the word for a host that did not answer. Measured live 2026-09-15 on `Quatico.Webseite/quaweb-website`: `job list quaweb/continuous-deploy` answered `null` while `job view` on that path answered `color blue`, `lastBuild [#938](https://github.com/plot-pm/plot/issues/938) SUCCESS`; the job was healthy, signed in and correctly declared, and `runs` turned the `failed` into `exit 4`, which `build-shell.ts` converts to `unaskable` with `refusal: null`, discarding the one signal a team could retry on. So no declaration could fix it, which is why the config key an earlier plan proposed would have been read correctly over a reader that still returned `null`. `job view` is now asked first and answers both questions in one call: the job's own `_class`, and for a plain job the `color` and `lastBuild` that are its state. THE DECIDING `_class` IS THE CONFIGURED JOB'S OWN — a child's `_class` describes the child, and every child of a multibranch container is itself a `WorkflowJob`, so reading it off the listing would read a healthy multibranch job as plain and break the half that works; that mistake sank an earlier draft and a test now pins it, giving a container's five children `WorkflowJob` and asserting it is still read as multibranch. A plain job keys its map on the job path's last segment, which is what lets the `runs` op's `.map[$branch]` find it and emit a line rather than exiting 4. Exactly two shapes are read, and anything else reports `unknown` — a shape nobody measured — never `failed`; a `FreeStyleProject` has a `color` and would be readable, and is still reported unknown rather than guessed at. An instance naming no job probes no shape, since the root scope has no `_class` of its own and the listing already handles it. The multibranch path is byte-identical, pinned against stdout captured from `origin/main` rather than by a fixture comparison, since byte-identical is a claim about bytes. The jen test stub now tells `job list` from `job view`; it branched on the group alone, so both verbs returned the same array and an implementation calling neither was indistinguishable from one calling both. The five call-budget assertions that filtered on the literal string `'job list'` now count total `jen` invocations, since that filter is blind to a per-branch `job view` storm against Jenkins' declared limit of 60. `run-for-sha` is deliberately untouched: it asks the same multibranch-or-plain question through `curl` against REST and answers per sha, so unifying them is an improvement to a working path rather than a fix to a broken one.
+
+  <!--
+  plan: docs/plans/2026-09-15-a-jenkins-job-is-read-by-its-shape.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#926](https://github.com/plot-pm/plot/pull/926) [`5e46440`](https://github.com/plot-pm/plot/commit/5e4644043e2146a1602486a12bfcbcc6a85f9ffb) Thanks [@jwloka](https://github.com/jwloka)! - `/plot-deliver` now refuses a delivery whose phase the parser would not read, instead of reporting a success it did not achieve. Filed as [#924](https://github.com/plot-pm/plot/issues/924) from a real delivery in a project repository: the plan carried BOTH front matter and a `## Status` block, the script wrote `Delivered` into the block, and `plot-plan-meta.sh` went on answering `approved` — it prefers front matter wherever it exists and reads the block only in the `else if` below it. **The write succeeded and the outcome did not**, while the summary line said `phase=flipped`. Reproduced before fixing, on the reporter's exact shape: `flip_phase` returns 0 for having changed something, the Status block reads `Delivered`, and the parser still answers `approved`. The cause is one guard — `flip_phase`'s awk matches only inside `section == "status"`, so on a front-matter plan it edits the block and leaves the front matter untouched. **The failure had no symptom**: awk changed a line, the `mv` landed, the push went through, and only a reader asking the parser — which is every later consumer, the board and the reconcile scan included — saw the old phase. `write_transition` now parses the scratch copy through `plot-plan-meta.sh` **before** the `mv` and refuses where what the parser would read disagrees with what is being written. **The test is what the parser answers, never whether awk changed a line**, because refusing on "nothing flipped" would break every re-run of a correct delivery — a plan already carrying `Delivered` flips nothing and is fine. **It parses the file that arm is about to land** — the phase-only scratch copy where the record is already present, the record-carrying one where it is being written — since parsing the other would check content that never reaches the plan. **Before the `mv`, and the position is the mechanism**: after it is too late twice, because the script's own header documents exit 0 as _"the plan is Delivered on the default branch"_, so refusing there would exit 1 on a run meeting the documented success condition, and `runAutoDeliver` spawns the delivery detached — a non-zero exit is logged to nobody while the plan sits delivered on main. A refusal also never reaches `record_state_receipt`, which would otherwise license a commit of the state that was refused. The refusal names **both** values, the file and the cause, because which format ought to win is a decision this gate deliberately leaves to a person: a message saying only _"delivery failed"_ throws away the half a person acts on. A refused run leaves the plan byte-identical and pushes nothing, and a second run on an unrepaired file refuses the same way — `decide_transition` answers `write` rather than `already` there, so it reaches the gate again. **The parser is read and never changed**: `plot-plan-meta.sh` is untouched, front matter keeps precedence, no contract field moves, and its output over all 290 plans hashes identically to `origin/main`. Verified by mutation — removing the gate fails all four refusal tests and leaves both no-regression tests green.
+
+  <!--
+  plan: docs/plans/2026-09-16-a-plan-has-one-phase.md
+  bumps:
+    skills:
+      plot-deliver: patch
+  -->
+
+- [#923](https://github.com/plot-pm/plot/pull/923) [`508f3eb`](https://github.com/plot-pm/plot/commit/508f3eb8697f226969b3f5eb8ae4e120ef0e51e0) Thanks [@jwloka](https://github.com/jwloka)! - The skills teach `## Slices`, the name `plot-plan-meta.sh`'s own comment calls accurate: a Slice holds one branch and belongs to one plan, a Wave is the fleet cohort that spans plans, and the section was always the former. They taught `## Branches` eighteen times against one correct use, so every plan written from a skill carried the legacy word forward. **The highest-value target was not a skill at all** — `skills/plot/templates/plan.md` is the template every adopting project receives, and it said `## Branches` while this repository's own `.plot/templates/plan.md` said `## Slices`: we had fixed ours and shipped theirs. **This is not a find-and-replace, and the difference is invisible to a count.** A `sed -i 's/## Branches/## Slices/g'` over `skills/` produces the same occurrence total and breaks the change three ways, each now pinned by a named test: two instructions in `plot-deliver` and `ralph-plot-sprint` describe what their reader ACCEPTS, so they GAIN `## Slices` and KEEP `Branches` — narrowed to strict they silently stop reading the 600+ plans on this estate that say the legacy word while every other test still passes; one line in `plot-reslice/README.md` states what the parser accepts and keeps BOTH words while three instruction lines in the SAME FILE change, so the exemption unit is the SENTENCE and no per-file rule can express it; and a blanket `grep → 0` gate would falsify the parser's own recorded measurement — _"renaming its `## Branches` to `## Slices` took it from 6 branches to 0"_, a sentence that must keep the word to stay true — as well as rewriting shipped changelog entries and the fixtures whose whole purpose is proving the parser still reads it. The Slice/Wave distinction is now stated **once**, in `intro-to-using-plot.md` two lines above where waves are introduced, because that is the first place a reader is asked to tell them apart; before this it lived only in a script comment, invisible to the person writing a plan. **The parser is untouched and still reads all three spellings**, verified byte-identically: `plot-plan-meta.sh` over all 289 plans in `docs/plans/` produces the same SHA before and after. `packages/board/test/`, `packages/domain/test/`, `docs/plans/`, `MANIFESTO.md` and `changelog.md` are unchanged, asserted as **paths untouched by the diff** rather than as a count — the repo-wide total went 632 → 656 between the plan's approval and its dispatch, so a gate phrased as a total would already have been failing for a reason unrelated to the work. Every target was located by content rather than by line number, which is what caught the one that had already moved.
+
+  <!--
+  plan: docs/plans/2026-09-15-the-skills-say-slices.md
+  bumps:
+    skills:
+      plot: patch
+      plot-approve: patch
+      plot-deliver: patch
+      plot-implement: patch
+      plot-pulse: patch
+      plot-reconcile: patch
+      plot-reslice: patch
+      ralph-plot-sprint: patch
+      tracer-bullets: patch
+  -->
+
 ## 2.17.0
 
 ### Minor Changes
@@ -608,12 +697,12 @@ Planning` where the template says `Planned`, so the population is _not Closed_
   It sits below `== blocking sections end ==` and stays out of `attention=`. A
   delivery stopped by this would be stopped by somebody else's paperwork.
 
-          <!--
-          plan: docs/plans/2026-09-06-a-sprint-knows-when-it-ended.md
-          bumps:
-            skills:
-              plot: minor
-          -->
+            <!--
+            plan: docs/plans/2026-09-06-a-sprint-knows-when-it-ended.md
+            bumps:
+              skills:
+                plot: minor
+            -->
 
 - [#747](https://github.com/plot-pm/plot/pull/747) [`1acc015`](https://github.com/plot-pm/plot/commit/1acc0151d7cadcb778167d8fa48c19248758feb5) Thanks [@jwloka](https://github.com/jwloka)! - A `post-commit` hook records a commit that set a file to content that path already held, and says nothing otherwise. Twice on 2026-09-06 a commit reverted a plan annotation its author never edited; a third occurrence, `8d45eaca`, was found by this hook while it was being written and nobody had noticed it.
 
@@ -1665,11 +1754,11 @@ O_EXCL` is exclusive but publishes the NAME before the CONTENT: a second process
   flight and room for three more. A cap that refuses nothing and reports nothing
   is indistinguishable from no cap at all.
 
-            <!--
-            bumps:
-              skills:
-                plot: minor
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: minor
+              -->
 
 - [#655](https://github.com/plot-pm/plot/pull/655) [`6fbe6ca`](https://github.com/plot-pm/plot/commit/6fbe6ca25473e09179b56c0ce2fea949a8891ee6) Thanks [@jwloka](https://github.com/jwloka)! - Every host call appends one line to a budget record the whole computer shares,
   and the spend rate is readable back over the connector's own window.
@@ -1758,11 +1847,11 @@ QUIET_SECONDS` (900 s, 1.5x the measured max) is therefore a gate: past it the
   agent's build is running. Where no transcript can be read the capability is
   unavailable, nothing is published, and `Worker bound` ends the worker.
 
-            <!--
-            bumps:
-              skills:
-                plot: minor
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: minor
+              -->
 
 - [#637](https://github.com/plot-pm/plot/pull/637) [`10cefcf`](https://github.com/plot-pm/plot/commit/10cefcfa5ef74c40914b71c3c39e3ad7e4bbd91f) Thanks [@jwloka](https://github.com/jwloka)! - The fleet scan holds a slice whose prerequisite has not merged. A branch's `waits:` annotation names a prerequisite branch, and the scan reports two new branch counters beside the wave ones: `waiting=` where the prerequisite exists and has not merged, and `prereq_missing=` where the host has never seen a PR for it. The first resolves by waiting and the second by editing the plan, so they travel separately rather than as one number. Silence is never permission to start.
 
@@ -2547,11 +2636,11 @@ sleeps after an idle ending`, this file's last test. Every test passed. Node
   locally is that the change is correct and harmless; that it cures the hang can
   only be shown on CI.
 
-            <!--
-            bumps:
-              skills:
-                plot: patch
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: patch
+              -->
 
 - [#562](https://github.com/plot-pm/plot/pull/562) [`2b71f18`](https://github.com/plot-pm/plot/commit/2b71f1877fe7004cf99dc5a431e1d7f918f1abb0) Thanks [@jwloka](https://github.com/jwloka)! - A wedged CI run says what it was holding.
 
@@ -3311,11 +3400,11 @@ instance` configured exits 3, because that is a config error the op cannot
   since a multibranch container is the parent of a branch and cannot be derived
   from the branch name.
 
-                  <!--
-                  bumps:
-                    skills:
-                      plot: minor
-                  -->
+                    <!--
+                    bumps:
+                      skills:
+                        plot: minor
+                    -->
 
 - [#447](https://github.com/plot-pm/plot/pull/447) [`bedff09`](https://github.com/plot-pm/plot/commit/bedff09b465aaa5775a02d4b9214f24c956a50af) Thanks [@jwloka](https://github.com/jwloka)! - A plan can cite a tracker key (`PROJ-123`) where `## Plot Config` names a
   non-GitHub `Tracker:`.
@@ -3969,11 +4058,11 @@ instance` configured exits 3, because that is a config error the op cannot
   The check is per-FLAG, not per-version — a high version number that rejects
   `--json` is still rejected.
 
-                  <!--
-                  bumps:
-                    skills:
-                      plot: patch
-                  -->
+                    <!--
+                    bumps:
+                      skills:
+                        plot: patch
+                    -->
 
 - [#487](https://github.com/plot-pm/plot/pull/487) [`27ab657`](https://github.com/plot-pm/plot/commit/27ab657521e86bf82c9c0e722a4a5f17c2a50d80) Thanks [@jwloka](https://github.com/jwloka)! - <!--
   bumps:
@@ -4339,11 +4428,11 @@ instance` configured exits 3, because that is a config error the op cannot
   The write is replace-or-insert-after-`Impl:` and touches nothing else: `##
 Status` holds the transition records, which nothing in the repo can reconstruct.
 
-                    <!--
-                    bumps:
-                      skills:
-                        challenge-the-plan: minor
-                    -->
+                      <!--
+                      bumps:
+                        skills:
+                          challenge-the-plan: minor
+                      -->
 
 ### Patch Changes
 
@@ -4672,13 +4761,13 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   keys are read back by the skill to check auth against the right instance, and
   the skill says plainly that the board does not yet display Jenkins status.
 
-                        <!--
-                        bumps:
-                          skills:
-                            plot-board-setup: minor
-                            plot-init: patch
-                            plot: patch
-                        -->
+                          <!--
+                          bumps:
+                            skills:
+                              plot-board-setup: minor
+                              plot-init: patch
+                              plot: patch
+                          -->
 
 - [#253](https://github.com/plot-pm/plot/pull/253) [`2e389a1`](https://github.com/plot-pm/plot/commit/2e389a12eef6c928fc8b8127103b1c04df8c512d) Thanks [@jwloka](https://github.com/jwloka)! - plot-sprint: sprint creation proposes the plans that serve the goal
 
@@ -4866,12 +4955,12 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   `/plot-idea` unattended stops without one and writes no plan file, which is
   exactly the exit-0-having-done-nothing failure `docs/unattended.md` documents.
 
-                        <!--
-                        bumps:
-                          skills:
-                            plot: minor
-                            plot-idea: minor
-                        -->
+                          <!--
+                          bumps:
+                            skills:
+                              plot: minor
+                              plot-idea: minor
+                          -->
 
 - [#242](https://github.com/plot-pm/plot/pull/242) [`5c2cf58`](https://github.com/plot-pm/plot/commit/5c2cf58faaade305776a7bc1a6cc52a570260058) Thanks [@jwloka](https://github.com/jwloka)! - The board renders what has arrived
 
@@ -5393,13 +5482,13 @@ plan (decision log / note?)`. What changes is the claim, and that it no longer
   slices the report at section 7 (`sed -n '/^== 7\./q;p'`) before grepping, so the
   sections that mean _defect_ still block and the convenience section never does.
 
-                        <!--
-                        bumps:
-                          skills:
-                            plot: minor
-                            plot-reconcile: minor
-                            plot-deliver: patch
-                        -->
+                          <!--
+                          bumps:
+                            skills:
+                              plot: minor
+                              plot-reconcile: minor
+                              plot-deliver: patch
+                          -->
 
 - [#265](https://github.com/plot-pm/plot/pull/265) [`e50de93`](https://github.com/plot-pm/plot/commit/e50de93c0d075efa36ee4b211cf62542ee0f3a7e) Thanks [@jwloka](https://github.com/jwloka)! - plot: the two pre-Approved gates know the Design phase
 
@@ -5680,11 +5769,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   the throttle is `feature/every-host-consumer-slows-down`; the banner and the note
   that say a spent budget from an unreachable host are the two `Says` branches.
 
-                        <!--
-                        bumps:
-                          skills:
-                            plot: minor
-                        -->
+                          <!--
+                          bumps:
+                            skills:
+                              plot: minor
+                          -->
 
 ### Patch Changes
 
@@ -6425,12 +6514,12 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                            bumps:
-                              skills:
-                                plot: minor
-                                plot-dispatch: minor
-                                plot-fleet: minor
-                            -->
+                              bumps:
+                                skills:
+                                  plot: minor
+                                  plot-dispatch: minor
+                                  plot-fleet: minor
+                              -->
 
   plot: `finished` is not a verdict
 
@@ -6656,11 +6745,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                              bumps:
-                                skills:
-                                  plot: patch
-                                  plot-dispatch: patch
-                              -->
+                                bumps:
+                                  skills:
+                                    plot: patch
+                                    plot-dispatch: patch
+                                -->
 
   plot: the phase gate reads the plan from the shared ref
 
@@ -6903,11 +6992,11 @@ kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
   skip the tempfile removal — the handler that exists to prevent a leak would
   become one.
 
-                              <!--
-                              bumps:
-                                skills:
-                                  plot: patch
-                              -->
+                                <!--
+                                bumps:
+                                  skills:
+                                    plot: patch
+                                -->
 
 - [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
 
