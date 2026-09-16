@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
@@ -13,6 +13,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-15, jwloka, in-session
 - **Delivered:** 2026-09-15
+- **Released:** 2026-09-16, 2.18.0
 
 ## Changelog
 

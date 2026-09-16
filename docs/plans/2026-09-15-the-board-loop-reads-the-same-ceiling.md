@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-board-is-blank-where-it-matters
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-15, jwloka, in-session
 - **Started:** 2026-09-15, jwloka, `bug/the-board-loop-reads-the-same-ceiling`
 - **Delivered:** 2026-09-15
+- **Released:** 2026-09-16, 2.18.0
 
 ## Changelog
 
@@ -139,7 +140,7 @@ to have misbehaved.
 
 ## Slices
 
-### The board loop reads the same ceiling (Branch: bug/the-board-loop-reads-the-same-ceiling)
+### The board loop reads the same ceiling (Branch: bug/the-board-loop-reads-the-same-ceiling, PR: #920)
 
 - `bug/the-board-loop-reads-the-same-ceiling` — export `ceilingFor` from `rules/fleet-size.ts` and bound the auto-dispatch budget by it, leaving every threshold, the `clear` path and the supervisor untouched → #920
 

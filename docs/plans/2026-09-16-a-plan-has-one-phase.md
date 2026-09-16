@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #924
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -15,6 +15,7 @@
 - **Approved:** 2026-09-16, jwloka, in-session
 - **Started:** 2026-09-16, jwloka, `bug/a-plan-has-one-phase`
 - **Delivered:** 2026-09-16
+- **Released:** 2026-09-16, 2.18.0
 
 ## Changelog
 

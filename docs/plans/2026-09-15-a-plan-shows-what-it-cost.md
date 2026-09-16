@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-plan-economics
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-16, jwloka, in-session
 - **Started:** 2026-09-16, Jan Wloka, `feature/a-plan-shows-what-it-cost`
 - **Delivered:** 2026-09-16
+- **Released:** 2026-09-16, 2.18.0
 
 ## Changelog
 

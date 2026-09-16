@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-agent-identity
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-14, jwloka, in-session
 - **Started:** 2026-09-14, jwloka, `feature/a-charter-reaches-the-agent-it-declares`
 - **Delivered:** 2026-09-15
+- **Released:** 2026-09-16, 2.18.0
 
 ## Changelog
 
