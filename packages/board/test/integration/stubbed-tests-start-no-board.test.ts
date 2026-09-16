@@ -383,7 +383,16 @@ describe('a browser test that stubs its own state starts no board', () => {
 // is computed in `Row` from the row's own `startability`, so the assertion has
 // to read what the two cells actually rendered side by side.
 // It serves its own state through the catalogue and starts no board.
-const EXPECTED_FILES = 48;
+// 48 → 49 ON 2026-09-16: `plan-cost-badge.browser.test.ts`, four `it(`.
+// A PLAIN ADDITION and nothing moved. What only a rendered page can settle is
+// that the cost badge's text contains NO COUNTER VALUE — the counters span five
+// orders of magnitude, so a card that "technically shows the cost" by printing
+// 40,690,450 passes every unit test about the data and defeats the design. The
+// badge's words are pure functions pinned in `test/unit/plan-cost.test.ts`;
+// this asserts what the CARD renders, and that the four counters stay reachable
+// on the badge's tooltip. It serves its own state through the catalogue and
+// starts no board.
+const EXPECTED_FILES = 49;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -491,7 +500,9 @@ const EXPECTED_FILES = 48;
  * Re-derived against the main this branch sits on, per this file's own rule,
  * rather than by arithmetic: the gate reported 48 files and 493 `it(`.
  */
-const EXPECTED_TESTS = 493;
+// 493 → 497 ON 2026-09-16: the four in `plan-cost-badge.browser.test.ts`
+// named above. Added, not moved — no file lost an `it(` for these to appear.
+const EXPECTED_TESTS = 497;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
