@@ -4,14 +4,15 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Issue:** #924
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
+- **Approved:** 2026-09-16, jwloka, in-session
 
 ## Changelog
 
@@ -136,10 +137,12 @@ Measured 2026-09-16:
 
 | repository | front matter | `## Status` block |
 |---|---:|---:|
-| **plot** | **0** | **285** |
+| **plot** | **0** | **286** |
 | the project repo where this occurred | 74 carry both | 1 |
 
-**Every plan in this repository uses one format**, so the split cannot manifest —
+**Every plan in this repository uses one format** — measured 2026-09-16: 290
+files, 286 carrying a `State:` line, **0 carrying front matter** — so the split
+cannot manifest —
 which is exactly why it reached a released version. **A repository whose plans
 carry front matter hits it on every delivery.**
 
@@ -168,10 +171,11 @@ the defect was filed, and the other two follow once it holds.
 
 ### A plan has one phase (Branch: bug/a-plan-has-one-phase)
 
-- `bug/a-plan-has-one-phase` — report a cross-format phase disagreement through the existing `phase_alt` fields, the way the parser already reports a within-format one
+- `bug/a-plan-has-one-phase` — parse `write_transition`'s scratch copy before the `mv` and refuse where what the parser would read disagrees with the phase being written, so a delivery cannot report a success it did not achieve
 
-**Done when** `plot-deliver.sh` **re-parses the plan after writing** and asserts
-the phase the parser reports, pinned by a fixture carrying front matter
+**Done when** `plot-deliver.sh` **parses the scratch copy before the `mv`** and
+refuses where the phase the parser would read disagrees with the phase being
+written, pinned by a fixture carrying front matter
 `status: Approved` and a Status block the script flips to `Delivered` — the
 reporter's exact shape, reproduced 2026-09-16 as `phase: approved`; **the refusal
 names BOTH values and the file**, pinned by asserting the message contains the
@@ -191,6 +195,11 @@ formats separately, covering every plan in this repository; **no parser field
 changes**, asserted by diffing `plot-plan-meta.sh`'s full output over all 289
 plans before and after; and `pnpm run test:contracts` passes.
 
+**Not in this slice:** which format should win. The refusal names both values and
+leaves that to the person, which is the honest answer while three writers and one
+reader disagree — a plan that also moved the precedence would ship a correctness
+change riding on a bug fix.
+
 **Not in this slice:** the same gate on `/plot-approve` and `/plot-undeliver`.
 Both share the shape and both deserve it; proving it once on the path where the
 defect was filed is the smaller change, and the other two are a follow-up whose
@@ -205,6 +214,15 @@ person would check is the moment the failure hides.
 **It also costs the `Delivered:` record**, which `plot-fleet-scan.sh` reads for
 its rolling window: a plan whose phase never flipped drops out of the scan that
 would have shown the drift.
+
+**Round 3 found the slice line and the `Done when` still describing the design
+round 2 replaced** — *"report a cross-format disagreement through `phase_alt`"*
+and *"re-parses the plan after writing"*, both abandoned. A plan whose prose and
+gates describe different changes hands the implementer a choice, which is what a
+gate exists to remove. The juror otherwise could not break the design: *"the
+mechanism is buildable because the script already writes the file the gate needs
+to read, the placement is safe because every irreversible step is downstream of
+the exit it takes."*
 
 **Round 2 corrected two claims and moved the gate.** The script parses **twice**,
 not once, and the true statement is that neither parse follows the write. A
