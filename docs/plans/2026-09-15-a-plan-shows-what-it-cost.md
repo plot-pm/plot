@@ -10,10 +10,11 @@
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- A plan's card shows what its slices spent, with the counts of slices that were not measured here. The number has been computable since the rollup landed and nothing displayed it.
+- A plan's card says how much of its cost was measured. The counters have been computable since the rollup landed and nothing displayed them; the card leads with coverage, because four raw counters are read at a glance as their largest.
 
 <!-- Board impact: this IS a board change — one optional Card field, one
      reading in board.ts, one render in PlanCard. No plan format, no template. -->
@@ -47,7 +48,40 @@ two producers and whose `build` RowKind had no arm. **This is not that.**
 
 **So the shape is settled by an existing neighbour rather than invented.**
 
-### What is rendered is not one number
+### The card leads with COVERAGE, and the counters sit behind it
+
+**The rollup refuses a bare total by construction** — `PlanSpend.tokens` is a
+four-key record with no sum field, and `planSpend` returns `tokens: null` rather
+than zeros, because *"`reduce(…, 0)` over nothing is correct arithmetic and a
+lie"* (`plan-spend.ts:118-120`).
+
+**An earlier draft inherited that refusal in the data and lost it in the render.**
+Measured over a real plan, the four counters span **five orders of magnitude**:
+
+```
+in 502 · out 107,182 · cache-write 528,331 · cache-read 40,690,450
+```
+
+**The largest is 81,000× the smallest, so a two-second reader reads the big one**
+— the cache-read count, which `plan-spend.ts:36` calls *"a cache-read count
+wearing a cost's name"*. **Not summing is not the same as not being read as a
+sum**, and a key-set assertion gates the arithmetic while gating nothing about
+what the eye does.
+
+**So the card's glance-level text is the coverage**, not the magnitude:
+
+```
+measured on 3 of 5 slices        ← the card
+not measured here (2 absent)     ← when tokens is null
+```
+
+**The four counters remain available** — on hover or in the plan modal, where a
+reader who wants them has asked for them and is no longer glancing.
+`planSpendSummary` (`plan-spend.ts:127`) already composes the full sentence and
+already refuses a number where nothing was measured; the card uses its coverage
+clause and defers the counters.
+
+### What the underlying rollup provides
 
 The rollup answers a **measured sum plus two counts** — `absent` and
 `unreadable` — and refuses a bare total, because the absences correlate with
@@ -99,8 +133,18 @@ layout decisions in one plan.
 
 - `feature/a-plan-shows-what-it-cost` — add an optional cost field to `CardSchema`, take the reading in `board.ts` beside `planStatus`, and render it on `PlanCard` with the unmeasured counts
 
-**Done when** a plan whose slices are measured shows its four counters on its
-card, pinned by a browser test; **a plan with unmeasured slices shows the counts
+**Done when** a plan whose slices are measured shows **its coverage** on its card
+— `N of M slices measured`, not the counters — pinned by a browser test asserting
+the rendered text contains no counter value; **the four counters are reachable
+without leaving the board**, pinned separately, so the refusal to show them at a
+glance is not a refusal to show them; **the reading is hoisted ABOVE the per-plan
+loop**, pinned by a counting stub asserting `lines()` is called **once per board
+build** — `planStatus` is called inside `for (const meta of metas)` at
+`board.ts:1969` and the adapter caches only its directory, so a literal
+"beside `planStatus`" is N file reads per refresh; **the field follows the
+`rounds` precedent** (`4c7e3cab7`) — optional, no-zero, attached with
+`!== undefined` rather than a truthiness test, since a measured zero is a real
+answer; **a plan with unmeasured slices shows the counts
 beside the sum**, pinned separately, since a sum alone is the misreading the
 rollup refuses; **a plan with nothing measured shows no cost rather than a
 zero**, pinned explicitly; **no fifth summed figure is rendered**, pinned by a
@@ -118,6 +162,19 @@ typecheck` and the board suite pass.
 **The second half of a two-slice sequence.** The first,
 `a-plan-states-what-its-slices-cost`, is Approved and building; **this plan must
 not be dispatched before it merges**, because its reading does not exist yet.
+
+**Amended 2026-09-15 after a three-lens panel**
+(`.plot/panels/2026-09-15-a-plan-shows-what-it-cost/`), unanimous `amend`. Every
+hop of the render path was verified to exist — the contrast with the rejected
+`the-deploy-job-shows-on-main`, where two hops were negatively verified. Three
+findings: the card must lead with coverage rather than four counters; the Design
+and the `Done when` pointed in **opposite directions** on where the reading is
+taken; and the "six touchpoints" worry does not apply, since that figure is for a
+board **capability** that gates an action, where this is a display field with its
+own measured precedent in `4c7e3cab7`.
+
+**The operator settled the render shape**: a coverage line at the glance, the
+counters a click away.
 
 **Named by the `consumer` lens** in that plan's panel
 (`.plot/panels/2026-09-15-a-plan-states-what-its-slices-cost/panel.md`), which
