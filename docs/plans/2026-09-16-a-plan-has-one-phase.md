@@ -102,11 +102,19 @@ treats any non-zero as *log a line and do not reap*. A refusal after a successfu
 push would leave the plan delivered on main, the desk unreaped, and no person
 reading the line.
 
-**So the check is a DRY RUN of the write, before anything is committed.** The
-script already knows the phase it is about to write; it asks the parser what the
-file would then report, and refuses **before** the commit and the push where the
-two disagree. Nothing is written, so the refusal costs nothing and the existing
-exit-0 contract is untouched.
+**So the check is a DRY RUN of the write, and the script already has the file to
+run it on.** `write_transition` builds the new content in a scratch copy and
+lands it with a single `mv "$a" "$f"` (`:431`) — the same shape
+`plot-sprint-state.sh` uses, *"the file is replaced by one `mv` from a scratch
+copy"*.
+
+**So the check is one parse of `$a` before the `mv`.** The scratch file already
+carries the finished content; `plot-plan-meta.sh` takes a path (`:277`) and says
+what it would read from it. Where that disagrees with the phase being written,
+`$a` is discarded and the original is never touched.
+
+**No new mechanism, no `--dry-run` flag, no contract change** — one call on a
+file that already exists, at a point where nothing has been committed or pushed.
 
 **Three properties follow, and none needs a format decision:**
 
@@ -168,8 +176,11 @@ the phase the parser reports, pinned by a fixture carrying front matter
 reporter's exact shape, reproduced 2026-09-16 as `phase: approved`; **the refusal
 names BOTH values and the file**, pinned by asserting the message contains the
 written phase and the parsed one, since a refusal saying only *"delivery failed"*
-throws away the half a person acts on; **nothing is written, committed or pushed when the gate fires**, pinned by
-asserting the file is byte-identical after a refused run — the check is a dry run
+throws away the half a person acts on; **the check parses the SCRATCH COPY before the `mv`**, pinned by asserting the
+parse happens on `$a` rather than on the plan — the mechanism is one call at
+`write_transition`'s existing seam, not a new flag; **nothing is written,
+committed or pushed when the gate fires**, pinned by asserting the file is
+byte-identical after a refused run — the check is a dry run
 before the irreversible step, and a refusal after the push would exit 1 on a run
 meeting the documented exit-0 condition (`:9-11`) while `runAutoDeliver`
 (`fleet.ts:2986`) logs it to nobody; **a second run on an unrepaired file refuses
