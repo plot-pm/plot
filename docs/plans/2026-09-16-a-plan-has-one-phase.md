@@ -170,7 +170,7 @@ the defect was filed, and the other two follow once it holds.
 
 ## Slices
 
-### A plan has one phase (Branch: bug/a-plan-has-one-phase)
+### A plan has one phase (Branch: bug/a-plan-has-one-phase, PR: #926)
 
 - `bug/a-plan-has-one-phase` — parse `write_transition`'s scratch copy before the `mv` and refuse where what the parser would read disagrees with the phase being written, so a delivery cannot report a success it did not achieve
 
