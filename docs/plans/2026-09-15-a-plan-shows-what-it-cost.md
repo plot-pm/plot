@@ -35,11 +35,14 @@ sequence closes rather than extending.
 exist** — `the-deploy-job-shows-on-main`, whose destination was filtered out by
 two producers and whose `build` RowKind had no arm. **This is not that.**
 
-- `CardSchema` (`contract/schema.ts:357`) already carries **four optional
-  fields** — `sprint`, `story`, `assignee`, `started`. An optional fifth is
-  understood work.
-- `PlanCard.tsx` already renders card-level facts; the component exists and is
-  reached.
+- `CardSchema` (`contract/schema.ts:357`) already carries **six optional
+  fields** in its first block alone, and more below — `sprint`, `story`,
+  `assignee`, `started`, `rounds` among them. An optional field is routine work,
+  not a precedent this plan has to set.
+- `PlanCard.tsx` already renders card-level facts, and it is reached from **two
+  live sites** — `Board.tsx:253` and `Swimlanes.tsx:225`. **Both are in scope**,
+  because a field that appears on one board view and not the other is a defect a
+  reader finds before a test does.
 - **`planStatus` (`board.ts:973`) is the precedent for a plan-level fact**, and
   its own comment states the split this plan follows: *"THE READINGS ARE TAKEN
   HERE, THE DECISION IS NOT… that split is why the rule is testable without a
@@ -110,8 +113,18 @@ refresh either.
 **No price table, no francs.** The story narrowed itself by measurement on
 2026-08-29 and it has held through three re-checks.
 
-**It does not decide anything.** No gate, no delivery check, no dispatch input
-reads a cost. It is shown.
+**It does not decide anything, and its own destination file argues against that.**
+`CardSchema:378-383` and `PlanCard:99` both say *"a number nobody acts on is the
+crowding this board keeps removing"* — so this plan proposes, on that card, the
+thing that card's own code names as removable.
+
+**The answer is the coverage framing above rather than a rebuttal.**
+`measured on 3 of 5 slices` is not a number to act on; it is a statement about
+whether the estate's own record is complete, which is the question a reader of
+this board already asks about every other field. **A bare cost would be the
+crowding; a coverage line is a data-quality signal.** If that distinction does
+not survive contact with the rendered card, this field should be removed rather
+than defended.
 
 **It does not aggregate across machines.** A record is machine-local by settled
 decision; the card says what this machine measured and how much it could not.
@@ -172,6 +185,11 @@ and the `Done when` pointed in **opposite directions** on where the reading is
 taken; and the "six touchpoints" worry does not apply, since that figure is for a
 board **capability** that gates an action, where this is a display field with its
 own measured precedent in `4c7e3cab7`.
+
+**Five amendments from the board lens**, all to the gates and one sentence of the
+slice: the hoist, a one-`lines()`-call gate, the no-slices case, the two render
+sites, and the optional-field count. **None changed the scope or the
+destination.**
 
 **The operator settled the render shape**: a coverage line at the glance, the
 counters a click away.
