@@ -53,7 +53,7 @@ apart. Jenkins has its own version of *no run exists*, and it must land on
 
 ### The spike is done, and it answered the cost question outright
 
-**Measured 2026-08-26** against `jenkins-ci-webbloqs.internal.quatico.dev`,
+**Measured 2026-08-26** against `jenkins.example.com`,
 `jen` 0.2.0, job `webbloqs/continuous-build-multi`:
 
 ```

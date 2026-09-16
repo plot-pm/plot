@@ -26,7 +26,7 @@ My reading position: establish whether the thing this plan says is broken is act
 
 ## 2. The live reading I cannot reproduce — is the reasoning coherent?
 
-I cannot reach `jenkins-ci-webbloqs.internal.quatico.dev`. `jen` is on PATH at `/Users/jwloka/.local/bin/jen`; I did not invoke it against that instance. So `job list → null` and `job view → color blue` are taken on the plan's word.
+I cannot reach `jenkins.example.com`. `jen` is on PATH at `/Users/jwloka/.local/bin/jen`; I did not invoke it against that instance. So `job list → null` and `job view → color blue` are taken on the plan's word.
 
 **The reasoning is internally coherent, and — this is the part I can check — it is consistent with what `plot-host.sh` does with the answer.** The chain holds at every link I can read:
 

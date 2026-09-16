@@ -61,7 +61,7 @@ This is not a hypothetical shape:
 
 - **`plot-config.sh:119` documents the key as "the slug or URL passed to a Jenkins CLI's `-I` flag."** URL is a first-class documented form.
 - **`plot-host.sh:655-658` states it as a deliberate decision**: *"BACKTICKS ARE STRIPPED AND NO SCHEME IS NORMALISED ON. `ewz` writes a bare host in backticks and the probe used a full `https://` URL; `jen -I` accepts either, so inventing a canonical form would break whichever caller passes the other one."*
-- **Adoption's own probe feeds setup this shape.** `plot-detect-repo.sh:173` extracts the instance with `grep -hoiE '\b[a-z0-9._-]*jenkins[a-z0-9._-]*\.[a-z0-9-]+\.[a-z]{2,}\b'` — a **bare dotted hostname**, no slash, ever. I ran it: `jenkins-ci-webbloqs.internal.quatico.dev`. `:143-147` says so outright: *"IT REPORTS THE HOST AND NOTHING ELSE … the container path is a fact about the Jenkins job tree that no file in the repository states."*
+- **Adoption's own probe feeds setup this shape.** `plot-detect-repo.sh:173` extracts the instance with `grep -hoiE '\b[a-z0-9._-]*jenkins[a-z0-9._-]*\.[a-z0-9-]+\.[a-z]{2,}\b'` — a **bare dotted hostname**, no slash, ever. I ran it: `jenkins.example.com`. `:143-147` says so outright: *"IT REPORTS THE HOST AND NOTHING ELSE … the container path is a fact about the Jenkins job tree that no file in the repository states."*
 
 So the population this check refuses is **every hostname-form instance**, and adoption's own detector can propose nothing else. A `https://host/` value with no job path gets `job=/host` — a non-empty string — and is **accepted while being exactly the #913 defect**. A bare-hostname value is correctly refused, but for the coincidental reason that hostnames have no slash, not because the check understood it.
 

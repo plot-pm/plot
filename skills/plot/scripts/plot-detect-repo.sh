@@ -155,7 +155,7 @@ has_settings=false
 # a measurement rather than a preference. A README, a hub doc and a Jenkinsfile
 # are the repository DESCRIBING ITSELF; every other markdown quotes hostnames
 # as evidence. Measured 2026-09-09 on this repository: a corpus of `*.md`
-# reported `jenkins-ci-webbloqs.internal.quatico.dev` for Plot itself, read out
+# reported `jenkins.example.com` for Plot itself, read out
 # of a plan file that cites the host as another repository's example. Plot runs
 # no Jenkins. A proposal built from that reading configures the connector to
 # ask a stranger's server, which answers `NOT reachable` — indistinguishable,

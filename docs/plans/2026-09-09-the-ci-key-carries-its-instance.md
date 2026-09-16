@@ -25,15 +25,15 @@ Board impact: yes, and it is the point. The board renders the CI connector's lim
 
 **Read against a real instance on 2026-09-09, and the connector answered wrong.**
 
-`jen -I https://jenkins-ci-webbloqs.internal.quatico.dev auth status` reports
-`Jenkins auth:  OK — jan.wloka@quatico.com`, Keycloak signed in, token in the
+`jen -I https://jenkins.example.com auth status` reports
+`Jenkins auth:  OK — jan.wloka@example.com`, Keycloak signed in, token in the
 keychain. The instance is reachable and the adapter's auth grep matches it. Then:
 
 | `CI:` value | `ci-limit` answers |
 |---|---|
 | `jenkins` | `limit=60 basis=predicted` |
-| `` Jenkins at `jenkins-ci-ewz.internal.quatico.dev` `` | `limit=null basis=unknown` |
-| `jenkins https://jenkins-ci-webbloqs.internal.quatico.dev` | `limit=null basis=unknown` |
+| `` Jenkins at `jenkins.example.com` `` | `limit=null basis=unknown` |
+| `jenkins https://jenkins.example.com` | `limit=null basis=unknown` |
 
 **Only the bare word works, and no repo writes it.** Measured across the
 Quatico estate: `ewz` declares `` CI: Jenkins at `jenkins-ci-ewz…` ``, another
@@ -235,7 +235,7 @@ a fallback, not a rival.
 ### Not chosen: matching `jenkins*` with a glob
 
 `case "$_ci" in jenkins*)` would fix `ci-limit` in one character. It also
-matches `jenkins-ci-ewz.internal.quatico.dev` as a *scheme*, so a repo that
+matches `jenkins.example.com` as a *scheme*, so a repo that
 wrote only the host would read as configured Jenkins with no instance — and it
 leaves `:2417`'s `=` test broken, since a glob is not an equality.
 

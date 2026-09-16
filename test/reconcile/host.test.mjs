@@ -779,7 +779,7 @@ test('host: runs reaches the jenkins arm through a prose CI value', () => {
   const res = runAllowFail(['runs', 'feature/x'], {
     env: {
       PLOT_HOST: 'github',
-      PLOT_CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`',
+      PLOT_CI: 'Jenkins at `jenkins.example.com`',
       JENKINS_INSTANCE: '',
     },
     stubs,
@@ -1793,7 +1793,7 @@ test('host: the Jenkins arm rides on the Bitbucket backend too — CI is orthogo
 // consistent: `color` is the job's CURRENT state (it goes `blue_anime` while a
 // build runs) and `lastBuild.result` is the LAST FINISHED build's verdict.
 //
-// Instance: jenkins-ci-webbloqs.internal.quatico.dev, job quaweb/continuous-deploy.
+// Instance: jenkins.example.com, job quaweb/continuous-deploy.
 // Captured 2026-09-15. Trimmed to the fields this reader touches, with the
 // shape of the rest left intact.
 const JEN_VIEW_PLAIN = JSON.stringify({
@@ -3522,7 +3522,7 @@ test('host: ci-limit reads the SCHEME of a prose CI value, for all three spellin
   const stubs = makeStubs();
   for (const spelling of [
     'jenkins',
-    'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`',
+    'Jenkins at `jenkins.example.com`',
     'Jenkins (e.g. continuous-build, quaweb)',
   ]) {
     const out = JSON.parse(
