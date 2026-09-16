@@ -144,7 +144,7 @@ layout decisions in one plan.
 
 ## Slices
 
-### A plan shows what it cost (Branch: feature/a-plan-shows-what-it-cost)
+### A plan shows what it cost (Branch: feature/a-plan-shows-what-it-cost, PR: #925)
 
 - `feature/a-plan-shows-what-it-cost` — add an optional cost field to `CardSchema`, take the reading in `board.ts` beside `planStatus`, and render it on `PlanCard` with the unmeasured counts
 
