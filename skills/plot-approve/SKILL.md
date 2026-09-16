@@ -135,7 +135,7 @@ approvals unless the user explicitly rules).
 
 Before approving, check if a tracer bullet might be valuable. This is a suggestion, never a hard gate.
 
-Read the plan file and check for a `### Tracer` subsection under `## Branches`:
+Read the plan file and check for a `### Tracer` subsection under `## Slices`:
 
 - **If `### Tracer` exists with `Status: Complete`:** proceed normally. Mention in summary: "Tracer bullet validated."
 - **If `### Tracer` exists but incomplete:** warn: "This plan has an incomplete tracer bullet. Consider finishing it with the `tracer-bullets` skill before approving. Proceed anyway?"

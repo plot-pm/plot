@@ -62,8 +62,22 @@ function writeBranches(work, rel, lines) {
   const body = lines
     .map(([br, ann]) => `- \`${br}\` — the slice${ann ? ` → ${ann}` : ''}`)
     .join('\n');
-  // Replace the template's own Branches body with ours.
-  t = t.replace(/## Branches[\s\S]*?(?=\n## |\n<!--|$)/, `## Branches\n\n${body}\n\n`);
+  // Replace the template's own slice-list body with ours.
+  //
+  // THE HEADING IS MATCHED TOLERANTLY AND REWRITTEN AS IT WAS FOUND. This
+  // helper reads the SHIPPED template, so pinning one spelling couples the test
+  // to a word the template is free to change — measured 2026-09-15, when the
+  // template moved to `## Slices` and this replace silently matched nothing:
+  // the body was never written, the plan carried no branch lines, and the
+  // assertion failed as "0 !== 2" rather than naming the cause.
+  //
+  // What this test is ABOUT is annotation resolution, not the heading word, so
+  // it now works whichever the template ships.
+  const heading = /## (Slices|Branches|Waves)/.exec(t)?.[0] ?? '## Slices';
+  t = t.replace(
+    /## (Slices|Branches|Waves)[\s\S]*?(?=\n## |\n<!--|$)/,
+    `${heading}\n\n${body}\n\n`,
+  );
   fs.writeFileSync(f, t);
 }
 

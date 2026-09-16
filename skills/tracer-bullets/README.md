@@ -25,7 +25,7 @@ Reusable / Publishable — project-agnostic.
 ### Scenario 2: Plot pre-approval
 
 1. `/plot-idea tracer-test: Test tracer bullet workflow`
-2. Add `### Tracer` subsection to plan's `## Branches`
+2. Add `### Tracer` subsection to plan's `## Slices`
 3. Use `tracer-bullets` skill on the idea branch
 4. Verify tracer code lives alongside plan files
 5. Verify plan gets `## Tracer Results` section

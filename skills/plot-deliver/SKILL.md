@@ -110,7 +110,7 @@ done
 
 ### 3. Read and Parse Plan
 
-Read the plan file (`$PLAN_FILE`, resolved in step 2) and find the section headed with "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Branches"). Parse it for PR references. If the plan has a `Sprint: <name>` field in its Status section, extract it for the summary.
+Read the plan file (`$PLAN_FILE`, resolved in step 2) and find the section listing the plan's slices (matches `## Slices`, `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Slices" or "Branches"). Parse it for PR references. If the plan has a `Sprint: <name>` field in its Status section, extract it for the summary.
 
 Expected format once PRs exist (annotated at PR creation or back-filled above):
 ```markdown
@@ -126,7 +126,7 @@ Run the helper:
 ```
 
 **Annotations are a convenience here, not a precondition.** The helper reads the
-`## Branches` section per BRANCH: a line carrying `→ #N` (or a cross-repo
+`## Slices` section per BRANCH: a line carrying `→ #N` (or a cross-repo
 `→ owner/repo#N`) resolves by that number, and a line WITHOUT one falls back to
 matching the branch NAME against the heads of merged PRs — the same derivation
 `plot-reconcile-scan.sh` uses in section 2, so the verification works on a plan
@@ -196,7 +196,7 @@ For each non-deferred branch:
 
 Compare what the plan promised against what was actually delivered.
 
-1. **Extract deliverables** from the plan file. Look for actionable items in sections like `## Design`, `## Branches`, or bulleted lists that describe what should be built. Number each deliverable for reference.
+1. **Extract deliverables** from the plan file. Look for actionable items in sections like `## Design`, `## Slices`, or bulleted lists that describe what should be built. Number each deliverable for reference.
 
 2. **Question the delivery with a panel, through [`/plot-panel`](../plot-panel/SKILL.md).**
 

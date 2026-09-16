@@ -14,7 +14,7 @@ cannot hold.
 
 `/plot-reslice` repairs that shape. It reads the entangled branches — their
 diffs, PRs and conflicts — proposes one named wave per branch in an argued
-dependency order, and rewrites **only** the plan's `## Branches` section once
+dependency order, and rewrites **only** the plan's `## Slices` section once
 a person confirms the order.
 
 ## Why it is a spoke command, not a script
@@ -34,7 +34,7 @@ report) and the memory `board-writes-wrap-scripts-or-are-licensed-repairs`.
 
 ## What it must not do
 
-- **Never rename a branch.** The names are already in `## Branches` and carry
+- **Never rename a branch.** The names are already in `## Slices` and carry
   live claim refs; a rename breaks every ref pointing at one. Only the `### `
   headings above the branch lines change.
 - **Never reorder landed work.** A `complete` wave (every branch merged) is a
@@ -47,7 +47,7 @@ report) and the memory `board-writes-wrap-scripts-or-are-licensed-repairs`.
   wave yields **no proposal**.
 - **Never write without confirmation.** Unattended (`PLOT_UNATTENDED=1`) it
   **stops** and emits a `PLOT-UNASKED:` line — the order is the judgement it
-  cannot make alone, and the `## Branches` section is the source of truth.
+  cannot make alone, and the `## Slices` section is the source of truth.
 
 ## Tier
 

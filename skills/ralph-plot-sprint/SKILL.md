@@ -114,7 +114,7 @@ cat docs/definition-of-done.md 2>/dev/null || echo "(no DoD file)"
 | Missing demos | compare sprint code items to `ls docs/demos/` | List or "all present" |
 | RC tag | `git tag --list 'v*-rc*'` | Tag or "none" |
 
-**Reading plan branches:** Find the plan file via `docs/plans/active/<slug>.md` or `docs/plans/delivered/<slug>.md` (resolve symlink). Search for a heading containing "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`). Parse branch names from lines starting with `- ` followed by a backtick-quoted branch name. For each branch, check if a PR exists and its state (MERGED/OPEN/CLOSED) via `gh pr list --state all --head <branch-name>`.
+**Reading plan branches:** Find the plan file via `docs/plans/active/<slug>.md` or `docs/plans/delivered/<slug>.md` (resolve symlink). Search for the heading listing the plan's slices (matches `## Slices`, `## Branches`, `## Implementation Branches`, `### Implementation Branches`). Parse branch names from lines starting with `- ` followed by a backtick-quoted branch name. For each branch, check if a PR exists and its state (MERGED/OPEN/CLOSED) via `gh pr list --state all --head <branch-name>`.
 
 **For sprints with more than 3 open PRs:** gather CI and review status with one parallel subagent per PR — CI result, whether it has been reviewed, unresolved count, and whether the SHA moved since `review_sha`. Collect all results before proceeding.
 
