@@ -11,7 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -75,25 +75,50 @@ while the reporter's delivery failed exactly as before.**
 
 ### The fix is a gate on the writer, not a report from the reader
 
-`plot-deliver.sh:98` parses the plan **before** writing and never reads it back.
-So the script reports `phase=flipped` on the strength of having performed a
-write, not on the strength of the write having taken effect.
+**The script parses TWICE — `:98` and `:384` inside `decide_transition` — and
+neither happens after the write.** The second is the parse that decides the
+transition, called with the file's own parse because *"on the booking-worktree
+flow those are different files"*. So the script reports `phase=flipped` on the
+strength of having performed a write, not on the strength of the write having
+taken effect.
 
 **This estate's own test settles it** — *"Can you answer 'did I complete this?'
 without actually doing the work? If yes, it's a rule."* A delivery that prints
 `phase=flipped` without re-reading answers exactly that way.
 
-**So after the write, the script re-parses and asserts the phase the parser now
-reports.** Where they disagree it refuses and names both, rather than claiming a
-success it did not achieve.
+### The check runs BEFORE the irreversible step, and that is what makes it safe
+
+**A gate after the push would be the wrong shape twice over.**
+
+**The exit contract says so.** `plot-deliver.sh:9-11` documents exit 0 as *"the
+plan is Delivered on the default branch"* — and after a successful push that is
+exactly what a gate-tripping run has achieved. **A refusal there would exit 1 on
+a run where the documented exit-0 condition holds**, which is a contract
+amendment rather than a bug fix.
+
+**And the caller that matters is automatic.** `runAutoDeliver` is wired live at
+`fleet.ts:2986`, spawned **detached with nobody watching**, and its `onExit`
+treats any non-zero as *log a line and do not reap*. A refusal after a successful
+push would leave the plan delivered on main, the desk unreaped, and no person
+reading the line.
+
+**So the check is a DRY RUN of the write, before anything is committed.** The
+script already knows the phase it is about to write; it asks the parser what the
+file would then report, and refuses **before** the commit and the push where the
+two disagree. Nothing is written, so the refusal costs nothing and the existing
+exit-0 contract is untouched.
 
 **Three properties follow, and none needs a format decision:**
 
 - **It is format-agnostic.** It catches any writer/reader split, not this one
   instance — including one nobody has hit yet.
-- **It restores idempotence.** A second run today reports `already` on finding
-  its own line; with the gate it finds the mismatch and says so. **The documented
-  repair path stops being the failure path.**
+- **It stops the half-write.** An earlier draft claimed a second run reports
+  `already`; **measured, it reports `write`** — `decide_transition` asks whether
+  the file carries the phase AND the record, and the reporter's file carries a
+  `Delivered` Status block with no complete record, so it writes again. The
+  defect is not that a re-run refuses to act; it is that acting never takes
+  effect. **The gate stops the first run instead of letting every run write into
+  a field nobody reads.**
 - **It changes nothing where the formats agree** — every plan in this repository,
   and every correct delivery anywhere.
 
@@ -143,11 +168,13 @@ the phase the parser reports, pinned by a fixture carrying front matter
 reporter's exact shape, reproduced 2026-09-16 as `phase: approved`; **the refusal
 names BOTH values and the file**, pinned by asserting the message contains the
 written phase and the parsed one, since a refusal saying only *"delivery failed"*
-throws away the half a person acts on; **the exit code is a refusal rather than a
-success**, pinned, because the defect is a script reporting `phase=flipped` on a
-write that did not take; **a second run on an unrepaired file refuses again
-rather than reporting `already`**, pinned explicitly — that is the idempotence
-complaint, and `already` on a broken file is the failure repeating; **a delivery
+throws away the half a person acts on; **nothing is written, committed or pushed when the gate fires**, pinned by
+asserting the file is byte-identical after a refused run — the check is a dry run
+before the irreversible step, and a refusal after the push would exit 1 on a run
+meeting the documented exit-0 condition (`:9-11`) while `runAutoDeliver`
+(`fleet.ts:2986`) logs it to nobody; **a second run on an unrepaired file refuses
+the same way**, pinned explicitly, since `decide_transition` answers `write`
+rather than `already` on that file — measured, correcting an earlier draft; **a delivery
 where writer and parser agree is byte-identical to today**, pinned across both
 formats separately, covering every plan in this repository; **no parser field
 changes**, asserted by diffing `plot-plan-meta.sh`'s full output over all 289
@@ -167,6 +194,15 @@ person would check is the moment the failure hides.
 **It also costs the `Delivered:` record**, which `plot-fleet-scan.sh` reads for
 its rolling window: a plan whose phase never flipped drops out of the scan that
 would have shown the drift.
+
+**Round 2 corrected two claims and moved the gate.** The script parses **twice**,
+not once, and the true statement is that neither parse follows the write. A
+second run answers **`write`**, not `already` — measured by a juror running it —
+so the idempotence complaint is real and the mechanism I described was not. And
+the check moved **before** the irreversible step: the documented exit-0 contract
+is *"the plan is Delivered on the default branch"*, which a post-push refusal
+would contradict, while `runAutoDeliver` runs detached and would log that
+refusal to nobody.
 
 **Rewritten 2026-09-16 after a three-lens panel**
 (`.plot/panels/2026-09-16-a-plan-has-one-phase/`). The first draft proposed
