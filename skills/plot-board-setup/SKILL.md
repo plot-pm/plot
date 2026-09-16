@@ -280,6 +280,47 @@ Ask only what the merged probes could not answer:
   >
   > `PLOT-UNASKED: which Jenkins instance — refused — no Jenkins instance key written; jen auth unverified`
 
+- **The Jenkins JOB PATH** — when an instance resolved but `jen.job` is `""`.
+  The value names the **server** and no container, so Plot looks for branch
+  jobs at the Jenkins root and finds none.
+
+  > **Refuse the key, exactly as a guessed slug is refused** — the severity is
+  > the same and the reason is stronger. Filed as #913: the config carried the
+  > slug alone, setup reported healthy, and every PR on the resulting board
+  > rendered `checks: unknown` under *"WAITING ON A MACHINE — could not reach
+  > the host"*. Measured on that instance with `pr-list --rich`: slug only
+  > returned **no rows**; `<slug>/quaweb/continuous-build` returned **4 PRs,
+  > all `checks: green`**.
+  >
+  > **A present but incomplete value must never outrank an absent one.** A
+  > missing key already reads `unknown` and is refused at 4a; before this, a
+  > half value read `ok` — so the worse of the two failures scored better.
+  >
+  > Write no `Jenkins instance` key, skip the `jen` auth check as `unknown`,
+  > and say what to check:
+  >
+  > `The Jenkins instance names no job path. A branch's build state is a fact about a job, so the value must be <slug>/<job/path> rather than a bare host — check which multibranch container holds this repository's branch jobs.`
+  >
+  > **Unattended (`PLOT_UNATTENDED=1`):** the same refusal, disclosed:
+  >
+  > `PLOT-UNASKED: which Jenkins job path — refused — instance names no job path; no Jenkins instance key written; jen auth unverified`
+
+  > `jen.job_source` says where the path came from: `instance` when the value
+  > carries it, `override` when `PLOT_JENKINS_JOB` supplied it, `none` when
+  > there is none. **An `override` is accepted** — `plot-host.sh:3197` honours
+  > that variable, so a caller holding the path separately has a working
+  > configuration and must not be refused for it.
+
+  > **Do not ask Jenkins to decide this.** Measured live 2026-09-15 against the
+  > #913 instance, a slug-only value resolves a **non-empty** job list — four
+  > entries, not zero — so the broken configuration answers, and answers `ok`.
+  > The distinction lives in the config value; the probe makes it offline and
+  > reports it.
+
+  > **A job path naming a container with no children is NOT this refusal.** A
+  > fresh multibranch job is legitimate: it names a path, and the reading stops
+  > there.
+
 - **The worktree root** — where `/plot-dispatch` puts its worktrees. Propose
   `.worktrees` when the repo has none configured and `.gitignore` can carry it;
   the default is the repo's PARENT, which scatters `plot-wt-*` directories
@@ -391,6 +432,13 @@ to someone who wants one running behind them.
 | `ok` | authenticated |
 | `failed` | not authenticated — name the exact fix, e.g. `jen -I apps auth login` |
 | `unknown` | **cannot verify** — say so; never round it up to authenticated |
+
+**Reachability is not the same question as usefulness, and `jen` needs both.**
+An `auth` of `ok` says the *server* answers; `jen.job` says whether the value
+names the *container* a branch's builds live in. Where `jen.job` is `""`,
+report the instance as **not verified** whatever `auth` says, and refuse the
+key per the Jenkins job path entry in step 3 — a slug alone reaches Jenkins and
+finds no branch jobs at all (#913).
 
 **Never run an interactive login.** These are browser-based device flows. Name
 the command and let the user run it — in Claude Code, suggest they type it with

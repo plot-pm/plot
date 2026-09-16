@@ -39,7 +39,16 @@
 #   plan_files      count of *.md under plan_dir (0 when it does not exist)
 #   git_host        the configured `Git host` key, or ""
 #   gh|bb|jen       {"installed":bool,"auth":"ok|failed|unknown"}
-#                   jen additionally carries "instance"
+#                   jen additionally carries "instance", "job" and
+#                   "job_source" (instance|override|none).
+#
+#                   `job` IS A DIFFERENT QUESTION FROM `auth`. Auth says the
+#                   SERVER answers; `job` says whether the value names the
+#                   multibranch CONTAINER a branch's builds live in. A slug
+#                   alone reaches Jenkins and finds no branch jobs — #913,
+#                   where adoption reported healthy and the board showed no
+#                   build state for any PR. It is a string test on the config
+#                   value and makes no network call.
 #   ci_signals      {"jenkinsfile":bool,"gh_workflows":bool}
 #
 # `auth` IS A THREE-STATE ENUM, NEVER A BOOLEAN. "unknown" is what an
@@ -263,6 +272,75 @@ if [ "$jen_installed" = true ]; then
   fi
 fi
 
+# DOES THE DECLARED INSTANCE NAME A JOB PATH?
+#
+# `plot-host.sh:702` states the contract — `<slug>` or `<slug>/<job/path>`,
+# where the remainder after the first `/` is the multibranch job's CONTAINER
+# path. Without it Plot looks for branch jobs at the Jenkins root and finds
+# none: measured in #913 with `pr-list --rich`, a slug-only value returned NO
+# ROWS where `<slug>/quaweb/continuous-build` returned 4 PRs, all `checks:
+# green` — and adoption reported the first one healthy.
+#
+# OUTSIDE THE `jen_installed` BLOCK, DELIBERATELY. This is a string test on a
+# config value, so it answers whether or not `jen` is on PATH. The block above
+# cannot host it without making the reading disappear on a machine that has the
+# value and not the tool.
+#
+# IT MAKES NO NETWORK CALL, AND ASKING JENKINS COULD NOT ANSWER IT. Measured
+# live 2026-09-15 against the #913 instance, a slug-only value resolves a
+# NON-EMPTY job list — four entries, not zero — so the broken configuration
+# answers, and answers `ok`. The distinction lives in the config value and no
+# live call can make it.
+#
+# THE SCHEME AND AUTHORITY ARE STRIPPED BEFORE SPLITTING, because the estate
+# accepts a URL form (`plot-host.sh:616`) and the naive `${value#*/}` is wrong
+# in both directions — measured across all four forms:
+#
+#   jenkins.example.com                   → ''                                refuse ✓
+#   jenkins.example.com/quaweb/cb         → 'quaweb/cb'                       accept ✓
+#   https://jenkins.example.com/          → '/jenkins.example.com/'           ACCEPT ✗
+#   https://jenkins.example.com/quaweb/cb → '/jenkins.example.com/quaweb/cb'  host glued on ✗
+#
+# A URL naming no job is ACCEPTED while being exactly the #913 defect, and one
+# naming a job yields a path carrying the host. The bare-hostname case is
+# refused correctly BY ACCIDENT — hostnames have no slash.
+#
+# `plot-host.sh:3197` carries the same latent bug and is DELIBERATELY NOT
+# CHANGED here: there it is confined to one op that exits 4, and promoting it
+# into a refusal that blocks adoption would widen the blast radius.
+#
+# IT REPORTS AND NEVER REFUSES — `/plot-board-setup` decides. Scripts collect
+# and report; skills interpret and adapt.
+jen_job=""
+jen_job_source="none"
+if [ -n "$jen_instance" ]; then
+  _ji="$jen_instance"
+  # Strip the scheme, then the authority — everything up to and including the
+  # first `/` of what remains. A value with no scheme keeps its first segment
+  # as the slug, which is the same rule one level down.
+  case "$_ji" in
+    http://*|https://*) _ji="${_ji#*://}" ;;
+  esac
+  _jen_job_raw="${_ji#*/}"
+  [ "$_jen_job_raw" = "$_ji" ] && _jen_job_raw=""
+  # A trailing slash names no job: `https://host/` splits to an empty remainder
+  # and is the #913 defect wearing a URL.
+  case "$_jen_job_raw" in
+    */) _jen_job_raw="${_jen_job_raw%/}" ;;
+  esac
+  if [ -n "$_jen_job_raw" ]; then
+    jen_job="$_jen_job_raw"
+    jen_job_source="instance"
+  fi
+  # `PLOT_JENKINS_JOB` MAKES A SLUG-ONLY VALUE LEGITIMATE. `plot-host.sh:3197`
+  # honours it and so must this, or a caller holding the job path separately is
+  # refused for a configuration that works.
+  if [ -n "${PLOT_JENKINS_JOB:-}" ]; then
+    jen_job="$PLOT_JENKINS_JOB"
+    jen_job_source="override"
+  fi
+fi
+
 cat <<JSON
 {
   "node": "$(j "$node_ver")",
@@ -278,7 +356,7 @@ cat <<JSON
   "git_host": "$(j "$git_host")",
   "gh":  {"installed": $gh_installed, "auth": "$gh_auth"},
   "bb":  {"installed": $bb_installed, "auth": "$bb_auth"},
-  "jen": {"installed": $jen_installed, "auth": "$jen_auth", "instance": "$(j "$jen_instance")"},
+  "jen": {"installed": $jen_installed, "auth": "$jen_auth", "instance": "$(j "$jen_instance")", "job": "$(j "$jen_job")", "job_source": "$jen_job_source"},
   "ci_signals": {"jenkinsfile": $jenkinsfile, "gh_workflows": $gh_workflows}
 }
 JSON
