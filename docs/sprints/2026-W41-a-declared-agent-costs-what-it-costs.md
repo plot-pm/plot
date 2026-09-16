@@ -60,6 +60,7 @@ attributed to an undifferentiated worker answers a less useful question.
 ### Should Have
 
 - [x] [a-plan-states-what-its-slices-cost](../plans/2026-09-15-a-plan-states-what-its-slices-cost.md) — the per-plan rollup over the recorded counters. **Drafted 2026-09-15**, after its dependency landed, as the item said it would be. A sum over machine-local records is only sound if the absences are named, so it reports the measured sum plus the `absent` and `unreadable` counts and refuses a bare total.
+- [x] [a-plan-shows-what-it-cost](../plans/2026-09-15-a-plan-shows-what-it-cost.md) — the render that closes the sequence: a plan card says how much of its cost was measured. The card leads with coverage because four counters spanning five orders of magnitude are read at a glance as their largest. Delivered 2026-09-16 via #925.
 
 ### Could Have
 
