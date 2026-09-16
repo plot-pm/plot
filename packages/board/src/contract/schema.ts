@@ -354,6 +354,28 @@ export const PlanStatusSchema = z.enum([
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 
+/**
+ * The four token counters, as a card carries them.
+ *
+ * FOUR KEYS, AND THE KEY SET IS THE CONTRACT. They are kept apart rather than
+ * pre-summed because cache reads measured 99.36% of a naive four-counter total,
+ * so a fifth summed field would be a cache-read count wearing a cost's name.
+ * `.strict()` is what makes that a gate rather than a hope.
+ *
+ * Declared here rather than imported from `@plot-pm/domain` for the reason this
+ * file declares every wire shape it describes: the contract is bundled INTO the
+ * artifacts, and a wire type that drifts from the domain's is caught by the
+ * board's own tests rather than by a type alias nobody reads.
+ */
+export const TokenCountsSchema = z
+  .object({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    cacheCreationTokens: z.number(),
+    cacheReadTokens: z.number(),
+  })
+  .strict();
+
 export const CardSchema = z.object({
   slug: z.string(),
   title: z.string(),
@@ -382,6 +404,48 @@ export const CardSchema = z.object({
    * which is card-only for the same reason.
    */
   rounds: z.number().optional(),
+  /**
+   * What this plan's slices cost, summed over the ones measured on THIS
+   * machine, with the unmeasured ones counted beside the sum.
+   *
+   * OPTIONAL, AND ABSENT IS NOT ZERO — the rule the rollup carries all the way
+   * up. `planSpend` returns `tokens: null` rather than a zeroed record because
+   * "`reduce(…, 0)` over nothing is correct arithmetic and a lie", and a card
+   * built by a server too old to have looked is a third state again. A payload
+   * without this field renders exactly as it does today.
+   *
+   * `absent` AND `unreadable` ARE TWO COUNTS AND NEVER ONE. A branch nobody
+   * measured here and a record that could not be read are different facts, and
+   * collapsing them is the failure this repo has shipped twice.
+   *
+   * FOUR COUNTERS AND NO FIFTH. Cache reads measured 99.36% of a naive
+   * four-counter total, so a summed figure would be a cache-read count wearing
+   * a cost's name. The key set IS the contract and a test asserts it here
+   * rather than by reading the DOM — a fifth field sitting unrendered in the
+   * payload passes every DOM test.
+   *
+   * Carried on the CARD only, the same split as `rounds` and `sliceSummary`: a
+   * row is a statement about one branch, and a plan-level rollup on every row
+   * would be the crowding this board keeps removing.
+   *
+   * The sum is biased LOW and that is a known property rather than a defect
+   * here: a worker killed by the `Worker bound` never reaches the write site,
+   * so the most expensive runs record nothing.
+   */
+  cost: z
+    .object({
+      /** The four counters summed over the measured slices; null where none were. */
+      tokens: TokenCountsSchema.nullable(),
+      /** How many of the plan's slices carried a record here. */
+      measured: z.number(),
+      /** How many were read and hold nothing — another machine, or the bound path. */
+      absent: z.number(),
+      /** How many could not be read at all. */
+      unreadable: z.number(),
+      /** How many slices the plan names — the denominator a reader needs. */
+      slices: z.number(),
+    })
+    .optional(),
   /** Repo-relative path, e.g. docs/plans/2026-07-12-kanban-board-v1.md */
   path: z.string(),
   /**
