@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** plot-plan-economics
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Approved:** 2026-09-16, jwloka, in-session
 
 ## Changelog
 
