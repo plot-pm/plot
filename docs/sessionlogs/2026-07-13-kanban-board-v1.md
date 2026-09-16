@@ -4,7 +4,7 @@
 **Scope:** Implement the approved `kanban-board-v1` plan end-to-end in a single PR — monorepo package, contract rework, story filter, first-class/DoD.
 **Branch:** `idea/kanban-board-v1` (single-PR mode — plan + implementation in one PR)
 **PR:** [#40](https://github.com/plot-pm/plot/pull/40)
-**Plan:** [`docs/plans/2026-07-12-kanban-board-v1.md`](../plans/2026-07-12-kanban-board-v1.md) · decisions in [`kanban-board-v1-open-questions.md`](../plans/kanban-board-v1-open-questions.md)
+**Plan:** [`docs/plans/2026-07-12-kanban-board-v1.md`](../plans/2026-07-12-kanban-board-v1.md) · decisions in [`kanban-board-v1-open-questions.md`](../notes/kanban-board-v1-open-questions.md)
 
 ## What
 

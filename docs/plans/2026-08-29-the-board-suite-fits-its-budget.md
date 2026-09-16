@@ -13,6 +13,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, branch -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Rejected:** 2026-08-29, Jan Wloka, the diagnosis read the last CI log line and not the failing ones (`bc8c22c8c`)
 
 ## Approval
 

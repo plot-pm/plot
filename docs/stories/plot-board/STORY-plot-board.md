@@ -899,7 +899,7 @@ that closes the loop, and it has not been built yet.
 ## Decisions
 
 The five `Q*` rows below come from
-[`kanban-board-v1-open-questions.md`](../../plans/kanban-board-v1-open-questions.md),
+[`kanban-board-v1-open-questions.md`](../../notes/kanban-board-v1-open-questions.md),
 the `/challenge-the-plan` decision log — that file keeps the working:
 the bundle-size table, the install-path comparison, the version-scheme
 options. The decision belongs here where it outlives its plan; the

@@ -170,7 +170,7 @@ This inverts the current dependency: today the board *duplicates* the contract; 
 
 ### Open Questions
 
-Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass); the five escalated decisions came back from Max the same day — **all questions are now resolved** (decision log: [`kanban-board-v1-open-questions.md`](kanban-board-v1-open-questions.md)).
+Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass); the five escalated decisions came back from Max the same day — **all questions are now resolved** (decision log: [`kanban-board-v1-open-questions.md`](../notes/kanban-board-v1-open-questions.md)).
 
 - [x] ~~Artifact location?~~ Keep `skills/plot/scripts/board/` — stable `pnpm board` path, plugin ships it automatically; moving buys nothing (manifesto Q5).
 - [x] ~~Is shadcn/tailwind pulling its weight for ~3 components?~~ Adopt as directed — it is build-time-only weight, the runtime artifact stays zero-dep, and the follow-up ambitions (editing UI, public board) are exactly where a component system pays off.
