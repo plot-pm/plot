@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-09-16, jwloka, in-session
+- **Started:** 2026-09-16, jwloka, `bug/a-plan-has-one-phase`
 
 ## Changelog
 
