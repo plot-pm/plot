@@ -419,6 +419,64 @@ decide_transition() { # $1=file  → prints "<Phase>\t<record>\t<write|already>"
 # writes — and appending a second is how one plan came to hold two `Delivered:`
 # lines (2026-09-01). The domain returns the written record unchanged in that
 # case, so the phase still flips and nothing is inserted.
+# Would the PARSER read this phase out of the file we are about to land?
+#
+# THE WRITE SUCCEEDING IS NOT THE OUTCOME HOLDING, and that gap is #924. A plan
+# carrying BOTH front matter and a `## Status` block was delivered in a project
+# repo: `flip_phase` wrote `Delivered` into the block, `mv` landed it, the
+# summary said `phase=flipped`, and `plot-plan-meta.sh` went on answering
+# `approved` — because it prefers front matter wherever it exists and reads the
+# block only in the `else if` below. The write took effect on bytes nobody
+# reads.
+#
+# `flip_phase`'s awk matches only inside `section == "status"`. That one guard
+# IS the defect: on a front-matter plan it edits the block and leaves the front
+# matter untouched, and returns 0 for having changed something.
+#
+# SO THE TEST IS WHAT THE PARSER ANSWERS, NEVER WHETHER AWK CHANGED A LINE.
+# Refusing on `flipped=0` would break every re-run of a correct delivery — a
+# plan already carrying `Delivered` flips nothing and is fine. This asks the one
+# question that distinguishes them: read the scratch copy the way every later
+# consumer will read the plan, and compare.
+#
+# IT RUNS ON THE SCRATCH COPY, BEFORE THE `mv`, and the caller passes whichever
+# file that arm is about to land — `$a` on the `recorded=yes` arm, `$b` on the
+# other. Parsing `$a` on the record arm would check content that never reaches
+# the plan. After the `mv` is too late twice over: the script's own header
+# documents exit 0 as *"the plan is Delivered on the default branch"*, so
+# refusing there would exit 1 on a run meeting the documented success
+# condition — and `runAutoDeliver` spawns this detached, logging a non-zero exit
+# to nobody while the plan sits delivered on main.
+#
+# AN UNREADABLE SCRATCH COPY REFUSES. `decide_transition` already takes that
+# line — *"refusing rather than guessing"* — and a file the parser cannot read
+# is exactly the state this gate exists to keep off the plan.
+phase_would_read() { # $1=scratch file $2=expected phase (lowercase) → 0 agrees, 1 refuses
+  local scratch="$1" want="$2" m got
+  m=$(bash "$script_dir/plot-plan-meta.sh" "$scratch" 2>/dev/null) || m=""
+  if [ -z "$m" ]; then
+    echo "plot-deliver: $rel — the written file does not parse, so the delivery was not landed." >&2
+    echo "  Nothing was written. Re-run after fixing the file." >&2
+    return 1
+  fi
+  got=$(printf '%s' "$m" | jq -r '.phase // ""')
+  [ "$got" = "$want" ] && return 0
+
+  # THE REFUSAL NAMES BOTH VALUES AND THE FILE. A message saying only "delivery
+  # failed" throws away the half a person acts on: which phase was written, and
+  # which one the parser still reads. The cause is named too, because the file
+  # holding two records of one fact is the thing to fix — and which format ought
+  # to win is a decision this gate deliberately leaves to a person.
+  echo "plot-deliver: $rel — wrote phase '$want', but the parser still reads '$got'." >&2
+  echo "  The plan states its phase in TWO places and they disagree: the write" >&2
+  echo "  landed in the '## Status' block while front matter takes precedence," >&2
+  echo "  so the delivery would have reported a success it did not achieve." >&2
+  echo "  Nothing was written — the plan is unchanged. Remove one of the two" >&2
+  echo "  records (front matter, or the '## Status' block) and re-run." >&2
+  echo "  See what the parser reads: $script_dir/plot-plan-meta.sh $rel" >&2
+  return 1
+}
+
 write_transition() { # $1=file $2=record $3=recorded(yes|no) → sets phase_report record_report
   local f="$1" record="$2" recorded="$3" a="$1.plot-phase" b="$1.plot-record" flipped=0
 
@@ -428,6 +486,11 @@ write_transition() { # $1=file $2=record $3=recorded(yes|no) → sets phase_repo
   [ -s "$a" ] || { rm -f "$a"; echo "plot-deliver: could not read $rel" >&2; return 1; }
 
   if [ "$recorded" = "yes" ]; then
+    # THE DRY RUN, on the file this arm is about to land. A refusal discards the
+    # scratch copy and leaves the plan byte-identical — and never reaches
+    # `record_state_receipt`, which would otherwise license a commit of a state
+    # that was refused.
+    phase_would_read "$a" delivered || { rm -f "$a"; return 1; }
     mv "$a" "$f" || { rm -f "$a"; return 1; }
     record_report="already"
   else
@@ -438,6 +501,9 @@ write_transition() { # $1=file $2=record $3=recorded(yes|no) → sets phase_repo
       echo "  with no record is invisible to the scan. Fix the section and re-run." >&2
       return 1
     fi
+    # `$b` AND NOT `$a`: this arm lands the file carrying the record, so `$a`
+    # is content that never reaches the plan.
+    phase_would_read "$b" delivered || { rm -f "$a" "$b"; return 1; }
     mv "$b" "$f" || { rm -f "$a" "$b"; return 1; }
     rm -f "$a"
     record_report="written"
