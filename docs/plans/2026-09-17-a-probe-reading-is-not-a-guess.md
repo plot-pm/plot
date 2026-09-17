@@ -203,7 +203,7 @@ longer contain the string `Jenkins auth:  reachable`**, pinned by asserting its
 absence from the file, since leaving one would re-admit the wording the fix
 removes; and `pnpm run test:contracts` passes.
 
-### A Jenkinsfile is found where a repository keeps it (Branch: bug/a-jenkinsfile-is-found-where-it-lives, PR: TBD)
+### A Jenkinsfile is found where a repository keeps it (Branch: bug/a-jenkinsfile-is-found-where-it-lives, PR: #945)
 
 - `bug/a-jenkinsfile-is-found-where-it-lives` — find a Jenkinsfile below the repository root within a stated, measured bound, excluding the directories that would make it slow or wrong
 
