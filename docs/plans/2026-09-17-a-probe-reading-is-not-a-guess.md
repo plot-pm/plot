@@ -73,6 +73,26 @@ reads, and `failed` was the right answer for that run.
 is the one nobody will question: a success that reports as *cannot verify* looks
 like caution rather than a bug.
 
+### The word is pinned by three tests that share the invention
+
+```
+$ grep -n 'reachable' test/reconcile/boardprobe.test.mjs
+341:test('probe: jen reachable reads as ok', () => {
+351:        'Jenkins auth:  reachable',
+444:  const stub = stubClis({ jen: { stdout: 'Jenkins auth:  reachable' } });
+```
+
+**`Jenkins auth:  reachable` is a string the CLI never emits.** Three fixtures
+assert against it, all green, and none of them says anything about the real
+tool. That is the shape `CLAUDE.md` warns of — a test that answers *did I build
+this?* with yes without it being true.
+
+**So the decision is made here rather than left to the implementer: REPLACE the
+word, do not add it.** `ok|reachable` would keep both green and keep the fiction
+alive, and the next reader would find two accepted wordings with no way to tell
+which the CLI uses. The three fixtures are rewritten to the CLI's own line,
+captured rather than composed.
+
 **The surrounding reasoning is right and is what makes this narrow.** The
 comment at `:229` records that `jen … auth status` exits 0 for a slug that does
 not exist, so only the `Jenkins auth:` line carries the answer; `:264` tests
@@ -174,7 +194,10 @@ test asserting `failed` would pass for the wrong reason; `Jenkins auth: NOT reac
 reads `failed` and is tested **before** the success arm, pinned by a fixture
 that contains both words; an unrecognised line still reads `unknown` and never
 `ok`; a `jen` that is absent, or an instance that is unset, reads exactly as
-today; and `pnpm run test:contracts` passes.
+today; **the three fixtures at `boardprobe.test.mjs:351`, `:444` and `:504` no
+longer contain the string `Jenkins auth:  reachable`**, pinned by asserting its
+absence from the file, since leaving one would re-admit the wording the fix
+removes; and `pnpm run test:contracts` passes.
 
 ### A Jenkinsfile is found where a repository keeps it (Branch: bug/a-jenkinsfile-is-found-where-it-lives, PR: TBD)
 
