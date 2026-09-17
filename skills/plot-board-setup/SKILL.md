@@ -63,7 +63,7 @@ a start: it proves the board serves and leaves nothing running. `/plot-board
 | 1. Probe | Small | Three script calls, JSON out; merge without transforming, then ask the rule what it proposes |
 | 2. Propose and confirm | Mid | Wording the proposals and reading a one-directional signal (prefix proposes, silence asks) is judgment; the thresholds behind them are not — `proposeStack` answers those |
 | 3. Write config | Small | Append known keys to a known section |
-| 4. Verify | Small | Run commands, compare to documented output shapes |
+| 4. Verify | Small | Run commands, compare to documented output shapes; 4d states a fixed reading and decides nothing |
 | 5. Diagnose an empty board | Mid | Mapping a parse failure to a human cause |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
@@ -390,22 +390,26 @@ prefix, say what it costs:
 > is the one prefix the subjects show — add the rest, or the inbox hides every
 > issue belonging to this repository's other projects.
 
-**Warn when the key has no backend.** `plot-host.sh issue-list` resolves issues
-through the **Git host** — `github` or `bitbucket` — not through a separate
-tracker system. A `Tracker: jira` or `Tracker: linear` is recorded but unread:
-the board's inbox will show nothing until a backend for that tracker lands.
-When writing such a key, say so:
+**Warn when the key has no backend.** `plot-host.sh issue-list` reads three
+tracker values: `jira`, answered through the Jira REST API, and `github` and
+`bitbucket`, answered through the git host's own issues. Any other value —
+`linear`, say — is recorded but unread, and the board's inbox shows nothing
+until a backend for it lands. When writing such a key, say so:
 
-> Recorded `Tracker: jira`. Note: no backend reads this yet — the board's inbox
-> sources issues from the git host, not from Jira. A Jira backend is planned;
-> until then, the inbox will be empty.
+> Recorded `Tracker: linear`. Note: no backend reads this yet — the board's
+> inbox has arms for Jira, GitHub and Bitbucket only. Until a Linear backend
+> lands, the inbox will be empty.
 
-**Derive, do not hardcode.** The backends that `plot-host.sh issue-list` can ask
-are exactly those that match its `if [ "$be" = "github" ]; then … else …` shape:
-`github` and `bitbucket`. Any other `Tracker` value is unread today. When a new
-backend lands — `jira`, `linear`, etc. — the warning must stop firing for it.
-The check the skill performs: if the confirmed `Tracker` value is neither
-`github` nor `bitbucket`, warn that no backend reads it yet.
+**Jira is dispatched on `Tracker`, independently of `Git host`.** A Bitbucket
+repository tracking in Jira is a normal shape and its inbox answers. Do not
+warn on `Tracker: jira` — instead state what the inbox will show, per step 4d.
+
+**Derive, do not hardcode.** The backends `plot-host.sh issue-list` can ask are
+exactly those its dispatch names: `tracker_scheme` = `jira` first, then `$be` =
+`github`, else `bitbucket`. When a new backend lands the warning must stop
+firing for that value. The check the skill performs: if the confirmed `Tracker`
+value is none of `jira`, `github` or `bitbucket`, warn that no backend reads it
+yet.
 
 Then hand over the start command:
 
@@ -494,6 +498,33 @@ Report which files came back `"format":"none"` or `"phase":"NONE"`, and why:
 
 **Report only. Never rewrite the user's plans** — adoption is additive, and an
 unrequested edit to a plan is exactly the kind of write Plot does not do.
+
+**4d. State what the inbox shows.** The default Jira query narrows **twice** —
+by assignee and by project — and an operator who knows neither reads a correct
+empty inbox as a broken one. State the reading:
+
+> The inbox shows tickets **assigned to you** and unresolved, scoped to the
+> projects in `Ticket prefixes`. An empty inbox beside open project tickets is
+> the normal reading, not a fault. To widen it, set `PLOT_JIRA_JQL` — it
+> overrides the whole query, both narrowings included.
+
+**This is a reading, not a check.** 4a–4c can fail and this cannot: it states
+what the operator is about to see, whatever the inbox holds.
+
+**Print it unconditionally** — whenever `Tracker: jira` is in play, empty inbox
+or not. A line that fired only on an empty inbox would be a diagnosis, and the
+reading is true either way: an operator seeing three tickets deserves to know
+it is not the project's whole backlog.
+
+Measured 2026-09-17 on a repository tracking in Jira: `project = QUAWEB AND
+statusCategory != Done` returned 10+ open tickets while the default returned
+**0**, with `GET /rest/api/3/myself` answering 200. Nothing was misconfigured —
+the board answered the question it was asked, and the reporter had to run the
+JQL by hand to find that out.
+
+**Name the variable, not its syntax.** JQL is Atlassian's, and a half-copy here
+would go stale. Say what `PLOT_JIRA_JQL` replaces and let Atlassian document
+the language.
 
 ### 5. Summarise
 
