@@ -40,10 +40,13 @@ filename, and no file read.
 a property of one repository's layout.
 
 **"Export it in your shell" does not reach the board.** The board is a long-lived
-process, often started from a launcher that inherits no interactive shell —
-`plot-boardctl.sh` starts it detached, and `plot-fleetctl.sh` bakes an
-environment into a launchd unit precisely because that inheritance does not
-exist.
+process, and `plot-fleetctl.sh` bakes an environment into a launchd unit
+precisely because a supervised process inherits no interactive shell.
+
+**An earlier draft also cited `plot-boardctl.sh` as starting the board detached.
+It does not** — its own comment reads *"`setsid`/`nohup` is deliberately NOT
+used: the tree must stay…"*. The citation is withdrawn; one correct reason is
+enough and two, one of them false, is worse than one.
 
 ### The environment wins, and the source is named
 
@@ -67,11 +70,33 @@ reporter measured it aborting in zsh on a file whose third line holds an
 unquoted JSON object. Sourcing also imports every unrelated variable in the
 file, which on a credentials path is a reason of its own.
 
-So the read is per-variable and evaluates nothing:
+So the read is per-variable and evaluates nothing. **The reporter's one-liner is
+not the shape** — measured 2026-09-17, `grep '^NAME=' | cut -d= -f2-` returns
+empty for an `export `-prefixed line and keeps the quotes on a quoted one, and a
+quoted token sent to `curl -u` produces the **401 this plan exists to remove**.
+
+The shape that meets every case this plan's gate names:
 
 ```bash
-grep -m1 '^JIRA_EMAIL=' "$root/.env" | cut -d= -f2-
+read_env() { # $1=name $2=file
+  sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\{0,1\}$1=//p" "$2" \
+    | head -1 \
+    | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" -e 's/[[:space:]]*$//'
+}
 ```
+
+Measured against a file holding a comment, a plain value, an exported and quoted
+value, an unquoted JSON object, a blank line and a trailing-space value:
+
+```
+plain:     [plain@example.com]
+exported:  [quoted-token]
+trailing:  [value-with-space]
+absent:    []
+```
+
+**It still evaluates nothing** — `sed` over a line, never `source` — which is the
+property the refusal of `set -a` was about.
 
 ### Two things the reporter did not raise, and both belong in the gates
 
@@ -84,6 +109,29 @@ entry and the adoption path mentions it.
 .env`), never the value, and no debug path prints it. That is a property to pin
 by asserting the token's absence from the output, since a log line added later
 is exactly how such a value escapes.
+
+### The value is already persisted, and that is this plan's problem now
+
+`plot-host.sh:1742` writes the email into a machine-local ledger on every Jira
+call:
+
+```bash
+budget_record_jira() {
+  budget_append jira "${JIRA_EMAIL:-unknown}" api 1 - - - unknown
+}
+```
+
+Measured 2026-09-17: `$HOME/.plot/state/budget.tsv` holds **2448 jira lines** on
+this machine. The email is half of a Basic credential.
+
+**Why it belongs to this plan rather than a separate one.** Today that ledger is
+written only where an operator exported the variable deliberately. After this
+change it is written wherever a `.env` exists — **a population that never
+consented to a machine-local record of it.** A feature that widens who gets
+written down owns the writing down.
+
+**And the plan's own leak gate could not see it**: reading stdout and stderr
+says nothing about a file. So the gate grows a second half.
 
 ### What this does not do
 
@@ -119,6 +167,19 @@ test:contracts` passes.
 
 **Reported 2026-09-17 with the credentials verified independently** — a 200 from
 `/rest/api/3/myself` with the same pair the board refused.
+
+**Amended 2026-09-17 after a two-lens panel**
+(`.plot/panels/2026-09-17-a-credential-is-read-where-a-repo-keeps-it/`), which
+found the Design's parse failing this plan's own `Done when` — measured, not
+argued — and a ledger writing the email unredacted that no gate here could see.
+
+**The panel's shared blind spot is recorded because it is the plan's too**: every
+gate reads what the code PRINTS. The two findings that mattered were what it
+WRITES and what it SENDS. A third of that kind is still unpinned — **a `.env`
+holding a STALE token**, where the board authenticates with a credential the
+operator believes they replaced. Naming the source is what makes that
+diagnosable, which is why that line is a requirement above and not a nicety; no
+gate pins the stale case, and stating so is better than implying it is covered.
 
 **The reporter named the parsing trap and its measurement**, which is why the
 targeted read is in the Design rather than discovered by whoever implements it.
