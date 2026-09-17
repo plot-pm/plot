@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Approved:** 2026-09-17, jwloka, in-session
 
 ## Changelog
 
