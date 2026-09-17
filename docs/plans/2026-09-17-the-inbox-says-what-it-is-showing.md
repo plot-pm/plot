@@ -85,6 +85,29 @@ and the reporter named that before it could be proposed.
 half-copy of it here would go stale. The step names the variable and what it
 overrides.
 
+**And it does not make the BOARD say it, which is the better answer and is
+deliberately not taken here.** A setup step is read once; the screen is read
+every day. The board already distinguishes three inbox states and renders a bare
+`none` for this one, while `HOST_ANSWER_HINT`
+(`app/lib/agent-rows/host-notes.ts:232`) carries a sentence for each of the
+others.
+
+**Its type says the omission was a decision, not an oversight**:
+
+```ts
+export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string>
+```
+
+`'answered'` is excluded by construction, so a hint for an answered-but-empty
+inbox is a change to that type and to every reader of it. **That is a `feature`
+plan with its own gates**, and folding it in here would make this one's
+`Type: docs` false — a docs plan is live on merge and needs no release, and this
+plan's one hard gate exists to keep it that way.
+
+**So it is named and filed separately rather than left implied.** Without saying
+so, this report reads as answered by documentation while the screen still says
+nothing.
+
 ## Slices
 
 ### The inbox says what it is showing (Branch: docs/the-inbox-says-what-it-is-showing)
@@ -105,11 +128,26 @@ skill; and `pnpm test` passes.
 **Reported 2026-09-17 by an adopter who had to run the JQL by hand** to find out
 their setup was healthy.
 
-**The sibling report is the same symptom from the other end.**
+**The sibling report is the same feeling and a different screen.**
 [#930](2026-09-17-a-credential-is-read-where-a-repo-keeps-it.md) is an inbox
 that never runs because the credentials are not found; this is an inbox that
-runs correctly and returns nothing. **Both show an operator an empty board**,
-and a fix for either alone leaves the other's reading unexplained.
+runs correctly and returns nothing.
+
+**An earlier draft said both show one screen. The render path says otherwise** —
+a credentials failure drives `issueAnswer: 'failed'` and renders an error line
+with a note, while this case is `issueAnswer: 'answered'` with an empty array
+and renders `none`. The board already tells them apart; what it does not do is
+say WHY the second one is empty, which is the separate plan named above.
+
+**So they stay two plans**, and merging them would drag a docs change into a
+release-gated feature.
+
+**A round-1 juror reported a stale sentence in the setup skill and it is not
+one.** Checked 2026-09-17: `:220` and `:236` say the inbox stays instance-wide
+where no `Ticket prefixes:` key is written, which is true — that is the project
+axis, and without the key there is no `${scope}` clause. What the skill genuinely
+lacks is the ASSIGNEE axis, which is this plan's subject. **The finding is
+recorded as checked and refused rather than silently dropped.**
 
 **Type `docs` deliberately.** No code path changes, so the plan is live when
 merged and needs no release — the distinction `/plot-deliver` states to a docs
