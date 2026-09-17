@@ -8,6 +8,7 @@
 - **Type:** bug
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -39,6 +40,12 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 It is called twice per plan, at `:712` and `:713`, inside the loop over every
 plan file. That is the whole defect: **a per-plan question is answered by a
 per-plan directory walk.**
+
+**And it is not the only walker.** `:1102`, in section 4, inlines the same
+`readlink | sed` pair over `active/` — 85 links, 170 forks — without ever calling
+`symlinked_from`, so a Done-when phrased around the function would leave it in
+place. Section 5's dangling loop at `:844` walks both directories again. **A plan
+titled *the index is read once* must serve all three**, or the title is false.
 
 ### The cost, counted rather than estimated
 
@@ -84,11 +91,34 @@ its `fix:` command.
 
 ### What this must not change
 
-**The three answers this function feeds.** `:712-713` set `in_active` and
-`in_delivered`, which decide section 1's phase/symlink drift, section 5's
-dangling-link attention finding, and section 9's index-drift convenience count.
-All three must report byte-identically before and after — the hit counts
-(83 and 277) are the pin.
+**The two answers this function feeds.** `:712-713` set `in_active` and
+`in_delivered`, which decide section 1's phase/symlink drift and section 9's
+index-drift convenience count. Section 1 sits ABOVE `== blocking sections end ==`
+and is what `/plot-deliver` step 7b greps, so this is a blocking path.
+
+**Section 5 is NOT a consumer**, and an earlier draft of this plan said it was.
+Its dangling-link finding is an independent loop at `:844-853` that reads both
+directories itself and never calls `symlinked_from`.
+
+**`*.md` IS A FILTER, and the replacement must keep it.** `symlinked_from`
+enumerates `for l in "$1"/*.md`, so a link whose NAME does not end `.md` is
+invisible to it whatever it points at. A bare `ls -l <dir>` applies no such
+filter and would answer *linked* where the current code answers *not linked* —
+changing `index_drift=` and, where the phase disagrees, emitting a **new section
+1 drift row** naming a path that is not an index entry. The estate proves the
+directories are not curated: `docs/plans/active/` holds `.omc`, a directory.
+`ls -l "$dir"/*.md` keeps the filter and stays one fork.
+
+**FIRST match wins.** `symlinked_from` returns the first glob match and stops.
+Three plans here carry two links each to one target — `a-refused-dispatch-asks-for-a-brief`,
+`an-idle-agent-is-not-a-stalled-one`, `the-board-says-slice` — so an index built
+`IDX[target]=link` unconditionally would print a different link path in section
+1's `fix:`. All three are `delivered` with links in `delivered/` and therefore
+**not in drift**, so a byte-identity diff would pass while the index was wrong.
+
+**The link path is still printed, not just a boolean.** Section 1's remediation
+text names the link file. An index keyed only by target basename would answer
+*is it linked?* and lose *which link*.
 
 **The link path is still printed, not just a boolean.** Section 1's remediation
 text names the link file. An index keyed only by target basename would answer
@@ -136,6 +166,19 @@ written while drafting this and both were slower than they looked: one forked a
 subshell per lookup (53.3 s), one forked per link (22.7 s). Neither is
 distinguishable from the fast shape by reading the diff. A Done-when that says
 *faster* would have passed on both.
+
+**Amended 2026-09-17 after a three-lens panel** (`.plot/panels/2026-09-17-the-index-is-read-once/`),
+unanimous `amend`. Four attacks were tried and withdrawn on measurement — the
+domain is not the right home (`reconcile.ts:102` takes `phaseSymlinkDrift` as a
+supplied reading), section 1 does block, the sibling `--offline` plan explicitly
+disclaims this function, and `git ls-files | cat-file` lost to `ls -l` (0.118 s
+against 0.052 s) and answers from the ref where section 1 must report the
+working tree. What stood: a second walker at `:1102`, the `*.md` filter, the
+first-match rule, and counts already stale by two plans.
+
+**A name containing ` -> ` or a space would break an `ls -l` parse**, and no such
+name exists here today. Recorded as the risk that argues for `find -print0` if
+one ever does; it is not a live defect and does not gate this plan.
 
 **The 38 ms per fork is this machine under this load**, not a constant. On an
 idle machine a fork is nearer 2 ms and the current code would take about 4

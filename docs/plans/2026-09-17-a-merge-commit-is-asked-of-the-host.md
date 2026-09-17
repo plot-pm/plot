@@ -9,6 +9,7 @@
 - **Issue:** #943
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -52,24 +53,56 @@ reading the contract correctly; **one backend does not honour it.**
 
 ### The field is available
 
-**The adapter already reads it, on the operation next door.** `plot-host.sh:2669`
-carries the comment *"Bitbucket names the merge commit `merge_commit.hash` on a
-merged PR"*, and `:2673` reads exactly that field in the `pr-merged` op:
+**`pr-merge-commit` already answers this on both backends.** `plot-host.sh:2619`
+is a whole subcommand for it, declared in the usage header at `:49`, behind the
+port as `prMergeCommit` (`ports/host.ts:180`) and implemented at
+`host-shell.ts:287`. Its own header says why it is separate:
 
-```bash
-| map(.merge_commit.hash // empty) | first // empty
+```
+# THE MERGE COMMIT OF A BRANCH'S MERGED PR, and nothing else.
+#
+# A SECOND SUBCOMMAND RATHER THAN A FIELD ON `pr-merged`, because that one
+# prints ONE WORD and eleven callers read it as one ...
 ```
 
-So this is not a capability the adapter lacks. **One op reads the field and the
-op beside it does not construct it**, from the same payload shape.
+**That alternative is considered and rejected, not overlooked.** The scan holds a
+PR **number**; `pr-merge-commit` takes a **branch**. Calling it from `:1192`
+would mean deriving a branch from a PR number — a host call the section does not
+make today — so it trades a missing field for a missing lookup.
 
-`bb pr view <id> --json` emits the raw Bitbucket API 2.0 object — `bb --help`
-states *"Output raw JSON"*, confirmed against `bb` 1.9.0 — so the response
-already in hand holds the answer and no second call is needed.
+**The argument for fixing `pr-state` is the file's own convention.** Every PR and
+issue construction in `plot-host.sh` was compared: `:2476`, `:2496`, `:2538/9`,
+`:2900`, `:2927`, `:2957`, `:2999`, `:3025`, `:3034`, `:3427`, `:3497`, `:3546`,
+`:3608`. `pr-list`'s Bitbucket arm goes out of its way to emit every key its
+GitHub arm emits, filling unavailable ones with `"unknown"` and explaining why at
+`:2962` — *"An honest gap beats an invented answer, and absent is not false."*
+
+**`pr-state` is the only op in the file whose Bitbucket arm drops a key its
+GitHub arm emits.** Not one instance of a class: the single outlier against a
+convention the file states in its own words.
 
 This is why the fix belongs in the adapter rather than in the scan. #943 offers
 three directions; **the first is the one that makes the check work**, and the
 other two only stop it hurting.
+
+### Supplying the field is not the end of the path
+
+`:1205` runs `git tag --contains "$sha"` next, and `:1207` is
+`[ -n "$tag" ] || continue   # genuinely not released yet — nothing to report`.
+
+A sha the local object store does not hold makes `git` print
+`error: no such commit` — and **the rc is not even readable**: the pipeline's
+exit code is `head`'s, measured 0. So an unresolvable sha takes the `continue`
+whose comment says the plan is simply unreleased.
+
+**That would make slice 1's failure quieter than the bug it replaces**, eight
+lines above the section's own header: *"SILENCE WOULD BE THE WORSE BUG. An empty
+section reads as 'nothing to report', and this section exists precisely because
+'cannot tell' and 'nothing wrong'"* must not look the same.
+
+Three populations reach it: `--no-fetch` with PRs on, a merge commit outside the
+local refspec or a shallow clone, and a PR merged outside the host's own merge
+button. So slice 1 carries the guard.
 
 ### The placement question is separate, and it is also real
 
@@ -81,9 +114,22 @@ would still be unable to deliver.
 
 **Both are fixed, and they are separate slices**, because they fail differently:
 one is a missing field in one adapter arm, the other is a line number in a
-report. Shipping only the first leaves any future backend with the same trap;
-shipping only the second leaves the release check broken on Bitbucket, which is
-what the reporter actually wanted repaired.
+report.
+
+**A SECOND GATE reads the same findings and the marker does not reach it.**
+`/plot-release` step 5b (`plot-release/SKILL.md:431`) runs the scan and reads
+`tail -1`: *"`unreleased_delivered=0` clears the gate. Any other number is a hard
+stop."* That is the FOOTER, so moving section 6 changes nothing about it.
+
+So slice 2 alone lets the reporter deliver and **still leaves them unable to
+release**, on the identical 45 findings. **Slice 1 is the load-bearing fix**;
+slice 2 is a standalone remedy for nobody.
+
+**Slice 2 ships first, and that is a decision rather than an ordering
+accident.** It is unconditional — it unblocks delivery whatever the host answers
+— while slice 1 depends on a payload this repository cannot exercise. Slice 1
+alone would also leave section 6's OTHER blocking arm untouched (`:1169`, *no PR
+annotation*), which writes into the same `unrel_out` above the marker.
 
 ### What must not change
 
@@ -105,16 +151,22 @@ Bitbucket repository it currently prints a command the operator cannot run.
 
 ### The Bitbucket arm answers with a merge commit (Branch: bug/the-bitbucket-arm-answers-with-a-merge-commit)
 
-- `bug/the-bitbucket-arm-answers-with-a-merge-commit` — construct `mergeCommit` in the Bitbucket `pr-state` arm from the PR object already fetched, on both the success and the miss path
+- `bug/the-bitbucket-arm-answers-with-a-merge-commit` — construct `mergeCommit` on all FOUR Bitbucket `pr-state` paths, and make the scan tell an unresolvable sha from an unreleased plan
 
 **Done when** `pr-state` on the Bitbucket backend emits a `mergeCommit` key on
-**every** path, including the `NONE` miss object at `:2499`, so a caller reading
-`.mergeCommit // empty` can never distinguish backends; the value is the merged
-commit hash for a merged PR and the empty string for one that is not merged; the
-value is taken from the response already fetched and **no second host call is
-made**, checked by counting `bb` invocations; a contract test asserts the
-GitHub and Bitbucket arms return the **same key set**, since the absent key is
-exactly what was not caught; and `pnpm run test:contracts` passes.
+**all four** of its paths — the numeric success `:2496`, the numeric miss `:2499`,
+and the **branch-lookup** `NONE` and hit at `:2538`/`:2539`, which
+`plot-pr-state.sh:33` reaches by passing `idea/<slug>` rather than a number and
+`:47` then reads — so a caller reading `.mergeCommit // empty` can never
+distinguish backends; the value is the merged commit hash for a merged PR and the
+empty string otherwise; it is taken from the response already fetched and **no
+second host call is made**, checked by counting `bb` invocations; a contract test
+asserts the GitHub and Bitbucket arms return the **same key set**, since an
+absent key is exactly what was not caught; **the scan distinguishes a sha it
+cannot resolve locally from a plan that is not released**, by testing
+`git cat-file -e "$sha^{commit}"` before the tag lookup and emitting a
+`cannot resolve` finding rather than falling through the `continue` at `:1207`;
+and `pnpm run test:contracts` passes.
 
 ### The release question does not gate a delivery (Branch: bug/the-release-question-does-not-gate-a-delivery)
 
@@ -143,7 +195,16 @@ documentation. It is better than that: `plot-host.sh:2673` already reads that
 field, in this repository, for `pr-merged`. A fix argued from an external spec
 became a fix argued from the neighbouring line.
 
-**The second slice is what the reporter would have needed on the day.** The
-first makes the release check work; only the second unblocks a delivery on a
-host whose PR carries no merge commit at all — and that population is not empty:
-the same object is absent for a PR merged outside the host's own merge button.
+**Amended 2026-09-17 after a three-lens panel** (`.plot/panels/2026-09-17-a-merge-commit-is-asked-of-the-host/`),
+unanimous `amend`. The Design's own "strongest evidence" was misattributed:
+`:2669`/`:2673` is the `pr-merge-commit` op, not `pr-merged`, and that op is a
+complete both-backend answer the plan had not considered. Two further Bitbucket
+sites were found, the silent-`continue` was found, and the second gate was found.
+Every line number the plan cites was independently confirmed.
+
+**A THIRD representation of the blocking set exists and is out of scope.**
+`workflows/reconcile.ts:286` carries `blocking: true` per finding kind, and its
+TSDoc says it is a property *because* the scan renumbers. Slice 2 moves the
+scan's section and does not touch it, so the two disagree afterwards. That is
+worth its own plan: changing a domain rule to follow a report's layout is the
+wrong direction, and which of the two is authoritative is a decision, not a fix.
