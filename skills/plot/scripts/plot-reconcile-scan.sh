@@ -1163,15 +1163,6 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   # message Plot itself sends, on every sweep, forever.
   case "$ptype" in docs|infra) continue ;; esac
 
-  # The flag is read HERE, after the exemptions and before the host call, so the
-  # note counts the plans that would actually have been asked about. Counting
-  # every delivered plan would name docs/infra ones the online run never asks
-  # about either, and report a gap wider than the one the flag opened.
-  if [ "$PR_SOURCE" = off ]; then
-    n_unrel_unchecked=$((n_unrel_unchecked + 1))
-    continue
-  fi
-
   base=$(basename "$f")
   if [ -z "$prs" ]; then
     # "Cannot tell" and "nothing wrong" must not look the same — that
@@ -1179,6 +1170,21 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
     unrel_out+="  $base — delivered, but no PR annotation → cannot resolve a version\n"
     unrel_out+="    inspect: add → #N to its Branches section, then re-run\n"
     n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
+  # THE FLAG GUARDS THE HOST CALL, NOT THE ITERATION. It is read here — after
+  # the docs/infra exemption and after the arm above — because those two answer
+  # from the plan file and cost nothing. An earlier draft skipped at the top of
+  # the loop and silently dropped the `no PR annotation` finding offline, which
+  # is the same "silence reads as health" defect in the other direction: a free
+  # finding suppressed by a flag that exists to avoid a network.
+  #
+  # The count is therefore the plans that WOULD have been asked about, and no
+  # wider. Counting every delivered plan would name docs/infra ones the online
+  # run never asks about either, reporting a gap the flag did not open.
+  if [ "$PR_SOURCE" = off ]; then
+    n_unrel_unchecked=$((n_unrel_unchecked + 1))
     continue
   fi
 
