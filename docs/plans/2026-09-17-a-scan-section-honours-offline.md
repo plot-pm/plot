@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #931
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-17, jwloka, in-session
 - **Started:** 2026-09-17, Jan Wloka, `bug/a-scan-section-honours-offline`
+- **Delivered:** 2026-09-17
 
 ## Changelog
 
