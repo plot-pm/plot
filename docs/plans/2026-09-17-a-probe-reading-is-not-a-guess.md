@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Issue:** #929
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 2
+- **Approved:** 2026-09-17, jwloka, in-session
 
 ## Changelog
 
