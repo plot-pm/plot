@@ -186,7 +186,7 @@ Jenkins' question; the probe answers *does one exist*.
 
 ## Slices
 
-### The auth reading matches what the CLI prints (Branch: bug/the-auth-reading-matches-the-cli, PR: TBD)
+### The auth reading matches what the CLI prints (Branch: bug/the-auth-reading-matches-the-cli, PR: #937)
 
 - `bug/the-auth-reading-matches-the-cli` — match the `Jenkins auth:` line's actual success wording, keeping the `not reachable`-before-`reachable` order and the exit-code fallthrough
 
