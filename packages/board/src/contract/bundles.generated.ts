@@ -46,6 +46,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-ask.mjs',
   'skills/plot/scripts/board/plot-branch-state.mjs',
   'skills/plot/scripts/board/plot-delta.mjs',
+  'skills/plot/scripts/board/plot-fleet-size.mjs',
   'skills/plot/scripts/board/plot-landed.mjs',
   'skills/plot/scripts/board/plot-movable.mjs',
   'skills/plot/scripts/board/plot-panel.mjs',

@@ -1904,62 +1904,70 @@ EOF
     esac
   fi
 
-  # THE COUNT IS THE RULE'S, and the rule is `packages/domain/src/rules/
-  # fleet-size.ts` — imported directly, the same shape `plot-reap.sh` uses for
-  # `reapable.ts`. Node 24 strips the types, so there is no build step between
-  # this script and the decision it asks for, and there is no second copy of the
-  # default, the subtraction or the machine's veto living in shell.
+  # THE COUNT IS THE RULE'S, and the rule is asked through its BUNDLE —
+  # `board/plot-fleet-size.mjs`, tracked in git beside the other 24. There is no
+  # second copy of the default, the subtraction or the machine's veto living in
+  # shell.
   #
-  # A RULE THAT CANNOT BE ASKED STARTS NOTHING AND SAYS SO. Missing node, a
-  # failed import, a module that throws all leave the answer empty. The
-  # direction is the reaper's: silence is never permission, and here permission
-  # would spawn detached processes.
+  # A SOURCE IMPORT CANNOT REACH A PLUGIN INSTALL, and this block used to be
+  # one. It imported `rules/fleet-size.ts` and `entities/machine.ts` as `file://`
+  # sources. Node 24 strips types, so the TypeScript was never the obstacle — the
+  # SECOND import is: `machine.ts` opens with `import { z } from 'zod'`, and an
+  # install carrying no `node_modules` cannot resolve it. Measured 2026-09-17
+  # against a copy with no `node_modules` on the path:
+  #
+  #   machine.ts FAILED: Cannot find package 'zod'
+  #   fleet-size.ts: imported
+  #
+  # So the bundle carries BOTH rules with `zod` bundled in. `a-shell-script-asks
+  # -the-domain` settled the shape: a bundle under `skills/plot/scripts/board/`
+  # is how a shell script reaches a rule, and a skill's own script directory is
+  # what a plugin ships.
   #
   # TWO MODULES, BECAUSE THE VERDICT AND THE COUNT ARE TWO RULES. `headroomFor`
   # owns what a fork cost MEANS and `fleetSize` owns what to do about it; the
   # count rule takes the verdict as a reading rather than deriving it, so the
-  # thresholds have exactly one home and this block is the join.
+  # thresholds have exactly one home and the bundle's entry is the join.
   #
-  # IMPORTED AS `.ts` WITH NO `.js` REWRITING. Node 24 strips types but does not
-  # remap a relative specifier, so `fleet-size.ts` may only `import type` from
-  # its neighbours — which is why the verdict arrives as a value here rather
-  # than being computed inside the rule.
-  start_domain="$(cd "$script_dir/../../.." 2>/dev/null && pwd)/packages/domain/src"
-  start_rule="file://$start_domain/rules/fleet-size.ts"
-  start_answer=$(PLOT_REQUESTED="$start_count" PLOT_RUNNING="$start_running" \
-                 PLOT_COST="$start_cost" PLOT_RULE="$start_rule" \
-                 PLOT_MACHINE="file://$start_domain/entities/machine.ts" \
-                 node --input-type=module - <<'NODE_EOF' 2>/dev/null
-const { fleetSize, DEFAULT_FLEET_SIZE } = await import(process.env.PLOT_RULE);
-const { headroomFor } = await import(process.env.PLOT_MACHINE);
-
-// AN ABSENT COUNT IS THE RULE'S DEFAULT, resolved here rather than in the
-// shell: the number and the argument for it have one home.
-const requested =
-  process.env.PLOT_REQUESTED === "" ? DEFAULT_FLEET_SIZE : Number(process.env.PLOT_REQUESTED);
-
-// An UNMEASURED cost is null, never zero: zero is the fastest fork there is and
-// would read as the clearest possible machine.
-const spawnCostMs = process.env.PLOT_COST === "" ? null : Number(process.env.PLOT_COST);
-
-const answer = fleetSize({
-  requested,
-  running: Number(process.env.PLOT_RUNNING),
-  spawnCostMs,
-  headroom: headroomFor(spawnCostMs),
-});
-
-process.stdout.write(`${answer.start}\t${answer.headroom}\t${answer.shortfall}`);
-NODE_EOF
-  )
+  # A RULE THAT CANNOT BE ASKED STARTS NOTHING AND SAYS SO. A missing bundle, a
+  # missing node, a module that throws all leave the answer empty. The direction
+  # is the reaper's: silence is never permission, and here permission would spawn
+  # detached processes.
+  start_bundle="$script_dir/board/plot-fleet-size.mjs"
+  start_answer=$(printf '%s\t%s\t%s' "$start_count" "$start_running" "$start_cost" \
+                 | node "$start_bundle" 2>/dev/null)
 
   if [ -z "$start_answer" ]; then
+    # THE REFUSAL NAMES THE CONDITION THAT FAILED, never two that hold. The
+    # message this replaced said *"it needs node 24 and a readable checkout of
+    # packages/domain"* to an operator whose node was 24.4.1 and whose checkout
+    # was readable — the import it could not resolve was named nowhere. A
+    # refusal that names the wrong condition costs more than one that says
+    # nothing, because it looks actionable. So the two causes are separated and
+    # tested in the order that distinguishes them: an absent bundle is a broken
+    # or partial installation, and a present bundle that answered nothing is the
+    # runtime underneath it.
     echo "plot-dispatch: --start could not ask how many agents to start — starting none." >&2
-    echo "  The rule is $start_rule" >&2
-    echo "  It needs node 24 and a readable checkout of packages/domain." >&2
+    if [ ! -f "$start_bundle" ]; then
+      echo "  The rule's bundle is missing: $start_bundle" >&2
+      echo "  Every bundle is tracked in git, so this is a broken or partial installation." >&2
+      echo "  In a development checkout, run 'pnpm build:board'." >&2
+    else
+      start_node_v="$(node --version 2>/dev/null)" || start_node_v=""
+      echo "  The rule's bundle is $start_bundle" >&2
+      if [ -z "$start_node_v" ]; then
+        echo "  No usable 'node' was found on PATH. The bundle needs node 20 or newer." >&2
+      else
+        echo "  The bundle is present but answered nothing under node $start_node_v." >&2
+        echo "  Run it directly to see why: printf '%s\\t%s\\t%s' '$start_count' '$start_running' '$start_cost' | node '$start_bundle'" >&2
+      fi
+    fi
     exit 1
   fi
 
+  # THREE FIELDS, AND THE SENTENCE IS LAST. `start_why` is printed to the
+  # operator below, so it travels; taking it as the whole remainder means a
+  # shortfall can never be truncated by its own punctuation.
   start_n=${start_answer%%$'\t'*}
   start_rest=${start_answer#*$'\t'}
   start_headroom=${start_rest%%$'\t'*}

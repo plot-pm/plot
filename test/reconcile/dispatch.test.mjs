@@ -3546,3 +3546,134 @@ test('dispatch: `Worker command: none` is an answer, and --start reports it as o
     removeSandbox(root);
   }
 });
+
+// `--start` asks its rule through a tracked bundle
+// ---------------------------------------------------------------------------
+//
+// THE RULE USED TO BE IMPORTED AS SOURCE, and a plugin install could not
+// resolve it. `--start` imported `rules/fleet-size.ts` and
+// `entities/machine.ts` as `file://` sources; Node 24 strips types, so the
+// TypeScript was never the obstacle — the SECOND import is. `machine.ts` opens
+// with `import { z } from 'zod'`, which an install carrying no `node_modules`
+// cannot find. Reported 2026-09-17 from an install that could start no agents.
+//
+// THE CONDITION IS REPRODUCED RATHER THAN MOCKED. A plugin ships a skill's own
+// script directory and nothing else, so the fixture is a copy of
+// `skills/plot/scripts` alone — no `packages/`, no `node_modules` — which is
+// precisely the tree the reporter ran in.
+
+const scriptsDir = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
+
+/**
+ * A scripts-only tree, the way a plugin install carries one.
+ *
+ * `packages/domain` and `node_modules` are ABSENT rather than emptied: an empty
+ * directory would still resolve differently from a missing one, and the
+ * reporter's install had neither.
+ *
+ * @param label names the sandbox directory.
+ * @returns the sandbox root and the scripts directory inside it.
+ */
+function pluginInstall(label) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `plot-plugin-${label}-`));
+  const scripts = path.join(root, 'skills', 'plot', 'scripts');
+  fs.mkdirSync(path.dirname(scripts), { recursive: true });
+  fs.cpSync(scriptsDir, scripts, { recursive: true });
+  return { root, scripts };
+}
+
+test('dispatch: the fleet-size bundle answers from a tree with no packages/domain', () => {
+  // THE GATE THIS SLICE EXISTS FOR. The bundle is asked directly rather than
+  // through `--start`, because `--start` goes on to cut desks and spawn
+  // workers; what is under test is whether the rule can be REACHED at all.
+  const { root, scripts } = pluginInstall('reach');
+  try {
+    assert.equal(fs.existsSync(path.join(root, 'packages')), false,
+      'the fixture carries no packages/ — that is the condition');
+    assert.equal(fs.existsSync(path.join(root, 'node_modules')), false,
+      'and no node_modules, which is what `zod` failed to resolve from');
+
+    const bundle = path.join(scripts, 'board', 'plot-fleet-size.mjs');
+    const res = spawnSync('node', [bundle], { input: '3\t1\t8', encoding: 'utf8' });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stdout, '2\tclear\t');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: the fleet-size bundle is tracked in git and stays small', () => {
+  // TRACKED IS WHAT MAKES IT REACH AN INSTALL. An untracked artifact is a
+  // developer's build output and ships to nobody.
+  const tracked = execFileSync('git', ['ls-files', 'skills/plot/scripts/board/plot-fleet-size.mjs'], {
+    cwd: path.join(here, '..', '..'), encoding: 'utf8',
+  }).trim();
+  assert.equal(tracked, 'skills/plot/scripts/board/plot-fleet-size.mjs');
+
+  // A SIZE CEILING, NOT A SIZE. `zod` is ~320 KB and this bundle carries it,
+  // because `machine.ts` builds `HeadroomSchema` at module scope and esbuild
+  // cannot drop a call it must assume has effects. The ceiling is set above
+  // that and below `plot-ask.mjs`'s 491 KB, which is the bundle this must not
+  // become: reaching for the controller would pull the whole fleet in.
+  const bytes = fs.statSync(path.join(scriptsDir, 'board', 'plot-fleet-size.mjs')).size;
+  assert.ok(bytes < 400 * 1024, `bundle is ${(bytes / 1024).toFixed(1)} KB, expected under 400 KB`);
+});
+
+test('dispatch: --start names the missing bundle rather than node and the checkout', () => {
+  // THE MESSAGE IS HALF THE DEFECT. The refusal this replaced said *"it needs
+  // node 24 and a readable checkout of packages/domain"* to an operator whose
+  // node was 24.4.1 and whose checkout was readable. A refusal that names the
+  // wrong condition costs more than one that says nothing, because it looks
+  // actionable.
+  const { root, scripts } = pluginInstall('nobundle');
+  try {
+    fs.rmSync(path.join(scripts, 'board', 'plot-fleet-size.mjs'));
+    const repo = path.join(root, 'repo');
+    fs.mkdirSync(repo);
+    execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+    fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
+      '## Plot Config\n\n- **Plan directory:** plans/\n- **Worker command:** true\n');
+
+    const res = spawnSync('bash', [path.join(scripts, 'plot-dispatch.sh'), '--start', '1'],
+      { cwd: repo, encoding: 'utf8' });
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stderr, /bundle is missing/, res.stderr);
+    assert.match(res.stderr, /broken or partial installation/, res.stderr);
+    // The two conditions that held for the reporter are NOT named.
+    assert.doesNotMatch(res.stderr, /readable checkout of packages\/domain/, res.stderr);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: --start says the bundle answered nothing when node cannot run it', () => {
+  // THE OTHER HALF OF THE SPLIT. A bundle that is present and still silent is
+  // the runtime underneath it, which is a different fix from a missing file —
+  // so the two are separated rather than sharing one sentence.
+  const { root, scripts } = pluginInstall('badnode');
+  try {
+    const repo = path.join(root, 'repo');
+    fs.mkdirSync(repo);
+    execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+    fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
+      '## Plot Config\n\n- **Plan directory:** plans/\n- **Worker command:** true\n');
+
+    // A `node` that exits non-zero, shadowing the real one on PATH. The bundle
+    // is present and readable; what fails is running it.
+    const fakeBin = path.join(root, 'bin');
+    fs.mkdirSync(fakeBin);
+    fs.writeFileSync(path.join(fakeBin, 'node'),
+      '#!/usr/bin/env bash\n[ "$1" = --version ] && { echo v24.0.0; exit 0; }\nexit 9\n');
+    fs.chmodSync(path.join(fakeBin, 'node'), 0o755);
+
+    const res = spawnSync('bash', [path.join(scripts, 'plot-dispatch.sh'), '--start', '1'], {
+      cwd: repo, encoding: 'utf8',
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    });
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stderr, /answered nothing under node v24\.0\.0/, res.stderr);
+    assert.doesNotMatch(res.stderr, /bundle is missing/, res.stderr);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
