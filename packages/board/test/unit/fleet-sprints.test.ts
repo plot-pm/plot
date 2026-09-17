@@ -4,16 +4,22 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSprintFile, planStatusBySlug } from '../../src/server/board.js';
-import { activeSprints } from '../../src/server/fleet.js';
+import { activeSprints, estateTotals } from '../../src/server/fleet.js';
 import { FleetSprintSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The `Counted` wave: the fleet payload carries each Active sprint with its
-// target release and three exhaustive counts (open/wip/done), aggregated
-// server-side from `plan.status`. These fixtures build real plan files, run
-// the real `plot-plan-meta.sh`, and assert the tally — the three counts are
-// a TALLY of `planStatus`, never a second computation of it.
+// target release and four exhaustive counts (open/wip/done/withdrawn),
+// aggregated server-side from `plan.status`. These fixtures build real plan
+// files, run the real `plot-plan-meta.sh`, and assert the tally — the counts
+// are a TALLY of `planStatus`, never a second computation of it.
 //
-// Every member lands in exactly one bucket, so `total = open + wip + done`.
+// Every member lands in exactly one bucket, so
+// `total = open + wip + done + withdrawn`.
+//
+// THE COUNTS ARE ASSERTED WITH `toEqual` ON THE WHOLE OBJECT, deliberately: a
+// new bucket then fails every fixture that has not declared it, which is how
+// `withdrawn` was caught reaching three of them. `toMatchObject` would let a
+// fifth arrive unnoticed.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // The artifact ships next to Plot's scripts; the tests run against the real
@@ -52,6 +58,11 @@ const APPROVED = `- **Phase:** Approved\n- **Type:** feature\n- **Review:** in-s
 const STARTED = `${APPROVED}\n- **Started:** 2026-08-24, tester, \`feature/x\``;
 const DELIVERED = `- **Phase:** Delivered\n- **Type:** feature\n- **Review:** in-session`;
 const RELEASED = `- **Phase:** Released\n- **Type:** feature\n- **Review:** in-session`;
+// The two withdrawn phases. They are ONE bucket because a reader acts on them
+// identically, and both are kept as fixtures because they reach it by separate
+// switch arms — testing one would leave the other free to regress.
+const REJECTED = `- **Phase:** Rejected\n- **Type:** feature\n- **Review:** in-session`;
+const SUPERSEDED = `- **Phase:** Superseded\n- **Type:** feature\n- **Review:** in-session`;
 
 /** A pulse whose single plan file has one merged wave — makes a Started plan `deliverable`. */
 const mergedPulse = (planBasename: string): FleetReading => ({
@@ -120,7 +131,7 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
     expect(sprint.slug).toBe('alpha');
     expect(sprint.release).toBe('3.1.0');
     // 4 members: 1 open (approved), 1 wip (in-progress), 2 done (delivered + released)
-    expect(sprint.counts).toEqual({ total: 4, open: 1, wip: 1, done: 2 });
+    expect(sprint.counts).toEqual({ total: 4, open: 1, wip: 1, done: 2, withdrawn: 0 });
     // FleetSprintSchema accepts the shape the server emits.
     expect(() => FleetSprintSchema.parse(sprint)).not.toThrow();
   });
@@ -139,10 +150,10 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
     );
     // No pulse: in-progress → wip
     expect((await activeSprints(opts, null))[0].counts)
-      .toEqual({ total: 1, open: 0, wip: 1, done: 0 });
+      .toEqual({ total: 1, open: 0, wip: 1, done: 0, withdrawn: 0 });
     // With merged pulse: deliverable → still wip
     expect((await activeSprints(opts, mergedPulse('2026-08-24-plan-run.md')))[0].counts)
-      .toEqual({ total: 1, open: 0, wip: 1, done: 0 });
+      .toEqual({ total: 1, open: 0, wip: 1, done: 0, withdrawn: 0 });
   });
 
   it('excludes a `### Deferred` member from counts — a deferral is not a commitment', async () => {
@@ -238,8 +249,65 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
     );
     const counts = (await activeSprints(opts, null))[0].counts;
     // 6 members, all counted: draft + open + approved → 3 open, started → 1 wip, delivered + released → 2 done
-    expect(counts).toEqual({ total: 6, open: 3, wip: 1, done: 2 });
-    expect(counts.total).toBe(counts.open + counts.wip + counts.done);
+    expect(counts).toEqual({ total: 6, open: 3, wip: 1, done: 2, withdrawn: 0 });
+    expect(counts.total).toBe(counts.open + counts.wip + counts.done + counts.withdrawn);
+  });
+
+  it('counts a rejected or superseded member as withdrawn, not open', async () => {
+    // THE DEFECT, at the sprint scope: both phases fell through to `draft`/
+    // `open`, so a sprint reported work nobody intends to do as outstanding.
+    // A superseded member with `Review: pr` read `open` — the worst case,
+    // because it is indistinguishable from a plan waiting for approval.
+    const opts = withEstate(
+      {
+        'plan-rejected': REJECTED,
+        'plan-superseded': SUPERSEDED,
+        'plan-superseded-pr': `- **Phase:** Superseded\n- **Type:** feature\n- **Review:** pr`,
+        'plan-approved': APPROVED,
+        'plan-done': DELIVERED,
+      },
+      {
+        '2026-W40-alpha.md': sprintFile(
+          '- **Phase:** Active',
+          '- [ ] [plan-rejected] a\n- [ ] [plan-superseded] b\n- [ ] [plan-superseded-pr] c\n'
+          + '- [ ] [plan-approved] d\n- [ ] [plan-done] e\n',
+        ),
+      },
+    );
+    const counts = (await activeSprints(opts, null))[0].counts;
+    expect(counts).toEqual({ total: 5, open: 1, wip: 0, done: 1, withdrawn: 3 });
+  });
+});
+
+describe('estateTotals — the fourth bucket, over a fixture estate', () => {
+  // A FIXTURE OF KNOWN COMPOSITION, never this repository's own census: the
+  // live numbers read `open: 11` on 2026-09-16 and `open: 12, wip: 4` one day
+  // later, so a gate keyed to them asserts the date it was written.
+  //
+  // Three withdrawn, two live — the composition the plan names.
+  const estate = () => withEstate(
+    {
+      'plan-rejected': REJECTED,
+      'plan-superseded': SUPERSEDED,
+      'plan-superseded-pr': `- **Phase:** Superseded\n- **Type:** feature\n- **Review:** pr`,
+      'plan-approved': APPROVED,
+      'plan-done': DELIVERED,
+    },
+    {},
+  );
+
+  it('counts withdrawn plans in their own bucket, never in open', async () => {
+    expect(await estateTotals(estate(), null, true))
+      .toEqual({ total: 5, open: 1, wip: 0, done: 1, withdrawn: 3 });
+  });
+
+  it('keeps total the plan count — every plan lands in exactly one bucket', async () => {
+    // DECIDED IN THE PLAN, and the reason the fourth bucket is additive rather
+    // than a subtraction: dropping withdrawn from `total` was weighed and
+    // refused, because the estate total would stop being the number of plans.
+    const counts = await estateTotals(estate(), null, true);
+    expect(counts.total).toBe(5);
+    expect(counts.total).toBe(counts.open + counts.wip + counts.done + counts.withdrawn);
   });
 });
 

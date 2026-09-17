@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { planStatus } from '../../src/server/board.js';
+import { PlanStatusSchema as DomainPlanStatusSchema } from '@plot-pm/domain';
 import { PlanMetaSchema, PlanStatusSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // `status` is the plan's MEASURED state — derived every scan from its waves,
@@ -223,13 +224,30 @@ describe('planStatus on a partial pulse — the CARD, not just the button', () =
   });
 });
 
-describe('PlanStatusSchema — the enum is exactly the seven', () => {
-  it('parses each of the seven and rejects an eighth', () => {
+describe('PlanStatusSchema — the enum is exactly the eight', () => {
+  it('parses each of the eight and rejects a ninth', () => {
     for (const v of ['draft', 'open', 'approved', 'in-progress',
-      'deliverable', 'delivered', 'released']) {
+      'deliverable', 'delivered', 'released', 'withdrawn']) {
       expect(PlanStatusSchema.parse(v)).toBe(v);
     }
     expect(PlanStatusSchema.safeParse('reviewing').success).toBe(false);
+  });
+
+  it('declares the SAME members as the domain rule — the gate on two enums', () => {
+    // TWO DECLARATIONS, DELIBERATELY: `rules/phase.ts` holds the domain's and
+    // this file re-declares it, for the reason the schema's own docstring gives
+    // about not importing entity schemas here.
+    //
+    // NOTHING FAILS TO COMPILE WHEN THEY DISAGREE. Measured while adding
+    // `withdrawn`: there is no `Record<PlanStatus, …>` anywhere, so neither
+    // declaration is structurally forced to match the other, and a member added
+    // to one alone is a silent divergence — the board would parse a status the
+    // domain never emits, or refuse one it does.
+    //
+    // The comparison is SORTED and set-wise: the two are one vocabulary, not one
+    // ordering, and requiring the order to match would fail a harmless edit.
+    expect([...PlanStatusSchema.options].sort())
+      .toEqual([...DomainPlanStatusSchema.options].sort());
   });
 });
 
