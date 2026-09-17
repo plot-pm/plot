@@ -150,7 +150,7 @@ that is checked and false here.
 
 ## Slices
 
-### A rule reaches the install that runs it (Branch: bug/a-rule-reaches-the-install-that-runs-it)
+### A rule reaches the install that runs it (Branch: bug/a-rule-reaches-the-install-that-runs-it, PR: #939)
 
 - `bug/a-rule-reaches-the-install-that-runs-it` — build `fleet-size`'s answer into its own tracked bundle under `skills/plot/scripts/board/`, have `--start` ask that bundle, and make the refusal name the condition that actually failed
 
