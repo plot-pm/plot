@@ -17,6 +17,13 @@
 // leaves the front matter untouched, then returns 0 for having changed
 // something.
 //
+// AMENDED 2026-09-17 BY #933, WHICH FIXED THE ROOT THIS GATE CAUGHT AT THE
+// SURFACE. `plot-plan-meta.sh` now reads the phase from the field Plot writes,
+// so on a two-record plan the writer and the parser agree and the delivery
+// lands. The first four tests below inverted with it: they pinned the refusal,
+// and they now pin the delivery plus the round trip that proves it real. The
+// gate itself is unchanged and still refuses a file the parser cannot read.
+//
 // THE ASSERTION IS THE ROUND TRIP, and nothing here re-implements either side.
 // The test drives the real script and then asks `plot-plan-meta.sh` what the
 // plan says, exactly as `deliver-record-outside-comments.test.mjs` does and for
@@ -170,51 +177,73 @@ status: Approved
 - Did a thing.
 `;
 
-test('a plan holding two phase records is REFUSED rather than falsely delivered', () => {
+test('a plan holding two phase records DELIVERS, because writer and parser now agree', () => {
+  // THIS TEST INVERTED WITH THE PARSER, AND #933 IS WHY. It pinned a refusal
+  // that #924 added at the surface: the write landed in the `## Status` block,
+  // `plot-plan-meta.sh` preferred front matter, and `phase_would_read` caught
+  // the disagreement and stopped the delivery.
+  //
+  // THE REFUSAL WAS RIGHT AND IT WAS NOT A FIX. It left a plan that could not
+  // move at all: a person was told to delete one of two records by hand, and
+  // `plot-state-gate.sh` then refuses that hand edit because no script owns the
+  // write. Two gates, and between them no way forward without the named escape.
+  //
+  // The parser now reads the field Plot writes, so the two agree and the gate
+  // stops firing — because the condition is gone, not because it was softened.
+  // `phase_would_read` is unchanged and still refuses a file it cannot parse,
+  // and still asks the parser rather than trusting that awk changed a line.
   const r = deliverPlan(TWO_RECORDS);
 
-  // The run fails, where before it reported success.
-  assert.notEqual(r.code, 0, `the delivery should refuse; it exited 0:\n${r.out}`);
+  assert.equal(r.code, 0, `the delivery should succeed; it refused:\n${r.out}`);
 
-  // NOTHING WAS WRITTEN. The check is a dry run before the irreversible step,
-  // so a refused run leaves the plan byte-identical — this is what separates
-  // the gate from one that refuses after landing the `mv`.
-  assert.equal(r.after, r.before,
-    'the plan changed on a refused run — the gate fired after the write, not before it');
-
-  // And the parser still reads the phase it read before, because nothing moved
-  // — asserted on what `origin/main` holds, which is where a delivery lands.
-  assert.equal(r.parsed.phase, 'approved');
+  // AND IT IS A REAL DELIVERY, not merely an unrefused run. The assertion is
+  // still the round trip #924 established: ask the parser what landed on
+  // `origin/main`, which is the reading every later consumer takes.
+  assert.equal(r.parsed.phase, 'delivered',
+    'the run reported success while the parser reads a different phase — that is #924 again');
+  assert.notEqual(r.parsed.delivered_raw, '', 'the Delivered record is missing');
+  assert.match(r.out, /phase=flipped/);
 });
 
-test('the refusal names BOTH values and the file', () => {
-  // A refusal saying only "delivery failed" throws away the half a person acts
-  // on: which phase was written, and which one the parser still reads.
+test('the front matter is left behind, and the parser reports it as the alternate', () => {
+  // WHAT KEEPS THIS FROM HIDING THE DRIFT IT STOPS CAUSING. No lifecycle script
+  // writes front matter, so a delivered two-record plan still carries a stale
+  // `status: Approved`. The parser reports it in `phase_alt` rather than
+  // dropping it, so a reader — and any later gate — can still see the
+  // disagreement that is now resolved rather than merely ignored.
   const r = deliverPlan(TWO_RECORDS);
 
-  assert.match(r.out, /delivered/i, 'the refusal does not name the phase that was written');
-  assert.match(r.out, /approved/i, 'the refusal does not name the phase the parser reads');
-  assert.match(r.out, /2026-01-01-phased\.md/,
-    'the refusal does not name the file a person has to fix');
+  assert.match(r.onMain, /^status: Approved$/m,
+    'front matter should be untouched — a second writer is the defect, not the fix');
+  assert.equal(r.parsed.phase, 'delivered');
+  assert.equal(r.parsed.phase_alt, 'approved',
+    'the loser was dropped instead of reported');
 });
 
-test('a second run on an unrepaired file refuses the same way', () => {
-  // `decide_transition` answers `write` rather than `already` on this file, so
-  // the second run reaches the gate again. It must not slip past — and it must
-  // not write, either.
+test('a second run on a delivered two-record plan is a no-op, not a second delivery', () => {
+  // Idempotence, which the refusal used to stand in for here. `decide_transition`
+  // answers `already` once the phase reads `delivered`, so the second run must
+  // change nothing rather than flip a phase twice or fail on its own work.
   const r = deliverPlan(TWO_RECORDS);
 
-  assert.notEqual(r.secondCode, 0, `the second run should refuse too:\n${r.second}`);
-  assert.equal(r.afterSecond, r.before, 'the second run wrote to the plan');
-  assert.match(r.second, /approved/i);
+  assert.equal(r.secondCode, 0, `the second run should succeed:\n${r.second}`);
+  assert.equal(r.afterSecond, r.after, 'the second run rewrote a plan already delivered');
 });
 
-test('nothing reaches the remote when the gate fires', () => {
-  // The refusal is before the push as well as before the `mv`: a delivery that
-  // pushed and then refused would leave the plan delivered on main with a
-  // non-zero exit `runAutoDeliver` logs to nobody.
-  const r = deliverPlan(TWO_RECORDS);
+test('the gate still refuses a plan the parser cannot read at all', () => {
+  // THE CASE `phase_would_read` STILL EXISTS FOR, pinned so that retiring the
+  // front-matter branch above did not quietly retire the gate. A scratch copy
+  // that does not parse is exactly the state this keeps off the plan, and it is
+  // unreachable through the two-record shape now that the shape delivers.
+  const r = deliverPlan(`# A plan with no Status section
 
+## Changelog
+
+- Did a thing.
+`);
+
+  assert.notEqual(r.code, 0, `a plan with no phase should refuse:\n${r.out}`);
+  assert.equal(r.after, r.before, 'the plan changed on a refused run');
   assert.equal(r.onMain, r.before, 'the plan on origin/main changed on a refused run');
 });
 
