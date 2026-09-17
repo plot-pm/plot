@@ -101,10 +101,23 @@ section 6 answers exactly as today — pinned, because a flag fix that quietly
 narrows the online answer would trade a timeout for a wrong report.
 
 **It does not make `--offline` mean "fast", and on this estate it will not meet
-the 90 s budget this plan opens with.** Measured here 2026-09-17: an offline
-scan takes **464 s with zero host calls**. The per-plan parse at 0.117 s over
-292 files predicts ~34 s, so **an order of magnitude is unaccounted for and this
-plan does not know what it is.**
+the 90 s budget this plan opens with.** Measured twice on 2026-09-17, both with
+**zero host calls**:
+
+| run | wall clock | conditions |
+|---|---|---|
+| a round-2 juror's | **464 s** | eight agents running |
+| this plan's author's | **348 s** | quieter machine |
+
+**The spread is the machine, not the scan**, and both readings sit four times
+over the 90 s budget. The per-plan parse at 0.117 s over 292 files predicts
+~34 s, so **an order of magnitude is unaccounted for and this plan does not know
+what it is.**
+
+**It is stated as a range rather than a number** because a single sample of a
+load-sensitive figure is not a standing fact — the lesson this estate already
+paid for once, when three versions of a plan rested on one reading of a field
+that self-evicts.
 
 **Saying so is the point.** A reader meeting the opening sentence — a pulse
 timing out at 90 s — would reasonably expect that budget met once this lands.

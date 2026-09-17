@@ -112,7 +112,7 @@ nothing.
 
 ### The inbox says what it is showing (Branch: docs/the-inbox-says-what-it-is-showing)
 
-- `docs/the-inbox-says-what-it-is-showing` — add a step to `/plot-board-setup` stating both narrowings and naming `PLOT_JIRA_JQL`, and record the unattended shape the skill's sweep requires
+- `docs/the-inbox-says-what-it-is-showing` — add a step to `/plot-board-setup` stating both narrowings and naming `PLOT_JIRA_JQL`, correct the stale `:393-401` paragraph that says no Jira backend exists, and record the unattended shape the skill's sweep requires
 
 **Done when** the setup skill names **both** narrowings — assignee and project —
 since naming only the project one leaves the reported symptom unexplained;
@@ -142,12 +142,27 @@ say WHY the second one is empty, which is the separate plan named above.
 **So they stay two plans**, and merging them would drag a docs change into a
 release-gated feature.
 
-**A round-1 juror reported a stale sentence in the setup skill and it is not
-one.** Checked 2026-09-17: `:220` and `:236` say the inbox stays instance-wide
-where no `Ticket prefixes:` key is written, which is true — that is the project
-axis, and without the key there is no `${scope}` clause. What the skill genuinely
-lacks is the ASSIGNEE axis, which is this plan's subject. **The finding is
-recorded as checked and refused rather than silently dropped.**
+**A round-1 juror reported a stale sentence in the setup skill. I refused it,
+and the refusal was wrong.** Recorded because the error is instructive: the
+juror named `:393-401` and I checked `:220` and `:236`, concluded those were
+true — they are, they are the `Ticket prefixes` decline rule — and refused a
+claim nobody had made. **A refusal that answers the wrong citation is worse than
+no refusal**, because it looks like the finding was examined.
+
+The sentence actually reported is stale and inverts the truth:
+
+> `plot-host.sh issue-list` resolves issues through the **Git host** … A
+> `Tracker: jira` or `Tracker: linear` is recorded but unread … A Jira backend
+> is planned; until then, the inbox will be empty.
+
+`plot-host.sh` carries **39 Jira references** and its own header reads *"JIRA
+ANSWERS when `Tracker: jira` is declared"*. The backend landed; the skill still
+tells adopters it has not.
+
+**And it is the same failure as this plan's, one step earlier**: an adopter told
+their inbox will be empty has an explanation for an empty inbox that is false,
+which is strictly worse than having none. **So it is in scope**, and the
+implementer is already in that file.
 
 **Type `docs` deliberately.** No code path changes, so the plan is live when
 merged and needs no release — the distinction `/plot-deliver` states to a docs
