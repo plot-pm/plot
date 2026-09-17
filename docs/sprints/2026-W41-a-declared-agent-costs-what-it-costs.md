@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-09-17
 - **Start:** 2026-09-15
 - **End:** 2026-10-06
 - **Release:** 2.18.0

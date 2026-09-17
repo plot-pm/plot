@@ -1,1 +1,0 @@
-../2026-W41-a-declared-agent-costs-what-it-costs.md
