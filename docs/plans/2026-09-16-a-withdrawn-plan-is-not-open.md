@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-17, jwloka, in-session
+- **Started:** 2026-09-17, Jan Wloka, `bug/a-withdrawn-plan-is-not-open`
 
 ## Changelog
 
