@@ -183,7 +183,7 @@ things; only the two that set `PR_SOURCE=off` are in scope.
 
 ## Slices
 
-### A scan section honours offline (Branch: bug/a-scan-section-honours-offline)
+### A scan section honours offline (Branch: bug/a-scan-section-honours-offline, PR: #938)
 
 - `bug/a-scan-section-honours-offline` — guard section 6 on `PR_SOURCE`, print a note naming what went unresolved, and pin that an online scan's section 6 is unchanged
 
