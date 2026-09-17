@@ -1683,6 +1683,33 @@ tracker_projects() {
   printf '%s' "$raw" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' || true
 }
 
+# Reads ONE variable from a `.env`-shaped file. Evaluates nothing.
+#
+# NOT `set -a; . ./.env; set +a`, which is the usual one-liner. It was measured
+# aborting in zsh on a file whose third line holds an unquoted JSON object, and
+# it imports every unrelated variable in the file — which on a credentials path
+# is a reason of its own.
+#
+# NOT `grep '^NAME=' | cut -d= -f2-` either: measured 2026-09-17, that returns
+# EMPTY for an `export `-prefixed line and KEEPS THE QUOTES on a quoted one, and
+# a quoted token reaching `curl -u` produces the 401 this read exists to remove.
+#
+# THE STRIP ORDER IS THE DEFECT, and it has been got wrong twice. Whitespace is
+# stripped BEFORE the quotes and again after. On `T="tok"   ` the `"$` anchor
+# misses if the quotes go first, and the value keeps them:
+#
+#     quotes first: ["tok"]        whitespace first: [tok]
+#
+# `head -1` takes the first assignment, so a duplicated name resolves the way a
+# shell reading top-to-bottom would.
+read_env_var() { # $1=name $2=file → the value, or nothing
+  sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\{0,1\}$1=//p" "$2" \
+    | head -1 \
+    | sed -e 's/[[:space:]]*$//' \
+          -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" \
+          -e 's/[[:space:]]*$//'
+}
+
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
 # confirmed against a real instance; these follow Jira Cloud's documented Basic
 # scheme (email + API token, base64'd into an Authorization header):
@@ -1695,14 +1722,55 @@ tracker_projects() {
 # This guard is called in the MAIN shell, BEFORE the `$(jira_curl …)` capture —
 # `die3` exits the whole script only from there, not from inside a command
 # substitution where it would end only the subshell and leak a second error.
+#
+# WHERE BOTH ARE UNSET, THE REPOSITORY'S `.env` IS READ. The refusal below named
+# two variables without ever looking where a repository puts them, so an
+# operator holding working credentials — measured 2026-09-17, a 200 from
+# `/rest/api/3/myself` with the same pair — was sent to create a second token.
+# "Export it in your shell" does not reach the board either: it is a long-lived
+# process, which is why `plot-fleetctl.sh` bakes an environment into its unit.
+#
+# THE ENVIRONMENT WINS AND NOTHING IS READ WHERE IT ANSWERS. The file is opened
+# only when BOTH are unset, so a deliberate export is never second-guessed and
+# the common path touches no disk.
+#
+# AND THE SOURCE IS NAMED, which is a requirement rather than a nicety: two
+# tokens may exist, and an operator debugging a 401 must be able to tell which
+# one was used. `plot-board-probe.sh` reports `auth` as three words rather than
+# a boolean for the same reason. THE VALUE IS NEVER PRINTED — only the source.
+jira_load_env_file() {
+  local root env_file email token
+  [ -z "${JIRA_EMAIL:-}" ] && [ -z "${JIRA_API_TOKEN:-}" ] || return 0
+
+  # The repository root, `plot-config.sh:145`'s idiom. NO UPWARD WALK past it:
+  # a search toward $HOME would read a file the operator did not mean for this
+  # repository.
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."
+  env_file="$root/.env"
+  [ -r "$env_file" ] || return 0
+
+  email="$(read_env_var JIRA_EMAIL "$env_file")"
+  token="$(read_env_var JIRA_API_TOKEN "$env_file")"
+  # BOTH OR NEITHER. Half a Basic credential authenticates nothing, and a
+  # partial pickup would turn today's honest refusal into a 401 further in.
+  [ -n "$email" ] && [ -n "$token" ] || return 0
+
+  JIRA_EMAIL="$email"
+  JIRA_API_TOKEN="$token"
+  export JIRA_EMAIL JIRA_API_TOKEN
+  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from .env" >&2
+}
+
 jira_require_config() {
   if [ -z "$(tracker_base_url)" ]; then
     die3 "Tracker is jira but no base URL is configured (write 'Tracker: jira https://your.atlassian.net' or set PLOT_JIRA_BASE_URL)"
   fi
+  jira_load_env_file
   if [ -z "${JIRA_EMAIL:-}" ] || [ -z "${JIRA_API_TOKEN:-}" ]; then
     echo "plot-host: Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment — an unauthenticated Jira must not read as an empty inbox" >&2
     echo "  Create a token at https://id.atlassian.com/manage-profile/security/api-tokens" >&2
-    echo "  then export JIRA_EMAIL=<your account email> and JIRA_API_TOKEN=<the token>." >&2
+    echo "  then export JIRA_EMAIL=<your account email> and JIRA_API_TOKEN=<the token>," >&2
+    echo "  or put both in this repository's .env (which .gitignore already excludes)." >&2
     exit 3
   fi
 }
@@ -1734,12 +1802,45 @@ jira_curl() {
   return $rc
 }
 
+# The account a Jira record is keyed on — DERIVED, never the email itself.
+#
+# THE EMAIL IS HALF A BASIC CREDENTIAL and this ledger is written on every call:
+# measured 2026-09-17, `$HOME/.plot/state/budget.tsv` held 2448 jira lines on one
+# machine. Until `.env` was read that happened only where somebody exported the
+# variable deliberately; it now happens wherever a `.env` exists — a population
+# that never consented to a machine-local record of it. A change that widens who
+# gets written down owns the writing down.
+#
+# AND IT STAYS PER-ACCOUNT DISTINGUISHABLE, because the field is a MATCH KEY and
+# not a label: `plot-budget.sh:250` is `if ($2 != want_c || $3 != want_a) next`,
+# `spend-rate` publishes it, and `decodeEntry`/`sameKey` read it. One machine's
+# ledger holds three distinct Jira accounts, so a CONSTANT redaction would merge
+# their rate windows and the rate a connector reads becomes the sum of several
+# people's. A hash keeps the key one-to-one while carrying no address.
+#
+# AT THE SOURCE rather than at `budget.tsv`, because fixing the one known writer
+# leaves the next to inherit the defect — `slots-file.ts:185` turns an account
+# into a DIRECTORY NAME and is one `slots.acquire` call away from being live.
+#
+# `jira:` prefixed and truncated to 12 hex: long enough that two accounts on one
+# machine will not collide, short enough to read in a ledger line.
+jira_budget_account() {
+  local raw="${JIRA_EMAIL:-}"
+  [ -n "$raw" ] || { printf 'unknown\n'; return 0; }
+  local h
+  h="$(printf '%s' "$raw" | shasum -a 256 2>/dev/null | awk '{print $1}')"
+  # No hasher, no guess: a raw email must never be the fallback, so an
+  # unhashable account degrades to the same word an absent one uses.
+  [ -n "$h" ] || { printf 'unknown\n'; return 0; }
+  printf 'jira:%s\n' "${h:0:12}"
+}
+
 # Records one Jira call. Jira meters, publishes no header this adapter reads,
 # and this slice does not add header parsing — so the reading is `unknown`,
 # which is never read as free.
 budget_record_jira() {
   [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
-  budget_append jira "${JIRA_EMAIL:-unknown}" api 1 - - - unknown
+  budget_append jira "$(jira_budget_account)" api 1 - - - unknown
 }
 
 # Split a jira_curl response into (body, status) and enforce the three outcomes.
