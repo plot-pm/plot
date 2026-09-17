@@ -1,6 +1,6 @@
 # A scan section honours offline
 
-> `--offline` promises no git-host call and section 6 makes one per delivered plan, so a scan the operator asked to stay local times out against the network.
+> `--offline` promises no git-host call and section 6 makes one per delivered plan — a flag that does not hold, and on a repository with a long delivered backlog, minutes spent on a network the operator asked it to leave alone.
 
 ## Status
 
@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- `plot-reconcile-scan.sh --offline` no longer calls the git host. Section 6 asked for one PR state per delivered plan regardless of the flag, so a scan told to stay local spent minutes on the network and, on a repository with a long delivered backlog, never finished.
+- `plot-reconcile-scan.sh --offline` no longer calls the git host. Section 6 asked for one PR state per delivered plan regardless of the flag, so a scan told to stay local reached the network anyway — and on a repository with 82 delivered plans, spent eleven minutes there against a 90 s budget.
 
 <!-- Board impact: the pulse runs this scan and reports its timeout. No plan
      format, no template, no layout. -->
@@ -86,6 +86,14 @@ report*, and the whole point of section 6 is that "cannot tell" and "nothing
 wrong" must not look the same — the section's own `no PR annotation` arm says
 exactly that at `:1147`.
 
+**And what is given up is a CORRECT answer, which both rounds framed as a broken
+one.** Run offline today, section 6 reports exactly what it reports online —
+here, `(none)`, and it is right. The flag is not producing wrong output; it is
+producing output it promised not to pay for. **This change trades a correct
+answer for a kept promise**, which is a defensible trade and a different claim
+from *repairing a defect*. The note is what keeps the trade visible to whoever
+reads the scan next.
+
 **2 — the online path asks once, not N times.** `plot-host.sh pr-list` already
 bundles, and the scan already uses a bundled merged-PR list elsewhere. A
 per-plan `pr-state` is the shape `plot-pr-merged.sh` was extracted to avoid.
@@ -110,19 +118,36 @@ the 90 s budget this plan opens with.** Measured twice on 2026-09-17, both with
 | this plan's author's | **348 s** | quieter machine |
 
 **The spread is the machine, not the scan**, and both readings sit four times
-over the 90 s budget. The per-plan parse at 0.117 s over 292 files predicts
-~34 s, so **an order of magnitude is unaccounted for and this plan does not know
-what it is.**
+over the 90 s budget.
+
+**The parse is not the residual, and the earlier arithmetic was wrong in kind.**
+Two rounds of this plan — and two jurors, and a moderator — multiplied a
+per-plan figure of 0.117 s by 292 files to predict ~34 s. **The scan parses
+once**, and `plot-reconcile-scan.sh:556` says so four lines above the call:
+
+```
+# ONE parser invocation for the whole sweep (see the single-pass note above).
+```
+
+Measured: **470 ms for all 292 plans.** So parsing is 0.1% of an offline scan,
+not 10%, and **the unexplained share is not an order of magnitude — it is
+essentially the whole run.**
 
 **It is stated as a range rather than a number** because a single sample of a
 load-sensitive figure is not a standing fact — the lesson this estate already
 paid for once, when three versions of a plan rested on one reading of a field
 that self-evicts.
 
-**Saying so is the point.** A reader meeting the opening sentence — a pulse
-timing out at 90 s — would reasonably expect that budget met once this lands.
-Honouring the flag removes the host calls; it does not make an offline scan fit,
-and the residual is a separate measurement nobody has taken.
+**Saying so is the point, and it changes what this plan claims to be.** A reader
+meeting the opening sentence — a pulse timing out at 90 s — would reasonably
+expect that budget met once this lands. It will not be: honouring the flag
+removes host calls that, on this estate, number zero.
+
+**So the honest framing is a CONTRACT fix, not a performance fix.** `--offline`
+declares no host call and section 6 makes one; that is worth repairing because
+the flag means something, and a repository where the calls are many gets the
+speed as a consequence. **The reporter's 90 s timeout is a separate defect with
+a separate cause**, and this plan neither finds nor fixes it.
 
 **It does not touch `--no-fetch`.** Three flags exist and they promise different
 things; only the two that set `PR_SOURCE=off` are in scope.

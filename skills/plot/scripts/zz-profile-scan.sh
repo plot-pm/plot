@@ -1,0 +1,2703 @@
+#!/usr/bin/env bash
+# Plot helper: reconciliation sweep — deterministic extractor for plan/branch drift.
+# Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
+#   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
+#   --offline   both (no network)  — used by the ambient /plot hygiene line
+# Output: twenty-one-section text report on stdout (each finding carries its exact
+#         remediating command as copy-paste text — nothing is executed). A
+#         `== blocking sections end ==` line separates the findings that stop a
+#         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
+#         it. The report is terminated by a machine-countable summary line:
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 pr_source=gh main=main
+#         Consumers that only need counts (the /plot dispatcher's hygiene
+#         line, /plot-reconcile's Automation Output) read that one line.
+# Designed for small-model consumption: mechanical enumeration, no judgment.
+#
+# Reads the repo's plan files, symlink indexes, and git/git-host ref state and
+# emits a twenty-one-section report. This is the COMPUTATIONAL half of the
+# reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
+# half — deciding which drift to fix, which branch is truly stale, whether a
+# plan is ready to deliver — is the human's, guided by the /plot-reconcile
+# skill that consumes this report.
+#
+# READ-ONLY. Nothing here moves a symlink, flips a phase, deletes a branch,
+# or writes any repo file. Every finding is printed WITH the exact remediating
+# command as copy-paste text — never executed. The scan reads origin/* refs
+# (after a fetch) plus the local plan tree; it makes no commits and no pushes.
+# (The fetch may also set the local origin/HEAD ref when unset — git metadata,
+# not repo content.)
+#
+# Sections:
+#   1. Phase<->symlink drift    — plan phase vs active//delivered/ index
+#   2. Merged-but-not-delivered — impl branch merged, plan still Approved
+#                                 (two signals: the branch is merged into main,
+#                                  OR it was the head of a merged PR — the
+#                                  latter survives the branch being deleted)
+#   3. Stale branches           — merged/orphan remote branches, no open PR,
+#                                 plus CLAIMS (empty branches a worker took);
+#                                 a branch contained in an open PR is listed
+#                                 as in flight and does NOT count as stale
+#   4. Concurrent-delivery      — active plans' branch divergence vs main
+#   5. Needs attention          — malformed / non-conforming plans, plus
+#                                 DANGLING index symlinks (a link pointing at
+#                                 nothing is a broken pointer)
+#   6. Delivered but released   — delivered plans already inside a release tag
+#   7. Uncut slices           — a `### ` wave heading carrying MORE THAN ONE
+#                                 branch line. A wave holds exactly one branch
+#                                 (MANIFESTO.md); one holding several is a shape
+#                                 /plot-reslice can repair. ACTIONABLE BUT
+#                                 NON-BLOCKING — someone runs /plot-reslice, so
+#                                 it sits before index drift, and it is kept out
+#                                 of the `attention` count for the same reason
+#                                 index drift is: nothing is blocked by a shape
+#   8. Prose wave names         — a `### ` wave heading written as a sentence,
+#                                 not a label. A sentence-length name paints over
+#                                 the cells beside it on the board; the fix is to
+#                                 rename the heading in the PLAN. ACTIONABLE BUT
+#                                 NON-BLOCKING — someone renames it — so it sits
+#                                 with the unsliced section and is kept out of
+#                                 the `attention` count for the same reason. The
+#                                 threshold is the parser's (LONG_WAVE_NAME_MAX);
+#                                 this only surfaces the `long_wave_names` field
+#   9. Unplanned members        — a sprint member whose slug names no plan.
+#                                 REPORTED, AND NOT DRIFT: a slice that merges
+#                                 as a PR with no plan file is a normal shape
+#                                 here, so this RISES AS WORK SUCCEEDS. It
+#                                 carries `unplanned_members=` and is worded
+#                                 for what it is, because a reader acts on the
+#                                 heading
+#  10. Sprint field unset       — a plan listed by a sprint carrying no
+#                                 `Sprint:` field. Real, and mechanically
+#                                 fixable; the `backfill:` line is copy-paste
+#                                 text a PERSON runs, because the field is a
+#                                 claim about intent and a script writing one
+#                                 would be inventing it. `sprint_unset=`
+#  11. Sprint mismatch          — a plan whose `Sprint:` names a DIFFERENT
+#                                 sprint than the file listing it. Real, and
+#                                 needs a person: a disagreement about what
+#                                 shipped where. Prints BOTH names, since a
+#                                 reader cannot act knowing one. `sprint_mismatch=`
+#                                 These three shared one counter (`sprint_drift=`)
+#                                 until 2026-09-11, when it read 57 and nothing
+#                                 had ever consumed it. ALL THREE ARE ACTIONABLE
+#                                 BUT NON-BLOCKING — someone edits the plan or
+#                                 sprint — so they sit with the uncut and prose
+#                                 sections and stay out of the `attention` count
+#  12. Index drift              — CONVENIENCE level: a plan with no symlink, or
+#                                 a phase-less file in the plan directory.
+#                                 Since #254 the phase grouping is derived from
+#                                 plan content, so nothing depends on these;
+#                                 they are browsing gaps, deliberately kept out
+#                                 of the `attention` count that gates delivery
+#  13. Stale sprint tally       — sprint items left unchecked whose plan is
+#                                 delivered or released. Covers CLOSED sprints
+#                                 too, because those are the population whose
+#                                 tally nothing else will ever recompute. An
+#                                 item with no resolvable plan is skipped
+#                                 silently — the unplanned-members section
+#                                 already catches that. ADVISORY, like it;
+#                                 stays out of
+#                                 `attention`, gates nothing.
+#  14. Double-claimed branches  — a branch listed by MORE THAN ONE plan, naming
+#                                 both plans and the wave each lists it under.
+#                                 Only meaningful since the matcher anchored
+#                                 (#490): before that a dependency CITED in
+#                                 prose read as a second claim. REPORTS AND
+#                                 NEVER GATES — a double claim is a shape for a
+#                                 person to resolve, not a branch that cannot
+#                                 move — so it carries `double_claims=` and
+#                                 stays out of `attention`.
+#  15. Stale interrogation rounds — a DRAFT plan whose recorded `Rounds:` value
+#                                 predates its own last amendment, naming the
+#                                 round, the commit that last wrote it, and the
+#                                 commit that amended the plan after it. A plan
+#                                 recording NO round is not a finding: an
+#                                 unquestioned plan is honestly unquestioned.
+#                                 `Rounds: 0` IS a recorded value. REPORTS AND
+#                                 NEVER GATES — a stale round is a hint about a
+#                                 badge, not a reason to stop a delivery — so
+#                                 it carries `rounds_drift=` and stays out of
+#                                 `attention`. Placed after the
+#                                 `== blocking sections end ==` marker, which
+#                                 is what /plot-deliver's gate reads to.
+#  16. Sprint phase vs index    — a sprint whose `Phase:` disagrees with
+#                                 `<sprint dir>/active/`: Active with no link,
+#                                 or linked while Planned or Closed. TWO
+#                                 RECORDS OF ONE FACT, and nothing read the
+#                                 pair — measured in both directions twice in
+#                                 four days, both found by a person reading the
+#                                 directory. Distinct from `sprint_mismatch=`,
+#                                 which counts PLANS whose `Sprint:` field
+#                                 disagrees; this counts SPRINTS. The phase is
+#                                 READ, never derived: a sprint ends when
+#                                 somebody says it ended. REPORTS AND NEVER
+#                                 GATES — index drift's precedent, since every
+#                                 consumer that decides anything reads the
+#                                 phase from the file — so it carries
+#                                 `sprint_index_drift=` and stays out of
+#                                 `attention`.
+#  17. Sprint outlived release  — a sprint that is NOT Closed whose declared
+#                                 `Release:` has been tagged. Measured:
+#                                 `a-half-landed-workflow-says-so` targets
+#                                 2.13.0, which shipped as `v2.13.0`, while the
+#                                 file reads `Phase: Planning` and none of its
+#                                 eight items ever became a plan. The facts come
+#                                 from `plot-sprint-release.sh`, which already
+#                                 reads a sprint's release and decides nothing —
+#                                 a second reader would drift from it. The first
+#                                 `N.N.N` in the field is the target, because a
+#                                 `Release:` may carry prose after the version.
+#                                 REPORTS AND NEVER CLOSES: a shipped release
+#                                 says the window passed, not that the work is
+#                                 done, so a person closes it. It carries
+#                                 `sprint_shipped=` — a third question, distinct
+#                                 from `sprint_mismatch=` (plans) and
+#                                 `sprint_index_drift=` (phase vs index) — and
+#                                 stays out of `attention`.
+#  18. Stated waits             — a LIVE slice (Draft or Approved) whose body
+#                                 CLAIMS a wait while its branch line carries
+#                                 no `waits:`. Two records of one fact, and
+#                                 only the annotation reaches the fleet:
+#                                 measured 2026-09-06, a slice whose body said
+#                                 *"IT WAITS FOR ... (#705)"* read as eligible
+#                                 and a person recognising the prose was the
+#                                 only thing that stopped it dispatching.
+#                                 MATCHES THE CLAIM, NOT THE REFERENCE — the
+#                                 drafted rule (a body linking a plan or naming
+#                                 a PR) fired on 391 of 477 slices, because
+#                                 plans cite each other as context constantly.
+#                                 ONE PHRASE, `waits for` / `waits on`, and the
+#                                 SUBJECT must be the slice: that anchor is
+#                                 what separates a claim from a `--stop` that
+#                                 waits for each worker to exit. Backticked
+#                                 spans quote the phrase and never claim it.
+#                                 REPORTS AND NEVER GATES — the annotation
+#                                 names a branch no shell can guess — so it
+#                                 carries `stated_waits=` and stays out of
+#                                 `attention`.
+#  19. Unclaimed work           — a remote branch carrying FILE CHANGES that no
+#                                 plan names and no open PR carries. THE
+#                                 READING IS FILE CHANGES, NOT COMMITS:
+#                                 measured 2026-09-07, seven of twelve such
+#                                 branches held only a claim commit and a
+#                                 `PLOT-BLOCKED` marker, and those the reaper
+#                                 and section 3 already handle. The reading is
+#                                 `git diff --name-only main...branch` with
+#                                 `PLOT-BLOCKED*` excluded; zero changed files
+#                                 is not a finding.
+#                                 IT NEVER CLAIMS THE WORK IS UNFINISHED. All
+#                                 twelve measured were landed or superseded —
+#                                 one of them by a four-line comment quoting
+#                                 the branch's own diagnostic output, with the
+#                                 instrument deleted. A diagnostic branch is
+#                                 exactly where a token search fails: its
+#                                 success condition is its own deletion. So the
+#                                 finding reports what is measurable — no plan
+#                                 names this, no PR carries it — and leaves
+#                                 *is it owed?* to the reader.
+#                                 IT NAMES THE THREE ANSWERS: open a PR, write
+#                                 the plan that claims it, or delete the ref. A
+#                                 finding saying only *this exists* leaves the
+#                                 reader where the board already left them.
+#                                 REPORTS AND NEVER GATES — unclaimed work is a
+#                                 legibility gap, not a broken pointer — so it
+#                                 carries `unclaimed_work=` and stays out of
+#                                 `attention`.
+#
+# Configuration is read via plot-config.sh from the adopting project's
+# `## Plot Config` (Plan directory, Active index, Delivered index, Branch
+# prefixes). Plan files are parsed via plot-plan-meta.sh — the shared plan
+# parser — in ONE invocation for all plans (single awk pass), so the sweep
+# stays cheap enough for ambient use on every /plot even at ~100 plans.
+#
+# The main branch is auto-detected from origin/HEAD (self-healing via
+# `git remote set-head origin -a` during the fetch) and can be overridden
+# with a `## Plot Config` line:
+#     - **Main branch:** develop
+#
+# PR enumeration binds to ORIGIN's git host — gh on GitHub, bb on Bitbucket —
+# and degrades to git merge-state alone otherwise (the report header states
+# which source was used). Two bundled lists are fetched, both ONE call for the
+# whole sweep regardless of plan count: open PRs (section 3) and merged PRs
+# (section 2). --no-pr/--offline skip both.
+#
+# Exit 0 on a completed sweep (an empty section is a valid, healthy result);
+# exit 1 only when the sweep cannot run at all (not a git repo).
+
+# No `set -e`: a parse hiccup on one plan file must not abort the whole
+# read-only sweep. Keep unset-var and pipe-failure safety.
+set -uo pipefail
+
+# Operate on the repo the caller is in (like every plot helper) — NOT the
+# script's own checkout: for marketplace installs that would be the plugin
+# cache, silently sweeping plot's own repo instead of the adopting project.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+  || { echo "plot-reconcile: not inside a git repository." >&2; exit 1; }
+cd "$repo_root" || exit 1
+
+__t0=$(date +%s.%N); __tp=$__t0
+__mark(){ __tn=$(date +%s.%N); printf "PROFILE\t%s\t%s\t%s\n" "$1" "$(echo "$__tn - $__tp"|bc)" "$(echo "$__tn - $__t0"|bc)" >&2; __tp=$__tn; }
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
+
+# jq is required: the plan-metadata rows are read through a jq pipe below.
+# Without it that pipe yields nothing and every plan-derived section (1, 2,
+# 4, 5) would silently report empty — a false "drift=0" clean. Fail loudly
+# instead, so a missing jq can never masquerade as a healthy sweep.
+command -v jq >/dev/null 2>&1 \
+  || { echo "plot-reconcile: jq is required but not found on PATH." >&2; exit 1; }
+
+# Flags (any order, any combination):
+#   --no-fetch  skip `git fetch` (offline, or when you just fetched)
+#   --no-pr     skip git-host PR enumeration (no `gh/bb pr list` network call) —
+#               falls back to git merge-state, same as an absent git-host CLI
+#   --offline   both of the above: a fully network-free sweep. Used by the
+#               ambient /plot hygiene line so /plot never blocks on the network.
+do_fetch=1
+do_pr=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-fetch) do_fetch=0 ;;
+    --no-pr)    do_pr=0 ;;
+    --offline)  do_fetch=0; do_pr=0 ;;
+    *) ;;   # ignore unknown args (keeps $ARGUMENTS pass-through forgiving)
+  esac
+  shift
+done
+
+# ---------------------------------------------------------------------------
+# Configuration (## Plot Config, with plot's defaults)
+# ---------------------------------------------------------------------------
+
+PLAN_DIR=$(cfg "Plan directory" "docs/plans/"); PLAN_DIR="${PLAN_DIR%/}"
+ACTIVE_DIR=$(cfg "Active index" "$PLAN_DIR/active/"); ACTIVE_DIR="${ACTIVE_DIR%/}"
+DELIVERED_DIR=$(cfg "Delivered index" "$PLAN_DIR/delivered/"); DELIVERED_DIR="${DELIVERED_DIR%/}"
+
+# "idea/, feature/, bug/, docs/, infra/" -> "idea|feature|bug|docs|infra"
+# Hours after which a bare claim is worth a second look. A DURATION, so it is
+# deliberately NOT `Sprint stall limit` — that counts iterations without a
+# deliverable in a serial run, which is a different quantity. Reusing it would
+# have silently read "3 iterations" as "3 hours".
+CLAIM_STALE_H=$(cfg "Claim stale after" "24")
+PREFIX_RE=$(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
+  | tr -d ' /' | tr ',' '|')
+
+# ---------------------------------------------------------------------------
+# 0. Fetch (read-only) + main-branch detection + ref state
+# ---------------------------------------------------------------------------
+
+if [ "$do_fetch" = 1 ]; then
+  git fetch origin --prune >/dev/null 2>&1 || true
+fi
+
+# Main branch: `## Plot Config` override, else `default_branch`, which repairs
+# an unresolvable origin/HEAD before answering, else `main`.
+#
+# THE SELF-HEAL HERE COULD NOT SEE THE CORRUPTION IT WAS WRITTEN FOR. It ran
+# `set-head` only when the symref was UNSET — and a symref pointing at a branch
+# that no longer exists is not unset: it returns a plausible name and exits 0.
+# Measured 2026-09-04, that is exactly the state the estate reached twice.
+# shellcheck source=plot-default-branch.sh
+. "$script_dir/plot-default-branch.sh"
+MAIN=$(cfg "Main branch")
+[ -n "$MAIN" ] || MAIN=$(default_branch)
+
+# Branches whose tip is already contained in origin/<main>.
+#
+# ANCESTRY, AND IT IS EVIDENCE RATHER THAN THE ANSWER. Read alone it is wrong
+# about every squash-merged branch there is: the squashed commit is not the
+# branch's commit, so the ref stays ahead of main forever. Measured 2026-09-04
+# on this estate — ten merged branches still carrying a ref, ancestry
+# disagreeing with the host on TEN OF TEN.
+#
+# `branch_merged` below is what the sections ask. It reads the HOST first, from
+# the merged-PR list this scan already fetches in one bundled call, and falls
+# back to this set — which stays because it is the answer that survives a host
+# nobody can reach, and because a branch pushed straight to main carries no PR
+# at all.
+#
+# The name says what it holds. It said `merged_branches` until 2026-09-04, and
+# a set named for the question rather than for its evidence is how the two came
+# to be treated as one thing.
+#
+# plot-ancestry: evidence — handed to `branch_merged`, which asks the host's
+# merged-PR list first and reads this only where no PR exists to read.
+ancestor_of_main=$(git branch -r --merged "origin/$MAIN" 2>/dev/null \
+  | sed 's/^[[:space:]]*//; s#^origin/##' \
+  | grep -vE "^($MAIN|HEAD)" )
+
+# All remote impl/idea branches under the configured prefixes.
+all_branches=$(git branch -r 2>/dev/null \
+  | sed 's/^[[:space:]]*//; s#^origin/##' \
+  | grep -E "^($PREFIX_RE)/" )
+
+# Open-PR source branches, from the git-host CLI matching ORIGIN — the
+# scan compares origin/* refs, so PR state must come from the same remote (a
+# repo can carry extra remotes on other git hosts; letting gh/bb resolve "any"
+# remote would silently enumerate the wrong repo's PRs). Unknown host →
+# degraded (git merge-state only).
+#
+# PR_SOURCE states (named states, machine-countable):
+#   absent  — no CLI installed matching the host
+#   failed  — CLI present but call failed (429, 401, network error)
+#   gh/bb   — CLI present, call succeeded (including zero open PRs)
+#   off     — deliberately skipped via --no-pr/--offline
+#   degraded — legacy state, kept for backwards compatibility when host unknown
+#
+# PR_ERROR carries the CLI's first stderr line, beside the state. A machine
+# reads the state; a human reads the reason.
+PR_SOURCE="degraded"
+PR_ERROR=""            # first stderr line from the CLI, if failed
+open_prs=""            # head branch names, one per open PR
+open_pr_heads=""       # "<number> <head>" lines, same PRs — section 3 names the
+                       # PR a branch is contained in, which needs the number.
+
+# How many MERGED PRs to fetch for the single-PR-plan check below. The default
+# page size (30) is far too small: on plot's own repo it reaches back only to
+# #90, so #40 — `idea/kanban-board-v1`, the five-week-late plan this check
+# exists to find — is invisible at the default. Too low silently misses old
+# plans, which is precisely this check's own failure mode; the cost of going
+# high is a single page-walk, not a per-plan call. Measured on plot's repo
+# (106 merged PRs): limit 200 ≈ 0.79-0.92 s, limit 500 ≈ 0.81-1.06 s — the
+# round trip dominates, so headroom is nearly free. Saturation is REPORTED
+# rather than silent (see MERGED_PR_TRUNCATED below).
+MERGED_PR_LIMIT=500
+merged_pr_heads=""       # "<number> <head>" lines, one per merged PR
+MERGED_PR_TRUNCATED=0    # 1 when the list came back full — older PRs unseen
+
+# Drop the leading PR number from "<number> <head>" lines. A branch name may
+# contain spaces in principle, so take everything AFTER the first field rather
+# than the second field alone.
+pr_head_branches() { # $1="<number> <head>" lines → head lines
+  printf '%s\n' "$1" | sed -n 's/^[0-9][0-9]*  *//p'
+}
+
+# THE HOST IS ASKED THROUGH `plot-host.sh`, never `gh` or `bb` directly.
+#
+# Until 2026-09-05 this function held its own copy of the backend split: a
+# `case` on origin's URL, a `command -v` probe per CLI, two query shapes for
+# GitHub and three for Bitbucket (bb >=3.1 field form, the older full-object
+# fallback, and their two separate jq parses). Every one of those is a decision
+# the adapter already makes, and holding a second copy is how the two came to
+# disagree — `plot-host.sh` learned Bitbucket's `DECLINED`-is-`CLOSED`
+# normalisation and its rate-limit exit codes, and this copy did not.
+#
+# `pr-list` answers on both backends and emits ONE shape: JSON lines carrying
+# `number` and `head`, already normalised. So the parse below is backend-blind,
+# which is what the duplication cost us.
+#
+# EVERY STATE THIS FUNCTION REPORTED IS STILL REPORTED, and the mapping is the
+# only new thing here. The adapter has no `command -v` probe — it calls the CLI
+# and lets it fail — so an absent CLI arrives as a failed call whose stderr says
+# `command not found`, and that text is what separates `absent` from `failed`.
+# Both were exit-0-with-a-state before and both still are: the scan degrades,
+# it does not die.
+#
+# TWO CALLS, NOT ONE. `--state all` would fetch both lists in a single round
+# trip, but the two are consumed differently — open PRs gate section 3, merged
+# heads answer the single-PR-plan check, and only the merged one is truncation
+# -checked against `MERGED_PR_LIMIT`. A merged list capped at 500 and an open
+# list capped at nothing cannot share a limit, and a shared page would let
+# hundreds of merged PRs crowd out the open ones the scan actually gates on.
+#
+# THE ERROR TEXT IS THE CLI'S OWN, carried through the adapter's stderr. A
+# machine reads `PR_SOURCE`; a person reads `PR_ERROR`, and "HTTP 429" said by
+# the host is worth more than any word this scan could substitute.
+load_open_pr_branches() {
+  local out err rc tmpstderr host_script backend
+
+  host_script="$script_dir/plot-host.sh"
+  if [ ! -r "$host_script" ]; then
+    PR_SOURCE="absent"; PR_ERROR="plot-host.sh not found beside this script"; return 0
+  fi
+
+  # ORIGIN NAMES THE HOST, AND THE ADAPTER TALKS TO IT. These are two different
+  # facts and this function now holds only the first.
+  #
+  # WHY ORIGIN AND NOT `plot-host.sh backend`. The adapter resolves its backend
+  # from the `Git host` config key, defaulting to github — a DECLARATION about
+  # the repo. This scan needs the host that origin actually points at, because
+  # it compares `origin/*` refs and a repo may carry extra remotes on other
+  # hosts: letting the CLI resolve "any" remote silently enumerates the wrong
+  # repo's PRs. That was this function's original reason for the URL `case` and
+  # it is untouched by routing. A Bitbucket checkout that never wrote the config
+  # key still reads `pr_source=bb` here, as it always has.
+  #
+  # `PLOT_HOST` IS HOW THE ANSWER IS CARRIED, and it is the adapter's own
+  # documented override — `plot-host.sh:1306`, "$PLOT_HOST (github|bitbucket)
+  # wins". So the scan states which host it means and the adapter obeys, rather
+  # than each reaching a private conclusion. Exported for the call only; a repo
+  # whose config disagrees with its origin is still asking about origin, which
+  # is the only remote whose refs this scan reads.
+  #
+  # `degraded` SURVIVES as the legacy state for an origin on neither host — the
+  # host is unknown rather than broken, and git merge-state alone still answers.
+  local url host_env slug repo_args
+  url=$(git remote get-url origin 2>/dev/null) || return 0
+  case "$url" in
+    *github.com*) backend="gh"; host_env="github" ;;
+    *bitbucket*)  backend="bb"; host_env="bitbucket" ;;
+    *) return 0 ;;
+  esac
+
+  # PIN THE LIST TO ORIGIN'S REPOSITORY, for the same reason the host is read
+  # from origin one comment up: this scan joins the PR list against `origin/*`
+  # refs, and a checkout with a second remote on the same host lets an unpinned
+  # list enumerate the other repository — every branch would read as having no
+  # open PR, and section 3 would call the whole estate orphaned.
+  #
+  # GitHub only. `bb` is already scoped to the repository it is run in and
+  # takes no `-R`, so passing one would fail the call rather than narrow it.
+  repo_args=""
+  if [ "$backend" = "gh" ]; then
+    slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')
+    [ -n "$slug" ] && repo_args="--repo $slug"
+  fi
+
+  tmpstderr=$(mktemp) || { PR_SOURCE="failed"; PR_ERROR="could not create a temp file"; return 0; }
+  # Clean up the temp file on return. Use /bin/rm to avoid PATH issues.
+  trap "/bin/rm -f '$tmpstderr' 2>/dev/null" RETURN
+
+  # SEPARATE call from parse: capture the adapter's own exit status, not jq's.
+  # A 429 makes it exit 5; testing `$?` after a pipe loses that.
+  out=$(PLOT_HOST="$host_env" bash "$host_script" pr-list --state open $repo_args </dev/null 2>"$tmpstderr")
+  rc=$?
+  err=$(head -1 "$tmpstderr" 2>/dev/null)
+  if [ "$rc" -ne 0 ]; then
+    # An absent CLI is a CONFIGURATION, not a fault, and it was `absent` here
+    # long before the adapter existed. The adapter cannot tell them apart by
+    # exit code — `plot-host.sh` exits 3 for a missing binary and for a genuine
+    # transport failure alike — so the CLI's own words decide, the same reading
+    # `plot-fleet-scan.sh` makes of the same stderr.
+    case "$err" in
+      *"command not found"*|*"not found"*|*"No such file or directory"*)
+        PR_SOURCE="absent"; PR_ERROR="${backend} not found on PATH" ;;
+      *)
+        PR_SOURCE="failed"; PR_ERROR="${err:-plot-host.sh exited $rc}" ;;
+    esac
+    return 0
+  fi
+  # SUCCESS — empty output is a VALUE (zero open PRs), not a failure.
+  #
+  # `number` AND `head` from one call: the head alone answers "is this branch
+  # the PR's head", the number is needed to name the PR a branch is contained
+  # in (section 3). The adapter emits both on every line.
+  PR_SOURCE="$backend"
+  open_pr_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
+  open_prs=$(pr_head_branches "$open_pr_heads")
+
+  # Merged counterpart, same call shape. Bundled: ONE call for all plans, so
+  # cost is constant in plan count. A failure here is TOLERATED and always was
+  # — the merged list feeds one advisory check, and section 8 says so in its
+  # own note when the heads are missing.
+  if out=$(PLOT_HOST="$host_env" bash "$host_script" pr-list --state merged --limit "$MERGED_PR_LIMIT" $repo_args </dev/null 2>/dev/null); then
+    merged_pr_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
+  fi
+
+  # Did the page fill exactly? Then older merged PRs exist that we did not see.
+  if [ -n "$merged_pr_heads" ] \
+     && [ "$(printf '%s\n' "$merged_pr_heads" | grep -c .)" -ge "$MERGED_PR_LIMIT" ]; then
+    MERGED_PR_TRUNCATED=1
+  fi
+}
+if [ "$do_pr" = 1 ]; then
+  load_open_pr_branches
+else
+  PR_SOURCE="off"   # deliberately skipped (--no-pr/--offline), not a failure
+fi
+
+# Open-PR info is trustworthy only from a real git-host listing. When it isn't
+# (absent/failed/degraded/off), the stale-branch section leans on git
+# merge-state alone — and when pr_source is absent or failed, section 3 is
+# suppressed entirely (no rows printed) because the predicate "no open PR"
+# cannot be evaluated.
+case "$PR_SOURCE" in gh|bb) pr_reliable=1 ;; *) pr_reliable=0 ;; esac
+
+echo "plot-reconcile sweep — $(git rev-parse --short "origin/$MAIN" 2>/dev/null) on origin/$MAIN"
+if [ "$pr_reliable" = 1 ]; then
+  echo "PR state: $PR_SOURCE pr list (open PRs enumerated)"
+elif [ "$PR_SOURCE" = off ]; then
+  echo "PR state: skipped (--no-pr) — git merge-state only; no git-host network call."
+  echo "          (stale-branch section may over-list branches with an open PR;"
+  echo "           run /plot-reconcile without --offline for the precise list.)"
+elif [ "$PR_SOURCE" = absent ]; then
+  echo "PR state: ABSENT — no git-host CLI (gh/bb) found on PATH."
+  echo "          Section 3 (stale branches) not evaluated — cannot determine which"
+  echo "          branches have an open PR without a working CLI."
+elif [ "$PR_SOURCE" = failed ]; then
+  echo "PR state: FAILED — $PR_ERROR"
+  echo "          Section 3 (stale branches) not evaluated — the git-host call failed."
+else
+  echo "PR state: DEGRADED — no git-host CLI (gh/bb) available; using git merge-state only."
+  echo "          (stale-branch section may over-list branches with an open PR;"
+  echo "           confirm each before deleting.)"
+fi
+if [ ! -d "$PLAN_DIR" ]; then
+  echo "warning: plan directory '$PLAN_DIR' not found — no plans scanned."
+  echo "         (Check the '## Plot Config' section: Plan directory.)"
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# Parse ALL plans once (single parser invocation, single awk pass), then
+# flatten to delimited rows:
+#   file | phase | phase_raw | phase_alt | phase_alt_raw
+#        | branches(space-joined) | prs(comma-joined) | type | sprint
+# joined by the ASCII unit separator (0x1f) — NOT tab: tab is IFS whitespace,
+# so bash `read` collapses runs of it and empty fields (phase_alt_raw is
+# usually empty) would shift every later field left. A non-whitespace IFS
+# preserves empty fields. Sections 1, 2, 4, 5, and 9 all read from these rows —
+# no re-parsing.
+# ---------------------------------------------------------------------------
+
+US=$'\x1f'
+plan_rows=""
+plan_json=""
+set -- "$PLAN_DIR"/[0-9]*.md
+if [ -f "${1:-}" ]; then
+  # ONE parser invocation for the whole sweep (see the single-pass note above).
+  # Captured raw as JSON lines so the unsliced-wave section (7) can read the
+  # `waves[]` structure without a second call and without a second parser — the
+  # parser is the format contract, and `a-plan-branch-can-be-a-parser-artifact`
+  # is the failure a hand-rolled branch count would reproduce.
+  plan_json=$("$script_dir/plot-plan-meta.sh" "$@" --prefixes "$PREFIX_RE" 2>/dev/null)
+  plan_rows=$(printf '%s\n' "$plan_json" \
+    | jq -r '[.file, .phase, .phase_raw, .phase_alt, .phase_alt_raw,
+              (.branches | join(" ")), (.prs | map(tostring) | join(",")),
+              (.type // ""), (.sprint // "")] | join("\u001f")')
+fi
+
+# Branches (space-joined) recorded for a plan file, from the parsed rows.
+plan_branches() { # $1=plan file path
+  printf '%s\n' "$plan_rows" | awk -F"$US" -v f="$1" '$1 == f { print $6; exit }'
+}
+
+# Is this remote branch an empty CLAIM — a ref pushed to take work atomically,
+# holding no commits of its own? Distinct from "merged" (real work, landed) and
+# from "orphan" (real work, never landed).
+# Count commits beyond main that are NOT claim markers. A claim marker must be
+# BOTH titled `plot: claim ...` AND empty (its tree equals its parent's) — the
+# subject alone is not evidence. A human commit titled "plot: claim handling
+# refactor" carrying real files would otherwise read as an empty claim, and
+# with a deferred: annotation the reaper would offer to DELETE real work.
+real_commits_beyond_main() { # $1=branch → count
+  local br="$1" c n=0 subj
+  for c in $(git rev-list "origin/$MAIN..origin/$br" </dev/null 2>/dev/null); do
+    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
+    # A claim marker is titled `plot: claim ...` AND empty. Both, or it counts
+    # as real work.
+    case "$subj" in
+      "plot: claim "*)
+        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
+             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
+          continue
+        fi ;;
+    esac
+    n=$((n + 1))
+  done
+  echo "$n"
+}
+
+is_empty_claim() { # $1=branch
+  local ahead real
+  git show-ref -q --verify "refs/remotes/origin/$1" </dev/null 2>/dev/null || return 1
+  ahead=$(git rev-list --count "origin/$MAIN..origin/$1" </dev/null 2>/dev/null || echo 0)
+  # Claim commits are empty markers pushed to take a branch (see
+  # plot-dispatch.sh, "THE CLAIM"). A branch carrying only those is claimed but
+  # unworked; one carrying any real commit is work in progress, not a claim.
+  [ "$ahead" -gt 0 ] || return 1   # nothing of its own → merged work, not a claim
+  real=$(real_commits_beyond_main "$1")
+  [ "${real:-0}" = "0" ]
+}
+# A branch with NO commits of its own is deliberately not treated as a claim,
+# even though pre-claim-commit fleets produced exactly that shape. Such a
+# branch is indistinguishable from merged work — which is why claims carry a
+# commit now. Reporting merged branches as claimed would hide real deletion
+# candidates, so the ambiguous legacy shape falls through to the stale-branch
+# logic instead.
+
+# How did this claim end? Git cannot say — an abandoned claim and a dead worker
+# leave the identical empty branch. The plan annotation is the only signal, and
+# reading it here is the ONE deliberate exception to "no gate reads the
+# annotation": this gate decides CLEANUP, not work, so a wrong annotation costs
+# at most a missed cleanup — never lost or duplicated work.
+# How old is this claim, in whole days? The claim ref's commit date is when the
+# worker took the branch.
+claim_age_days() { # $1=branch → integer days
+  local when now
+  when=$(git log -1 --format=%ct "origin/$1" </dev/null 2>/dev/null) || { echo 0; return; }
+  [ -n "$when" ] || { echo 0; return; }
+  now=$(date -u +%s)
+  echo $(( (now - when) / 86400 ))
+}
+
+claim_disposition() { # $1=branch → "abandoned" | "unresolved"
+  local br="$1" l line
+  for l in "$ACTIVE_DIR"/*.md; do
+    [ -e "$l" ] || continue
+    line=$(grep -F -- "\`$br\`" "$l" 2>/dev/null | head -1)
+    [ -n "$line" ] || continue
+    case "$line" in
+      *"<!-- deferred:"*|*"<!-- moved:"*) echo "abandoned"; return ;;
+    esac
+  done
+  echo "unresolved"
+}
+
+# Is this branch an ANCESTOR of some open PR's head — work in flight on a
+# stack, rather than work nobody picked up? Echoes the PR number of the first
+# such PR, or nothing. Asking only "is it the head" (the test above) misses
+# every branch below the top of a stack: on this repo's own history seven of
+# eight `stale=` entries were branches contained in one open PR, which is
+# enough false noise to make a person stop reading the section.
+#
+# Cost is one merge-base per candidate per open PR — branches x open PRs, both
+# small, and only reached by branches that already failed the head test.
+contained_in_open_pr() { # $1=branch → PR number, or empty
+  local br="$1" n head
+  [ -n "$open_pr_heads" ] || return 1
+  git show-ref -q --verify "refs/remotes/origin/$br" </dev/null 2>/dev/null || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    n=${line%% *}
+    head=${line#* }
+    [ "$head" = "$br" ] && continue   # itself; the head test already ran
+    git show-ref -q --verify "refs/remotes/origin/$head" </dev/null 2>/dev/null || continue
+    # plot-ancestry: prefilter — this asks whether one branch sits BELOW an open
+    # PR's head, never whether either landed. A miss prints one extra `orphan`
+    # row for a person to read; it hides nothing.
+    if git merge-base --is-ancestor "origin/$br" "origin/$head" </dev/null 2>/dev/null; then
+      echo "$n"; return 0
+    fi
+  done <<< "$open_pr_heads"
+  return 1
+}
+
+# Does a dated plan file have a symlink pointing at it from a given index dir?
+symlinked_from() { # $1=index_dir $2=dated_basename
+  local l t
+  for l in "$1"/*.md; do
+    [ -L "$l" ] || continue
+    t=$(readlink "$l" 2>/dev/null | sed 's|.*/||')
+    [ "$t" = "$2" ] && { echo "$l"; return 0; }
+  done
+  return 1
+}
+
+n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
+n_unsliced=0; n_prose=0; n_unplanned_members=0; n_sprint_unset=0; n_sprint_mismatch=0
+n_stale_tally=0; n_idx=0; n_double=0
+n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0; n_unclaimed=0; n_merged_refs=0
+n_no_changeset=0
+
+# ---------------------------------------------------------------------------
+# 1. Phase <-> symlink drift  (plot-managed plans only)
+# 5. Needs attention          (collected here in the same pass)
+# 7. Index drift, convenience level (also collected here)
+# ---------------------------------------------------------------------------
+
+drift_out=""
+attention_out=""
+index_out=""
+
+while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype _psprint; do
+  [ -n "$f" ] || continue
+  base=$(basename "$f")
+
+  in_active=""; in_delivered=""
+  in_active=$(symlinked_from "$ACTIVE_DIR" "$base" || true)
+  in_delivered=$(symlinked_from "$DELIVERED_DIR" "$base" || true)
+
+  # --- A file with no phase field is NOT A PLAN, and says so at convenience
+  # level rather than counting as attention.
+  #
+  # THIS RESOLVES A DISAGREEMENT BETWEEN TWO CONSUMERS OF ONE DIRECTORY.
+  # plot-fleet-scan.sh (#254) decided the rule: a `.md` file in $PLAN_DIR whose
+  # `phase` parses as NONE never claimed to be a plan, so the pulse does not
+  # enumerate it — measured in plot's own repo, two such files are a worker
+  # report and an open-questions note. This script used to call the SAME file a
+  # plan needing attention. Two scripts, one file, opposite verdicts is exactly
+  # the shape of the invisible-plan incident this plan exists to close, so the
+  # split is settled here rather than left for a reader to discover.
+  #
+  # Settled in #254's direction — not a plan — because the alternative puts the
+  # format contract in two places. plot-plan-meta.sh is the contract (Manifesto
+  # Principle 3); "is this a plan" is its answer, and a maintenance sweep that
+  # answered differently would be a second implementation free to drift from
+  # the first. UNKNOWN stays attention for the same reason it stays a plan
+  # there: a declared-but-unrecognised phase IS a plan with a bad field.
+  #
+  # It is not silently dropped, because the visibility the old line bought was
+  # real: a phase-less file in the plan directory is still worth a human
+  # glance, and the index-drift section is where a glance-level finding belongs
+  # now. What
+  # changes is the claim — "nobody classified this" instead of "this plan is
+  # broken" — and that it no longer inflates the `attention` count that gates
+  # /plot-deliver and the /plot hygiene line.
+  if [ "$st" = NONE ]; then
+    index_out+="  $base — no phase field → not a plan (decision log / note?)\n"
+    n_idx=$((n_idx + 1))
+    continue   # non-plans are not subject to drift or index rules
+  fi
+  if [ "$st" = UNKNOWN ]; then
+    attention_out+="  $base — unrecognized phase: '$raw_phase'\n"
+    n_att=$((n_att + 1))
+  fi
+  if [ -n "$alt_raw" ] && [ "$alt" != NONE ] && [ "$alt" != "$st" ]; then
+    attention_out+="  $base — status: '$raw_phase' disagrees with phase: '$alt_raw' (phase is machine-read)\n"
+    n_att=$((n_att + 1))
+  fi
+  # --- An unlinked plan is index drift, not an orphan.
+  #
+  # This line said "(orphaned)" and counted as attention until #254, and it was
+  # right when it was written: the fleet scan enumerated $ACTIVE_DIR, so a plan
+  # with no symlink was genuinely unreachable — invisible to every unscoped
+  # pulse, absent from the board, undispatchable. Orphaned was the accurate
+  # word for that.
+  #
+  # #254 made the pulse enumerate $PLAN_DIR and group by declared phase. The
+  # same plan is now fully visible everywhere that decides anything; only
+  # `ls $ACTIVE_DIR/` misses it. The report did not become wrong — it EXPIRED.
+  #
+  # So the severity drops to convenience: the symlinks still serve human
+  # browsing and stable slug-named paths, a missing one is worth mentioning,
+  # and the fix command is still printed for anyone who wants the browsing path
+  # back. What it must not do is count as `attention`, because that count gates
+  # the /plot-deliver delivery-landed check and the /plot hygiene line — and a
+  # cosmetic gap holding up a delivery is a false stop.
+  #
+  # A DANGLING SYMLINK KEEPS ITS SEVERITY and is reported below, separately: a
+  # link pointing at nothing is a broken pointer, which no amount of deriving
+  # makes harmless.
+  if [ -z "$in_active" ] && [ -z "$in_delivered" ]; then
+    index_out+="  $base — phase '$raw_phase', no symlink in $ACTIVE_DIR/ or $DELIVERED_DIR/ (browsing only)\n"
+    n_idx=$((n_idx + 1))
+    # Terminal phases (delivered/released AND superseded/rejected) belong in the
+    # delivered/ terminal index — not active/. Suggesting active/ for a
+    # Superseded plan is the exact wrong-default a downstream operator had to
+    # override (issue #33); route it correctly here.
+    case "$st" in
+      delivered|released|superseded|rejected) _idx="$DELIVERED_DIR" ;;
+      *)                                       _idx="$ACTIVE_DIR" ;;
+    esac
+    printf -v _cmd '    optional: ln -s ../%s %s/%s' "$base" "$_idx" \
+      "$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')"
+    index_out+="$_cmd\n"
+    continue
+  fi
+
+  # --- Drift: phase says one thing, symlink location says another ---
+  case "$st" in
+    delivered|released)
+      if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
+        slug=$(basename "$in_active")
+        drift_out+="  $base — phase '$raw_phase' but symlink still in $ACTIVE_DIR/ (half-delivery failure mode)\n"
+        drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
+        n_drift=$((n_drift + 1))
+      fi
+      ;;
+    superseded|rejected)
+      # Terminal, non-delivery phases: the symlink belongs in delivered/ too.
+      # Previously uncaught — a Superseded/Rejected plan lingering in active/
+      # kept showing up as an "active" plan it no longer is.
+      if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
+        slug=$(basename "$in_active")
+        drift_out+="  $base — phase '$raw_phase' (terminal) but symlink still in $ACTIVE_DIR/\n"
+        drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
+        n_drift=$((n_drift + 1))
+      fi
+      ;;
+    draft|approved)
+      if [ -n "$in_delivered" ] && [ -z "$in_active" ]; then
+        slug=$(basename "$in_delivered")
+        drift_out+="  $base — phase '$raw_phase' but symlink in $DELIVERED_DIR/\n"
+        drift_out+="    fix: git rm $in_delivered && ln -s ../$base $ACTIVE_DIR/$slug && git add -A\n"
+        n_drift=$((n_drift + 1))
+      fi
+      ;;
+  esac
+done <<< "$plan_rows"
+
+# --- Dangling index symlinks → attention (the severity the unlinked plan lost)
+#
+# A link in $ACTIVE_DIR/ or $DELIVERED_DIR/ whose target does not resolve. This
+# was reported NOWHERE before: the loop above walks PLANS and asks "does a link
+# point at me", so a link pointing at a file that no longer exists matched no
+# plan and was silently skipped — the check ran in the one direction that
+# cannot see it.
+#
+# It has to be reported now, and at attention level, because this is the fact
+# the demotion above must not swallow. A missing link is a browsing gap; a link
+# pointing at nothing is a BROKEN POINTER — `cat $ACTIVE_DIR/foo.md` fails, a
+# bookmarked path 404s, and the plan it named may have been renamed, moved, or
+# deleted. Deriving the phase grouping does not make that harmless: nothing
+# derives away a pointer to a file that is not there.
+#
+# No fix command is printed, deliberately. Two remedies exist — repoint the
+# link at the plan's new name, or remove a link whose plan is gone — and the
+# script cannot tell which without knowing why the target vanished. That is
+# judgment, and Principle 3 puts judgment on the other side of the line.
+for _idx_dir in "$ACTIVE_DIR" "$DELIVERED_DIR"; do
+  [ -d "$_idx_dir" ] || continue
+  for _l in "$_idx_dir"/*.md; do
+    [ -L "$_l" ] || continue
+    [ -e "$_l" ] && continue   # resolves — not our case
+    attention_out+="  $_l — symlink target missing: $(readlink "$_l" 2>/dev/null) (dangling index link)\n"
+    attention_out+="    inspect: readlink $_l — then repoint it at the renamed plan, or git rm it\n"
+    n_att=$((n_att + 1))
+  done
+done
+
+__mark "BEFORE 1. Phase<->symlink drift"
+echo "== 1. Phase<->symlink drift =="
+if [ -n "$drift_out" ]; then printf '%b' "$drift_out"; else echo "  (none — all plot-managed plans consistent)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 2. Merged-but-not-delivered
+# ---------------------------------------------------------------------------
+
+__mark "BEFORE 2. Merged-but-not-delivered (candidate /plot-deliver)"
+echo "== 2. Merged-but-not-delivered (candidate /plot-deliver) =="
+
+# Which merged PR has this branch as its head? Echoes the PR number, or nothing.
+# This is the signal that survives a DELETED branch: in single-PR mode the plan
+# and its implementation ride one idea branch, which is deleted at merge — so
+# `git branch -r --merged` can never match it, and the plan hangs unreported.
+# Deliberately NOT keyed on the plan's own `prs` field: `kanban-board-v1` sat
+# undelivered for five weeks carrying no PR annotation at all (`→ #40` was
+# back-filled at delivery). The missing annotation and the missing delivery
+# share a cause, so an annotation-dependent check is blind to exactly the plans
+# it exists to catch.
+merged_pr_for_branch() { # $1=branch → PR number, or empty
+  [ -n "$merged_pr_heads" ] || return 0
+  printf '%s\n' "$merged_pr_heads" | awk -v b="$1" '$2 == b { print $1; exit }'
+}
+
+# DID THIS BRANCH'S WORK LAND? The one question sections 2 and 3 ask, and the
+# one place that answers it.
+#
+# THE HOST FIRST. `merged_pr_heads` is this scan's merged-PR list, already
+# fetched in ONE bundled call above, so reading it costs nothing per branch —
+# and it is the only source that is right about a squash merge. Measured
+# 2026-09-04 on this estate: ten merged branches still carrying a ref, and
+# ancestry disagreeing with the host on TEN OF TEN of them. That is not an
+# occasional miss. `plot-pr-merged.sh` already states the rule the reaper and
+# the ref sweep follow — read the merge, never the state, never ancestry — and
+# this is the same rule applied where the scan kept deriving its own answer.
+#
+# ANCESTRY SECOND, AND ONLY AS A SECOND CHANCE TOWARD "LANDED". Two populations
+# need it and neither has a merged PR to read: a branch pushed straight to main
+# with no PR at all, and every branch in a repo whose host cannot be reached.
+# It can only ever ADD a merged verdict, never withdraw one, so a squash merge
+# that ancestry misreads is decided by the host above it and never reaches here.
+#
+# WHAT A WRONG ANSWER COSTS, in each direction:
+#   * a false `merged` names a live branch a deletion candidate (section 3) —
+#     which is why neither source may guess and both must be positive evidence;
+#   * a false `not merged` hides a finished plan from /plot-deliver (section 2)
+#     and leaves a landed ref unreported, which is the failure measured above.
+#
+# Section 2 keeps its own OR over the two signals rather than calling this: it
+# needs the PR NUMBER to print, so it reads `merged_pr_for_branch` directly and
+# would ask the same list twice.
+branch_merged() { # $1=branch → 0 when its work landed
+  [ -n "$(merged_pr_for_branch "$1")" ] && return 0
+  printf '%s\n' "$ancestor_of_main" | grep -qx "$1"
+}
+
+mnd_out=""
+while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype _psprint; do
+  [ -n "$f" ] || continue
+  [ "$st" = approved ] || continue
+  base=$(basename "$f")
+  merged_any=0
+  merged_pr_hits=""
+  for b in $branches; do
+    # Signal A — the ref still exists and is merged into main. Unchanged: this
+    # is how fan-out plans are caught, whose per-branch PRs merge separately.
+    if printf '%s\n' "$ancestor_of_main" | grep -qx "$b"; then merged_any=1; fi
+    # Signal B — a merged PR had this branch as its head. Catches the branch
+    # whose ref is gone. OR-ed with A, never replacing it.
+    hit=$(merged_pr_for_branch "$b")
+    if [ -n "$hit" ]; then
+      merged_any=1
+      merged_pr_hits="${merged_pr_hits:+$merged_pr_hits, }#$hit ($b)"
+    fi
+  done
+  if [ "$merged_any" = 1 ]; then
+    slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+    mnd_out+="  $base — impl branch merged to $MAIN, plan still Approved (PRs: ${prs:-none-linked})\n"
+    if [ -n "$merged_pr_hits" ]; then
+      mnd_out+="    merged PR head: $merged_pr_hits\n"
+    fi
+    mnd_out+="    consider: /plot-deliver ${slug%.md}\n"
+    n_mnd=$((n_mnd + 1))
+  fi
+done <<< "$plan_rows"
+if [ -n "$mnd_out" ]; then printf '%b' "$mnd_out"; else echo "  (none)"; fi
+# Degradation and truncation are STATED, never silent — a check that quietly
+# skipped is indistinguishable from a check that found nothing, and "silence
+# reads as health" is the exact defect this section was fixed for.
+if [ "$pr_reliable" != 1 ]; then
+  echo "  note: merged-PR heads not consulted (pr_source=$PR_SOURCE) — plans whose"
+  echo "        branch was deleted at merge cannot be detected in this mode."
+elif [ "$MERGED_PR_TRUNCATED" = 1 ]; then
+  echo "  note: merged-PR list hit its limit of $MERGED_PR_LIMIT — older merged PRs were"
+  echo "        not examined; a long-hanging plan may still be missed here."
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# 3. Stale branches
+#
+# When PR state is ABSENT or FAILED, the predicate "no open PR" cannot be
+# evaluated — printing rows would be printing confident claims from unverified
+# input. The section is suppressed: no rows, but the reason and branch count
+# are stated so the reader knows what was NOT checked.
+#
+# When PR state is OFF (--no-pr/--offline), the caller asked for git merge-state
+# only and knows what it costs — rows are printed with a warning, as before.
+#
+# stale= reports 0 when the section was not evaluated, because a consumer
+# counting stale=12 from an unevaluated section is being handed a number nobody
+# measured.
+# ---------------------------------------------------------------------------
+
+__mark "BEFORE 3. Stale branches"
+echo "== 3. Stale branches =="
+stale_out=""
+claims_out=""
+contained_out=""
+
+# Count how many branches are ahead of main — the number we would have reported
+# if PR state were available. Only counted when suppressing; otherwise derived
+# from the findings themselves.
+n_ahead_of_main=0
+
+# Suppression decision: absent or failed mean the open-PR list is unknown, so
+# the orphan/stale classification cannot run. Off (--no-pr) and degraded
+# (unknown host) print rows with a warning, preserving the old behaviour for
+# readers who know what they asked for.
+section3_suppressed=0
+case "$PR_SOURCE" in absent|failed) section3_suppressed=1 ;; esac
+
+while IFS= read -r b; do
+  [ -n "$b" ] || continue
+  case "$b" in
+    "$MAIN"|release/*) continue ;;   # protected set (main + release/*)
+  esac
+
+  # If suppressed, still count branches ahead of main for the advisory message.
+  if [ "$section3_suppressed" = 1 ]; then
+    is_merged=0
+    if branch_merged "$b"; then is_merged=1; fi
+    if [ "$is_merged" = 0 ]; then
+      n_ahead_of_main=$((n_ahead_of_main + 1))
+    fi
+    continue
+  fi
+
+  has_open_pr=0
+  if [ "$pr_reliable" = 1 ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then has_open_pr=1; fi
+  is_merged=0
+  if branch_merged "$b"; then is_merged=1; fi
+
+  if [ "$has_open_pr" = 1 ]; then
+    continue   # live work — never a stale candidate
+  fi
+  # An empty claim is neither merged work nor an orphan: someone took this
+  # branch and may still be on it. Classify it before those two verdicts, or it
+  # falls into "ahead of main → orphan", which is doubly wrong — it is not
+  # ahead, and "orphan" hides that a worker may be alive there.
+  if is_empty_claim "$b"; then
+    if [ "$(claim_disposition "$b")" = "abandoned" ]; then
+      claims_out+="  origin/$b — abandoned claim (plan says deferred/moved) → deletion candidate\n"
+      claims_out+="    fix: git push origin --delete $b\n"
+    else
+      age_d=$(claim_age_days "$b")
+      if [ "$CLAIM_STALE_H" -gt 0 ] && [ $((age_d * 24)) -ge "$CLAIM_STALE_H" ]; then
+        # Stale is EVIDENCE, not permission: still no deletion command, because
+        # a slow worker and a dead one look identical and one of them is doing
+        # real work. The age lets a human decide; the tool must not.
+        claims_out+="  origin/$b — still claimed, no commits, ${age_d}d old → stale, needs judgment\n"
+        claims_out+="    inspect: plot-dispatch.sh --status   # is its worker alive?\n"
+      else
+        claims_out+="  origin/$b — still claimed, no commits → needs judgment (worker thinking, or dead)\n"
+        claims_out+="    inspect: git log -1 --format='claimed %cr' origin/$b\n"
+      fi
+    fi
+    n_claims=$((n_claims + 1))
+    continue
+  fi
+  if [ "$is_merged" = 1 ]; then
+    # "merged" HERE MEANS THE HOST SAID SO, or — where it had no PR to read —
+    # that the tip is contained in `$MAIN`. See `branch_merged`. The wording
+    # stays "merged into $MAIN" because that is what a reader needs to act on;
+    # what changed is which source is asked first.
+    stale_out+="  origin/$b — merged into $MAIN, no open PR → deletion candidate\n"
+    stale_out+="    fix: git push origin --delete $b\n"
+  else
+    # Ahead of main and not a PR head — but is it BELOW one? A branch contained
+    # in an open PR is work in flight on a stack, and calling it an orphan is
+    # the section's loudest false answer. Only asked here, in the unmerged arm:
+    # a merged branch is an ancestor of main and therefore of every open PR
+    # head branched from it, so asking earlier would swallow the whole
+    # deletion-candidate class.
+    #
+    # ORDERING — this comes AFTER the claim check above, and the obvious reason
+    # is the wrong one. An empty claim is an ancestor of nothing: its claim
+    # commit puts it one commit AHEAD of the branch point, so the ancestry runs
+    # the other way. The real case is that once a worker builds on its claim,
+    # the claim commit becomes part of the working branch — typically the head
+    # of the PR it opens. Such a claim IS legitimately contained in an open PR,
+    # and must still be reported as a claim, because that is the more specific
+    # fact. Claim first, containment second.
+    if contained_pr=$(contained_in_open_pr "$b"); then
+      contained_out+="  origin/$b — contained in open PR #$contained_pr → not orphaned\n"
+      continue   # not stale: it does not count toward stale=
+    fi
+    stale_out+="  origin/$b — ahead of $MAIN, no open PR → orphan (needs judgment)\n"
+    stale_out+="    inspect: git log --oneline origin/$MAIN..origin/$b\n"
+  fi
+  n_stale=$((n_stale + 1))
+done <<< "$all_branches"
+
+# Output depends on whether the section was suppressed.
+if [ "$section3_suppressed" = 1 ]; then
+  # Section not evaluated — no rows, but say why and report the count.
+  if [ "$PR_SOURCE" = absent ]; then
+    echo "  (not evaluated — PR state unknown: $PR_ERROR)"
+  else
+    echo "  (not evaluated — PR state unknown: $PR_ERROR)"
+  fi
+  echo "  $n_ahead_of_main branches are ahead of $MAIN; whether any is stale cannot be decided"
+  echo "  without the open-PR list. Re-run once the git host answers."
+  # stale= stays 0 — nobody measured it.
+else
+  if [ -n "$stale_out" ]; then printf '%b' "$stale_out"; else echo "  (none)"; fi
+  if [ -n "$claims_out" ]; then
+    echo
+    echo "  -- claims (empty branches taken by a worker) --"
+    printf '%b' "$claims_out"
+  fi
+  # Printed rather than silent: the section stays honest about what it examined
+  # and rejected. A scan that quietly drops findings is what this plan was
+  # written to fix — "silence reads as health".
+  if [ -n "$contained_out" ]; then
+    echo
+    echo "  -- contained in an open PR (work in flight, not stale) --"
+    printf '%b' "$contained_out"
+  fi
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# 4. Concurrent-delivery check (active plans' impl branches vs main)
+# ---------------------------------------------------------------------------
+
+__mark "BEFORE 4. Concurrent-delivery check (active plans)"
+echo "== 4. Concurrent-delivery check (active plans) =="
+cd_out=""
+for l in "$ACTIVE_DIR"/*.md; do
+  [ -L "$l" ] || continue
+  target=$(readlink "$l" 2>/dev/null | sed 's|.*/||')
+  df="$PLAN_DIR/$target"
+  [ -f "$df" ] || continue
+  branches=$(plan_branches "$df")
+  for b in $branches; do
+    git rev-parse --verify --quiet "origin/$b" >/dev/null 2>&1 || continue
+    counts=$(git rev-list --left-right --count "origin/$MAIN...origin/$b" 2>/dev/null)
+    behind=$(printf '%s' "$counts" | awk '{print $1}')
+    ahead=$(printf '%s' "$counts" | awk '{print $2}')
+    cd_out+="  $b — ${ahead:-?} ahead / ${behind:-?} behind origin/$MAIN\n"
+    n_conc=$((n_conc + 1))
+  done
+done
+if [ -n "$cd_out" ]; then printf '%b' "$cd_out"; else echo "  (no active plans with resolvable impl branches)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 5. Needs attention
+# ---------------------------------------------------------------------------
+
+__mark "BEFORE 5. Needs attention (malformed / non-conforming / broken poin"
+echo "== 5. Needs attention (malformed / non-conforming / broken pointers) =="
+if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (none)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 6. Delivered plans whose work is already inside a release tag.
+#
+# The fourth phase went unreached for sixteen releases because nothing compared
+# these two facts: /plot-release ships a version, and the plans describing that
+# version stay at Delivered. Neither side is wrong on its own, so neither side
+# complained.
+#
+# The question is "which release tag contains this plan's merge commit", and
+# git answers it exactly. It is deliberately NOT a date comparison: the
+# delivery date records when a plan was BOOKED, not when its code merged (one
+# plan here sat five months between the two), and two tags in this repo share a
+# date, so day resolution cannot separate them even in principle.
+__mark "BEFORE 6. Delivered but already released (candidate /plot-release)"
+echo "== 6. Delivered but already released (candidate /plot-release) =="
+unrel_out=""
+while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
+  [ -n "$f" ] || continue
+  [ "$st" = delivered ] || continue
+  # docs/infra plans end at Delivered: /plot-deliver already tells their authors
+  # "live on main — no release needed". Reporting them here would contradict a
+  # message Plot itself sends, on every sweep, forever.
+  case "$ptype" in docs|infra) continue ;; esac
+
+  base=$(basename "$f")
+  if [ -z "$prs" ]; then
+    # "Cannot tell" and "nothing wrong" must not look the same — that
+    # indistinguishability is the whole finding this section exists for.
+    unrel_out+="  $base — delivered, but no PR annotation → cannot resolve a version\n"
+    unrel_out+="    inspect: add → #N to its Branches section, then re-run\n"
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
+  last_pr="${prs##*,}"
+  sha=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null \
+        | jq -r '.mergeCommit // empty' 2>/dev/null)
+  # No grep fallback. An earlier draft searched commit messages for "#N", which
+  # matched any commit MENTIONING the PR rather than its merge — and reported
+  # v2.2.0 for a plan that shipped in v1.7.0. A wrong version in a transition
+  # record is a claim nobody re-checks, so an unanswerable case says so instead.
+  if [ -z "$sha" ]; then
+    unrel_out+="  $base — delivered, but PR #$last_pr has no merge commit → cannot resolve\n"
+    unrel_out+="    inspect: gh pr view $last_pr --json state,mergeCommit\n"
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
+  tag=$(git tag --contains "$sha" 2>/dev/null \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
+  [ -n "$tag" ] || continue   # genuinely not released yet — nothing to report
+
+  slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+  unrel_out+="  $base — shipped in $tag, plan still Delivered\n"
+  unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
+  n_unrel=$((n_unrel + 1))
+done <<< "$plan_rows"
+if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# THE BLOCKING/NON-BLOCKING BOUNDARY, NAMED RATHER THAN COUNTED.
+#
+# Everything above this line is a finding that stops a delivery; everything
+# below it is a shape for somebody to fix. /plot-deliver's delivery-landed gate
+# reads to this marker and greps what came before it.
+#
+# IT REPLACES A LINE NUMBER. The gate was `sed -n '/^== 7./q;p'`, whose MEANING
+# was *stop before the first non-blocking section* and whose EXPRESSION was the
+# number 7. The two agreed by maintenance: this scan has been renumbered twice,
+# and each time somebody had to notice that a section inserted below 7 would
+# silently shrink the delivery gate. Three comment blocks in this file and two
+# tests existed to make sure they did.
+#
+# A MARKER LINE RATHER THAN A FOOTER KEY OR A LIST OF TITLES, and the choice is
+# about what an added section costs. The footer counts findings, and the gate
+# needs to know WHICH PLAN — a count cannot answer that. A list of section
+# titles in /plot-deliver puts the boundary in the file that does not own it:
+# every new blocking section would need a second edit, and a renamed heading
+# would shrink the gate with nothing failing. This line sits where the boundary
+# IS, in the one file that decides section order, so adding a section is a
+# question of which side of it the section goes — which is the decision the
+# author is already making.
+#
+# MOVING IT IS THE WHOLE EDIT. A new blocking section goes above this line, a
+# new advisory one below, and no number anywhere needs to change.
+__mark "BEFORE blocking sections end"
+echo "== blocking sections end =="
+echo
+
+# ---------------------------------------------------------------------------
+# 7. Uncut slices
+#
+# A wave holds exactly one branch (MANIFESTO.md): a `### ` heading carrying MORE
+# THAN ONE branch line is a shape /plot-reslice can repair. This section reports
+# every such heading — its plan file, its heading, and its branch count — and
+# repairs nothing. That is Manifesto Principle 3's split: this collects,
+# /plot-reslice and a person conclude.
+#
+# IT DOES NOT GATE, and that is load-bearing, not a preference. /plot-deliver's
+# delivery-landed gate and the /plot hygiene line both read `attention=` from
+# the footer; adding a cosmetic-by-nature finding to that count would make every
+# delivery in this repo stop on an uncut slice that blocks nothing. An
+# uncut slice is a SHAPE TO FIX, not a branch that cannot move — so it carries
+# its own footer counter (`unsliced_waves=`) exactly as index drift carries
+# `index_drift=`, and stays out of `attention`.
+#
+# PLACEMENT: it is actionable (someone runs /plot-reslice) where index drift is
+# pure convenience, so it sits BEFORE index drift. What puts it outside the
+# delivery gate is the `== blocking sections end ==` marker above, not its
+# number — this section has been 7 since index drift moved to 9 and then 10,
+# and the gate did not have to be told about either move.
+#
+# The COUNT is branch LINES under the heading, taken from plot-plan-meta.sh's
+# `waves[]` — never a second parser. A backticked branch name in a plan's prose
+# is not a branch line (`a-plan-branch-can-be-a-parser-artifact`), and the
+# parser already draws that distinction; re-deriving it here would reproduce the
+# exact defect. A file with no `Phase:` is not a plan (phase == NONE) and is
+# skipped, the same rule section 1 applies. A `complete`/`released` wave is
+# history and still counts: hiding it would be lying about the estate, and
+# /plot-reslice declines the waves it should — that is a constraint on the
+# REPAIR, not on the REPORT.
+__mark "BEFORE 7. Uncut slices (a slice holds one branch — candidate /plot-"
+echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
+unsliced_out=""
+if [ -n "$plan_json" ]; then
+  # One jq pass over the already-captured parser output, one record per
+  # multi-branch wave: file, heading (may be empty for an unnamed wave), branch
+  # count. Fields are joined with the ASCII unit separator (US, 0x1f) and read
+  # with IFS="$US" — NOT a tab: a wave with an empty name emits an empty middle
+  # field, and tab is IFS whitespace, so `read` would collapse the two adjacent
+  # tabs and shift the count into the name. This is the same reason plan_rows
+  # uses US above; @tsv here reproduced exactly that field-shift bug.
+  # Phase-less files (phase == "NONE") are dropped, matching "a file with no
+  # Phase: is not a plan".
+  while IFS="$US" read -r f wname wcount; do
+    [ -n "$f" ] || continue
+    base=$(basename "$f")
+    slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+    # An unnamed wave (branches before any `### `) has no heading to name; say so
+    # rather than print an empty token.
+    disp="${wname:-(unnamed wave)}"
+    unsliced_out+="  $base — wave '$disp' carries $wcount branch lines (a wave holds one)\n"
+    # /plot-reslice is the repair, and it needs a human to name the slices and
+    # argue their order — so the verb is `reslice:`, not `fix:`: a person must
+    # decide, exactly as the index-drift section's is `optional:`.
+    unsliced_out+="    reslice: /plot-reslice ${slug%.md}\n"
+    n_unsliced=$((n_unsliced + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r 'select(.phase != "NONE") | .file as $f
+             | .waves[]? | select((.branches | length) > 1)
+             | [$f, .name, (.branches | length | tostring)] | join("")')
+fi
+if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every slice holds a single branch)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 8. Prose wave names
+#
+# A wave name is a label — Shaped, Gated, Folded, Offered first. A sentence-
+# length heading (the offender in the estate is 53 characters) is a plan-
+# authoring mistake the board can only render badly: the name cell is sized for
+# a word, so a sentence paints over the cells beside it. This section reports
+# every such name — its plan file and the name — so the PLAN gets fixed, rather
+# than the board being asked to make prose fit a label's cell.
+#
+# IT REPORTS; IT DOES NOT REFUSE, and it DOES NOT GATE. The name is already in
+# the estate: a parser that rejected it would make an existing plan unreadable
+# rather than untidy, so plot-plan-meta.sh keeps returning the wave and this
+# only surfaces the length. And like the unsliced-wave section above, it stays
+# OUT of the `attention` count: /plot-deliver's delivery-landed gate and the
+# /plot hygiene line read `attention=` from the footer, and a cosmetic finding
+# there would fail every delivery in this repo. So it carries its own footer
+# counter (`prose_wave_names=`), exactly as uncut slices and index drift do.
+#
+# PLACEMENT: it is actionable (someone renames the heading) like the unsliced
+# section, so it sits with it — below the `== blocking sections end ==` marker
+# and before index drift. Nothing had to be told its number when index drift
+# moved past it.
+#
+# The THRESHOLD is the parser's judgement, applied ONCE in plot-plan-meta.sh
+# (LONG_WAVE_NAME_MAX): this reads the `long_wave_names` field it emits and never
+# re-measures. The parser counts the SAME wave names it reports in waves[], so a
+# backticked name in a plan's prose is not a wave name — the distinction
+# `a-citation-is-not-a-claim` exists for. A file with no `Phase:` is not a plan
+# (phase == NONE) and is skipped, the same rule sections 1 and 7 apply.
+__mark "BEFORE 8. Prose slice names (a slice name is a label, not a sentenc"
+echo "== 8. Prose slice names (a slice name is a label, not a sentence) =="
+prose_out=""
+if [ -n "$plan_json" ]; then
+  # One jq pass over the already-captured parser output, one record per
+  # over-long wave name: file, name. Fields joined with the ASCII unit separator
+  # (US, 0x1f) and read with IFS="$US" — NOT a tab: a wave name can contain
+  # runs of spaces, and tab is IFS whitespace, so `read` would mangle them. Same
+  # reason plan_rows and the unsliced section use US. Phase-less files
+  # (phase == "NONE") are dropped, matching "a file with no Phase: is not a plan".
+  while IFS="$US" read -r f wname; do
+    [ -n "$f" ] || continue
+    base=$(basename "$f")
+    slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+    prose_out+="  $base — wave name '$wname' reads as prose, not a label (rename it)\n"
+    # The repair is a human editing the plan: a wave heading shortened to a label.
+    # Not a `fix:` command a shell can run — naming is judgement — so the verb is
+    # `rename:`, exactly as the uncut-slices section's is `reslice:` and index drift's is `optional:`.
+    prose_out+="    rename: shorten the wave heading in prose ${slug%.md} (full name kept on hover)\n"
+    n_prose=$((n_prose + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r 'select(.phase != "NONE") | .file as $f
+             | .long_wave_names[]? | [$f, .] | join("")')
+fi
+if [ -n "$prose_out" ]; then printf '%b' "$prose_out"; else echo "  (none — every slice name is a label)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 9, 10, 11. Sprint membership — THREE findings, three counters
+#
+# One pass over the sprint files answers three different questions, and each
+# gets its own section, heading and footer key. They shared one counter
+# (`sprint_drift=`) until 2026-09-11, when the number read 57 and nothing had
+# ever consumed it — so a reader who wanted to act had to re-derive the split
+# from 57 lines. The same argument three prior sections already made against
+# folding INTO this counter (`sprint_index_drift=`, `sprint_shipped=`: one
+# number answering two questions) applied to the counter itself.
+#
+#   9. `unplanned_members=` — a sprint member whose slug names no plan.
+#                             REPORTED, AND NOT DRIFT. See below.
+#  10. `sprint_unset=`      — a plan listed by a sprint with no `Sprint:` field.
+#                             Real, and mechanically fixable by a person.
+#  11. `sprint_mismatch=`   — a plan whose `Sprint:` names a DIFFERENT sprint.
+#                             Real, and needs a person: it is a disagreement
+#                             about what shipped where.
+#
+# SECTION 9 IS NOT A DEFECT COUNT, which is why it is named for its shape
+# rather than for drift. A slice that merges as a PR with no plan file is a
+# normal, frequent shape here: of the 18 measured on 2026-09-11, eight belonged
+# to a sprint whose own note said "Nothing here has a plan yet" — deliberately,
+# and it closed that way — and eight more had every one of them SHIPPED. So
+# this component RISES AS WORK SUCCEEDS. A counter whose largest share grows
+# when the estate is healthy is not a health signal, and merging it with the
+# two real defects buried them.
+#
+# WHY THE OTHER TWO MATTER: The plan's `Sprint:` field is a back-reference, not
+# the source of truth; membership comes from the sprint file's `- [ ] [slug]`
+# list. A filter joining on `plan.Sprint` would show 5 of 19 plans and silently
+# hide the rest — including the sprint's largest Must Haves. These sections
+# report the disagreement so it can be fixed, while the filter always works.
+#
+# THE SPRINT FILE IS THE TRUTH. When a plan's `Sprint:` disagrees, the plan's
+# field is what needs editing, not the sprint file's membership. The one
+# exception — a sprint member naming no plan — is the sprint file's fault, and
+# that is section 9.
+#
+# NOTHING HERE IS BACKFILLED AUTOMATICALLY. The `Sprint:` field is a claim about
+# intent, and a script writing one would be inventing it; the `backfill:` line
+# is copy-paste text a person runs.
+#
+# NONE OF THE THREE GATES, and that is deliberate: /plot-deliver's
+# delivery-landed gate and the /plot hygiene line both read `attention=` from
+# the footer. A cosmetic finding there would fail every delivery. So each
+# carries its own footer counter, exactly as uncut slices and prose names do,
+# and all three sit below the `== blocking sections end ==` marker.
+unplanned_members_out=""
+sprint_unset_out=""
+sprint_mismatch_out=""
+SPRINT_DIR=$(cfg "Sprint directory" "docs/sprints/"); SPRINT_DIR="${SPRINT_DIR%/}"
+
+# Build newline-delimited maps of "slug<TAB>sprint" and "slug<TAB>phase" from
+# plan_rows. Uses plan_rows which has: file|phase|...|type|sprint (phase is
+# field 2, sprint is field 9). The slug is derived from the file basename, same
+# as elsewhere. The phase map is what the stale-sprint-tally section reads to answer "is this
+# sprint item's plan delivered/released" — the PHASE, never the directory.
+plan_sprint_map=""
+plan_phase_map=""
+while IFS="$US" read -r f _st _raw _alt _alt_raw _branches _prs _ptype psprint; do
+  [ -n "$f" ] || continue
+  base=$(basename "$f" .md)
+  # `2026-08-23-the-foo` → `the-foo`
+  pslug=$(printf '%s' "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+  plan_sprint_map="$plan_sprint_map$pslug"$'\t'"$psprint"$'\n'
+  plan_phase_map="$plan_phase_map$pslug"$'\t'"$_st"$'\n'
+done <<< "$plan_rows"
+
+# Lookup a plan's phase from the map. $1 = slug; prints the phase (draft,
+# approved, delivered, released, …) or nothing. Returns 0 if the slug names a
+# known plan, 1 otherwise — an item whose slug resolves to no plan is not this
+# section's finding (the brief: bare prose lines carry no phase to read).
+lookup_plan_phase() {
+  local result
+  result=$(printf '%s' "$plan_phase_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
+  if printf '%s' "$plan_phase_map" | grep -q "^$1"$'\t'; then
+    printf '%s' "$result"
+    return 0
+  fi
+  return 1
+}
+
+# Lookup a plan's sprint field from the map.
+# $1 = slug; prints the sprint field value (may be empty)
+# Returns 0 if found, 1 if not found.
+lookup_plan_sprint() {
+  local result
+  result=$(printf '%s' "$plan_sprint_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
+  if printf '%s' "$plan_sprint_map" | grep -q "^$1"$'\t'; then
+    printf '%s' "$result"
+    return 0
+  fi
+  return 1
+}
+
+# Parse each sprint file and check its members. Walk ALL sprint files (not just
+# active/) because a closed sprint's membership is still subject to drift.
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    # Extract sprint slug from filename: `2026-W35-the-board-tells-the-truth` → `the-board-tells-the-truth`
+    sf_base=$(basename "$sf" .md)
+    sprint_slug=$(printf '%s' "$sf_base" | sed -E 's/^[0-9]{4}-W?[0-9]{2}(-[0-9]{2})?-//')
+    # Track which slugs we've seen in THIS sprint file — a plan sliced across
+    # waves lists its slug once per wave, but we only report drift once.
+    seen_in_sprint=""
+    # Parse member lines: `- [ ] [slug]` or `- [x] [slug]` — same regex as board.ts
+    while IFS= read -r line; do
+      # Match `- [ ] [slug]` or `- [x] [slug]` lines, extract the slug
+      if [[ "$line" =~ ^-\ \[\ \|x\]\ \[([^\]]+)\] ]]; then
+        member_slug="${BASH_REMATCH[1]}"
+      elif [[ "$line" =~ ^-\ \[(\ |x)\]\ \[([^\]]+)\] ]]; then
+        member_slug="${BASH_REMATCH[2]}"
+      else
+        continue
+      fi
+      # Dedupe: a plan with multiple waves appears multiple times in the file,
+      # but we only report drift once per slug per sprint.
+      case "$seen_in_sprint" in
+        *"$member_slug"*) continue ;;
+      esac
+      seen_in_sprint="$seen_in_sprint$member_slug"$'\n'
+
+      # Does this slug name a plan we know about? Section 9 — not drift.
+      if ! plan_field=$(lookup_plan_sprint "$member_slug"); then
+        unplanned_members_out+="  $sf_base → [$member_slug] — sprint member names no plan\n"
+        unplanned_members_out+="    inspect: is the slug a typo, or has the plan been renamed/deleted?\n"
+        n_unplanned_members=$((n_unplanned_members + 1))
+        continue
+      fi
+
+      # Does the plan's Sprint: field match this sprint's slug?
+      if [ -z "$plan_field" ]; then
+        # Section 10 — real, and mechanically fixable.
+        sprint_unset_out+="  $member_slug — listed by sprint '$sprint_slug' but plan has no Sprint: field\n"
+        sprint_unset_out+="    backfill: add \`Sprint: $sprint_slug\` to the plan's ## Status section\n"
+        n_sprint_unset=$((n_sprint_unset + 1))
+      elif [ "$plan_field" != "$sprint_slug" ]; then
+        # Section 11 — real, and needs a person. BOTH names are printed: a
+        # reader cannot act knowing only one of them.
+        sprint_mismatch_out+="  $member_slug — listed by sprint '$sprint_slug' but plan Sprint: says '$plan_field'\n"
+        sprint_mismatch_out+="    fix: update the plan's Sprint: field to '$sprint_slug', or remove it from the sprint file\n"
+        n_sprint_mismatch=$((n_sprint_mismatch + 1))
+      fi
+    done < "$sf"
+  done
+fi
+
+# The three headings. Section 9 is deliberately NOT worded as drift: it reports
+# a shape that a healthy estate produces, and a reader acts on the wording.
+__mark "BEFORE 9. Unplanned sprint members (reported, not drift — a slice m"
+echo "== 9. Unplanned sprint members (reported, not drift — a slice may ship as a PR with no plan) =="
+if [ -n "$unplanned_members_out" ]; then printf '%b' "$unplanned_members_out"; else echo "  (none — every sprint member names a plan)"; fi
+echo
+
+__mark "BEFORE 10. Sprint field unset (plan listed by a sprint carries no S"
+echo "== 10. Sprint field unset (plan listed by a sprint carries no Sprint: field) =="
+if [ -n "$sprint_unset_out" ]; then printf '%b' "$sprint_unset_out"; else echo "  (none — every listed plan names its sprint)"; fi
+echo
+
+__mark "BEFORE 11. Sprint mismatch (plan's Sprint: names a different sprint"
+echo "== 11. Sprint mismatch (plan's Sprint: names a different sprint) =="
+if [ -n "$sprint_mismatch_out" ]; then printf '%b' "$sprint_mismatch_out"; else echo "  (none — every listed plan agrees with its sprint)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 10. Index drift (convenience level)
+#
+# A SEPARATE SECTION rather than a softer line inside section 5, because
+# section 5's count is load-bearing: /plot-deliver's delivery-landed gate and
+# the /plot hygiene line both read `attention=` from the footer, and a section
+# that mixed "worth a glance" with "needs a decision" would leave every reader
+# of that number to re-derive the split from the body — which is what reading a
+# machine-countable footer is meant to avoid.
+#
+# Nothing here blocks anything. The findings are cosmetic by construction: the
+# derived phase grouping (#254) already sees these plans, so the only thing
+# missing is the browsing convenience, and the printed command is `optional:`
+# for that reason — section 1's are `fix:`.
+__mark "BEFORE 12. Index drift (convenience — nothing depends on these)"
+echo "== 12. Index drift (convenience — nothing depends on these) =="
+if [ -n "$index_out" ]; then printf '%b' "$index_out"; else echo "  (none — the convenience indexes match the plans)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 11. Stale sprint tally
+#
+# Sprint items left unchecked whose plan is delivered or released — in CLOSED
+# sprints as well as active ones. A closed sprint's tally is never recomputed
+# by anything; `/plot-sprint close` (wave 1, #457) fixes every sprint closed
+# from now on, but nothing fixes the ones already closed before that fix
+# shipped. Those are the population this section exists for.
+#
+# ADVISORY, exactly like the sprint-membership sections. It names the file, the item and the plan's
+# phase, prints the fix, and GATES NOTHING. A closed sprint with a stale tick
+# is wrong, not broken, and rewriting history automatically is worse than
+# reporting it. The footer carries its own counter (`stale_tally=`), and it
+# stays out of `attention=`.
+#
+# An item with no resolvable plan is SKIPPED SILENTLY. Two shapes reach this:
+# a bare prose line with no `[slug]` at all — "A release window: dispatch
+# refuses…" — which the member regex never matches, and a `[slug]` that names
+# no plan file, for which lookup_plan_phase returns non-zero. Both carry no
+# phase to read, so the question this section asks (is the plan delivered?) has
+# no answer. Naming them would say "this item is stale" when all we know is
+# "this item has no plan" — and the slug-names-no-plan case is already section
+# 9's finding (sprint drift → sprint member names no plan).
+#
+# THE PHASE, NOT THE DIRECTORY. The brief is explicit: `plot-plan-meta.sh`
+# answers the phase. A delivered plan whose symlink move failed — the case
+# `/plot-deliver` deliberately made survivable — must still report as done.
+__mark "BEFORE 13. Stale sprint tally (unchecked items whose plan is delive"
+echo "== 13. Stale sprint tally (unchecked items whose plan is delivered/released) =="
+stale_tally_out=""
+
+# Walk ALL sprint files (not just active/) because a CLOSED sprint is exactly
+# the population whose tally nothing else will ever recompute.
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    sf_base=$(basename "$sf" .md)
+    # Track which slugs we've seen in THIS sprint file — a plan sliced across
+    # waves lists its slug once per wave, but we only report staleness once.
+    seen_stale_in_sprint=""
+    # Parse member lines: `- [ ] [slug]` or `- [x] [slug]` — same regex as
+    # board.ts and the sprint-membership sections. Only UNCHECKED items matter here.
+    while IFS= read -r line; do
+      # Extract check state and slug.
+      local_checked=""
+      local_slug=""
+      if [[ "$line" =~ ^-\ \[\ \]\ \[([^\]]+)\] ]]; then
+        local_checked=false
+        local_slug="${BASH_REMATCH[1]}"
+      elif [[ "$line" =~ ^-\ \[[xX]\]\ \[([^\]]+)\] ]]; then
+        local_checked=true
+        local_slug="${BASH_REMATCH[1]}"
+      else
+        continue
+      fi
+      # Only unchecked items are candidates.
+      [ "$local_checked" = false ] || continue
+      # Dedupe: a plan with multiple waves appears multiple times.
+      case "$seen_stale_in_sprint" in
+        *"$local_slug"*) continue ;;
+      esac
+      seen_stale_in_sprint="$seen_stale_in_sprint$local_slug"$'\n'
+
+      # Does this slug name a plan we know about? An unresolvable item is not
+      # this section's finding — skip silently (see comment above).
+      if ! plan_phase=$(lookup_plan_phase "$local_slug"); then
+        continue
+      fi
+      # Is the plan delivered or released? Only those are stale.
+      case "$plan_phase" in
+        delivered|released)
+          stale_tally_out+="  $sf_base → [$local_slug] — unchecked but plan is $plan_phase\n"
+          stale_tally_out+="    fix: tick the item, or add an annotation explaining why it stays unchecked\n"
+          n_stale_tally=$((n_stale_tally + 1))
+          ;;
+      esac
+    done < "$sf"
+  done
+fi
+
+if [ -n "$stale_tally_out" ]; then printf '%b' "$stale_tally_out"; else echo "  (none — every unchecked item's plan is still open)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 12. Double-claimed branches
+#
+# A branch listed by MORE THAN ONE plan. Reports every such branch, naming both
+# plans and the wave each lists it under, and repairs nothing — Manifesto
+# Principle 3's split: this collects, a person concludes.
+#
+# WHY THIS EXISTS: the board found this defect and the sweep whose whole purpose
+# is estate faults did not. Two rows wore an orange `claimed twice` mark on
+# 2026-08-23 while all eleven sections here reported clean, so the board was the
+# only thing in the system that could see it.
+#
+# WAVE 1 IS WHAT MAKES THIS MEANINGFUL. Before the matcher was anchored (#490),
+# plot-plan-meta.sh read any backticked branch name anywhere under `## Branches`
+# as a claim, so a plan CITING another plan's branch to declare a dependency
+# read as a second claimant. Roughly two in three backticked branch names in
+# `docs/plans/` are citations rather than claims, so this section built first
+# would have been a list of false positives. Anchored, a double claim can only
+# come from two plans genuinely LISTING one branch — a real conflict needing a
+# human, and exactly what belongs here.
+#
+# IT DOES NOT GATE, and that is load-bearing, not a preference. /plot-deliver's
+# delivery-landed gate and the /plot hygiene line both read `attention=` from
+# the footer. A double claim is a SHAPE TO FIX — both plans' waves can still
+# move, and the branch itself is fine — so putting it in `attention` would stop
+# every delivery in this repo over bookkeeping. It carries its own footer
+# counter (`double_claims=`), exactly as uncut slices, prose names, sprint
+# drift and index drift do.
+#
+# PLACEMENT: below the `== blocking sections end ==` marker, which is what puts
+# it outside /plot-deliver's gate. Its own number is free to change: no consumer
+# reads one.
+#
+# THE CLAIM SET IS THE PARSER'S, never a second one. Branch and wave both come
+# from plot-plan-meta.sh's `waves[]` — the same source sections 7 and 8 read.
+# Re-deriving "which branches does this plan claim" with a grep here would
+# reproduce the very defect wave 1 removed, one layer up. A file with no
+# `Phase:` is not a plan (phase == NONE) and is skipped, the same rule sections
+# 1, 7 and 8 apply: a decision log naming a branch is not a claimant.
+#
+# ONE FINDING PER BRANCH, not one per claimant: the finding IS the collision, so
+# a branch claimed by three plans is one line naming three, not three lines.
+__mark "BEFORE 14. Double-claimed branches (one branch, two plans — a perso"
+echo "== 14. Double-claimed branches (one branch, two plans — a person decides) =="
+double_out=""
+if [ -n "$plan_json" ]; then
+  # One jq pass over the already-captured parser output. Emits one record per
+  # branch claimed more than once: branch, the claimants as `slug (wave)` joined
+  # by `, `, and how many. jq does the grouping so the shell loop stays a
+  # renderer — the same division of labour sections 7 and 8 use.
+  #
+  # `--slurp` IS LOAD-BEARING, and it is what makes this section different from
+  # every other one here. The parser emits ONE JSON OBJECT PER PLAN, and jq
+  # without `-s` evaluates the whole program once per object. Sections 7 and 8
+  # ask a question about a SINGLE plan (does this wave hold two branches, is
+  # this name too long), so per-object evaluation is exactly right for them.
+  # This section asks a question ACROSS plans — is this branch claimed twice —
+  # which cannot be answered from one object at a time. Unslurped, `group_by`
+  # groups each plan against itself, every group has length 1, and the section
+  # reports `(none)` on an estate that has a collision. That failure is INVISIBLE
+  # in the report, because a clean estate prints the same line; it was caught
+  # here only by counting the collisions independently first.
+  #
+  # Fields are joined with the ASCII unit separator (US, 0x1f) and read with
+  # IFS="$US" — NOT a tab: a wave name can contain runs of spaces, and tab is
+  # IFS whitespace, so `read` would mangle them. Same reason plan_rows and
+  # sections 7 and 8 use US.
+  #
+  # An unnamed wave (branches before any `### `) has no heading to name, so it
+  # renders as `(unnamed wave)` rather than an empty parenthesis — section 7
+  # makes the same substitution for the same reason.
+  #
+  # DEDUPED BY PLAN, not by claim line: a plan that lists one branch twice (in
+  # two waves, or twice in one) is ONE claimant, not two. Without this a single
+  # plan's own duplicate would read as a conflict between two plans, which is a
+  # different fault with a different repair — and it is not this section's.
+  while IFS="$US" read -r br claimants n_claimants; do
+    [ -n "$br" ] || continue
+    double_out+="  $br — claimed by $n_claimants plans: $claimants\n"
+    # The repair is a human editing one of the plans: deciding which plan owns
+    # the branch and how the other expresses its dependency. Not a `fix:` a
+    # shell can run — ownership is judgement — so the verb is `resolve:`,
+    # exactly as section 7's is `reslice:` and section 8's is `rename:`.
+    double_out+="    resolve: decide which plan owns \`$br\`; the other should cite it in prose, not list it\n"
+    n_double=$((n_double + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -s -r --arg US "$US" '
+        [ .[] | select(.phase != "NONE")
+          | (.file | sub("^.*/"; "") | sub("\\.md$"; "")
+                   | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")) as $slug
+          | .waves[]? as $w
+          | $w.branches[]?
+          | { branch: .branch, slug: $slug,
+              wave: (if ($w.name // "") == "" then "(unnamed wave)" else $w.name end) } ]
+        | group_by(.branch)[]
+        | unique_by(.slug) as $per_plan
+        | select(($per_plan | length) > 1)
+        | [ ($per_plan[0].branch),
+            ($per_plan | map(.slug + " (" + .wave + ")") | join(", ")),
+            ($per_plan | length | tostring) ]
+        | join($US)')
+fi
+if [ -n "$double_out" ]; then printf '%b' "$double_out"; else echo "  (none — every branch is claimed by exactly one plan)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 13. Stale interrogation rounds
+#
+# A Draft plan whose recorded round predates its own last amendment. The
+# finding is the DISAGREEMENT between what the plan says it was questioned
+# through and what its text has become since — the case the board's badge gets
+# wrong, because the badge shows the number and the reader cannot see that the
+# questioning predates the current text.
+#
+# A MISSING ROUND IS NOT A DEFECT. A plan with no `Rounds:` field produces no
+# finding: a plan nobody has questioned is honestly unquestioned, and
+# `PlanCard.tsx` renders no badge for it — silence, not a zero. Only a plan
+# that HAS a recorded round can disagree with itself. The test is the KEY'S
+# PRESENCE (`has("rounds")`), never its truthiness: `- **Rounds:** 0` is a
+# recorded value — a plan explicitly saying it was never questioned — and a
+# shell test treating `0` as empty would silence exactly that plan.
+#
+# THE PARSER IS THE SOURCE, never a second grep. plot-plan-meta.sh reads
+# `Rounds:` from three places in a fixed order (## Status, YAML front matter,
+# the CHALLENGE-THE-PLAN-METADATA block), and `plan_json` above already holds
+# its answer. Re-deriving the number here would reproduce the defect wave 1 of
+# the reslice work removed, one layer up, and would disagree with the board
+# whenever a plan uses front matter or the block.
+#
+# IT DOES NOT COUNT ROUNDS FROM GIT. Bookkeeping commits, PR annotations and
+# phase flips all touch a plan, so a commit count over-counts; an interrogation
+# whose findings land in one commit under-counts. A round is a judgement about
+# what happened, not a diff count. This compares a recorded round against an
+# edit date and reports only that the two disagree.
+#
+# THE TWO DATES, AND WHY THESE TWO — the plan left this open, so it is decided
+# here:
+#   - the amendment:    `git log -1 --format=%ct -- <plan>`, the same call
+#                       claim_age_days uses. The plan file's last commit.
+#   - the round record: `git log -1 --format=%ct -G'[Rr]ounds?[:*"]' -- <plan>`,
+#                       the last commit that CHANGED a rounds line.
+# `-G` and not `-S`. `-S` counts occurrences of the string, so a value edited
+# from `Rounds: 1` to `Rounds: 2` leaves the count at one and `-S` reports the
+# commit that first introduced the field — measured 2026-09-01 in a three-commit
+# fixture, `-S` named c1 where `-G` named c2. The pattern spans all three
+# sources the parser reads, including the block's `"round":` key.
+#
+# THE FINDING IS WEAKER THAN THE FACT, and it names its inputs so a reader can
+# judge it: the recorded round, the commit the round was last written in, and
+# the commit that amended the plan after it. A hint that names its inputs can
+# be argued with; a bare verdict cannot. Two shapes are silent rather than
+# guessed: a plan whose rounds line has no commit of its own (uncommitted, or a
+# repo the file was added to whole), and one whose amendment is that same
+# commit.
+#
+# DRAFT PLANS ONLY. An Approved plan has already passed the review the
+# questioning feeds; a Draft plan is the one whose card a reader judges by the
+# badge. A file with no `Phase:` is not a plan (phase == NONE) and never
+# reaches this test, the same rule sections 1, 7, 8 and 12 apply.
+#
+# CONVENIENCE, NEVER A GATE. A stale round is a hint about a badge; it must not
+# stop a delivery. It carries its own footer counter (`rounds_drift=`) and
+# stays OUT of `attention=`, exactly as uncut slices, prose slice names,
+# sprint drift, stale tallies, index drift and double claims each do. And it
+# sits below the `== blocking sections end ==` marker, which is what keeps it
+# out of /plot-deliver's gate — its number is not what does that.
+__mark "BEFORE 15. Stale interrogation rounds (a Draft plan amended since i"
+echo "== 15. Stale interrogation rounds (a Draft plan amended since its last round) =="
+rounds_out=""
+if [ -n "$plan_json" ]; then
+  # One jq pass, one record per Draft plan that RECORDS a round. `has("rounds")`
+  # is the presence test the section turns on — see the note above on `0`.
+  while IFS="$US" read -r f rounds; do
+    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
+    round_ct=$(git log -1 --format=%ct -G'[Rr]ounds?[:*"]' -- "$f" </dev/null 2>/dev/null)
+    [ -n "$round_ct" ] || continue     # no commit recorded the round → nothing to compare
+    edit_ct=$(git log -1 --format=%ct -- "$f" </dev/null 2>/dev/null)
+    [ -n "$edit_ct" ] || continue
+    [ "$edit_ct" -gt "$round_ct" ] || continue
+    round_sha=$(git log -1 --format=%h -G'[Rr]ounds?[:*"]' -- "$f" </dev/null 2>/dev/null)
+    edit_sha=$(git log -1 --format=%h -- "$f" </dev/null 2>/dev/null)
+    base=$(basename "$f")
+    rounds_out+="  $base — records round $rounds (last written in $round_sha), amended since in $edit_sha\n"
+    # The repair is a person re-reading the plan and deciding whether the
+    # amendment needs questioning — so the verb is `consider:`, not `fix:`. A
+    # shell cannot judge whether a typo correction invalidates a round.
+    rounds_out+="    consider: re-question the plan, or leave it — the round is stale, not wrong\n"
+    n_rounds_drift=$((n_rounds_drift + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r --arg US "$US" '
+        select(.phase == "draft") | select(has("rounds"))
+        | [.file, (.rounds | tostring)] | join($US)')
+fi
+if [ -n "$rounds_out" ]; then printf '%b' "$rounds_out"; else echo "  (none — no Draft plan has been amended since the round it records)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 14. Sprint phase vs index
+#
+# A sprint whose `Phase:` disagrees with `docs/sprints/active/`. TWO RECORDS OF
+# ONE FACT — *is this sprint running* — and nothing read the pair until now.
+#
+# MEASURED, IN BOTH DIRECTIONS, TWICE IN FOUR DAYS. On 2026-09-06 the index
+# held exactly one symlink, `the-domain-owns-the-lifecycle`, whose file read
+# `Phase: Planned`. Earlier, `2026-W35-the-board-tells-the-truth-in-every-
+# section` carried `Phase: Active` and was not in the index at all. Neither was
+# caught by anything; a person reading the directory found both.
+#
+# NOT AN EXTENSION OF `sprint_mismatch`. That counter counts PLANS whose `Sprint:`
+# field disagrees with the sprint file. This is a fact about the SPRINT FILE,
+# which nothing else here reads. One number answering two questions is a number
+# a reader has to re-derive the split from, which is what a machine-countable
+# footer exists to avoid — so this carries its own key, `sprint_index_drift=`.
+#
+# THE PHASE IS READ, NEVER DERIVED. A sprint is a commitment: it ends when
+# somebody says it ended, not when its last plan merges or its release ships.
+# Deriving `Active` from open items would make this section disagree with the
+# only record of that decision, which is the file.
+#
+# CONVENIENCE, NEVER A GATE — index drift's precedent, and a sprint's index is
+# the same shape as a plan's. It stays OUT of `attention=` and sits below the
+# `== blocking sections end ==` marker, which is what keeps it out of
+# /plot-deliver's gate. A sprint indexed wrongly is wrong, not broken: every
+# consumer that DECIDES anything reads the phase from the file.
+#
+# BOTH DIRECTIONS ARE ONE FINDING with two repairs, so the line names which it
+# is. An Active sprint missing its link is a browsing gap; a linked sprint that
+# is Planned or Closed makes the index claim something the file denies.
+#
+# A sprint file with no `Phase:` line is SKIPPED. It is not a sprint this
+# section can ask about — the same rule sections 1, 7, 8, 12 and 13 apply to a
+# plan with no phase.
+__mark "BEFORE 16. Sprint phase vs index (convenience — nothing depends on "
+echo "== 16. Sprint phase vs index (convenience — nothing depends on these) =="
+sprint_idx_out=""
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    sf_base=$(basename "$sf")
+    # `- **State:** Active` — the sprint template's own shape. Reads `Phase:`
+    # too: the field was renamed 2026-09-07 and the dual read is permanent.
+    # First match only: the word appears again in prose further down several
+    # files here.
+    sphase=$(grep -m1 -E '^[[:space:]]*-[[:space:]]*\*\*(State|Phase):\*\*' "$sf" 2>/dev/null \
+      | sed -E 's/.*\*\*(State|Phase):\*\*[[:space:]]*//; s/[[:space:]]*$//')
+    [ -n "$sphase" ] || continue    # no state → not a sprint this can ask about
+
+    # Is this file the target of a link in the index? Resolved by READING each
+    # link, never by matching filenames: the link is named for the slug and the
+    # file for the week, so `the-domain-owns-the-lifecycle.md` points at
+    # `2026-W37-the-domain-owns-the-lifecycle.md` and no name comparison sees it.
+    indexed=false
+    if [ -d "$SPRINT_DIR/active" ]; then
+      for sl in "$SPRINT_DIR"/active/*.md; do
+        [ -e "$sl" ] || continue
+        tgt=$(cd "$SPRINT_DIR/active" && readlink "$(basename "$sl")" 2>/dev/null) || tgt=""
+        [ -n "$tgt" ] || continue
+        [ "$(basename "$tgt")" = "$sf_base" ] && { indexed=true; break; }
+      done
+    fi
+
+    case "$sphase:$indexed" in
+      Active:false)
+        sprint_idx_out+="  $sf_base — Phase: Active, but no link in $SPRINT_DIR/active/\n"
+        sprint_idx_out+="    optional: ln -s ../$sf_base $SPRINT_DIR/active/\n"
+        n_sprint_idx=$((n_sprint_idx + 1))
+        ;;
+      Active:true) ;;   # agreed
+      *:true)
+        sprint_idx_out+="  $sf_base — Phase: $sphase, but still linked in $SPRINT_DIR/active/\n"
+        sprint_idx_out+="    optional: remove the link, or set the phase back to Active — the file is the record\n"
+        n_sprint_idx=$((n_sprint_idx + 1))
+        ;;
+    esac
+  done
+fi
+if [ -n "$sprint_idx_out" ]; then printf '%b' "$sprint_idx_out"; else echo "  (none — every sprint's phase matches the index)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 15. Sprint outlived its release
+#
+# A sprint that is not Closed whose declared `Release:` has been tagged. The
+# train has left; the sprint file has not caught up.
+#
+# MEASURED: `2026-W36-a-half-landed-workflow-says-so` targets 2.13.0, which
+# shipped as `v2.13.0`. The file reads `Phase: Planning` and has not moved since
+# 2026-08-29, and none of its eight items ever became a plan. That is a sprint
+# the estate should be able to say something about without a person opening the
+# file — and nothing said it.
+#
+# IT REPORTS, AND CLOSING IS THE TEAM'S WORD. A sprint ends when somebody says
+# it ended — the same rule the sprint-phase-vs-index section states about its phase — so this names the
+# fact and stops. It offers no `/plot-sprint close`, because a shipped release
+# is evidence that the sprint's window passed and not evidence that its work is
+# done: the measured sprint's eight items are all still open, and a section that
+# suggested closing would be suggesting the team abandon them.
+#
+# THE FACTS ARE NOT RE-DERIVED. `plot-sprint-release.sh` already reads a
+# sprint's `Release:` and its items, and its own contract is that it decides
+# nothing. This calls it once per sprint file and applies one comparison. A
+# second reader of sprint releases would be the drift this repo keeps measuring
+# — and it would read the `Release:` line differently the first time one of them
+# was taught something the other was not.
+#
+# THE VERSION IS EXTRACTED, NOT ASSUMED TO BE THE WHOLE FIELD. Measured on this
+# estate: `2026-W36-the-domain-is-one-implementation` declares
+# `Release: 2.13.0 — **released 2026-09-05**, ...` — a version followed by
+# prose. The facts script reports the field verbatim, which is right for a
+# collector; the FIRST `N.N.N` in it is the target, and the rest is a note to a
+# human.
+#
+# THE TAG IS MATCHED THE WAY SECTION 6 MATCHES ONE, `v` prefix and all: sprints
+# declare `2.13.0` and the estate tags `v2.13.0`. Both spellings are tried, so a
+# project that tags without the prefix is not silently reported as unshipped.
+#
+# NOT `sprint_mismatch=`, which counts PLANS whose `Sprint:` field disagrees with
+# the sprint file, and not `sprint_index_drift=`, which counts sprints whose
+# phase disagrees with the index. This is a third question — has this sprint's
+# train left? — and it carries `sprint_shipped=`. One number answering several
+# questions is one a reader must re-derive the split from, which is what section
+# 14 argued and this follows.
+#
+# REPORTS AND NEVER GATES. It sits below the `== blocking sections end ==`
+# marker and stays OUT of `attention=`: a sprint whose release shipped is a
+# bookkeeping fact, and a delivery stopped by it would be stopped by somebody
+# else's paperwork.
+#
+# A sprint with no `Release:`, or one whose release has not shipped, is silent.
+# So is a Closed one — that is the state this section is about reaching, not a
+# finding.
+__mark "BEFORE 17. Sprint outlived its release (the train shipped — a perso"
+echo "== 17. Sprint outlived its release (the train shipped — a person closes it) =="
+sprint_ship_out=""
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    sf_base=$(basename "$sf")
+    # THE SLUG THE FACTS SCRIPT ANSWERS TO — its own derivation, so the two
+    # agree by construction rather than by two regexes staying in step.
+    sf_slug=$(printf '%s' "${sf_base%.md}" | sed -E 's/^[0-9]{4}-W?[0-9]{2}(-[0-9]{2})?-//')
+    facts=$(bash "$script_dir/plot-sprint-release.sh" "$sf_slug" 2>/dev/null) || continue
+    [ -n "$facts" ] || continue
+
+    sphase=$(printf '%s' "$facts" | jq -r '.phase // ""' 2>/dev/null) || continue
+    srelease=$(printf '%s' "$facts" | jq -r '.release // ""' 2>/dev/null) || continue
+    # NOT CLOSED is the population, and it is written as a negation on purpose.
+    # The measured sprint reads `Planning` where the template says `Planned`, so
+    # a list of open phases would have missed the one case this section exists
+    # for. A phase nobody has coined yet is reported too, which is the right
+    # direction for an advisory line.
+    [ -n "$sphase" ] || continue
+    [ "$sphase" = "Closed" ] && continue
+    [ -n "$srelease" ] || continue
+
+    # The first N.N.N in the field; the rest is a note to a human.
+    sver=$(printf '%s' "$srelease" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$sver" ] || continue
+
+    # Both spellings, so a project that tags without `v` is not read as unshipped.
+    stag=""
+    for cand in "v$sver" "$sver"; do
+      if git rev-parse -q --verify "refs/tags/$cand" >/dev/null 2>&1; then stag="$cand"; break; fi
+    done
+    [ -n "$stag" ] || continue
+
+    sprint_ship_out+="  $sf_base — Phase: $sphase, but its release $sver shipped as $stag\n"
+    sprint_ship_out+="    a person closes it: the tag says the train left, not that the work is done\n"
+    n_sprint_ship=$((n_sprint_ship + 1))
+  done
+fi
+if [ -n "$sprint_ship_out" ]; then printf '%b' "$sprint_ship_out"; else echo "  (none — no open sprint's release has shipped)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 16. Stated waits with no annotation
+#
+# A LIVE slice whose body claims a wait its branch line does not carry. The
+# gap is between two records of one fact — what the plan SAYS a slice waits
+# for, and what the machine can READ — and only the second reaches the fleet.
+#
+# MEASURED 2026-09-06. `a-desk-is-adopted-and-swept` said in bold: *"**IT WAITS
+# FOR** `a-desk-is-finished-with-once` (#705)."* Its heading carried no
+# `waits:`, so `bug/the-reaper-reads-prunable` read as eligible, reached the
+# supervisor's queue as `no-brief`, and **a person recognising the prose was
+# the only thing that stopped it dispatching.**
+#
+# IT MATCHES THE CLAIM, NOT THE REFERENCE — the first drafted rule was measured
+# and discarded. *A slice body linking a plan file or naming a PR number
+# without `waits:`* fires on **391 of 477 slices**: plans cite each other as
+# context constantly, and a link is not a claim. A finding that fires on four
+# slices in five is one a reader learns to skip.
+#
+# ONE PHRASE, AND IT IS THE ESTATE'S OWN. `waits for` / `waits on`. The two
+# near misses were measured and rejected: `depends on` (16 hits) reads as design
+# rationale more often than ordering, and `after the …` / `after #…` (13) is
+# temporal prose. Neither is a dependency claim in this estate's usage, and
+# adding them buys 29 findings that are not the defect.
+#
+# THE SUBJECT MUST BE THE SLICE, and that is what separates a claim from a
+# description. `waits for` alone hits 12 slices; every genuine one names the
+# thing waiting — *this slice waits on*, *IT WAITS FOR* — while every false
+# positive describes something else doing the waiting: a `--stop` that "waits
+# for each worker to exit", a wave row that "links what it waits on", a loop
+# that "waits on its child". Anchoring on the subject takes 12 to 2, and those
+# 2 are exactly the two the plan's own author read as genuine by hand. The
+# sentence is what the reader judges, so the anchor must be in it.
+#
+# A CODE SPAN QUOTES THE PHRASE, IT DOES NOT MAKE THE CLAIM. Backticked spans
+# are stripped before matching — the same rule `plot-plan-meta.sh` applies to
+# keep a syntax example from becoming a declaration. Without it, this plan's
+# own slice reports itself: its body tabulates `` `waits for` / `waits on` ``
+# as the phrases it measured.
+#
+# DRAFT AND APPROVED ONLY. A Released or Delivered plan's wait was resolved by
+# shipping, and reporting it is noise about finished work. That single filter
+# is what takes the whole-estate count to **zero on today's estate** — which is
+# the state this section was written to hold, not an aspiration. A file with no
+# `Phase:` is not a plan and never reaches this test, the same rule sections 1,
+# 7, 8, 12 and 13 apply.
+#
+# IT REPORTS AND CORRECTS NOTHING. A plan may legitimately say a slice waits
+# while its author decides the sentence is context. The finding names the slice
+# and quotes the sentence so a person can add the annotation or dismiss it —
+# the posture every advisory section here already has.
+#
+# CONVENIENCE, NEVER A GATE. An unannotated wait is a legibility gap, not a
+# broken pointer, and an advisory finding that can stop a delivery is a gate
+# nobody agreed to. It carries its own footer counter (`stated_waits=`), stays
+# OUT of `attention=`, and sits below the `== blocking sections end ==` marker,
+# which is what keeps it out of /plot-deliver's gate.
+__mark "BEFORE 18. Stated waits with no annotation (convenience — nothing d"
+echo "== 18. Stated waits with no annotation (convenience — nothing depends on these) =="
+stated_out=""
+if [ -n "$plan_json" ]; then
+  # The LIVE plan files, from the parser rather than a second phase grep.
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
+    hits=$(awk -v PREFIXES="$PREFIX_RE" '
+      # A fenced block is illustration, never contract — the standing rule this
+      # scan and plot-plan-meta.sh both already apply.
+      /^[ \t]*(```|~~~)/ { in_fence = !in_fence; next }
+      in_fence { next }
+      # ONE slices section, first spelling wins — plot-plan-meta.sh:736.
+      /^## / {
+        emit()
+        if ($0 ~ /^## Branches/ || $0 ~ /^## Waves/ || $0 ~ /^## Slices/) {
+          section = seen ? "" : "slices"; seen = 1
+        } else section = ""
+        next
+      }
+      section != "slices" { next }
+      # The heading dialect: the branch and the annotation ride the `### `.
+      /^### / {
+        emit()
+        if (match($0, "Branch:[ \t]*(" PREFIXES ")/[^ \t,)]+")) {
+          cur = substr($0, RSTART, RLENGTH); sub(/^Branch:[ \t]*/, "", cur)
+          annotated = ($0 ~ "<!--[ \t]*waits:[ \t]*(" PREFIXES ")/") ? 1 : 0
+        } else cur = ""
+        next
+      }
+      {
+        # The list dialect: branch, annotation and body are ONE line, so the
+        # slice opens and closes on it.
+        if (match($0, "^[ \t]*[-*][ \t]+`(" PREFIXES ")/[^`]+`")) {
+          emit()
+          cur = substr($0, RSTART, RLENGTH); sub(/^[^`]*`/, "", cur); sub(/`$/, "", cur)
+          annotated = ($0 ~ "<!--[ \t]*waits:[ \t]*(" PREFIXES ")/") ? 1 : 0
+          claim($0); emit(); next
+        }
+        if (cur != "") claim($0)
+      }
+      # The first claiming sentence in the body is the one quoted: a reader
+      # needs the sentence that names the wait, not every line mentioning one.
+      function claim(l,   s) {
+        if (found != "") return
+        s = tolower(l)
+        gsub(/`[^`]*`/, " ", s)   # a code span quotes the phrase; it never claims
+        if (s ~ /(this slice|this branch|this wave|(^|[.!?][ \t]+|\*\*)it)[^.!?]*waits (for|on)/) found = l
+      }
+      function emit(   q) {
+        if (cur != "" && found != "" && !annotated) {
+          q = found
+          gsub(/^[ \t>*]+/, "", q); gsub(/[ \t]+$/, "", q)
+          if (length(q) > 120) q = substr(q, 1, 117) "..."
+          printf "%s\t%s\n", cur, q
+        }
+        cur = ""; found = ""; annotated = 0
+      }
+      END { emit() }
+    ' "$f")
+    [ -n "$hits" ] || continue
+    base=$(basename "$f")
+    while IFS="$(printf '\t')" read -r sbranch sentence; do
+      [ -n "$sbranch" ] || continue
+      stated_out+="  $base — slice \`$sbranch\` claims a wait its line does not carry:\n"
+      stated_out+="      \"$sentence\"\n"
+      # The repair is a person deciding whether the sentence IS a dependency,
+      # so the verb is `consider:`. A shell cannot read the author's intent —
+      # and the annotation names a branch this scan has no way to guess.
+      stated_out+="    consider: add \`<!-- waits: <branch> -->\` to the slice's line, or reword the sentence — it is prose today\n"
+      n_stated=$((n_stated + 1))
+    done <<< "$hits"
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r 'select(.phase == "draft" or .phase == "approved") | .file')
+fi
+if [ -n "$stated_out" ]; then printf '%b' "$stated_out"; else echo "  (none — every live slice claiming a wait carries the annotation)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 17. Unclaimed work
+#
+# A remote branch carrying FILE CHANGES that no plan names and no open PR
+# carries. The gap is that the estate has no record such a branch exists: it is
+# not a slice that stalled, it is work outside the plan estate entirely.
+#
+# MEASURED 2026-09-07 over every remote ref. Of 25 non-`main` branches, twelve
+# were unmerged with no PR — and the board saw three of them. Its `abandoned`
+# row fires on *has this branch commits?*, which a claim commit answers, and
+# the three it showed were the three holding nothing. The five carrying real
+# changes were not among them.
+#
+# THE READING IS FILE CHANGES, NOT COMMITS, and that is the whole difference.
+# Seven of the twelve carry only a claim commit and a `PLOT-BLOCKED` marker;
+# those are already reapable and section 3 already reports them as claims.
+# Reporting them here is noise on top of a finding that already exists. So the
+# reading is `git diff --name-only $MAIN...branch` with `PLOT-BLOCKED*`
+# excluded, and a branch with zero changed files after that exclusion is not
+# unclaimed work.
+#
+# IT NEVER CLAIMS THE BRANCH IS UNFINISHED, and the correction that settled
+# this is worth stating. The plan's first audit read `bug/a-hung-cleanup-says-
+# which-half` as unrecovered: it searched main for the branch's own tokens
+# (`_stage`, `PLOT_LOOP_TRACE`), found neither, and concluded the work was
+# lost. It had landed — as a fix plus a comment quoting the branch's own stage
+# marker by its letter, with the instrument deleted. A DIAGNOSTIC BRANCH IS
+# EXACTLY WHERE A TOKEN SEARCH FAILS: its success condition is its own
+# deletion. All twelve turned out to be landed or superseded, so a finding
+# worded as *lost work* would have been wrong twelve times.
+#
+# What this reports is therefore only what it can measure — no plan names this
+# branch, no PR carries it — and *is it owed?* stays the reader's. That is the
+# same posture every advisory section here has, and here it is load-bearing
+# rather than polite.
+#
+# IT NAMES WHAT A PERSON CAN DO, and there are exactly three answers: open a
+# PR, write the plan that claims it, or delete the ref. A finding that says
+# only *this exists* leaves the reader where the board already left them.
+#
+# THE CLAIM SET IS THE PARSER'S, never a second grep — the rule the double-claims section
+# states and for its reason: two in three backticked branch names in a plan are
+# citations rather than claims, so a grep would read a dependency mentioned in
+# prose as a claim and silence a genuine finding. EVERY phase counts as a
+# claimant, unlike sections 13 and 16: a Delivered plan naming a branch has
+# recorded that the work exists, which is the only question asked here.
+#
+# NOT MERGED, AND THE HOST DECIDES — `branch_merged` asks `plot-pr-merged.sh`'s
+# question first and falls back to ancestry. Squash-merge leaves a merged branch
+# ahead of main forever, so ancestry alone would report ten branches here whose
+# work is on main (measured 2026-09-04, ten of ten disagreed).
+#
+# CONTAINMENT IS ASKED, not just the PR head. A branch below the top of a stack
+# is work in flight; calling it unclaimed is section 3's loudest false answer
+# and it would be this section's too.
+#
+# SUPPRESSED WHEN PR STATE IS UNKNOWN, exactly as section 3 is. "No open PR
+# carries it" cannot be evaluated without the open-PR list, and a row printed
+# from unverified input is a confident claim nobody measured. The count stays 0
+# and the reason is stated.
+#
+# REPORTS AND NEVER GATES. Unclaimed work is a legibility gap, not a broken
+# pointer, and an advisory finding that can stop a delivery is a gate nobody
+# agreed to. It carries its own footer counter (`unclaimed_work=`), stays OUT
+# of `attention=`, and sits below the `== blocking sections end ==` marker,
+# which is what keeps it out of /plot-deliver's gate.
+__mark "BEFORE 19. Unclaimed work (a branch with changes no plan names — a "
+echo "== 19. Unclaimed work (a branch with changes no plan names — a person decides) =="
+unclaimed_out=""
+if [ "$section3_suppressed" = 1 ]; then
+  # The same refusal section 3 makes, for the same reason: without the open-PR
+  # list the predicate cannot be evaluated, and `unclaimed_work=0` from an
+  # unevaluated section is a number nobody measured.
+  echo "  (not evaluated — PR state unknown: $PR_ERROR)"
+  echo "  Whether a branch is carried by an open PR cannot be decided without the"
+  echo "  open-PR list. Re-run once the git host answers."
+else
+  # Every branch any plan lists, from the parser's `waves[]` — one jq pass over
+  # the output already captured. Phase-less files are skipped (a decision log
+  # naming a branch is not a claimant), every other phase counts.
+  claimed_branches=""
+  if [ -n "$plan_json" ]; then
+    claimed_branches=$(printf '%s\n' "$plan_json" \
+      | jq -r 'select(.phase != "NONE") | .waves[]?.branches[]?.branch' 2>/dev/null | sort -u)
+  fi
+
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    case "$b" in
+      "$MAIN"|release/*) continue ;;   # protected set, as section 3 has it
+    esac
+
+    # A plan names it → the estate has its record. Nothing to report.
+    if [ -n "$claimed_branches" ] && printf '%s\n' "$claimed_branches" | grep -qx "$b"; then
+      continue
+    fi
+    # An open PR carries it — as its head, or below it on a stack.
+    if [ "$pr_reliable" = 1 ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then continue; fi
+    if contained_in_open_pr "$b" >/dev/null; then continue; fi
+    # Landed. The host answers first; ancestry is the fallback.
+    if branch_merged "$b"; then continue; fi
+
+    # THE READING. `PLOT-BLOCKED*` is a worker's question to a person, not
+    # work — a branch holding only one is section 3's claim, already reported.
+    n_files=$(git diff --name-only "origin/$MAIN...origin/$b" </dev/null 2>/dev/null \
+      | grep -cv '^PLOT-BLOCKED' || true)
+    [ "${n_files:-0}" -gt 0 ] 2>/dev/null || continue
+
+    last_commit=$(git log -1 --format=%cs "origin/$b" </dev/null 2>/dev/null)
+    unclaimed_out+="  origin/$b — $n_files changed file(s), last commit ${last_commit:-unknown}; no plan names it, no open PR carries it\n"
+    unclaimed_out+="    inspect: git diff --stat origin/$MAIN...origin/$b\n"
+    # THE THREE ANSWERS, and the verb is `decide:` because a shell cannot pick
+    # between them: whether the work is owed is a reading of the diff against
+    # main, and the twelve measured here were all landed or superseded.
+    unclaimed_out+="    decide: open a PR for it, write the plan that claims it, or delete the ref (git push origin --delete $b)\n"
+    n_unclaimed=$((n_unclaimed + 1))
+  done <<< "$all_branches"
+
+  if [ -n "$unclaimed_out" ]; then printf '%b' "$unclaimed_out"; else echo "  (none — every branch with changes is named by a plan or carried by a PR)"; fi
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# 18. Merged refs
+#
+# A remote branch whose PR MERGED and whose ref still exists. The work is
+# finished; the ref is litter, and until now nothing named it.
+#
+# MEASURED 2026-09-07. After the unclaimed-work section reported `unclaimed_work=8` and all
+# eight were resolved, the estate still held 15 remote branches. NINE had
+# merged PRs — `feature/the-scan-reads-a-fleet-reading` (#600, 56 files),
+# `feature/the-shell-stops-parsing-plans` (#577), `feature/the-board-reads-the-
+# quiet-kinds` (#683), and six more. They were found because somebody listed
+# every remote branch by hand, not because anything reported them.
+#
+# SECTION 17 SKIPS THEM EXPLICITLY. Its predicate is *no plan names it AND no
+# open PR carries it*, and its last guard is `if branch_merged "$b"; then
+# continue; fi` — a merged ref fails the test on purpose, because unclaimed
+# WORK is unfinished work and a merged branch is finished. So this is a second
+# question rather than a widening of that one: *no PR ever* and *PR merged, ref
+# still here* have different actions, and one counter answering both is one a
+# reader must re-derive the split from.
+#
+# `plot-release-refs.sh` IS THE RIGHT TOOL AND IT IS PLAN-SCOPED, deliberately:
+# a sweep over every merged ref on the estate would satisfy "a delivered plan's
+# merged branches lose their refs" and destroy unlanded work belonging to plans
+# nobody delivered. That argument holds and this section does not touch it —
+# but it means a merged branch whose plan was never delivered, or which no plan
+# names at all, is reached by nothing. Nine accumulated.
+#
+# THE SCAN IS THE RIGHT PLACE BECAUSE IT REPORTS AND NEVER DELETES. The
+# blast-radius argument that keeps the ref sweep plan-scoped does not apply to
+# a finding: naming a ref costs nothing and un-naming it is free.
+#
+# IT ASKS THE HOST, THROUGH THE ONE ANSWER, and never ancestry. This reads
+# `merged_pr_for_branch` — the scan's bundled merged-PR list, which is
+# `plot-pr-merged.sh`'s rule applied to a list already fetched: read the merge,
+# never the state, never ancestry. Squash-merge leaves a merged branch ahead of
+# main forever, and `git merge-base` disagreed with the host on TEN OF TEN
+# branches measured here on 2026-09-04. `branch_merged` is deliberately NOT
+# used: its ancestry fallback would name a branch whose work reached main by
+# some other route as a merged PR, and this finding prints the PR number.
+#
+# AN UNREACHABLE HOST REPORTS NOTHING, NOT EVERYTHING. Without the merged list
+# the predicate cannot be evaluated at all, and the failure mode that matters
+# is the opposite of section 3's: a silence that reported every ref would turn
+# an outage into a list of deletion candidates. So `pr_reliable` gates the
+# section, the count stays 0, and the reason is stated.
+#
+# IT NAMES WHETHER A PLAN CLAIMS IT, because that decides who acts:
+#   * a DELIVERED or RELEASED plan claims it → `plot-release-refs.sh <slug>`
+#     is the tool, plan-scoped and already licensed for exactly this ref;
+#   * a LIVE plan claims it → the plan has not been delivered yet, so the
+#     delivery is the next step and the ref sweep follows from it;
+#   * NO plan names it → the case that has no owner, and the finding's real
+#     subject. Nothing is plan-scoped enough to reach it, so a person decides.
+#
+# THE CLAIM SET IS THE PARSER'S, never a second grep — the rule sections 12 and
+# 17 state, for the same reason: two in three backticked branch names in a plan
+# are citations rather than claims.
+#
+# REPORTS AND NEVER GATES. A leftover ref is a tidiness gap, not a broken
+# pointer. It carries its own footer counter (`merged_refs=`), stays OUT of
+# `attention=`, and sits below the `== blocking sections end ==` marker, which
+# is what keeps it out of /plot-deliver's gate.
+__mark "BEFORE 20. Merged refs (a branch whose PR merged, ref still here — "
+echo "== 20. Merged refs (a branch whose PR merged, ref still here — a person decides) =="
+merged_ref_out=""
+if [ "$pr_reliable" != 1 ]; then
+  # Silence is not permission and it is not a finding either. Without the
+  # merged-PR list every ref reads as unmerged, so the section would print
+  # nothing; saying so is the difference between a check that found nothing and
+  # a check that never ran.
+  echo "  (not evaluated — merged-PR list unavailable: pr_source=$PR_SOURCE${PR_ERROR:+ — $PR_ERROR})"
+  echo "  Whether a branch's PR merged is the host's answer, never ancestry's."
+  echo "  Re-run once the git host answers."
+else
+  # branch, plan file and phase — one $US-separated line per claimed branch.
+  # Phase-less files are skipped for the unclaimed-work section's reason: a decision log naming
+  # a branch is not a claimant.
+  claim_rows=""
+  if [ -n "$plan_json" ]; then
+    claim_rows=$(printf '%s\n' "$plan_json" \
+      | jq -r 'select(.phase != "NONE")
+               | . as $p | .waves[]?.branches[]?.branch
+               | [., $p.file, $p.phase] | join("\u001f")' 2>/dev/null)
+  fi
+
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    case "$b" in
+      "$MAIN"|release/*) continue ;;   # protected set, as sections 3 and 17 have it
+    esac
+
+    pr_num=$(merged_pr_for_branch "$b")
+    [ -n "$pr_num" ] || continue
+
+    claim_row=""
+    [ -n "$claim_rows" ] && claim_row=$(printf '%s\n' "$claim_rows" \
+      | awk -F"$US" -v b="$b" '$1 == b { print; exit }')
+
+    if [ -z "$claim_row" ]; then
+      merged_ref_out+="  origin/$b — PR #$pr_num merged, ref still here; no plan names it\n"
+      merged_ref_out+="    inspect: git diff --stat origin/$MAIN...origin/$b\n"
+      # THE ONE CASE WITH NO OWNER. `plot-release-refs.sh` is plan-scoped and
+      # there is no plan, so a person deletes the ref or writes the plan that
+      # would have claimed it.
+      merged_ref_out+="    decide: delete the ref (git push origin --delete $b), or write the plan that claims it\n"
+    else
+      claim_file=$(printf '%s' "$claim_row" | awk -F"$US" '{ print $2 }')
+      claim_phase=$(printf '%s' "$claim_row" | awk -F"$US" '{ print $3 }')
+      claim_base=$(basename "$claim_file")
+      claim_slug=$(echo "$claim_base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+      claim_slug=${claim_slug%.md}
+      merged_ref_out+="  origin/$b — PR #$pr_num merged, ref still here; claimed by $claim_base ($claim_phase)\n"
+      case "$claim_phase" in
+        delivered|released)
+          merged_ref_out+="    fix: skills/plot/scripts/plot-release-refs.sh $claim_slug --yes\n" ;;
+        *)
+          # The plan is still live, so its own delivery is the next step and the
+          # ref sweep follows from it. Naming the sweep here would propose
+          # deleting a ref whose plan has not finished with it.
+          merged_ref_out+="    consider: /plot-deliver $claim_slug — the ref sweep runs after the delivery\n" ;;
+      esac
+    fi
+    n_merged_refs=$((n_merged_refs + 1))
+  done <<< "$all_branches"
+
+  if [ -n "$merged_ref_out" ]; then printf '%b' "$merged_ref_out"; else echo "  (none — no remote ref outlives its merged PR)"; fi
+  if [ "$MERGED_PR_TRUNCATED" = 1 ]; then
+    echo "  note: merged-PR list hit its limit of $MERGED_PR_LIMIT — older merged PRs were"
+    echo "        not examined; a ref whose PR merged long ago may still be missed here."
+  fi
+fi
+echo
+
+__mark "BEFORE 21. Desks (a worktree the fleet left behind — a person decid"
+echo "== 21. Desks (a worktree the fleet left behind — a person decides) =="
+# THE READINGS ARE TAKEN HERE AND THE VERDICT IS THE RULE'S. This section
+# collects what is measurable about every worktree and asks
+# `board/plot-reconcile.mjs`, which asks `reconcile()`, which asks `reap()`.
+# It holds no condition of its own — the five refusals live in `reapable.ts`
+# and a second copy in shell is the drift `plot-reap.sh:384` already cost this
+# estate once.
+#
+# IT ASKS ABOUT DESKS AND NOTHING ELSE. The other eighteen sections still
+# print their own findings; wiring them through the controller is the reconcile
+# action's own work, and doing it here would rewrite eighteen sections in a
+# slice about worktrees.
+#
+# A rule that cannot be asked REPORTS AND DOES NOT GUESS, the discipline
+# `plot-reap.sh` states for the same import: no `node`, no bundle, a bundle
+# that throws all leave the section saying it could not evaluate. Silence would
+# read as *no desks have drifted*, which is the one direction a drift report
+# must never be lenient in.
+n_desks=0
+desk_rule="$script_dir/board/plot-reconcile.mjs"
+if ! command -v node >/dev/null 2>&1; then
+  echo "  (not evaluated — node not found; the desk verdict is a domain rule)"
+elif [ ! -r "$desk_rule" ]; then
+  echo "  (not evaluated — $desk_rule is missing; run 'pnpm build:board')"
+else
+  # Where the desks live, resolved from the MAIN checkout for the reason
+  # `plot-reap.sh` records: `git rev-parse --show-toplevel` answers *this*
+  # worktree, so a scan run from inside a desk would resolve `.worktrees`
+  # beneath that desk and place none of them.
+  desk_root=""
+  desk_cfg=$(bash "$script_dir/plot-config.sh" get "Worktree root" "" 2>/dev/null) || desk_cfg=""
+  if [ -n "$desk_cfg" ]; then
+    case "$desk_cfg" in
+      /*) desk_root="$desk_cfg" ;;
+      *)
+        desk_main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") \
+          || desk_main=""
+        [ -d "$desk_main" ] || desk_main=$(git rev-parse --show-toplevel 2>/dev/null)
+        desk_root="$desk_main/$desk_cfg"
+        ;;
+    esac
+    desk_root="${desk_root%/}"
+  fi
+
+  # One JSON object per worktree, assembled by `node` rather than by hand:
+  # a path may hold a quote or a backslash, and a hand-built string breaks the
+  # parser on exactly the tree somebody needs to read about.
+  desk_rows=""
+  while IFS=$'\t' read -r dwt dbr dprunable; do
+    [ -n "$dwt" ] || continue
+    dshort=${dbr#refs/heads/}
+
+    # Recognition — the SAME two readings `plot-reap.sh` takes, and no third.
+    d_dispatch=false
+    if [ -f "$dwt/.plot-worker.pid" ]; then
+      d_dispatch=true
+    else
+      case "$dwt" in *"/plot-wt-"*) d_dispatch=true ;; esac
+    fi
+    d_unclassified=false
+    if [ "$d_dispatch" = false ] && [ -n "$desk_root" ]; then
+      case "$dwt" in "$desk_root"/*) d_unclassified=true ;; esac
+    fi
+    # Neither: a hand-made checkout, outside the population and silent.
+    if [ "$d_dispatch" = false ] && [ "$d_unclassified" = false ]; then continue; fi
+
+    # A live worker's pid, or empty. Read, never judged.
+    d_pid=""
+    if [ -f "$dwt/.plot-worker.pid" ]; then
+      dp=$(cat "$dwt/.plot-worker.pid" 2>/dev/null)
+      if [ -n "$dp" ] && ps -p "$dp" >/dev/null 2>&1; then d_pid="$dp"; fi
+    fi
+    d_marker=false
+    ls "$dwt"/PLOT-BLOCKED* >/dev/null 2>&1 && d_marker=true
+    d_clean=true
+    [ -n "$(git -C "$dwt" status --porcelain 2>/dev/null | grep -v 'tiny-garden/\.plot/state' | head -1)" ] && d_clean=false
+    d_main=false
+    [ "$dshort" = "$MAIN" ] && d_main=true
+    d_detached=false
+    [ -z "$dshort" ] && d_detached=true
+
+    # Did the host merge ANY PR for this branch? The estate's one answer,
+    # from the merged-PR list this scan already bundled — never `state`, never
+    # ancestry. Unreachable answers *not merged*, so silence is never
+    # permission and no desk is reaped on an outage.
+    d_merged=false
+    if [ "$pr_reliable" = 1 ] && [ -n "$dshort" ] && [ -n "$(merged_pr_for_branch "$dshort")" ]; then
+      d_merged=true
+    fi
+
+    desk_rows+=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$dwt" "$dshort" "$d_dispatch" "$d_unclassified" "$d_pid" \
+      "$d_marker" "$d_clean" "$d_main" "$d_detached" "$d_merged")
+    desk_rows+=$'\n'
+  done < <(git worktree list --porcelain \
+            | awk '/^worktree /{ if (br != "") print p"\t"br"\t"pr; p=$2; br=""; pr="no"; next }
+                   /^branch /  { br=$2; next }
+                   /^prunable/ { pr="yes"; next }
+                   END         { if (br != "") print p"\t"br"\t"pr }')
+
+  desk_answer=$(printf '%s' "$desk_rows" | PLOT_MAIN="$MAIN" node --input-type=module -e '
+const rows = [];
+for await (const chunk of process.stdin) rows.push(chunk);
+const text = rows.join("");
+const candidates = text.split("\n").filter((l) => l.trim() !== "").map((line) => {
+  const [path, branch, dispatch, unclassified, pid, marker, clean, isMain, detached, merged] =
+    line.split("\t");
+  return {
+    tree: {
+      path, branch, detached: detached === "true", isMain: isMain === "true",
+      clean: clean === "true", agentSession: "", prunable: false,
+    },
+    evidence: {
+      workerAlive: pid !== "", blockedMarker: marker === "true",
+      hasMergedPr: merged === "true", isDispatchTree: dispatch === "true",
+      unclassified: unclassified === "true", manifest: "", hasLog: false,
+    },
+  };
+});
+process.stdout.write(JSON.stringify({
+  scope: { kind: "workspace" },
+  readings: {
+    plans: [], sprints: [], branches: [], claims: [], trees: [],
+    desks: { candidates, orphanedManifests: [], defaultBranch: process.env.PLOT_MAIN },
+  },
+}));
+' 2>/dev/null | node "$desk_rule" 2>/dev/null) || desk_answer=""
+
+  if [ -z "$desk_answer" ]; then
+    echo "  (not evaluated — the desk rule could not be asked)"
+  else
+    desk_out=$(printf '%s' "$desk_answer" | jq -r '
+      (.detail.findings // [])
+      | map(select(.kind == "worktree" or .kind == "unclassified-tree"))
+      | .[]
+      | "  \(.subject) — \(.evidence)" +
+        (if .repair == "" then "\n    (only a person can resolve this one)"
+         else "\n    fix: \(.repair)" end)' 2>/dev/null)
+    n_desks=$(printf '%s' "$desk_answer" | jq -r '
+      [(.detail.findings // [])[] | select(.kind == "worktree" or .kind == "unclassified-tree")]
+      | length' 2>/dev/null) || n_desks=0
+    [ -n "$n_desks" ] || n_desks=0
+    if [ -n "$desk_out" ]; then printf '%s\n' "$desk_out"; else echo "  (none — every desk is accounted for)"; fi
+  fi
+fi
+echo
+__mark "BEFORE 22. Merged without a changeset (a merge that shipped code an"
+echo "== 22. Merged without a changeset (a merge that shipped code and no release note) =="
+# THE FAILURE IS MEASURED: two merges in one session nearly shipped with no
+# release note. `check-changeset-packages.sh` cannot catch this — it validates
+# changesets that EXIST (real package, description over 20 characters, no
+# leading `bumps:` comment), so a branch carrying none passes it trivially.
+# The gap is silent in the direction nobody investigates: a missing note is
+# invisible until somebody reads the published changelog and finds a feature
+# absent, by which time the tag is cut and cannot be moved.
+#
+# IT ASKS THE MERGE COMMIT, NEVER THE BRANCH REF. The first draft read
+# `<base>...<head>`, which needs the branch to still exist — and
+# `plot-release-refs.sh` deletes merged refs by design. Measured 2026-09-11:
+# THREE remote branches survive on this repository against hundreds of merges,
+# so a branch-keyed check answers *no changeset* for almost everything, for the
+# wrong reason. A merge commit's two parents hold the whole answer.
+#
+# AND IT NEEDS NO HOST CALL AT ALL. `MERGED_PR_LIMIT` does not bound this
+# section and `pr_reliable` does not gate it — section 18 guards on
+# `pr_reliable` because it asks the host what merged, and copying that guard
+# here would make the section silent during an outage for no reason. The PR
+# NUMBER is a nicety lifted from the merge subject; when it is absent the merge
+# SHA is named and the finding is reported anyway.
+#
+# DIFF FROM THE MERGE BASE, NOT FROM `^1`. `^1` is main AT MERGE TIME, so
+# `$m^1 $m^2` diffs the two TIPS and attributes every commit main gained while
+# the branch was open to the branch itself. Measured on this estate over the
+# last 40 merges: the `^1 ^2` form reports NINE findings against TWO from the
+# merge base, and #854 reads as touching `packages/domain/src/entities/budget.ts`
+# — which main did, not the branch. Both questions are asked from the base.
+#
+# FOUR EXCLUSIONS, each measured over the last 40 merges rather than assumed.
+# Unnarrowed this fires on 25 of 40 — 63%, which is `sprint_drift=57`'s failure
+# reproduced: a counter so loud nobody reads it.
+#   * the merge touched no `packages/*/src/` or `skills/` (25 -> 8) — a docs,
+#     test or fixture merge describes nothing a release note would carry;
+#   * the merged branch is `idea/*` (8 -> 2) — a plan PR ships no code and
+#     carries no changeset by construction;
+#   * the merged branch is `changeset-release/*` (2 -> 0) — the release PR
+#     CONSUMES changesets; demanding one of it inverts the workflow;
+#   * the merge is not on the default branch's FIRST-PARENT spine — this drops
+#     `Merge remote-tracking branch 'origin/main' into <branch>`, a rebase-style
+#     merge INTO a feature branch rather than a merge of work into main. Those
+#     are not deliveries. Across a 150-merge window four of the nine raw
+#     findings are exactly that shape.
+#
+# THE FIRST-PARENT SPINE IS THE READING, AND ANCESTRY WOULD NOT WORK. The plan
+# words this exclusion as *"a merge whose first parent is not on the default
+# branch's history"*, and measured 2026-09-11 that predicate can never fire:
+# once a rebase-style merge is itself merged into main, its whole history —
+# feature-branch first parent included — becomes main's history, so
+# `merge-base --is-ancestor "$m^1" origin/main` is true for all nine. The spine
+# `git rev-list --first-parent` is the sequence of deliveries; a merge of main
+# INTO a branch sits off it. Same intent, a reading that holds.
+#
+# TWO EXCLUSIONS NO LONGER FIRE, AND THEY STAY. The merge base alone drops every
+# `idea/*` residual, so those two `case` arms cost one line each and document
+# intent — an adopting repository with different merge habits may still need
+# them. Correctness rests on the merge base, never on the name lists.
+#
+# REPORTS AND NEVER REFUSES. A merge with no changeset is legitimate and common
+# — a docs fix, a test-only change, a revert, a build-artifact rebuild. A gate
+# refusing them fires constantly on honest work, which is the shape people turn
+# off. Same call `a-merged-pr-carried-work` made, for the same reason: what is
+# missing is the DECISION, not the outcome. It carries `no_changeset=`, stays
+# OUT of `attention=`, and sits below the `== blocking sections end ==` marker.
+n_no_changeset=0
+# THE WINDOW IS STATED RATHER THAN IMPLIED. What bounds this section is how far
+# back it walks `git log --merges` — a local choice with no rate limit behind
+# it, unlike `MERGED_PR_LIMIT`. Saying the number is the difference between a
+# report that is complete and one that looks complete.
+CHANGESET_MERGE_WINDOW=${PLOT_CHANGESET_MERGE_WINDOW:-40}
+nc_out=""
+nc_ref="origin/$MAIN"
+git rev-parse -q --verify "$nc_ref" >/dev/null 2>&1 || nc_ref="$MAIN"
+if ! git rev-parse -q --verify "$nc_ref" >/dev/null 2>&1; then
+  # A SECTION THAT CANNOT EVALUATE SAYS SO. Section 18's `(not evaluated — …)`
+  # is the pattern: silence reads as *nothing drifted*, which is the one
+  # direction a drift report must never be lenient in.
+  echo "  (not evaluated — neither origin/$MAIN nor $MAIN is readable)"
+else
+  # The delivery spine, read once. Membership of `$m^1` in it is the fourth
+  # exclusion, and a single `grep -qx` per merge beats a `rev-list` per merge.
+  nc_spine=$(git rev-list --first-parent "$nc_ref" 2>/dev/null)
+  nc_squashed=0
+  nc_seen=0
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    nc_seen=$((nc_seen + 1))
+    # A SQUASH HAS ONE PARENT, so there is no merged side to diff. This
+    # repository uses merge commits (verified 2026-09-11); an adopting
+    # repository that squashes needs a different handle, and the section says
+    # so below rather than reporting every squashed merge as missing a
+    # changeset.
+    git rev-parse -q --verify "$m^2" >/dev/null 2>&1 || { nc_squashed=$((nc_squashed + 1)); continue; }
+
+    # Exclusion four, before any diff: a merge of main INTO a branch is not a
+    # delivery. Cheapest test and it drops the largest false population.
+    p1=$(git rev-parse -q --verify "$m^1" 2>/dev/null) || continue
+    printf '%s\n' "$nc_spine" | grep -qx "$p1" || continue
+
+    # The merged branch name, from the merge subject. `%s` carries it for both
+    # the host's `Merge pull request #N from <owner>/<branch>` and git's own
+    # `Merge remote-tracking branch 'origin/<branch>'`.
+    subj=$(git log -1 --format='%s' "$m" 2>/dev/null)
+    nc_branch=""
+    case "$subj" in
+      "Merge pull request #"*" from "*)
+        nc_branch=${subj#*" from "}
+        nc_branch=${nc_branch#*/} ;;     # strip the owner prefix
+      "Merge branch "*)
+        nc_branch=${subj#"Merge branch "}
+        nc_branch=${nc_branch%%"'"*}
+        nc_branch=${nc_branch#"'"} ;;
+      "Merge remote-tracking branch "*)
+        nc_branch=${subj#"Merge remote-tracking branch "}
+        nc_branch=${nc_branch%%"'"*}
+        nc_branch=${nc_branch#"'"}
+        nc_branch=${nc_branch#origin/} ;;
+    esac
+
+    # Exclusions two and three. Both are measured non-firing once the merge base
+    # is in use; they stay because they cost one arm each and state the intent.
+    case "$nc_branch" in
+      idea/*|changeset-release/*) continue ;;
+    esac
+
+    base=$(git merge-base "$m^1" "$m^2" 2>/dev/null) || continue
+
+    # `--diff-filter=A` is what makes this *a changeset ADDED on the merged
+    # side* rather than *the word .changeset appearing anywhere in the diff*.
+    # Without it a release PR — which DELETES changesets — reads as carrying
+    # one, and the section reports every implementation merge forever.
+    cs=$(git diff --name-only --diff-filter=A "$base" "$m^2" 2>/dev/null \
+          | grep -c '^\.changeset/.*\.md$')
+    [ "${cs:-0}" -eq 0 ] || continue
+
+    # Exclusion one: shipped code. A docs, test or fixture merge describes
+    # nothing a release note would carry.
+    code=$(git diff --name-only "$base" "$m^2" 2>/dev/null \
+            | grep -cE '^(packages/[^/]+/src/|skills/)')
+    [ "${code:-0}" -gt 0 ] || continue
+
+    short=$(git rev-parse --short "$m" 2>/dev/null)
+    # The PR number is a NICETY, not the handle. When the subject carries none,
+    # the merge SHA is named and the finding is reported all the same.
+    nc_pr=""
+    case "$subj" in
+      "Merge pull request #"*)
+        nc_pr=${subj#"Merge pull request #"}
+        nc_pr=${nc_pr%%" "*} ;;
+    esac
+    nc_label="merge $short"
+    [ -n "$nc_pr" ] && nc_label="PR #$nc_pr (merge $short)"
+    [ -n "$nc_branch" ] || nc_branch="(branch not named in the merge subject)"
+
+    nc_out+="  $nc_label — $nc_branch merged ${code} shipped-code file(s), added no changeset\n"
+    nc_out+="    inspect: git diff --name-only $base $short^2\n"
+    # NAMES THE DECISION, NOT A REPAIR. The changeset belongs to the merge that
+    # is already in; what a person decides is whether this change owes a release
+    # note at all, and a revert, a rebuild or a test-only fix legitimately owes
+    # none.
+    nc_out+="    decide: add a changeset on main for it, or record that this change ships no release note\n"
+    n_no_changeset=$((n_no_changeset + 1))
+  done < <(git log --merges -n "$CHANGESET_MERGE_WINDOW" --format='%H' "$nc_ref" 2>/dev/null)
+
+  if [ -n "$nc_out" ]; then printf '%b' "$nc_out"; else echo "  (none — every merge that shipped code in this window carried a changeset)"; fi
+  echo "  window: the last $nc_seen merge commit(s) on $nc_ref (raise with PLOT_CHANGESET_MERGE_WINDOW)."
+  if [ "$nc_squashed" -gt 0 ]; then
+    echo "  note: $nc_squashed of them are single-parent (squash) merges — a squash has no merged"
+    echo "        side to diff, so this section cannot answer for them."
+  fi
+fi
+echo
+
+echo "Sweep complete. This report is advisory — nothing was changed."
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset pr_source=$PR_SOURCE main=$MAIN"
+exit 0
+
+__mark "END"
