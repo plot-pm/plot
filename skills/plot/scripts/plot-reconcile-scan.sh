@@ -518,6 +518,12 @@ elif [ "$PR_SOURCE" = off ]; then
   echo "PR state: skipped (--no-pr) — git merge-state only; no git-host network call."
   echo "          (stale-branch section may over-list branches with an open PR;"
   echo "           run /plot-reconcile without --offline for the precise list.)"
+  # The banner names the sections that degrade — the absent/failed arms below
+  # set that shape, and section 6 belongs in it. It asked the host once per
+  # delivered plan until 2026-09-17, so the promise on the line above was one
+  # this scan did not keep.
+  echo "          Section 6 (delivered but released) not evaluated — a release"
+  echo "          version is the host's answer, and the flag declines to ask."
 elif [ "$PR_SOURCE" = absent ]; then
   echo "PR state: ABSENT — no git-host CLI (gh/bb) found on PATH."
   echo "          Section 3 (stale branches) not evaluated — cannot determine which"
@@ -1132,8 +1138,23 @@ echo
 # delivery date records when a plan was BOOKED, not when its code merged (one
 # plan here sat five months between the two), and two tags in this repo share a
 # date, so day resolution cannot separate them even in principle.
+#
+# THE SECTION HONOURS `--offline`/`--no-pr`, and what it gives up is a CORRECT
+# answer rather than a broken one. Run offline, this section used to report
+# exactly what it reports online — it asked `pr-state` per delivered plan and
+# the flag said no git-host network call. The promise is the scan's own, printed
+# in the header three hundred lines above, so the section reads `PR_SOURCE` and
+# skips. What that costs is stated rather than implied: on a repository with 82
+# delivered plans the offline run had been spending ~11 minutes on a network the
+# operator asked it to leave alone, and the answer at the end of it was one a
+# reader could have had for free.
 echo "== 6. Delivered but already released (candidate /plot-release) =="
 unrel_out=""
+# Counted separately from the findings. `unreleased_delivered=` must stay a
+# count of PLANS THIS SECTION REPORTED, so a reader can tell a measured zero
+# apart from a section that never ran — the same distinction section 2's note
+# and section 3's suppression each draw.
+n_unrel_unchecked=0
 while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   [ -n "$f" ] || continue
   [ "$st" = delivered ] || continue
@@ -1141,6 +1162,15 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   # "live on main — no release needed". Reporting them here would contradict a
   # message Plot itself sends, on every sweep, forever.
   case "$ptype" in docs|infra) continue ;; esac
+
+  # The flag is read HERE, after the exemptions and before the host call, so the
+  # note counts the plans that would actually have been asked about. Counting
+  # every delivered plan would name docs/infra ones the online run never asks
+  # about either, and report a gap wider than the one the flag opened.
+  if [ "$PR_SOURCE" = off ]; then
+    n_unrel_unchecked=$((n_unrel_unchecked + 1))
+    continue
+  fi
 
   base=$(basename "$f")
   if [ -z "$prs" ]; then
@@ -1176,6 +1206,16 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   n_unrel=$((n_unrel + 1))
 done <<< "$plan_rows"
 if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
+# SILENCE WOULD BE THE WORSE BUG. An empty section reads as "nothing to report",
+# and this section exists precisely because "cannot tell" and "nothing wrong"
+# must not look the same — its own `no PR annotation` arm above says so. The
+# note names the number, because "some plans" is a sentence a reader cannot act
+# on and "3 delivered plans" is one they can.
+if [ "$PR_SOURCE" = off ] && [ "$n_unrel_unchecked" -gt 0 ]; then
+  echo "  note: release state not resolved for $n_unrel_unchecked delivered plan(s) (pr_source=off) —"
+  echo "        a delivered plan cannot be checked against a released version"
+  echo "        without asking the host. Re-run without --offline/--no-pr."
+fi
 echo
 
 # ---------------------------------------------------------------------------
