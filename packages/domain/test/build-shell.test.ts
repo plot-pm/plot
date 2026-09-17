@@ -370,7 +370,7 @@ describe('a prose CI declaration still meters', () => {
     // `basis: unknown` AND a prose connector, so the filter discarded it and
     // `limit()` returned the empty list that means "meters nothing".
     const answer = await buildReads(realShell('jenkins'), {
-      PLOT_CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`',
+      PLOT_CI: 'Jenkins at `jenkins.example.com`',
     }).limit();
 
     expect(answer.ok).toBe(true);

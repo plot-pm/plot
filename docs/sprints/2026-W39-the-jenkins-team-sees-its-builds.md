@@ -48,7 +48,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 ### A real instance exists, is reachable, and disproved an assumption already
 
-**`quaweb-website` is the stack this sprint is for**, measured 2026-09-08: a `bitbucket.org` remote built by `jenkins-ci-webbloqs.internal.quatico.dev`, whose job `quaweb` is nested (`job/quaweb/job/release`) — the folder-inside-folder shape `plot-host.sh:541` already describes. The host answers **HTTP 403** on `/api/json`: present and refusing, not absent.
+**`quaweb-website` is the stack this sprint is for**, measured 2026-09-08: a `bitbucket.org` remote built by `jenkins.example.com`, whose job `quaweb` is nested (`job/quaweb/job/release`) — the folder-inside-folder shape `plot-host.sh:541` already describes. The host answers **HTTP 403** on `/api/json`: present and refusing, not absent.
 
 **It disproved a guess before a line was written.** Its three Jenkinsfiles live at `.build/pipelines/<project>/<pipeline>/Jenkinsfile` — none of the four paths reasoned from convention, root included. A root-only probe reads this repository as having no CI, so `the-probe-reads-the-ci-system` now searches `git ls-files` instead of a guessed list.
 
@@ -74,7 +74,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 - [x] [a-pr-is-opened-by-a-controller] A slice's PR is opened by a controller. No skill, no rule, done by hand three times today and fifteen branches went unseen last sprint.
 - [x] [a-lifecycle-field-has-one-writer] A hook refuses a commit editing a `State:` line outside the scripts that own it. Last, because a gate refusing the only available method stops work.
 
-- [x] [the-connector-is-read-against-a-real-instance] Measured 2026-09-10 against `jenkins-ci-webbloqs.internal.quatico.dev`. **Build history is askable through `jen`; a commit sha is not, and is askable over REST.** Both halves are now recorded — see the note below.
+- [x] [the-connector-is-read-against-a-real-instance] Measured 2026-09-10 against `jenkins.example.com`. **Build history is askable through `jen`; a commit sha is not, and is askable over REST.** Both halves are now recorded — see the note below.
 - [x] [a-probe-reports-and-the-domain-judges] `proposeStack` in the domain decides what a probe's readings propose. **Runs before the CI slice**, which reports into it. Seven thresholds live inside the two collectors today — `node >= 20`, three commit-style counts, the ticket-prefix floor and the language count — and each is a decision a test cannot reach.
 - [x] [two-signals-ask-rather-than-tie-break] `/plot-board-setup`'s stated rule — *one signal proposes, two signals ask* — becomes a domain property rather than a paragraph an agent is asked to follow.
 
@@ -130,7 +130,7 @@ The precedent is already stated for rendering: *a view state that cannot be asse
 
 ### `jen` answers with builds and never a sha — 2026-09-10
 
-**The blocker this sprint recorded is gone, and the open question is half answered.** `jen 0.4.0` is installed at `~/.local/bin/jen` and authenticated against `jenkins-ci-webbloqs.internal.quatico.dev` (Keycloak plus a Jenkins token in the keychain). The sprint's *"what is missing is `jen` and a token"* no longer holds.
+**The blocker this sprint recorded is gone, and the open question is half answered.** `jen 0.4.0` is installed at `~/.local/bin/jen` and authenticated against `jenkins.example.com` (Keycloak plus a Jenkins token in the keychain). The sprint's *"what is missing is `jen` and a token"* no longer holds.
 
 **Build history is askable.** `jen build list quaweb/release --json` returns builds with `id`, `status`, timings and per-stage detail. `jen job list quaweb` reports the job shape, including a multibranch `continuous-build` whose branches arrive percent-encoded (`bug%2Fkarriere-...`) — the form `jenkins_build_map()` already decodes.
 

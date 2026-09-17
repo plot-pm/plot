@@ -297,8 +297,8 @@ describe('proposeCiInstance', () => {
     // The slug is measurable and the path is not: `quaweb/continuous-build` is
     // a fact about the Jenkins job tree, and reading it would need credentials
     // adoption does not have.
-    const p = proposeCiInstance('jenkins-ci-webbloqs.internal.quatico.dev', true);
-    expect(p.slug).toBe('jenkins-ci-webbloqs.internal.quatico.dev');
+    const p = proposeCiInstance('jenkins.example.com', true);
+    expect(p.slug).toBe('jenkins.example.com');
     expect(p.ask).toBe('path');
   });
 

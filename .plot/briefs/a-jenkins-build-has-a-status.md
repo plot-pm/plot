@@ -23,7 +23,7 @@ nothing ever reads it.
 ### THE SPIKE IS DONE — do not re-run it
 
 The wave originally opened with a spike. **It was run during interrogation**
-(2026-08-26, `jen` 0.2.0, `jenkins-ci-webbloqs.internal.quatico.dev`, job
+(2026-08-26, `jen` 0.2.0, `jenkins.example.com`, job
 `webbloqs/continuous-build-multi`):
 
 ```

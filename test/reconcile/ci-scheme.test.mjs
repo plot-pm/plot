@@ -73,7 +73,7 @@ const call = (expr, { repo = os.tmpdir(), env = {} } = {}) => {
 // bare word is the one that already worked and must keep working.
 const JENKINS_SPELLINGS = [
   ['the bare word', 'jenkins'],
-  ['a backticked host', 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev` (Bitbucket PRs trigger builds)'],
+  ['a backticked host', 'Jenkins at `jenkins.example.com` (Bitbucket PRs trigger builds)'],
   ['a pipeline path', 'Jenkins pipelines in `.build/pipelines/` (one per service)'],
   ['an example list', 'Jenkins (e.g. continuous-build, nightly)'],
 ];
@@ -107,16 +107,16 @@ test('ci_instance: a backticked host is the instance, unquoted', () => {
   // host in backticks and the probe used a full `https://` URL; `jen -I` takes
   // either, so inventing a canonical form here would break whichever caller
   // passes the other one.
-  const value = 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev` (Bitbucket PRs trigger builds)';
+  const value = 'Jenkins at `jenkins.example.com` (Bitbucket PRs trigger builds)';
   const got = call('ci_instance', { repo: repoWith({ CI: value }) });
-  assert.equal(got.out, 'jenkins-ci-ewz.internal.quatico.dev');
+  assert.equal(got.out, 'jenkins.example.com');
   assert.doesNotMatch(got.out, /^at /, 'never the naive split — `at jenkins-ci-ewz…` is not a host');
   assert.doesNotMatch(got.out, /`/, 'backticks are stripped');
 });
 
 test('ci_instance: a full URL survives unnormalised', () => {
-  const got = call('ci_instance', { repo: repoWith({ CI: 'jenkins https://jenkins-ci-webbloqs.internal.quatico.dev' }) });
-  assert.equal(got.out, 'https://jenkins-ci-webbloqs.internal.quatico.dev');
+  const got = call('ci_instance', { repo: repoWith({ CI: 'jenkins https://jenkins.example.com' }) });
+  assert.equal(got.out, 'https://jenkins.example.com');
 });
 
 test('ci_instance: prose naming no host answers empty, not a sentence', () => {
@@ -166,7 +166,7 @@ test('ci_instance: the Jenkins instance key WINS over CI prose', () => {
   // root-scope listing, where `jenkins_build_map()`'s own comment says every
   // branch reads `none`.
   const repo = repoWith({
-    CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev` (Bitbucket PRs trigger builds)',
+    CI: 'Jenkins at `jenkins.example.com` (Bitbucket PRs trigger builds)',
     'Jenkins instance': 'quaweb/job/quaweb/job/release',
   });
   const got = call('ci_instance', { repo });
@@ -175,7 +175,7 @@ test('ci_instance: the Jenkins instance key WINS over CI prose', () => {
 });
 
 test('ci_instance: $JENKINS_INSTANCE wins over CI prose too', () => {
-  const repo = repoWith({ CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`' });
+  const repo = repoWith({ CI: 'Jenkins at `jenkins.example.com`' });
   const got = call('ci_instance', { repo, env: { JENKINS_INSTANCE: 'webbloqs/job/webbloqs' } });
   assert.equal(got.out, 'webbloqs/job/webbloqs');
 });
@@ -185,9 +185,9 @@ test('ci_instance: the prose answers when neither explicit source is set', () =>
   // declares its host in prose and none has run the adoption path that writes
   // the key, so the prose has to answer or each one reads unknown until
   // somebody edits it.
-  const repo = repoWith({ CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`' });
+  const repo = repoWith({ CI: 'Jenkins at `jenkins.example.com`' });
   const got = call('ci_instance', { repo, env: { JENKINS_INSTANCE: '' } });
-  assert.equal(got.out, 'jenkins-ci-ewz.internal.quatico.dev');
+  assert.equal(got.out, 'jenkins.example.com');
 });
 
 // --- PLOT_CI is split like the config value -------------------------------
@@ -197,7 +197,7 @@ test('ci_scheme: PLOT_CI prose is split the same way the CI key is', () => {
   // `build-actions.ts:39` passes `{ PLOT_CI: SYSTEM }` as the dispatch
   // contract the arm reads. A connector's bare `SYSTEM` word and a person's
   // prose must reach ONE comparison, so the variable is split like the key.
-  const got = call('ci_scheme', { env: { PLOT_CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`' } });
+  const got = call('ci_scheme', { env: { PLOT_CI: 'Jenkins at `jenkins.example.com`' } });
   assert.equal(got.out, 'jenkins');
 });
 
@@ -209,13 +209,13 @@ test('ci_scheme: a bare PLOT_CI word still answers itself', () => {
 test('ci_instance: PLOT_CI carries an instance the same way', () => {
   const got = call('ci_instance', {
     repo: repoWith({ 'Git host': 'github' }),
-    env: { PLOT_CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`' },
+    env: { PLOT_CI: 'Jenkins at `jenkins.example.com`' },
   });
-  assert.equal(got.out, 'jenkins-ci-ewz.internal.quatico.dev');
+  assert.equal(got.out, 'jenkins.example.com');
 });
 
 test('ci_scheme: PLOT_CI overrides the CI key, as it always has', () => {
-  const repo = repoWith({ CI: 'Jenkins at `jenkins-ci-ewz.internal.quatico.dev`' });
+  const repo = repoWith({ CI: 'Jenkins at `jenkins.example.com`' });
   const got = call('ci_scheme', { repo, env: { PLOT_CI: 'github-actions' } });
   assert.equal(got.out, 'github-actions', 'env first, then the CI key — the precedence ci_backend() had');
 });

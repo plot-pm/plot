@@ -315,7 +315,7 @@ makes for Jira, whose base URL is asked for the same reason.
 
 **One question where the slug was found:**
 
-> Found `jenkins-ci-webbloqs.internal.quatico.dev` in your README. Which job
+> Found `jenkins.example.com` in your README. Which job
 > builds this repository? (e.g. `quaweb/continuous-build`)
 
 **Two where it was not — and this is the normal case, not the edge one.** A
@@ -339,7 +339,7 @@ the field is the silent misconfiguration `/plot-init` refuses everywhere else.
 
 ```markdown
 - **CI:** jenkins
-- **Jenkins instance:** jenkins-ci-webbloqs.internal.quatico.dev/quaweb/continuous-build
+- **Jenkins instance:** jenkins.example.com/quaweb/continuous-build
 ```
 
 > **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the

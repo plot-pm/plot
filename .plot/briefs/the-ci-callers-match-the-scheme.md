@@ -75,7 +75,7 @@ leaving it pointing at a deleted function. This is the one file outside
 `plot-host.sh` this slice touches.
 
 **Not chosen: `case "$_ci" in jenkins*)`.** A glob would fix `ci-limit` in one
-character. It also matches `jenkins-ci-ewz.internal.quatico.dev` as a *scheme*,
+character. It also matches `jenkins.example.com` as a *scheme*,
 so a repo that wrote only the host would read as configured Jenkins with no
 instance — and it leaves `:2417`'s `=` test broken, since a glob is not an
 equality.

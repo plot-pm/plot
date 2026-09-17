@@ -55,7 +55,7 @@
 | `runs(branch, limit)` | a history: `BuildRun{workflow, conclusion, startedAt, url}` | one current state, no history, no timestamps, no URL |
 | `runForSha(branch, sha)` | the run for a COMMIT | no commit at all |
 
-**MEASURED AGAINST THE LIVE INSTANCE, 2026-09-08 — BOTH ANSWERS EXIST, AND THE REST API HAS THEM.** `jenkins-ci-webbloqs.internal.quatico.dev`, authenticated, reading the `quaweb` folder that builds `quaweb-website`:
+**MEASURED AGAINST THE LIVE INSTANCE, 2026-09-08 — BOTH ANSWERS EXIST, AND THE REST API HAS THEM.** `jenkins.example.com`, authenticated, reading the `quaweb` folder that builds `quaweb-website`:
 
 | what the port needs | where it is | measured value |
 |---|---|---|

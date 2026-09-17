@@ -62,7 +62,7 @@ false:
 
 ```
 CI               = jenkins
-Jenkins instance = jenkins-ci-webbloqs.internal.quatico.dev/quaweb/continuous-build
+Jenkins instance = jenkins.example.com/quaweb/continuous-build
 Git host         = bitbucket
 Tracker          = jira https://quatico.atlassian.net
 ```

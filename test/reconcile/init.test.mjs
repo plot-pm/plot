@@ -217,11 +217,11 @@ test('detect: reads the Jenkins host a self-describing doc names', () => {
   const r = repoWith({
     'README.md':
       '# quaweb-website\n' +
-      'Builds: https://jenkins-ci-webbloqs.internal.quatico.dev/job/quaweb/\n' +
-      'See jenkins-ci-webbloqs.internal.quatico.dev for status.\n',
+      'Builds: https://jenkins.example.com/job/quaweb/\n' +
+      'See jenkins.example.com for status.\n',
     '.build/pipelines/website/release/Jenkinsfile': 'pipeline {}\n',
   });
-  assert.equal(probe(r).jenkins_host, 'jenkins-ci-webbloqs.internal.quatico.dev');
+  assert.equal(probe(r).jenkins_host, 'jenkins.example.com');
 });
 
 test('detect: a repository naming no Jenkins reports no host', () => {
@@ -236,14 +236,14 @@ test('detect: a repository naming no Jenkins reports no host', () => {
 
 test('detect: the host is read from self-describing files, never every markdown', () => {
   // MEASURED 2026-09-09 ON PLOT ITSELF. A `*.md` corpus reported
-  // `jenkins-ci-webbloqs.internal.quatico.dev` for a repository that runs no
+  // `jenkins.example.com` for a repository that runs no
   // Jenkins, read out of a plan citing the host as another repo's example. A
   // proposal from that reading points the connector at a stranger's server,
   // which answers `NOT reachable` — indistinguishable from a Jenkins that is
   // down.
   const r = repoWith({
     'README.md': '# thing\nNo CI named here.\n',
-    'docs/plans/a-plan.md': 'Measured in quaweb: jenkins-ci-webbloqs.internal.quatico.dev\n',
+    'docs/plans/a-plan.md': 'Measured in quaweb: jenkins.example.com\n',
   });
   assert.equal(probe(r).jenkins_host, '',
     'a hostname quoted as evidence in a plan is not this repository\'s Jenkins');
