@@ -75,13 +75,26 @@ the specification. **Stop forking per plan** is.
 ### The replacement is one fork for the whole run
 
 `ls -l` prints the link and its target together, so one call resolves both
-directories:
+directories. **The real two-directory output carries structure**, and an earlier
+draft of this plan showed a single line as if that were the shape:
 
 ```
+docs/plans/active:
+total 0
 lrwxr-xr-x@ 1 jwloka staff 49 Aug 28 22:08 a-board-names-the-repo-it-serves.md -> ../2026-08-28-a-board-names-the-repo-it-serves.md
+...
+docs/plans/delivered:
+total 0
+lrwxr-xr-x@ 1 jwloka staff 52 Sep  2 16:05 2026-09-01-a-refused-dispatch-asks-for-a-brief.md -> ../2026-09-01-a-refused-dispatch-asks-for-a-brief.md
 ```
 
-Measured: **0.081 s for all 363 links.** The per-plan lookup then uses shell
+371 lines for 366 links: two directory headers, two `total 0` lines and a blank
+separator. A reader keying on `*" -> "*` skips all five naturally, **and which
+directory a link came from must then come from the header rather than the line**
+— the two indexes answer different questions.
+
+Measured across four runs: **0.081 s, 0.136 s, 0.300 s, 0.529 s** — load-bound
+like every other timing here, and the right order of magnitude in all four. The per-plan lookup then uses shell
 parameter expansion and forks nothing — including `${f##*/}` in place of
 `basename`, which is 295 forks the current loop also pays.
 
