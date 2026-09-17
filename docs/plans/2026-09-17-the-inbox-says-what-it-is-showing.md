@@ -113,7 +113,7 @@ nothing.
 
 ## Slices
 
-### The inbox says what it is showing (Branch: docs/the-inbox-says-what-it-is-showing)
+### The inbox says what it is showing (Branch: docs/the-inbox-says-what-it-is-showing, PR: #936)
 
 - `docs/the-inbox-says-what-it-is-showing` — add a step to `/plot-board-setup` stating both narrowings and naming `PLOT_JIRA_JQL`, correct the stale `:393-401` paragraph that says no Jira backend exists, and record the unattended shape the skill's sweep requires
 
