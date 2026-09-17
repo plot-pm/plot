@@ -440,19 +440,35 @@ function reset_state() {
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
 function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, i, j, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
-  if (fm_status != "" || fm_phase != "") {
+  # THE PHASE IS READ FROM THE FIELD PLOT WRITES. A canonical `State:`/`Phase:`
+  # outranks front matter, because every lifecycle script writes the canonical
+  # body and none writes front matter: `plot-approve.sh` holds zero front-matter
+  # references, and the five in `plot-deliver.sh` all REFUSE the case rather
+  # than write it. A plan carrying both therefore reported a value no transition
+  # had ever touched - measured 2026-09-17, an approval wrote `State: Approved`,
+  # the parser answered `draft`, and the scan dispatched nothing.
+  #
+  # `phase_alt` carries the loser, so the disagreement stays readable - that is
+  # the field the delivery gate in `plot-deliver.sh` reads.
+  #
+  # THE PRECEDENCE MOVES FOR THE FIELDS PLOT OWNS, NOT FOR EVERY FIELD. The
+  # board-facing fields below, `design_raw` among them, keep front-matter-wins:
+  # no lifecycle script writes any of them, so neither record is more current.
+  if (canon_state != "" || canon_phase != "") {
+    # `State:` is primary and `Phase:` the alternate, exactly as front matter
+    # reads `status:` over `phase:`. A file carrying both reports the
+    # disagreement rather than hiding it, and front matter joins that alternate
+    # when the canonical body answered first.
+    fmt = "canonical"
+    praw = (canon_state != "") ? canon_state : canon_phase
+    palt_raw = (canon_state != "" && canon_phase != "") ? canon_phase : ""
+    if (palt_raw == "") palt_raw = (fm_status != "") ? fm_status : fm_phase
+    traw = canon_type
+  } else if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
     palt_raw = (fm_status != "" && fm_phase != "") ? fm_phase : ""
     traw = fm_type
-  } else if (canon_state != "" || canon_phase != "") {
-    # `State:` is primary and `Phase:` the alternate, exactly as front matter
-    # reads `status:` over `phase:`. A file carrying both reports the
-    # disagreement rather than hiding it.
-    fmt = "canonical"
-    praw = (canon_state != "") ? canon_state : canon_phase
-    palt_raw = (canon_state != "" && canon_phase != "") ? canon_phase : ""
-    traw = canon_type
   } else {
     fmt = "none"; praw = ""; palt_raw = ""; traw = ""
   }
