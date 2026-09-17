@@ -1,6 +1,6 @@
 # A probe reading is not a guess
 
-> The board probe reported `jen auth: failed` against an authenticated CLI and `jenkinsfile: false` against three Jenkinsfiles, so adoption proposed from two readings the tools themselves contradict.
+> The probe's auth regex matches a word the CLI never prints on success, so a verifiable Jenkins reads as unverifiable; and a Jenkinsfile below the root reads as no CI at all.
 
 ## Status
 
@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- `plot-board-probe.sh` reads an authenticated Jenkins as authenticated, and finds a Jenkinsfile that lives in a subdirectory. Both readings were false on a real repository, and each one sends `/plot-board-setup` to a wrong proposal.
+- `plot-board-probe.sh` reads a reachable Jenkins as `ok` rather than `unknown`, and finds a Jenkinsfile that lives in a subdirectory. The first is a latent defect that turns a verified success into *cannot verify*; the second was measured false on a real repository and makes adoption skip the `CI:` key entirely.
 
 <!-- Board impact: adoption reads this probe. No plan format, no template,
      no layout. -->
@@ -39,8 +39,39 @@ Reported 2026-09-17 on a Bitbucket repository tracking in Jira:
 Jenkins auth:  OK — jan.wloka@quatico.com
 ```
 
-**`OK`, not `reachable`.** So the match fails and `classify` falls through to
-`failed` or `unknown` — the report says `failed`.
+**`OK`, not `reachable`.** So the success match never fires.
+
+**Where that lands is `unknown`, not `failed`** — traced through `classify`
+(`:236`) and confirmed by running it:
+
+```
+classify(status=0) -> unknown
+classify(status=1) -> failed
+```
+
+`failed` requires a **non-zero exit**, and `jen` exits non-zero only on its
+failure branch (`exit 1` beside `NOT reachable`); the `OK` branch falls through
+to 0. **So a reachable Jenkins reads `unknown`.**
+
+### The reported `failed` was correct, and saying so is the point
+
+An earlier version of this plan read the report's `"auth": "failed"` as this
+defect's symptom. It is not. Re-measured 2026-09-17 against the reporting
+instance, three consecutive runs:
+
+```
+run 1: exit=1 :: Jenkins auth:  NOT reachable
+run 2: exit=1 :: Jenkins auth:  NOT reachable
+run 3: exit=1 :: Jenkins auth:  NOT reachable
+```
+
+**The adopter held a signed-in Keycloak session, a stored keychain token, and an
+unreachable Jenkins.** The CLI separates those three facts on the line the probe
+reads, and `failed` was the right answer for that run.
+
+**The defect is latent and still worth fixing**, because the reading it corrupts
+is the one nobody will question: a success that reports as *cannot verify* looks
+like caution rather than a bug.
 
 **The surrounding reasoning is right and is what makes this narrow.** The
 comment at `:229` records that `jen … auth status` exits 0 for a slug that does
@@ -49,11 +80,14 @@ not exist, so only the `Jenkins auth:` line carries the answer; `:264` tests
 **What is wrong is one word in one regex**, and the fix must not widen the line
 it reads.
 
-**The consequence is a repair for nothing.** `/plot-board-setup` step 4a names
-`jen … auth login` for a `failed` reading, so an adopter holding a valid
-keychain token is sent to replace it. The skill's stated rule is that `unknown`
-must never round up to authenticated; **this is the same rule failing the other
-way**, and the reverse direction costs trust rather than safety.
+**The consequence is a setup that cannot confirm what it just verified.**
+`plot-board-setup/SKILL.md:434` routes `unknown` to *"cannot verify — say so;
+never round it up to authenticated"*, which is the **safe** direction and stays.
+What it costs is the probe's own purpose: an adopter whose Jenkins answers is
+told the probe could not tell, on the one signal the setup exists to establish.
+
+**That is quieter than a wrong repair and harder to notice**, which is the
+argument for fixing it rather than the argument this plan first made.
 
 ### 2 — the Jenkinsfile test reads one path
 
@@ -72,9 +106,12 @@ The reporting repository keeps three:
 ```
 
 **A repository that keeps its pipelines in a directory reads as having no CI.**
-`proposeCi` then answers `silent`, setup writes no `CI:` key, and
-`plot-host.sh:677` exits 3 at the first build lookup — the outcome the setup
-skill exists to prevent.
+`proposeCi` then answers `silent` and setup writes no `CI:` key, so the Jenkins
+instance question is never asked either — and a board with no `CI:` resolves its
+build port to the arm that fetches nothing. **The earlier draft cited
+`plot-host.sh:677` as an `exit 3` here; that line is a candidate loop and the
+citation is withdrawn rather than replaced**, because the outcome does not need
+it: no `CI:` key is itself the failure the setup skill exists to prevent.
 
 ### The search must be bounded, and the bound is the finding
 
@@ -86,9 +123,30 @@ other direction.
 searches four named corpora rather than the tree, for exactly this reason, and
 its header records that an unbounded search was tried and abandoned.
 
-So: a bounded search, with the depth and the exclusions stated in the script and
-measured rather than assumed. **`gh_workflows` is the model that already
-works** — it tests a known directory, not a path.
+**So the bound is named here rather than left to the implementer**:
+`find -maxdepth 5` from the repository root, excluding `node_modules`, `.git`,
+and the configured `Worktree root`.
+
+**Five, and the number is measured rather than counted.** The reporting
+repository's hit is `.build/pipelines/website/continuous-build/Jenkinsfile`, and
+`-maxdepth` counts path components from the start point rather than directories:
+
+```
+-maxdepth 3 -> 0 hit(s)
+-maxdepth 4 -> 0 hit(s)
+-maxdepth 5 -> 1 hit(s)
+```
+
+An earlier draft of this paragraph said four, reasoning that the file sits four
+directories down. It does, and `-maxdepth 4` finds nothing — **the off-by-one is
+exactly the defect this plan exists to fix, made once more in its own Design.**
+
+The implementer measures the cost on this repository and states it in the
+script; **what they do not decide is the shape**, because a bound chosen during
+implementation is a bound nobody reviewed.
+
+**`gh_workflows` is the model that already works** — `:132` tests a known
+directory, not a path.
 
 ### What this does not do
 
@@ -109,8 +167,10 @@ Jenkins' question; the probe answers *does one exist*.
 
 - `bug/the-auth-reading-matches-the-cli` — match the `Jenkins auth:` line's actual success wording, keeping the `not reachable`-before-`reachable` order and the exit-code fallthrough
 
-**Done when** a captured `Jenkins auth:  OK — <user>` line reads `ok`, pinned by
-a fixture holding the CLI's real output; `Jenkins auth: NOT reachable` still
+**Done when** a captured `Jenkins auth:  OK — <user>` line with **exit 0** reads
+`ok`, pinned by a fixture holding the CLI's real output — and the same fixture
+pinned to read `unknown` **before** the fix, since that is the pre-state and a
+test asserting `failed` would pass for the wrong reason; `Jenkins auth: NOT reachable` still
 reads `failed` and is tested **before** the success arm, pinned by a fixture
 that contains both words; an unrecognised line still reads `unknown` and never
 `ok`; a `jen` that is absent, or an instance that is unset, reads exactly as
@@ -121,7 +181,9 @@ today; and `pnpm run test:contracts` passes.
 - `bug/a-jenkinsfile-is-found-where-it-lives` — find a Jenkinsfile below the repository root within a stated, measured bound, excluding the directories that would make it slow or wrong
 
 **Done when** a repository with `Jenkinsfile` at its root still reads `true`,
-unchanged; one keeping `.build/pipelines/*/Jenkinsfile` reads `true`; a
+unchanged; one keeping `.build/pipelines/website/continuous-build/Jenkinsfile` — the
+reporting repository's real depth — reads `true`, pinned at that exact path
+rather than a shallower stand-in; a
 repository with none reads `false`; a Jenkinsfile inside `node_modules` or a
 test fixture directory does **not** make it `true`, pinned by a fixture that
 contains one; the search's cost on this repository is **measured and stated in
@@ -137,6 +199,17 @@ captured line, the other is a filesystem search with a cost argument. They land
 in the same file and in the same report, which is not a reason to make them one
 change.
 
-**The setup skill's own rule is what both defects break** — *prove, don't
-assert*. The probe starts no Jenkins and reads no pipeline; it asserts two facts
-and both were wrong in one run.
+**The setup skill's own rule is what the second defect breaks** — *prove, don't
+assert*. The probe reads one path and asserts a fact about the repository.
+
+**Amended 2026-09-17 after a two-lens panel**
+(`.plot/panels/2026-09-17-a-probe-reading-is-not-a-guess/`), which found the
+first defect's symptom and consequence stated backwards: `classify` answers
+`unknown` on a zero exit, and the reported `failed` was correct for its run. The
+regex defect survives unchanged; what it harms does not.
+
+**The panel's own blind spot is recorded here because it is this plan's too**:
+both jurors reasoned from the probe's source and neither ran it. Every claim
+above about what the probe *reports* is derived rather than observed, and the
+two slices' fixtures are what convert them — which is why each `Done when` pins
+a captured CLI line rather than a described one.
