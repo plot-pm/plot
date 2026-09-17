@@ -1,0 +1,1 @@
+../2026-09-17-the-index-is-read-once.md

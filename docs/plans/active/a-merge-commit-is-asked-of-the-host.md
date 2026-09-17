@@ -1,0 +1,1 @@
+../2026-09-17-a-merge-commit-is-asked-of-the-host.md
