@@ -11,6 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -74,6 +75,26 @@ rather than dropping it, so a reader — and `plot-deliver.sh`'s own gate — ca
 still see the disagreement. **That is what keeps this from hiding the drift it
 stops causing.**
 
+### The blast radius is one test, and it pins the contract being inverted
+
+**Zero plans on this estate carry both shapes** — measured 2026-09-17. So a gate
+asserting *"all 292 plans parse byte-identically"* is satisfied by doing nothing
+and **cannot see this defect at all**. It stays as a regression lock and is not
+evidence.
+
+**The one artifact that carries both is a test**, and it exists to pin the
+precedence this plan inverts — `parser.test.mjs:582`, *"front matter design:
+outranks a `## Status` Design: line"*, whose comment reads *"Front matter wins
+over the canonical body, the rule every other transition record follows."*
+
+Run against the inversion: **96 pass, 1 fail, and it is that one.**
+
+**So the test changes, deliberately, and this plan says so rather than leaving
+an implementer with a red suite and no instruction.** What moves is its `format`
+assertion; `design_raw` stays front-matter-wins either way, because `Design:` is
+not a field any lifecycle script writes — **the precedence moves for the fields
+Plot owns, not for every field.**
+
 ### What this does not do
 
 **It does not remove front matter from the format.** Plans in the wild carry it,
@@ -99,9 +120,14 @@ because the condition is gone, not because it was softened.
 `phase: approved` with `phase_alt: draft`, pinned by a fixture holding both; a
 plan with **only** front matter reports exactly as today, pinned across all
 seven phase values; a plan with only a `## Status` block reports exactly as
-today; **all 292 plans on this estate parse byte-identically** except those
-carrying both shapes, checked by diffing the parser's full output before and
-after and naming every difference; `fmt` still reports which shape was read, so
+today; **all 292 plans on this estate parse byte-identically**, which is a regression
+lock rather than evidence — zero of them carry both shapes, so the clause is
+satisfied by construction and the defect is invisible to it;
+**`parser.test.mjs:582` is updated rather than deleted**, its `format`
+assertion moved and its comment rewritten to state the new rule, since it is the
+only both-shapes artifact in the repository and silently dropping it would
+remove the pin instead of moving it; `design_raw` still prefers front matter,
+pinned, because no lifecycle script writes a `Design:` field; `fmt` still reports which shape was read, so
 a consumer can tell; the reporter's sequence works end to end — approve a
 both-shapes plan, then `plot-fleet-scan.sh` answers `eligible=1`, pinned by a
 test that performs the approval rather than by editing a fixture; and `pnpm run

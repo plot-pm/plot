@@ -440,16 +440,19 @@ function reset_state() {
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
 function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, i, j, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
-  if (canon_state != "" || canon_phase != "") {
-    fmt = "canonical"
-    praw = (canon_state != "") ? canon_state : canon_phase
-    palt_raw = (canon_state != "" && canon_phase != "") ? canon_phase : ((fm_status != "") ? fm_status : fm_phase)
-    traw = (canon_type != "") ? canon_type : fm_type
-  } else if (fm_status != "" || fm_phase != "") {
+  if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
     palt_raw = (fm_status != "" && fm_phase != "") ? fm_phase : ""
     traw = fm_type
+  } else if (canon_state != "" || canon_phase != "") {
+    # `State:` is primary and `Phase:` the alternate, exactly as front matter
+    # reads `status:` over `phase:`. A file carrying both reports the
+    # disagreement rather than hiding it.
+    fmt = "canonical"
+    praw = (canon_state != "") ? canon_state : canon_phase
+    palt_raw = (canon_state != "" && canon_phase != "") ? canon_phase : ""
+    traw = canon_type
   } else {
     fmt = "none"; praw = ""; palt_raw = ""; traw = ""
   }
