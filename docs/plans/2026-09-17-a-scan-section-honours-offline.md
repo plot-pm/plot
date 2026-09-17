@@ -131,8 +131,26 @@ once**, and `plot-reconcile-scan.sh:556` says so four lines above the call:
 ```
 
 Measured: **470 ms for all 292 plans.** So parsing is 0.1% of an offline scan,
-not 10%, and **the unexplained share is not an order of magnitude — it is
-essentially the whole run.**
+not 10%.
+
+**And the residual is now measured, by a round-2 juror who instrumented the
+scan per section.** At load 11.17, an offline run costs 373.58 s, of which
+**340.79 s — 91.2% — is spent BEFORE section 1 begins.** Section 6, the subject
+of this plan, costs **0.06 s**. The second-largest section is 18 at 23.78 s.
+
+**The cause is `symlinked_from` (`:675`), and it is quadratic.** It walks every
+link in an index and forks twice per link — `readlink` and `sed` — and it is
+called per plan across both indexes. Derived from this estate's real
+directories:
+
+```
+active links: 80   delivered links: 275   plans: 292
+292 x 355 x 2 = 207,320 forks
+```
+
+**That is the whole finding, and it belongs to no section** — which is why four
+prior readings of this plan, two panels and a moderator all looked inside
+sections and found nothing.
 
 **It is stated as a range rather than a number** because a single sample of a
 load-sensitive figure is not a standing fact — the lesson this estate already
@@ -146,9 +164,17 @@ removes host calls that, on this estate, number zero.
 
 **So the honest framing is a CONTRACT fix, not a performance fix.** `--offline`
 declares no host call and section 6 makes one; that is worth repairing because
-the flag means something, and a repository where the calls are many gets the
-speed as a consequence. **The reporter's 90 s timeout is a separate defect with
-a separate cause**, and this plan neither finds nor fixes it.
+the flag means something.
+
+**On the REPORTER's repository the fix does meet their symptom** — 82 delivered
+plans reaching the call at 8.2 s each is ~11 minutes, and their `exit=124` kill
+lands inside section 6. **On this estate it changes nothing measurable**, and
+the reason is the 207,320 forks above rather than anything this plan touches.
+
+**The separate defect is named rather than merely acknowledged**: `symlinked_from`
+is quadratic in plan count, and it is somebody's plan to write. It is not this
+one, because a contract fix and a complexity fix share no gate — but a reader
+who finishes this plan should not have to re-derive where the time went.
 
 **It does not touch `--no-fetch`.** Three flags exist and they promise different
 things; only the two that set `PR_SOURCE=off` are in scope.
