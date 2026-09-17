@@ -10,13 +10,16 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
 - A plan somebody rejected or superseded reports as withdrawn rather than open, so the board's estate count says how much work is actually outstanding.
 
 <!-- Board impact: the counter in the sprint control changes, and every plan
-     card whose plan is withdrawn gains a status nothing rendered before. No
+     card whose plan is withdrawn is not rendered at all — `toBoardPhase`
+     answers `null` for both phases and `board.ts:1956` skips it — so no card
+     changes. What changes is the COUNTER. No
      plan format, no template, no helper script. -->
 
 ## Design
@@ -46,8 +49,8 @@ export const planStatus = (readings: PlanReadings): PlanStatus => {
 `plot-plan-meta.sh:370` matches `rejected|superseded` explicitly, beside
 `design` and a file with no phase at all.
 
-**`phaseOfPlanState`, 100 lines above it in the same file, states the rule this
-breaks:**
+**`toBoardPhase` (`phase.ts:41`), 99 lines above it in the same file, states
+the rule this breaks:**
 
 > `null` rather than a default: a state this does not know is a plan format the
 > workflow does not understand, and putting it in Discovery would answer a
@@ -112,9 +115,32 @@ and has a corpus test. This plan brings the estate side to it, never the reverse
 **It does not touch `plot-plan-meta.sh`.** The parser already reports both
 phases by name; nothing about the plan format changes.
 
-**It does not decide what a withdrawn card looks like.** Whether such a plan
-renders in a column, in a fold, or not at all is a rendering question with its
-own reader; this plan makes the status expressible and the count correct.
+**It does not decide what a withdrawn card looks like**, because there is no
+card: `toBoardPhase` answers `null` for both phases and `board.ts:1956` runs
+`if (!mapped) continue`. The estate counter is the only surface where these
+plans appear, which is both why the defect is narrow and why the fix is worth
+making.
+
+### The arithmetic is decided here, not left to the implementer
+
+`SprintCountsSchema` is `{total, open, wip, done}` and its docstring reads
+*"Always equals `open + wip + done`"*. A withdrawn member forces a choice, and a
+panel found the plan presupposing one without saying so.
+
+**A FOURTH BUCKET, and `total` keeps counting every plan.** The alternative —
+dropping withdrawn from `total` — makes the estate total stop being the plan
+count, so a reader comparing `292 plans` against the directory would find it
+short by eleven with nothing saying why.
+
+**The cost is named rather than discovered**: the field reaches
+`SprintCountsSchema`, `formatCounts` (`SprintFilter.tsx:65`, which hardcodes
+four terms), and the **sprint** rows that share that renderer. The
+THREE-BUCKETS docstring changes with it.
+
+**And the sprint tally is the same function.** `fleet.ts:6804` builds the same
+four keys, so a bucket added for the estate appears on a sprint row too — which
+is correct, since a sprint can list a withdrawn item and `scoreItem` already
+answers `withdrawn` for it.
 
 ## Slices
 
@@ -123,11 +149,21 @@ own reader; this plan makes the status expressible and the count correct.
 - `bug/a-withdrawn-plan-is-not-open` — add `withdrawn` to `PlanStatusSchema`, give `planStatus` a case for the `rejected` and `superseded` phases, count it outside `open`/`wip`/`done` in `estateTotals`, and document the value in the schema's table beside the seven
 
 **Done when** a plan whose phase is `rejected` reports `status: withdrawn` and
-one whose phase is `superseded` does too, each pinned by a test; **the estate
-count on this repository falls from 11 open to 0**, asserted as a number rather
-than as a property, since every other gate here is satisfiable by plumbing a
-value through and never counting it; `total` still equals the sum of its buckets
-with the new one included, pinned by a test; a plan in every other phase reports
+one whose phase is `superseded` does too, each pinned by a test; **over a
+FIXTURE estate of known composition — three withdrawn plans, two live ones —
+`open` falls by exactly three and `withdrawn` reads three**, asserted as numbers
+rather than as properties, since every other gate here is satisfiable by
+plumbing a value through and never counting it.
+
+**The fixture is the gate, and the live census is not.** An earlier draft
+asserted *"this repository falls from 11 open to 0"* and both ends were wrong:
+the plan counts itself while it is Draft, so the floor is 1, and the estate
+moves whenever somebody rejects a plan. Measured 2026-09-17, one day after that
+draft: `open` had gone 11 → 12 and `wip` 0 → 4. **A gate keyed to a live census
+ages between writing and landing.**
+
+`total` still counts every plan with the fourth bucket included, pinned by a
+test asserting `total == open + wip + done + withdrawn`; a plan in every other phase reports
 **byte-identically** to today, pinned across all seven existing values; `status
 === 'deliverable'` at `board.ts:1978` is unchanged and the Deliver control still
 appears for exactly the plans it appears for today; the release gate's verdict on
@@ -136,6 +172,22 @@ table gains its eighth row with the measurement behind it; and `pnpm run
 test:contracts`, `pnpm run test:board` and `pnpm run typecheck` pass.
 
 ## Notes
+
+**Amended 2026-09-17 after a four-lens panel**
+(`.plot/panels/2026-09-16-a-withdrawn-plan-is-not-open/`), reconciled `divided`
+— three `amend`, one `proceed`, and the one `proceed` recorded the same two
+factual errors and called them imprecise rather than false.
+
+**Every juror confirmed the defect, the layer and the fix.** What they refused
+was the arithmetic being presupposed, a gate keyed to a live census, and two
+citations. All four are corrected above.
+
+**The panel's shared blind spot is recorded because it is the plan's too**: all
+four lenses read the SERVER, and none asked what the fourth bucket's LABEL
+should say on screen. `formatCounts` renders `N plans · N open · N WIP · N
+done`; the word for the fifth term is a judgement nobody in the panel made, and
+this plan does not make it either. It is named so the implementer knows it is
+theirs.
 
 **Found 2026-09-16 by the operator reading the board** — *"Why 14 open plans?
 aren't they kinda done?"* — which is the whole finding: a counter that says 14
