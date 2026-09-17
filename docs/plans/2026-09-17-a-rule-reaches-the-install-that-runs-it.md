@@ -1,6 +1,6 @@
 # A rule reaches the install that runs it
 
-> `--start` imports a TypeScript rule from `packages/domain/src/`, which a plugin install carries and cannot execute, while the built bundles that would work are in no install at all.
+> `--start` imports a rule whose dependency chain reaches `zod`, which a plugin install cannot resolve — and the refusal names node and readability, two conditions that hold.
 
 ## Status
 
@@ -11,10 +11,11 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- `plot-dispatch.sh --start` works from a plugin installation. It imported a rule as TypeScript source, which only a development checkout can run, and named two preconditions that were both satisfied while the real one went unmentioned.
+- `plot-dispatch.sh --start` works from a plugin installation. The rule it imports reaches `zod` through its type imports, which a cache with no `node_modules` cannot resolve, and the refusal named two conditions that were both satisfied.
 
 <!-- Board impact: none directly — the board's own bundles already ship. This is
      about a rule the dispatcher imports. No plan format, no template. -->
@@ -30,9 +31,41 @@ plot-dispatch: --start could not ask how many agents to start — starting none.
   It needs node 24 and a readable checkout of packages/domain.
 ```
 
-`node --version` answered `v24.4.1` and the file was present and readable. **All
-40 rule sources ship; none of them can be imported**, because they are
-TypeScript and the plugin cache has no build.
+`node --version` answered `v24.4.1` and the file was present and readable.
+
+**The TypeScript is not the problem, and an earlier draft of this plan said it
+was.** Node 24 strips types, and the rule imports cleanly from a development
+checkout — measured:
+
+```
+$ node -e "await import('…/packages/domain/src/rules/fleet-size.ts')"
+imported, exports: DEFAULT_FLEET_SIZE,ceilingFor,fleetSize
+```
+
+**The failing import is the SECOND one, and the rule is not it.**
+`plot-dispatch.sh:1931` imports two modules, and only the first is the rule:
+
+```sh
+PLOT_RULE="file://$start_domain/rules/fleet-size.ts"
+PLOT_MACHINE="file://$start_domain/entities/machine.ts"
+```
+
+`fleet-size.ts` imports one thing and it is `import type` — erased entirely by
+type stripping, so it has **no runtime dependency at all**. `machine.ts` opens
+with `import { z } from 'zod'`.
+
+Reproduced by copying the sources to a directory with no `node_modules` on the
+resolution path:
+
+```
+machine.ts FAILED: Cannot find package 'zod'
+fleet-size.ts: imported
+```
+
+**So the population is one module, not forty.** Measured on this estate: 43 rule
+sources, of which **4** import `zod` — and `fleet-size` is not among them. Two
+earlier drafts of this paragraph blamed the TypeScript and then the rule's own
+chain; **both were wrong, and running the import is what settled it.**
 
 ### The bundles do not exist in git at all
 
@@ -42,13 +75,27 @@ Measured here:
 ```
 $ git ls-files 'packages/*/dist' | wc -l
 0
-$ git check-ignore -v packages/domain/dist
-(no output — not ignored, simply absent)
 ```
 
-**So this is not a marketplace path that drops a tracked directory.** The
-bundles have never been committed; they exist only in a development checkout
-after `pnpm build`.
+**Not tracked. `packages/domain/dist` is not ignored either — it has simply
+never been committed**; `packages/board/.gitignore:2` does ignore its own, which
+is a difference worth stating rather than generalising over.
+
+### What a plugin install carries is not constant
+
+The report's install (2.17.0) carried `packages/domain/src/` — all 43 rules,
+readable. **The cache on this machine carries version 2.8.0 and has no
+`packages/domain/` at all:**
+
+```
+$ ls …/plot-marketplace/plot/2.8.0/packages/domain/src/rules/fleet-size.ts
+ABSENT
+```
+
+**So there are two failures wearing one message**: an install that carries the
+rule and cannot resolve its dependency, and an install that does not carry the
+rule. A refusal naming *"a readable checkout of packages/domain"* is wrong for
+the first and right for the second, which is why it has to say which.
 
 ### The precedent is one directory away and it works
 
@@ -57,8 +104,14 @@ after `pnpm build`.
 every install, because a skill's own script directory is what a plugin ships.
 
 `a-shell-script-asks-the-domain` settled that shape: **a bundle under
-`skills/plot/scripts/board/` is how a shell script reaches a rule.** `--start`
-is the one caller that went a different way and imported the source.
+`skills/plot/scripts/board/` is how a shell script reaches a rule.**
+
+**Three scripts went the other way, not one** — `plot-dispatch.sh`,
+`plot-reap.sh` and `plot-release-refs.sh` each import a rule as a `file://`
+source. An earlier draft named only the first. **The other two import rules that
+reach no `zod`**, which is why they work today and why they are named here
+rather than fixed: a source import that resolves is not this plan's defect, and
+a sweep over all three would widen a narrow fix on a guess about the future.
 
 **So the fix is to follow the precedent rather than to ship `dist/`.**
 `fleet-size`'s answer joins the bundles that already travel.
@@ -72,7 +125,14 @@ three other bundles.
 
 **A bundle of its own**, sized like the narrow ones: `plot-propose-stack.mjs` is
 1.9 KB against `plot-ask.mjs`'s 491 KB, because it imports no entity schemas.
-`fleet-size` reads a machine reading and answers a number.
+
+**And it must carry `headroomFor` as well as `fleetSize`**, since those are the
+two things `--start` asks for and the second is what fails. A bundle of the rule
+alone would fix nothing.
+
+**`zod` is bundled with it rather than resolved at run time** — which is what
+every one of the 24 tracked bundles already does, and why they work in a cache
+with no `node_modules`.
 
 ### What this does not do
 
