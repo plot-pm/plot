@@ -579,9 +579,16 @@ test('parser: design_raw is empty when no record exists, and the plan is unchang
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('parser: front matter design: outranks a ## Status Design: line', () => {
-  // Front matter wins over the canonical body, the rule every other transition
-  // record follows.
+test('parser: front matter design: outranks a ## Status Design: line, and the canonical phase outranks front matter', () => {
+  // TWO RULES, AND THEY POINT OPPOSITE WAYS ON PURPOSE. The phase is read from
+  // the field Plot writes, so a canonical `State:`/`Phase:` outranks front
+  // matter and `format` reports `canonical`. Every other record keeps
+  // front-matter-wins, `design_raw` among them, because no lifecycle script
+  // writes any of them and neither copy is the more current one.
+  //
+  // This is the only artifact in the repository carrying both shapes, which is
+  // why the pin moved here rather than being deleted: the estate-wide
+  // byte-identical clause cannot see this precedence at all.
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-fmdesign-'));
   const f = path.join(dir, '2026-01-01-fm.md');
   writeFileSync(f, `---
@@ -596,10 +603,69 @@ design: from front matter
 - **Design:** from the status body
 `);
   const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
-  assert.equal(meta.format, 'frontmatter');
+  assert.equal(meta.format, 'canonical');
   assert.equal(meta.phase, 'design');
+  assert.equal(meta.phase_alt, 'design', 'front matter survives as the alternate');
   assert.equal(meta.design_raw, 'from front matter');
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: a canonical State: outranks a disagreeing front matter, and the loser stays readable', () => {
+  // THE DEFECT THIS FILE EXISTS FOR. The test above carries both shapes that
+  // AGREE on the phase word, so only `format` moves there and a reader cannot
+  // tell which field was believed. Here they disagree, which is the shape a
+  // real approval produces: `/plot-approve` writes `State: Approved` and leaves
+  // the front matter Plot has never written at `Draft`.
+  //
+  // Before this precedence inverted, the parser answered `draft` and the scan
+  // dispatched nothing while every step reported clean.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-bothshapes-'));
+  const f = path.join(dir, '2026-01-01-both.md');
+  writeFileSync(f, `---
+status: Draft
+phase: Draft
+type: bug
+---
+# A plan an approval has moved
+
+## Status
+
+- **State:** Approved
+- **Type:** bug
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.format, 'canonical');
+  assert.equal(meta.phase, 'approved', 'the field Plot writes is the field read');
+  assert.equal(meta.phase_alt, 'draft', 'the front matter is reported, not dropped');
+  assert.equal(meta.phase_alt_raw, 'Draft');
+  assert.equal(meta.type, 'bug');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: a plan carrying only front matter reads exactly as before, across every phase word', () => {
+  // The population this precedence was written for. Inverting the arms must not
+  // touch it: with no canonical body there is nothing to outrank, so `format`
+  // stays `frontmatter` and the phase is the front matter value for all seven
+  // phase words rather than for the two a fixture happens to hold.
+  const words = [
+    ['Draft', 'draft'],
+    ['Approved', 'approved'],
+    ['Delivered', 'delivered'],
+    ['Released', 'released'],
+    ['Rejected', 'rejected'],
+    ['Superseded', 'superseded'],
+    ['Design', 'design'],
+  ];
+  for (const [raw, expected] of words) {
+    const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-fmonly-'));
+    const f = path.join(dir, '2026-01-01-fm-only.md');
+    writeFileSync(f, `---\nstatus: ${raw}\ntype: bug\n---\n\n# Front matter only\n`);
+    const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+    assert.equal(meta.format, 'frontmatter', `${raw} still reads as front matter`);
+    assert.equal(meta.phase, expected, `${raw} keeps its phase`);
+    assert.equal(meta.type, 'bug', `${raw} keeps its type`);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('parser: the six pre-existing phases are byte-identical', () => {

@@ -425,9 +425,15 @@ decide_transition() { # $1=file  → prints "<Phase>\t<record>\t<write|already>"
 # carrying BOTH front matter and a `## Status` block was delivered in a project
 # repo: `flip_phase` wrote `Delivered` into the block, `mv` landed it, the
 # summary said `phase=flipped`, and `plot-plan-meta.sh` went on answering
-# `approved` — because it prefers front matter wherever it exists and reads the
-# block only in the `else if` below. The write took effect on bytes nobody
-# reads.
+# `approved` — because it preferred front matter wherever it existed. The write
+# took effect on bytes nobody reads.
+#
+# THAT PRECEDENCE INVERTED IN #933, so the two-record plan now delivers rather
+# than refusing here: the parser reads the `## Status` block, which is the field
+# every lifecycle script writes. This gate is unchanged and is not softened —
+# its condition simply stops holding for that shape. It still fires on a scratch
+# copy the parser cannot read, and it still asks the parser rather than trusting
+# that awk changed a line.
 #
 # `flip_phase`'s awk matches only inside `section == "status"`. That one guard
 # IS the defect: on a front-matter plan it edits the block and leaves the front
@@ -468,11 +474,11 @@ phase_would_read() { # $1=scratch file $2=expected phase (lowercase) → 0 agree
   # holding two records of one fact is the thing to fix — and which format ought
   # to win is a decision this gate deliberately leaves to a person.
   echo "plot-deliver: $rel — wrote phase '$want', but the parser still reads '$got'." >&2
-  echo "  The plan states its phase in TWO places and they disagree: the write" >&2
-  echo "  landed in the '## Status' block while front matter takes precedence," >&2
-  echo "  so the delivery would have reported a success it did not achieve." >&2
-  echo "  Nothing was written — the plan is unchanged. Remove one of the two" >&2
-  echo "  records (front matter, or the '## Status' block) and re-run." >&2
+  echo "  The write landed and the parser reads something else, so the delivery" >&2
+  echo "  would have reported a success it did not achieve." >&2
+  echo "  Nothing was written — the plan is unchanged. Check what the plan says" >&2
+  echo "  its phase is, and where: a plan stating it in two places reports the" >&2
+  echo "  '## Status' block, which is the field every lifecycle script writes." >&2
   echo "  See what the parser reads: $script_dir/plot-plan-meta.sh $rel" >&2
   return 1
 }
