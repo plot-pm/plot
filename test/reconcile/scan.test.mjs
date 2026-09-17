@@ -322,7 +322,13 @@ test('scan: a docs plan naming a sprint is still exempt from section 6', () => {
   git(repo, 'push', '-q', 'origin', 'main');
   git(repo, 'tag', 'v1.0.0');
 
-  const out = execFileSync('bash', [scan, '--offline'], {
+  // `--no-fetch`, NOT `--offline`. This test pins the docs/infra exemption,
+  // which lives INSIDE section 6's loop — and since 2026-09-17 `--offline` sets
+  // `PR_SOURCE=off` and the loop skips every plan before reaching it. Under the
+  // flag this assertion would still pass, for a reason that is not the one it
+  // states: a `0` produced by a section that never ran. The origin here is a
+  // local path, so there is no host to reach and no network cost to avoid.
+  const out = execFileSync('bash', [scan, '--no-fetch'], {
     encoding: 'utf8', cwd: repo,
   });
   const footer = out.trim().split('\n').at(-1);
@@ -330,6 +336,11 @@ test('scan: a docs plan naming a sprint is still exempt from section 6', () => {
     `a docs plan naming a sprint must stay exempt from section 6: ${footer}`);
   assert.equal(lineMatching(out, /a-docs-plan.*still Delivered/).length, 0,
     'section 6 named a docs plan');
+  // The exemption must be what produced the zero. Without this the test passes
+  // whenever the section is skipped for ANY reason — which is precisely the
+  // failure mode the flag guard introduced.
+  assert.doesNotMatch(out, /release state not resolved/,
+    'the zero must come from the exemption, not from a skipped section');
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -3435,4 +3446,278 @@ test('scan: section 22 needs no host call', () => {
     `the merge parents hold the whole answer — no host is needed:\n${ncSections['22']}`);
   assert.match(ncSections['22'], /feature\/silent-ship/,
     'so the finding still reports with the host unreachable');
+});
+
+// ---------------------------------------------------------------------------
+// Section 6 honours --offline / --no-pr.
+//
+// `--offline` and `--no-pr` both set PR_SOURCE=off and the scan's header
+// promises "no git-host network call". Section 2 honoured it; section 6 had no
+// PR_SOURCE test at all between its loop and its per-plan `pr-state` call.
+//
+// THE FIXTURE IS SYNTHESIZED, AND THAT IS LOAD-BEARING. Measured on this estate
+// 2026-09-17: `delivered=2, reaching_pr_state=0` — both delivered plans here are
+// `docs`/`infra`, which the section exempts BEFORE the host call. No real plan
+// exercises the loop, so a test pointed at `docs/plans/` would count zero calls
+// offline, zero online, and pin nothing. These three carry a `Type:` outside
+// `docs|infra` so the online direction makes calls a guard can remove.
+//
+// THE GATE IS A CALL COUNT, NOT A TIMING. `3 online, 0 offline` is a fact a
+// stub measures exactly; "faster" is a claim a loaded machine can fake in
+// either direction. The plan is explicit that no speed-up is expected here —
+// section 6 costs 0.06 s on this estate.
+// ---------------------------------------------------------------------------
+
+let s6Tmp, s6Repo, s6Bin;
+
+// Counts `pr view` calls — the shape `plot-host.sh pr-state` takes on the
+// GraphQL route, which is section 6's only host question. `makeGhStub` logs
+// every argv, so the merged/open list calls the scan makes elsewhere are
+// present in the same log and must not be counted as section 6's.
+const prViewCalls = (argv) =>
+  argv.split('\n').filter((l) => /\bpr view\b/.test(l));
+
+// A stub of its own rather than `makeGhStub` plus an append. That helper ends
+// its script with `exit 0`, so an appended `case` arm is UNREACHABLE — measured
+// here: the three `pr view` calls were logged (the log line runs first) and
+// answered nothing, so the counting assertions passed while the section
+// reported "no merge commit" for all three. A stub that logs before it answers
+// hides its own dead arms.
+function makeSection6Stub(dir, sha) {
+  const argvLog = path.join(dir, 'gh.argv');
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+case "$*" in
+  *"pr view "*)
+    n=$(printf '%s' "$*" | sed -E 's/.*pr view ([0-9]+).*/\\1/')
+    printf '%s' "{\\"number\\":$n,\\"state\\":\\"MERGED\\",\\"isDraft\\":false,\\"url\\":\\"u\\",\\"mergeCommit\\":{\\"oid\\":\\"${sha}\\"}}" ;;
+  *"--state merged"*|*"--state open"*) printf '%s' '[]' ;;
+esac
+exit 0
+`);
+  fs.chmodSync(path.join(dir, 'gh'), 0o755);
+  return argvLog;
+}
+
+function runSection6Scan(extraArgs = []) {
+  s6Bin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-gh-'));
+  const argvLog = makeSection6Stub(s6Bin, s6Sha);
+  const out = execFileSync('bash', [scan, '--no-fetch', ...extraArgs], {
+    encoding: 'utf8',
+    cwd: s6Repo,
+    env: { ...process.env, PATH: `${s6Bin}:${process.env.PATH}` },
+  });
+  return { out, argv: fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8') : '' };
+}
+
+let s6Sha;
+
+before(() => {
+  s6Tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-'));
+  const origin = path.join(s6Tmp, 'origin.git');
+  s6Repo = path.join(s6Tmp, 'repo');
+  git(s6Tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(s6Tmp, 'clone', '-q', origin, s6Repo);
+  git(s6Repo, 'config', 'user.email', 'test@example.invalid');
+  git(s6Repo, 'config', 'user.name', 'Plot Test');
+  git(s6Repo, 'config', 'commit.gpgsign', 'false');
+  git(s6Repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+  git(s6Repo, 'remote', 'add', 'store', origin);
+
+  const w = (rel, content) => {
+    const p = path.join(s6Repo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  // Three delivered plans, each a `feature`/`bug` — outside the docs|infra
+  // exemption, each carrying a PR number. Online, the section asks the host
+  // once per plan: three calls, which is the number the guard must remove.
+  for (const [n, slug, type] of [[101, 'one', 'feature'],
+                                 [102, 'two', 'bug'],
+                                 [103, 'three', 'feature']]) {
+    w(`plans/2026-03-0${n - 100}-${slug}.md`, `# ${slug}
+
+## Status
+
+- **State:** Delivered
+- **Type:** ${type}
+- **Delivered:** 2026-03-01
+
+## Slices
+
+### ${slug} (Branch: feature/${slug}, PR: #${n})
+
+- \`feature/${slug}\` — the slice → #${n}
+`);
+  }
+  // A docs plan alongside them. It is exempt online, so it must not be counted
+  // by the offline note either — the guard sits AFTER the exemption, and a note
+  // naming four plans would report a gap wider than the flag opened.
+  w('plans/2026-03-04-docs.md', `# docs
+
+## Status
+
+- **State:** Delivered
+- **Type:** docs
+- **Delivered:** 2026-03-01
+
+## Slices
+
+### docs (Branch: docs/four, PR: #104)
+
+- \`docs/four\` — the slice → #104
+`);
+
+  fs.mkdirSync(path.join(s6Repo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(s6Repo, 'plans', 'delivered'), { recursive: true });
+  for (const [link, target] of [['one.md', '../2026-03-01-one.md'],
+                                ['two.md', '../2026-03-02-two.md'],
+                                ['three.md', '../2026-03-03-three.md'],
+                                ['docs.md', '../2026-03-04-docs.md']]) {
+    fs.symlinkSync(target, path.join(s6Repo, 'plans', 'delivered', link));
+  }
+
+  git(s6Repo, 'add', '-A');
+  git(s6Repo, 'commit', '-q', '-m', 'plans');
+  git(s6Repo, 'push', '-q', 'store', 'main');
+  git(s6Repo, 'fetch', '-q', 'store');
+  git(s6Repo, 'update-ref', 'refs/remotes/origin/main', 'refs/remotes/store/main');
+  git(s6Repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+  // The tag is what turns "merged" into "already released" — the section asks
+  // `git tag --contains <sha>`, so the stub's mergeCommit must be a real commit
+  // in this repo and that commit must carry a release tag.
+  s6Sha = git(s6Repo, 'rev-parse', 'HEAD').trim();
+  git(s6Repo, 'tag', 'v9.0.0');
+});
+after(() => {
+  fs.rmSync(s6Tmp, { recursive: true, force: true });
+  if (s6Bin) fs.rmSync(s6Bin, { recursive: true, force: true });
+});
+
+test('scan: section 6 asks the host once per eligible delivered plan when online', () => {
+  // THE ONLINE DIRECTION IS PINNED FIRST, because a guard that removes the
+  // calls is trivially satisfied by a section that never worked. This is also
+  // what proves the offline assertion below measures a removal rather than an
+  // absence.
+  const { out, argv } = runSection6Scan();
+  assert.equal(prViewCalls(argv).length, 3,
+    `three eligible delivered plans, three pr-state calls:\n${argv}`);
+  // The docs plan is exempt BEFORE the call — four delivered plans, three asks.
+  assert.equal(prViewCalls(argv).filter((l) => /104/.test(l)).length, 0,
+    'a docs plan must not reach the host');
+  const sections = splitSections(out);
+  assert.match(sections['6'], /2026-03-01-one\.md — shipped in v9\.0\.0/);
+  assert.match(sections['6'], /2026-03-02-two\.md — shipped in v9\.0\.0/);
+  assert.match(sections['6'], /2026-03-03-three\.md — shipped in v9\.0\.0/);
+  assert.match(out.trim().split('\n').at(-1), /\bunreleased_delivered=3\b/);
+});
+
+test('scan: --offline makes zero section-6 host calls', () => {
+  // THE GATE. Counted against a stub rather than timed: the plan is explicit
+  // that no speed-up is expected on this estate (section 6 costs 0.06 s), so a
+  // timing assertion would be measuring noise.
+  const { argv } = runSection6Scan(['--offline']);
+  assert.equal(prViewCalls(argv).length, 0,
+    `--offline promises no git-host network call:\n${argv}`);
+});
+
+test('scan: --no-pr makes zero section-6 host calls', () => {
+  // The two flags are asserted SEPARATELY. They set the same PR_SOURCE today,
+  // and a guard written against one of them by name rather than against the
+  // state would pass one of these tests and fail the other.
+  const { argv } = runSection6Scan(['--no-pr']);
+  assert.equal(prViewCalls(argv).length, 0,
+    `--no-pr promises no git-host network call:\n${argv}`);
+});
+
+test('scan: the skipped section says what it could not resolve', () => {
+  // SILENCE WOULD BE THE WORSE BUG. Offline, section 6 reported `(none)` — the
+  // same three words it prints when it checked everything and found nothing.
+  // The note is asserted BY TEXT so an empty section cannot pass for a clean
+  // one, and it names the NUMBER because "some plans" is not actionable.
+  const { out } = runSection6Scan(['--offline']);
+  const sections = splitSections(out);
+  assert.match(sections['6'], /release state not resolved for 3 delivered plan\(s\)/,
+    `an empty section reads as "nothing to report":\n${sections['6']}`);
+  assert.match(sections['6'], /pr_source=off/);
+  // Three, not four: the docs plan is exempt online too, so counting it would
+  // report a gap the flag did not open.
+  assert.doesNotMatch(sections['6'], /for 4 delivered/);
+});
+
+test('scan: the offline footer count is a measured zero, not an unasked one', () => {
+  // `unreleased_delivered=` stays a count of plans this section REPORTED. The
+  // note is what separates it from a section that never ran — without it, the
+  // same `0` means both "checked, nothing released" and "did not check".
+  const { out } = runSection6Scan(['--offline']);
+  assert.match(out.trim().split('\n').at(-1), /\bunreleased_delivered=0\b/);
+  const sections = splitSections(out);
+  assert.doesNotMatch(sections['6'], /shipped in v9\.0\.0/,
+    'nothing may be reported from a check that did not run');
+});
+
+test('scan: the banner names section 6 among what --offline declines', () => {
+  // The absent/failed arms name section 3; section 6 now degrades under `off`
+  // and belongs in the same list. A reader who sees `(none)` three hundred
+  // lines down should have been told at the top that it was not asked.
+  const { out } = runSection6Scan(['--offline']);
+  assert.match(out, /Section 6 \(delivered but released\) not evaluated/);
+});
+
+test('scan: an online section 6 is unchanged by the guard', () => {
+  // PINNED, because a flag fix that quietly narrowed the online answer would
+  // trade a timeout for a wrong report. The whole section body is compared,
+  // note included — the note must be absent here.
+  const { out } = runSection6Scan();
+  const sections = splitSections(out);
+  assert.doesNotMatch(sections['6'], /not resolved/,
+    `the note belongs to the skipped path only:\n${sections['6']}`);
+  // The three findings and nothing else. Counted by FINDING LINE rather than by
+  // the section's line total, which also carries the blocking marker and its
+  // blanks — an assertion on the total pins the report's layout instead of this
+  // section's output, and fails when a neighbour moves.
+  const findings = sections['6'].split('\n').filter((l) => /still Delivered$/.test(l));
+  assert.equal(findings.length, 3,
+    `three eligible delivered plans, three findings:\n${sections['6']}`);
+});
+
+test('scan: a free section-6 finding survives --offline', () => {
+  // THE FLAG GUARDS THE HOST CALL, NOT THE ITERATION. The `no PR annotation`
+  // arm answers from the plan file alone and costs no network, so a flag that
+  // exists to avoid one has no business suppressing it. An earlier draft
+  // skipped at the top of the loop and dropped this finding offline — the same
+  // "silence reads as health" defect the note above is here to prevent.
+  const w = (rel, content) => {
+    const f = path.join(s6Repo, rel);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, content);
+  };
+  w('plans/2026-03-05-bare.md', ['# bare', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### bare (Branch: feature/bare)', '',
+    '- `feature/bare` — no PR annotation', ''].join('\n'));
+  try {
+    const { out, argv } = runSection6Scan(['--offline']);
+    const sections = splitSections(out);
+    assert.match(sections['6'], /2026-03-05-bare\.md — delivered, but no PR annotation/,
+      `a finding that needs no host must survive the flag:\n${sections['6']}`);
+    assert.equal(prViewCalls(argv).length, 0, 'and it still costs no host call');
+    // It is a REPORTED finding, so it counts — unlike the three the flag skipped.
+    assert.match(out.trim().split('\n').at(-1), /\bunreleased_delivered=1\b/);
+    assert.match(sections['6'], /not resolved for 3 delivered plan\(s\)/,
+      'and the note still names only the plans the host would have been asked about');
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-05-bare.md'), { force: true });
+  }
 });

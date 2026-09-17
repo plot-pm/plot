@@ -348,7 +348,7 @@ test('probe: jen reachable reads as ok', () => {
         'Keycloak:      signed in',
         'Instance:      apps (https://example.invalid)',
         'Jenkins token: present',
-        'Jenkins auth:  reachable',
+        'Jenkins auth:  OK — jan.wloka@quatico.com',
       ].join('\n'),
     },
   });
@@ -441,7 +441,7 @@ function jenFor(instance, extraEnv = {}) {
   const r = repoWith({}, {
     config: `- **Plan directory:** docs/plans/\n- **Jenkins instance:** ${instance}\n`,
   });
-  const stub = stubClis({ jen: { stdout: 'Jenkins auth:  reachable' } });
+  const stub = stubClis({ jen: { stdout: 'Jenkins auth:  OK — jan.wloka@quatico.com' } });
   return probe(r, { env: { ...isolatedPath(stub), ...extraEnv } }).jen;
 }
 
@@ -501,7 +501,7 @@ test('probe: a repo declaring no Jenkins at all still reads unknown', () => {
   // defect is that a PRESENT BUT INCOMPLETE value scored better than an absent
   // one. A refusal that fires on absence would be a new bug.
   const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
-  const stub = stubClis({ jen: { stdout: 'Jenkins auth:  reachable' } });
+  const stub = stubClis({ jen: { stdout: 'Jenkins auth:  OK — jan.wloka@quatico.com' } });
   const jen = probe(r, { env: isolatedPath(stub) }).jen;
   assert.equal(jen.instance, '');
   assert.equal(jen.job, '');
@@ -563,4 +563,40 @@ test('probe: a job path naming a container with no children is NOT flagged', () 
 
 test('probe: a trailing slash on a job path does not invent an empty segment', () => {
   assert.equal(jenFor('apps/quaweb/cb/').job, 'quaweb/cb');
+});
+
+test('probe: no fixture asserts the success word the CLI never printed', () => {
+  // THE GATE, AND IT READS THIS FILE'S OWN TEXT. Until 2026-09-17 the probe
+  // matched `Jenkins auth:  reachable` and three fixtures fed it that exact
+  // string, so the suite was green over a reading that could never fire: the
+  // CLI prints `Jenkins auth:  OK — user@host`, measured live, and a reachable
+  // Jenkins scored `unknown`.
+  //
+  // WIDENING TO `ok|reachable` WOULD HAVE KEPT ALL THREE GREEN and kept the
+  // fiction, which is why the word was replaced rather than added. Nothing but
+  // a test over the source text can say the dead string is gone — an assertion
+  // about behaviour passes whether or not the fixtures still carry it.
+  //
+  // IT MATCHES A JS STRING LITERAL, NEVER A MENTION. The first draft matched
+  // the bare phrase and flagged three lines: the mutant, plus this comment and
+  // the message below, both of which only NAME the string. A gate a reader
+  // cannot describe without tripping is one they delete.
+  //
+  // So the anchor is the enclosing quote, and BACKTICKS ARE EXCLUDED
+  // deliberately: a fixture is written `'…'` or `"…"`, while prose in this
+  // repo quotes a phrase in backticks. Including them put the match back on
+  // the two lines above and below. Only `'` and `"` make a fixture.
+  //
+  // `NOT reachable` is the FAILURE wording and is real, so the match is
+  // anchored to the success position: the line, its colon, and whitespace.
+  const self = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
+  const dead = self
+    .split('\n')
+    .map((line, i) => [i + 1, line])
+    .filter(([, line]) => /(['"])Jenkins auth:[ \t]*reachable\1/i.test(line));
+  assert.deepEqual(
+    dead.map(([n, line]) => `${n}: ${line.trim()}`),
+    [],
+    'a fixture asserts `Jenkins auth:  reachable`, which the CLI never emits',
+  );
 });

@@ -242,3 +242,139 @@ test('controller gate: the path the board writes is the path the gate reads', ()
     'and the board writer joins the same three segments');
   assert.equal(run(dir, DISPATCH).status, 0, 'which is what the gate reads');
 });
+
+// ---------------------------------------------------------------------------
+// THE RATCHET: no command refused today may be allowed after.
+//
+// This corpus lives in the test rather than in prose because a matching change
+// to a refusal is the one place a single false negative costs more than every
+// false positive removed. The gate's founding measurement is "five dispatches
+// in one session went to this script directly, by the agent that had read the
+// rule" — each of these is a way to spell one of those five.
+//
+// IT IS ALSO WHAT REFUSED COMMAND POSITION. A panel drove the gate with these
+// shapes and found a loop body is not command position: `for s in a b; do
+// plot-dispatch.sh $s; done` refuses here, and a command-position fix would
+// have been blind to it. The corpus is the argument, so it is executable.
+// ---------------------------------------------------------------------------
+
+const D = 'skills/plot/scripts/plot-dispatch.sh';
+
+const INVOCATIONS = [
+  ['a plain call', `${D} slug`],
+  ['a ./relative call', './plot-dispatch.sh slug'],
+  ['an absolute path', `/opt/plot/${D} slug`],
+  ['bash <script>', `bash ${D} slug`],
+  ["sh -c '<script>'", `sh -c '${D} slug'`],
+  ['env FOO=1 <script>', `env FOO=1 ${D} slug`],
+  ['a for body', `for s in a b; do ${D} $s; done`],
+  ['a while body', `while read s; do ${D} $s; done < list`],
+  ['an if body', `if true; then ${D} slug; fi`],
+  ['a { } group', `{ ${D} slug; }`],
+  ['a ( ) subshell', `( ${D} slug )`],
+  ['a $( ) substitution', `out=$(${D} slug)`],
+  ['source', `source ${D} slug`],
+  ['. (dot)', `. ${D} slug`],
+  ['xargs', `echo slug | xargs ${D}`],
+  ['find -exec', `find . -name x -exec ${D} {} \;`],
+];
+
+test('controller gate: every invocation shape in the corpus still refuses', () => {
+  const dir = repo();
+  const allowed = INVOCATIONS.filter(([, cmd]) => run(dir, cmd).status !== 2);
+  assert.deepEqual(allowed.map(([label]) => label), [],
+    'no command refused before the heredoc strip may be allowed after');
+});
+
+test('controller gate: a loop body refuses, which is why command position was refused', () => {
+  // Named separately from the corpus sweep because it is the measurement that
+  // reversed this plan's first answer. "Five dispatches in one session" is
+  // written as a loop, and a loop body is not command position — so a
+  // command-position gate would have missed the defect the gate exists for.
+  const r = run(repo(), `for s in a b; do ${D} $s; done`);
+  assert.equal(r.status, 2, 'a loop body is an invocation');
+});
+
+test('controller gate: a single-quoted heredoc body is data, not a command', () => {
+  // THE CASE THIS SLICE IS NAMED FOR, in the reporter's own shape: a commit
+  // message explaining which script performed a write. Renaming the script to
+  // "the approval" in the prose let the identical commit through, so the gate
+  // was buying nothing and costing the traceability CLAUDE.md asks for.
+  //
+  // THE SPELLING IS LOAD-BEARING. Measured 2026-09-17 against the pre-fix gate,
+  // a body line ending `…by plot-dispatch.sh, which owns that write.` ALLOWED
+  // already — the comma makes the token `plot-dispatch.sh,` and never a bare
+  // match. That draft of this test passed on the old gate, so it pinned the
+  // punctuation rather than the strip. The name is followed by a SPACE here,
+  // which is the shape that refused.
+  const dir = repo();
+  const msg = [
+    "git commit -F - <<'EOF'",
+    'plot: record the delivery',
+    '',
+    `The State: field was written by ${D} and the receipt proves it.`,
+    'EOF',
+  ].join('\n');
+  assert.equal(run(dir, msg).status, 0, 'a commit message may name the script that wrote a field');
+});
+
+test('controller gate: the body is data wherever the name sits in the line', () => {
+  // Measured 2026-09-17 before the fix: followed by a space REFUSED, at end of
+  // line REFUSED, followed by a period ALLOWED — the last only because the
+  // token was `plot-dispatch.sh.` and never a bare match. Pinning one spelling
+  // would have passed on the accident rather than on the strip.
+  const dir = repo();
+  for (const [label, body] of [
+    ['followed by a space', `${D} wrote the field.`],
+    ['at the end of a line', `the writer is ${D}`],
+    ['followed by a period', `written by ${D}.`],
+    ['alone on its line', `${D}`],
+  ]) {
+    const cmd = ["git commit -F - <<'EOF'", 'plot: record', '', body, 'EOF'].join('\n');
+    assert.equal(run(dir, cmd).status, 0, `a name ${label} is still prose`);
+  }
+});
+
+test('controller gate: an UNQUOTED heredoc body is still tokenised', () => {
+  // `<<EOF` interpolates, so its body can carry a substitution that is a
+  // command. Only the quoted form's contents are provably data, and that is the
+  // whole licence for this change.
+  const dir = repo();
+  const cmd = ['git commit -F - <<EOF', 'plot: record', '', `written by ${D}`, 'EOF'].join('\n');
+  assert.equal(run(dir, cmd).status, 2, 'an interpolating body keeps being read as commands');
+});
+
+test('controller gate: a heredoc body cannot smuggle a real invocation past the gate', () => {
+  // The strip removes a BODY, never a command line. A dispatch sharing the
+  // command with a heredoc still refuses — otherwise the fix would have opened
+  // the evasion it was meant to close.
+  const dir = repo();
+  const cmd = [`${D} slug && git commit -F - <<'EOF'`, 'and we recorded it', 'EOF'].join('\n');
+  assert.equal(run(dir, cmd).status, 2, 'a real call beside a heredoc is still a real call');
+});
+
+test('controller gate: a heredoc body cannot exempt a call by naming a mode', () => {
+  // The mode check reads the command too. Measured 2026-09-17: before the strip
+  // this ALLOWED, because `--dry-run` inside the body exempted the live call on
+  // line 1. The scan tightens the gate here rather than loosening it.
+  const dir = repo();
+  const cmd = [`${D} slug && git commit -F - <<'EOF'`, 'we also ran --dry-run first', 'EOF'].join('\n');
+  assert.equal(run(dir, cmd).status, 2, 'a mode word in prose is not a mode');
+});
+
+test('controller gate: a read of a gated script still refuses, on purpose', () => {
+  // NOT FIXED, and the plan says so rather than implying a completeness it
+  // refused. These are reads and this estate spells them another way; trading
+  // fifteen missed invocations for two `grep` calls is not a trade this gate's
+  // risk asymmetry permits.
+  const dir = repo();
+  for (const cmd of [`grep -c foo ${D}`, `cat ${D}`, `sed -n '1,5p' ${D}`]) {
+    assert.equal(run(dir, cmd).status, 2, `${cmd} is a known false positive, kept deliberately`);
+  }
+});
+
+test('controller gate: the `bash <script>` form its own callers use still refuses', () => {
+  // `test/reconcile/controller-gate.test.mjs` and `plot-install-hooks.sh:246`
+  // both drive the gate this way; both must behave as today.
+  assert.equal(run(repo(), DISPATCH).status, 2);
+});

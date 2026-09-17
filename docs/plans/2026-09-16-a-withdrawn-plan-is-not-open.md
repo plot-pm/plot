@@ -146,7 +146,7 @@ answers `withdrawn` for it.
 
 ## Slices
 
-### A withdrawn plan is not open (Branch: bug/a-withdrawn-plan-is-not-open)
+### A withdrawn plan is not open (Branch: bug/a-withdrawn-plan-is-not-open, PR: #940)
 
 - `bug/a-withdrawn-plan-is-not-open` — add `withdrawn` to `PlanStatusSchema`, give `planStatus` a case for the `rejected` and `superseded` phases, count it outside `open`/`wip`/`done` in `estateTotals`, and document the value in the schema's table beside the seven
 

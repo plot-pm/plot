@@ -263,7 +263,12 @@ if [ "$jen_installed" = true ]; then
     if printf '%s' "$out" | grep -qiE 'jenkins auth:[[:space:]]*not reachable'; then
       jen_auth="failed"
     else
-      jen_auth=$(classify "$out" "$st" 'jenkins auth:[[:space:]]*reachable')
+      # The SUCCESS word is `OK`, measured live 2026-09-17:
+      # `Jenkins auth:  OK — jan.wloka@quatico.com`. It was `reachable` here,
+      # a string the CLI does not emit, so a reachable Jenkins fell through
+      # `classify` to `unknown` — never to `failed`, because `jen` exits 0 on
+      # its failure branch too and only this line carries the answer.
+      jen_auth=$(classify "$out" "$st" 'jenkins auth:[[:space:]]*ok')
     fi
   else
     # No instance means the only runnable form is the one that verifies

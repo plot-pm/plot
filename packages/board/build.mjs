@@ -551,6 +551,37 @@ await esbuild.build({
 fs.copyFileSync(proposeStackArtifact, shippedProposeStack);
 fs.chmodSync(shippedProposeStack, 0o755);
 
+// How many agents to start, for plot-dispatch.sh --start.
+//
+// ONCE PER DISPATCH, which docs/shell-and-domain.md puts on the calling side: a
+// person or a supervisor runs --start and waits for it, so node's 34 ms start is
+// free.
+//
+// A BUNDLE BECAUSE A SOURCE IMPORT CANNOT REACH A PLUGIN INSTALL. --start
+// imported rules/fleet-size.ts and entities/machine.ts as file:// sources. Node
+// 24 strips types, so the TypeScript was never the obstacle — the SECOND import
+// is: machine.ts opens with `import { z } from 'zod'`, which an install with no
+// node_modules cannot resolve. So this carries both rules, zod bundled in; a
+// bundle of fleetSize alone would import cleanly and still fail, because
+// headroomFor is the half that reaches zod.
+const fleetSizeArtifact = path.join(here, 'dist/plot-fleet-size.mjs');
+const shippedFleetSize = path.join(here, '../../skills/plot/scripts/board/plot-fleet-size.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/fleet-size.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: fleetSizeArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(fleetSizeArtifact, shippedFleetSize);
+fs.chmodSync(shippedFleetSize, 0o755);
+
 // The sprint lifecycle's write, for /plot-sprint's start, commit and close.
 //
 // ONCE PER TRANSITION, which is the cheapest call a rule can have: a person
@@ -883,6 +914,7 @@ const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
 const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
+const fleetSizeKb = (fs.statSync(shippedFleetSize).size / 1024).toFixed(1);
 const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
 const planUndeliverKb = (fs.statSync(shippedPlanUndeliver).size / 1024).toFixed(1);
 const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
@@ -905,6 +937,7 @@ console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/s
 console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-fleet-size.mjs (${fleetSizeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-plan-undeliver.mjs (${planUndeliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
