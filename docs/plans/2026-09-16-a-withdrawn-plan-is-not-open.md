@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** a-declared-agent-costs-what-it-costs
 - **Story:** the-domain-knows-what-plot-knows
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-17, jwloka, in-session
 - **Started:** 2026-09-17, Jan Wloka, `bug/a-withdrawn-plan-is-not-open`
+- **Delivered:** 2026-09-17
 
 ## Changelog
 
