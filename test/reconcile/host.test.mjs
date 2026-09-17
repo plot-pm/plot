@@ -4284,3 +4284,223 @@ test('host: issue-status reports a failed lookup as a failure, never as no-targe
   assert.notEqual(res.status, 0);
   assert.equal(res.stdout.trim(), '');
 });
+
+// ---------------------------------------------------------------------------
+// The credential is read where a repository keeps it.
+//
+// The refusal named JIRA_EMAIL and JIRA_API_TOKEN without ever looking where a
+// repository puts them, so an operator holding working credentials — measured
+// 2026-09-17, a 200 from /rest/api/3/myself with the same pair — was sent to
+// create a second token.
+//
+// THE FIXTURE IS A REAL GIT REPOSITORY, because the lookup resolves the root
+// with `git rev-parse --show-toplevel`. A bare temp directory would fall back to
+// `.` and pass for the wrong reason.
+// ---------------------------------------------------------------------------
+
+/** A git repo whose `.env` holds whatever a test needs it to. */
+function jiraEnvRepo(envBody) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-dotenv-'));
+  execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: dir });
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir });
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
+  if (envBody !== null) writeFileSync(path.join(dir, '.env'), envBody);
+  return dir;
+}
+
+/**
+ * Jira with the two credential variables ABSENT from the environment.
+ *
+ * Built by DELETING the keys rather than setting them empty: `${JIRA_EMAIL:-}`
+ * reads both the same way, but the ledger and any future reader may not, and a
+ * test that pins "unset" must not quietly pin "empty".
+ */
+function runJiraNoCreds(args, stub, cwd, extraEnv = {}) {
+  const env = { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, ...JIRA_ENV, ...extraEnv };
+  delete env.JIRA_EMAIL;
+  delete env.JIRA_API_TOKEN;
+  return spawnSync('bash', [adapter, ...args], { encoding: 'utf8', cwd, env });
+}
+
+const DOTENV_TOKEN = 'tok-from-dotenv-s3cr3t';
+const DOTENV_EMAIL = 'dotenv-user@acme.test';
+
+test('host: an unset pair with a .env carrying both is used, and the source is named', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
+  const res = runJiraNoCreds(['issue-list'], stub, dir);
+  assert.equal(res.status, 0, `the call must proceed (stderr: ${res.stderr})`);
+  // NAMING THE SOURCE IS A REQUIREMENT, not a nicety: two tokens may exist, and
+  // an operator debugging a 401 must be able to tell which one was used.
+  assert.match(res.stderr, /read from \.env/,
+    'a credential picked up silently is worse than one that announces itself');
+  // And it really was used — the adapter passes it to curl's --user.
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.ok(argv.includes(`${DOTENV_EMAIL}:${DOTENV_TOKEN}`), 'the pair reaches --user');
+});
+
+test('host: the .env value appears in no output stream', () => {
+  // A log line added later is exactly how such a value escapes, so the absence
+  // is asserted rather than assumed from reading the code.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
+  const res = runJiraNoCreds(['issue-list'], stub, dir);
+  assert.ok(!res.stdout.includes(DOTENV_TOKEN), 'the token must not reach stdout');
+  assert.ok(!res.stderr.includes(DOTENV_TOKEN), 'the token must not reach stderr');
+  assert.ok(!res.stdout.includes(DOTENV_EMAIL), 'nor the email, which is half the credential');
+  assert.ok(!res.stderr.includes(DOTENV_EMAIL));
+});
+
+test('host: the environment wins and the .env is not consulted', () => {
+  // Behaviour byte-identical to today where both are set. Pinned by giving the
+  // .env a DIFFERENT pair: if the file were read, curl would carry its values.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
+  const res = spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8', cwd: dir,
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, ...JIRA_ENV },
+  });
+  assert.equal(res.status, 0);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.ok(argv.includes('me@acme.test:tok-secret'), 'the exported pair is what is used');
+  assert.ok(!argv.includes(DOTENV_TOKEN), 'the file was not read');
+  assert.doesNotMatch(res.stderr, /read from \.env/, 'and nothing claims it was');
+});
+
+test('host: no .env leaves the refusal exactly as it was', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraNoCreds(['issue-list'], stub, jiraEnvRepo(null));
+  assert.equal(res.status, 3, 'an auth gap is a config error, never an empty inbox');
+  assert.match(res.stderr, /Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment/);
+  assert.equal(res.stdout.trim(), '', 'and an unauthenticated Jira prints no list');
+});
+
+test('host: a .env carrying neither variable leaves the refusal unchanged', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const dir = jiraEnvRepo('SOMETHING_ELSE=1\n# a comment\n');
+  const res = runJiraNoCreds(['issue-list'], stub, dir);
+  assert.equal(res.status, 3);
+  assert.match(res.stderr, /Jira needs JIRA_EMAIL and JIRA_API_TOKEN/);
+});
+
+test('host: half a credential in .env is refused, not partially adopted', () => {
+  // Half a Basic pair authenticates nothing, so adopting the email alone would
+  // turn today's honest refusal into a 401 further in — the exact failure this
+  // change exists to remove.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  for (const body of [`JIRA_EMAIL=${DOTENV_EMAIL}\n`, `JIRA_API_TOKEN=${DOTENV_TOKEN}\n`]) {
+    const res = runJiraNoCreds(['issue-list'], stub, jiraEnvRepo(body));
+    assert.equal(res.status, 3, `a lone variable must not be adopted: ${body.trim()}`);
+    assert.doesNotMatch(res.stderr, /read from \.env/);
+  }
+});
+
+test('host: the .env parse handles every shape the gate names', () => {
+  // EVERY COMBINATION, not one of each. An earlier fixture held a quoted value
+  // and a trailed value and never one that is BOTH — and quoted-and-trailed is
+  // the case that broke two drafts of this parse: stripping quotes before
+  // whitespace leaves ["tok"] intact, because the `"$` anchor misses, and a
+  // quoted value reaching `curl -u` is the 401 this change removes.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const shapes = [
+    ['plain', `JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`],
+    ['export-prefixed', `export JIRA_EMAIL=${DOTENV_EMAIL}\nexport JIRA_API_TOKEN=${DOTENV_TOKEN}\n`],
+    ['double-quoted', `JIRA_EMAIL="${DOTENV_EMAIL}"\nJIRA_API_TOKEN="${DOTENV_TOKEN}"\n`],
+    ['single-quoted', `JIRA_EMAIL='${DOTENV_EMAIL}'\nJIRA_API_TOKEN='${DOTENV_TOKEN}'\n`],
+    ['trailing-whitespace', `JIRA_EMAIL=${DOTENV_EMAIL}   \nJIRA_API_TOKEN=${DOTENV_TOKEN}   \n`],
+    ['quoted AND trailed', `JIRA_EMAIL="${DOTENV_EMAIL}"  \nJIRA_API_TOKEN="${DOTENV_TOKEN}"   \n`],
+    ['leading indentation', `  JIRA_EMAIL=${DOTENV_EMAIL}\n  export JIRA_API_TOKEN=${DOTENV_TOKEN}\n`],
+    // The file's OTHER lines must not derail the read: an unquoted JSON object
+    // is what aborted `set -a; . ./.env` in zsh, and a `=` or `#` inside a
+    // neighbouring value must not be treated as structure.
+    ['beside unquoted JSON', `CFG={"json":"unquoted"}\nJIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`],
+    ['beside = and # values', `A=has=equals\nB=with#hash\nEMPTY=\n\n# comment\nJIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`],
+  ];
+  for (const [label, body] of shapes) {
+    const res = runJiraNoCreds(['issue-list'], stub, jiraEnvRepo(body));
+    assert.equal(res.status, 0, `${label} must parse (stderr: ${res.stderr})`);
+    const argv = readFileSync(stub.argvFile, 'utf8');
+    assert.ok(argv.includes(`${DOTENV_EMAIL}:${DOTENV_TOKEN}`),
+      `${label}: the value must reach --user stripped of quotes and whitespace`);
+  }
+});
+
+test('host: a name that merely starts the wanted one is not read', () => {
+  // `JIRA_EMAIL_BACKUP=` must not answer for `JIRA_EMAIL`. The `=` in the sed
+  // pattern is what anchors it, and a fixture proves the anchor rather than the
+  // intention.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const dir = jiraEnvRepo(`JIRA_EMAIL_BACKUP=wrong@acme.test\nJIRA_API_TOKEN_OLD=wrong-tok\n`);
+  const res = runJiraNoCreds(['issue-list'], stub, dir);
+  assert.equal(res.status, 3, 'a prefix match is not a match');
+});
+
+test('host: nothing but the two named variables is imported', () => {
+  // The read is per-variable and evaluates nothing — never `source`, which
+  // would pull in every unrelated name in the file. Pinned by a .env whose
+  // other entry would change the adapter's behaviour if it were imported.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const dir = jiraEnvRepo(
+    `PLOT_TRACKER=jira https://WRONG.atlassian.net\nJIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
+  const res = runJiraNoCreds(['issue-list'], stub, dir);
+  assert.equal(res.status, 0);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.ok(!argv.includes('WRONG.atlassian.net'), 'an unrelated variable must not be imported');
+  assert.ok(argv.includes('acme.atlassian.net'), 'the environment still decides the base URL');
+});
+
+// --- the ledger, which is what the widening owns -----------------------------
+
+test('host: the budget ledger records no email, and reads it from the file', () => {
+  // THE GATE READS THE LEDGER, not the code. Every other gate here reads what
+  // the adapter PRINTS, and what it WRITES is the half that was missed — a
+  // reading of stdout and stderr says nothing about a file.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
+  const home = mkdtempSync(path.join(tmpdir(), 'plot-host-ledger-'));
+  const res = runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  assert.equal(res.status, 0, `the call must proceed (stderr: ${res.stderr})`);
+
+  const ledger = path.join(home, '.plot', 'state', 'budget.tsv');
+  assert.ok(existsSync(ledger), 'the call is recorded');
+  const text = readFileSync(ledger, 'utf8');
+  assert.ok(text.includes('\tjira\t'), 'as a jira line');
+  assert.ok(!text.includes(DOTENV_EMAIL),
+    `the email is half a Basic credential and must not persist:\n${text}`);
+});
+
+test('host: two accounts stay distinguishable in the ledger', () => {
+  // THE ACCOUNT IS A MATCH KEY, NOT A LABEL — `plot-budget.sh:250` is
+  // `if ($2 != want_c || $3 != want_a) next`, and `spend-rate` publishes it. A
+  // CONSTANT redaction would merge distinct accounts' rate windows, and one
+  // machine's ledger holds three. So the redaction must be one-to-one.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const home = mkdtempSync(path.join(tmpdir(), 'plot-host-ledger2-'));
+  const accountsFor = (email) => {
+    const dir = jiraEnvRepo(`JIRA_EMAIL=${email}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
+    runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  };
+  accountsFor('one@acme.test');
+  accountsFor('two@acme.test');
+  const lines = readFileSync(path.join(home, '.plot', 'state', 'budget.tsv'), 'utf8')
+    .split('\n').filter((l) => l.includes('\tjira\t'));
+  const accounts = new Set(lines.map((l) => l.split('\t')[2]));
+  assert.equal(accounts.size, 2, `two accounts must key differently, got: ${[...accounts]}`);
+  for (const a of accounts) {
+    assert.ok(!a.includes('@'), `a ledger account carries no address: ${a}`);
+  }
+});
+
+test('host: the same account keys the same way across calls', () => {
+  // A key that changed per call would defeat the rate window as surely as a
+  // constant would merge it — `sameKey` matches on this field.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const home = mkdtempSync(path.join(tmpdir(), 'plot-host-ledger3-'));
+  const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
+  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  const lines = readFileSync(path.join(home, '.plot', 'state', 'budget.tsv'), 'utf8')
+    .split('\n').filter((l) => l.includes('\tjira\t'));
+  assert.equal(lines.length, 2, 'both calls recorded');
+  assert.equal(lines[0].split('\t')[2], lines[1].split('\t')[2], 'and under one stable key');
+});
