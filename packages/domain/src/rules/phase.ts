@@ -23,7 +23,7 @@ export type { Phase, PhaseLeadership } from '../entities/workflow.js';
 //                              the approve, deliver and release decisions and
 //                              the refusals that order them.
 export const PlanStatusSchema = z.enum([
-  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released',
+  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released', 'withdrawn',
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 
@@ -134,6 +134,13 @@ export interface PlanReadings {
  * means the draft is public and readable, which is `open`; anything else is
  * still `draft`.
  *
+ * `rejected` and `superseded` are one status, `withdrawn`: both name a plan
+ * nobody intends to build, and a reader acts on them identically. They are
+ * TERMINAL like `released` — the arm returns before the review channel, the
+ * landed reading or the claim is consulted, because a plan somebody rejected
+ * is rejected whether or not its draft was public and whether or not a branch
+ * happened to land.
+ *
  * @param readings - what was read of the plan.
  * @returns the status a reader acts on.
  */
@@ -143,6 +150,9 @@ export const planStatus = (readings: PlanReadings): PlanStatus => {
       return 'released';
     case 'delivered':
       return 'delivered';
+    case 'rejected':
+    case 'superseded':
+      return 'withdrawn';
     case 'approved':
       if (readings.landed === 'merged') return 'deliverable';
       if (readings.started || readings.anyClaimed) return 'in-progress';

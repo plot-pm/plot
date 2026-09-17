@@ -322,7 +322,7 @@ export type CardPr = z.infer<typeof CardPrSchema>;
  * field exists to compensate for, not to reproduce. Nothing new is written to
  * disk: `plot-plan-meta.sh` is untouched and no plan file gains a field.
  *
- * The seven, and what each is measured from (`planStatus` in `board.ts`):
+ * The eight, and what each is measured from (`planStatus` in `board.ts`):
  *
  * | value         | means                                    | measured from            |
  * |---------------|------------------------------------------|--------------------------|
@@ -333,6 +333,14 @@ export type CardPr = z.infer<typeof CardPrSchema>;
  * | `deliverable` | all slices merged; ready for /plot-deliver| every slice complete, still approved |
  * | `delivered`   | reviewed and /plot-deliver was called    | phase delivered          |
  * | `released`    | released — terminal                      | phase released           |
+ * | `withdrawn`   | nobody intends to build it — terminal    | phase rejected or superseded |
+ *
+ * `withdrawn` COVERS TWO PHASES because a reader acts on them identically: a
+ * rejected plan and a superseded one are both work that will not happen. They
+ * fell through to `draft`/`open` until 2026-09-17, so the estate counter
+ * reported them as outstanding. A withdrawn plan renders NO CARD —
+ * `toBoardPhase` answers null — so only the counter was wrong, which is why it
+ * survived: nothing on the board looked out of place.
  *
  * `deliverable` IS THE VALUE THAT EARNS THE FIELD: the measurement has arrived
  * and the decision has not. It is a queue of decisions waiting for a person,
@@ -350,7 +358,7 @@ export type CardPr = z.infer<typeof CardPrSchema>;
  * from becoming a commitment.
  */
 export const PlanStatusSchema = z.enum([
-  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released',
+  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released', 'withdrawn',
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 
