@@ -85,6 +85,60 @@ gated_action() { # $1=script basename → the action word, or nothing
   esac
 }
 
+# --- a single-quoted heredoc body is DATA, and its extent is readable ---------
+#
+# A commit message explaining which script performed a write was refused as
+# though it were that script, and renaming the script to "the approval" in the
+# prose let the identical commit through. That is the one thing the gate cost:
+# it taught a caller to write a vaguer commit message, trading traceability for
+# nothing — while `CLAUDE.md` asks for exactly that reasoning in exactly that
+# place, "so `git log -S` finds it".
+#
+# ONLY THE SINGLE-QUOTED FORM. `<<'EOF'` names its terminator literally and the
+# body ends at a line equal to it: that is a SCAN for a known word, not a shell
+# grammar. `<<EOF` unquoted interpolates, so its body can contain a substitution
+# that is a command — its contents stay tokenised, and a test pins that.
+#
+# THIS IS NOT COMMAND-POSITION MATCHING, which a panel measured and reversed.
+# The gate exists for "five dispatches in one session", and the natural spelling
+# of several dispatches is a loop — `for s in a b; do plot-dispatch.sh $s; done`
+# refuses today and a loop body is not command position, so that fix would have
+# been blind to the defect the gate was built for. Command position is also
+# something the CALLER WRITES, and this gate rests on a master agent's own
+# assertions being untrustworthy.
+#
+# STRIPPED ONCE, BEFORE BOTH READERS. The mode check below reads `$CMD` too, so
+# a body containing the words `--dry-run` would otherwise exempt a real
+# invocation sharing its command line. Measured 2026-09-17, that case ALLOWED
+# before this strip and refuses after: the scan tightens the gate here rather
+# than loosening it.
+strip_quoted_heredocs() { # stdin: the command → stdout: bodies removed
+  awk '
+    !inbody {
+      # `<<` or `<<-`, then a SINGLE-QUOTED word. The unquoted and
+      # double-quoted forms are deliberately not matched.
+      if (match($0, /<<-?[[:space:]]*'"'"'[^'"'"']+'"'"'/)) {
+        tag = substr($0, RSTART, RLENGTH)
+        sub(/^<<-?[[:space:]]*'"'"'/, "", tag)
+        sub(/'"'"'$/, "", tag)
+        inbody = 1
+      }
+      print
+      next
+    }
+    {
+      # The body ends at a line equal to the terminator. `<<-` strips leading
+      # tabs from the terminator line, so both spellings are accepted; nothing
+      # else about the body is interpreted.
+      line = $0
+      sub(/^\t+/, "", line)
+      if (line == tag) { inbody = 0; print }
+      # else: a body line — dropped, because it is data.
+    }
+  '
+}
+CMD_SCAN="$(printf '%s' "$CMD" | strip_quoted_heredocs)" || CMD_SCAN="$CMD"
+
 # Which of the three this command names, if any. Read as a BASENAME, because
 # `bash skills/plot/scripts/plot-dispatch.sh x`, `./plot-dispatch.sh x` and a
 # call through an absolute path are one invocation spelled three ways, and an
@@ -97,7 +151,7 @@ gated_action() { # $1=script basename → the action word, or nothing
 # `plot-state-gate.sh` accepts on `git add` pathspecs, and the answer is the
 # same one — the gate catches the shape that was measured, not every shape.
 named_script=""
-for tok in $CMD; do
+for tok in $CMD_SCAN; do
   base="${tok##*/}"
   base="${base%%;*}"
   [ -n "$(gated_action "$base")" ] || continue
@@ -113,7 +167,9 @@ done
 # refusing them would name no route, which is the exact reason `gh` is left out.
 # `plot-fleetctl.sh --stop` calls `plot-dispatch.sh --stop` per agent, so a gate
 # over that mode would break the fleet's own orchestration.
-case " $CMD " in
+# Reads the STRIPPED command, so a heredoc body mentioning a mode cannot exempt
+# a real invocation sharing its command line.
+case " $CMD_SCAN " in
   *" --status "*|*" --status"|*" --dry-run "*|*" --dry-run"*|\
   *" --stop "*|*" --stop"|*" --restart "*|*" --restart"|\
   *" --start "*|*" --start"|*" --migrate "*|*" --migrate"|\
