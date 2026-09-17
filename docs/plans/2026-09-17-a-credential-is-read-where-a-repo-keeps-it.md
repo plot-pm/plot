@@ -75,24 +75,41 @@ not the shape** — measured 2026-09-17, `grep '^NAME=' | cut -d= -f2-` returns
 empty for an `export `-prefixed line and keeps the quotes on a quoted one, and a
 quoted token sent to `curl -u` produces the **401 this plan exists to remove**.
 
-The shape that meets every case this plan's gate names:
+The shape, with the strip order that a round-2 panel measured wrong once
+already:
 
 ```bash
 read_env() { # $1=name $2=file
   sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\{0,1\}$1=//p" "$2" \
     | head -1 \
-    | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" -e 's/[[:space:]]*$//'
+    | sed -e 's/[[:space:]]*$//' \
+          -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" \
+          -e 's/[[:space:]]*$//'
 }
 ```
 
-Measured against a file holding a comment, a plain value, an exported and quoted
-value, an unquoted JSON object, a blank line and a trailing-space value:
+**Whitespace is stripped BEFORE the quotes and again after, and the order is the
+defect.** An earlier draft stripped quotes first; on `T="plaintok"   ` the `"$`
+anchor then misses and the value keeps its quotes:
 
 ```
-plain:     [plain@example.com]
-exported:  [quoted-token]
-trailing:  [value-with-space]
-absent:    []
+old order: ["plaintok"]
+new order: [plaintok]
+```
+
+**A quoted-and-trailed value is exactly the case the first fixture omitted** — it
+held a quoted value and a trailed value and never one that is both, while the
+`Done when` names both. The measurement was true and too weak for the gate
+written beside it.
+
+Measured against ten cases:
+
+```
+  A     [plain]                     F     [{"json":"unquoted"}]
+  B     [quoted]                    G     [has=equals=inside]
+  C     [single]                    H     []
+  D     [trail]                     I     [with#hash]
+  E     [quoted-and-trailed]        NOPE  []
 ```
 
 **It still evaluates nothing** — `sed` over a line, never `source` — which is the
@@ -133,6 +150,45 @@ written down owns the writing down.
 **And the plan's own leak gate could not see it**: reading stdout and stderr
 says nothing about a file. So the gate grows a second half.
 
+#### The redaction is not free, and pricing it is part of this plan
+
+**The account is a MATCH KEY, not a label.** `plot-budget.sh:250` is
+`if ($2 != want_c || $3 != want_a) next`, and the same field is read by
+`spend-rate` (`plot-host.sh:3920`, which publishes it) and by `decodeEntry` /
+`sameKey` (`entities/budget.ts:181,232`).
+
+**Collapsing distinct accounts to one label would merge their windows.** This
+machine's ledger holds three:
+
+```
+   3 a@<redacted>
+  51 jan.wloka@<redacted>
+2399 me@<redacted>
+```
+
+So a redaction must stay **per-account distinguishable** — a stable derived
+identifier, not a constant — or the rate a connector reads becomes the sum of
+several people's.
+
+#### A second path exists and is latent for a stated reason
+
+`slots-file.ts:185` turns an account into a **directory name** under
+`~/.plot/state/slots/`, via `clean()` which maps `@` to `_`:
+
+```
+$ node -e 'const c=a=>a.replace(/[^A-Za-z0-9._-]/g,"_"); console.log(c("me@acme.test"))'
+me_acme.test
+```
+
+**Jira does not reach it today** — `slots.acquire` is called only from
+`liveSlotsFor` (`fleet.ts:1830`), keyed on `entry.prAccount`, the git host's
+account. Verified: the directory holds `jwloka`, `plot-pm`, `quatico`,
+`unknown`, and no email.
+
+**That is why the redaction belongs at the SOURCE rather than at `budget.tsv`.**
+Fixing the one known writer leaves the next one to inherit the defect, and this
+path is one `slots.acquire` call away from being live.
+
 ### What this does not do
 
 **It does not read `.env` for anything else.** Two named variables on one
@@ -156,9 +212,11 @@ as an empty inbox — the sentence that message carries is right and stays.
 **byte-identical** to today, pinned by asserting no file read occurs; an unset
 pair with a `.env` carrying both is used and the output **names `.env` as the
 source**, pinned by text; an unset pair with no `.env`, or one carrying neither,
-produces **today's message unchanged**; a `.env` whose other lines hold unquoted
-JSON, quotes, `export ` prefixes and blank lines is parsed without error and
-without importing anything else, pinned by a fixture holding all four; the
+produces **today's message unchanged**; a `.env` is parsed without error and without importing anything else, pinned by
+a fixture holding **every combination the gate names rather than one of each** —
+plain, `export `-prefixed, quoted, trailed, **quoted AND trailed**, unquoted
+JSON, a value containing `=`, a value containing `#`, an empty value, a blank
+line and a comment; the
 token's **value appears in no output stream**, pinned by asserting its absence
 from both stdout and stderr; `.env` is in `.gitignore`; and `pnpm run
 test:contracts` passes.

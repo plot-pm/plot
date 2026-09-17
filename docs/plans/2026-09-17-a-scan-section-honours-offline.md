@@ -46,10 +46,29 @@ Reported on a repository with **109 plans, 82 of them delivered**:
 **The pulse then blames the wrong things.** It reports *"2 worktrees, 10
 branches"* — the two cheapest inputs in the run.
 
-**On this estate the defect is invisible**, and that is the property worth
-recording: measured here 2026-09-17, **2 delivered plans at 1.76 s each**. The
-cost scales with how far the estate is from its last release, so a project that
-releases often never sees it and one that does not cannot finish a scan.
+**On this estate the defect is unreachable**, and that is stronger than
+invisible. Measured here 2026-09-17 by replaying section 6's own filters:
+
+```
+SKIP (docs):  the-skills-say-slices
+SKIP (infra): the-supervisor-log-has-a-ceiling
+delivered=2  reaching_pr_state=0
+```
+
+Both delivered plans are exempted by `:1143`'s `case "$ptype" in docs|infra)`
+before the call. **Zero host calls, not two.** An earlier draft of this plan
+counted delivered plans and priced them at 1.76 s each — the count was right and
+the calls do not happen.
+
+**That has a consequence for the fix's own test**: no real plan on this estate
+exercises the loop, so the online-direction gate needs a **synthesized** fixture
+carrying a `Type:` outside `docs|infra`. The fixture is load-bearing rather than
+convenient, and an implementer pointing the test at `docs/plans/` would measure
+nothing.
+
+The cost scales with how far the estate is from its last release **and with how
+many of those plans ship code**, so a project that releases often never sees it
+and one that does not cannot finish a scan.
 
 ### Two fixes, and they are separable
 
@@ -81,9 +100,16 @@ call against the 8.2 s per-plan one.
 section 6 answers exactly as today — pinned, because a flag fix that quietly
 narrows the online answer would trade a timeout for a wrong report.
 
-**It does not make `--offline` mean "fast".** It means *no host call*. Section 6
-still parses every plan, which is 0.117 s each and this plan's own measurement
-says so.
+**It does not make `--offline` mean "fast", and on this estate it will not meet
+the 90 s budget this plan opens with.** Measured here 2026-09-17: an offline
+scan takes **464 s with zero host calls**. The per-plan parse at 0.117 s over
+292 files predicts ~34 s, so **an order of magnitude is unaccounted for and this
+plan does not know what it is.**
+
+**Saying so is the point.** A reader meeting the opening sentence — a pulse
+timing out at 90 s — would reasonably expect that budget met once this lands.
+Honouring the flag removes the host calls; it does not make an offline scan fit,
+and the residual is a separate measurement nobody has taken.
 
 **It does not touch `--no-fetch`.** Three flags exist and they promise different
 things; only the two that set `PR_SOURCE=off` are in scope.
@@ -100,9 +126,10 @@ the section prints a note naming what it could not resolve, and that note is
 asserted by text so an empty section cannot pass for a clean one;
 `unreleased_delivered` reports a number that a reader can tell apart from a
 measured zero; an **online** scan's section 6 output is **byte-identical** to
-today's over a fixture carrying a delivered plan with a merged PR; a fixture
-with 3 delivered plans makes 3 calls online and 0 offline, pinning both
-directions in one test; and `pnpm run test:contracts` passes.
+today's over a fixture carrying a delivered plan with a merged PR; a **synthesized** fixture with 3 delivered plans whose `Type:` is outside
+`docs|infra` makes 3 calls online and 0 offline, pinning both directions in one
+test — synthesized because `reaching_pr_state=0` on this estate, so no real plan
+would exercise it; and `pnpm run test:contracts` passes.
 
 ## Notes
 
@@ -110,8 +137,20 @@ directions in one test; and `pnpm run test:contracts` passes.
 the loop size, and the killed run with its exit code. Nothing in the Design
 above is inferred; the two estate readings were re-taken here.
 
-**The gate that found it was `/plot-release`'s**, one day earlier and on the
-same section: section 6's docs/infra exemption had silently stopped working
+**Amended 2026-09-17 after a two-lens panel**
+(`.plot/panels/2026-09-17-a-scan-section-honours-offline/`). Both jurors
+confirmed the defect and the fix; both amended on this plan's own measurements.
+`gates` established that the counting machinery the strongest gate needs already
+exists at `scan.test.mjs:411`.
+
+**The panel's own blind spot is recorded because it is this plan's too**: both
+jurors reasoned about section 6, and the 464 s an offline scan costs here lies
+outside it. The report's repository times out INSIDE section 6 at 100 s; this
+estate spends 464 s never entering it. **Both are true and they are not the same
+problem** — this plan fixes one and is titled for the other.
+
+**The gate that found the section's last defect was `/plot-release`'s**, one day
+earlier and on the same section: section 6's docs/infra exemption had silently stopped working
 (`f5d052af`). Two defects in one loop in two days is worth saying out loud —
 this section reads a row, spawns a process per plan, and had no test covering
 either.
