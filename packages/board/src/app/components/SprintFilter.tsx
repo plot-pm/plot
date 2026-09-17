@@ -17,9 +17,10 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
  *
  * ## What earlier slices implemented
  *
- * - Three exhaustive buckets: open (not started), WIP (in progress), done
- *   (delivered) — replacing the old four status buckets
- * - A total that equals `open + wip + done` — the arithmetic that exposes gaps
+ * - Four exhaustive buckets: open (not started), WIP (in progress), done
+ *   (delivered), withdrawn (rejected or superseded)
+ * - A total that equals `open + wip + done + withdrawn` — the arithmetic that
+ *   exposes gaps
  * - One row per active sprint, independently toggleable
  * - The toggle is labelled "Sprint only" so readers know what it does
  * - The line reads "Sprint: <name>" to identify the kind of thing
@@ -27,7 +28,8 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
  *
  * ## Design decisions (from the plan)
  *
- * - THREE BUCKETS answer the question "how much is left": open/WIP/done
+ * - FOUR BUCKETS answer the question "how much is left": open/WIP/done, plus
+ *   withdrawn for work that will not happen — counted, never in "open"
  * - Every member lands in exactly one bucket — the sum is the total
  * - Draft members are counted (in "open"), unlike the old four buckets
  * - It reads `plan.status`, it does not compute it — tallied server-side
@@ -56,12 +58,20 @@ interface SprintFilterProps {
  * When `isEstate` is true, the format is `<total> plans · <open> open · ...`.
  * When `isEstate` is false, the format is `<total> members · <open> open · ...`.
  *
- * All three bucket counts are shown, even when zero — the shape is the point,
- * and hiding zeros would make the total harder to verify by eye.
+ * All four bucket counts are shown, even when zero — the shape is the point,
+ * and hiding zeros would make the total harder to verify by eye. That rule is
+ * why `withdrawn` prints at zero too, which is most estates: a reader adding
+ * the terms against the total needs every term present, and an omitted one
+ * reopens the silent gap the fourth bucket closed.
+ *
+ * "withdrawn" is the word the plan, the phase transition and the schema member
+ * already use. `closed` collides with a PR's vocabulary, and `rejected` names
+ * only one of the two phases it covers — a superseded plan was not rejected.
  */
 function formatCounts(counts: SprintCounts, isEstate: boolean): string {
   const unit = isEstate ? 'plans' : 'members';
-  return `${counts.total} ${unit} · ${counts.open} open · ${counts.wip} WIP · ${counts.done} done`;
+  return `${counts.total} ${unit} · ${counts.open} open · ${counts.wip} WIP`
+    + ` · ${counts.done} done · ${counts.withdrawn} withdrawn`;
 }
 
 /**

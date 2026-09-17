@@ -6766,17 +6766,19 @@ export async function sprintMembership(opts: BuildBoardOptions): Promise<Map<str
  * {@link planStatusBySlug} returns each plan's status from the ONE `planStatus`
  * function, and this joins the sprint's member slugs against that map.
  *
- * THREE BUCKETS, NOT SEVEN STATUS VALUES:
+ * FOUR BUCKETS, NOT EIGHT STATUS VALUES:
  *
  * | bucket | PlanStatus values |
  * |---|---|
  * | open | draft, open, approved |
  * | wip | in-progress, deliverable |
  * | done | delivered |
+ * | withdrawn | withdrawn — Phase Rejected or Superseded |
  *
- * Every member lands in exactly one bucket, and `total = open + wip + done`.
- * The old four buckets could silently drop a Draft member (counted nowhere);
- * these three cannot — the arithmetic fails visibly when a member falls through.
+ * Every member lands in exactly one bucket, and `total = open + wip + done +
+ * withdrawn`. The old four buckets could silently drop a Draft member (counted
+ * nowhere); these cannot — the arithmetic fails visibly when a member falls
+ * through.
  *
  * `released` is counted in `done`: the work IS done, and a released member
  * under an Active sprint is drift worth seeing in `plot-reconcile-scan.sh`
@@ -6801,7 +6803,7 @@ export async function activeSprints(
   const statusBySlug = await planStatusBySlug(opts, pulse, complete);
   const today = new Date().toISOString().slice(0, 10);
   return active.map((sprint) => {
-    const counts = { total: 0, open: 0, wip: 0, done: 0 };
+    const counts = { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 };
     for (const member of sprint.members) {
       if (member.tier === 'deferred') continue;
       const status = statusBySlug.get(member.slug);
@@ -6821,6 +6823,13 @@ export async function activeSprints(
         case 'delivered':
         case 'released':
           counts.done += 1;
+          break;
+        // Withdrawn: rejected or superseded. DISTINCT FROM DEFERRED above — a
+        // deferred member is not counted at all, because its slug sits under
+        // `### Deferred` and was never a commitment. A withdrawn member WAS
+        // committed to and then given up, so it stays in the total.
+        case 'withdrawn':
+          counts.withdrawn += 1;
           break;
         // Unknown slug (renamed/deleted plan): not counted. The member list
         // still carries it, so it remains visible; the count does not claim
@@ -6870,7 +6879,7 @@ export async function estateTotals(
   complete: boolean,
 ): Promise<SprintCounts> {
   const statusBySlug = await planStatusBySlug(opts, pulse, complete);
-  const counts: SprintCounts = { total: 0, open: 0, wip: 0, done: 0 };
+  const counts: SprintCounts = { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 };
   for (const status of statusBySlug.values()) {
     switch (status) {
       // Open: committed, not started
@@ -6888,6 +6897,11 @@ export async function estateTotals(
       case 'delivered':
       case 'released':
         counts.done += 1;
+        break;
+      // Withdrawn: rejected or superseded — work nobody intends to do. It
+      // counted as `open` until 2026-09-17, which reported it as outstanding.
+      case 'withdrawn':
+        counts.withdrawn += 1;
         break;
       // Unknown status: not counted, same as activeSprints
       default:

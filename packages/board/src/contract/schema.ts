@@ -3554,22 +3554,28 @@ export type Supervisor = z.infer<typeof SupervisorSchema>;
 export const FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 } as const;
 
 /**
- * The three exhaustive counts a sprint's plans fall into — the numbers the
+ * The four exhaustive counts a sprint's plans fall into — the numbers the
  * Agents-tab control renders beside the sprint's name, plus the total.
  *
- * THREE BUCKETS, NOT SEVEN STATUS VALUES. The question the control answers is
- * *how much of this sprint is left*, and that has three answers:
+ * FOUR BUCKETS, NOT EIGHT STATUS VALUES. The question the control answers is
+ * *how much of this sprint is left*, and that has four answers:
  *
  * | bucket | holds |
  * |---|---|
  * | **open** | committed, not started — Draft/Approved with no branch in flight |
  * | **wip** | started, not delivered — in-progress or deliverable |
  * | **done** | delivered — Phase: Delivered (the Testing column) |
+ * | **withdrawn** | given up on — Phase Rejected or Superseded |
  *
- * Every member lands in exactly one bucket, so `total = open + wip + done`.
- * The old four buckets (`delivered`, `deliverable`, `inProgress`, `approved`)
- * could silently drop a Draft member; these three cannot — the arithmetic
- * fails visibly when a member falls through.
+ * Every member lands in exactly one bucket, so `total = open + wip + done +
+ * withdrawn`. The old four buckets (`delivered`, `deliverable`, `inProgress`,
+ * `approved`) could silently drop a Draft member; these cannot — the
+ * arithmetic fails visibly when a member falls through.
+ *
+ * `withdrawn` JOINED ON 2026-09-17 and is not a return to the old shape: it
+ * splits *work that will not happen* out of `open`, where a rejected plan had
+ * been counted as outstanding. It is a bucket rather than an exclusion because
+ * `total` stays the member count.
  *
  * `released` is NOT counted. While a sprint is Active its target release has
  * not been cut, so no member can be Released — measured on this repo 2026-08-24:
@@ -3580,7 +3586,7 @@ export const FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 }
  * COUNTED FROM `plan.status` via {@link PlanStatus}, never recomputed.
  */
 export const SprintCountsSchema = z.object({
-  /** Total non-deferred members. Always equals `open + wip + done`. */
+  /** Total non-deferred members. Always equals `open + wip + done + withdrawn`. */
   total: z.number().int().default(0),
   /** Committed, not started: Draft, open, or Approved with no branch in flight. */
   open: z.number().int().default(0),
@@ -3588,6 +3594,18 @@ export const SprintCountsSchema = z.object({
   wip: z.number().int().default(0),
   /** Delivered: Phase: Delivered (the Testing column). */
   done: z.number().int().default(0),
+  /**
+   * Given up on: Phase Rejected or Superseded.
+   *
+   * A FOURTH BUCKET, AND `total` STILL COUNTS IT. Dropping withdrawn plans from
+   * `total` was weighed and refused: the estate total would stop being the plan
+   * count, and a reader comparing "112 plans" against the directory would find
+   * it short with nothing on screen explaining why. The bucket is additive, so
+   * the arithmetic a reader checks by eye still closes.
+   *
+   * Withdrawn plans used to land in `open`, which read as outstanding work.
+   */
+  withdrawn: z.number().int().default(0),
 });
 export type SprintCounts = z.infer<typeof SprintCountsSchema>;
 
@@ -3995,15 +4013,15 @@ export const FleetShape = z.object({
    * use. Shown in the sprint control when the filter is OFF, so a reader sees
    * the effect of turning it on: "21 members" versus "112 plans".
    *
-   * Computed by the same derivation as the sprint counts (`open + wip + done =
-   * total`), which is the plan's requirement — one derivation, two scopes, so
-   * the numbers cannot disagree about what a bucket means.
+   * Computed by the same derivation as the sprint counts (`open + wip + done +
+   * withdrawn = total`), which is the plan's requirement — one derivation, two
+   * scopes, so the numbers cannot disagree about what a bucket means.
    *
    * Defaults to zeroes so a payload from an older server still validates, and
    * zeroes beside `ready: false` read as *nothing measured yet* rather than
    * *an empty estate*. The same rule the stuck counts already follow.
    */
-  estateTotals: SprintCountsSchema.default({ total: 0, open: 0, wip: 0, done: 0 }),
+  estateTotals: SprintCountsSchema.default({ total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 }),
   /**
    * The branch the MAIN CHECKOUT is on — where a person and the master agent
    * do the concept work — derived from git, never recorded.
