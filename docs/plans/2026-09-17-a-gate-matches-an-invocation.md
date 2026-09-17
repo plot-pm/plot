@@ -144,7 +144,7 @@ completeness it refused on purpose.
 
 ## Slices
 
-### A gate matches an invocation (Branch: bug/a-gate-matches-an-invocation)
+### A gate matches an invocation (Branch: bug/a-gate-matches-an-invocation, PR: #942)
 
 - `bug/a-gate-matches-an-invocation` — strip single-quoted heredoc bodies before tokenising, leave the token match otherwise untouched, and add a corpus of invocation shapes that must keep refusing
 
