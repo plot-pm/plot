@@ -207,7 +207,7 @@ as an empty inbox — the sentence that message carries is right and stays.
 
 ## Slices
 
-### A credential is read where a repo keeps it (Branch: feature/a-credential-is-read-where-a-repo-keeps-it)
+### A credential is read where a repo keeps it (Branch: feature/a-credential-is-read-where-a-repo-keeps-it, PR: #946)
 
 - `feature/a-credential-is-read-where-a-repo-keeps-it` — where both variables are unset, read them from the repository root's `.env` with a targeted per-variable parse, name the source in the output, add `.env` to `.gitignore`, and mention the file in the adoption path
 
