@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #943
 - **Review:** in-session
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-18, jwloka, in-session
 - **Started:** 2026-09-18, Jan Wloka, `bug/the-bitbucket-arm-answers-with-a-merge-commit`
+- **Delivered:** 2026-09-18
 
 ## Changelog
 
