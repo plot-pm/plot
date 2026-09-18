@@ -170,7 +170,7 @@ cannot resolve locally from a plan that is not released**, by testing
 `cannot resolve` finding rather than falling through the `continue` at `:1207`;
 and `pnpm run test:contracts` passes.
 
-### The release question does not gate a delivery (Branch: bug/the-release-question-does-not-gate-a-delivery)
+### The release question does not gate a delivery (Branch: bug/the-release-question-does-not-gate-a-delivery, PR: #949)
 
 - `bug/the-release-question-does-not-gate-a-delivery` — move section 6 below the `== blocking sections end ==` marker and make its `inspect:` line name the configured host's CLI
 
