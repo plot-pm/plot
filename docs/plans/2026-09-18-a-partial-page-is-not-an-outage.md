@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-18, jwloka, in-session
+- **Started:** 2026-09-18, jwloka, `bug/the-arm-reports-the-states-that-answered`
 
 ## Changelog
 
