@@ -2591,13 +2591,30 @@ case "$op" in
     else
       # Establish that bb supports --json BEFORE calling it — Done-when 5.
       bb_require_json
+      # THE SAME KEY SET AS THE GITHUB ARM, INCLUDING `mergeCommit`. This arm
+      # dropped that key on all four of its paths until 2026-09-18, and the
+      # consumer reads it as `.mergeCommit // empty` — where `jq` cannot tell an
+      # absent key from an empty one. So `plot-reconcile-scan.sh` reported
+      # `no merge commit → cannot resolve` for every delivered plan on a
+      # Bitbucket repository, which reads as a host that answered rather than an
+      # arm that never asked. `pr-list`'s arm is the precedent: it emits every
+      # key its GitHub arm does, because absent is not false.
+      #
+      # `merge_commit.hash` IS TAKEN FROM THE PAYLOAD ALREADY FETCHED — the same
+      # field `pr-merge-commit` reads from the same shape. A second `bb` call to
+      # re-ask for it would double a cost measured at ~10s per call.
+      #
+      # `// ""` COLLAPSES THREE SHAPES INTO ONE HONEST VALUE: `merge_commit`
+      # absent on an open PR, the object null, or the hash null. `""` is what
+      # the GitHub arm gives for anything unmerged, so a caller cannot tell the
+      # backends apart.
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/tmp/plot-host-err.$$)"; then
           rm -f "/tmp/plot-host-err.$$"
-          jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href}' <<<"$out"
+          jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // "")}' <<<"$out"
         else
           err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
-          host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":""}' || exit $?
+          host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       else
         # The list CALL succeeding and the branch being absent FROM the list are
@@ -2635,12 +2652,20 @@ case "$op" in
         if [ "$bb_rc" = 0 ]; then
           rm -f "/tmp/plot-host-err.$$"
           out="$(jq -c -s 'add // []' <<<"$out")"
+          # THE BRANCH ARM CARRIES `mergeCommit` TOO, and it is the path that
+          # matters most: `plot-pr-state.sh:33` asks `pr-state "idea/${SLUG}"` —
+          # a branch, not a number — and `:47` reads `.mergeCommit // empty`
+          # from the answer. A fix touching only the numeric pair above would
+          # leave that caller reading an absent key on every Bitbucket repo.
+          #
+          # The hash rides on the page the state walk already fetched, so this
+          # costs no extra call.
           jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null
-               | if .==null then {number:0,state:"NONE",draft:false,url:""}
-                 else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href} end' <<<"$out"
+               | if .==null then {number:0,state:"NONE",draft:false,url:"",mergeCommit:""}
+                 else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // "")} end' <<<"$out"
         else
           err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
-          host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":""}' || exit $?
+          host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       fi
     fi

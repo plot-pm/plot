@@ -2855,6 +2855,25 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
     continue
   fi
 
+  # A SHA THIS REPOSITORY DOES NOT HOLD IS NOT AN UNRELEASED PLAN, and until
+  # 2026-09-18 it read as one. `git tag --contains <unknown-sha>` prints
+  # `error: no such commit` and the rc of the PIPELINE is `head`'s — measured 0
+  # — so the failure reached the `continue` below whose comment says the plan is
+  # simply not released yet. Silence, in the one section written so that
+  # "cannot tell" and "nothing wrong" cannot look the same.
+  #
+  # `cat-file -e` IS ASKED SEPARATELY because its exit code is readable where
+  # the pipeline's is not: 0 when the object store holds the commit, non-zero
+  # when it does not. Three populations arrive here — `--no-fetch` with PRs on,
+  # a merge commit outside the local refspec or a shallow clone, and a PR merged
+  # outside the host's merge button.
+  if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+    unrel_out+="  $base — delivered, PR #$last_pr names merge commit $sha, not in this clone → cannot resolve\n"
+    unrel_out+="    inspect: git fetch --tags origin, then re-run\n"
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
   tag=$(git tag --contains "$sha" 2>/dev/null \
         | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
   [ -n "$tag" ] || continue   # genuinely not released yet — nothing to report
