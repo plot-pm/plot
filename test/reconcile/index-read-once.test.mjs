@@ -234,6 +234,37 @@ test('index: a plan linked from both directories is seen in both', () => {
     `a plan linked from both indexes is not unlinked:\n${idx}`);
 });
 
+test('index: the index runs under bash 3.2, not only parses', () => {
+  // `mergequeue.test.mjs` greps for `declare -A` and the other bash 4 spellings,
+  // and that gate caught the first version of this index. A grep proves the
+  // syntax and not the RUN: an index is a data structure, and getting the same
+  // answers out of a string-and-parameter-expansion one under the interpreter
+  // macOS actually ships is the property that matters.
+  //
+  // Skipped rather than failed where no 3.2 exists — Linux CI has none, and a
+  // test that fails for being on the wrong machine teaches nothing. The grep
+  // gate covers CI; this covers a Mac, which is where the defect lands.
+  const legacy = '/bin/bash';
+  const version = (() => {
+    try {
+      return execFileSync(legacy, ['-c', 'echo $BASH_VERSION'], { encoding: 'utf8' }).trim();
+    } catch { return ''; }
+  })();
+  if (!version.startsWith('3.')) return; // no stock 3.2 here; the grep gate stands
+
+  const out = execFileSync(legacy, [scan, '--offline'], { encoding: 'utf8', cwd: repo });
+  // The same four rules, re-asserted through the old interpreter. Anything that
+  // silently answered differently there — an unsupported expansion degrading to
+  // empty, say — changes one of these.
+  assert.match(out, /aa-two-links\.md/, `first-wins under bash ${version}:\n${out}`);
+  assert.doesNotMatch(out, /zz-two-links\.md/, `not last-wins under bash ${version}`);
+  assert.match(out, /fix: git rm plans\/active\/wrong-index\.md/,
+    `the link path under bash ${version}:\n${out}`);
+  assert.match(out, /2026-01-01-filtered-out\.md/,
+    `the *.md filter under bash ${version}:\n${out}`);
+  assert.match(out, /attention=1/, `the dangling link under bash ${version}`);
+});
+
 test('index: an absent index directory produces no error and no finding', () => {
   // The Done-when names this case. A repo whose `delivered/` has never been
   // created must sweep cleanly — `[ -d ]` guards the read and the glob's

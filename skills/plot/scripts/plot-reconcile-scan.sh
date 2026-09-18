@@ -717,15 +717,34 @@ contained_in_open_pr() { # $1=branch → PR number, or empty
 #
 # A name containing ` -> ` or a newline would defeat this parse. No such name
 # exists in this estate; `find -print0` is the answer if one ever does.
+#
+# NO ASSOCIATIVE ARRAY. `declare -A` is bash 4 and macOS ships bash 3.2, so a
+# script using one does not run for an operator on a stock Mac — it fails to
+# parse, rather than misbehaving. `test/reconcile/mergequeue.test.mjs` gates
+# this and its own comment names the trap: CI runs bash 5, so no fixture
+# catches it. The index is therefore one newline-delimited string per
+# directory, "\n<target>\t<link>" per entry, read with parameter expansion.
+#
+# FIRST MATCH WINS FOR FREE, and that is why this shape is the right one rather
+# than a workaround. `${s#*"$needle"}` strips to the FIRST occurrence, so the
+# earliest link recorded for a target is the one returned — the rule an
+# associative index had to enforce with an explicit "only if unset" guard is
+# structural here, the same way matching `*" -> "*` gives the `[ -L ]` test for
+# free. Three plans on this estate carry two links each within `delivered/`.
 
-declare -A IDX_ACTIVE=()      # plan basename -> first link path in ACTIVE_DIR
-declare -A IDX_DELIVERED=()   # plan basename -> first link path in DELIVERED_DIR
+IDX_ACTIVE=""                 # "\n<target>\t<link>" per link, in ls order
+IDX_DELIVERED=""
 IDX_ACTIVE_TARGETS=()         # every active/ link's target basename, in ls order
-IDX_DANGLING=()               # "link<TAB>target" for every link that resolves to nothing
+IDX_DANGLING=()               # "link<TAB>raw target" for every link resolving to nothing
 
-# $1 = index directory, $2 = name of the assoc array to fill ("" to skip it)
+# $1 = index directory, $2 = name of the variable to hold its index string.
+# It assigns rather than echoing: a command substitution would run the loop in a
+# SUBSHELL, and the two array consumers below — section 4's targets and section
+# 5's dangling links — would be filled there and lost on return. Process
+# substitution keeps the loop in this shell, which is the same reason `while
+# read < <(...)` is used instead of a pipe.
 read_index() {
-  local dir="$1" into="$2" line link target raw
+  local dir="$1" into="$2" line link target raw out=""
   [ -d "$dir" ] || return 0
   # One fork for the whole directory. `2>/dev/null` covers an empty directory,
   # where the glob stays literal and `ls` reports it missing — no error, no
@@ -735,10 +754,8 @@ read_index() {
     link=${line%% -> *}; link=${link##* }   # trailing field before the arrow
     raw=${line#* -> }                       # exactly what `readlink` prints
     target=${raw##*/}                       # ../2026-01-01-x.md -> 2026-01-01-x.md
-    if [ -n "$into" ]; then
-      # first-wins: the walk this replaces returned the first match and stopped
-      eval "[ -n \"\${$into[\$target]:-}\" ]" || eval "$into[\$target]=\$link"
-    fi
+    out+="
+$target	$link"
     if [ "$dir" = "$ACTIVE_DIR" ]; then
       IDX_ACTIVE_TARGETS+=("$target")
     fi
@@ -746,10 +763,19 @@ read_index() {
     # target is kept, not the basename: section 5 prints what `readlink` printed.
     [ -e "$link" ] || IDX_DANGLING+=("$link	$raw")
   done < <(ls -l "$dir"/*.md 2>/dev/null)
+  # `eval` on a name this script controls — bash 3.2 has no `declare -n`, and
+  # the two call sites below pass literals.
+  eval "$into=\$out"
 }
 
 read_index "$ACTIVE_DIR"    IDX_ACTIVE
 read_index "$DELIVERED_DIR" IDX_DELIVERED
+
+# The lookup is written INLINE at its one call site rather than wrapped in a
+# function here. A function returning a value in bash must echo it, and the
+# caller must then use `$(...)` — which is a fork, once per plan, which is the
+# whole defect this replaces. The three lines it would have saved are not worth
+# reintroducing 297 processes.
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_unplanned_members=0; n_sprint_unset=0; n_sprint_mismatch=0
@@ -773,8 +799,22 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype _psprin
 
   # Answered from the index read once above. No fork per plan, where this pair
   # used to walk both directories and fork `readlink`+`sed` per link passed.
-  in_active=${IDX_ACTIVE[$base]:-}
-  in_delivered=${IDX_DELIVERED[$base]:-}
+  # Answered from the index read once above. INLINE, never `$(index_link ...)`:
+  # a command substitution is a fork, and one per plan is the 53.3 s shape the
+  # plan's Notes record as indistinguishable from the fast one by reading the
+  # diff. `${s#*"$needle"}` takes the FIRST match, which is the rule the walk
+  # this replaces followed by returning early.
+  _needle="
+$base	"
+  in_active=""; in_delivered=""
+  case "$IDX_ACTIVE" in *"$_needle"*)
+    _rest=${IDX_ACTIVE#*"$_needle"}; in_active=${_rest%%
+*} ;;
+  esac
+  case "$IDX_DELIVERED" in *"$_needle"*)
+    _rest=${IDX_DELIVERED#*"$_needle"}; in_delivered=${_rest%%
+*} ;;
+  esac
 
   # --- A file with no phase field is NOT A PLAN, and says so at convenience
   # level rather than counting as attention.
