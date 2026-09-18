@@ -11,6 +11,7 @@
 - **Approved:** 2026-09-18, jwloka, in-session
 - **Impl:** own branches
 - **Started:** 2026-09-18, jwloka, `bug/the-reading-carries-which-stopped`
+- **Started:** 2026-09-18, jwloka, `bug/the-banner-names-what-died`
 
 ## Changelog
 
