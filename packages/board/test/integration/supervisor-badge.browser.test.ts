@@ -8,7 +8,7 @@ import type { AgentEntry, AgentRow, Fleet, Supervisor } from '../../src/contract
  * THE SUPERVISOR BADGE — ONE BROWSER TEST, AND IT PROVES ONLY THAT THE BADGE
  * SHOWS WHAT IT WAS GIVEN.
  *
- * Every decision behind it — which of the three states a reading is, whether it
+ * Every decision behind it — which of the four states a reading is, whether it
  * is worth saying, and whether it is a warning — is a domain property asserted
  * in `packages/domain/test/supervisor-reading.test.ts` with no browser and no
  * server. This file owns the other half: that the badge lands on the WORKING
@@ -233,6 +233,40 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
       // Not the alarm: no amber.
       expect(await badge.getAttribute('class')).not.toContain('text-amber-600');
       expect(await badge.getAttribute('data-fleet-supervisor-state')).toBe('unknown');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('carries `died` to the attribute and renders its sentence', async () => {
+    // THE FOURTH WORD REACHES THE DOM. The client CASTS this payload rather
+    // than parsing it, so nothing on this side would reject a state it does
+    // not know — it would render the attribute empty or the banner bare, and
+    // no type check anywhere would notice. That is why the attribute is
+    // asserted by value.
+    //
+    // THE DETAIL IS ASSERTED AS TEXT, not just as a title. `quiet` renders no
+    // detail element at all, so a state that arrived with the wrong prominence
+    // would show its label and silently drop the only sentence explaining what
+    // died — which is the whole reason this state exists.
+    const page = await open(fleet({
+      state: 'died', prominence: 'alert', shown: true,
+      label: 'FLEET STOPPED UNEXPECTEDLY',
+      detail: 'The fleet was started here and is no longer running — nothing stopped it. Find out what happened before starting it again: /plot-fleet --status',
+    }));
+    try {
+      const badge = page.locator('[data-fleet-supervisor]');
+      await expect.poll(() => badge.count()).toBe(1);
+      expect(await badge.getAttribute('data-fleet-supervisor-state')).toBe('died');
+      // It is the loud shape: the alert role and the red border a `down` alert
+      // already earns, because this state is no quieter than that one.
+      expect(await badge.getAttribute('role')).toBe('alert');
+      expect(await badge.getAttribute('class')).toContain('border-red-500');
+      // And the sentence is on the page, not only in a title attribute.
+      const detail = page.locator('[data-fleet-supervisor-detail]');
+      await expect.poll(() => detail.count()).toBe(1);
+      expect(await detail.textContent()).toContain('/plot-fleet --status');
+      expect(await detail.textContent()).toContain('nothing stopped it');
     } finally {
       await page.close();
     }

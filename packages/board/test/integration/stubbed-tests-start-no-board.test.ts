@@ -502,7 +502,23 @@ const EXPECTED_FILES = 49;
  */
 // 493 → 497 ON 2026-09-16: the four in `plan-cost-badge.browser.test.ts`
 // named above. Added, not moved — no file lost an `it(` for these to appear.
-const EXPECTED_TESTS = 497;
+//
+// 497 → 498 ON 2026-09-18: one in `supervisor-badge.browser.test.ts`, for the
+// fourth supervisor state `died`. Added, not moved — `EXPECTED_FILES` is
+// unchanged, since it joins a file that already drove a browser page.
+//
+// It is a browser assertion rather than a domain one because the client CASTS
+// its payload instead of parsing it: a state the renderer does not know fails
+// no type check anywhere, it reaches the DOM as an attribute nothing draws. So
+// the claim is *the fourth word arrives in `data-fleet-supervisor-state` and
+// its sentence is on the page* — and the sentence half is the discriminating
+// one, because `quiet` renders no detail element at all, so a state given the
+// wrong prominence would show its label and silently drop the only text
+// explaining what died.
+//
+// Re-derived by running this gate rather than by arithmetic, per this file's
+// own rule: it reported 498.
+const EXPECTED_TESTS = 498;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

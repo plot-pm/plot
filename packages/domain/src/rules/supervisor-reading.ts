@@ -156,19 +156,21 @@ export type SupervisorProminence = 'quiet' | 'note' | 'warn' | 'alert';
 /**
  * The states a verdict may carry to the wire.
  *
- * THREE, NOT FOUR, AND DELIBERATELY BEHIND `SupervisorState`. The board parses
- * its payload with a three-value enum and the client only casts, so a fourth
- * word reaching the wire is a value with no renderer behind it — it would not
- * fail a type check on the client, it would arrive as a state nothing draws.
- * Widening the enum and the banner is one slice, and this is not it.
+ * ALL FOUR, AND THE ENUM MOVES WITH THE RENDERER. The board parses its payload
+ * with a Zod enum and the client only CASTS, so this type and
+ * `SupervisorSchema`'s member list are the only guards a new word passes — a
+ * fourth state added here alone would not fail a client type check, it would
+ * arrive as a value nothing draws. The schema, the banner and this type are
+ * therefore widened together or not at all.
  *
- * `died` REPORTS AS `down` HERE, which costs the reader nothing today: the
- * fall-through below already gives it the `FLEET STOPPED` wording, because
- * `died` refines `down` rather than opposing it — both mean no slice will be
- * picked up. What the refinement buys is the diagnosis, and the diagnosis is
- * rendered by the slice that widens this type.
+ * `died` IS ITS OWN WORD HERE BECAUSE A READER ACTS ON IT DIFFERENTLY. It
+ * still refines `down` rather than opposing it — both mean no slice will be
+ * picked up — but a fleet that was started and is gone needs its log read
+ * before it is started again, and a fleet that was never started does not.
+ * Collapsing them was correct while nothing rendered the difference; it stops
+ * being correct the moment something does.
  */
-export type SupervisorWireState = 'up' | 'down' | 'unknown';
+export type SupervisorWireState = 'up' | 'down' | 'unknown' | 'died';
 
 export interface SupervisorVerdict {
   /** What the supervisor is, in the three words the wire carries. */
@@ -232,13 +234,20 @@ export const supervisorState = (readings: SupervisorRun): SupervisorState => {
  * not ask* is a reading about the board, and alerting on it teaches an operator
  * to dismiss the alert that matters.
  *
+ * `died` TAKES THE SAME RULE AS `down`, and it must be stated rather than
+ * inherited. `died` refines `down` for the reader and is a separate word to
+ * this function, so a rule that tested `down` alone would answer `quiet` for
+ * every dead supervisor — and `quiet` renders grey, with no `role="alert"` and
+ * no detail sentence at all (`FleetControls.tsx`). A state whose whole purpose
+ * is to explain an unexplained death would have arrived explaining nothing.
+ *
  * @param readings - what was read of the script and of the fleet.
  * @returns quiet, a note, or an alert.
  */
 export const supervisorProminence = (readings: SupervisorReadings): SupervisorProminence => {
   const state = supervisorState(readings);
   if (state === 'unknown') return 'note';
-  if (state === 'down' && readings.agentsRunning > 0) return 'alert';
+  if ((state === 'down' || state === 'died') && readings.agentsRunning > 0) return 'alert';
   return 'quiet';
 };
 
@@ -313,11 +322,29 @@ export const supervisorVerdict = (readings: SupervisorReadings): SupervisorVerdi
         'The board could not ask `/plot-fleet --status`, so whether the fleet is running was never established. This is not the same fact as it being stopped.',
     };
   }
-  // `died` LANDS HERE AND REPORTS AS `down`. It is a refinement of this state,
-  // not a fourth direction — both mean no slice will be picked up — so the
-  // wording is today's until the slice that renders the diagnosis widens the
-  // wire. Narrowing here rather than at the caller keeps the one place that
-  // knows both vocabularies inside the rule.
+  if (state === 'died') {
+    // THE REPAIR IS `--status` AND NOT `--start`, and that is the whole point
+    // of separating this state. Starting a fleet whose supervisor died on its
+    // own runs straight back into whatever killed it; the reader needs to know
+    // why first. Every other stopped state prints `--start`, because for them
+    // starting IS the repair.
+    //
+    // NO MACHINE VOCABULARY, the rule this function's header states: not the
+    // launchd label, not `registryd`, not the script's own word `installed` —
+    // which is correct about the unit file and exactly backwards as a fleet's
+    // status, reading as the opposite of stopped. What a reader is told is
+    // that the fleet was started, is gone, and nothing stopped it.
+    return {
+      state,
+      prominence,
+      shown: true,
+      label: 'FLEET STOPPED UNEXPECTEDLY',
+      detail:
+        agents > 0
+          ? `The fleet was started here and is no longer running — nothing stopped it. ${agents} agent${agents === 1 ? '' : 's'} ${agents === 1 ? 'is' : 'are'} still running, no slice will be picked up, and nothing reaps a finished desk or marks a spent one. Find out what happened before starting it again: /plot-fleet --status`
+          : 'The fleet was started here and is no longer running — nothing stopped it. No agent is running, but no slice will be picked up either, and whatever ended it will end it again. Find out what happened before starting it again: /plot-fleet --status',
+    };
+  }
   return {
     state: 'down',
     prominence,
