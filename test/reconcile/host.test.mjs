@@ -78,12 +78,22 @@ printf '%s' '${json.replace(/'/g, `'\\''`)}'
 //
 // Also handles the capability check (--version, --help --json) like the
 // adapter now expects.
+// A STATE MAY ALSO FAIL, which is the shape #912 is made of. `bb pr list` has
+// no `all` state, so the adapter calls once per state and some calls can fail
+// while others answer — a partial answer, which no single-call host can
+// produce. A `perState` value may therefore be either a payload string or
+// `{ fail: '<stderr text>', code: N }`, so a test can say *this state throttled
+// and the others answered* without a second stub.
 function makeStrictBbStub({ json = '[]', perState = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bb-'));
   const callsFile = path.join(dir, 'bb.calls');
+  const quote = (s) => s.replace(/'/g, `'\\''`);
   const cases = perState
     ? Object.entries(perState)
-        .map(([s, v]) => `    ${s}) printf '%s' '${v.replace(/'/g, `'\\''`)}' ;;`)
+        .map(([s, v]) =>
+          typeof v === 'object' && v !== null && v.fail !== undefined
+            ? `    ${s}) echo '${quote(v.fail)}' >&2; exit ${v.code ?? 1} ;;`
+            : `    ${s}) printf '%s' '${quote(v)}' ;;`)
         .join('\n')
     : '';
   const body = `#!/usr/bin/env bash
@@ -1003,6 +1013,133 @@ test('host: pr-list --state all issues one bb call per real state', () => {
   assert.ok(calls.some((c) => c.includes('--state merged')));
   assert.ok(calls.some((c) => c.includes('--state declined')));
   assert.ok(!calls.some((c) => c.includes('--state all')), 'bb has no `all` state');
+});
+
+// ── A PARTIAL ANSWER IS NOT AN OUTAGE (#912) ─────────────────────────────────
+//
+// `bb pr list` has no `all` state, so the arm calls once per state and prints
+// each state's rows as it goes. Until now the first failure left through
+// `|| exit $?` AFTER the earlier rows were on stdout, and the transport threw
+// them away on the non-zero code. An operator on `quaweb-website` saw nine
+// branches labelled `commits, no PR ever opened`, two of them with live PRs.
+//
+// GITHUB CANNOT REACH THIS SHAPE and is pinned separately below: `--state all`
+// goes to `gh` in one call, so a failure there means nothing was printed.
+
+/** The exit code for an answer that is incomplete rather than absent. */
+const PARTIAL_RC = 7;
+
+const runPrList = (bb, args = ['pr-list', '--state', 'all']) =>
+  spawnSync('bash', [adapter, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+
+test('host: pr-list keeps the states that answered when one fails, and exits partial', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[{"id":358,"title":"O","state":"OPEN","source":{"branch":{"name":"feature/o"}}}]',
+      merged: '[{"id":300,"title":"M","state":"MERGED","source":{"branch":{"name":"feature/m"}}}]',
+      declined: { fail: 'API rate limit exceeded for this account', code: 1 },
+    },
+  });
+  const r = runPrList(bb);
+
+  // THE ROWS SURVIVE. This is the whole defect: they were already on stdout and
+  // the exit code threw them away.
+  const rows = r.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((x) => x.number).sort(), [300, 358],
+    'the states that answered were discarded with the one that did not');
+
+  // NOT 0, AND THAT IS LOAD-BEARING. `plot-fleet-scan.sh` reads this code
+  // directly and branches on `rc -ne 0`; exiting 0 would report a complete
+  // reading over a page missing a whole state, and would re-create the silent
+  // empty list fixed on 2026-08-30.
+  assert.equal(r.status, PARTIAL_RC, 'a partial answer must have its own code');
+  assert.notEqual(r.status, 0, 'exiting 0 makes every existing reader report ok');
+  for (const taken of [3, 4, 5, 6]) {
+    assert.notEqual(r.status, taken,
+      `${taken} already means something else, so a partial answer cannot reuse it`);
+  }
+
+  // NAMED, NEVER SILENT. A short list with no reason given is the quiet wrong
+  // answer in a new place.
+  assert.match(r.stderr, /declined/, 'the failed state is not named');
+
+  // THE HOST'S REASON COMES FIRST. A reader acts on WHY the state failed; the
+  // bookkeeping of WHICH one is context for it. Caught by the contract suite
+  // 2026-09-18: an earlier draft printed `state 'open' failed` ahead of the
+  // host's sentence, and `plot-reconcile-scan.sh` — which reads the first
+  // stderr line into its error field — showed that instead of `HTTP 429`.
+  // A message describing the wrong thing is #912's own failure mode.
+  const firstLine = r.stderr.trim().split('\n')[0];
+  assert.match(firstLine, /rate limit/i,
+    'the host’s reason was buried under this helper’s own bookkeeping');
+});
+
+test('host: pr-list where NO state answers keeps the code it has today, by kind', () => {
+  // A TOTAL OUTAGE MUST NOT READ AS A PARTIAL PAGE — #912 inverted. This
+  // catches an implementation that turns every Bitbucket failure into the
+  // partial code, which would tell a reader that some rows arrived when none
+  // did.
+  for (const [text, code] of [
+    ['API rate limit exceeded for this account', 5],
+    ['You have exceeded a secondary rate limit', 6],
+    ['could not resolve host: api.bitbucket.org', 3],
+  ]) {
+    const bb = makeStrictBbStub({
+      perState: {
+        open: { fail: text, code: 1 },
+        merged: { fail: text, code: 1 },
+        declined: { fail: text, code: 1 },
+      },
+    });
+    const r = runPrList(bb);
+    assert.equal(r.status, code, `"${text}" must still exit ${code}`);
+    assert.notEqual(r.status, PARTIAL_RC,
+      'a run where nothing answered reported a partial answer');
+    assert.equal(r.stdout.trim(), '', 'no state answered, so there are no rows');
+  }
+});
+
+test('host: a single-state pr-list that fails is a failure, never a partial answer', () => {
+  // THERE IS NO PARTIAL ANSWER WHEN ONE STATE WAS ASKED. Catches an
+  // implementation keyed on "the loop ended" rather than on "some answered and
+  // some did not".
+  const bb = makeStrictBbStub({
+    perState: { open: { fail: 'could not resolve host: api.bitbucket.org', code: 1 } },
+  });
+  const r = runPrList(bb, ['pr-list', '--state', 'open']);
+  assert.equal(r.status, 3, 'one asked state that failed is a plain failure');
+  assert.notEqual(r.status, PARTIAL_RC, 'a single state cannot answer partially');
+  assert.notEqual(r.status, 0, 'a failed list must never exit 0');
+});
+
+test('host: every state answering still exits 0, with no partial verdict', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[{"id":1,"title":"O","state":"OPEN","source":{"branch":{"name":"feature/o"}}}]',
+      merged: '[]',
+      declined: '[]',
+    },
+  });
+  const r = runPrList(bb);
+  assert.equal(r.status, 0, 'a whole answer is not partial, empty states included');
+  assert.doesNotMatch(r.stderr, /missing:/, 'nothing was missing');
+});
+
+test('host: the GitHub arm makes ONE call and cannot answer partially', () => {
+  // PINNED BECAUSE THE FIX MUST NOT REACH IT. `--state all` is passed straight
+  // through to `gh`, so a failure there means nothing was printed and there is
+  // no partial answer to express. This catches a refactor that hoisted the
+  // collection logic across the backend branch.
+  const stubs = makeStubs({ ghFail: 'could not resolve host: api.github.com' });
+  const r = spawnSync('bash', [adapter, 'pr-list', '--state', 'all'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(r.status, 3, 'the GitHub arm gained a partial code it cannot produce');
+  assert.notEqual(r.status, PARTIAL_RC, 'a single-call host answered partially');
 });
 
 test('host: pr-list --state closed sends bb its own word, declined', () => {

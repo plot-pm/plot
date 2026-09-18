@@ -606,10 +606,15 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     _raw="$(pr_list_call "$@" --state "$_s" --json 2>"$_tmp")"; _rc=$?
     _err="$(cat "$_tmp" 2>/dev/null)"; rm -f "$_tmp"
     if [ "$_rc" -ne 0 ]; then
-      # NAMED, NEVER SILENT. A partial answer that did not say which state is
-      # missing would be the quiet wrong answer in a new place: a reader would
-      # see a short list and no reason to doubt it.
-      echo "plot-host: pr-list: state '$_s' failed and is missing from this answer" >&2
+      # THE HOST'S OWN REPORT GOES FIRST AND IS NEVER PREFIXED. `pr_list_failed`
+      # already composed the sentence that says WHY — a spent quota, a burst
+      # refusal, a DNS blip — and that sentence is what a reader acts on. A line
+      # of this helper's own naming WHICH state, emitted ahead of it, buries the
+      # reason under the bookkeeping: the scan reads the first stderr line into
+      # its error field, and a reader chasing `HTTP 429` would be shown
+      # `state 'open' failed` instead. That is #912's own failure mode — a
+      # message describing the wrong thing — reproduced one layer up, and the
+      # contract suite caught it.
       [ -n "$_err" ] && printf '%s\n' "$_err" >&2
       _failed=$((_failed + 1))
       [ "$_first_rc" -eq 0 ] && _first_rc=$_rc
