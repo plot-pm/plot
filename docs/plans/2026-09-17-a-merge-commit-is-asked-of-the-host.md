@@ -151,7 +151,7 @@ Bitbucket repository it currently prints a command the operator cannot run.
 
 ## Slices
 
-### The Bitbucket arm answers with a merge commit (Branch: bug/the-bitbucket-arm-answers-with-a-merge-commit)
+### The Bitbucket arm answers with a merge commit (Branch: bug/the-bitbucket-arm-answers-with-a-merge-commit, PR: #947)
 
 - `bug/the-bitbucket-arm-answers-with-a-merge-commit` — construct `mergeCommit` on all FOUR Bitbucket `pr-state` paths, and make the scan tell an unresolvable sha from an unreleased plan
 
