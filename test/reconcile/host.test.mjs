@@ -379,7 +379,68 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
     bbJson: '{"id":9,"state":"DECLINED","links":{"html":{"href":"https://example.test/pr/9"}}}',
   });
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
-  assert.deepEqual(out, { number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9' });
+  assert.deepEqual(out, {
+    number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '',
+  });
+});
+
+// --- pr-state: both arms answer with the same KEY SET ----------------------
+//
+// `pr-state` was the one op whose Bitbucket arm dropped a key its GitHub arm
+// emits: every GitHub path carried `mergeCommit`, all four Bitbucket paths
+// omitted it. `plot-reconcile-scan.sh` reads it as `.mergeCommit // empty`, and
+// `jq` cannot tell an ABSENT key from an empty one — so on Bitbucket every
+// delivered plan reported `no merge commit → cannot resolve`, which reads as a
+// host that answered rather than an arm that never asked.
+//
+// THE ASSERTION IS OVER KEYS, NOT VALUES. A value test has to be told that
+// `mergeCommit` should be there, which is the knowledge that went missing in
+// the first place; deriving the expectation from the GitHub arm is what stops
+// the next added key from drifting the same way.
+
+const keysOf = (json) => Object.keys(JSON.parse(json)).sort();
+
+test('host: pr-state returns the same key set on both backends — merged PR', () => {
+  const gh = makeStubs({
+    ghJson: '{"number":7,"state":"MERGED","isDraft":false,"url":"https://example.test/pr/7",'
+      + '"mergeCommit":{"oid":"abc1234"}}',
+  });
+  const bb = makeStubs({
+    bbJson: '{"id":7,"state":"MERGED","links":{"html":{"href":"https://example.test/pr/7"}},'
+      + '"merge_commit":{"hash":"def5678"}}',
+  });
+  const ghOut = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: gh });
+  const bbOut = run(['pr-state', '7'], { env: { PLOT_HOST: 'bitbucket' }, stubs: bb });
+
+  assert.deepEqual(keysOf(bbOut), keysOf(ghOut),
+    'a caller reading .mergeCommit must not be able to tell the backends apart');
+  assert.equal(JSON.parse(ghOut).mergeCommit, 'abc1234');
+  assert.equal(JSON.parse(bbOut).mergeCommit, 'def5678',
+    'Bitbucket names it merge_commit.hash, in the payload already fetched');
+});
+
+// The UNMERGED half of the contract: `""`, never absent and never null. This is
+// the value `plot-reconcile-scan.sh` treats as "no merge commit" — the same
+// word the GitHub arm gives for an open PR.
+test('host: pr-state bitbucket gives mergeCommit "" for an unmerged PR', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":4,"state":"OPEN","links":{"html":{"href":"https://example.test/pr/4"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '4'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.mergeCommit, '', 'an open PR has no merge commit, and says so with ""');
+  assert.ok('mergeCommit' in out, 'the key is present even when the value is empty');
+});
+
+// The NUMERIC-MISS path. `host_miss_or_fail` prints a literal, and the literal
+// is a fourth copy of the shape — so it gets its own assertion rather than
+// riding on the success path's.
+test('host: pr-state bitbucket numeric miss carries mergeCommit too', () => {
+  const stubs = makeStubs({ bbFail: 'no pull requests found' });
+  const res = runAllowFail(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.equal(res.code, 0);
+  assert.deepEqual(JSON.parse(res.stdout), {
+    number: 0, state: 'NONE', draft: false, url: '', mergeCommit: '',
+  });
 });
 
 test('host: pr-create github maps flags in order', () => {
@@ -451,7 +512,9 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
     bbJson: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
   });
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
-  assert.deepEqual(hit, { number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4' });
+  assert.deepEqual(hit, {
+    number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '',
+  });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
     argvOf(stubs.bbArgv).every((a) => a !== 'all'),
@@ -1050,6 +1113,65 @@ test('host: pr-state reports NONE after exhausting every state', () => {
   }));
   assert.equal(out.state, 'NONE');
   assert.equal(callsOf(bb.callsFile).length, 3);
+});
+
+// --- the BRANCH arm carries mergeCommit as well ----------------------------
+//
+// THE BRANCH ARM IS A LIVE CONSUMER PATH, not tidiness. `plot-pr-state.sh:33`
+// calls `pr-state "idea/${SLUG}"` — a branch, not a number — and `:47` reads
+// `.mergeCommit // empty` from the answer. A fix touching only the numeric pair
+// leaves that caller reading an absent key on every Bitbucket repository.
+
+test('host: pr-state by branch carries the merge commit on bitbucket', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[]',
+      merged: '[{"id":9,"state":"MERGED","source":{"branch":{"name":"idea/a-plan"}},'
+        + '"links":{"html":{"href":"https://example.test/pr/9"}},'
+        + '"merge_commit":{"hash":"0f1e2d3"}}]',
+    },
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'idea/a-plan'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.equal(out.state, 'MERGED');
+  assert.equal(out.mergeCommit, '0f1e2d3');
+  // The hash comes from the page already fetched. A second `bb` invocation to
+  // re-ask for it would double the cost of a call measured at ~10s.
+  assert.equal(callsOf(bb.callsFile).length, 2,
+    'open then merged — and no third call to fetch the hash');
+});
+
+// The branch arm's NONE literal is the fourth copy of the shape, and the one
+// furthest from the GitHub arm that defines it.
+test('host: pr-state branch NONE carries mergeCommit on bitbucket', () => {
+  const bb = makeStrictBbStub({ json: '[]' });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/nope'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.deepEqual(out, {
+    number: 0, state: 'NONE', draft: false, url: '', mergeCommit: '',
+  });
+});
+
+// An OPEN PR found by branch: present and empty, like every other unmerged
+// answer. `merge_commit` is absent from Bitbucket's payload here, so this pins
+// that the `// ""` fallback is doing the work rather than a null leaking out.
+test('host: pr-state branch gives "" for an open PR on bitbucket', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},'
+        + '"links":{"html":{"href":"https://example.test/pr/4"}}}]',
+    },
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/a'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.equal(out.mergeCommit, '');
+  assert.notEqual(out.mergeCommit, null, 'a null would reach jq as absent does');
 });
 
 // --- issue-list github: the status is DERIVED from the state asked for -----
@@ -3219,7 +3341,13 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
     bbJson: '{"id":7,"state":"MERGED","draft":false,"links":{"html":{"href":"https://bb.test/pr/7"}}}',
   });
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
-  assert.deepEqual(out, { number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7' });
+  // `mergeCommit: ''` although the PR is MERGED: this stub's payload carries no
+  // `merge_commit`, which is the shape a PR merged outside the host's merge
+  // button has. The key is present because the arm always emits it; the value
+  // is empty because there is nothing honest to put in it.
+  assert.deepEqual(out, {
+    number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '',
+  });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });
 

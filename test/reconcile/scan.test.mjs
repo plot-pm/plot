@@ -3774,6 +3774,49 @@ test('scan: an online section 6 is unchanged by the guard', () => {
     `three eligible delivered plans, three findings:\n${sections['6']}`);
 });
 
+// --- an unresolvable sha is not an unreleased plan -------------------------
+//
+// The section's last step is `git tag --contains "$sha"`, and a sha this clone
+// does not hold makes git print `error: no such commit`. THE RC IS NOT
+// READABLE: the pipeline's exit code is `head`'s — measured 0 — so the failure
+// fell through to the `continue` whose own comment says the plan is simply not
+// released yet. A "cannot tell" wearing "nothing wrong"'s clothes, in the one
+// section written so those two cannot look the same.
+//
+// Three populations reach it: `--no-fetch` with PRs on, a merge commit outside
+// the local refspec or a shallow clone, and a PR merged outside the host's
+// merge button. The stub reproduces all three the same way, by naming a sha
+// this repository does not have.
+
+test('scan: a merge commit this clone lacks is reported, not skipped', () => {
+  const absent = '0'.repeat(39) + '1';
+  s6Bin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-gh-'));
+  makeSection6Stub(s6Bin, absent);
+  const out = execFileSync('bash', [scan, '--no-fetch'], {
+    encoding: 'utf8',
+    cwd: s6Repo,
+    env: { ...process.env, PATH: `${s6Bin}:${process.env.PATH}` },
+  });
+  const sections = splitSections(out);
+
+  // The finding NAMES THE SHA. "cannot resolve" alone leaves a reader with
+  // nothing to check; the hash is what they paste into `git cat-file`.
+  assert.match(sections['6'], /2026-03-01-one\.md — delivered, PR #101 names merge commit/,
+    `an unresolvable sha must report, not fall through:\n${sections['6']}`);
+  assert.match(sections['6'], new RegExp(absent));
+  assert.match(sections['6'], /not in this clone → cannot resolve/);
+
+  // All three, and the count agrees. A guard firing on one plan and silently
+  // passing the others would satisfy the assertion above.
+  assert.match(out.trim().split('\n').at(-1), /\bunreleased_delivered=3\b/);
+
+  // AND IT IS NOT REPORTED AS RELEASED. The repository carries v9.0.0, so a
+  // guard that resolved the unknown sha to HEAD would name a version for a
+  // commit it never found — the wrong-version failure the grep fallback was
+  // refused for.
+  assert.doesNotMatch(sections['6'], /shipped in v9\.0\.0/);
+});
+
 test('scan: a free section-6 finding survives --offline', () => {
   // THE FLAG GUARDS THE HOST CALL, NOT THE ITERATION. The `no PR annotation`
   // arm answers from the plan file alone and costs no network, so a flag that

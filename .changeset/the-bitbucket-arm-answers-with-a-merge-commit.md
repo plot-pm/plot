@@ -1,0 +1,12 @@
+---
+'plot': patch
+---
+
+`plot-host.sh pr-state` answers with `mergeCommit` on Bitbucket. It was the only op whose Bitbucket arm dropped a key its GitHub arm emits: all five GitHub paths carried the field and all four Bitbucket paths omitted it — numeric success, numeric miss, branch-lookup hit and branch-lookup `NONE`. The consumer reads it as `.mergeCommit // empty`, and `jq` cannot tell an absent key from an empty one, so `plot-reconcile-scan.sh` section 6 reported `no merge commit → cannot resolve` for every delivered plan on a Bitbucket repository — which reads as a host that answered rather than as an arm that never asked. The hash comes from `merge_commit.hash` in the payload already fetched, the same field `pr-merge-commit` reads from the same shape, so no second `bb` call is made on a call measured at ~10 s; `// ""` gives the value the GitHub arm gives for anything unmerged, so a caller cannot tell the backends apart. The branch arm is a live consumer path rather than tidiness: `plot-pr-state.sh` asks `pr-state "idea/${SLUG}"` — a branch, not a number — and reads the field from the answer, so a fix touching only the numeric pair would have left that caller reading an absent key. A contract test asserts the two arms return the same KEY SET rather than comparing values, because an absent key is exactly what a value test has to be told to look for. **Supplying the field is not the end of the path:** the scan then runs `git tag --contains "$sha"`, and a sha the local object store does not hold makes git print `error: no such commit` while the PIPELINE's exit code is `head`'s — measured 0 — so an unresolvable sha took the `continue` whose own comment says the plan is simply not released yet. Silence, eight lines below a header stating that "cannot tell" and "nothing wrong" must not look the same. `git cat-file -e` is now asked before the tag lookup, because its exit code is readable where the pipeline's is not, and the finding names the sha so a reader has something to check. Three populations reach it: `--no-fetch` with PRs on, a merge commit outside the local refspec or a shallow clone, and a PR merged outside the host's merge button. This repository is on GitHub, so the Bitbucket paths are exercised against captured payload fixtures through PATH-stubbed `bb` executables and not against a live Bitbucket.
+
+<!--
+plan: docs/plans/2026-09-17-a-merge-commit-is-asked-of-the-host.md
+bumps:
+  skills:
+    plot: patch
+-->
