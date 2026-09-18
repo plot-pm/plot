@@ -232,6 +232,18 @@ describe('supervisorVerdict — one reading decides the word and the styling tog
     }
   });
 
+  it('counts one agent in the singular for a died fleet too', () => {
+    // THE SAME AGREEMENT `down` ALREADY HAS, and it is a separate test because
+    // it is a separate sentence: the `died` arm carries its own `is`/`are` and
+    // `agent`/`agents` pair, so the one covering `down` proves nothing here.
+    // Caught by the domain package's 100% branch gate rather than by an
+    // assertion — three agents and none both take the plural path, so the
+    // singular was written and never executed.
+    const verdict = supervisorVerdict(reading({ exitCode: 1, install: 'installed', agentsRunning: 1 }));
+    expect(verdict.detail).toContain('1 agent is still running');
+    expect(verdict.detail).not.toContain('agents are');
+  });
+
   it('says a death happened rather than that nothing was ever there', () => {
     // The defect in one assertion. `installed` read as *no unit on this
     // machine* — false about the machine, and it hid an unexplained death from
