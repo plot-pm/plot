@@ -689,16 +689,105 @@ contained_in_open_pr() { # $1=branch → PR number, or empty
   return 1
 }
 
-# Does a dated plan file have a symlink pointing at it from a given index dir?
-symlinked_from() { # $1=index_dir $2=dated_basename
-  local l t
-  for l in "$1"/*.md; do
-    [ -L "$l" ] || continue
-    t=$(readlink "$l" 2>/dev/null | sed 's|.*/||')
-    [ "$t" = "$2" ] && { echo "$l"; return 0; }
-  done
-  return 1
+# --- The index, read once ------------------------------------------------
+#
+# Both index directories are resolved in ONE pass here, before any loop that
+# asks about them. Three sites used to walk these directories: the phase/symlink
+# lookup below (once per plan, twice — 130,128 forks over 297 plans), section
+# 4's `active/` walk, and section 5's dangling-link loop. All three now read
+# these arrays and fork nothing.
+#
+# WHY `ls -l` AND NOT `readlink`: `readlink` answers one link per fork, and a
+# fork on a loaded machine costs 38 ms against 0.045 ms for a fork-free loop
+# iteration — 840x. Building an index with one fork per link is still 366 forks
+# and was measured at 22.7 s, so "build an index" is not the fix; *stop forking*
+# is. `ls -l` prints every link beside its target in one process: 0.081-0.529 s
+# for all 366 links, against 13.7 s for 366 `readlink` forks.
+#
+# `find -exec readlink {} +` is likewise one fork and is NOT usable: it prints
+# targets without their links, and section 1 must name the link file in its
+# `fix:` command.
+#
+# THE `*.md` GLOB IS A FILTER, NOT A CONVENIENCE. The walk it replaces
+# enumerated `"$dir"/*.md`, so a link whose NAME does not end `.md` was
+# invisible to it whatever it pointed at. A bare `ls -l "$dir"` applies no such
+# filter and would answer *linked* where this answers *not linked*, changing
+# `index_drift=` and — where the phase disagrees — emitting a section 1 drift
+# row naming a path that is not an index entry. These directories are
+# demonstrably not curated: `docs/plans/active/` holds `.omc`, a directory.
+#
+# FIRST MATCH WINS, because the walk returned the first glob match and stopped.
+# Three plans here carry two links each within `delivered/`
+# (`a-refused-dispatch-asks-for-a-brief`, `an-idle-agent-is-not-a-stalled-one`,
+# `the-board-says-slice`), so a last-wins index prints a different link path in
+# section 1's `fix:`. All three are delivered and linked from `delivered/`, so
+# they are NOT in drift — a byte-identity diff of the report passes while the
+# index is wrong, which is why the rule is stated here rather than trusted to a
+# diff. `ls` sorts its arguments exactly as bash's glob does (verified over both
+# directories, 368 links, orders identical), so reading in `ls` order and
+# keeping the first entry per target reproduces the walk's choice.
+#
+# A name containing ` -> ` or a newline would defeat this parse. No such name
+# exists in this estate; `find -print0` is the answer if one ever does.
+#
+# NO ASSOCIATIVE ARRAY. `declare -A` is bash 4 and macOS ships bash 3.2, so a
+# script using one does not run for an operator on a stock Mac — it fails to
+# parse, rather than misbehaving. `test/reconcile/mergequeue.test.mjs` gates
+# this and its own comment names the trap: CI runs bash 5, so no fixture
+# catches it. The index is therefore one newline-delimited string per
+# directory, "\n<target>\t<link>" per entry, read with parameter expansion.
+#
+# FIRST MATCH WINS FOR FREE, and that is why this shape is the right one rather
+# than a workaround. `${s#*"$needle"}` strips to the FIRST occurrence, so the
+# earliest link recorded for a target is the one returned — the rule an
+# associative index had to enforce with an explicit "only if unset" guard is
+# structural here, the same way matching `*" -> "*` gives the `[ -L ]` test for
+# free. Three plans on this estate carry two links each within `delivered/`.
+
+IDX_ACTIVE=""                 # "\n<target>\t<link>" per link, in ls order
+IDX_DELIVERED=""
+IDX_ACTIVE_TARGETS=()         # every active/ link's target basename, in ls order
+IDX_DANGLING=()               # "link<TAB>raw target" for every link resolving to nothing
+
+# $1 = index directory, $2 = name of the variable to hold its index string.
+# It assigns rather than echoing: a command substitution would run the loop in a
+# SUBSHELL, and the two array consumers below — section 4's targets and section
+# 5's dangling links — would be filled there and lost on return. Process
+# substitution keeps the loop in this shell, which is the same reason `while
+# read < <(...)` is used instead of a pipe.
+read_index() {
+  local dir="$1" into="$2" line link target raw out=""
+  [ -d "$dir" ] || return 0
+  # One fork for the whole directory. `2>/dev/null` covers an empty directory,
+  # where the glob stays literal and `ls` reports it missing — no error, no
+  # finding, which is the specified behaviour.
+  while IFS= read -r line; do
+    case "$line" in *" -> "*) ;; *) continue ;; esac
+    link=${line%% -> *}; link=${link##* }   # trailing field before the arrow
+    raw=${line#* -> }                       # exactly what `readlink` prints
+    target=${raw##*/}                       # ../2026-01-01-x.md -> 2026-01-01-x.md
+    out+="
+$target	$link"
+    if [ "$dir" = "$ACTIVE_DIR" ]; then
+      IDX_ACTIVE_TARGETS+=("$target")
+    fi
+    # `[ -e ]` is a builtin — the dangling test costs no fork either. The RAW
+    # target is kept, not the basename: section 5 prints what `readlink` printed.
+    [ -e "$link" ] || IDX_DANGLING+=("$link	$raw")
+  done < <(ls -l "$dir"/*.md 2>/dev/null)
+  # `eval` on a name this script controls — bash 3.2 has no `declare -n`, and
+  # the two call sites below pass literals.
+  eval "$into=\$out"
 }
+
+read_index "$ACTIVE_DIR"    IDX_ACTIVE
+read_index "$DELIVERED_DIR" IDX_DELIVERED
+
+# The lookup is written INLINE at its one call site rather than wrapped in a
+# function here. A function returning a value in bash must echo it, and the
+# caller must then use `$(...)` — which is a fork, once per plan, which is the
+# whole defect this replaces. The three lines it would have saved are not worth
+# reintroducing 297 processes.
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_unplanned_members=0; n_sprint_unset=0; n_sprint_mismatch=0
@@ -718,11 +807,26 @@ index_out=""
 
 while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype _psprint; do
   [ -n "$f" ] || continue
-  base=$(basename "$f")
+  base=${f##*/}   # not `basename` — that is one fork per plan, 297 per sweep
 
+  # Answered from the index read once above. No fork per plan, where this pair
+  # used to walk both directories and fork `readlink`+`sed` per link passed.
+  # Answered from the index read once above. INLINE, never `$(index_link ...)`:
+  # a command substitution is a fork, and one per plan is the 53.3 s shape the
+  # plan's Notes record as indistinguishable from the fast one by reading the
+  # diff. `${s#*"$needle"}` takes the FIRST match, which is the rule the walk
+  # this replaces followed by returning early.
+  _needle="
+$base	"
   in_active=""; in_delivered=""
-  in_active=$(symlinked_from "$ACTIVE_DIR" "$base" || true)
-  in_delivered=$(symlinked_from "$DELIVERED_DIR" "$base" || true)
+  case "$IDX_ACTIVE" in *"$_needle"*)
+    _rest=${IDX_ACTIVE#*"$_needle"}; in_active=${_rest%%
+*} ;;
+  esac
+  case "$IDX_DELIVERED" in *"$_needle"*)
+    _rest=${IDX_DELIVERED#*"$_needle"}; in_delivered=${_rest%%
+*} ;;
+  esac
 
   # --- A file with no phase field is NOT A PLAN, and says so at convenience
   # level rather than counting as attention.
@@ -806,7 +910,7 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype _psprin
   case "$st" in
     delivered|released)
       if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
-        slug=$(basename "$in_active")
+        slug=${in_active##*/}
         drift_out+="  $base — phase '$raw_phase' but symlink still in $ACTIVE_DIR/ (half-delivery failure mode)\n"
         drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
         n_drift=$((n_drift + 1))
@@ -817,7 +921,7 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype _psprin
       # Previously uncaught — a Superseded/Rejected plan lingering in active/
       # kept showing up as an "active" plan it no longer is.
       if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
-        slug=$(basename "$in_active")
+        slug=${in_active##*/}
         drift_out+="  $base — phase '$raw_phase' (terminal) but symlink still in $ACTIVE_DIR/\n"
         drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
         n_drift=$((n_drift + 1))
@@ -825,7 +929,7 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype _psprin
       ;;
     draft|approved)
       if [ -n "$in_delivered" ] && [ -z "$in_active" ]; then
-        slug=$(basename "$in_delivered")
+        slug=${in_delivered##*/}
         drift_out+="  $base — phase '$raw_phase' but symlink in $DELIVERED_DIR/\n"
         drift_out+="    fix: git rm $in_delivered && ln -s ../$base $ACTIVE_DIR/$slug && git add -A\n"
         n_drift=$((n_drift + 1))
@@ -853,15 +957,15 @@ done <<< "$plan_rows"
 # link at the plan's new name, or remove a link whose plan is gone — and the
 # script cannot tell which without knowing why the target vanished. That is
 # judgment, and Principle 3 puts judgment on the other side of the line.
-for _idx_dir in "$ACTIVE_DIR" "$DELIVERED_DIR"; do
-  [ -d "$_idx_dir" ] || continue
-  for _l in "$_idx_dir"/*.md; do
-    [ -L "$_l" ] || continue
-    [ -e "$_l" ] && continue   # resolves — not our case
-    attention_out+="  $_l — symlink target missing: $(readlink "$_l" 2>/dev/null) (dangling index link)\n"
-    attention_out+="    inspect: readlink $_l — then repoint it at the renamed plan, or git rm it\n"
-    n_att=$((n_att + 1))
-  done
+# Read from the index built once above — this loop used to walk both
+# directories again and fork `readlink` for each dangling link it found.
+# IDX_DANGLING already holds every link that did not resolve, in the same
+# directory-then-`ls` order this loop produced, with its target beside it.
+for _d in ${IDX_DANGLING+"${IDX_DANGLING[@]}"}; do
+  _l=${_d%%	*}; _t=${_d#*	}
+  attention_out+="  $_l — symlink target missing: $_t (dangling index link)\n"
+  attention_out+="    inspect: readlink $_l — then repoint it at the renamed plan, or git rm it\n"
+  n_att=$((n_att + 1))
 done
 
 echo "== 1. Phase<->symlink drift =="
@@ -1111,9 +1215,12 @@ echo
 
 echo "== 4. Concurrent-delivery check (active plans) =="
 cd_out=""
-for l in "$ACTIVE_DIR"/*.md; do
-  [ -L "$l" ] || continue
-  target=$(readlink "$l" 2>/dev/null | sed 's|.*/||')
+# Reads the index built once above — this loop used to walk `active/` again,
+# forking `readlink` and `sed` per link (85 links, 170 forks). Every link is
+# visited, not the first per target: two links to one plan are two rows here,
+# as they were.
+for _i in ${IDX_ACTIVE_TARGETS+"${!IDX_ACTIVE_TARGETS[@]}"}; do
+  target=${IDX_ACTIVE_TARGETS[$_i]}
   df="$PLAN_DIR/$target"
   [ -f "$df" ] || continue
   branches=$(plan_branches "$df")
