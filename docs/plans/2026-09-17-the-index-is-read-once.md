@@ -157,7 +157,7 @@ The fork count is load-independent and is therefore what this plan states.
 
 ## Slices
 
-### The index is read once (Branch: bug/the-index-is-read-once)
+### The index is read once (Branch: bug/the-index-is-read-once, PR: #948)
 
 - `bug/the-index-is-read-once` — resolve both index directories in one pass before the plan loop, and answer `in_active`/`in_delivered` from it with no per-plan fork
 
