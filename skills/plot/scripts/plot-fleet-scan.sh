@@ -89,6 +89,9 @@
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
 #             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 waiting=1 prereq_missing=0 merge_detect=pr-merge host=ok main=main
+#         `host` is one of ok, partial, throttled, secondary, failed, unasked —
+#         `partial` means some of the host's states answered and some did not,
+#         so the PR readings below are incomplete rather than absent.
 #         `blocked` counts WAVES an earlier wave holds; `waiting` and
 #         `prereq_missing` count BRANCHES their `waits:` annotation holds.
 #         merge_detect names how merged-and-deleted branches were detected:
@@ -631,6 +634,19 @@ PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
 #   secondary  — a burst refusal (`plot-host.sh` exit 6). Nothing is broken
 #                either, and it clears in seconds rather than minutes.
 #   failed     — any other failure (exit 3, or anything unclassified).
+#   partial    — SOME of the host's states answered and some did not
+#                (`plot-host.sh` exit 7). The rows that arrived are real and
+#                are parsed; what is missing is a whole state, so the reading
+#                is incomplete rather than absent. Only Bitbucket can produce
+#                it: `bb pr list` has no `all` state, so the arm asks once per
+#                state, while GitHub takes `--state all` in one call.
+#
+#                IT IS NOT `ok` AND IT IS NOT `failed`. Reporting `ok` would
+#                serve a page missing a state as a complete answer — #912, where
+#                nine branches read `commits, no PR ever opened` and two had
+#                live PRs. Reporting `failed` would throw away rows that
+#                arrived and make every branch `unknown`, which is not
+#                startable — the right refusal about the wrong thing.
 #   unasked    — no host to ask, or --offline WITHOUT `--next`. Not a
 #                degradation: the scan was never going to ask, and saying
 #                `failed` would report a fault where there is a configuration.
@@ -675,7 +691,19 @@ prefill_pr_states() {
   host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" --rich \
          </dev/null 2>&1 >"$host_list_out"); rc=$?
   js=$(cat "$host_list_out" 2>/dev/null)
-  if [ "$rc" -ne 0 ]; then
+  # A PARTIAL ANSWER TAKES THE PARSE PATH AND STILL DEGRADES THE VERDICT, which
+  # is a control-flow change rather than another `case` arm below: every other
+  # non-zero rc sets a verdict and returns BEFORE `$js` is read, because there
+  # is nothing to read. Here there is — the rows of the states that answered are
+  # already in `host_list_out`, since stdout is redirected to a file and stderr
+  # captured separately.
+  #
+  # BOTH HALVES ARE REQUIRED. Falling through without setting the verdict would
+  # report `ok` over a page missing a whole state, which is #912; returning
+  # early would throw away rows the host did answer with.
+  if [ "$rc" -eq 7 ]; then
+    HOST_VERDICT=partial
+  elif [ "$rc" -ne 0 ]; then
     # THREE OUTCOMES, NOT TWO. `unasked` already means "the question was
     # never put" (see HOST_VERDICT above: *not a degradation, the scan was
     # never asking*), and a host that cannot be ASKED AT ALL belongs there
@@ -743,7 +771,12 @@ prefill_pr_states() {
     return 0
   fi
   # The list arrived. An empty one arrived too — that is the whole distinction.
-  HOST_VERDICT=ok
+  #
+  # A PARTIAL VERDICT IS NOT OVERWRITTEN HERE. Exit 7 reaches this line
+  # deliberately, because its rows must be parsed; an unguarded `ok` would
+  # undo the one thing that distinguishes an incomplete page from a whole one
+  # and report #912 as a healthy reading.
+  [ "$HOST_VERDICT" = partial ] || HOST_VERDICT=ok
   # `pr-list` emits one compact JSON object per line. PARSED IN ONE PASS, and
   # that is a correctness-of-cost property rather than a style preference:
   # measured 2026-08-18 on this repo's 221 PRs, a `sed` per field per row —
@@ -4265,6 +4298,17 @@ elif [ "$HOST_VERDICT" = failed ]; then
   echo "        branch below reads from local evidence alone, and a branch whose"
   echo "        PR is unknown reads 'unknown' rather than 'open'. This is not a"
   echo "        rate limit — waiting will not clear it; check the host and auth."
+# THE PAGE IS SHORT, NOT ABSENT, and that is a different instruction to a
+# reader. The three notes above all say *no PR could be read*; here some were,
+# so the branches below are a MIXTURE — a branch shown without a PR may have one
+# in the state that failed. Telling a reader to treat this as an outage would
+# discard the rows that arrived; telling them nothing is #912, where nine
+# branches read as having no PR and two had live ones.
+elif [ "$HOST_VERDICT" = partial ]; then
+  echo "  note: the git host answered for some states and not others, so the PR"
+  echo "        list below is INCOMPLETE. A branch shown without a PR may have one"
+  echo "        in the state that failed — do not read this as evidence that a"
+  echo "        branch is unreviewed. Re-run to get the whole list."
 fi
 # A STALE PULSE SAYS SO. The fetch used to fail silently, which made a scan of
 # hour-old refs read exactly like a scan of current ones — the same
