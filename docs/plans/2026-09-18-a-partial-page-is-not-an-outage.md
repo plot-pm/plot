@@ -161,7 +161,7 @@ refuses elsewhere"*.
 
 ## Slices
 
-### The arm reports the states that answered (Branch: bug/the-arm-reports-the-states-that-answered)
+### The arm reports the states that answered (Branch: bug/the-arm-reports-the-states-that-answered, PR: #951)
 
 - `bug/the-arm-reports-the-states-that-answered` — collect across the three Bitbucket states, exit with a distinct PARTIAL code, and teach the transport and the scan to read it
 
