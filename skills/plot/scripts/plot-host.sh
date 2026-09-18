@@ -534,6 +534,105 @@ pr_list_call() { # "$@"=the host command → payload on stdout, or dies
   printf '%s' "$out"
 }
 
+# The exit code for an answer that is INCOMPLETE rather than absent.
+#
+# SEVEN, BECAUSE THE VOCABULARY IS FULL BELOW IT. `pr_list_failed` spends 6
+# (burst refusal), 5 (throttled) and 3 (everything else); 4 is the backend
+# having no such capability; 1 is a refusal before any call; 0 is a whole
+# answer. Two is left alone deliberately — it is bash's own conventional code
+# for a misused builtin, and a partial answer sharing it could not be told from
+# a shell-level fault the script never intended.
+#
+# NON-ZERO IS THE LOAD-BEARING PART. `plot-fleet-scan.sh:675` reads this code
+# DIRECTLY, not through the transport, and branches on `rc -ne 0`. Exiting 0 on
+# a partial answer would set `HOST_VERDICT=ok` over a page missing a whole
+# state — a complete reading reported over an incomplete one, which is the
+# quiet wrong answer this adapter refuses everywhere else. It would also
+# re-create precisely the state fixed on 2026-08-30, when `pr-list` swallowed
+# its own failure and exited 0 with empty stdout.
+PR_LIST_PARTIAL_RC=7
+
+# Run ONE `pr-list` over several host states, printing what answered.
+#
+# THE BITBUCKET ASYMMETRY THIS EXISTS FOR. `bb pr list` has no `all` state, so
+# `bb_states_for all` expands to three and the arm must call `bb` once per
+# state. GitHub takes `--state all` in a single call and can never reach this
+# shape: there, a failure means nothing was printed.
+#
+# ONE MECHANISM FOR THREE CALL SITES, and that is the point rather than a
+# tidy-up — `pr_list_call`'s own header makes the argument: *"a fix applied by
+# hand six times is a fix that drifts, and the arm that drifts is the one
+# nobody's repo exercises."* The three sites (rich+Jenkins, rich, plain) differ
+# ONLY in the jq program they pipe the payload through, so that program and its
+# arguments are what this takes.
+#
+# WHY THE LOOP CANNOT KEEP `|| exit $?`. That propagation is not a style tic:
+# `pr_list_call` is invoked in a command substitution — a subshell — so the
+# `exit` inside `pr_list_failed` leaves only that subshell, and without the
+# propagation the outer script carries on with an empty payload and jq emits
+# nothing. Collecting across states means the first failure can no longer end
+# the run, so the subshell's exit code is captured and classified instead: a
+# non-zero rc is THIS STATE FAILED, which is a different fact from this state
+# returning an empty list.
+#
+# WHAT IT EXITS WITH:
+#   0                       every state answered.
+#   PR_LIST_PARTIAL_RC      some answered and some did not — the rows of those
+#                           that answered are on stdout, and the failures are
+#                           named on stderr.
+#   the first failure's rc  NO state answered. A total outage keeps the code it
+#                           has always had (3, 5 or 6 by kind), so a genuine
+#                           outage can never read as a partial page.
+#
+# A SINGLE-STATE CALL HAS NO PARTIAL ANSWER TO REPORT. With one state asked,
+# "some answered and some did not" is unreachable by construction: either the
+# one state answered (0) or none did (its own code). The counting below gives
+# that for free rather than by a special case.
+# TWO VARIADIC LISTS, ONE `"$@"`. The host command and the jq arguments are
+# both open-ended, and bash has one positional array — so the jq side travels
+# in this global, set by the caller immediately before the call. It is read
+# once per state and never written here.
+PR_LIST_JQ_ARGS=()
+
+pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host command
+  local backend="$1" limit="$2" states="$3" jq_prog="$4"; shift 4
+  local _s _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states=""
+  for _s in $states; do
+    _tmp="/tmp/plot-host-prlist-state-err.$$.$_s"
+    # THE SUBSHELL'S CODE IS THE ONLY CHANNEL OUT, so it is captured rather
+    # than propagated. `pr_list_failed` runs INSIDE the substitution and has
+    # already composed its report and its repair line; that text is spooled
+    # here only so the state's name can be added to it before it is passed on.
+    _raw="$(pr_list_call "$@" --state "$_s" --json 2>"$_tmp")"; _rc=$?
+    _err="$(cat "$_tmp" 2>/dev/null)"; rm -f "$_tmp"
+    if [ "$_rc" -ne 0 ]; then
+      # NAMED, NEVER SILENT. A partial answer that did not say which state is
+      # missing would be the quiet wrong answer in a new place: a reader would
+      # see a short list and no reason to doubt it.
+      echo "plot-host: pr-list: state '$_s' failed and is missing from this answer" >&2
+      [ -n "$_err" ] && printf '%s\n' "$_err" >&2
+      _failed=$((_failed + 1))
+      [ "$_first_rc" -eq 0 ] && _first_rc=$_rc
+      _failed_states="${_failed_states:+$_failed_states, }$_s"
+      continue
+    fi
+    [ -n "$_err" ] && printf '%s\n' "$_err" >&2
+    _ok=$((_ok + 1))
+    pr_list_report_truncation "$backend" "$limit" "$_s" \
+      "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)"
+    printf '%s' "$_raw" | jq -c ${PR_LIST_JQ_ARGS[@]+"${PR_LIST_JQ_ARGS[@]}"} "$jq_prog"
+  done
+  [ -z "$_failed_states" ] && return 0
+  if [ "$_ok" -eq 0 ]; then
+    # NO STATE ANSWERED — a total outage, and it keeps the code it has always
+    # had so a real outage can never be read as a partial page.
+    echo "plot-host: pr-list: no state answered; this is not a partial answer" >&2
+    return "$_first_rc"
+  fi
+  echo "plot-host: pr-list: answered $_ok of $((_ok + _failed)) states; missing: $_failed_states" >&2
+  return "$PR_LIST_PARTIAL_RC"
+}
+
 # --- Jenkins CI integration ------------------------------------------------
 # A repo may declare `CI: jenkins` independently of `Git host`. When it does,
 # build status (`checks`) is resolved through `jen` — a multibranch job's
@@ -3114,12 +3213,8 @@ case "$op" in
           # Bitbucket PR list, `checks` filled from Jenkins — the SAME overlay
           # the GitHub arm uses, which is why it lives above the backend branch.
           # `bb`'s standing `unknown` becomes a real value where Jenkins answers.
-          for _s in $bb_states; do
-            _bb_raw="$(pr_list_call bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json)" || exit $?
-            pr_list_report_truncation bitbucket "$limit" "$_s" \
-              "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
-            printf '%s' "$_bb_raw" \
-              | jq -c --argjson jmap "$jen_map" --arg jstatus "$jen_status" '.[] |
+          PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status")
+          pr_list_states bitbucket "$limit" "$bb_states" '.[] |
                 ($jmap[.source.branch.name] // null) as $jentry |
                 {
                   number:.id, title:.title,
@@ -3139,26 +3234,19 @@ case "$op" in
                     then [$jentry.job]
                     else []
                   end)
-                }'
-          done
+                }' bb ${repo_args[@]+"${repo_args[@]}"} pr list || exit $?
         else
           # Bitbucket without Jenkins: checks remain unknown
-          for _s in $bb_states; do
-            _bb_raw="$(pr_list_call bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json)" || exit $?
-            pr_list_report_truncation bitbucket "$limit" "$_s" \
-              "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
-            printf '%s' "$_bb_raw" \
-              | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}'
-          done
+          PR_LIST_JQ_ARGS=()
+          pr_list_states bitbucket "$limit" "$bb_states" \
+            '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}' \
+            bb ${repo_args[@]+"${repo_args[@]}"} pr list || exit $?
         fi
       else
-        for _s in $bb_states; do
-          _bb_raw="$(pr_list_call bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json)" || exit $?
-          pr_list_report_truncation bitbucket "$limit" "$_s" \
-            "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
-          printf '%s' "$_bb_raw" \
-            | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
-        done
+        PR_LIST_JQ_ARGS=()
+        pr_list_states bitbucket "$limit" "$bb_states" \
+          '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}' \
+          bb ${repo_args[@]+"${repo_args[@]}"} pr list || exit $?
       fi
     fi
     ;;
