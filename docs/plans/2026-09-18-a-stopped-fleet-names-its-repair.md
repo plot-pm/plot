@@ -139,7 +139,7 @@ passes.
 
 ### The banner names what died (Branch: bug/the-banner-names-what-died) <!-- waits: bug/the-reading-carries-which-stopped -->
 
-- `bug/the-banner-names-what-died` — `supervisorVerdict` and `supervisorProminence` gain the case, the wire schema and the DOM attribute gain the value
+- `bug/the-banner-names-what-died` — `supervisorVerdict` and `supervisorProminence` gain the case, the wire schema and the DOM attribute gain the value → #952
 
 **Done when** a fleet whose supervisor died unattended renders a banner saying
 so and pointing at `/plot-fleet --status`, naming **no** launchd vocabulary;
