@@ -3830,7 +3830,13 @@ exit 0
     return execFileSync('bash', [scan, '--no-fetch'], {
       encoding: 'utf8',
       cwd: s6Repo,
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      // The adapter's own documented test escape: the capability probe runs
+      // `bb pr list --help --json`, which a stub does not implement.
+      env: {
+        ...process.env,
+        PLOT_BB_SKIP_CAP_CHECK: '1',
+        PATH: `${dir}:${process.env.PATH}`,
+      },
     });
   } finally {
     git(s6Repo, 'remote', 'set-url', 'origin', saved);
@@ -3862,10 +3868,14 @@ test('scan: the unresolvable finding still names gh on a GitHub repo', () => {
   };
   // A plan whose PR the stub answers for, but whose merge commit is not in this
   // repo's history — the GitHub route into the same unresolvable arm.
+  // The heading carries `PR: #N` AND the branch line carries `→ #N` — the shape
+  // the three fixture plans beside it use. A branch line alone parses as
+  // unannotated and lands in the `no PR annotation` arm, which is a different
+  // finding with a different `inspect:` line.
   w('plans/2026-03-06-nomerge.md', ['# nomerge', '', '## Status', '',
     '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
-    '## Slices', '', '### nomerge (Branch: feature/nomerge)', '',
-    '- `feature/nomerge` — done → #999', ''].join('\n'));
+    '## Slices', '', '### nomerge (Branch: feature/nomerge, PR: #999)', '',
+    '- `feature/nomerge` — the slice → #999', ''].join('\n'));
   try {
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-gh2-'));
     // `mergeCommit` present for every PR but 999, which answers without it.
