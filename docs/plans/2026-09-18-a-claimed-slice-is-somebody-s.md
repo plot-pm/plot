@@ -4,10 +4,12 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Rejected:** 2026-09-18, jwloka, both slices refuted; the population measured 0
 
 ## Changelog
 
@@ -154,3 +156,74 @@ for a hand-over, the second by an operator reading the board and asking what a
 reaper keeps it on *worker alive*, its first refusal; the five untracked scratch
 files in the tree were never the reason. That disagreement is worth stating:
 `plot-reap.sh` asks the host, and the stall reading asks git.
+
+## Why this was rejected
+
+**Three lenses, one `reject` and two `amend`, and both slices fell — one on the
+code, one on the measurement.** Record in
+`.plot/panels/2026-09-18-a-claimed-slice-is-somebody-s/`.
+
+### Slice 2 was aimed at a file that is already correct
+
+The Design claimed `stalled` means *"commits in the tree not in `origin/main`"*.
+**`plot-worker-state.sh` never reads `origin/main`.** The reading is
+`@{upstream}` and nothing else (`:724`), and the file spends 20 lines (`:689`–
+`:706`) recording that an `origin/main` fallback was tried and measured wrong:
+*"a fallback that counted against `origin/main` reported EVERY clean branch
+`stalled` in a repo with no remote."*
+
+Measured on the desk this plan names: **`unpushed` is 0**, not 6.
+`taskState` fired on the `dirty` arm — the five untracked scratch files this
+plan's own Notes dismissed as *"never the reason"* are the entire reason. The
+squash-merge argument the case rests on concerns a reading that returned 0.
+
+**And the remedy already exists.** `taskState`'s rank-1 arm is `hasPr`, which
+already means open-or-merged and already returns `finished`. The board shows
+`stalled` because `registry.ts:870` passes the PR fact as a literal `''`, by a
+stated contract: *"the registry must not be behind anything that can fail."*
+
+Putting `plot-pr-merged.sh` inside the reading would break that contract for
+every caller. Measured: ~475 ms per call against a registry tick answering in
+210 ms over 20 worktrees — **a 45× regression**, landing inside
+`plot-fleetctl.sh:599`'s `sleep 0.5` poll loop. `plot-worker-state.sh:743`
+prohibits it in the file itself: *"A host call in here would either break that
+promise or fork a `gh` per branch on every 5-second board poll."*
+
+### Slice 1 guards a population of zero
+
+Measured 2026-09-18 across every remote ref: **0 empty-claim refs on the
+estate**, and therefore 0 with no registered agent.
+
+The one worked example was a **counter-example**. `bug/the-reading-carries-which-stopped`
+was held by a registered, live agent (`pid 26405`) that produced four commits
+after the claim. The claim was working as designed — it removed from the queue a
+slice somebody was on.
+
+### The desk attribution was wrong, and the section built on it withdrawn
+
+The plan named `plot-dispatch.sh:2057` and `:2925`. Neither made that desk:
+`:2925` is a disposable **booking** worktree, and the `plot-wt-` desk plus the
+claim commit come from **`plot-worker-loop.sh:2263`/`:2277` and `:2307`** — the
+agent's own hop, *after* hand-over, which is the intended order.
+
+So `queue.ts:169` is **not** falsified: it describes dispatch preparing a desk
+before the brief gate, and dispatch prepared nothing here. That section was
+written while the plan promised *"this plan does not guess at it"*.
+
+### What survives, and where it goes
+
+**The queue derivation reading is correct and unrefuted** — a claimed slice
+cannot appear in any hold list, because the derivation skips settled lines
+before any hold is assigned. It is a real gap in the reporting surface with **no
+demonstrated victim**, so it is recorded here rather than built.
+
+Two candidates a later plan could take, neither this one:
+
+1. **The manifest/desk pairing** — a branch cleared while the desk still holds
+   it, or two agents sharing one desk. That is where the `stalled` row the
+   operator saw actually comes from.
+2. **A worker using a tracked desk as scratch space.** The five files that made
+   this desk read `stalled` are the same class as `part1.txt`/`part2.txt`,
+   untracked on 2026-09-18 after a worker rewrote 2,563 lines of them.
+
+**Nothing was implemented.** No branch, no PR, no `Started:` record.
