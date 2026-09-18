@@ -10,6 +10,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-18, jwloka, in-session
 - **Impl:** own branches
+- **Started:** 2026-09-18, jwloka, `bug/the-reading-carries-which-stopped`
 
 ## Changelog
 
