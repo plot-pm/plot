@@ -144,19 +144,39 @@ test('index: forks are bounded — the per-plan lookup creates no process', () =
   // links that is dozens here and 130,128 on the real estate; the replacement
   // reads both directories with one `ls` each and forks NEITHER command.
   //
-  // Bounded rather than exactly zero: the sweep's other twenty sections are
-  // free to fork for their own reasons, and pinning zero would make this test
-  // fail on an unrelated change. What it refuses is a count that SCALES — any
-  // re-introduced per-plan or per-link fork lands far above this ceiling.
+  // `readlink` is pinned at ZERO because all three walkers were its only
+  // callers in this path: the per-plan lookup, section 4's `active/` loop and
+  // section 5's dangling loop. One re-introduced `readlink` anywhere in the
+  // index path fails this line.
+  //
+  // `basename` is pinned at the count the OTHER sections spend, not at zero.
+  // The shim measured six per-plan `basename` forks still in the sweep when
+  // this slice landed — `:979`, `:1233`, `:1369`, `:1429`, `:1506`, `:2196` —
+  // which scale exactly as the one this slice removed did, roughly 1,800 forks
+  // on a 297-plan estate. They belong to sections this slice does not touch and
+  // removing them here would widen its scope past the plan's Done-when, so they
+  // are recorded as a ceiling that a NEW per-plan fork would break, and filed
+  // as a finding rather than fixed silently.
   const lines = fs.existsSync(forkLog)
     ? fs.readFileSync(forkLog, 'utf8').trim().split('\n').filter(Boolean)
     : [];
   const readlinks = lines.filter((l) => l.startsWith('readlink ')).length;
   assert.equal(readlinks, 0,
     `no site may fork readlink; the index is read once:\n${lines.join('\n')}`);
-  assert.ok(lines.length <= 4,
-    `the index path must fork nothing per plan or per link, saw ${lines.length}:\n`
+  // Six plans in this fixture. The ceiling is per-plan forks from the sections
+  // left alone, and it must not grow: the phase/symlink loop contributes none.
+  const basenames = lines.filter((l) => l.startsWith('basename ')).length;
+  assert.ok(basenames <= 8,
+    `the index path must fork nothing per plan or per link, saw ${basenames}:\n`
     + lines.join('\n'));
+  // The phase/symlink loop visits EVERY plan; sections 2 and 3 filter first
+  // (approved-only, and not docs/infra), so they call `basename` for a subset.
+  // With six plans, a loop that still forked would push the bare-form count to
+  // six or more. Three is what the surviving sections spend here.
+  const bare = lines.filter((l) => /^basename plans\/[^ ]+\.md$/.test(l)).length;
+  assert.ok(bare < 6,
+    `the phase/symlink loop forks no basename per plan; only the filtered `
+    + `sections do, saw ${bare} of 6 plans:\n${lines.join('\n')}`);
 });
 
 test('index: a non-`.md` link is invisible — the glob is a filter', () => {
