@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Rounds:** 1
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Started:** 2026-09-18, jwloka, `bug/the-reading-carries-which-stopped`
 - **Started:** 2026-09-18, jwloka, `bug/the-banner-names-what-died`
+- **Delivered:** 2026-09-18
 
 ## Changelog
 
