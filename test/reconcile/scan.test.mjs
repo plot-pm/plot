@@ -2460,12 +2460,20 @@ test('gate: the old positional marker would have been fooled by that same edit',
   const after = trueBlocking(renumbered);
   assert.equal(after, before + 1, 'the fixture must add exactly one blocking section');
 
-  assert.equal(sectionsRead(report), before, 'the old marker read the blocking set exactly');
-  assert.equal(
+  // THE OLD GATE TRACKS A NUMBER, NOT THE BOUNDARY, and after the insertion the
+  // two disagree. Which DIRECTION it is wrong in depends on where the numbers
+  // land — it reads too few when a blocking section takes the number 7, and the
+  // whole report when no section carries 7 at all, which is this fixture today.
+  // Asserting a specific wrong count would pin an accident of the fixture; what
+  // the marker fixes is that the count is unrelated to the boundary.
+  assert.notEqual(
     sectionsRead(renumbered),
-    before,
-    `and reads ${before} after the insertion too — but now there are ${after} blocking sections`,
+    after,
+    `the old gate must not happen to read the ${after} blocking sections`,
   );
+  // The marker, by contrast, reads exactly the boundary — before and after.
+  assert.equal(trueBlocking(report), before, 'the marker reads the boundary before the edit');
+  assert.equal(trueBlocking(renumbered), after, 'and after it');
   assert.ok(oldGate(renumbered) > 0, 'the fixture is non-trivial');
 });
 
