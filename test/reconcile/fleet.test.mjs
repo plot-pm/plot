@@ -5177,6 +5177,82 @@ esac
     'telling an operator to wait out an outage wastes the time waiting was meant to save');
 });
 
+// A PARTIAL PAGE IS NEITHER `ok` NOR `failed`, and #912 is what each mistake
+// costs. Reporting `ok` serves a list missing a whole host state as a complete
+// reading — the operator saw nine branches labelled `commits, no PR ever
+// opened` while two had live PRs. Reporting `failed` throws away the rows that
+// DID arrive and makes every branch `unknown`, which is not startable.
+//
+// Only Bitbucket reaches this: `bb pr list` has no `all` state, so the arm asks
+// once per state. The stub exits 7 having printed one state's rows, which is
+// the shape the adapter now produces.
+test('fleet: a partial answer reads host=partial, and the rows that arrived are used', () => {
+  // THE FIXTURE IS A MERGED-AND-DELETED BRANCH, and that is what makes the
+  // second half assertable. A branch with unmerged local commits renders its
+  // own state (`in progress`) whatever its PR says, so it could never show
+  // whether the PR row survived. Here the ONLY evidence that the branch merged
+  // is the row the partial answer carried: its ref is gone and nothing local
+  // remains to read.
+  const f = makeRepo('plot-fleet-hostpartial-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 358);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo bitbucket ;;
+  default-branch) echo main ;;
+  pr-list)
+    echo '{"number":358,"title":"a","state":"MERGED","head":"feature/squashed","draft":false,"url":"u"}'
+    echo 'plot-host: pr-list: answered 2 of 3 states; missing: declined' >&2
+    exit 7 ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(footerOf(out), /\bhost=partial\b/,
+    'an incomplete page is reported as complete, which is #912 at the scan');
+  assert.doesNotMatch(footerOf(out), /\bhost=ok\b/,
+    'the ok assignment after the parse overwrote the partial verdict');
+  assert.doesNotMatch(footerOf(out), /\bhost=failed\b/,
+    'rows the host did answer with were thrown away');
+  // THE ROWS SURVIVED THE DEGRADED VERDICT — the half that a `return 0` in the
+  // rc branch would have cost, where the verdict is right and the PR it was
+  // right about is gone. Squash-merge deleted the ref, so `merged` here can
+  // only have come from the row the partial answer carried.
+  assert.match(branchLine(out, 'feature/squashed'), /merged/,
+    'the PR that DID arrive was discarded, so the partial answer bought nothing');
+});
+
+test('fleet: the partial note tells a reader the list is short, not that the host is down', () => {
+  // THE THREE EXISTING NOTES ALL SAY *no PR could be read*, which is false
+  // here and dangerous: it invites a reader to discount rows that are real.
+  // The instruction a short page needs is the opposite one — a branch shown
+  // WITHOUT a PR may have one in the state that failed.
+  const f = makeRepo('plot-fleet-hostpartialnote-', ONE_WAVE('feature/inflight'));
+  f.work('feature/inflight', 'a.txt');
+  f.push('-u', 'origin', 'feature/inflight');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo bitbucket ;;
+  default-branch) echo main ;;
+  pr-list) echo '{"number":358,"state":"OPEN","head":"feature/inflight"}'; exit 7 ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(out, /INCOMPLETE/,
+    'a partial page passes without a word, which is the silent short list');
+  assert.doesNotMatch(out, /no PR could be read/,
+    'the outage wording reached a page that is short rather than absent');
+});
+
 // THE JSON CARRIES IT TOO, because the board is the consumer that renders it
 // and must not parse the prose footer. The same rule every other field here
 // follows: the machine reads the field, the human reads the line.

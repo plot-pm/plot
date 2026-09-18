@@ -87,6 +87,17 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       // only thing separating a rate limit from a DNS blip.
       if (run.code === 0) return { answer: 'answered', stdout: run.stdout };
       const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
+      // 7 IS AN INCOMPLETE ANSWER, NOT AN ABSENT ONE, and it is the only code
+      // that carries both streams. `bb pr list` has no `all` state, so the
+      // Bitbucket arm calls once per state and prints each state's rows as it
+      // goes; when a later state fails, the rows already printed are a real
+      // partial answer. Reading the code alone discarded them, which is #912 —
+      // nine branches labelled as having no PR while two had live ones.
+      //
+      // A TOTAL FAILURE STILL ARRIVES AS 3, 5 OR 6, so a genuine outage cannot
+      // reach this line. The adapter decides which of the two it was; here the
+      // only job is to keep the rows alongside the sentence.
+      if (run.code === 7) return { answer: 'partial', stdout: run.stdout, said };
       return run.code === 4 ? { answer: 'unaskable', said } : { answer: 'failed', said };
     },
 

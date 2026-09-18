@@ -2480,8 +2480,20 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     // policy — keep the last good map, wait where the host named a wait — and
     // the two paths that reach it (a refused call, and a map that came back all
     // `unknown`) must not grow two copies of it.
-    if (said.answer !== 'answered') throw new Error(said.said);
+    //
+    // A PARTIAL ANSWER IS NOT A REFUSAL. `bb pr list` has no `all` state, so
+    // the Bitbucket arm asks once per state and may reach some and not others;
+    // the rows that arrived are real PRs and dropping them is #912 — nine
+    // branches reading `commits, no PR ever opened` while two had live ones.
+    // Reported on 2026-09-15 by an operator whose reading was *"a reader
+    // cleaning up stale branches would delete work that is under review."*
+    //
+    // IT IS STILL SAID. The rows are used AND the sentence naming the missing
+    // states is kept, because a short list reported as whole is the quiet wrong
+    // answer this path refuses everywhere else.
+    if (said.answer !== 'answered' && said.answer !== 'partial') throw new Error(said.said);
     const out = said.stdout;
+    const partialSaid = said.answer === 'partial' ? said.said : null;
     const map = new Map<string, PrRecord>();
     const byNumber = new Map<number, PrRecord>();
     const byHead = new Map<string, PrRecord>();
@@ -2560,7 +2572,12 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       await refreshRuns(opts, entry, map, build);
       entry.prAt = Date.now();
       scheduleNextPr(entry, startedAt, null, backend, rate);
-      entry.prError = null;
+      // THE ROWS ARE KEPT AND THE GAP IS STILL SAID. A partial answer reached
+      // here because its rows are real; recording no error would report a page
+      // missing a whole host state as a complete reading, which is the quiet
+      // wrong answer this adapter refuses elsewhere. A whole answer clears the
+      // field exactly as before.
+      entry.prError = partialSaid;
     }
   } catch (err) {
     // Same rule as the pulse: a failure keeps the last good map rather than

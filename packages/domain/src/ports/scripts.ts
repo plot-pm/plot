@@ -27,9 +27,24 @@ export interface StartedRun {
  * the measured defect either way round: dropping the sentence makes every
  * failure look alike, and handing back the code makes exit 4 look like an
  * outage a caller should retry.
+ *
+ * `partial` CARRIES BOTH, AND THAT IS WHY IT IS A VARIANT RATHER THAN A FLAG.
+ * The other three make `stdout` and `said` mutually exclusive by construction —
+ * an answer has rows, a refusal has a sentence. A partial answer has the rows
+ * that arrived AND the sentence naming what did not, so it cannot be expressed
+ * by either. Adding `said?` to `answered` would have let every caller keep
+ * reading it as whole, which is the asymmetry this union exists to prevent.
+ *
+ * It is reachable from ONE adapter arm. `bb pr list` has no `all` state, so the
+ * Bitbucket arm calls once per state and some calls may fail while others
+ * answer; GitHub takes `--state all` in a single call, where a failure means
+ * nothing was printed. A caller that cannot produce a partial answer is
+ * unaffected: `answer !== 'answered'` stays true for this variant, so an
+ * existing refusal path keeps refusing.
  */
 export type HostAnswer =
   | { answer: 'answered'; stdout: string }
+  | { answer: 'partial'; stdout: string; said: string }
   | { answer: 'failed'; said: string }
   | { answer: 'unaskable'; said: string };
 
