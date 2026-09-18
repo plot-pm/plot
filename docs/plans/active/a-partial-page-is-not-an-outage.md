@@ -1,0 +1,1 @@
+../2026-09-18-a-partial-page-is-not-an-outage.md
