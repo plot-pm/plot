@@ -95,3 +95,7 @@ packages/domain/coverage/
 .env
 .env.*
 !.env.example
+
+# scratch fragments committed by mistake (534b4958c); never tracked again
+part1.txt
+part2.txt
