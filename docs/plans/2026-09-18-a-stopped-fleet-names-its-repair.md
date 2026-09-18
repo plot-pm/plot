@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Rounds:** 1
+- **Approved:** 2026-09-18, jwloka, in-session
 - **Impl:** own branches
 
 ## Changelog
@@ -134,7 +135,7 @@ so a board reading an older script behaves exactly as today; `supervisorState`
 answers `down` when the field is absent, pinned; and `pnpm run test:contracts`
 passes.
 
-### The banner names what died (Branch: bug/the-banner-names-what-died)
+### The banner names what died (Branch: bug/the-banner-names-what-died) <!-- waits: bug/the-reading-carries-which-stopped -->
 
 - `bug/the-banner-names-what-died` — `supervisorVerdict` and `supervisorProminence` gain the case, the wire schema and the DOM attribute gain the value
 
