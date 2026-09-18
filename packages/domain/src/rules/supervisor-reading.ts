@@ -153,9 +153,26 @@ export type SupervisorProminence = 'quiet' | 'note' | 'warn' | 'alert';
  * a `.tsx` would re-derive, and re-deriving it is how a view state comes to be
  * testable only by rendering it.
  */
+/**
+ * The states a verdict may carry to the wire.
+ *
+ * THREE, NOT FOUR, AND DELIBERATELY BEHIND `SupervisorState`. The board parses
+ * its payload with a three-value enum and the client only casts, so a fourth
+ * word reaching the wire is a value with no renderer behind it — it would not
+ * fail a type check on the client, it would arrive as a state nothing draws.
+ * Widening the enum and the banner is one slice, and this is not it.
+ *
+ * `died` REPORTS AS `down` HERE, which costs the reader nothing today: the
+ * fall-through below already gives it the `FLEET STOPPED` wording, because
+ * `died` refines `down` rather than opposing it — both mean no slice will be
+ * picked up. What the refinement buys is the diagnosis, and the diagnosis is
+ * rendered by the slice that widens this type.
+ */
+export type SupervisorWireState = 'up' | 'down' | 'unknown';
+
 export interface SupervisorVerdict {
-  /** What the supervisor is. */
-  state: SupervisorState;
+  /** What the supervisor is, in the three words the wire carries. */
+  state: SupervisorWireState;
   /** How loudly to say it. */
   prominence: SupervisorProminence;
   /** Whether it is worth saying at all. */
@@ -296,8 +313,13 @@ export const supervisorVerdict = (readings: SupervisorReadings): SupervisorVerdi
         'The board could not ask `/plot-fleet --status`, so whether the fleet is running was never established. This is not the same fact as it being stopped.',
     };
   }
+  // `died` LANDS HERE AND REPORTS AS `down`. It is a refinement of this state,
+  // not a fourth direction — both mean no slice will be picked up — so the
+  // wording is today's until the slice that renders the diagnosis widens the
+  // wire. Narrowing here rather than at the caller keeps the one place that
+  // knows both vocabularies inside the rule.
   return {
-    state,
+    state: 'down',
     prominence,
     shown: true,
     label: 'FLEET STOPPED',

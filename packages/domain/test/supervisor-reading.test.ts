@@ -202,6 +202,24 @@ describe('supervisorVerdict — one reading decides the word and the styling tog
     expect(verdict.detail).toContain('1 agent is running');
   });
 
+  it('carries a died reading to the wire as down, with today’s wording', () => {
+    // THE WIRE STAYS THREE WORDS WHILE THE RULE ANSWERS FOUR. The board parses
+    // its payload with a three-value enum and the client only casts, so a
+    // fourth word reaching the wire is a value with no renderer behind it —
+    // it would arrive as a state nothing draws rather than failing anywhere.
+    //
+    // This is the seam between the two, and it is asserted rather than left to
+    // the type checker: `supervisorState` must still SEE the death, and the
+    // banner must not change yet. A slice that widens the enum rewrites this
+    // test deliberately; one that widens it by accident fails here.
+    const readings = reading({ exitCode: 1, install: 'installed', agentsRunning: 0 });
+    expect(supervisorState(readings)).toBe('died');
+
+    const verdict = supervisorVerdict(readings);
+    expect(verdict.state).toBe('down');
+    expect(verdict.label).toBe('FLEET STOPPED');
+  });
+
   it('states the quiet case without an alarm and still says how to start it', () => {
     const verdict = supervisorVerdict(reading({ exitCode: 1, agentsRunning: 0 }));
     expect(verdict).toMatchObject({ state: 'down', prominence: 'quiet', shown: true });
