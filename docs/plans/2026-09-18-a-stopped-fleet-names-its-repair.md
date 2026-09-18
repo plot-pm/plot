@@ -121,7 +121,7 @@ command a reader can address; machine vocabulary stays where a machine reads it.
 
 ### The reading carries which stopped (Branch: bug/the-reading-carries-which-stopped)
 
-- `bug/the-reading-carries-which-stopped` — `--status` reports its install state on the `summary:` line, `SupervisorRun` carries it, and `supervisorState` answers a fourth value
+- `bug/the-reading-carries-which-stopped` — `--status` reports its install state on the `summary:` line, `SupervisorRun` carries it, and `supervisorState` answers a fourth value → #950
 
 **Done when** `--status` emits the install state **on** the `summary:` line —
 not beside it and not before it, because that line's *presence* is what
