@@ -25,8 +25,23 @@
  * - `up` — the script answered that the supervisor is loaded.
  * - `down` — the script answered that it is not.
  * - `unknown` — the script could not be asked, or did not finish answering.
+ * - `died` — it is not loaded, AND the script recorded that a start finished
+ *   here. Nothing unloaded it: `--stop` clears that record only after a clean
+ *   unload, so the supervisor went away on its own.
+ *
+ * `died` IS A KIND OF `down` AND NOT A FOURTH DIRECTION. Both mean no slice
+ * will be picked up; they differ in what a reader should do next, which is why
+ * it is a state and not a flag. A machine that is `down` needs a start; one
+ * that is `died` needs the log read first, because whatever killed the
+ * supervisor once will kill it again after a start.
+ *
+ * THE WORD NAMES THE EVENT, NOT THE MACHINE'S INVENTORY. The script's own word
+ * for this state is `installed` — correct about the unit file and exactly
+ * backwards as a fleet's status, since it reads as the opposite of stopped.
+ * Machine vocabulary stays where a machine reads it; `supervisorVerdict`'s
+ * header states the same rule for the launchd label and `registryd`.
  */
-export type SupervisorState = 'up' | 'down' | 'unknown';
+export type SupervisorState = 'up' | 'down' | 'unknown' | 'died';
 
 /**
  * What one run of `plot-fleetctl.sh --status` left behind.
@@ -66,6 +81,29 @@ export interface SupervisorRun {
    * a signal's.
    */
   summarised: boolean;
+  /**
+   * Which stop this is, read off the `summary:` line, or absent.
+   *
+   * THE EXIT CODE SAYS LOADED OR NOT; THIS SAYS WHICH NOT. Four machines exit
+   * 1 — no unit at all, a unit launchd was never told about, a unit whose
+   * supervisor died on its own, and a machine with no init system to hand a
+   * daemon to. The code cannot separate them and is deliberately not widened
+   * to try: this rule gates on exactly 0 and 1 and answers `unknown` for
+   * everything else, so a state encoded in the code would render `unknown`
+   * from every machine carrying it.
+   *
+   * ABSENT MEANS AN OLDER SCRIPT, NEVER A MACHINE WITH NO STATE. A board
+   * reading a script that predates the field must behave exactly as it did
+   * before, so every state derived from this falls back to the exit code —
+   * which every version of the script has always answered the same way. Read
+   * the code, not the emptiness.
+   *
+   * Carried as the script's own word rather than a parsed union, because the
+   * script is the one source: a board that narrowed it here would answer for
+   * a state a newer script invented, and guessing is the direction this whole
+   * rule exists to refuse.
+   */
+  install?: string;
 }
 
 /**
@@ -141,14 +179,26 @@ export interface SupervisorVerdict {
  * `execFile`, so a rule reading the code alone would render an alarm from a
  * board that never got an answer.
  *
+ * `died` REFINES `down` AND NEVER REPLACES A CHECK. It is reached only from
+ * exit 1 with the script's own `install=installed` beside it, so every gate
+ * above it is unchanged: a run that could not be asked, or that stopped before
+ * its summary line, is still `unknown` whatever field it carried.
+ *
+ * AN ABSENT FIELD IS `down`, and that is the compatibility contract. A board
+ * reading a script that predates the field must behave exactly as it did
+ * before — so the fallback is the exit code, never `unknown`. Answering
+ * `unknown` for the absent case would look defensive and would silently
+ * degrade every board on an older script into *could not ask*, which is the
+ * one reading this rule exists to keep rare.
+ *
  * @param readings - what one run of the script left behind.
- * @returns which of the three states this was.
+ * @returns which of the four states this was.
  */
 export const supervisorState = (readings: SupervisorRun): SupervisorState => {
   if (!readings.asked) return 'unknown';
   if (!readings.summarised) return 'unknown';
   if (readings.exitCode === 0) return 'up';
-  if (readings.exitCode === 1) return 'down';
+  if (readings.exitCode === 1) return readings.install === 'installed' ? 'died' : 'down';
   return 'unknown';
 };
 

@@ -517,6 +517,84 @@ test('--status says NOT INSTALLED where there is no unit at all', () => {
     'a fresh clone was told to bootstrap a unit that does not exist');
 });
 
+test('--status says a supervisor DIED where a start finished and nothing unloaded it', () => {
+  // THE STATE THAT LIED. `installed` means the unit is on disk and the last
+  // `--start` recorded that it finished — and `--stop` clears that record only
+  // after a clean unload, so reaching it means the supervisor went away on its
+  // own. It printed *not installed — no unit on this machine*, false about the
+  // machine and silent about the death.
+  const { root, box, ctl, fleetLabel } = sandbox('status-died');
+  fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), '2026-09-18T00:00:00Z\n');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const r = run(ctl, ['--status'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  if (!/^platform: launchd$/m.test(r.out)) return;
+
+  // THE NEGATIVE IS THE ASSERTION THAT CATCHES IT. Asserting only the new
+  // prose passes while the old line is still printed beside it — which is
+  // exactly what a naive arm that echoes before falling through would do.
+  assert.doesNotMatch(r.out, /not installed/,
+    'the machine is still told it has no unit, which is the defect');
+  assert.match(r.out, /STOPPED/, 'the death is not named');
+  // THE LOG IS THE POINT, not the restart. `--start` works here; what an
+  // operator skips when told *not installed* is reading why it died, and a
+  // supervisor that crashed once crashes again after a start.
+  assert.match(r.out, /registryd\.log/,
+    'the reader is sent to restart without being sent to the log first');
+});
+
+test('--status reports its install state ON the summary line, in every state', () => {
+  // ON THE LINE AND NOT BESIDE IT. The board decides `summarised` by testing
+  // that line's PRESENCE, and that is what separates a finished run from one
+  // killed at a bounded wait. A field on its own line is absent from exactly
+  // the killed runs that most need explaining — and a naive implementation
+  // that prints it separately passes every OTHER test in this file, because
+  // `summarised` only needs the prefix present.
+  //
+  // So the assertion is anchored: the state must appear on the same line as
+  // `agents_running=`, matched in one regex that cannot span a newline.
+  for (const [name, marker, unit] of [
+    ['fresh', false, false],
+    ['interrupted', false, true],
+    ['died', true, true],
+  ]) {
+    const { root, box, ctl, fleetLabel } = sandbox(`summary-${name}`);
+    if (marker) {
+      fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), 'ts\n');
+    }
+    const home = fakeHome(box, { unit, label: fleetLabel });
+    const r = run(ctl, ['--status'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+    assert.match(r.out, /^summary: agents_running=\d+ agents_other=\d+ supervisor=\S+ install=\S+$/m,
+      `${name}: the install state is not on the summary line the board reads`);
+  }
+});
+
+test('--status exits exactly 1 for every not-loaded state, whatever it reports', () => {
+  // PLATFORM-INDEPENDENT, so CI runs it. The launchd-guarded case below returns
+  // early on `ubuntu-latest`, which is every CI run — so the contract that
+  // matters most is asserted here through the sourced seam instead, the way
+  // `supervisor_loaded answers 1 for an absent label` already is.
+  //
+  // THE CODE MUST NOT CARRY THE STATE. A naive implementation encodes which
+  // stop this is in the exit code; `supervisorState` gates on exactly 0 and 1
+  // and answers `unknown` for everything else, so that would render `unknown`
+  // from every machine in the new state — the alarm nobody can act on, from
+  // the machines that most need one.
+  for (const state of ['not-installed', 'interrupted', 'installed', 'none']) {
+    const { root, ctl } = sandbox(`exit-${state}`);
+    const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'
+platform() { echo ${state === 'none' ? 'none' : 'launchd'}; }
+supervisor_loaded() { return 1; }
+fleet_install_state() { echo ${state}; }
+printf '%s' "$(supervisor_loaded; echo $?)"`;
+    const out = execFileSync('bash', ['-c', probe], {
+      encoding: 'utf8', cwd: root, env: { ...process.env },
+    });
+    assert.equal(out, '1', `${state}: the state reached the exit code the board branches on`);
+  }
+});
+
 test('--status starts nothing in any state, and keeps the board contract', () => {
   // TWO CONTRACTS AT ONCE. `rules/supervisor-reading.ts` reads the exit code
   // (0 loaded, 1 not) and the `summary:` line that proves the code was the

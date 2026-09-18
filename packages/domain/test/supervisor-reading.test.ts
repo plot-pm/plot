@@ -69,6 +69,55 @@ describe('supervisorState — the exit code answers, and only 0 and 1 are answer
   });
 });
 
+describe('supervisorState — which stop it is, read beside the code and never from it', () => {
+  it('reads exit 1 with a finished start behind it as died, not merely down', () => {
+    // The unit is on disk and the last `--start` recorded that it finished.
+    // `--stop` clears that record only after a clean unload, so nothing
+    // unloaded this one — it went away on its own. A reader needs the log
+    // before the restart, because whatever killed it will kill it again.
+    expect(supervisorState(reading({ exitCode: 1, install: 'installed' }))).toBe('died');
+  });
+
+  it('reads the other not-loaded states as plain down', () => {
+    // THE THREE THAT ARE HONESTLY DOWN, asserted together: no unit at all, a
+    // unit launchd was never told about, and a machine with no init system.
+    // Only `installed` means something died.
+    for (const install of ['not-installed', 'interrupted', 'none']) {
+      expect(supervisorState(reading({ exitCode: 1, install }))).toBe('down');
+    }
+  });
+
+  it('reads an ABSENT install field as down — the compatibility contract', () => {
+    // THE PIN THIS SLICE OWES, and nothing else enforces it. A board running
+    // against a script that predates the field must behave exactly as it did
+    // before. Answering `unknown` here would look defensive and would silently
+    // degrade every such board into *could not ask* — the one reading the whole
+    // rule exists to keep rare. Absent is not false: read the code, not the
+    // emptiness.
+    expect(supervisorState(reading({ exitCode: 1 }))).toBe('down');
+    expect(supervisorState(reading({ exitCode: 0 }))).toBe('up');
+  });
+
+  it('never lets the field overrule a run that was not asked or not finished', () => {
+    // `died` REFINES `down` AND REPLACES NO CHECK. The gates above it are
+    // unchanged, so a field carried by a run the board could not trust cannot
+    // promote it into a definite answer.
+    expect(supervisorState(reading({ asked: false, exitCode: null, install: 'installed' })))
+      .toBe('unknown');
+    expect(supervisorState(reading({ exitCode: 1, summarised: false, install: 'installed' })))
+      .toBe('unknown');
+    expect(supervisorState(reading({ exitCode: 127, install: 'installed' }))).toBe('unknown');
+  });
+
+  it('reads exit 0 as up whatever the field says', () => {
+    // A LOADED SUPERVISOR IS LOADED whatever the last run recorded — the same
+    // precedence `fleet_install_state` applies, where liveness is tested first
+    // and the marker is not consulted for it. A machine whose marker survives
+    // a restart is running, not dead.
+    expect(supervisorState(reading({ exitCode: 0, install: 'installed' }))).toBe('up');
+  });
+});
+
 describe('supervisorProminence — the state alone decides nothing', () => {
   it('is quiet when a supervisor is loaded, however many agents run', () => {
     expect(supervisorProminence(reading({ exitCode: 0, agentsRunning: 6 }))).toBe('quiet');
