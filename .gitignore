@@ -86,3 +86,12 @@ packages/domain/coverage/
 # untracked file there reads as unlanded work. This entry covers the main
 # checkout, where the branch is current by definition.
 .metadata_never_index
+
+# Credentials a repository keeps for itself. `plot-host.sh` reads JIRA_EMAIL and
+# JIRA_API_TOKEN from here when neither is set in the environment, so the file
+# now holds secrets on any checkout that uses the Jira tracker — and a feature
+# that teaches Plot to read credentials from a path the repository would commit
+# must not ship without this line.
+.env
+.env.*
+!.env.example

@@ -269,6 +269,17 @@ Ask only what the merged probes could not answer:
   > be **proposed** unattended and recorded as such — the refusal is for the
   > *absence* of a signal, not for its presence.
 
+  **Where the tracker is `jira`, say where the credential goes.** Jira needs
+  `JIRA_EMAIL` and `JIRA_API_TOKEN`; Plot reads them from the environment, and
+  where **neither** is set it reads them from the repository root's `.env` and
+  says on stderr that it did. Name the file, because "export it in your shell"
+  does not reach the board — a long-lived process inherits no interactive shell,
+  which is why `plot-fleetctl.sh` bakes an environment into its unit.
+
+  > The `.env` holds a live credential, so confirm `.gitignore` excludes it
+  > before writing one. Plot's own `.gitignore` carries the entry; an adopting
+  > repository's may not, and a token in a commit is not undone by a later one.
+
 - **The Jenkins instance** — when `jen` is installed, `ci_signals.jenkinsfile`
   is true, and no instance resolved from config or `JENKINS_INSTANCE`.
 
