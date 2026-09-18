@@ -1,0 +1,1 @@
+../2026-09-17-a-credential-is-read-where-a-repo-keeps-it.md
