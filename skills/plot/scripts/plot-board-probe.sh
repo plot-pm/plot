@@ -51,6 +51,13 @@
 #                   value and makes no network call.
 #   ci_signals      {"jenkinsfile":bool,"gh_workflows":bool}
 #
+#                   `jenkinsfile` is a SEARCH to depth 5, not a test of the
+#                   repository root: a repository keeping its pipelines in a
+#                   directory read as having no CI at all. `gh_workflows` stays
+#                   a single fixed path, which is the one GitHub requires. The
+#                   bound, its off-by-one and the measured cost are at the
+#                   reading itself, beside the `find`.
+#
 # `auth` IS A THREE-STATE ENUM, NEVER A BOOLEAN. "unknown" is what an
 # unrecognised output produces, and it must read as *cannot verify*, never as
 # *authenticated*. This is the failure direction plot-host.sh adopted after the
@@ -126,8 +133,56 @@ if [ -n "$git_root" ] && [ -d "$git_root/$plan_dir" ]; then
 fi
 
 # --- ci signals ---------------------------------------------------------
+#
+# A JENKINSFILE IS SEARCHED FOR, NOT TESTED AT ONE PATH. This asked only
+# `[ -f "$git_root/Jenkinsfile" ]`, so a repository keeping its pipelines in a
+# directory read as having NO CI AT ALL — `proposeCi` answers `silent`, setup
+# writes no `CI:` key, and the Jenkins instance question is never asked. The
+# reporting repository keeps three, all under
+# `.build/pipelines/website/<pipeline>/Jenkinsfile`.
+#
+# FIVE IS MEASURED, NOT COUNTED. `-maxdepth` counts path components from the
+# start point, not directories. That file is four directories down, and:
+#
+#   -maxdepth 3 -> 0 hit(s)
+#   -maxdepth 4 -> 0 hit(s)
+#   -maxdepth 5 -> 1 hit(s)
+#
+# An earlier draft reasoned "four directories down, so -maxdepth 4" and found
+# nothing. The off-by-one is the defect this fixes, so it is written down.
+#
+# THE COST, measured on this repository 2026-09-17, three runs each:
+#
+#   bounded, with exclusions      7-8 ms
+#   unbounded, with exclusions    7   ms
+#   unbounded, NO exclusions      70-83 ms
+#
+# SO THE BOUND IS NOT THE PERFORMANCE ARGUMENT — the exclusions are, and they
+# are worth ~10x. Here the bound skips 12 directories of 171. It is kept as a
+# MEANING bound: it says how far down a path may sit and still be this
+# repository's own CI, rather than a dependency's or a sandbox's.
+#
+# NO NAMING EXCLUSION beyond `node_modules`. Refusing a Jenkinsfile in a "test
+# fixture directory" was specified, attempted and WITHDRAWN: `fixtures`, `test`
+# and `__fixtures__` are each plausible and each wrong somewhere, and a
+# repository genuinely keeping a pipeline under `test/` would be told it has no
+# CI. The depth bound limits the rest.
+#
+# `.git` and the configured `Worktree root` are pruned for the same reason as
+# `node_modules`: neither holds this repository's own pipeline, and a worktree
+# holds a checkout whose files are already counted once at their real home.
 jenkinsfile=false
-[ -n "$git_root" ] && [ -f "$git_root/Jenkinsfile" ] && jenkinsfile=true
+if [ -n "$git_root" ]; then
+  wt_root=$(bash "$here/plot-config.sh" get "Worktree root" ".worktrees" 2>/dev/null || echo ".worktrees")
+  [ -n "$wt_root" ] || wt_root=".worktrees"
+  found=$(find "$git_root" -maxdepth 5 \
+    \( -name node_modules -o -name .git -o -name "$wt_root" \) -prune -o \
+    -name Jenkinsfile -type f -print 2>/dev/null | head -n 1)
+  [ -n "$found" ] && jenkinsfile=true
+fi
+# UNTOUCHED, DELIBERATELY. `gh_workflows` tests a DIRECTORY at one fixed path
+# that GitHub itself requires; there is no second place it may live, so it
+# gains nothing from a search.
 gh_workflows=false
 [ -n "$git_root" ] && [ -d "$git_root/.github/workflows" ] && gh_workflows=true
 

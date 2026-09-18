@@ -600,3 +600,62 @@ test('probe: no fixture asserts the success word the CLI never printed', () => {
     'a fixture asserts `Jenkins auth:  reachable`, which the CLI never emits',
   );
 });
+
+// --- the Jenkinsfile reading, which is a SEARCH rather than one path -------
+
+test('probe: a root Jenkinsfile still reads true — unchanged', () => {
+  const r = repoWith({ Jenkinsfile: 'pipeline {}\n' });
+  assert.equal(probe(r).ci_signals.jenkinsfile, true);
+});
+
+test('probe: a repository keeping its pipelines in a directory reads true', () => {
+  // THE DEFECT. `[ -f "$git_root/Jenkinsfile" ]` asked about ONE path, so a
+  // repository that keeps pipelines in a directory read as having no CI at
+  // all — `proposeCi` answers `silent`, setup writes no `CI:` key, and the
+  // Jenkins instance question is never asked.
+  //
+  // THE EXACT DEPTH THE REPORTING REPOSITORY USES, not a shallower stand-in:
+  // the file is four directories down and therefore FIVE path components from
+  // the start point, and `-maxdepth 4` finds nothing. A fixture one level
+  // shallower would pass against the off-by-one this slice exists to fix.
+  const r = repoWith({
+    '.build/pipelines/website/continuous-build/Jenkinsfile': 'pipeline {}\n',
+  });
+  assert.equal(probe(r).ci_signals.jenkinsfile, true);
+});
+
+test('probe: a repository with no Jenkinsfile anywhere reads false', () => {
+  const r = repoWith({ 'src/app.ts': 'export {};\n' });
+  assert.equal(probe(r).ci_signals.jenkinsfile, false);
+});
+
+test('probe: a Jenkinsfile inside node_modules does NOT make it true', () => {
+  // A dependency's own pipeline is not this repository's CI. The fixture
+  // CONTAINS one rather than asserting the exclusion abstractly — without a
+  // real file the test passes whether or not the exclusion is written.
+  const r = repoWith({
+    'node_modules/some-dep/Jenkinsfile': 'pipeline {}\n',
+    'src/app.ts': 'export {};\n',
+  });
+  assert.equal(probe(r).ci_signals.jenkinsfile, false);
+});
+
+test('probe: a Jenkinsfile under a test path DOES count — the withdrawn rule', () => {
+  // NO NAMING EXCLUSION, and this pins the decision rather than an accident.
+  // The plan once demanded a Jenkinsfile in a "test fixture directory" not
+  // count; a round-2 implementer tried and no rule survived — `fixtures`,
+  // `test` and `__fixtures__` are each plausible and each wrong somewhere, and
+  // a repository genuinely keeping a pipeline under `test/` would be told it
+  // has no CI. The depth bound limits the rest.
+  const r = repoWith({ 'test/fixtures/Jenkinsfile': 'pipeline {}\n' });
+  assert.equal(probe(r).ci_signals.jenkinsfile, true);
+});
+
+test('probe: gh_workflows is unchanged by the Jenkinsfile search', () => {
+  // The neighbouring signal, explicitly out of scope: it tests a DIRECTORY at
+  // one fixed path and stays a single test.
+  const withWf = repoWith({ '.github/workflows/ci.yml': 'on: push\n' });
+  assert.equal(probe(withWf).ci_signals.gh_workflows, true);
+  const deep = repoWith({ 'a/b/c/.github/workflows/ci.yml': 'on: push\n' });
+  assert.equal(probe(deep).ci_signals.gh_workflows, false);
+});
