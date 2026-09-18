@@ -2240,26 +2240,36 @@ function runGate(reportText, slug) {
  * the boundary; the number does not.
  */
 function withBlockingSectionAdded(reportText) {
+  // IT INSERTS AT THE MARKER, NOT AT A NUMBER. This keyed off `n >= 6` until
+  // 2026-09-18, when the release question moved below the marker and kept the
+  // number 6 — so a numeric rule would have planted the new "blocking" section
+  // BELOW the boundary and asserted the opposite of what this fixture means.
+  // The marker is where the boundary is; that is the property under test, so it
+  // is also how the edit is made.
   const out = [];
   let inserted = false;
+  let seenBoundary = false;
   for (const line of reportText.split('\n')) {
+    if (line === BOUNDARY) {
+      // The last blocking slot: everything after this is advisory.
+      out.push('== 6. A blocking section somebody added later ==');
+      out.push('  plans/2026-01-05-inserted.md — a finding that must gate');
+      out.push('');
+      inserted = true;
+      seenBoundary = true;
+      out.push(line);
+      continue;
+    }
+    // Renumber the sections that follow the insertion in PRINT order, so the
+    // advisory set shifts exactly as it would if a real section were added.
     const m = /^== (\d+)\. (.*)$/.exec(line);
-    if (m) {
-      const n = Number(m[1]);
-      if (n >= 6) {
-        if (!inserted) {
-          out.push('== 6. A blocking section somebody added later ==');
-          out.push('  plans/2026-01-05-inserted.md — a finding that must gate');
-          out.push('');
-          inserted = true;
-        }
-        out.push(`== ${n + 1}. ${m[2]}`);
-        continue;
-      }
+    if (m && (seenBoundary || Number(m[1]) >= 6)) {
+      out.push(`== ${Number(m[1]) + 1}. ${m[2]}`);
+      continue;
     }
     out.push(line);
   }
-  assert.ok(inserted, 'the fixture must have a section at 6 or later to renumber');
+  assert.ok(inserted, 'the fixture must carry the boundary marker to insert at');
   return out.join('\n');
 }
 
@@ -2271,22 +2281,75 @@ test('gate: the scan emits the boundary marker exactly once', () => {
 });
 
 test('gate: the blocking sections sit above the marker and the advisory ones below', () => {
-  // The blocking set is 1-6 — the sections that populate the footer counters
-  // /plot-deliver and the /plot hygiene line read. This asserts the marker is
-  // where CLAUDE.md says the boundary is, rather than merely present.
+  // The blocking set is FIVE SECTIONS, NAMED. It read `number <= 6` until
+  // 2026-09-18, which derived placement FROM the number — the very coupling the
+  // marker exists to break, and the reason a `== 7.` gate had to be replaced.
+  // Section 6 now prints LAST, below the marker, so a numeric predicate cannot
+  // express the boundary at all; the names can, and they are what a reader of
+  // CLAUDE.md checks this against.
+  const BLOCKING = [
+    'Phase<->symlink drift',
+    'Merged-but-not-delivered',
+    'Stale branches',
+    'Concurrent-delivery check',
+    'Needs attention',
+  ];
   const lines = report.split('\n');
   const boundaryAt = lines.indexOf(BOUNDARY);
   assert.ok(boundaryAt > 0, 'the marker must be in the report');
-  for (const line of lines) {
-    const m = /^== (\d+)\. /.exec(line);
-    if (!m) continue;
-    const above = lines.indexOf(line) < boundaryAt;
-    assert.equal(
-      above,
-      Number(m[1]) <= 6,
-      `section ${m[1]} is on the wrong side of the boundary`,
+
+  const headingsAbove = lines
+    .slice(0, boundaryAt)
+    .filter((l) => /^== \d+\. /.test(l));
+  assert.equal(
+    headingsAbove.length,
+    BLOCKING.length,
+    `exactly ${BLOCKING.length} sections may gate a delivery`,
+  );
+  for (const [i, title] of BLOCKING.entries()) {
+    assert.ok(
+      headingsAbove[i].includes(title),
+      `blocking section ${i + 1} must be ${title}, got: ${headingsAbove[i]}`,
     );
   }
+
+  // And the release question is below it — the defect this pins. A section that
+  // asks which release contains a plan cannot stop the next delivery.
+  const releaseAt = lines.findIndex((l) => /^== \d+\. Delivered but already released/.test(l));
+  assert.ok(releaseAt > boundaryAt, 'the release question must not gate a delivery');
+});
+
+test('gate: a release-question finding does not reach the delivery gate', () => {
+  // THE DEFECT, RUN THROUGH THE SHIPPED COMMAND. Section 6 asks which release
+  // contains a plan. Its unanswerable case is `cannot resolve`, and on a host
+  // whose pr-state carries no merge commit that is EVERY delivered plan: the
+  // reporting repository measured 45 findings and `unreleased_delivered=82`,
+  // with section 6 above the marker, so no delivery could ever clear step 7b.
+  //
+  // The fixture is the real report plus one such finding, and the assertion runs
+  // /plot-deliver's own `sed`+`grep` — `runGate` — rather than reasoning about
+  // placement, because the gate is a shell line and only the shell line can fail
+  // the way the operator's did.
+  const lines = report.split('\n');
+  const sixAt = lines.findIndex((l) => /^== \d+\. Delivered but already released/.test(l));
+  assert.ok(sixAt > 0, 'the fixture must carry the release-question section');
+
+  const planted = [...lines];
+  planted.splice(
+    sixAt + 1,
+    0,
+    '  2026-01-09-bitbucket.md — delivered, but PR #943 has no merge commit → cannot resolve',
+  );
+  const withFinding = planted.join('\n');
+
+  // The finding IS in the report — the section still reports exactly as before.
+  assert.match(withFinding, /2026-01-09-bitbucket\.md/);
+  // And the gate cannot see it, because the section sits below the marker.
+  assert.equal(
+    runGate(withFinding, '2026-01-09-bitbucket.md'),
+    '',
+    'a plan reported only as unreleased must not block its own delivery',
+  );
 });
 
 test('gate: it blocks on a finding in a blocking section', () => {
@@ -2351,10 +2414,10 @@ test('gate: the old positional marker would have been fooled by that same edit',
   // could pass against a gate that never had the bug; this proves the fixture
   // reproduces the failure the marker prevents.
   //
-  // The old gate stopped at the literal `== 7.`. After the insertion the first
-  // non-blocking section is 8, so 7 names a BLOCKING section — and the old gate
-  // stops one section short of its own boundary, reading less of the report than
-  // it was written to read.
+  // The old gate stopped at the literal `== 7.`. After the insertion a section
+  // that used to be advisory carries the number 7 no longer, or a blocking one
+  // carries it instead — either way the old gate stops short of its own
+  // boundary, reading less of the report than it was written to read.
   const renumbered = withBlockingSectionAdded(report);
   const oldGate = (text) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gate-old-'));
@@ -2380,18 +2443,29 @@ test('gate: the old positional marker would have been fooled by that same edit',
     fs.rmSync(dir, { recursive: true, force: true });
     return Number(res.trim());
   };
-  assert.equal(sectionsRead(report), 6, 'the old marker read the six blocking sections');
+  /** Sections above the marker — the boundary as the shipped gate reads it. */
+  const trueBlocking = (text) =>
+    text
+      .slice(0, text.indexOf(BOUNDARY))
+      .split('\n')
+      .filter((l) => /^== \d+\. /.test(l)).length;
+
+  // THE COUNTS ARE DERIVED, NOT WRITTEN DOWN. They were the literals 6 and 7
+  // until 2026-09-18, when the blocking set legitimately shrank to five and this
+  // test failed for a reason that had nothing to do with the defect it
+  // demonstrates. The defect is a RELATIONSHIP — the old gate reads the same
+  // number of sections before and after an insertion, while the real boundary
+  // grows by one — and that holds whatever the set's size is.
+  const before = trueBlocking(report);
+  const after = trueBlocking(renumbered);
+  assert.equal(after, before + 1, 'the fixture must add exactly one blocking section');
+
+  assert.equal(sectionsRead(report), before, 'the old marker read the blocking set exactly');
   assert.equal(
     sectionsRead(renumbered),
-    6,
-    'and reads six after the insertion too — but now there are SEVEN blocking sections',
+    before,
+    `and reads ${before} after the insertion too — but now there are ${after} blocking sections`,
   );
-  // The new marker reads all seven. That difference is the defect.
-  const newlyRead = renumbered
-    .slice(0, renumbered.indexOf(BOUNDARY))
-    .split('\n')
-    .filter((l) => /^== \d+\. /.test(l)).length;
-  assert.equal(newlyRead, 7, 'the marker follows the boundary the number lost');
   assert.ok(oldGate(renumbered) > 0, 'the fixture is non-trivial');
 });
 
@@ -3719,5 +3793,106 @@ test('scan: a free section-6 finding survives --offline', () => {
       'and the note still names only the plans the host would have been asked about');
   } finally {
     fs.rmSync(path.join(s6Repo, 'plans', '2026-03-05-bare.md'), { force: true });
+  }
+});
+
+// --- The `inspect:` line names a CLI the operator has ------------------------
+//
+// It printed `gh pr view` unconditionally until 2026-09-18. On the repository
+// that reported #943 — `Git host: bitbucket` — that is a command the operator
+// cannot run, on every one of the 45 findings the section produced there.
+
+/**
+ * Runs the section-6 fixture against a Bitbucket origin with a `bb` on PATH.
+ *
+ * The stub answers `pr view` WITHOUT a `mergeCommit` key, which is the
+ * reporting repository's payload: `plot-host.sh`'s Bitbucket arm constructs no
+ * such key, so `jq -r '.mergeCommit // empty'` yields empty and every delivered
+ * plan takes the `cannot resolve` arm. That is #943 reproduced — the sibling
+ * slice fixes the payload; this one only asserts the command it prints.
+ */
+function runSection6Bitbucket() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-bb-'));
+  fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+case "$*" in
+  *"pr view "*)
+    n=$(printf '%s' "$*" | sed -E 's/.*pr view ([0-9]+).*/\\1/')
+    printf '%s' "{\\"number\\":$n,\\"state\\":\\"MERGED\\",\\"draft\\":false,\\"url\\":\\"u\\"}" ;;
+  *) printf '%s' '[]' ;;
+esac
+exit 0
+`);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+  const saved = execFileSync('git', ['-C', s6Repo, 'remote', 'get-url', 'origin'],
+    { encoding: 'utf8' }).trim();
+  git(s6Repo, 'remote', 'set-url', 'origin', 'https://bitbucket.org/plot-pm/fixture.git');
+  try {
+    return execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8',
+      cwd: s6Repo,
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    });
+  } finally {
+    git(s6Repo, 'remote', 'set-url', 'origin', saved);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('scan: the unresolvable finding names the configured host CLI', () => {
+  // On Bitbucket the section reports every delivered plan as `cannot resolve` —
+  // the symptom #943 reported, reproduced here. What this slice fixes is the
+  // command beside it: `gh` is not installed on that operator's machine.
+  const out = runSection6Bitbucket();
+  const sections = splitSections(out);
+  assert.match(sections['6'], /has no merge commit → cannot resolve/,
+    `the Bitbucket payload must reach the unresolvable arm:\n${sections['6']}`);
+  assert.match(sections['6'], /inspect: bb pr view \d+ --json/,
+    `the inspect line must name bb on a Bitbucket repo:\n${sections['6']}`);
+  assert.doesNotMatch(sections['6'], /inspect: gh /,
+    'a Bitbucket operator must never be handed a gh command');
+});
+
+test('scan: the unresolvable finding still names gh on a GitHub repo', () => {
+  // The other arm, asserted separately: a case that fixed one backend by
+  // breaking the other would pass the test above on its own.
+  const w = (rel, content) => {
+    const f = path.join(s6Repo, rel);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, content);
+  };
+  // A plan whose PR the stub answers for, but whose merge commit is not in this
+  // repo's history — the GitHub route into the same unresolvable arm.
+  w('plans/2026-03-06-nomerge.md', ['# nomerge', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### nomerge (Branch: feature/nomerge)', '',
+    '- `feature/nomerge` — done → #999', ''].join('\n'));
+  try {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-gh2-'));
+    // `mergeCommit` present for every PR but 999, which answers without it.
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env bash
+case "$*" in
+  *"pr view 999"*)
+    printf '%s' '{"number":999,"state":"MERGED","isDraft":false,"url":"u"}' ;;
+  *"pr view "*)
+    n=$(printf '%s' "$*" | sed -E 's/.*pr view ([0-9]+).*/\\1/')
+    printf '%s' "{\\"number\\":$n,\\"state\\":\\"MERGED\\",\\"isDraft\\":false,\\"url\\":\\"u\\",\\"mergeCommit\\":{\\"oid\\":\\"${s6Sha}\\"}}" ;;
+  *) printf '%s' '[]' ;;
+esac
+exit 0
+`);
+    fs.chmodSync(path.join(bin, 'gh'), 0o755);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8',
+      cwd: s6Repo,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    fs.rmSync(bin, { recursive: true, force: true });
+    const sections = splitSections(out);
+    assert.match(sections['6'], /2026-03-06-nomerge\.md — delivered, but PR #999 has no merge commit/,
+      `the GitHub route into the unresolvable arm:\n${sections['6']}`);
+    assert.match(sections['6'], /inspect: gh pr view 999 --json state,mergeCommit/,
+      `the inspect line must still name gh on a GitHub repo:\n${sections['6']}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-06-nomerge.md'), { force: true });
   }
 });
