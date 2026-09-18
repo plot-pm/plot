@@ -202,22 +202,77 @@ describe('supervisorVerdict — one reading decides the word and the styling tog
     expect(verdict.detail).toContain('1 agent is running');
   });
 
-  it('carries a died reading to the wire as down, with today’s wording', () => {
-    // THE WIRE STAYS THREE WORDS WHILE THE RULE ANSWERS FOUR. The board parses
-    // its payload with a three-value enum and the client only casts, so a
-    // fourth word reaching the wire is a value with no renderer behind it —
-    // it would arrive as a state nothing draws rather than failing anywhere.
+  it('carries a died reading to the wire as its own word', () => {
+    // THE WIRE NOW CARRIES ALL FOUR, and this test is the deliberate rewrite
+    // its predecessor asked for: it pinned the narrowing while nothing
+    // rendered the difference, and named the slice that would widen it.
     //
-    // This is the seam between the two, and it is asserted rather than left to
-    // the type checker: `supervisorState` must still SEE the death, and the
-    // banner must not change yet. A slice that widens the enum rewrites this
-    // test deliberately; one that widens it by accident fails here.
+    // The seam is still asserted rather than left to the type checker, in the
+    // other direction: the state must reach the wire unchanged, so a later
+    // collapse back to `down` fails here rather than silently removing the
+    // diagnosis from every board.
     const readings = reading({ exitCode: 1, install: 'installed', agentsRunning: 0 });
     expect(supervisorState(readings)).toBe('died');
 
     const verdict = supervisorVerdict(readings);
-    expect(verdict.state).toBe('down');
-    expect(verdict.label).toBe('FLEET STOPPED');
+    expect(verdict.state).toBe('died');
+    expect(verdict.label).not.toBe('FLEET STOPPED');
+  });
+
+  it('sends a died fleet to `--status` and never to `--start`', () => {
+    // THE REPAIR IS THE DIFFERENCE, and it is why this state was worth a word.
+    // Starting a fleet whose supervisor died runs back into whatever killed
+    // it, so the banner asks the reader to find out first. Asserted as a PAIR:
+    // a detail that gained `--status` while keeping `--start` would read as two
+    // repairs and let the reader pick the one that does not work.
+    for (const agentsRunning of [0, 3]) {
+      const verdict = supervisorVerdict(reading({ exitCode: 1, install: 'installed', agentsRunning }));
+      expect(verdict.detail).toContain('/plot-fleet --status');
+      expect(verdict.detail).not.toContain('/plot-fleet --start');
+    }
+  });
+
+  it('says a death happened rather than that nothing was ever there', () => {
+    // The defect in one assertion. `installed` read as *no unit on this
+    // machine* — false about the machine, and it hid an unexplained death from
+    // an operator who then never opened the log.
+    const verdict = supervisorVerdict(reading({ exitCode: 1, install: 'installed', agentsRunning: 3 }));
+    expect(verdict.detail).toContain('nothing stopped it');
+    expect(verdict.detail.toLowerCase()).toContain('no slice will be picked up');
+  });
+
+  it('alerts a died fleet with agents running, where quiet would hide the sentence', () => {
+    // `quiet` RENDERS NO DETAIL SENTENCE AT ALL (`FleetControls.tsx`), so a
+    // state that inherited the wrong prominence would arrive explaining
+    // nothing — the exact failure that cost an hour on 2026-09-09. The rule
+    // tests `down` by name, so `died` had to be added to it explicitly.
+    expect(supervisorProminence(reading({ exitCode: 1, install: 'installed', agentsRunning: 1 }))).toBe('alert');
+    expect(supervisorProminence(reading({ exitCode: 1, install: 'installed', agentsRunning: 6 }))).toBe('alert');
+    // And quiet with none, the same half of the rule `down` already has.
+    expect(supervisorProminence(reading({ exitCode: 1, install: 'installed', agentsRunning: 0 }))).toBe('quiet');
+  });
+
+  it('leaves the down and unknown banners byte-identical', () => {
+    // THE STATES THIS SLICE DID NOT TOUCH, PINNED AS WHOLE OBJECTS. Widening a
+    // rule is where neighbouring wording drifts, and these two are what an
+    // operator has learnt to read. A field-by-field assertion would let a new
+    // key through; `toEqual` will not.
+    expect(supervisorVerdict(reading({ exitCode: 1, agentsRunning: 3 }))).toEqual({
+      state: 'down',
+      prominence: 'alert',
+      shown: true,
+      label: 'FLEET STOPPED',
+      detail:
+        'The fleet is stopped, and 3 agents are running. No slice will be picked up, and nothing reaps a finished desk or marks a spent one. Start it: /plot-fleet --start',
+    });
+    expect(supervisorVerdict(reading({ asked: false, exitCode: null, agentsRunning: 3 }))).toEqual({
+      state: 'unknown',
+      prominence: 'note',
+      shown: true,
+      label: 'fleet status unknown',
+      detail:
+        'The board could not ask `/plot-fleet --status`, so whether the fleet is running was never established. This is not the same fact as it being stopped.',
+    });
   });
 
   it('states the quiet case without an alarm and still says how to start it', () => {
@@ -258,6 +313,8 @@ describe('the vocabulary is FLEET, in every state and in both fields', () => {
     ['loaded', reading({ exitCode: 0, agentsRunning: 3 })],
     ['stopped with agents', reading({ exitCode: 1, agentsRunning: 3 })],
     ['stopped with none', reading({ exitCode: 1, agentsRunning: 0 })],
+    ['died with agents', reading({ exitCode: 1, install: 'installed', agentsRunning: 3 })],
+    ['died with none', reading({ exitCode: 1, install: 'installed', agentsRunning: 0 })],
     ['could not ask', reading({ asked: false, exitCode: null, agentsRunning: 3 })],
   ];
 
@@ -267,6 +324,30 @@ describe('the vocabulary is FLEET, in every state and in both fields', () => {
       expect(verdict.label.toLowerCase()).toContain('fleet');
       for (const word of INTERNAL) {
         expect(verdict.label.toLowerCase()).not.toContain(word);
+      }
+    });
+  }
+
+  for (const [name, readings] of everyReading) {
+    it(`keeps machine vocabulary out of the sentence too — ${name}`, () => {
+      // THE DETAIL IS WHERE A SLIP WOULD GO. The label is four words a person
+      // writes carefully; the sentence explains a mechanism, which is exactly
+      // where the launchd label, `registryd` and the script's own `installed`
+      // are nearest to hand. `installed` is the worst of them: it is correct
+      // about the unit file and reads as the opposite of stopped.
+      //
+      // SCOPED TO WHAT IS SHOWN, and the exemption is a finding rather than a
+      // convenience. `up` carries *"The fleet is supervised"* and returns
+      // `shown: false`, so no reader meets the word — but it is the one detail
+      // on this rule that would fail the label's own vocabulary list. It is
+      // left alone here because rewriting a sentence nothing renders is
+      // outside this slice, and asserting it as-is would be writing the test
+      // to match the code.
+      const verdict = supervisorVerdict(readings);
+      if (!verdict.shown) return;
+      const detail = verdict.detail.toLowerCase();
+      for (const word of [...INTERNAL, 'installed']) {
+        expect(detail).not.toContain(word);
       }
     });
   }

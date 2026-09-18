@@ -3515,13 +3515,24 @@ export const SupervisorSchema = z.object({
    * `up` when `--status` exits 0, `down` when it exits 1, `unknown` for every
    * other outcome — another code, no code, a call that could not be made, or a
    * run that stopped before its own summary line.
+   *
+   * `died` IS EXIT 1 WITH A FINISHED START BEHIND IT — the script recorded a
+   * start here and nothing unloaded what it started, so the supervisor went
+   * away on its own. It refines `down` rather than opposing it, and is a
+   * separate word because the repair differs: a fleet that was never started
+   * needs starting, and one that died needs its log read first.
+   *
+   * THIS ENUM IS THE ONLY GUARD. The client casts this payload rather than
+   * parsing it, so a word the server emits and this list omits fails the
+   * SERVER's own parse — which is why the member is added here in the same
+   * change that teaches the banner to draw it.
    */
-  state: z.enum(['up', 'down', 'unknown']),
+  state: z.enum(['up', 'down', 'unknown', 'died']),
   /**
-   * How loudly to say it, combining the state with the agent count. `down` with
-   * no agents is `quiet` — nothing is being neglected; `down` with agents
-   * running is `alert`, because every one of them is unreapable and no slice
-   * will be picked up. `alert` is the level a chip cannot carry: measured
+   * How loudly to say it, combining the state with the agent count. `down` and
+   * `died` with no agents are `quiet` — nothing is being neglected; either with
+   * agents running is `alert`, because every one of them is unreapable and no
+   * slice will be picked up. `alert` is the level a chip cannot carry: measured
    * 2026-09-09, the correct sentence sat in a grey chip for an hour and nobody
    * acted on it.
    */
