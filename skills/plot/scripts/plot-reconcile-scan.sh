@@ -7,7 +7,14 @@
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
-#         it. The report is terminated by a machine-countable summary line:
+#         it. THE BLOCKING SET IS FIVE SECTIONS, 1-5. It was six until
+#         2026-09-18, when `6. Delivered but already released` moved below the
+#         marker: it asks which release contains a plan, not whether the plan's
+#         delivery landed, and on a host that answers no merge commit it reported
+#         every delivered plan, so no delivery could clear the gate. Sections
+#         below the marker are NOT in printed order — the number is a label and
+#         the marker is the boundary.
+#         The report is terminated by a machine-countable summary line:
 #             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
@@ -41,7 +48,12 @@
 #   5. Needs attention          — malformed / non-conforming plans, plus
 #                                 DANGLING index symlinks (a link pointing at
 #                                 nothing is a broken pointer)
-#   6. Delivered but released   — delivered plans already inside a release tag
+#   6. Delivered but released   — delivered plans already inside a release tag.
+#                                 PRINTED LAST, below the marker: it asks which
+#                                 release contains a plan, not whether the
+#                                 delivery landed. Above the marker until
+#                                 2026-09-18, where a host answering no merge
+#                                 commit made it block every delivery
 #   7. Uncut slices           — a `### ` wave heading carrying MORE THAN ONE
 #                                 branch line. A wave holds exactly one branch
 #                                 (MANIFESTO.md); one holding several is a shape
@@ -1126,105 +1138,6 @@ if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (non
 echo
 
 # ---------------------------------------------------------------------------
-# 6. Delivered plans whose work is already inside a release tag.
-#
-# The fourth phase went unreached for sixteen releases because nothing compared
-# these two facts: /plot-release ships a version, and the plans describing that
-# version stay at Delivered. Neither side is wrong on its own, so neither side
-# complained.
-#
-# The question is "which release tag contains this plan's merge commit", and
-# git answers it exactly. It is deliberately NOT a date comparison: the
-# delivery date records when a plan was BOOKED, not when its code merged (one
-# plan here sat five months between the two), and two tags in this repo share a
-# date, so day resolution cannot separate them even in principle.
-#
-# THE SECTION HONOURS `--offline`/`--no-pr`, and what it gives up is a CORRECT
-# answer rather than a broken one. Run offline, this section used to report
-# exactly what it reports online — it asked `pr-state` per delivered plan and
-# the flag said no git-host network call. The promise is the scan's own, printed
-# in the header three hundred lines above, so the section reads `PR_SOURCE` and
-# skips. What that costs is stated rather than implied: on a repository with 82
-# delivered plans the offline run had been spending ~11 minutes on a network the
-# operator asked it to leave alone, and the answer at the end of it was one a
-# reader could have had for free.
-echo "== 6. Delivered but already released (candidate /plot-release) =="
-unrel_out=""
-# Counted separately from the findings. `unreleased_delivered=` must stay a
-# count of PLANS THIS SECTION REPORTED, so a reader can tell a measured zero
-# apart from a section that never ran — the same distinction section 2's note
-# and section 3's suppression each draw.
-n_unrel_unchecked=0
-while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
-  [ -n "$f" ] || continue
-  [ "$st" = delivered ] || continue
-  # docs/infra plans end at Delivered: /plot-deliver already tells their authors
-  # "live on main — no release needed". Reporting them here would contradict a
-  # message Plot itself sends, on every sweep, forever.
-  case "$ptype" in docs|infra) continue ;; esac
-
-  base=$(basename "$f")
-  if [ -z "$prs" ]; then
-    # "Cannot tell" and "nothing wrong" must not look the same — that
-    # indistinguishability is the whole finding this section exists for.
-    unrel_out+="  $base — delivered, but no PR annotation → cannot resolve a version\n"
-    unrel_out+="    inspect: add → #N to its Branches section, then re-run\n"
-    n_unrel=$((n_unrel + 1))
-    continue
-  fi
-
-  # THE FLAG GUARDS THE HOST CALL, NOT THE ITERATION. It is read here — after
-  # the docs/infra exemption and after the arm above — because those two answer
-  # from the plan file and cost nothing. An earlier draft skipped at the top of
-  # the loop and silently dropped the `no PR annotation` finding offline, which
-  # is the same "silence reads as health" defect in the other direction: a free
-  # finding suppressed by a flag that exists to avoid a network.
-  #
-  # The count is therefore the plans that WOULD have been asked about, and no
-  # wider. Counting every delivered plan would name docs/infra ones the online
-  # run never asks about either, reporting a gap the flag did not open.
-  if [ "$PR_SOURCE" = off ]; then
-    n_unrel_unchecked=$((n_unrel_unchecked + 1))
-    continue
-  fi
-
-  last_pr="${prs##*,}"
-  sha=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null \
-        | jq -r '.mergeCommit // empty' 2>/dev/null)
-  # No grep fallback. An earlier draft searched commit messages for "#N", which
-  # matched any commit MENTIONING the PR rather than its merge — and reported
-  # v2.2.0 for a plan that shipped in v1.7.0. A wrong version in a transition
-  # record is a claim nobody re-checks, so an unanswerable case says so instead.
-  if [ -z "$sha" ]; then
-    unrel_out+="  $base — delivered, but PR #$last_pr has no merge commit → cannot resolve\n"
-    unrel_out+="    inspect: gh pr view $last_pr --json state,mergeCommit\n"
-    n_unrel=$((n_unrel + 1))
-    continue
-  fi
-
-  tag=$(git tag --contains "$sha" 2>/dev/null \
-        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
-  [ -n "$tag" ] || continue   # genuinely not released yet — nothing to report
-
-  slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-  unrel_out+="  $base — shipped in $tag, plan still Delivered\n"
-  unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
-  n_unrel=$((n_unrel + 1))
-done <<< "$plan_rows"
-if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
-# SILENCE WOULD BE THE WORSE BUG. An empty section reads as "nothing to report",
-# and this section exists precisely because "cannot tell" and "nothing wrong"
-# must not look the same — its own `no PR annotation` arm above says so. The
-# note names the number, because "some plans" is a sentence a reader cannot act
-# on and "3 delivered plans" is one they can.
-if [ "$PR_SOURCE" = off ] && [ "$n_unrel_unchecked" -gt 0 ]; then
-  echo "  note: release state not resolved for $n_unrel_unchecked delivered plan(s) (pr_source=off) —"
-  echo "        a delivered plan cannot be checked against a released version"
-  echo "        without asking the host. Re-run without --offline/--no-pr."
-fi
-echo
-
-# ---------------------------------------------------------------------------
 # THE BLOCKING/NON-BLOCKING BOUNDARY, NAMED RATHER THAN COUNTED.
 #
 # Everything above this line is a finding that stops a delivery; everything
@@ -1250,6 +1163,16 @@ echo
 #
 # MOVING IT IS THE WHOLE EDIT. A new blocking section goes above this line, a
 # new advisory one below, and no number anywhere needs to change.
+#
+# THE SET IS 1-5, AND IT SHRANK BY MOVING A SECTION ACROSS THIS LINE — the first
+# time the design above was exercised rather than argued. `6. Delivered but
+# already released` sat above it until 2026-09-18. That section asks WHICH
+# RELEASE CONTAINS A PLAN, and its unanswerable case is `cannot resolve`, which
+# on a host returning no merge commit is every delivered plan there is: measured
+# on the reporting repository, 45 findings, `unreleased_delivered=82`, and a
+# delivery gate that could never clear. Because the question it asks is not *did
+# this delivery land*, the repair was its side of this line — and /plot-deliver's
+# `sed` was not touched, nor was any section number.
 echo "== blocking sections end =="
 echo
 
@@ -2714,6 +2637,136 @@ else
     echo "  note: $nc_squashed of them are single-parent (squash) merges — a squash has no merged"
     echo "        side to diff, so this section cannot answer for them."
   fi
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# 6. Delivered plans whose work is already inside a release tag.
+#
+# IT ASKS WHICH RELEASE CONTAINS THIS, NOT WHETHER THE DELIVERY LANDED, and that
+# is why it sits BELOW `== blocking sections end ==`. It sat above the marker
+# until 2026-09-18, inside the set /plot-deliver's step 7b greps, and on a
+# repository whose host answers no merge commit it reported EVERY delivered plan
+# through the `cannot resolve` arm below — measured on the reporting repository,
+# 45 findings and `unreleased_delivered=82`, so no delivery could ever clear the
+# gate. A plan already inside a release tag is a plan whose delivery landed by
+# construction: stopping the NEXT delivery on it stops work for a reason that has
+# nothing to do with whether that work landed.
+#
+# ITS NUMBER STAYED 6 WHILE ITS PLACE CHANGED, and that is the marker's whole
+# point rather than an oversight. Section numbers here are labels — the boundary
+# is the marker line, and no consumer reads a number (the comment block above it
+# says so, and `/plot-deliver`'s gate proves it by surviving this move untouched).
+# Renumbering the sixteen sections it now sits after was measured: it broke 49
+# tests, 46 of them asserting a literal `== N.` that had not changed meaning,
+# against 3 that assert what this move genuinely changes.
+#
+# The fourth phase went unreached for sixteen releases because nothing compared
+# these two facts: /plot-release ships a version, and the plans describing that
+# version stay at Delivered. Neither side is wrong on its own, so neither side
+# complained.
+#
+# The question is "which release tag contains this plan's merge commit", and
+# git answers it exactly. It is deliberately NOT a date comparison: the
+# delivery date records when a plan was BOOKED, not when its code merged (one
+# plan here sat five months between the two), and two tags in this repo share a
+# date, so day resolution cannot separate them even in principle.
+#
+# THE SECTION HONOURS `--offline`/`--no-pr`, and what it gives up is a CORRECT
+# answer rather than a broken one. Run offline, this section used to report
+# exactly what it reports online — it asked `pr-state` per delivered plan and
+# the flag said no git-host network call. The promise is the scan's own, printed
+# in the header three hundred lines above, so the section reads `PR_SOURCE` and
+# skips. What that costs is stated rather than implied: on a repository with 82
+# delivered plans the offline run had been spending ~11 minutes on a network the
+# operator asked it to leave alone, and the answer at the end of it was one a
+# reader could have had for free.
+echo "== 6. Delivered but already released (candidate /plot-release) =="
+unrel_out=""
+# Counted separately from the findings. `unreleased_delivered=` must stay a
+# count of PLANS THIS SECTION REPORTED, so a reader can tell a measured zero
+# apart from a section that never ran — the same distinction section 2's note
+# and section 3's suppression each draw.
+n_unrel_unchecked=0
+while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
+  [ -n "$f" ] || continue
+  [ "$st" = delivered ] || continue
+  # docs/infra plans end at Delivered: /plot-deliver already tells their authors
+  # "live on main — no release needed". Reporting them here would contradict a
+  # message Plot itself sends, on every sweep, forever.
+  case "$ptype" in docs|infra) continue ;; esac
+
+  base=$(basename "$f")
+  if [ -z "$prs" ]; then
+    # "Cannot tell" and "nothing wrong" must not look the same — that
+    # indistinguishability is the whole finding this section exists for.
+    unrel_out+="  $base — delivered, but no PR annotation → cannot resolve a version\n"
+    unrel_out+="    inspect: add → #N to its Branches section, then re-run\n"
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
+  # THE FLAG GUARDS THE HOST CALL, NOT THE ITERATION. It is read here — after
+  # the docs/infra exemption and after the arm above — because those two answer
+  # from the plan file and cost nothing. An earlier draft skipped at the top of
+  # the loop and silently dropped the `no PR annotation` finding offline, which
+  # is the same "silence reads as health" defect in the other direction: a free
+  # finding suppressed by a flag that exists to avoid a network.
+  #
+  # The count is therefore the plans that WOULD have been asked about, and no
+  # wider. Counting every delivered plan would name docs/infra ones the online
+  # run never asks about either, reporting a gap the flag did not open.
+  if [ "$PR_SOURCE" = off ]; then
+    n_unrel_unchecked=$((n_unrel_unchecked + 1))
+    continue
+  fi
+
+  last_pr="${prs##*,}"
+  sha=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null \
+        | jq -r '.mergeCommit // empty' 2>/dev/null)
+  # No grep fallback. An earlier draft searched commit messages for "#N", which
+  # matched any commit MENTIONING the PR rather than its merge — and reported
+  # v2.2.0 for a plan that shipped in v1.7.0. A wrong version in a transition
+  # record is a claim nobody re-checks, so an unanswerable case says so instead.
+  if [ -z "$sha" ]; then
+    unrel_out+="  $base — delivered, but PR #$last_pr has no merge commit → cannot resolve\n"
+    # THE COMMAND MUST BE ONE THE OPERATOR CAN RUN. This printed `gh pr view`
+    # unconditionally until 2026-09-18, so a Bitbucket repository was handed a
+    # CLI it does not have — on every finding of a section that, there, reported
+    # all 45 of its delivered plans. `PR_SOURCE` carries the backend's CLI name
+    # once the probe succeeded, and a STATUS WORD (`degraded`/`absent`/`failed`/
+    # `off`) when it did not, which is why the arms are named rather than
+    # interpolated: `degraded pr view 943` is not a command either. The fallback
+    # names the adapter, which answers on every backend and is the one place
+    # allowed to ask.
+    case "$PR_SOURCE" in
+      gh) unrel_out+="    inspect: gh pr view $last_pr --json state,mergeCommit\n" ;;
+      bb) unrel_out+="    inspect: bb pr view $last_pr --json\n" ;;
+      *)  unrel_out+="    inspect: plot-host.sh pr-state $last_pr\n" ;;
+    esac
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
+  tag=$(git tag --contains "$sha" 2>/dev/null \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
+  [ -n "$tag" ] || continue   # genuinely not released yet — nothing to report
+
+  slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+  unrel_out+="  $base — shipped in $tag, plan still Delivered\n"
+  unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
+  n_unrel=$((n_unrel + 1))
+done <<< "$plan_rows"
+if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
+# SILENCE WOULD BE THE WORSE BUG. An empty section reads as "nothing to report",
+# and this section exists precisely because "cannot tell" and "nothing wrong"
+# must not look the same — its own `no PR annotation` arm above says so. The
+# note names the number, because "some plans" is a sentence a reader cannot act
+# on and "3 delivered plans" is one they can.
+if [ "$PR_SOURCE" = off ] && [ "$n_unrel_unchecked" -gt 0 ]; then
+  echo "  note: release state not resolved for $n_unrel_unchecked delivered plan(s) (pr_source=off) —"
+  echo "        a delivered plan cannot be checked against a released version"
+  echo "        without asking the host. Re-run without --offline/--no-pr."
 fi
 echo
 
