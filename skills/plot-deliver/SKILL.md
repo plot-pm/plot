@@ -460,7 +460,9 @@ Run the scan and capture both its `summary:` footer and the targeted grep:
 tail -1 /tmp/plot-deliver-gate.txt   # the summary: footer — paste this as the gate artifact
 ```
 
-Grep the **findings that block**, not every mention of the plan. The scan emits a `== blocking sections end ==` line between the two kinds: above it are the defects that stop a delivery, below it the shapes somebody fixes — uncut slices, prose slice names, the three sprint-membership findings, stale tallies, the convenience index, double claims, stale rounds. A delivered plan that never had a symlink appears below the line by design, and so does an uncut slice: neither is a half-landed delivery.
+Grep the **findings that block**, not every mention of the plan. The scan emits a `== blocking sections end ==` line between the two kinds: above it are the defects that stop a delivery, below it the shapes somebody fixes — uncut slices, prose slice names, the three sprint-membership findings, stale tallies, the convenience index, double claims, stale rounds, and the release question. A delivered plan that never had a symlink appears below the line by design, and so does an uncut slice: neither is a half-landed delivery.
+
+**The release question is below the line, and it prints last while still numbered 6.** `Delivered but already released` asks which release contains a plan, not whether that plan's delivery landed. It sat above the marker until 2026-09-18, where a host whose `pr-state` carries no merge commit sent every delivered plan to its `cannot resolve` arm — 45 findings and `unreleased_delivered=82` on the repository that reported #943, so this gate could never clear there. **Read the marker and never the number**: the section kept its number precisely because the number is a label.
 
 **Read to the marker, not to a section number.** The gate used to stop at `== 7.`, which meant *the first non-blocking section* and said *seven*; the scan has been renumbered twice, and each time somebody had to notice that a section inserted below 7 would silently shrink this gate. The marker moves with the boundary because it IS the boundary:
 
