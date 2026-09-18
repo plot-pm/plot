@@ -68,6 +68,41 @@ const SCRIPT = 'plot-fleetctl.sh';
 const SUMMARY_PREFIX = 'summary:';
 
 /**
+ * The field `--status` appends to its summary line, naming which stop this is.
+ *
+ * FOUR MACHINES EXIT 1 AND ONLY THIS SEPARATES THEM. The exit code is the
+ * contract and says loaded or not; it deliberately does not say whether the
+ * unit is absent, half-installed, or installed and dead. That last one is the
+ * defect: it read as *no unit on this machine*, which is false about the
+ * machine and hides an unexplained death.
+ *
+ * ABSENT IS NOT FALSE. A summary line without this field is an OLDER SCRIPT,
+ * never a machine with no install state — so the field is optional all the way
+ * through and `supervisorState` falls back to the exit code, which every
+ * version of the script has always answered the same way.
+ */
+const INSTALL_PREFIX = 'install=';
+
+/**
+ * Reads the install state off the `summary:` line, or nothing.
+ *
+ * SCANNED ON THE SUMMARY LINE ITSELF rather than anywhere in stdout, because
+ * the prose arms above it print words like `installed` in sentences. Matching
+ * `install=` loose in the buffer would read a state out of an explanation.
+ *
+ * @param stdout - everything the run printed.
+ * @returns the state word, or undefined where the script printed none.
+ */
+const installState = (stdout: string): string | undefined => {
+  const line = stdout.split('\n').find((l) => l.startsWith(SUMMARY_PREFIX));
+  if (line === undefined) return undefined;
+  const field = line.split(/\s+/).find((w) => w.startsWith(INSTALL_PREFIX));
+  if (field === undefined) return undefined;
+  const value = field.slice(INSTALL_PREFIX.length);
+  return value === '' ? undefined : value;
+};
+
+/**
  * Asks whether a supervisor is loaded, and reports what the run left behind.
  *
  * THE RUN AND NOT THE VERDICT. The verdict also needs the agent count, which is
@@ -96,6 +131,7 @@ export async function readSupervisor(
       asked: true,
       exitCode: run.code,
       summarised: run.stdout.includes(SUMMARY_PREFIX),
+      install: installState(run.stdout),
     };
   } catch {
     return { asked: false, exitCode: null, summarised: false };

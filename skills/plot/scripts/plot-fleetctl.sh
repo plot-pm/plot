@@ -294,9 +294,21 @@ done
 if [ "$mode" = "status" ]; then
   plat=$(platform)
   echo "platform: $plat"
+  # THE STATE IS CAPTURED ONCE PER ARM, NOT ASKED AGAIN ON THE SUMMARY LINE.
+  # `fleet_install_state` opens with `supervisor_loaded`, so calling it a second
+  # time to compose the summary would ask launchd twice per status — and the
+  # board's whole reading is bounded at 5,000 ms against a measured 4726–9770 ms
+  # with three agents. Each arm below already knows its own answer.
+  #
+  # `none` IS SET HERE AND NOWHERE ELSE, because the `none` arm returns before
+  # `fleet_install_state`'s case ever runs: the state machine cannot name a
+  # machine with no init system, and that is the state whose printed repair the
+  # board gets wrong. `--start` refuses it by design at REFUSAL 3.
+  install_state=none
   if [ "$plat" = "none" ]; then
     echo "supervisor: no init system here — neither launchd nor systemd"
   elif supervisor_loaded; then
+    install_state=running
     pid=$(supervisor_pid)
     echo "supervisor: running${pid:+ (pid $pid)} — $LABEL"
   else
@@ -313,7 +325,8 @@ if [ "$mode" = "status" ]; then
     # proving the code was the script's), so this widens the PROSE and nothing a
     # machine reads. What renders the third state on the board belongs to
     # `bug/the-board-says-the-fleet-is-stopped`.
-    case "$(fleet_install_state)" in
+    install_state=$(fleet_install_state)
+    case "$install_state" in
       interrupted)
         unit=$(unit_target)
         echo "supervisor: NOT LOADED ($LABEL) — the unit is installed and launchd does not know it"
@@ -323,6 +336,25 @@ if [ "$mode" = "status" ]; then
           systemd) echo "    systemctl --user enable --now plot-registryd" ;;
         esac
         echo "  Nothing needs re-cutting: /plot-fleet --start also does this, and starts agents too."
+        ;;
+      # THE ONE THAT LIED, and it lied about the machine rather than the fleet.
+      # `installed` means the unit is on disk AND the last `--start` recorded
+      # that it finished — `--stop` removes that marker only after a successful
+      # unload (see the `--stop` arm below). So this state is reached exactly
+      # when a completed start was followed by the supervisor dying or being
+      # booted out ON ITS OWN: a crash, a logout, an OS update.
+      #
+      # It read *not installed — no unit on this machine*, which is false about
+      # the machine and hides an unexplained death. An operator told the unit is
+      # absent does not open the supervisor's log, and a supervisor that crashed
+      # once will crash again after `--start`. The log is named here for that
+      # reason: the repair is the same command, the DIAGNOSIS is what differs.
+      installed)
+        echo "supervisor: STOPPED ($LABEL) — a --start finished here and the supervisor is gone since"
+        echo "  Nothing unloaded it: --stop clears this marker only after a clean unload."
+        echo "  So it died on its own — a crash, a logout, or an OS update."
+        echo "  Read why before restarting: .plot/logs/registryd.log"
+        echo "  then start it: /plot-fleet --start"
         ;;
       *)
         echo "supervisor: not installed ($LABEL) — no unit on this machine"
@@ -360,7 +392,19 @@ if [ "$mode" = "status" ]; then
     fi
   done
   [ $((n_run + n_other)) -gt 0 ] || echo "  (no fleet worktrees under $wt_root)"
-  echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$(supervisor_loaded && echo up || echo down)"
+  # ON THIS LINE AND NOT BESIDE IT. The board tests for this line's PRESENCE to
+  # decide `summarised` (`server/supervisor-reading.ts`, a substring test on
+  # `summary:`), and that is what separates a script that finished from one
+  # killed at a bounded wait. A field on its own line would be absent from
+  # exactly the runs that most need explaining, and would weaken the
+  # `unknown`/`down` split the whole rule exists for. An appended `key=value`
+  # cannot break a substring test.
+  #
+  # THE EXIT CODE IS UNCHANGED — 0 loaded, 1 not. `supervisorState` gates on
+  # exactly those two and answers `unknown` for everything else, so encoding the
+  # state in the code would render `unknown` from every machine in the new
+  # state. The state travels as a field precisely so the code does not have to.
+  echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$(supervisor_loaded && echo up || echo down) install=$install_state"
   supervisor_loaded
   exit $?
 fi
