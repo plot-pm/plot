@@ -786,6 +786,12 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
 # A GLOBAL FOR `PR_LIST_JQ_ARGS`' REASON, stated two hundred lines above: the
 # host command is already variadic and bash has one positional array. It is set
 # by the `pr-list` arm immediately before the call and read nowhere else.
+#
+# SPACE-SEPARATED, AND GIT IS WHAT MAKES THAT SAFE. `bb_branch_sweep` reads this
+# with an unquoted `for`, so a name carrying whitespace would split into two
+# branches that do not exist. `git check-ref-format` REFUSES a ref name
+# containing a space or a tab — verified 2026-09-20, both exit non-zero — so the
+# separator is git's guarantee rather than a hopeful convention.
 PR_LIST_BRANCHES=""
 
 # How many branches the last sweep asked about, and how many answered.

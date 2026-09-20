@@ -683,6 +683,13 @@ REMOTE_REFS=$(git for-each-ref --format='%(refname:strip=3)%09%(objectname)' \
 # default branch, not a branch of its own; asking the host about a branch called
 # `HEAD` spends a query to learn that nothing is named that.
 #
+# SPACE-SEPARATED, AND GIT IS WHAT MAKES THAT SAFE. Both this list and the
+# adapter's `PR_LIST_BRANCHES` are read by an unquoted `for`, so a name carrying
+# whitespace would split into two branches that do not exist. `git
+# check-ref-format` REFUSES a ref name containing a space or a tab — verified
+# 2026-09-20, both exit non-zero — so no such branch can reach this, and the
+# separator is git's guarantee rather than a hopeful convention.
+#
 # EMPTY IS A REAL ANSWER AND IT DISABLES THE SWEEP. A checkout with no remote
 # refs has no branches to ask about, and a sweep of nothing would state that
 # every tracked branch answered — a completeness claim over an empty set, which
