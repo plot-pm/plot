@@ -4872,6 +4872,32 @@ test('host: the sweep encodes a branch name that contains a slash', () => {
   assert.match(call, /%20AND%20/, 'the space between the two filter terms is encoded too');
 });
 
+test('host: a branch name cannot break out of the q= filter', () => {
+  // A `"` inside a branch name would close the filter's quoted value early, the
+  // same class of defect as the unencoded slash but against the QUERY GRAMMAR
+  // rather than the URL — and a branch name is free text. Encoded to %22, so the
+  // filter still reads one value and the host is asked about a branch that
+  // simply does not exist.
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--rich',
+    '--branch', 'weird"name'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const call = sweepCalls(bb.callsFile)[0];
+  assert.match(call, /weird%22name/, 'the quote is encoded, not passed through');
+  assert.ok(!/name="/.test(call), 'no raw quote reaches the request line');
+  // WHAT THIS DOES AND DOES NOT BUY. Encoding keeps the quote inert as a URL
+  // character; Bitbucket still decodes `q=` before parsing it, so a name
+  // genuinely containing one yields a malformed filter the host REFUSES. That
+  // is the safe direction and the one the sweep already handles: a refused
+  // query fails its state, no completeness is claimed, and nothing is answered
+  // about the wrong branch. `git check-ref-format` forbids `"` in a ref name,
+  // so this is unreachable through git and pinned against a future caller that
+  // passes a name from somewhere else.
+});
+
 test('host: an honest absence is a complete answer, not a failure', () => {
   // `size: 0` means this branch has no pull request in this state — an EXACT
   // answer, and the distinction `plot-fleet-scan.sh:876` protects. The sweep
