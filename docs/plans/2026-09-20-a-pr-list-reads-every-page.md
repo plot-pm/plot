@@ -117,7 +117,7 @@ silently.
 
 ## Slices
 
-### A branch asks about its own PR (Branch: bug/a-branch-asks-about-its-own-pr)
+### A branch asks about its own PR (Branch: bug/a-branch-asks-about-its-own-pr, PR: #954)
 
 - `bug/a-branch-asks-about-its-own-pr` — the Bitbucket arm gains a per-branch PR query, and the scan learns that its answer is complete
 
