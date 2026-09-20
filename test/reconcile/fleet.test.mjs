@@ -5282,3 +5282,141 @@ esac
   h.cleanup();
   f.cleanup();
 });
+
+// --- the sweep's completeness reaches the scan (#333) ------------------------
+//
+// `.list-complete` is what licenses `host_pr_state --ask` to answer NONE from a
+// cache miss instead of spending a `pr-state` call per unjoined branch. Until
+// #333 it was written from a row count — `0 < rows < PR_LIST_LIMIT` — which on
+// Bitbucket proves nothing at all, since `bb pr list` returns a fixed page
+// whether or not more exist. The adapter now STATES completeness when it swept
+// per branch, and these pin that the scan reads the statement, that a partial
+// sweep withholds it, and that the listing path keeps the old heuristic.
+//
+// WHAT IS AT RISK IS COST, NOT CORRECTNESS, which is why the assertion is a
+// call count rather than a verdict. Drop the marker and every unjoined branch
+// still resolves correctly — by asking the host once each, which is the N+1
+// #216 removed. It would return with no symptom a reader would report.
+
+// A host whose `pr-list` reports which branches it was asked about, so the test
+// can prove the scan passed them, and states its sweep complete the way
+// `plot-host.sh`'s `pr_sweep_report` does.
+const sweepingHost = (opts = {}) => `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "\${PLOT_TEST_CALLS:-/dev/null}"
+case "$1" in
+  backend) echo bitbucket ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  pr-list)
+    # Record every --branch the scan handed over, one per line.
+    shift
+    n=0
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --branch) printf '%s\\n' "$2" >> "\${PLOT_TEST_BRANCHES:-/dev/null}"; n=$((n+1)); shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    ${opts.rows ?? ''}
+    ${opts.partial
+      ? 'echo "plot-host: pr-list: answered 2 of 3 states; missing: merged" >&2; exit 7'
+      : 'echo "plot-host: pr-list sweep complete ($n branches asked, 3 of 3 states answered) — every tracked branch was asked and each answered" >&2'}
+    ;;
+  *) echo "{}" ;;
+esac
+`;
+
+test('fleet: the scan hands the host the branches it tracks', () => {
+  // The sweep cannot happen unless the branch set crosses the boundary. The
+  // scan holds it — `REMOTE_REFS` — and the adapter cannot guess it, the same
+  // rule `--repo` states: a sweep over the wrong set answers confidently about
+  // branches nobody asked about.
+  const f = squashKeptRef('plot-fleet-sweepargs-');
+  const h = hostShim(sweepingHost());
+  const branches = path.join(h.dir, 'branches.txt');
+  execFileSync('bash', [h.scan, 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_BRANCHES: branches },
+  });
+  const asked = fs.existsSync(branches)
+    ? fs.readFileSync(branches, 'utf8').split('\n').filter(Boolean) : [];
+  assert.ok(asked.includes('feature/sq'),
+    `the tracked branch is named to the host: got ${JSON.stringify(asked)}`);
+  assert.ok(!asked.includes('HEAD'),
+    'origin/HEAD is a symbolic ref, not a branch — asking about it spends a query to learn nothing');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a complete sweep licenses NONE without a per-branch call', () => {
+  // THE COST THE MARKER BUYS, asserted by spawn count. The plan named a branch
+  // nobody ever pushed, so the join cannot answer for it and `--ask` fires. With
+  // the sweep's completeness statement in hand that resolves to NONE locally;
+  // without it, the host is asked once for that branch — the N+1 returning.
+  //
+  // `PLOT_PR_LIST_LIMIT=1` holds the ROW-COUNT heuristic off, so the marker can
+  // only have come from the statement. A test that left it unset would pass
+  // against a scan that had ignored the statement entirely.
+  const f = makeRepo('plot-fleet-sweeplicence-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/never-started` — named by the plan, never pushed\n');
+  const h = hostShim(sweepingHost());
+  const calls = path.join(h.dir, 'calls.txt');
+  execFileSync('bash', [h.scan, 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_PR_LIST_LIMIT: '1' },
+  });
+  const ops = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  assert.equal(ops.filter((op) => op === 'pr-state').length, 0,
+    `a swept answer is complete, so absence is derived locally: asked ${ops.join(',')}`);
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a PARTIAL sweep withholds the licence and the host is asked', () => {
+  // THE CONTROL, and it is what makes the count above mean something. The same
+  // fixture against a sweep that answered two states of three: the survivors'
+  // rows are still real, but absence is no longer derivable for a branch whose
+  // merged query never ran — so the scan must fall back to asking. A test with
+  // only the licensed half passes against a scan that never checks.
+  const f = makeRepo('plot-fleet-sweeppartial-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/never-started` — named by the plan, never pushed\n');
+  const h = hostShim(sweepingHost({ partial: true }));
+  const calls = path.join(h.dir, 'calls.txt');
+  execFileSync('bash', [h.scan, 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_PR_LIST_LIMIT: '1' },
+  });
+  const ops = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  assert.equal(ops.filter((op) => op === 'pr-state').length, 1,
+    `a partial sweep makes no completeness claim, so the branch is asked about: ${ops.join(',')}`);
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a listing that made no sweep claim keeps the row-count heuristic', () => {
+  // THE PATH EVERY OTHER CALLER IS ON. GitHub lists in one call and states no
+  // sweep; its completeness still comes from `0 < rows < PR_LIST_LIMIT`,
+  // unchanged. With a generous limit and one row, the marker is written and the
+  // absent branch costs no call — exactly as before this slice.
+  const f = makeRepo('plot-fleet-sweeplisting-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/sq` — pushed\n- `feature/never-started` — never pushed\n');
+  f.work('feature/sq', 's.txt');
+  f.push('-u', 'origin', 'feature/sq');
+  const h = hostShim(listingHost('OPEN'));
+  const calls = path.join(h.dir, 'calls.txt');
+  execFileSync('bash', [h.scan, 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+  const ops = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  assert.equal(ops.filter((op) => op === 'pr-state').length, 0,
+    `a short listing still licenses NONE by row count: ${ops.join(',')}`);
+  h.cleanup();
+  f.cleanup();
+});
