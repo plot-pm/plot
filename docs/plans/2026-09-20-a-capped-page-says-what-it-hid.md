@@ -4,11 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Issue:** #333
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Rejected:** 2026-09-20, jwloka, the 403 was a malformed path; the total and the cursor are both available
 
 ## Changelog
 
@@ -122,3 +124,74 @@ does not block it.
 **Severity rises with PR count**, as the issue says. This repository crossed the
 cap in the `merged` state and its open state has not, which is why the board's
 open PRs are visible while older merged branches would not be.
+
+## Why this was rejected
+
+**One lens, one `reject`, and the plan's central measurement was a typo in a URL.**
+Record in `.plot/panels/2026-09-20-a-capped-page-says-what-it-hid/`.
+
+### The 403 was a missing leading slash
+
+The plan rejected the real fix on this reading:
+
+```
+$ bb api "repositories/<slug>/pullrequests?state=MERGED&pagelen=100"
+error: HTTP 403 — Forbidden
+```
+
+`bb api` concatenates `"${BB_API}${path}"`, so without the leading slash the URL
+becomes `https://api.bitbucket.org/2.0repositories/...`. Re-measured, same shell,
+same token:
+
+```
+$ bb api "/repositories/quatico/quaweb-website/pullrequests?state=MERGED&pagelen=50"
+  size:    886     <- the total this plan said cannot be known
+  pagelen: 50
+  values:  50
+  next:    YES — a cursor
+  hidden:  836
+```
+
+**Every premise of the design is false.** The total is knowable, the cursor
+exists, and the token has scope. The plan proposed an unprovable proxy for a
+number that was one correctly-formed call away.
+
+### The proposed rule is wrong in both directions
+
+`count == page size` fails as a truncation test even granting a page size:
+
+- **False negative.** `bb`'s walk breaks at page 10, so a state can return fewer
+  than 50 rows while `next` is still non-empty — genuinely incomplete. The plan
+  calls those *"provably complete"* and deletes the warning on exactly the case
+  #333 exists for.
+- **False positive.** On an exact multiple Bitbucket omits `next` on a full final
+  page, so a complete list reports as capped.
+
+### It contradicts a test it cites as support
+
+`plot-host.sh:1989` states the rule — *"THE DETECTOR IS AGAINST THE REQUESTED
+LIMIT, NEVER THE CONSTANT 50 … this plan's own defect restored"* — and
+`test/reconcile/host.test.mjs:3060` pins it. The plan cites that comment as
+support while proposing the change it forbids, and its own last Done-when item,
+`pnpm run test:contracts`, fails on that test.
+
+### And the benefit was zero
+
+`grep -rn 'possibly truncated' packages/board/src packages/domain/src` → **0**.
+Nothing consumes the warning. The plan's motivation — *"the board's banner
+carries a truncation warning for a three-row list"* — attributes a rendering to
+it, but `prError` is set only inside a `catch` on a non-zero exit, and a stderr
+line on exit 0 reaches it never. `.plot/briefs/the-arm-reports-the-states-that-answered.md:47`
+had already recorded this: *"A warning alone reaches nothing."*
+
+So the trade was a silent under-report against a shorter unread string.
+
+### What survives
+
+**The defect is real and larger than the plan said: 886 merged PRs, 50 visible,
+836 invisible to the join.** The fix is the one this plan rejected — page
+through `bb api` with the leading slash and read `size` from the envelope — and
+it closes #333 rather than leaving it open. That is
+[`a-pr-list-reads-every-page`](2026-09-20-a-pr-list-reads-every-page.md).
+
+**Nothing was implemented.** No branch, no PR, no `Started:` record.

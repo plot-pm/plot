@@ -1,1 +1,0 @@
-../2026-09-20-a-capped-page-says-what-it-hid.md
