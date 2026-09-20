@@ -88,7 +88,7 @@ through the refusal reading the port already exposes.
 
 ## Slices
 
-### The port answers partial (Branch: bug/the-port-answers-partial)
+### The port answers partial (Branch: bug/the-port-answers-partial, PR: #953)
 
 - `bug/the-port-answers-partial` — `host-shell.ts` reads exit 7 as an answer carrying rows, not a refusal, and the exit-code numbers are named in one file
 
