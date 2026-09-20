@@ -45,16 +45,20 @@ The plan's *decision* is unaffected — #951 changed how the arm calls, not whet
 
 ### The completeness signal
 
-<!-- TODO: settle which shape carries completeness to plot-fleet-scan.sh:900.
+**This is the requirement a working fix still fails without, and the plan states it one step too strongly.** Settle it before writing code.
 
-     The constraint: the scan writes `.list-complete` only when
-     `0 < rows < PR_LIST_LIMIT` (`plot-fleet-scan.sh:900`). Its signal is
-     "fewer rows than I asked for". A per-branch answer returns 0 or 1 per
-     branch and NEVER produces that signal. Without `.list-complete`, line 974
-     stops licensing `NONE` from a cache miss and every branch resolves to `-`
-     — the whole fleet degrades to "cannot tell", strictly worse than #333.
+**Two markers, two questions, and only one is at risk.** Both are written by `plot-fleet-scan.sh` from its own parsed row count; `plot-host.sh` neither writes them nor knows they exist.
 
-     Name the mechanism and what the alternative would cost. -->
+- `.list-arrived` (`:872`) — *did the host answer at all?* Written unconditionally once the list is parsed.
+- `.list-complete` (`:901`) — *was that answer whole?* Written only when `0 < rows < PR_LIST_LIMIT`.
+
+**What `.list-complete` licenses is a shortcut, not the answer.** At `:974`, a `--ask` caller whose branch missed the join resolves to `NONE` **without a host call**. Drop the marker and control falls through to `:981`, which asks `pr-state` for that branch and gets a correct answer at the cost of one call. Two call sites pass `--ask` (`:1151`, `:1217`); two do not (`:1171`, `:3311`) and those key on `.list-arrived`, which this slice does not touch.
+
+**So the plan's "every branch resolves to `-`" is the wrong failure.** `-` is `:1001`, the no-`--ask` path, reached only when `.list-arrived` is missing. Losing `.list-complete` degrades **cost**, not correctness — it re-introduces the per-branch N+1 that `#216` removed. Real, worth pinning, and not the catastrophe the plan describes. Do not write a fix that defends against the wrong one.
+
+**The question changes shape rather than becoming unanswerable.** `0 < rows < PR_LIST_LIMIT` reads completeness off a single page's size. A per-branch sweep has no page: each query returns 0 or 1, and `size: 0` is already an exact answer for that branch. Completeness becomes a property of **the sweep** — *every tracked branch was asked and each answered* — which is a stronger claim than the page heuristic ever made, and one the arm can state rather than infer.
+
+**Name the mechanism that carries it, and pin it.** Whatever you choose, the constraint is that a partial sweep must not write the marker: if any branch's query failed, the survivors are still valid answers but absence is no longer derivable. `pr_list_states` already models exactly this — it exits `PR_LIST_PARTIAL_RC` (7) when some states answered and some did not, with the survivors on stdout. A sweep that reuses that vocabulary keeps one rule where there would otherwise be two.
 
 ### Done when
 
@@ -63,7 +67,7 @@ The plan's `## Done when` list is the specification. Lifted from it, the asserti
 - **A branch whose merged PR is older than the first page is found.** PR 902 on `feature/ki-anwendungen-unter-angebote` is the measured case. Catches a fix that only widens the page.
 - **The request path carries its leading slash, pinned.** Catches the 403-that-reads-as-a-scope-error, which has already misled one plan.
 - **An honest absence is distinguishable from a failure**, pinned with *both* a 200/`size: 0` and a refused call. One without the other passes a fix that reads every outage as "no PR".
-- **`.list-complete` is still written when it should be**, pinned. Without this assertion the guard silently stops licensing `NONE` and the regression is invisible until an operator reports a board of dashes.
+- **`.list-complete` is still written when it should be**, pinned. Without this assertion the guard silently stops licensing `NONE`, every unjoined branch pays a `pr-state` call, and the N+1 that #216 removed returns invisibly — a cost regression with no symptom a reader would report.
 - **Host calls are proportional to tracked branches, not PR history** — stated with both measured numbers (11 branches, 886 merged PRs). Catches a fix that is correct and still scales with the wrong quantity.
 - **`PR_REQUESTS_PER_REFRESH` matches what the arm now makes**, so the cadence stretches for the truth rather than for 4.
 - **`pr_list_report_truncation`'s behaviour is unchanged and `host.test.mjs:3060` passes unedited**, while its comment's now-falsified premise (*"cannot report a total or a cursor"*) is corrected. The rule **"THE DETECTOR IS AGAINST THE REQUESTED LIMIT, NEVER THE CONSTANT 50"** stands. It has zero consumers, so its over-firing costs nothing — do not "fix" it.
@@ -85,6 +89,6 @@ When the PR exists, append `→ #<number>` to this branch's line in the plan's `
 
 This branch owns the Bitbucket arm of `skills/plot/scripts/plot-host.sh`, the completeness handshake in `skills/plot/scripts/plot-fleet-scan.sh`, `PR_REQUESTS_PER_REFRESH` in `packages/board/src/server/fleet.ts`, and their tests in `test/reconcile/host.test.mjs`.
 
-No other branch is in flight on this plan — it is a single-wave, single-branch plan. Verified at dispatch: `plot-fleet-scan.sh --next` returned this branch unclaimed.
+No other branch is in flight on this plan — it is a single-wave, single-branch plan. The ref does not exist yet: `git ls-remote --heads origin bug/a-branch-asks-about-its-own-pr` is empty as of 2026-09-20, so **the first push is the claim** and nothing has taken it.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
