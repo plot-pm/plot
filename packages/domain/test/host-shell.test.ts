@@ -1,11 +1,25 @@
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterAll, describe, it, expect } from 'vitest';
 
-import { hostShell } from '../src/adapters/host/host-shell.js';
+import { EXIT_PARTIAL } from '../src/adapters/host-exit.js';
+import { hostShell, refusalKindOfExit } from '../src/adapters/host/host-shell.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
+
+/** This repository's own `skills/plot/scripts`, for the cases that run the real script. */
+const realScriptDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  'skills',
+  'plot',
+  'scripts',
+);
 
 /**
  * A MOCKED HOST FAILS ON DEMAND.
@@ -197,9 +211,14 @@ describe('a refusal names which limit it hit', () => {
    * THE SPLIT FALLS ONE WAY ONLY. An exit code the mapping does not know must
    * not be promoted into a limit: both limit words counsel a wait, and a wait
    * does not fix an auth error.
+   *
+   * THE WITNESS WAS 7 UNTIL `plot-host.sh` SPENT IT. Seven is the partial
+   * answer now, and a test asserting a code means nothing must be witnessed by
+   * a code that means nothing — otherwise it passes for a reason it did not
+   * intend and stops guarding the rule it was written for. Nine is unspent.
    */
   it('gives no exit code it does not know the more specific name', async () => {
-    const host = hostShell(hostThat('exit 7'));
+    const host = hostShell(hostThat('exit 9'));
     await host.prList('open');
     expect(host.lastRefusal()?.kind).toBe('failed');
   });
@@ -610,5 +629,194 @@ describe('a refusal corrects the prediction for the rest of the session', () => 
     const host = hostShell(stubbornHost());
     host.observe('throttled');
     expect(limitIn(await host.limit())).toBe(60);
+  });
+});
+
+/**
+ * A PARTIAL ANSWER KEEPS ITS ROWS.
+ *
+ * `plot-host.sh` exits 7 where several states were asked and some answered:
+ * the answering states' rows are on stdout and the failures are named on
+ * stderr. `a-partial-page-is-not-an-outage` (#951) taught the `Scripts` port to
+ * read that and did not teach this one — `record()` sent 7 through
+ * `refusalKindOfExit`, which knew only 5 and 6, and `resultOf` then discarded
+ * the rows because every non-zero code is `failed` there.
+ *
+ * THESE PIN THE ADAPTER'S READING OF THE CODE, NOT A ROUTE `prList` CAN REACH.
+ * `prList(state, limit)` passes ONE state, and `plot-host.sh:587` states that
+ * with one state asked *"some answered and some did not"* is unreachable by
+ * construction — a single-state call against a failing host exits 3. So the
+ * scripts below exit 7 anyway, deliberately, because what is under test is
+ * what this adapter does with the code when a caller on the multi-state route
+ * produces one. The suite below this proves the script really spends 7.
+ *
+ * Do not delete these as unreachable. The contract is what is being pinned.
+ */
+describe('a host that answered some of what it was asked', () => {
+  /** A script that prints two rows and exits 7, as the partial arm does. */
+  const partialHost = () =>
+    hostThat(
+      [
+        `echo '{"number":11,"state":"OPEN","head":"feature/a","url":"u1"}'`,
+        `echo '{"number":12,"state":"OPEN","head":"feature/b","url":"u2"}'`,
+        `echo "plot-host: pr-list: answered 2 of 3 states; missing: merged" >&2`,
+        'exit 7',
+      ].join('\n'),
+    );
+
+  it('keeps the rows the answering states printed', async () => {
+    // THE ASSERTION THE HALF-FIX FAILS. Mapping the refusal kind and returning
+    // `resultOf(run, parse)` unchanged still discards stdout on a non-zero
+    // code, so a fix that only touches `refusalKindOfExit` passes every other
+    // test here and fails this one.
+    const answer = await hostShell(partialHost()).prList('all');
+    expect(answer.ok).toBe(true);
+    expect(answer.ok && answer.value.map((pr) => pr.number)).toEqual([11, 12]);
+  });
+
+  /**
+   * A PARTIAL BOTH ANSWERS AND HAS SOMETHING TO REPORT, and this is the line a
+   * later reader would otherwise re-litigate: `lastRefusal()` is NOT nulled.
+   * The port documents it as *"the last refusal, or null where the last call
+   * answered"*, and a partial answers only in part — the states that did not is
+   * a fact no other reading carries, and the sentence names them.
+   */
+  it('still reports which states went missing', async () => {
+    const host = hostShell(partialHost());
+    await host.prList('all');
+    expect(host.lastRefusal()?.said).toContain('missing: merged');
+  });
+
+  /**
+   * `failed` IS A DECISION HERE, NOT A FALLBACK. The kind answers one question
+   * — how long should a caller wait — and on a partial the states that did not
+   * answer failed for ordinary reasons a wait does not fix. Neither limit word
+   * may be promoted onto it, and a fourth kind would be a second place to read
+   * the partiality from, which the rows already carry.
+   */
+  it('names the refusal `failed` rather than either limit', async () => {
+    const host = hostShell(partialHost());
+    await host.prList('all');
+    expect(host.lastRefusal()?.kind).toBe('failed');
+    expect(refusalKindOfExit(7)).toBe('failed');
+  });
+
+  /**
+   * ROWS THAT WILL NOT PARSE ARE NO ANSWER AT ALL. The reflex fix wraps the
+   * parse and lets a throw become `answered([])`, which reports a host holding
+   * nothing — the one reading a partial must never collapse into, and the
+   * failure #912 is made of.
+   */
+  it('refuses a partial whose rows are malformed rather than reading it as empty', async () => {
+    const answer = await hostShell(
+      hostThat('echo "{not json}"; echo "missing: merged" >&2; exit 7'),
+    ).prList('all');
+    expect(answer).toEqual({ ok: false, why: 'failed' });
+  });
+
+  /**
+   * THE SINGLE-STATE ROUTE IS UNAFFECTED, which is the other half of the
+   * unreachability above: `prList('open')` against a failing host gets the
+   * total-refusal code, and nothing here changes what that means.
+   */
+  it('leaves a single-state refusal a refusal', async () => {
+    const answer = await hostShell(hostThat('exit 3')).prList('open');
+    expect(answer).toEqual({ ok: false, why: 'failed' });
+  });
+
+  /**
+   * THE CODES THAT WERE ALREADY UNDERSTOOD ARE BYTE-IDENTICAL, pinned per code
+   * rather than in aggregate. A refactor of `refusalKindOfExit` that widens 7's
+   * arm into a range, or narrows 5 and 6 while adding it, fails here.
+   */
+  it.each([
+    [3, 'failed'],
+    [5, 'throttled'],
+    [6, 'secondary'],
+  ])('leaves exit %i reading %s, exactly as before', async (code, kind) => {
+    const host = hostShell(hostThat(`exit ${code}`));
+    const answer = await host.prList('open');
+    expect(answer).toEqual({ ok: false, why: 'failed' });
+    expect(host.lastRefusal()?.kind).toBe(kind);
+    expect(refusalKindOfExit(code)).toBe(kind);
+  });
+});
+
+/**
+ * THE NUMBER IS THE SCRIPT'S, AND THIS IS WHERE THAT IS PROVED.
+ *
+ * Every case above writes its own `plot-host.sh`, so `EXIT_PARTIAL` could be
+ * any integer and they would all still pass: they agree with themselves. A
+ * constant naming a code the script does not spend is the failure a shared
+ * exit-code file exists to prevent, and only the real script can refute it.
+ *
+ * So this runs the REAL `skills/plot/scripts/plot-host.sh` against a
+ * PATH-stubbed `bb` that fails one of the three states `--state all` expands
+ * to. What is faked is the host CLI and nothing else — the state loop, the
+ * counting, and the exit code are production's.
+ *
+ * Bitbucket rather than GitHub deliberately: `bb pr list` has no `all` state,
+ * so that arm calls once per state and is the one that can answer some and not
+ * others. The backend is read from the remote, hence the fake repository.
+ */
+describe('the exit code this adapter reads is the one the script spends', () => {
+  /**
+   * A fake Bitbucket repository whose `bb` is the given script body.
+   *
+   * No `ShellContext` here: this spawns `plot-host.sh` itself rather than
+   * going through the adapter, because what is under test is the SCRIPT's exit
+   * code. Routing it through `hostShell` would put the reading being verified
+   * on both sides of the assertion.
+   */
+  const repoWhoseBbIs = (body: string): { repoRoot: string; path: string } => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-host-real-'));
+    shells.push(root);
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'bb'), `#!/usr/bin/env bash\n${body}\n`);
+    chmodSync(join(bin, 'bb'), 0o755);
+    execFileSync('git', ['init', '-q', '.'], { cwd: root });
+    execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:acme/widget.git'], {
+      cwd: root,
+    });
+    return { repoRoot: root, path: `${bin}:${process.env.PATH ?? ''}` };
+  };
+
+  /** Runs the real `plot-host.sh pr-list --state all` in that repository. */
+  const prListAll = (repo: { repoRoot: string; path: string }) =>
+    spawnSync('bash', [join(realScriptDir, 'plot-host.sh'), 'pr-list', '--state', 'all'], {
+      cwd: repo.repoRoot,
+      env: { ...process.env, PATH: repo.path },
+      encoding: 'utf8',
+    });
+
+  /** A `bb` that answers every state but `merged`. */
+  const ONE_STATE_FAILS = [
+    'for a in "$@"; do',
+    '  if [ "$a" = "merged" ]; then echo "bb: HTTP 500 on merged" >&2; exit 1; fi',
+    'done',
+    `echo '[{"id":11,"title":"t","state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"u"}}}]'`,
+  ].join('\n');
+
+  /** A `bb` that answers nothing at all. */
+  const EVERY_STATE_FAILS = 'echo "bb: down" >&2\nexit 1';
+
+  it('spends EXIT_PARTIAL when one of three states fails, and prints the rest', () => {
+    const run = prListAll(repoWhoseBbIs(ONE_STATE_FAILS));
+    // The code the constant names, from the script itself.
+    expect(run.status).toBe(EXIT_PARTIAL);
+    // AND THE ROWS ARE THERE. A code alone would not prove this is a partial
+    // answer rather than a refusal that happens to exit 7.
+    expect(run.stdout.trim().split('\n').filter(Boolean).length).toBeGreaterThan(0);
+    expect(run.stderr).toContain('missing: merged');
+  });
+
+  it('keeps a total outage on its own code, never on EXIT_PARTIAL', () => {
+    // THE OTHER HALF OF THE CONTRACT. Where NO state answers the script keeps
+    // the code it has always had, so an outage can never read as a partial
+    // page — which is what lets the adapter above trust the rows.
+    const run = prListAll(repoWhoseBbIs(EVERY_STATE_FAILS));
+    expect(run.status).not.toBe(EXIT_PARTIAL);
+    expect(run.stderr).toContain('no state answered');
   });
 });
