@@ -14,6 +14,14 @@ import type {
   MergedAnswer,
   PrLookup,
 } from '../../ports/host.js';
+import {
+  EXIT_BROKE,
+  EXIT_OK,
+  EXIT_PARTIAL,
+  EXIT_QUOTA,
+  EXIT_SECONDARY,
+  EXIT_UNASKABLE,
+} from '../host-exit.js';
 import { asJson, asJsonLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -124,20 +132,21 @@ const limitOf = (raw: RawLimit): LimitReading => {
   };
 };
 
-/** `plot-host.sh`'s exit code for a spent quota. */
-const EXIT_QUOTA = 5;
-
-/** `plot-host.sh`'s exit code for a secondary limit. */
-const EXIT_SECONDARY = 6;
-
 /**
  * Which refusal one of `plot-host.sh`'s exit codes names.
  *
- * THE SPLIT FALLS ONE WAY ONLY, which is why this is a switch on two known
- * codes rather than a range. `plot-host.sh` gives the specific name only to a
- * message it recognised, and a code this does not know must not be promoted
- * into one: `throttled` and `secondary` each counsel a wait, and a wait does
- * not fix an auth error.
+ * THE SPLIT FALLS ONE WAY ONLY, which is why this is a switch on known codes
+ * rather than a range. `plot-host.sh` gives the specific name only to a message
+ * it recognised, and a code this does not know must not be promoted into one:
+ * `throttled` and `secondary` each counsel a wait, and a wait does not fix an
+ * auth error.
+ *
+ * `EXIT_PARTIAL` is named here and answers `failed`, which is a decision rather
+ * than the fallback it looks like. This kind answers ONE question — how long
+ * should a caller wait — and on a partial the states that did not answer failed
+ * for ordinary reasons a wait does not fix. The partiality is carried by the
+ * rows `record` keeps, not by this word; a fourth kind would be a second place
+ * to read it from, and the two would drift.
  *
  * Exported for test — the mapping is the contract between the script's exit
  * codes and the port.
@@ -148,6 +157,7 @@ const EXIT_SECONDARY = 6;
 export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
   if (code === EXIT_QUOTA) return 'throttled';
   if (code === EXIT_SECONDARY) return 'secondary';
+  if (code === EXIT_PARTIAL) return 'failed';
   return 'failed';
 };
 
@@ -187,13 +197,36 @@ export const hostShell = (context: ShellContext): Host => {
    * `4` is `unaskable` and is NOT a refusal: a Bitbucket repo with no tracker
    * is answering, permanently and correctly. Recording it as one would make a
    * standing configuration fact look like an incident worth waiting out.
+   *
+   * `7` IS AN INCOMPLETE ANSWER, NOT AN ABSENT ONE, and it is the only code
+   * that carries both streams. Where several states are asked and some answer,
+   * the rows already printed are a real partial answer; `resultOf` maps every
+   * non-zero code to `failed` and would discard them. So this parses stdout
+   * itself for that one code, and the run still records its refusal — a partial
+   * both answers and has something to report, and `lastRefusal` is where the
+   * missing states are named.
+   *
+   * `resultOf` IS NOT TAUGHT THIS. It is shared by seven adapters, and a
+   * partial answer is this connector's fact: the multi-state call that produces
+   * one exists nowhere else. Teaching it there would hand every filesystem port
+   * a reading it never asked for.
    */
   const record = <T>(run: ScriptRun, parse: (stdout: string) => T): PortResult<T> => {
-    if (run.code === 0 || run.code === 4) {
+    if (run.code === EXIT_OK || run.code === EXIT_UNASKABLE) {
       refusal = null;
     } else {
       const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
       refusal = { kind: refusalKindOfExit(run.code), said };
+    }
+    if (run.code === EXIT_PARTIAL) {
+      try {
+        return answered(parse(run.stdout));
+      } catch {
+        // Rows that will not parse are no answer at all. Falling through to
+        // `answered([])` would report a host holding nothing, which is the one
+        // reading a partial must never collapse into.
+        return resultOf({ ...run, code: EXIT_BROKE }, parse);
+      }
     }
     return resultOf(run, parse);
   };

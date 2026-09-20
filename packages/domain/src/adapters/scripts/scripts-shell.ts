@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 
 import type { PortResult } from '../../port-result.js';
 import type { HostAnswer, ScriptOptions, Scripts, StartedRun } from '../../ports/scripts.js';
+import { EXIT_OK, EXIT_PARTIAL, EXIT_UNASKABLE } from '../host-exit.js';
 import { runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -85,7 +86,7 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       // every other non-zero exit is an attempt that failed, which some callers
       // should wait before repeating. The sentence travels because that is the
       // only thing separating a rate limit from a DNS blip.
-      if (run.code === 0) return { answer: 'answered', stdout: run.stdout };
+      if (run.code === EXIT_OK) return { answer: 'answered', stdout: run.stdout };
       const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
       // 7 IS AN INCOMPLETE ANSWER, NOT AN ABSENT ONE, and it is the only code
       // that carries both streams. `bb pr list` has no `all` state, so the
@@ -97,8 +98,10 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       // A TOTAL FAILURE STILL ARRIVES AS 3, 5 OR 6, so a genuine outage cannot
       // reach this line. The adapter decides which of the two it was; here the
       // only job is to keep the rows alongside the sentence.
-      if (run.code === 7) return { answer: 'partial', stdout: run.stdout, said };
-      return run.code === 4 ? { answer: 'unaskable', said } : { answer: 'failed', said };
+      if (run.code === EXIT_PARTIAL) return { answer: 'partial', stdout: run.stdout, said };
+      return run.code === EXIT_UNASKABLE
+        ? { answer: 'unaskable', said }
+        : { answer: 'failed', said };
     },
 
     awaited: async (script, args, options) => {
