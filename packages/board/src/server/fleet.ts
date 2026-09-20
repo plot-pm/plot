@@ -190,6 +190,26 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // state) plus one for `issue-list`, which now reaches the network instead of
   // exiting 4. Do not "fix" the three by inventing an `all` — it would fabricate
   // an answer the host cannot give.
+  //
+  // FOUR IS THE COST OF THE CALL THIS FILE MAKES, and since #333 that is a
+  // statement about a call SHAPE rather than about the backend. `pr-list` now
+  // takes a repeatable `--branch`: given branches, the Bitbucket arm asks its
+  // REST endpoint about each one by name — branches × states queries, exact and
+  // complete — and given none it lists as before. `refreshPrs` below passes
+  // none, so it still makes three listings plus the issue call, and four is
+  // what it spends.
+  //
+  // WHOEVER MOVES THIS FILE ONTO THE SWEEP MUST CHANGE THIS NUMBER, and the
+  // arithmetic is `branches × 3 + 1` rather than a constant. On the repository
+  // measured 2026-09-20 that is 11 × 3 + 1 = 34 against today's 4, which takes
+  // the interval from 240 s to roughly half an hour — so such a change is a
+  // cadence decision, not a call-site edit. `plot-fleet-scan.sh` pays that cost
+  // deliberately: it runs on an operator's command, not on a 5 s timer, and it
+  // is the caller whose join the truncation actually breaks.
+  //
+  // UNDER-DECLARING IS THE FAILURE NAMED ABOVE, and over-declaring is its
+  // mirror: stretching this board's cadence for queries it never issues would
+  // slow every refresh to pay for nothing.
   bitbucket: 4,
 };
 

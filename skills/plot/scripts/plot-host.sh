@@ -594,6 +594,289 @@ PR_LIST_PARTIAL_RC=7
 # once per state and never written here.
 PR_LIST_JQ_ARGS=()
 
+# --- the per-branch sweep (#333) --------------------------------------------
+#
+# THE JOIN ASKS ABOUT BRANCHES AND THE LIST ANSWERS ABOUT A REPOSITORY, and the
+# gap between those two questions is #333. `plot-fleet-scan.sh` holds a dozen
+# branch names and asks `pr-list` for every pull request the repository has
+# ever had, then indexes what came back by `head` and discards the rest.
+# Measured 2026-09-20 on `quatico/quaweb-website`: 12 board rows against 902
+# pull requests, of which the join uses about 1%.
+#
+# THAT WOULD ONLY BE WASTEFUL IF THE LIST WERE WHOLE. It is not. `bb pr list`
+# returns a fixed page of 50 per state, and the repository holds 886 MERGED
+# pull requests — so 836 of them are invisible to the join, and every branch
+# whose pull request is among them reads as having none. That is the fabricated
+# verdict `plot-fleet-scan.sh:876` rules against by name, reached from the one
+# direction the truncation detector below can report but not repair.
+#
+# SO THE SWEEP INVERTS THE QUESTION. Given the branches the caller actually
+# tracks, it asks the REST endpoint about each one by name, through the same
+# `q=` filter `bb` already builds for `--author`:
+#
+#   /repositories/{ws}/{repo}/pullrequests
+#     ?q=state="MERGED" AND source.branch.name="feature/x"&pagelen=50
+#
+# Measured on that repository: `size: 1 | values: 1 | ids: 902` — PR 902 is one
+# of the 836 a listing cannot reach — and a branch with no pull request answers
+# `size: 0`, which is an EXACT ABSENCE rather than a short page.
+#
+# WHY NOT PAGE THE LIST INSTEAD, since the endpoint carries a `next` cursor.
+# Two measurements refuse it. `fleet.ts:184` declares the per-refresh cost and
+# `prRefreshMsFor` stretches the interval by it so hourly spend stays 60;
+# walking all 18 merged pages makes the cost ~21 and the interval follows
+# mechanically, 240 s → 1260 s, with `MAX_CADENCE_STRETCH = 8` taking the worst
+# case to 2.8 hours. And the growth curve runs the wrong way: paging costs grow
+# with the repository's pull-request history — the very quantity whose growth
+# makes #333 worse — while a sweep costs what the CALLER TRACKS and is constant
+# in pull-request count. `pagelen=100` is refused by Bitbucket (HTTP 400), so
+# 50 is the ceiling and 18 pages was a floor rather than a safe estimate.
+#
+# THE LEADING SLASH IS LOAD-BEARING. `bb api` concatenates "${BB_API}${path}",
+# so a path without it yields `…/2.0repositories/…` and an HTTP 403 that reads
+# exactly like a missing scope. A previous plan was rejected for inferring a
+# scope problem from this symptom. It is written once, here, and pinned.
+#
+# `bb`'s OWN PAGINATOR IS NOT REACHED FOR, and that is deliberate rather than
+# incidental: `bb:203` caps at 10 pages — 500 rows at `pagelen=50`, 386 short
+# of 886 — and exits with no error and no marker. A helper that silently
+# returns a prefix is worse here than one that refuses.
+
+# Bitbucket's own state word for one of this adapter's states.
+#
+# The `q=` filter matches Bitbucket's vocabulary, which is upper-case and calls
+# a rejected pull request DECLINED. The adapter's own words are `bb pr list`'s,
+# which are lower-case. One mapping, so a caller never spells a state twice.
+bb_query_state() { # $1=adapter state word → Bitbucket's
+  case "$1" in
+    open)       printf 'OPEN' ;;
+    merged)     printf 'MERGED' ;;
+    declined)   printf 'DECLINED' ;;
+    superseded) printf 'SUPERSEDED' ;;
+    *) die "bb_query_state: unknown state '$1'" ;;
+  esac
+}
+
+# Percent-encode one value for a URL query string.
+#
+# BRANCH NAMES ARE NOT URL-SAFE and this repository proves it: `feature/x` is
+# the ordinary shape, and `/` inside an unencoded `q=` value ends the filter
+# early, so the query would ask about `feature` and answer about the wrong
+# branch — or about none. Encoding is done here rather than by the caller so
+# every query on this path is encoded the same way.
+#
+# `LC_ALL=C` makes the loop byte-wise, so a multi-byte character is encoded as
+# its bytes rather than mangled into one `?`. Branch names carrying non-ASCII
+# are rare and entirely legal.
+url_encode() { # $1=raw → percent-encoded on stdout
+  local _s="$1" _i _c _out=""
+  local LC_ALL=C
+  for (( _i = 0; _i < ${#_s}; _i++ )); do
+    _c="${_s:_i:1}"
+    case "$_c" in
+      [a-zA-Z0-9.~_-]) _out="$_out$_c" ;;
+      *) _out="$_out$(printf '%%%02X' "'$_c")" ;;
+    esac
+  done
+  printf '%s' "$_out"
+}
+
+# Ask Bitbucket about ONE branch in ONE state, and print the `values` array.
+#
+# WHAT IT PRINTS is the endpoint's `values` — a JSON array of 0 or 1 pull
+# request objects, in the SAME shape `bb pr list --json` emits, which is what
+# lets the existing jq programs consume it unchanged. The `--rich` field set
+# (`plot-host.sh:3247`) reads `.id`, `.title`, `.state`, `.source.branch.name`,
+# `.draft` and `.links.html.href`; the REST object carries all six.
+#
+# AN ABSENT ANSWER IS NOT A FAILED ONE, and the exit code is what says which.
+# `size: 0` is an honest absence — the branch has no pull request in this state
+# — and exits 0 with `[]` on stdout. A refused call exits non-zero and prints
+# nothing, so a caller reading the CODE can never mistake an outage for an
+# empty repository. `plot-fleet-scan.sh:891` records that exact confusion
+# happening from the other side: a host exiting 0 while printing nothing once
+# read as "this repo has no PRs".
+#
+# `pagelen=50` rather than 1. A branch may legitimately carry several pull
+# requests in one state — a merged attempt and a merged successor — and the
+# consumers rank them (`fleet.ts`'s `prOutranks`, the scan's OPEN-before-MERGED
+# sort). Asking for one would silently hand them whichever the host listed
+# first, which no adapter promises. Fifty is the endpoint's ceiling and costs
+# the same as one.
+# THE HOST'S OWN FAILURE TEXT LEAVES HERE UNCLASSIFIED, and that is the whole
+# reason this does not call `pr_list_call`. That wrapper classifies a failure
+# ONCE — throttled, burst, or everything else — and composes the sentence a
+# reader acts on. Calling it per branch and again around the sweep classifies
+# twice, and the second pass reads the FIRST pass's prose rather than the host's
+# message: measured here, a `429` became *"the host failed the request and said
+# nothing"* because `Rate limit … exceeded` was no longer in the text being
+# matched. So the raw stderr and the raw exit code travel out of this function
+# untouched, and the single `pr_list_call` that `pr_list_states` already wraps
+# the whole sweep in does the one classification — exactly the layering
+# `bb pr list` has always had.
+bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]
+  local _br="$1" _st="$2"; shift 2
+  local _q _path _out _rc
+  _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND source.branch.name=$(url_encode "\"$_br\"")"
+  # The space between the two terms is encoded too; `bb api` passes the path to
+  # curl verbatim and an unencoded space would truncate the request line.
+  _q="${_q// /%20}"
+  # THE LEADING SLASH. See the block header — without it this is a 403 that
+  # reads as a scope error.
+  _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50"
+  # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
+  # would turn the host's exit code into jq's, and a parse error and a spent
+  # quota are not the same fact.
+  _out="$(bb "$@" api "$_path")" || return $?
+  printf '%s' "$_out" | jq -c '.values // []'
+}
+
+# Ask about EVERY tracked branch in one state, printing one combined array.
+#
+# THE SHAPE `pr_list_states` ALREADY EXPECTS. It calls its host command once
+# per state and pipes the result through a jq program that starts `.[]`, so the
+# sweep's job is to produce the same thing a single `bb pr list --state X`
+# would have: one JSON array of pull request objects. The states loop, the row
+# counting, the truncation report and the partial-answer rule above all stay in
+# exactly one place — `pr_list_call`'s own header makes that argument, and a
+# sweep with its own copy of the loop is the drift it names.
+#
+# A BRANCH THAT FAILS ENDS THE STATE, and that is the conservative direction.
+# The combined array is only an answer if every branch in it was asked; one
+# refused query means absence is no longer derivable for that branch, and a
+# short array reported as whole is what #333 IS. So a failure propagates —
+# `pr_list_call` exits — and `pr_list_states` classifies the state as failed,
+# which reaches the caller as a partial answer (exit 7) when other states
+# answered, or as the failure's own code when none did. One vocabulary.
+# THE CALLING CONVENTION IS `pr_list_states`', NOT THIS FUNCTION'S OWN. That
+# helper appends `--state <s> --json` to whatever command it was given, so a
+# sweep that wants to sit in the same slot must accept those two trailing
+# arguments and read the state out of them. Doing it the other way — teaching
+# `pr_list_states` which of its commands is a sweep — would put a backend's
+# shape inside the one piece of this file that has none.
+#
+# `--json` is accepted and ignored. The REST payload is JSON whether or not it
+# is asked for, and refusing a flag the caller must pass would make the slot
+# incompatible for the sake of a distinction with no consequence.
+bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
+  local _st="" _args=() _acc="[]" _br _rc
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --state) _st="${2:?}"; shift 2 ;;
+      --json)  shift ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  [ -n "$_st" ] || die "bb_branch_sweep: no --state"
+  # THE ANSWERS ARE SPOOLED TO A FILE AND JOINED ONCE, NEVER PASSED THROUGH
+  # ARGV. The first version accumulated with
+  # `jq -c --argjson add "$_one" '. + $add'`, which hands a whole branch's
+  # payload to `jq` as a command-line argument — and Linux caps one argument at
+  # `MAX_ARG_STRLEN` (128 KB) where macOS has no such ceiling.
+  #
+  # WHAT THAT COST, measured 2026-09-20 against a Debian container: a branch
+  # carrying 886 merged pull requests is a 147 KB payload, `jq` died with
+  # *"Argument list too long"*, `_acc` came back EMPTY, and the sweep exited 0
+  # while printing no rows AND stating its completeness — a confident claim of
+  # "no pull requests" over a branch that had 886. That is precisely the
+  # fabricated verdict this whole slice exists to remove, rebuilt one layer in.
+  # It passed on macOS and failed only on Linux, which is where CI and every
+  # board run.
+  #
+  # A FILE HAS NO SUCH CEILING, and one `jq -s add` over the spool replaces N
+  # re-parses of a growing accumulator: the old shape re-read every row it had
+  # already seen once per branch, so eleven branches parsed the first branch's
+  # payload eleven times.
+  local _spool
+  _spool="$(mktemp "/tmp/plot-host-sweep.$$.XXXXXX")" || return 3
+  for _br in $PR_LIST_BRANCHES; do
+    # RETURN, NOT EXIT. This runs inside the command substitution
+    # `pr_list_call` wraps the sweep in, so the code must travel back as this
+    # function's status for that wrapper to classify it. An `exit` here would
+    # leave the substitution with an empty payload and a code the wrapper reads
+    # as the sweep's own — the silent empty list `pr_list_call`'s header names.
+    #
+    # The spool is removed on EVERY exit path, including the failing one: a
+    # sweep that gives up mid-way must not leave a payload behind in /tmp.
+    bb_branch_query "$_br" "$_st" ${_args[@]+"${_args[@]}"} >> "$_spool" \
+      || { _rc=$?; rm -f "$_spool"; return $_rc; }
+  done
+  # `-s` reads the whole stream as one array of arrays; `add` flattens it.
+  # An EMPTY spool — every branch answered `[]` — makes `add` yield `null`, so
+  # the fallback keeps the contract that this prints a JSON ARRAY, which is
+  # what the caller's `.[]` needs.
+  _acc="$(jq -c -s 'add // []' < "$_spool")" || { rm -f "$_spool"; return 3; }
+  rm -f "$_spool"
+  printf '%s' "$_acc"
+}
+
+# The branches a sweep asks about, newline-or-space separated. Empty means the
+# caller named none, and the arm keeps the bulk listing it has always used.
+#
+# A GLOBAL FOR `PR_LIST_JQ_ARGS`' REASON, stated two hundred lines above: the
+# host command is already variadic and bash has one positional array. It is set
+# by the `pr-list` arm immediately before the call and read nowhere else.
+#
+# SPACE-SEPARATED, AND GIT IS WHAT MAKES THAT SAFE. `bb_branch_sweep` reads this
+# with an unquoted `for`, so a name carrying whitespace would split into two
+# branches that do not exist. `git check-ref-format` REFUSES a ref name
+# containing a space or a tab — verified 2026-09-20, both exit non-zero — so the
+# separator is git's guarantee rather than a hopeful convention.
+PR_LIST_BRANCHES=""
+
+# How many branches the last sweep asked about, and how many answered.
+#
+# THE COMPLETENESS SIGNAL, AND WHY THE ARM STATES IT RATHER THAN THE SCAN
+# INFERRING IT. `plot-fleet-scan.sh:901` writes `.list-complete` when
+# `0 < rows < PR_LIST_LIMIT` — completeness read off a single page's size,
+# which is the only evidence a bulk listing offers. A sweep has no page: each
+# query returns 0 or 1, and `size: 0` is already an exact answer for that
+# branch. So completeness stops being a property of a row count and becomes a
+# property of the SWEEP — every tracked branch was asked and each one answered
+# — which is a stronger claim than the page heuristic could ever make, and one
+# this side can state as a fact rather than leave to be guessed from a number.
+#
+# A PARTIAL SWEEP MUST NOT MAKE THE CLAIM. If any branch's query failed, the
+# survivors are still valid answers and are still printed, but absence is no
+# longer derivable for the branches that went unasked. The line is emitted only
+# when every state answered.
+#
+# ONE COUNTER, NOT TWO. How many branches ANSWERED is not tracked beside this,
+# because a failed branch query ends its whole state (see `bb_branch_sweep`) and
+# the states tally `pr_list_states` already keeps is therefore the same fact. A
+# second counter would be a second answer to one question, and the two would
+# drift the first time either side changed.
+PR_SWEEP_ASKED=0
+
+# State on stderr that the sweep was WHOLE — the licence `.list-complete` needs.
+#
+# THE LINE IS A CONTRACT, not a log. `plot-fleet-scan.sh` reads it to decide
+# whether a cache miss means "no pull request" or "never asked", so its wording
+# is pinned by a test the same way the truncation report's is. It names both
+# counts, because a reader who sees the claim should be able to check it.
+#
+# WHAT IT LICENSES IS A SHORTCUT, NOT THE ANSWER. Without it, a `--ask` caller
+# whose branch missed the join falls through to a `pr-state` call per branch and
+# still gets a correct answer — the per-branch N+1 that #216 removed, which is a
+# COST regression rather than a wrong one. So withholding the line is always
+# safe and is what a partial sweep does.
+#
+# EVERY STATE MUST HAVE ANSWERED. A sweep asks each branch once per state, and a
+# branch's absence is only established when every state was asked about it: a
+# merged pull request missed because the `merged` state failed reads exactly
+# like a branch that never had one. So the claim is made on the STATES' tally,
+# which `pr_list_states` already keeps, rather than on a per-branch count that
+# would have to be reconciled with it.
+#
+# SILENT WHEN NO SWEEP RAN. The bulk path makes no per-branch claim and keeps
+# the row-count heuristic it has always used, so nothing is printed and no
+# existing caller's behaviour changes.
+pr_sweep_report() { # $1=states answered $2=states asked
+  [ -n "$PR_LIST_BRANCHES" ] || return 0
+  [ "$1" -eq "$2" ] 2>/dev/null || return 0
+  echo "plot-host: pr-list sweep complete ($PR_SWEEP_ASKED branches asked, $1 of $2 states answered) — every tracked branch was asked and each answered" >&2
+}
+
 pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host command
   local backend="$1" limit="$2" states="$3" jq_prog="$4"; shift 4
   local _s _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states=""
@@ -623,10 +906,22 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     fi
     [ -n "$_err" ] && printf '%s\n' "$_err" >&2
     _ok=$((_ok + 1))
-    pr_list_report_truncation "$backend" "$limit" "$_s" \
+    # A SWEEP MAKES NO PAGE CLAIM, so the page detector is not asked. Its rule
+    # is about a LISTING that cannot report a total — see its header — and a
+    # sweep's row count has no page semantics at all: the count is how many of
+    # the asked branches have a pull request in this state, and two of eleven is
+    # a complete answer rather than a short one. Running it here would print
+    # "possibly truncated" immediately before `pr_sweep_report` states the
+    # answer was whole, which is the adapter contradicting itself on one stream.
+    #
+    # THE DETECTOR ITSELF IS UNTOUCHED and still fires exactly as it did on
+    # every listing call — `host.test.mjs:3060` passes unedited. What changed is
+    # that a path exists whose premise it was never written about.
+    [ -n "$PR_LIST_BRANCHES" ] || pr_list_report_truncation "$backend" "$limit" "$_s" \
       "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)"
     printf '%s' "$_raw" | jq -c ${PR_LIST_JQ_ARGS[@]+"${PR_LIST_JQ_ARGS[@]}"} "$jq_prog"
   done
+  pr_sweep_report "$_ok" "$((_ok + _failed))"
   [ -z "$_failed_states" ] && return 0
   if [ "$_ok" -eq 0 ]; then
     # NO STATE ANSWERED — a total outage, and it keeps the code it has always
@@ -1993,11 +2288,19 @@ jira_check() {
 #                               AT LEAST the requested limit — the host may have
 #                               had more that the limit hid. Fewer rows than the
 #                               limit PROVES completeness.
-#   bitbucket (IGNORES --limit): `bb pr list` has no --limit and cannot report a
-#                               total or a cursor, so it can NEVER prove
+#   bitbucket (IGNORES --limit): `bb pr list` has no --limit and reports neither
+#                               a total nor a cursor, so it can NEVER prove
 #                               completeness for a --limit call. Any non-empty
 #                               page is therefore possibly truncated. An empty
 #                               page had nothing to truncate.
+#
+# THE PREMISE ABOVE IS ABOUT `bb pr list`, AND IT WAS ONCE WRITTEN ABOUT
+# BITBUCKET. It said the host "cannot report a total or a cursor" — true of the
+# CLI's listing and false of the REST endpoint behind it, which carries both a
+# `size` and a `next`. That mattered the moment a path existed that could ask:
+# the per-branch sweep (#333) proves completeness exactly, per branch, and this
+# detector is deliberately not asked about it (`pr_list_states`). The rule below
+# is unchanged and still governs every listing call.
 #
 # No --limit was requested → the caller accepted the host's default page and is
 # owed no report, so no existing no-limit caller's behaviour changes.
@@ -2998,12 +3301,28 @@ case "$op" in
     # that wants history says how much; the default stays the host's, so no
     # existing caller's result changes.
     limit=""
+    branches=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --state) state="${2:?}"; shift 2 ;;
         --limit) limit="${2:?}"; shift 2 ;;
         --rich) rich=1; shift ;;
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        # THE BRANCHES THE CALLER TRACKS, repeatable, and OPT-IN. Given any,
+        # the Bitbucket arm sweeps the REST endpoint once per branch per state
+        # instead of listing the repository; given none, every existing caller
+        # gets exactly the listing it always got. Four callers pass none today
+        # (`plot-fleet-scan.sh`, `plot-open-pr.sh`, `plot-impl-status.sh` and
+        # `fleet.ts`), so the bulk path stays the default rather than the
+        # legacy one.
+        #
+        # WHY THE CALLER NAMES THEM AND THIS OP DOES NOT GUESS. The same rule
+        # `--repo` states a few lines up: the caller knows which branches its
+        # refs came from and this op cannot. Deriving them here — from remote
+        # refs, say — would make the adapter invent a working set, and a sweep
+        # over the wrong set answers confidently about branches nobody asked
+        # about while missing the ones they did.
+        --branch) branches="${branches:+$branches }${2:?}"; shift 2 ;;
         *) die "pr-list: unknown arg $1" ;;
       esac
     done
@@ -3202,7 +3521,11 @@ case "$op" in
       # Forwarding it errors with `unknown flag`, and dropping it silently
       # would serve a short page as if it were the whole set — the quiet wrong
       # answer this adapter refuses elsewhere. So it is dropped AND said.
-      if [ -n "$limit" ]; then
+      # A SWEEP IS NOT A PAGE AND OWES NO SUCH WARNING. `--limit` bounds a
+      # listing; a per-branch query returns that branch's pull requests and
+      # nothing was capped, so the notice would describe a truncation that did
+      # not happen. Said only for the listing it is about.
+      if [ -n "$limit" ] && [ -z "$branches" ]; then
         echo "plot-host: bitbucket ignores --limit $limit; bb returns a fixed page (50 at 1.0.0)" >&2
       fi
       # Establish that bb supports --json BEFORE calling it — Done-when 5.
@@ -3213,6 +3536,23 @@ case "$op" in
       # with no output — an unknown state reading as "no PRs matched", which
       # is the exact failure this translation exists to remove.
       bb_states="$(bb_states_for "$state")" || exit 1
+      # THE ONE PLACE THE SWEEP IS CHOSEN, and it is chosen as a COMMAND rather
+      # than as a flag the three sites below each test. They differ only in the
+      # jq program they pipe the payload through — `pr_list_states`' header says
+      # so — and a sweep that added an `if` to each would make them differ in two
+      # ways, which is how the six hand-applied fixes `pr_list_call` warns about
+      # began. One assignment here; the sites are untouched but for this word.
+      PR_LIST_BRANCHES="$branches"
+      PR_SWEEP_ASKED=0
+      bb_cmd=(bb ${repo_args[@]+"${repo_args[@]}"} pr list)
+      if [ -n "$branches" ]; then
+        # A SWEEP'S COST IS THE CALLER'S WORKING SET, and it is reported so the
+        # caller can check the claim it is about to be handed. Branches × states
+        # — 11 branches over 3 states is 33 exact queries, against 3 listings
+        # that answer for 50 of 902 rows.
+        for _b in $branches; do PR_SWEEP_ASKED=$((PR_SWEEP_ASKED + 1)); done
+        bb_cmd=(bb_branch_sweep ${repo_args[@]+"${repo_args[@]}"})
+      fi
       if [ "$rich" = 1 ]; then
         if [ "$ci" = "jenkins" ]; then
           # Bitbucket PR list, `checks` filled from Jenkins — the SAME overlay
@@ -3239,19 +3579,19 @@ case "$op" in
                     then [$jentry.job]
                     else []
                   end)
-                }' bb ${repo_args[@]+"${repo_args[@]}"} pr list || exit $?
+                }' "${bb_cmd[@]}" || exit $?
         else
           # Bitbucket without Jenkins: checks remain unknown
           PR_LIST_JQ_ARGS=()
           pr_list_states bitbucket "$limit" "$bb_states" \
             '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}' \
-            bb ${repo_args[@]+"${repo_args[@]}"} pr list || exit $?
+            "${bb_cmd[@]}" || exit $?
         fi
       else
         PR_LIST_JQ_ARGS=()
         pr_list_states bitbucket "$limit" "$bb_states" \
           '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}' \
-          bb ${repo_args[@]+"${repo_args[@]}"} pr list || exit $?
+          "${bb_cmd[@]}" || exit $?
       fi
     fi
     ;;
