@@ -10,6 +10,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-20, jwloka, in-session
 - **Impl:** own branches
+- **Started:** 2026-09-20, Jan Wloka, `bug/the-port-answers-partial`
 
 ## Changelog
 
