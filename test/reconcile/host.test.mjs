@@ -5007,6 +5007,46 @@ test('host: sweep calls are proportional to tracked branches, not to PR history'
     'and every row the host had for a tracked branch is served');
 });
 
+test('host: a payload larger than one argv slot still reaches stdout', () => {
+  // A REAL DEFECT, AND THE WORST SHAPE IT COULD TAKE. The sweep first joined its
+  // per-branch answers with `jq --argjson add "$payload"`, which hands a whole
+  // branch's rows to `jq` through argv — and Linux caps ONE argument at
+  // `MAX_ARG_STRLEN` (128 KB) where macOS has no ceiling at all.
+  //
+  // Measured 2026-09-20 in a Debian container: a branch carrying 886 merged
+  // pull requests is a 147 KB payload, `jq` died with "Argument list too long",
+  // the accumulator came back empty, and the sweep exited 0 while printing NO
+  // ROWS and still stating its completeness. A confident "no pull requests"
+  // over a branch that had 886 — the fabricated verdict this whole slice exists
+  // to remove, rebuilt one layer inside the fix. It passed on macOS and failed
+  // only where CI and every board actually run.
+  //
+  // The answers are spooled to a file and joined once instead. This pins the
+  // SIZE rather than the mechanism: a future accumulator that reintroduces an
+  // argv hop fails here regardless of how it spells it.
+  const branch = 'feature/huge';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fhuge';
+  // Padded titles take one branch's payload well past 128 KB on its own, so the
+  // limit is crossed by a SINGLE query rather than by the total.
+  const rows = Array.from({ length: 400 }, (_, i) => ({
+    ...restPr(2000 + i, branch),
+    title: `PR ${2000 + i} ${'x'.repeat(400)}`,
+  }));
+  const bb = makeSweepBbStub({ prs: { [key]: rows } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '1000', '--rich',
+    '--branch', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(!/Argument list too long/i.test(res.stderr), 'no payload travels through argv');
+  assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, rows.length,
+    'every row survives a payload larger than one argument may be');
+  // THE HALF THAT MAKES IT A BUG RATHER THAN A SHORTFALL: the old shape claimed
+  // completeness over the rows it had just lost.
+  assert.match(res.stderr, /sweep complete/, 'and the completeness claim covers rows that actually arrived');
+});
+
 test('host: the sweep states its completeness, and names both counts', () => {
   // THE CONTRACT `plot-fleet-scan.sh` READS to write `.list-complete`. Its
   // wording is pinned on both sides: the scan matches the phrase, and a reader

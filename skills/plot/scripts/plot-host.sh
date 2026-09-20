@@ -759,7 +759,7 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
 # is asked for, and refusing a flag the caller must pass would make the slot
 # incompatible for the sake of a distinction with no consequence.
 bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
-  local _st="" _args=() _acc="[]" _br _one
+  local _st="" _args=() _acc="[]" _br _rc
   while [ $# -gt 0 ]; do
     case "$1" in
       --state) _st="${2:?}"; shift 2 ;;
@@ -768,15 +768,45 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
     esac
   done
   [ -n "$_st" ] || die "bb_branch_sweep: no --state"
+  # THE ANSWERS ARE SPOOLED TO A FILE AND JOINED ONCE, NEVER PASSED THROUGH
+  # ARGV. The first version accumulated with
+  # `jq -c --argjson add "$_one" '. + $add'`, which hands a whole branch's
+  # payload to `jq` as a command-line argument — and Linux caps one argument at
+  # `MAX_ARG_STRLEN` (128 KB) where macOS has no such ceiling.
+  #
+  # WHAT THAT COST, measured 2026-09-20 against a Debian container: a branch
+  # carrying 886 merged pull requests is a 147 KB payload, `jq` died with
+  # *"Argument list too long"*, `_acc` came back EMPTY, and the sweep exited 0
+  # while printing no rows AND stating its completeness — a confident claim of
+  # "no pull requests" over a branch that had 886. That is precisely the
+  # fabricated verdict this whole slice exists to remove, rebuilt one layer in.
+  # It passed on macOS and failed only on Linux, which is where CI and every
+  # board run.
+  #
+  # A FILE HAS NO SUCH CEILING, and one `jq -s add` over the spool replaces N
+  # re-parses of a growing accumulator: the old shape re-read every row it had
+  # already seen once per branch, so eleven branches parsed the first branch's
+  # payload eleven times.
+  local _spool
+  _spool="$(mktemp "/tmp/plot-host-sweep.$$.XXXXXX")" || return 3
   for _br in $PR_LIST_BRANCHES; do
     # RETURN, NOT EXIT. This runs inside the command substitution
     # `pr_list_call` wraps the sweep in, so the code must travel back as this
     # function's status for that wrapper to classify it. An `exit` here would
     # leave the substitution with an empty payload and a code the wrapper reads
     # as the sweep's own — the silent empty list `pr_list_call`'s header names.
-    _one="$(bb_branch_query "$_br" "$_st" ${_args[@]+"${_args[@]}"})" || return $?
-    _acc="$(jq -c --argjson add "$_one" '. + $add' <<<"$_acc")"
+    #
+    # The spool is removed on EVERY exit path, including the failing one: a
+    # sweep that gives up mid-way must not leave a payload behind in /tmp.
+    bb_branch_query "$_br" "$_st" ${_args[@]+"${_args[@]}"} >> "$_spool" \
+      || { _rc=$?; rm -f "$_spool"; return $_rc; }
   done
+  # `-s` reads the whole stream as one array of arrays; `add` flattens it.
+  # An EMPTY spool — every branch answered `[]` — makes `add` yield `null`, so
+  # the fallback keeps the contract that this prints a JSON ARRAY, which is
+  # what the caller's `.[]` needs.
+  _acc="$(jq -c -s 'add // []' < "$_spool")" || { rm -f "$_spool"; return 3; }
+  rm -f "$_spool"
   printf '%s' "$_acc"
 }
 
