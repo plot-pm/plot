@@ -4780,9 +4780,21 @@ test('host: the same account keys the same way across calls', () => {
 // `prs` maps a branch name to the pull requests it has, in the endpoint's own
 // envelope shape. A branch absent from the map answers `size: 0` — an honest
 // absence — and a branch named in `fail` refuses with a chosen message and code.
+//
+// EACH PAYLOAD IS WRITTEN TO A FILE AND `cat`ed, NEVER EMBEDDED AS A TOKEN.
+// Linux caps a single argument at `MAX_ARG_STRLEN` (128 KB) and macOS does not,
+// so the 886-row payload the cost test needs — 148 KB once quoted — ran here
+// and produced ZERO rows on CI, with the call count still correct because the
+// calls were made and only their output was lost. Measured 2026-09-20 against
+// run 35533420716. A file has no such ceiling and the stub stays one process.
 function makeSweepBbStub({ prs = {}, fail = {} } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-sweep-'));
   const callsFile = path.join(dir, 'bb.calls');
+  const payloadFor = (key, rows) => {
+    const f = path.join(dir, `payload-${Buffer.from(key).toString('hex').slice(0, 40)}.json`);
+    writeFileSync(f, JSON.stringify({ size: rows.length, values: rows }));
+    return f;
+  };
   const body = `#!/usr/bin/env bash
 if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
@@ -4793,7 +4805,7 @@ path="$2"
 ${Object.entries(fail).map(([frag, v]) =>
   `if [[ "$path" == *${JSON.stringify(frag)}* ]]; then echo ${JSON.stringify(v.said ?? 'error: HTTP 500')} >&2; exit ${v.code ?? 1}; fi`).join('\n')}
 ${Object.entries(prs).map(([key, rows]) =>
-  `if [[ "$path" == *${JSON.stringify(key)}* ]]; then printf '%s' ${JSON.stringify(JSON.stringify({ size: rows.length, values: rows }))}; exit 0; fi`).join('\n')}
+  `if [[ "$path" == *${JSON.stringify(key)}* ]]; then cat ${JSON.stringify(payloadFor(key, rows))}; exit 0; fi`).join('\n')}
 printf '%s' '{"size":0,"values":[]}'
 `;
   writeFileSync(path.join(dir, 'bb'), body);
