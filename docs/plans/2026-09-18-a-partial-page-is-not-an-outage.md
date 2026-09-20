@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #912
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-18, jwloka, in-session
 - **Started:** 2026-09-18, jwloka, `bug/the-arm-reports-the-states-that-answered`
 - **Delivered:** 2026-09-18
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #333
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Started:** 2026-09-20, jwloka, `bug/a-branch-asks-about-its-own-pr`
 - **Delivered:** 2026-09-20
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 

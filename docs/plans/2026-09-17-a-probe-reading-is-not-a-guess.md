@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #929
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -16,6 +16,7 @@
 - **Started:** 2026-09-17, Jan Wloka, `bug/the-auth-reading-matches-the-cli`
 - **Started:** 2026-09-17, Jan Wloka, `bug/a-jenkinsfile-is-found-where-it-lives`
 - **Delivered:** 2026-09-18
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 

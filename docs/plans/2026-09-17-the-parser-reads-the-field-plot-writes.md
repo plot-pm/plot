@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #933
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-17, jwloka, in-session
 - **Delivered:** 2026-09-17
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 
@@ -114,7 +115,7 @@ because the condition is gone, not because it was softened.
 
 ## Slices
 
-### The parser reads the field Plot writes (Branch: bug/the-parser-reads-the-field-plot-writes)
+### The parser reads the field Plot writes (Branch: bug/the-parser-reads-the-field-plot-writes, PR: #944)
 
 - `bug/the-parser-reads-the-field-plot-writes` — invert the precedence in `plot-plan-meta.sh` so a canonical `State:`/`Phase:` wins over front matter where both exist, keeping `phase_alt` as the loser and every single-shape plan byte-identical
 

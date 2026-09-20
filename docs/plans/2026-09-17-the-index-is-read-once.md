@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -12,6 +12,7 @@
 - **Approved:** 2026-09-18, jwloka, in-session
 - **Started:** 2026-09-18, Jan Wloka, `bug/the-index-is-read-once`
 - **Delivered:** 2026-09-18
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 

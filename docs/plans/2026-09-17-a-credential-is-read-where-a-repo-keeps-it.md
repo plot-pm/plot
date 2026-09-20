@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #930
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -15,6 +15,7 @@
 - **Approved:** 2026-09-17, jwloka, in-session
 - **Started:** 2026-09-17, Jan Wloka, `feature/a-credential-is-read-where-a-repo-keeps-it`
 - **Delivered:** 2026-09-18
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 

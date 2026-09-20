@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Review:** in-session
 - **Rounds:** 1
@@ -13,6 +13,7 @@
 - **Started:** 2026-09-18, jwloka, `bug/the-reading-carries-which-stopped`
 - **Started:** 2026-09-18, jwloka, `bug/the-banner-names-what-died`
 - **Delivered:** 2026-09-18
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 
@@ -121,7 +122,7 @@ command a reader can address; machine vocabulary stays where a machine reads it.
 
 ## Slices
 
-### The reading carries which stopped (Branch: bug/the-reading-carries-which-stopped)
+### The reading carries which stopped (Branch: bug/the-reading-carries-which-stopped, PR: #950)
 
 - `bug/the-reading-carries-which-stopped` — `--status` reports its install state on the `summary:` line, `SupervisorRun` carries it, and `supervisorState` answers a fourth value → #950
 
@@ -138,7 +139,7 @@ so a board reading an older script behaves exactly as today; `supervisorState`
 answers `down` when the field is absent, pinned; and `pnpm run test:contracts`
 passes.
 
-### The banner names what died (Branch: bug/the-banner-names-what-died) <!-- waits: bug/the-reading-carries-which-stopped -->
+### The banner names what died (Branch: bug/the-banner-names-what-died, PR: #952) <!-- waits: bug/the-reading-carries-which-stopped -->
 
 - `bug/the-banner-names-what-died` — `supervisorVerdict` and `supervisorProminence` gain the case, the wire schema and the DOM attribute gain the value → #952
 

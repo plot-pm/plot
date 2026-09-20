@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Review:** in-session
 - **Rounds:** 1
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Started:** 2026-09-20, Jan Wloka, `bug/the-port-answers-partial`
 - **Delivered:** 2026-09-20
+- **Released:** 2026-09-20, 2.19.0
 
 ## Changelog
 
