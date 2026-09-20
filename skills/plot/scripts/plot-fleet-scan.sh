@@ -660,6 +660,36 @@ PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
 # secondary limit waits minutes for a ceiling that cleared in seconds.
 HOST_VERDICT=unasked
 
+# The remote branches this scan tracks, read once for every question that asks.
+#
+# MOVED UP FROM ITS OLD POSITION (#333) so the host call below can be told which
+# branches to ask about. It is the same single `for-each-ref` it always was —
+# see the commentary at its old site — and the reasons it exists are unchanged:
+# `git show-ref --verify` was asked once per branch from two places, and
+# `%(objectname)` rides along free for the commit walk.
+REMOTE_REFS=$(git for-each-ref --format='%(refname:strip=3)%09%(objectname)' \
+  "refs/remotes/origin" </dev/null 2>/dev/null)
+
+# The branch names alone, space-separated — what the sweep asks the host about.
+#
+# THE JOIN'S OWN KEYS, AND NOTHING WIDER. `prefill_pr_states` indexes the host's
+# reply by branch and every row it cannot key is discarded, so the set this asks
+# about is exactly the set that could ever be used. Measured 2026-09-20 on
+# `quatico/quaweb-website`: 11 remote branches against 902 pull requests, of
+# which a listing hands over 50 — the sweep asks 11 questions and gets 11
+# answers, where the listing asked one and answered for 5%.
+#
+# `HEAD` IS DROPPED. `refs/remotes/origin/HEAD` is a symbolic ref naming the
+# default branch, not a branch of its own; asking the host about a branch called
+# `HEAD` spends a query to learn that nothing is named that.
+#
+# EMPTY IS A REAL ANSWER AND IT DISABLES THE SWEEP. A checkout with no remote
+# refs has no branches to ask about, and a sweep of nothing would state that
+# every tracked branch answered — a completeness claim over an empty set, which
+# would license `NONE` for branches nobody asked about. `prefill_pr_states`
+# falls back to the listing there, which is what it has always done.
+TRACKED_BRANCHES=$(printf '%s\n' "$REMOTE_REFS" | cut -f1 | grep -v '^HEAD$' | grep -v '^$' | tr '\n' ' ')
+
 prefill_pr_states() {
   [ "$HOST_LOOKUP_OK" = 1 ] || return 0
   [ -n "$HOST_STATE_CACHE" ] || return 0
@@ -688,7 +718,19 @@ prefill_pr_states() {
   # and /dev/null keeps the call working with the text simply unavailable.
   host_list_out="${HOST_STATE_CACHE:+$HOST_STATE_CACHE/pr-list.json}"
   host_list_out="${host_list_out:-/dev/null}"
+  # THE BRANCHES THIS SCAN TRACKS, HANDED TO THE HOST (#333). The adapter uses
+  # them only where it can — the Bitbucket arm sweeps its REST endpoint once per
+  # branch per state — and ignores them everywhere else, so the GitHub arm makes
+  # the single call it always made. Passing them unconditionally keeps one call
+  # shape here rather than a backend test this script has no business making.
+  #
+  # AN EMPTY SET PASSES NOTHING and the adapter lists as before. See
+  # `TRACKED_BRANCHES`: a completeness claim over an empty set would license
+  # `NONE` for branches nobody asked about.
+  _branch_args=()
+  for _tb in $TRACKED_BRANCHES; do _branch_args+=(--branch "$_tb"); done
   host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" --rich \
+         ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$host_list_out"); rc=$?
   js=$(cat "$host_list_out" 2>/dev/null)
   # A PARTIAL ANSWER TAKES THE PARSE PATH AND STILL DEGRADES THE VERDICT, which
@@ -897,9 +939,39 @@ EOF
   # A repository genuinely holding zero PRs loses nothing by being asked: it has
   # no branches with PRs for the join to serve either, so the cost is zero calls
   # in both readings.
-  if [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
-    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
-  fi
+  #
+  # A SWEEP STATES ITS COMPLETENESS; A PAGE ONLY EVER IMPLIED IT (#333). The
+  # test above reads completeness off one page's size, which is the only
+  # evidence a listing offers — and on Bitbucket it is evidence the listing
+  # cannot give at all, since `bb pr list` returns a fixed 50 whether or not
+  # more exist. Where the adapter swept per branch it says so on stderr, naming
+  # both counts, and that sentence is a stronger claim than any row count: every
+  # tracked branch was asked and each one answered.
+  #
+  # THE ROW COUNT IS NOT CONSULTED ON THAT PATH, and it must not be. A sweep
+  # over 11 branches of which 2 have pull requests emits 2 rows — a true and
+  # complete answer that `0 < rows < PR_LIST_LIMIT` would also accept, but for
+  # the wrong reason, and which a sweep of 0 matches would fail outright despite
+  # being equally complete. Reading the claim the adapter made is exact where
+  # re-deriving it from the output is a coincidence.
+  #
+  # THE WORDING IS A CONTRACT between this script and `plot-host.sh`'s
+  # `pr_sweep_report`, pinned on both sides. A partial sweep never prints it, so
+  # a match is licence and a miss is silence — never a guess.
+  #
+  # WHAT IS LOST BY GETTING THIS WRONG IS COST, NOT CORRECTNESS. Without the
+  # marker, `host_pr_state --ask` falls through to one `pr-state` call per
+  # unjoined branch and still answers correctly — the per-branch N+1 that #216
+  # removed. That is why withholding the marker is always the safe direction and
+  # is what every failure path here does.
+  case "$host_err" in
+    *"pr-list sweep complete"*)
+      printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true ;;
+    *)
+      if [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
+        printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+      fi ;;
+  esac
 }
 prefill_pr_states
 
@@ -1520,8 +1592,12 @@ worktree_locked() { # $1=worktree path → 0 when a lock is held there
 # on the population that must stay free. The walk here is a subject/emptiness
 # question rather than a timestamp read, but the guard is deliberately broad and
 # loosening it to fit this change is how a guard rots.
-REMOTE_REFS=$(git for-each-ref --format='%(refname:strip=3)%09%(objectname)' \
-  "refs/remotes/origin" </dev/null 2>/dev/null)
+# READ ABOVE `prefill_pr_states`, not here. The per-branch sweep (#333) hands
+# the host the branches this scan tracks, and that list is exactly what this
+# batch already answers — so the assignment moved up rather than a second
+# `for-each-ref` being added beside it. Everything documented above still
+# describes it; only the line's position changed, and it depends on nothing but
+# git, so nothing between the two points can read a different answer.
 
 # Whether `origin/$1` exists, answered from the batch rather than by spawning.
 #
