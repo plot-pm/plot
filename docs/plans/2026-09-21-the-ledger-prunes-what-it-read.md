@@ -11,7 +11,7 @@
 
 ## Changelog
 
-- A host call stops scanning the whole budget ledger. `budget_rate` reads 312589 lines to answer a question about the last hour, at 516 ms a read and several reads per call; the reader that already proved which lines are dead now removes them, as `truncationOwed` has always specified. Measured on a Bitbucket repository with three open pull requests: `plot-host.sh pr-list` took 2567–7241 ms against 507–1183 ms with the record switched off, and one `budget_rate` took 516 ms against 5 ms over fifty lines.
+- A host call stops scanning the whole budget ledger. `budget_rate` reads 312589 lines to answer a question whose live answer is 2273 of them, at 516 ms a read and several reads per call; the reader that already proved which lines are dead now removes them, as `truncationOwed` has always specified. Measured on a Bitbucket repository with three open pull requests: `plot-host.sh pr-list` took 2567–7241 ms against 507–1183 ms with the record switched off, and one `budget_rate` took 516 ms against 5 ms over fifty lines.
 
 Board impact: none. The board reads no ledger; it calls `plot-host.sh`, which gets faster.
 
@@ -32,7 +32,7 @@ Measured 2026-09-21 on `quatico/quaweb-website`, Plot 2.19.0:
 | | |
 |---|---|
 | `~/.plot/state/budget.tsv` | 17.6 MB, 312589 lines |
-| lines for the account under test, inside the 1 h window | 119937 |
+| lines for the account under test | 120728, of which **2273 live** — 98.1% dead |
 | `budget_rate` over that file | **516 ms** |
 | `budget_rate` over 50 lines | **5 ms** |
 | `plot-host.sh pr-list --state open` | 2567–7241 ms |

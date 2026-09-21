@@ -11,7 +11,7 @@
 
 ## Changelog
 
-- A branch whose pull-request state could not be fetched is no longer reported as abandoned. `quietKind` read `prState: 'none'` as *no pull request was ever opened*, which is also what an unreachable or unanswered host produces — so on a Bitbucket repository with three open pull requests, the board called seven branches abandoned and three of them had live pull requests under review.
+- A branch whose pull-request state could not be fetched is no longer reported as abandoned. `quietKind` read `prState: 'none'` as *no pull request was ever opened*, which is also what an unreachable or unanswered host produces — so on a Bitbucket repository the board called seven branches abandoned and three of them carried pull requests, one open and two draft.
 
 Board impact: yes. A new `quietKind` value crosses the wire; `AgentRowSchema.quietKind` gains it and the row renders it.
 
@@ -31,7 +31,7 @@ Plot already knows the difference and states it honestly one layer out — the f
 
 ### What it says today, and what is true
 
-Measured 2026-09-20 on `quatico/quaweb-website`: `prAgeSeconds: null`, seven branches rendered *"commits, no PR ever opened — abandoned"*, **three of them carrying open pull requests** (#358, #405, #445). The raw call answers correctly in 0.4 s; the board never sees it before its own timeout.
+Measured 2026-09-20 on `quatico/quaweb-website`: `prAgeSeconds: null`, seven branches rendered *"commits, no PR ever opened — abandoned"*, **three of them carrying pull requests** (#358 OPEN, #405 and #445 DRAFT). The raw call answers correctly in 0.4 s; the board never sees it before its own timeout.
 
 `abandoned` is the most consequential word on the row — it is what tells a person the branch can be deleted. Producing it from an absence of evidence is the one direction this must never fail in.
 

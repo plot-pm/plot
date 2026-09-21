@@ -29,7 +29,7 @@ The hint was in the spread. Raw: 63 ms, stable. Through Plot: a factor of 2.8 on
 | | |
 |---|---|
 | `~/.plot/state/budget.tsv` | **17.6 MB, 312589 lines** |
-| lines for this one account, inside the 1 h window | 119937 |
+| lines for this one account | 120728, of which **2273 live** — 98.1% dead |
 | `budget_rate` over that file | **516 ms** |
 | `budget_rate` over a 50-line file | **5 ms** |
 | ledger lines written per `pr-list` | 7 |
@@ -54,13 +54,15 @@ Recorded because two of them are mistakes a reader could repeat.
 
 **2 · "`budget_rate` returns `lines: 0` despite 2241 matching lines."** A **zsh** artifact. `plot-budget.sh` is bash; sourced into zsh, `budget_now_ms` fails with `command not found: date`, `now` is empty, and every line falls outside the window. In bash the same file answers `lines: 119937, limit: 1000, basis: predicted`. **Source Plot's shell helpers in bash.**
 
+**And `lines` is not what it looks like.** It counts lines MATCHING the connector and account, not lines inside the window — `spent` is the windowed figure. This note first read it as a window count and said so; the live split is 2273 of 120728.
+
 **3 · "The page size is known but unused."** Overtaken by #954 (2026-09-20), which asks Bitbucket per branch; completeness now comes from the sweep's own statement rather than from comparing a row count to a page size.
 
 ## What is still true
 
 **`pr: null` is a claim, not a state.** Plot reports `possibly truncated … unprovable` correctly, and the display turns that into *"no PR ever opened — abandoned"*. Not-knowing becomes a false fact. A third state — *not asked* — is already derivable from `prAgeSeconds: null`.
 
-**Rate limits were never reached.** `bb` answers in 0.4 s, `jen` in 11 ms, exit 0, three correct rows. The 90 s timeouts are real; their cause is N × 3 s of Plot's own overhead, not a remote refusing.
+**No rate limit was hit during these measurements** — `bb` answers in 0.4 s, `jen` in 11 ms, exit 0, three correct rows — and the account CAN be pushed into one: a later run under eight concurrent agents drew a `429` from `bb` and `EXIT=6` through `plot-host.sh`, both gone on the next attempt. So the 90 s timeouts are Plot's own overhead rather than a remote refusing, and the headroom is smaller than a single-caller measurement suggests.
 
 ## Proposal, by effect
 
