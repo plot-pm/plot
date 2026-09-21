@@ -2217,7 +2217,7 @@ describe('rowsFromPulse', () => {
     // `feature/c` is `open` / not-started: no PR, and exactly the class where
     // "go look at the branch" is most useful. Deriving the address from a PR URL
     // would have left precisely these rows unlinked.
-    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, BASE);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, /* an EMPTY map, not null: null now means the host was not asked */ new Map(), BASE);
     const notStarted = rows.find((r) => r.branch === 'feature/c');
     expect(notStarted?.group).toBe('not-started');
     expect(notStarted?.pr).toBeNull();
@@ -2427,7 +2427,7 @@ describe('rowsFromPulse', () => {
     it('dates an unstarted branch from the plan\'s approval', () => {
       // The point of the field: "approved in February and never begun" is
       // invisible while the row shows only a branch tip that does not exist.
-      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', approved, NOW);
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, /* an EMPTY map, not null: null now means the host was not asked */ new Map(), '', approved, NOW);
       const notStarted = rows.find((r) => r.branch === 'feature/c');
       expect(notStarted?.group).toBe('not-started');
       expect(notStarted?.ageMinutes).toBeNull();
@@ -2548,7 +2548,7 @@ describe('rowsFromPulse', () => {
         new Map([
           ['feature/ancient', null], ['feature/recent', null], ['feature/nodate', null],
         ]),
-        'plot', QUIET, null, '', approvedMix, NOW,
+        'plot', QUIET, /* empty, not null: null now means the host was not asked */ new Map(), '', approvedMix, NOW,
       ).filter((r) => r.group === 'not-started');
       // Both branches of the dated plan share its approval date, so the
       // assertion that carries weight is the undated row leading them.

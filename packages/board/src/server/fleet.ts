@@ -5788,7 +5788,20 @@ export function rowsFromPulse(
   // caller that passes no map has not looked, and every row below then says
   // the host could not be asked instead of asserting that nothing was ever
   // opened.
-  const hostUnasked = prs == null;
+  //
+  // `undefined` IS NOT `null`, AND THE DIFFERENCE IS THE WHOLE POINT. `prs` is
+  // an OPTIONAL parameter, so a caller that omits it and a caller that passes
+  // an unfetched map are indistinguishable by `== null` — and the first is not
+  // a claim about any host. Measured 2026-09-21: `prs == null` here failed 12
+  // tests across three files, every one of them a fixture calling
+  // `rowsFromPulse(pulse, ages, repo, quiet)` with no map at all, which then
+  // read as *the host could not be asked* and withheld every verdict.
+  //
+  // The ONE production caller (`buildFleet`) always passes `entry.prs`, which
+  // is `null` exactly while no fetch has landed. So `=== null` is the reading
+  // that means what this rule needs, and `undefined` keeps the old behaviour
+  // for every caller that never asked the question.
+  const hostUnasked = prs === null;
   // ONE PASS OVER THE ESTATE, before the plan loop — a double claim cannot be
   // seen from inside either plan that makes it.
   const doubleClaimed = doubleClaimedBranches(pulse);
