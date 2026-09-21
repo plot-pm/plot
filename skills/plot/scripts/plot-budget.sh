@@ -221,7 +221,7 @@ BUDGET_FALLBACK_WINDOW_MS=3600000
 # which is a reading about whichever pool was spent last — so a caller deciding
 # whether a bucket is spent must name that bucket. `graphql_budget_spent` does,
 # and this is why.
-budget_rate() {
+budget_rate_read() {
   local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
   local path
   [ -n "$now" ] || now="$(budget_now_ms)"
@@ -319,6 +319,171 @@ budget_rate() {
         spent, span, rate, n, unreadable, limit, remaining, reset, basis
     }
   ' "$path" 2>/dev/null || echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'
+}
+
+# THE SAME ANSWER IS SCANNED FOR ONCE PER PROCESS, and that is the whole of this
+# memo. Measured on `quatico/quaweb-website` at Plot 2.19.0: `budget.tsv` holds
+# 312589 lines across 17.6 MB, one read of it takes **516 ms** against 5 ms over
+# fifty lines, and a single `pr-list` calls this three times for the same answer.
+# The file is append-only and a process that asks twice is asking about the same
+# window, so the second scan buys nothing a caller can observe.
+#
+# THE MEMO IS A FILE, AND A VARIABLE ALONE COULD NOT HAVE WORKED. Every caller
+# in `plot-host.sh` writes `rate="$(budget_rate ...)"`, and a command
+# substitution is a SUBSHELL: a variable the function sets inside one dies when
+# the substitution closes. Measured on this branch with a counter — three
+# substituted calls on one key scanned the ledger 3 times with a variable memo
+# in place, against 1 for three direct calls. A variable memo is not slow at the
+# call sites that exist, it is ABSENT from them, and every behavioural test
+# still passes because the three answers are identical.
+#
+# `$$`, NOT `BASHPID`, IS THE SCOPE. `$$` is the invoking shell's pid and is
+# deliberately NOT updated inside a subshell, so it names the process TREE —
+# which is exactly "the life of the process" this memo is bounded by. `BASHPID`
+# tracks the fork and would give every substitution its own empty cache, which
+# is the variable memo's defect with an extra file write.
+#
+# THE COST IS PAID BACK ABOUT TWO THOUSAND TIMES. Measured here: a builtin
+# `read` of one memo line is 82 us and a write 153 us, against 188 ms for one
+# scan of a 40000-line ledger and the 516 ms reported above. The read is a
+# builtin with no fork, which is what keeps it in that range.
+#
+# PER PROCESS IS THE WHOLE BOUND. There is no TTL, no `stat` of the record and
+# no invalidation hook, because a `plot-host.sh` invocation is short-lived and a
+# memo that tried to notice the file moving would re-`stat` on every call — the
+# cost this exists to remove, re-introduced in a smaller form. `budget_append`
+# writes between two reads and the second read is deliberately served the first
+# one's answer.
+#
+# THE KEY IS THE TRIPLE, NEVER ONE FIELD OF IT. An EMPTY bucket means *every
+# bucket* and is a different question from any named one — `budget_rate_read`
+# says so in its own words above, and the two live in one process: measured with
+# a probe, one `pr-list` asks `(github,jwloka,'')` for the concurrency bound and
+# `(github,jwloka,graphql)` for the transport choice. A memo keyed on less than
+# the triple answers the first with the second's reading.
+#
+# AN EXPLICIT `now` BYPASSES THE MEMO ENTIRELY, and a reader will ask why. It is
+# a FOURTH question rather than a fourth key: a caller naming a moment is asking
+# what the record looked like THEN, and every window boundary above is computed
+# from it. Keying on it would make every lookup a miss, because the callers that
+# omit it get `budget_now_ms()` and differ by milliseconds — a memo that is dead
+# code and still passes every behavioural test. Serving a memo across different
+# `now` values would answer a named moment with another one's window. Only the
+# callers that omit it — every one in `plot-host.sh` — are memoised.
+#
+# NOT-YET-COMPUTED AND COMPUTED-TO-EMPTY ARE TWO STATES, and the FILE'S
+# EXISTENCE is what separates them. The zero object is a well-formed answer for
+# a missing record and for a `budget_path` that failed, so it is CACHED like any
+# other — a memo that treated it as no-answer-worth-keeping would restore the
+# scan on exactly the machines with nothing to scan. The entry is never empty:
+# `budget_rate_read` prints a JSON object on every path, so a zero-byte entry
+# means a torn write and is re-read rather than served.
+#
+# PUBLISHED BY `mv`, NEVER BY `>`, for `budget_slot_acquire`'s reason one
+# paragraph down: a redirect creates the NAME before the CONTENT, so a sibling
+# subshell can open the file and read half an answer. The rename is atomic
+# within a directory, so the name and the answer arrive together.
+budget_rate() {
+  local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
+
+  # A caller that named a moment is asking a different question. Straight
+  # through, neither read nor written.
+  if [ -n "$now" ]; then
+    budget_rate_read "$connector" "$account" "$bucket" "$now"
+    return $?
+  fi
+
+  local key slot
+  key="${connector}|${account}|${bucket}"
+  # Every character a variable name may not hold becomes `_`. Two distinct
+  # triples could collide only by differing in punctuation alone, which no
+  # connector, account or bucket name does.
+  slot="_budget_rate_memo_$(printf '%s' "$key" | LC_ALL=C tr -c '[:alnum:]_' '_')"
+
+  # TIER ONE, FREE: the same shell asking twice. SET, NOT NON-EMPTY — the zero
+  # object is a real answer and an empty one is a state this memo never stores.
+  if eval "[ -n \"\${${slot}+set}\" ]"; then
+    eval "printf '%s\\n' \"\${${slot}}\""
+    return 0
+  fi
+
+  # TIER TWO, 82 us: a subshell asking what its parent already asked. This is
+  # the tier that fires at every call site `plot-host.sh` actually has.
+  local dir file answer
+  dir="$(budget_memo_dir)" || dir=''
+  if [ -n "$dir" ]; then
+    file="$dir/$slot"
+    # `-s`, NOT `-f`. A zero-byte entry is a torn write, never an answer.
+    if [ -s "$file" ]; then
+      IFS= read -r answer < "$file" 2>/dev/null || answer=''
+      if [ -n "$answer" ]; then
+        eval "${slot}=\$answer"
+        printf '%s\n' "$answer"
+        return 0
+      fi
+    fi
+  fi
+
+  local rc
+  # THE EXIT CODE IS THE READ'S, never this wrapper's. `budget_rate_read`
+  # returns 0 on every path today and its callers test the CONTENT, so a memo
+  # that invented an exit status would be the one place the two disagree.
+  answer="$(budget_rate_read "$connector" "$account" "$bucket")"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # A read that failed is not an answer, so nothing is remembered: the next
+    # caller asks again rather than inheriting a failure for the process life.
+    printf '%s\n' "$answer"
+    return "$rc"
+  fi
+  eval "${slot}=\$answer"
+  # NEVER FAILS ITS CALLER, `budget_append`'s rule for the same reason: the memo
+  # is an optimisation beside an answer that is already correct, so a cache that
+  # cannot be written must not turn a good reading into a failed one.
+  if [ -n "$dir" ] && mkdir -p "$dir" 2>/dev/null; then
+    if printf '%s\n' "$answer" >"$file.$BASHPID.tmp" 2>/dev/null; then
+      mv -f "$file.$BASHPID.tmp" "$file" 2>/dev/null || rm -f "$file.$BASHPID.tmp" 2>/dev/null || true
+    fi
+  fi
+  printf '%s\n' "$answer"
+  return 0
+}
+
+# Where THIS PROCESS's memoised rates live, and it is deliberately not beside
+# the record. `$PLOT_BUDGET_HOME/memo/<pid>` — same override as the record and
+# the slots, so a test pointing `PLOT_BUDGET_HOME` at a sandbox gets a sandboxed
+# cache too, and a `$PLOT_BUDGET_HOME` that cannot be resolved means no cache
+# rather than a cache in the wrong place.
+#
+# `$$` IS THE DIRECTORY NAME because it is the one identifier that is stable
+# across a command substitution — see `budget_rate` above, where that property
+# is the whole reason this file exists. A pid is reused by the kernel after the
+# process ends, so an entry could in principle be inherited by a later,
+# unrelated process holding the same pid. That is bounded by `budget_memo_clear`
+# below, which the adapter calls on exit, and it is why the cache holds a
+# DERIVED reading rather than anything a caller could act on irreversibly: the
+# worst case is one stale rate, which is the same staleness the memo grants
+# within a process by design.
+budget_memo_dir() {
+  local home="${PLOT_BUDGET_HOME:-}"
+  if [ -z "$home" ]; then
+    [ -n "${HOME:-}" ] || return 1
+    home="$HOME/.plot/state"
+  fi
+  printf '%s\n' "$home/memo/$$"
+}
+
+# Removes this process's memo directory. Called on exit by the adapter, so a
+# long-lived machine does not accumulate one directory per `plot-host.sh` call.
+#
+# NEVER FAILS ITS CALLER. It runs in a trap beside work that has already
+# happened, and a cache that cannot be cleared must not change an exit status.
+budget_memo_clear() {
+  local dir
+  dir="$(budget_memo_dir)" || return 0
+  case "$dir" in
+    */memo/[0-9]*) rm -rf "$dir" 2>/dev/null || true ;;
+  esac
+  return 0
 }
 
 # ── The concurrency bound ────────────────────────────────────────────────────
