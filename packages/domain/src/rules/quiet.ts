@@ -49,14 +49,32 @@ export interface QuietBranchReadings {
    */
   branch: string;
   /**
-   * The host's state for the branch's PR, or `'none'` where it opened none.
+   * The host's state for the branch's PR, `'none'` where it opened none, or
+   * `'unknown'` where the host was not asked.
    *
    * `'closed'` MEANS CLOSED WITHOUT MERGING. A merged PR reports `CLOSED`
    * through some hosts, which is why `hasMergedPr` is a separate reading and
    * outranks this one below — reading the word alone would file every merged
    * branch as a rejection.
+   *
+   * `'unknown'` IS NOT `'none'`, and that distinction is the whole of this
+   * field's fourth word. `'none'` is an ASSERTION — the host was asked and
+   * reported no pull request — and it licenses `abandoned`, the most
+   * consequential word on a row: the one that tells a person the branch can be
+   * deleted. A host that could not be asked asserts nothing, and a constructor
+   * deriving `'none'` from a null map invents the assertion.
+   *
+   * Measured 2026-09-20 on `quatico/quaweb-website`: the PR fetch never landed,
+   * seven branches rendered *"commits, no PR ever opened — abandoned"*, and
+   * three of them carried pull requests — #358 OPEN, #405 and #445 DRAFT.
+   *
+   * It is the estate's existing word for this, not a coined one: `HostReach`,
+   * `PrSchema.state` and `BriefStateSchema` all spell not-knowing `'unknown'`.
+   * The same decision is recorded three lines above the defect's own
+   * constructor, on `backend`: *"Null, never 'github': 'not yet asked' and
+   * 'asked, and it is GitHub' are different answers."*
    */
-  prState: 'none' | 'open' | 'closed';
+  prState: 'none' | 'open' | 'closed' | 'unknown';
   /**
    * Whether the host merged ANY PR for this branch.
    *
@@ -100,16 +118,34 @@ export interface QuietBranchReadings {
  *    somebody rejected.
  * 3. **An empty claim is nobody's work**, which outranks the absence of a PR —
  *    a branch with no commits has nothing to open a PR about.
- * 4. **Real commits and no PR is abandonment.** An OPEN PR is not abandoned:
- *    the work is up for review and the wait is somebody else's.
+ * 4. **An unasked host decides nothing.** `'unknown'` outranks the arms that
+ *    read `prState` as an assertion, because a host that did not answer has no
+ *    state worth consulting — and it ranks BELOW `hasMergedPr`, because a
+ *    branch git reports as merged is merged whether or not the host could be
+ *    asked.
+ * 5. **Real commits and no PR is abandonment.** An OPEN PR is not abandoned:
+ *    the work is up for review and the wait is somebody else's. `'none'` is the
+ *    host's answer here and still means what it says.
+ *
+ * THE READING GAINS A WORD AND THIS VERDICT DOES NOT. `'unknown'` answers
+ * `'quiet'` — the honest existing kind, *nobody is on it and we cannot say
+ * why* — rather than a fifth word, so `quietNote`'s record is untouched and
+ * nothing crosses the wire that did not before.
+ *
+ * `null` IS NOT THE ANSWER EITHER. `rowQuietKind`'s null already means *the
+ * question is not asked of this row* — a live agent, a merged branch, a PR
+ * under review. Reusing it for *asked and unanswered* collapses two different
+ * silences, and the row would then render exactly as it did before the fetch
+ * failed.
  *
  * @param readings - what was measured of the branch.
- * @returns the kind of quiet, or `'quiet'` when none of the three describes it.
+ * @returns the kind of quiet, or `'quiet'` when none of the four describes it.
  */
 export const quietKind = (readings: QuietBranchReadings): QuietKind => {
   if (readings.hasMergedPr) return 'merged';
   if (readings.prState === 'closed') return 'closed-pr';
   if (readings.isEmptyClaim) return 'orphaned-claim';
+  if (readings.prState === 'unknown') return 'quiet';
   if (readings.prState === 'none') return 'abandoned';
   return 'quiet';
 };
