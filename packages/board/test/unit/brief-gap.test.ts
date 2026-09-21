@@ -82,7 +82,7 @@ const pulse = (branch = BRANCH): FleetReading => ({
 const rowFor = (repoRoot: string, branch = BRANCH): AgentRow =>
   rowsFromPulse(
     pulse(branch), new Map(), 'plot', QUIET,
-    null, '', null, Date.now(), null, null, null, null, null, repoRoot,
+    /* empty, not null: null now means the host was not asked */ new Map(), '', null, Date.now(), null, null, null, null, null, repoRoot,
   ).find((r) => r.branch === branch)!;
 
 describe('briefState answers three things, not two', () => {

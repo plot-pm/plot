@@ -98,6 +98,51 @@ describe('quietKind — what it refuses to conclude', () => {
   });
 });
 
+describe('quietKind — a host that was not asked', () => {
+  it('reads an unasked host as plainly quiet, never as abandoned', () => {
+    // THE DEFECT. Measured 2026-09-20 on `quatico/quaweb-website`: the PR fetch
+    // never landed, seven branches rendered *"commits, no PR ever opened —
+    // abandoned"*, and three of them carried pull requests — #358 OPEN, #405
+    // and #445 DRAFT. `abandoned` is what tells a person a branch can be
+    // deleted, so producing it from an absence of evidence is the one
+    // direction this must never fail in.
+    expect(quietKind(reading({ prState: 'unknown' }))).toBe('quiet');
+    expect(quietKind(reading({ prState: 'unknown' }))).not.toBe('abandoned');
+  });
+
+  it('still calls a branch abandoned when the host WAS asked and reported no PR', () => {
+    // THE OTHER DIRECTION, and the assertion exists because the naive fix
+    // passes without it. Narrowing `abandoned` out of existence would be right
+    // about the outage and wrong about every genuinely abandoned branch — one
+    // wrong answer traded for another. `'none'` is the host's answer; it keeps
+    // its meaning.
+    expect(quietKind(reading({ prState: 'none' }))).toBe('abandoned');
+  });
+
+  it('reads a merged branch as merged, though the host could not be asked', () => {
+    // THE ORDERING, pinned at the top end. The two readings are not
+    // independent — a host that did not answer has no `prState` worth
+    // consulting — but a branch git reports as merged reads `merged` whether or
+    // not the host could be asked. An arm inserted ABOVE `hasMergedPr` instead
+    // of below it turns shipped work into an unanswered question.
+    expect(quietKind(reading({ prState: 'unknown', hasMergedPr: true }))).toBe('merged');
+  });
+
+  it('reads a claim-only branch as an orphaned claim, though the host could not be asked', () => {
+    // A branch carrying only the empty claim commit has nothing to open a PR
+    // about, so the host's silence changes nothing about what it is.
+    expect(quietKind(reading({ prState: 'unknown', isEmptyClaim: true }))).toBe('orphaned-claim');
+  });
+
+  it('keeps an unasked branch a person\u2019s to answer', () => {
+    // `quiet` is the honest existing answer — nobody is on it, and we cannot
+    // say why — and it keeps `quietNeedsPerson`'s fallthrough truthful without
+    // a new case.
+    expect(quietNeedsPerson(reading({ prState: 'unknown' }))).toBe(true);
+    expect(quietNote(reading({ prState: 'unknown' }))).toBe('nobody is on it');
+  });
+});
+
 describe('quietNote — the sentence, asked of the same rule', () => {
   it('gives one sentence per kind', () => {
     expect(quietNote(reading({ prState: 'closed' }))).toBe('PR closed without merging');
@@ -155,13 +200,20 @@ describe('quietNeedsPerson — which of them is still somebody’s to answer', (
 });
 
 /**
- * Every combination of the three deciding readings — 12 records, all of them
+ * Every combination of the three deciding readings — 16 records, all of them
  * reachable, enumerated rather than sampled so a fourth arm cannot be added
  * without a case covering it.
+ *
+ * `'unknown'` WIDENS THE DIMENSION RATHER THAN ADDING A CASE. A hand-written
+ * seventeenth record would pass this suite and defeat the helper: the product
+ * is what makes an unreachable combination impossible to leave untested, and a
+ * list appended to is a list somebody can stop appending to. Four PR words
+ * against two merges against two claims is 16, and `quietNote`'s and
+ * `quietNeedsPerson`'s agreement tests then cover the new word for free.
  */
 const everyCase = (): QuietBranchReadings[] => {
   const cases: QuietBranchReadings[] = [];
-  for (const prState of ['none', 'open', 'closed'] as const) {
+  for (const prState of ['none', 'open', 'closed', 'unknown'] as const) {
     for (const hasMergedPr of [false, true]) {
       for (const isEmptyClaim of [false, true]) {
         cases.push(reading({ prState, hasMergedPr, isEmptyClaim }));
