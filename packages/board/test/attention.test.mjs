@@ -263,17 +263,45 @@ describe('/api/attention', () => {
       assert.ok(!body.claimable.some((c) => c.branch === 'feature/is-running'));
     });
 
-    it('names the untaken branch as claimable, and where its brief would be', () => {
-      assert.equal(body.claimable.length, 1);
-      const [c] = body.claimable;
-      assert.equal(c.branch, 'feature/nobody-took-it');
-      assert.equal(c.wave, 'Ask');
-      // THE PATH EVEN WHERE THE FILE IS NOT THERE. `plot-dispatch.sh` reports
-      // `brief=missing` unconditionally — it cannot write one, /plot-implement
-      // owns it — so an eligible branch usually has none, and the path is still
-      // where a caller should look. `briefExists` is what says which it is.
-      assert.equal(c.brief, '.plot/briefs/nobody-took-it.md');
-      assert.equal(c.briefExists, false);
+    it('does NOT name the untaken branch claimable while the host is unasked', () => {
+      // REWRITTEN 2026-09-21, and the old assertion was the defect.
+      //
+      // This fixture starts the server with `PLOT_SCRIPTS_DIR: broken.dir`, so
+      // the host cannot be asked and the PR map is never populated. Until
+      // `an-unasked-host-is-not-an-absent-pr`, `prUnknown` was produced only by
+      // `held?.state === 'unknown'` over a NULLABLE map — a null map yields
+      // `held === null`, so `prUnknown` was `false` for exactly the total
+      // outage it exists to report, and `classifyGroup` never withheld.
+      //
+      // `fleet.ts:4308` states the rule this test used to contradict:
+      // *"`eligible` is an answer about the host, and the host did not
+      // answer."* An unasked host cannot establish that a branch has no PR, so
+      // it cannot establish that the branch is free to take — it may well have
+      // one already. Offering it is the double-dispatch the test below guards.
+      //
+      // So the row is withheld from `claimable` and lands in `waiting-on-you`
+      // with `PR_UNKNOWN_NOTE`. The row itself is NOT blanked; that is the next
+      // assertion, and it is what separates a withheld verdict from a lost row.
+      assert.equal(body.claimable.length, 0);
+    });
+
+    it('does not move the withheld branch into an errand list either', () => {
+      // WHERE THE ROW GOES, and this endpoint is not it.
+      //
+      // `/api/attention` is a FILTERED VIEW over `buildFleet`, not the row
+      // store: `findingItems`/`readingFor` answer null for a branch with no
+      // worker and no PR, which is this branch by construction. So withholding
+      // the verdict takes it out of `claimable` and puts it in nothing here —
+      // and that is correct for an errand list, because there is no errand: the
+      // reader's job is to fix the host, which the banner already says once for
+      // the whole board rather than once per branch.
+      //
+      // The ROW itself is not lost. It lives in `/api/fleet` with its slice,
+      // its plan and `PR_UNKNOWN_NOTE`, which is the plan's Done-when 4 and is
+      // asserted there — `an-unasked-host-is-not-an-absent-pr.test.ts` — rather
+      // than here, where a row's survival is not the endpoint's subject.
+      const all = [...body.needsAgent, ...body.needsHuman, ...body.waiting];
+      assert.ok(!all.some((i) => i.branch === 'feature/nobody-took-it'));
     });
 
     it('never lists a claimed branch as claimable', () => {
