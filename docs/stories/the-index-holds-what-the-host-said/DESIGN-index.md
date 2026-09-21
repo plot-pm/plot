@@ -111,6 +111,38 @@ jen  not indexed — `jen job list` is 14 ms
 
 **Jenkins stays unindexed and that is a measurement, not an omission.** 14 ms is below the cost of deciding whether to look.
 
+## The lifecycle, per connector
+
+**Each connector answers a different question, changes at a different rate, and offers a different delta.** One table rather than one rule, because a rule broad enough for all five would be wrong for four.
+
+| connector | what it holds | delta query | full read | measured |
+|---|---|---|---|---|
+| **github** | PRs: state, head, checks, merge commit | `--search "updated:>$watermark"` | daily | 943 ms vs 29 811 ms |
+| **bitbucket** | the same | `q=updated_on>=$watermark` | daily | 2 983 ms vs 10 575 ms |
+| **jira** | issue status | JQL `updated >= "$watermark"` | daily | JQL operator, same shape |
+| **jenkins** | build result per job | **not indexed** | — | 12–98 ms |
+| **git** | refs, merge state | **not indexed** | — | 104 ms local |
+
+### github and bitbucket — the two that pay
+
+**Both filter server-side, which is why this works at all.** The expensive fields (`statusCheckRollup` 18 842 ms, `reviewDecision` 14 373 ms; Bitbucket's `MERGED` 6 931 ms) are computed only for the rows the filter returns.
+
+**The watermark is per connector**, not per repository: a checkout with remotes on two hosts has two accounts, two rate windows and two clocks. That is the `host`/`tracker` split the Layering Rule already draws.
+
+### jira — same shape, different subject
+
+Plot writes exactly one fact to a tracker (`issue-status`) and reads two. **The index holds only what is read**, and the write path never consults it: a status Plot just pushed must be confirmed by the tracker, not by its own memory.
+
+### jenkins — deliberately not indexed, and this is a measurement
+
+`jen build list` is **12 ms**, `jen job list` **98 ms**. Below the cost of deciding whether to look. An index here would add a staleness class for no saving, and CI state is the *most* volatile thing on the board — exactly the data an index serves worst.
+
+### git — not indexed, because git IS the index
+
+`for-each-ref` over 266 refs is **104 ms** and reads local objects. What costs is the network: `ls-remote` 1 182 ms, `fetch` 1 338 ms. **Git already separates the two** — the local read is the cache, the fetch is the refresh — and Plot already runs one `fetch` per scan and bundles the walk into one `git log`.
+
+**So git needs no index; it needs the fetch moved off the render path**, the same move this design makes for the host. That is one line of scheduling, not a new store.
+
 ## The lifecycle
 
 ```
@@ -175,6 +207,18 @@ worktrees  branches  scan
 - A branch a plan names but nobody started is the **common** case (28 of 29), so the index must hold *"asked, and there is no PR"* as a fact with a timestamp, not as an absence.
 
 **What the index does NOT help with is git's own share**, which is 1257 ms here and bounded: one `for-each-ref`, one bundled `git log`, one `status` per occupied desk. If that grows, the lever is `plot-release-refs.sh` — deleting merged refs, measured at 218.5 s → 111.5 s — and not this design.
+
+## Observed while writing this: the failure the index removes
+
+2026-09-21, while a vitest suite loaded the machine, the board showed:
+
+> **No contact with the board server for 12 polls.** Everything below is the last thing the server said … the board's own controls are switched off until it answers again.
+
+**The server was alive.** `plot-boardctl.sh --status` answered `port 7777: pid 56284 listening — serving THIS repository`. It was inside a host call and could not answer twelve 5-second polls.
+
+That is the design fault stated as a user-visible symptom: **a render path that waits on a 30-second network call cannot survive a loaded machine.** The index does not make the call faster — it takes it off the path the browser polls. The same run also showed the second half: a row with `pr.state: "unknown"` and **no `checks` field**, because `statusCheckRollup` is the 18 842 ms field and it had not arrived.
+
+**Both symptoms are one cause, and both are what this design removes.**
 
 ## What this does not fix
 
