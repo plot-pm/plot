@@ -3885,6 +3885,32 @@ function classifyGroup(
    * and an absent head ref reports nothing at all.
    */
   hasMergedPr = false,
+  /**
+   * Whether the PR fetch never landed for this pulse — `entry.prs === null`,
+   * which is the cache's own word for *no successful fetch since this process
+   * started*.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST, by the rule `prUnknown` records above.
+   *
+   * PER ENTRY, NEVER PER BRANCH. The outage is a property of the fetch, so one
+   * boolean answers for every row of the pulse — and both readings that depend
+   * on it, `prState: 'unknown'` and `prUnknown`, are supplied from this one
+   * fact rather than from two independent spellings that can disagree.
+   *
+   * It is the fact `wipReadings` and `claimedReadings` were inventing. They
+   * derived `prState` as `pr ? 'open' : 'none'`, so an absent PR and an
+   * unfetchable one produced the same word, and `quietKind` turned
+   * not-knowing into `abandoned` — the word that tells a person a branch can
+   * be deleted. Measured 2026-09-20 on `quatico/quaweb-website`: seven
+   * branches read *"commits, no PR ever opened"*, three of them carrying pull
+   * requests (#358 OPEN, #405 and #445 DRAFT).
+   *
+   * DISTINCT FROM `prUnknown` ABOVE, which is the narrower question: that one
+   * asks whether the host answered but could not report THIS PR's state, and
+   * it evaluates `false` for the whole outage because a null map yields a null
+   * record. This one is the outage itself.
+   */
+  hostUnasked = false,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -4577,7 +4603,12 @@ function classifyGroup(
     // started this* is exactly the question a reader answers a stale claim
     // with, so it is appended where it is known. `quietNote` supplies the
     // state; this supplies the duration; neither is asked to be the other.
-    const orphaned = quietNote(claimedReadings(pr));
+    //
+    // THE SENTENCE TAKES THE OUTAGE TOO, and it must: the note and the kind are
+    // two renderings of one reading, so a fetch that never landed has to reach
+    // both or the row says *no PR ever opened* beside a kind that declines to
+    // say it.
+    const orphaned = quietNote(claimedReadings(pr, hostUnasked));
     return {
       group: 'waiting-on-you',
       note:
@@ -4630,7 +4661,11 @@ function classifyGroup(
   // same half-fix #669 made on the withdrawn-plan row and #675 had to finish.
   // The group is the part that asks a person for something, and nobody is
   // waiting on work the host already merged.
-  const readings = wipReadings(pr, hasMergedPr);
+  // `hostUnasked` IS THE THIRD READING THIS LINE HAS STOPPED INVENTING. The
+  // note is where the defect was visible — *"commits, no PR ever opened"* on
+  // seven branches, three of them carrying pull requests, measured 2026-09-20 —
+  // so the sentence is asked of the same fact the kind is.
+  const readings = wipReadings(pr, hasMergedPr, hostUnasked);
   const abandoned = quietNote(readings);
   // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietNeedsPerson`
   // releases only `closed-pr`, and `quiet.test.ts` states why: a merged branch
@@ -4671,11 +4706,14 @@ function classifyGroup(
  * @param pr - the branch's OPEN PR, or null. Open-only by `classifyGroup`'s
  * contract, so `'closed'` is not reachable from here; the closed case is
  * `prState`'s and is read in `rowsFromPulse`.
+ * @param hostUnasked - whether the PR fetch never landed for this pulse. A
+ * null map is an ABSENCE OF EVIDENCE, and `pr ? 'open' : 'none'` read it as
+ * evidence of absence — see {@link QuietBranchReadings.prState}.
  * @returns the readings for a claim nobody has worked.
  */
-const claimedReadings = (pr?: PrRecord | null): QuietBranchReadings => ({
+const claimedReadings = (pr?: PrRecord | null, hostUnasked = false): QuietBranchReadings => ({
   branch: '',
-  prState: pr ? 'open' : 'none',
+  prState: pr ? 'open' : hostUnasked ? 'unknown' : 'none',
   hasMergedPr: false,
   isEmptyClaim: true,
 });
@@ -4691,11 +4729,25 @@ const claimedReadings = (pr?: PrRecord | null): QuietBranchReadings => ({
  * the fallthrough — the PR arm above answers it — so this is `null` in
  * practice and passed anyway rather than assumed, since an assumption here
  * would be the rule re-derived on this side.
+ * @param hasMergedPr - whether the host merged ANY PR from this branch.
+ * @param hostUnasked - whether the PR fetch never landed for this pulse.
+ *
+ * THIS IS THE SECOND HARDCODED CONSTANT REMOVED FROM THIS FUNCTION, and the
+ * first is why the second was worth looking for. `hasMergedPr` was pinned
+ * `false` here, so `quietKind`'s first guard could never fire and every merged
+ * branch fell through to `abandoned` — WAITING ON YOU held 35 rows on
+ * 2026-09-04, of which 3 were work anyone was waiting on. `prState` was the
+ * same mechanism one field over: `pr ? 'open' : 'none'` states an absence the
+ * caller never checked.
  * @returns the readings for pushed work nobody is on.
  */
-const wipReadings = (pr?: PrRecord | null, hasMergedPr = false): QuietBranchReadings => ({
+const wipReadings = (
+  pr?: PrRecord | null,
+  hasMergedPr = false,
+  hostUnasked = false,
+): QuietBranchReadings => ({
   branch: '',
-  prState: pr ? 'open' : 'none',
+  prState: pr ? 'open' : hostUnasked ? 'unknown' : 'none',
   hasMergedPr,
   isEmptyClaim: false,
 });
@@ -4769,14 +4821,21 @@ const rowQuietKind = (
   pr?: PrRecord | null,
   /** Whether the host merged ANY PR from this branch — see `classifyGroup`. */
   merged = false,
+  /**
+   * Whether the PR fetch never landed for this pulse — `entry.prs === null`.
+   * Last, because it is the newest, by the rule `classifyGroup`'s `prUnknown`
+   * records. Handed to the two readings that would otherwise state `'none'`
+   * about a host nobody reached.
+   */
+  hostUnasked = false,
 ): QuietKind | null => {
   if (closed) return quietKind(closedReadings());
   if (group !== 'waiting-on-you') return null;
   // ABSENT IS THE ONLY ANSWER THAT REACHES THE FALLTHROUGH. Every other worker
   // state is handled by an arm above it, and each of those means something ran.
   if (worker !== 'none' && worker !== 'elsewhere') return null;
-  if (state === 'claimed') return quietKind(claimedReadings(pr));
-  if (state === 'wip' && !pr) return quietKind(wipReadings(pr, merged));
+  if (state === 'claimed') return quietKind(claimedReadings(pr, hostUnasked));
+  if (state === 'wip' && !pr) return quietKind(wipReadings(pr, merged, hostUnasked));
   return null;
 };
 
@@ -5716,6 +5775,20 @@ export function rowsFromPulse(
   unmerged?: Set<string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
+  // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
+  // that is the scope of the fact. `prs` is `CacheEntry.prs`, whose null means
+  // *no successful PR fetch since this process started* — an outage belongs to
+  // the fetch, not to any branch it failed to describe.
+  //
+  // ONE SPELLING, TWO READINGS. Both `prState: 'unknown'` and `prUnknown` are
+  // supplied from this boolean rather than derived independently downstream,
+  // so the two can never answer differently about one pulse.
+  //
+  // ABSENT IS NOT FALSE — the invariant this whole fix is an instance of. A
+  // caller that passes no map has not looked, and every row below then says
+  // the host could not be asked instead of asserting that nothing was ever
+  // opened.
+  const hostUnasked = prs == null;
   // ONE PASS OVER THE ESTATE, before the plan loop — a double claim cannot be
   // seen from inside either plan that makes it.
   const doubleClaimed = doubleClaimedBranches(pulse);
@@ -5873,19 +5946,36 @@ export function rowsFromPulse(
           // terminal, by someone deciding whether to open anything at all.
           b.local_worktree,
           // Whether this branch's PR could not be read from the origin — see
-          // `PR_UNKNOWN_NOTE`. `held` is the any-state map (merged, closed,
-          // unknown alike), so `state === 'unknown'` here means the host
-          // answered but could not report the PR's state — a spent quota, an
+          // `PR_UNKNOWN_NOTE`. TWO WAYS TO NOT KNOW, and the second was
+          // missing. `held?.state === 'unknown'` is the narrow one: the host
+          // answered but could not report THIS PR's state — a spent quota, an
           // unreachable server, a backend that returned successfully with no
-          // data. When true and the slice verdict would be `eligible`, the
+          // data. It evaluates `false` for a whole-fetch outage, because a
+          // null map yields a null record and a null record has no state. So
+          // `hostUnasked` is asked beside it, and the field means what its own
+          // docstring always claimed: *an origin that could not be asked
+          // propagates as a gap, never as a value a verdict can be computed
+          // from*. When true and the slice verdict would be `eligible`, the
           // verdict is withheld: the row says the host could not be asked
           // rather than claiming the branch is ready for an agent.
-          held?.state === 'unknown',
+          hostUnasked || held?.state === 'unknown',
           // WHY a deferred branch was given up, so the row can say it instead of
           // reporting a review nobody is running. Read on a `deferred` branch of
           // a `draft` plan only; empty everywhere else, and empty falls back to
           // the phase sentence.
-          b.deferred_reason);
+          b.deferred_reason,
+          // WHETHER THE HOST MERGED ANY PR — the scan's own answer, the same one
+          // `closedPr` and the `rowQuietKind` call below already trust. Reached
+          // by its position: `hostUnasked` after it is what this call now needs,
+          // and the list is positional, so the default can no longer be left
+          // implicit.
+          b.state === 'merged',
+          // WHETHER THE FETCH LANDED AT ALL. `classifyGroup` builds the row's
+          // SENTENCE from the same readings `rowQuietKind` builds its kind
+          // from, so an outage that reaches one and not the other leaves the
+          // row captioned *"commits, no PR ever opened"* under a kind that
+          // declines to claim it.
+          hostUnasked);
         // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
         //
         // That function states the rule twice and records the mistake being
@@ -5948,7 +6038,12 @@ export function rowsFromPulse(
         // answer rather than one re-derived from the PR here. `closedPr` above
         // already trusts it for the same reason.
         const kind = rowQuietKind(
-          closedPr ? 'closed' : null, b.state, group, b.worker, pr, b.state === 'merged');
+          closedPr ? 'closed' : null, b.state, group, b.worker, pr, b.state === 'merged',
+          // THE OUTAGE, per entry rather than per branch. Without it a failed
+          // fetch reads as *no PR was ever opened* — the same absence the
+          // constructors were inventing, and the word that tells a person the
+          // branch can be deleted.
+          hostUnasked);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
@@ -6601,10 +6696,15 @@ export function rowsFromPulse(
       'wip', 'eligible', ageMinutes, quietMinutes, null,
       // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
       // localLocked, workerDirtyPaths, workerQuestion, held, localWorktree,
-      // prUnknown, deferredReason — every default, spelled out because
-      // `hasMergedPr` is last and the list is positional.
-      false, 0, '', 'elsewhere', '', '', false, [], '', false, '', false, '',
-      prMerged);
+      // deferredReason — every default, spelled out because `hostUnasked` is
+      // last and the list is positional.
+      //
+      // `prUnknown` IS NO LONGER A DEFAULT HERE. It was hardcoded `false` in
+      // this list, which said *the origin answered* about a path that never
+      // asked — the same absence-read-as-evidence the quiet readings made one
+      // field over. It now carries the pulse's own answer.
+      false, 0, '', 'elsewhere', '', '', false, [], '', false, '', hostUnasked, '',
+      prMerged, hostUnasked);
     // Asked of the same facts the group came from. `elsewhere` is what this
     // loop knows about a worker: it reaches the branch through the REFS and
     // visits no worktree, so nothing here looked for a process.
@@ -6619,7 +6719,13 @@ export function rowsFromPulse(
     // `quietNeedsPerson` has said `closed-pr` needs nobody since the kind
     // existed; this is the section catching up with that answer.
     const placed: WaitingGroup = prClosed ? 'done' : group;
-    const kind = rowQuietKind(prClosed, 'wip', placed, 'elsewhere', null, prMerged);
+    // `hostUnasked` REACHES THIS PATH TOO, and that is the asymmetry :6585
+    // already records as measured once: a fix applied at the plan-branch call
+    // site alone leaves every loose branch still reading *"commits, no PR ever
+    // opened"* through an outage. Loose branches are the population most
+    // exposed to it — they reach the board through the refs, so a failed fetch
+    // is the only thing standing between the row and a PR it cannot see.
+    const kind = rowQuietKind(prClosed, 'wip', placed, 'elsewhere', null, prMerged, hostUnasked);
     rows.push({
       repo,
       // `branch` — and NOT a new `orphan` kind. `RowKindSchema` has seven kinds
