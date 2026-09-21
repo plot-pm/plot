@@ -77,7 +77,7 @@ So the rule gains **`unasked`**, and it is tested BEFORE `prState === 'none'`: t
 
 ## Slices
 
-### The rule knows it was not asked (Branch: bug/the-rule-knows-it-was-not-asked)
+### The rule knows it was not asked (Branch: bug/the-rule-knows-it-was-not-asked, PR: #956)
 
 - `bug/the-rule-knows-it-was-not-asked` — `QuietBranchReadings.prState` gains `'unknown'`; `quietKind` tests it **below `hasMergedPr`** and above `prState === 'none'`, returning `'quiet'`; `wipReadings`/`claimedReadings` take the fact instead of deriving `'none'` from a null `pr`. **The fact is `entry.prs === null`, which is per ENTRY and not per branch** — one boolean threaded from `rowsFromPulse` through `classifyGroup`/`rowQuietKind`, **appended last** per `fleet.ts:3850`'s positional rule, both `rowQuietKind` call sites and the loose-branch path at `:6600` included. `everyCase()` in `packages/domain/test/quiet.test.ts` gains a dimension; `quietNote`'s `Record<QuietKind, string>` is untouched because no kind is added. Tests pin that `abandoned` still fires on a successful fetch reporting no PR, and that a merged branch never reads as unasked
 
