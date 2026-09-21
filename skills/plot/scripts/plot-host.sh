@@ -2469,6 +2469,18 @@ backend() {
 # written beside it.
 . "$here/plot-budget.sh"
 
+# THE MEMO IS SWEPT ON THE WAY OUT. `budget_rate` caches its reading under
+# `$PLOT_BUDGET_HOME/memo/$$` because a command substitution is a subshell and a
+# variable set inside one does not survive it — see the block above
+# `budget_rate`. A directory keyed on a pid must be removed by the process that
+# made it, or a long-lived machine accumulates one per `plot-host.sh` call.
+#
+# `EXIT` ALONE, deliberately. It runs on a normal return and on an uncaught
+# signal's default termination path is irrelevant here: the sweep is an
+# optimisation's housekeeping, and a cache that outlives one run costs a stale
+# reading at worst, which is the same staleness the memo grants by design.
+trap 'budget_memo_clear' EXIT
+
 # WHO IS SPENDING — read from the CLI's own config, never from an API call.
 #
 # `gh api user` would answer authoritatively and cost one request against the

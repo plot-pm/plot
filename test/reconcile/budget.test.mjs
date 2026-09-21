@@ -19,7 +19,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -963,4 +963,135 @@ test('budget: spend-rate still answers the operator honestly', () => {
   assert.equal(out.bucket, 'graphql');
   assert.equal(out.spent, 3, res.stdout);
   assert.equal(out.remaining, 12, res.stdout);
+});
+
+// ── The memo survives a subshell ─────────────────────────────────────────────
+//
+// THE TESTS ABOVE CALL `budget_rate` DIRECTLY AND EVERY CALL SITE DOES NOT.
+// All three callers in `plot-host.sh` write `rate="$(budget_rate ...)"`, and a
+// command substitution is a SUBSHELL. Measured on this branch: with the memo
+// held only in a shell variable, three DIRECT calls on one key scanned the
+// ledger once and three SUBSTITUTED calls scanned it three times — the memo was
+// not slow at the real call sites, it was absent from them, and every test
+// above still passed because the three answers are identical.
+//
+// So these tests call it the way production does. A memo that regresses to a
+// variable passes everything above and fails here.
+
+test('budget: the memo fires through a command substitution, as every caller writes it', () => {
+  const home = makeHome();
+  writeBucketedRecord(home, Date.now());
+  // EXACTLY THE SHAPE OF `plot-host.sh:1549`, `:2789` and `:4485`. This is the
+  // assertion the whole slice turns on: against a variable-only memo it reads
+  // 3, which is indistinguishable from no memo at all.
+  const res = countingReads(home, `
+    r1="$(budget_rate github jwloka graphql)"
+    r2="$(budget_rate github jwloka graphql)"
+    r3="$(budget_rate github jwloka graphql)"
+    [ "$r1" = "$r2" ] && [ "$r2" = "$r3" ] && echo same
+  `);
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.reads, 1, `three substituted calls scanned ${res.reads} times`);
+  // The saving must not have been bought by changing the answer.
+  assert.ok(res.stdout.includes('same'), `the memo served three different answers: ${res.stdout}`);
+});
+
+test('budget: three substituted keys stay three questions', () => {
+  const home = makeHome();
+  writeBucketedRecord(home, Date.now());
+  // The cache is a directory keyed on the triple. A single file, or a key
+  // missing the bucket, serves the concurrency bound the graphql reading —
+  // which is the failure `budget_rate_read`'s own header warns about.
+  const res = countingReads(home, `
+    a="$(budget_rate github jwloka '')";        printf '%s\\n' "$a" | sed -n 's/.*"limit":\\([0-9]*\\).*/all=\\1/p'
+    b="$(budget_rate github jwloka graphql)";   printf '%s\\n' "$b" | sed -n 's/.*"limit":\\([0-9]*\\).*/graphql=\\1/p'
+    c="$(budget_rate github jwloka core)";      printf '%s\\n' "$c" | sed -n 's/.*"limit":\\([0-9]*\\).*/core=\\1/p'
+  `);
+  assert.equal(res.code, 0, res.stderr);
+  assert.ok(res.stdout.includes('graphql=900'), `graphql read the wrong ceiling: ${res.stdout}`);
+  assert.ok(res.stdout.includes('core=5000'), `core read the wrong ceiling: ${res.stdout}`);
+  assert.equal(res.reads, 3, `three distinct keys scanned ${res.reads} times`);
+});
+
+test('budget: a substituted caller naming a moment is still never served a memo', () => {
+  const home = makeHome();
+  const at = 1788269671000;
+  writeFileSync(path.join(home, 'budget.tsv'), [
+    `b1\tgithub\tjwloka\tgraphql\t${at - 1000}\t1\t900\t12\t-\tactual`,
+  ].join('\n') + '\n');
+  // The bypass has to hold in BOTH directions through the file tier too: an
+  // explicit `now` must neither read an entry nor leave one behind for the
+  // caller that omits it.
+  const res = countingReads(home, `
+    a="$(budget_rate github jwloka graphql ${at})"
+    b="$(budget_rate github jwloka graphql ${at})"
+    c="$(budget_rate github jwloka graphql)"
+  `);
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.reads, 3, `an explicit now joined the memo: ${res.reads} reads`);
+});
+
+test('budget: the zero object is memoised across a substitution too', () => {
+  // The machines with nothing to scan are the ones a miss-on-zero would punish,
+  // and they reach this through the same subshell as everyone else.
+  const home = makeHome();
+  assert.equal(existsSync(path.join(home, 'budget.tsv')), false);
+  const res = countingReads(home, `
+    a="$(budget_rate github jwloka graphql)"; echo "rc=$?"
+    b="$(budget_rate github jwloka graphql)"; echo "rc=$?"
+    [ "$a" = "$b" ] && echo same
+    printf '%s\\n' "$b"
+  `);
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.reads, 1, `the zero object was scanned for ${res.reads} times`);
+  assert.deepEqual(
+    res.stdout.split('\n').filter((l) => l.startsWith('rc=')),
+    ['rc=0', 'rc=0'],
+    `the memo changed an exit code: ${res.stdout}`,
+  );
+  assert.ok(res.stdout.includes('same'), `the zero object was not served: ${res.stdout}`);
+  const zero = JSON.parse(res.stdout.split('\n').find((l) => l.startsWith('{')));
+  // ABSENT IS NOT ZERO, through the cache as through the reader.
+  assert.equal(zero.basis, 'unknown');
+  assert.equal(zero.limit, null);
+  assert.equal(zero.remaining, null);
+});
+
+test('budget: the cache is scoped to the process, and one run cannot serve another', () => {
+  const home = makeHome();
+  writeBucketedRecord(home, Date.now());
+  // `$$` names the process TREE, which is why the memo crosses a substitution.
+  // It must not cross a `plot-host.sh` INVOCATION: two runs are two processes,
+  // and the second is entitled to a reading that includes what the first
+  // appended. Two separate `bash -c` runs, one counter.
+  const counter = path.join(home, 'reads.count');
+  writeFileSync(counter, '');
+  const once = () => spawnSync('bash', ['-c', `
+    . <(sed 's#^budget_rate_read() {#budget_rate_read() { echo r >> "$PLOT_READ_COUNT";#' "${budget}")
+    r="$(budget_rate github jwloka graphql)"
+  `], { encoding: 'utf8', env: { ...process.env, PLOT_BUDGET_HOME: home, PLOT_READ_COUNT: counter } });
+  const a = once();
+  const b = once();
+  assert.equal(a.status, 0, a.stderr);
+  assert.equal(b.status, 0, b.stderr);
+  const reads = readFileSync(counter, 'utf8').split('\n').filter(Boolean).length;
+  assert.equal(reads, 2, `a second process was served the first one's memo (${reads} reads)`);
+});
+
+test('budget: plot-host.sh sweeps its memo directory on the way out', () => {
+  const home = makeHome();
+  writeBucketedRecord(home, Date.now());
+  // A directory keyed on a pid must be removed by the process that made it, or
+  // a long-lived machine accumulates one per `plot-host.sh` call. `spend-rate`
+  // is used because it reaches `budget_rate` without touching a host.
+  const res = spawnSync('bash', [adapter, 'spend-rate', '--connector', 'github', '--account', 'jwloka', '--bucket', 'graphql'], {
+    encoding: 'utf8',
+    env: { ...process.env, PLOT_BUDGET_HOME: home },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const memo = path.join(home, 'memo');
+  // The parent may remain — an empty directory costs an inode, while `rmdir`ing
+  // a shared parent races a concurrent run's `mkdir -p`. No PID ENTRY may.
+  const leftovers = existsSync(memo) ? readdirSync(memo) : [];
+  assert.deepEqual(leftovers, [], `the memo outlived the process: ${leftovers.join(', ')}`);
 });
