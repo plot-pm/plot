@@ -221,7 +221,7 @@ BUDGET_FALLBACK_WINDOW_MS=3600000
 # which is a reading about whichever pool was spent last — so a caller deciding
 # whether a bucket is spent must name that bucket. `graphql_budget_spent` does,
 # and this is why.
-budget_rate() {
+budget_rate_read() {
   local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
   local path
   [ -n "$now" ] || now="$(budget_now_ms)"
@@ -319,6 +319,85 @@ budget_rate() {
         spent, span, rate, n, unreadable, limit, remaining, reset, basis
     }
   ' "$path" 2>/dev/null || echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'
+}
+
+# THE SAME ANSWER IS SCANNED FOR ONCE PER PROCESS, and that is the whole of this
+# memo. Measured on `quatico/quaweb-website` at Plot 2.19.0: `budget.tsv` holds
+# 312589 lines across 17.6 MB, one read of it takes **516 ms** against 5 ms over
+# fifty lines, and a single `pr-state` reads it twice for two different
+# questions. The file is append-only and a process that asks twice is asking
+# about the same window, so the second scan buys nothing a caller can observe.
+#
+# PER PROCESS IS THE WHOLE BOUND. There is no TTL, no `stat` of the file and no
+# invalidation hook, because a `plot-host.sh` invocation is short-lived and a
+# memo that tried to notice the file moving would re-`stat` on every call — the
+# cost this exists to remove, re-introduced in a smaller form. `budget_append`
+# writes between two reads and the second read is deliberately served the first
+# one's answer.
+#
+# THE KEY IS THE TRIPLE, NEVER ONE FIELD OF IT. An EMPTY bucket means *every
+# bucket* and is a different question from any named one — `budget_rate_read`
+# says so in its own words above, and the two live in one process: measured with
+# a probe, one `pr-state` asks `(github,jwloka,'')` for the concurrency bound and
+# `(github,jwloka,graphql)` for the transport choice. A memo keyed on less than
+# the triple answers the first with the second's reading.
+#
+# AN EXPLICIT `now` BYPASSES THE MEMO ENTIRELY, and a reader will ask why. It is
+# a FOURTH question rather than a fourth key: a caller naming a moment is asking
+# what the record looked like THEN, and every window boundary above is computed
+# from it. Keying on it would make every lookup a miss, because the callers that
+# omit it get `budget_now_ms()` and differ by milliseconds — a memo that is dead
+# code and still passes every behavioural test. Serving a memo across different
+# `now` values would answer a named moment with another one's window. Only the
+# callers that omit it — every one in `plot-host.sh` — are memoised.
+#
+# NOT-YET-COMPUTED AND COMPUTED-TO-EMPTY ARE TWO STATES, and `${v+set}` is what
+# separates them. The zero object is a well-formed answer for a missing file and
+# for a `budget_path` that failed, so it is CACHED like any other — a memo that
+# treated it as no-answer-worth-keeping would restore the scan on exactly the
+# machines with nothing to scan.
+#
+# DYNAMIC VARIABLE NAMES, NOT `declare -A`. Stock macOS ships bash 3.2, which
+# has no associative arrays at all, and these scripts run under whichever bash
+# is on PATH. The key is sanitised to the characters a variable name may hold.
+budget_rate() {
+  local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
+
+  # A caller that named a moment is asking a different question. Straight
+  # through, neither read nor written.
+  if [ -n "$now" ]; then
+    budget_rate_read "$connector" "$account" "$bucket" "$now"
+    return $?
+  fi
+
+  local key slot
+  key="${connector}|${account}|${bucket}"
+  # Every character a variable name may not hold becomes `_`. Two distinct
+  # triples could collide only by differing in punctuation alone, which no
+  # connector, account or bucket name does.
+  slot="_budget_rate_memo_$(printf '%s' "$key" | LC_ALL=C tr -c '[:alnum:]_' '_')"
+
+  # SET, NOT NON-EMPTY. The zero object is a real answer and an empty one is a
+  # state this memo never stores.
+  if eval "[ -n \"\${${slot}+set}\" ]"; then
+    eval "printf '%s\\n' \"\${${slot}}\""
+    return 0
+  fi
+
+  local answer rc
+  # THE EXIT CODE IS THE READ'S, never this wrapper's. `budget_rate_read`
+  # returns 0 on every path today and its callers test the CONTENT, so a memo
+  # that invented an exit status would be the one place the two disagree.
+  answer="$(budget_rate_read "$connector" "$account" "$bucket")"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # A read that failed is not an answer, so nothing is remembered: the next
+    # caller asks again rather than inheriting a failure for the process life.
+    printf '%s\n' "$answer"
+    return "$rc"
+  fi
+  eval "${slot}=\$answer"
+  printf '%s\n' "$answer"
+  return 0
 }
 
 # ── The concurrency bound ────────────────────────────────────────────────────
