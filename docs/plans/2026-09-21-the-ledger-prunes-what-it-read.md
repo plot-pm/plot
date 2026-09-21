@@ -90,7 +90,7 @@ So the shell gets the pruning, and `PRUNE_THRESHOLD` stays the domain's number �
 
 - `bug/the-rate-is-read-once-per-process` — `budget_rate` memoises its answer per (connector, account, bucket) for the life of the process, so three calls inside one `pr-list` scan once. Nothing is written, nothing is deleted, no rule is duplicated, and the saving is measured rather than argued: 3 → 1 scan. This is the slice that needs no permission
 
-### The disk stops growing (Branch: bug/the-disk-stops-growing)
+### The disk stops growing (Branch: bug/the-disk-stops-growing) <!-- deferred: the shape is undecided — day-files, a window-bounded reverse read, or survivors at the spend-rate seam. The rewrite-in-place form is refuted: a juror measured a correct multi-key prune at 685 ms against the 516 ms read it would amortise. Decide by measuring, then undefer -->
 
 - `bug/the-disk-stops-growing` — the ledger stops growing without bound. **The shape is open and the panel named three candidates**: day-files as `plot-commit-record.sh` already does next door, a window-bounded reverse read, or `survivors` called through a bundle at the `spend-rate` seam, which is operator-frequency and therefore `docs/shell-and-domain.md` §1's *call the domain*. **Decide before building** — a juror measured a correct multi-key prune at 685 ms, slower than the 516 ms read it would amortise, so the rewrite-in-place shape is refuted as written
 
