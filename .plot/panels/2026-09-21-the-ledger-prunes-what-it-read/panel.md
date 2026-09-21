@@ -69,7 +69,15 @@ The measured append rate is **2586/hour**, not the 1160/hour `PRUNE_THRESHOLD` w
 
 **All three jurors, and the author, took `PLOT_BUDGET_OFF=1` as a clean measurement of the read cost.** It is not: it disables the appends and the slot logic as well. The 80% figure in the note attributes to the ledger a saving that includes at least `host_slot_take`'s sleep loop, which nobody has measured in isolation.
 
-The measurement juror named this; the other two inherited the framing. **The plan's headline number is still unattributed**, and that is the one thing a re-measurement must settle before any code is written.
+The measurement juror named this; the other two inherited the framing.
+
+**Settled 2026-09-21, after the panel.** The two guards were split (`PLOT_SLOT_OFF` / `PLOT_APPEND_OFF`) and measured, median of five:
+
+| everything on | slot off | append off | both off |
+|---|---|---|---|
+| 4020 ms | **895 ms** | 3608 ms | 597 ms |
+
+**The slot path costs ~3100 ms, the append ~400 ms.** The cost is the ledger READ reached through `host_slot_take` → `host_concurrency_bound` → `budget_rate`, called **three times per `pr-list`** at ~550 ms each. Slot acquisition itself is 11 ms. The blind spot is closed and the plan is amended accordingly.
 
 ## What the moderation recommends
 

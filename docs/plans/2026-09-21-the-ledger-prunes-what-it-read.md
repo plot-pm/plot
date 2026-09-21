@@ -1,6 +1,6 @@
-# The ledger prunes what it read
+# The rate is read once, and the ledger stops growing
 
-> The budget record's truncation rule exists, is tested, and has no caller — so every host call scans a 17.6 MB file that only ever needs its last hour.
+> A host call scans a 17.6 MB budget ledger three times to answer a question about the last hour — reached from the concurrency slot, not from the write, and measured at ~3100 ms of a 4020 ms call.
 
 ## Status
 
@@ -33,12 +33,36 @@ Measured 2026-09-21 on `quatico/quaweb-website`, Plot 2.19.0:
 |---|---|
 | `~/.plot/state/budget.tsv` | 17.6 MB, 312589 lines |
 | lines for the account under test | 120728, of which **2273 live** — 98.1% dead |
+| `budget_rate` calls per `pr-list` | **3** |
 | `budget_rate` over that file | **516 ms** |
 | `budget_rate` over 50 lines | **5 ms** |
 | `plot-host.sh pr-list --state open` | 2567–7241 ms |
 | the same with `PLOT_BUDGET_OFF=1` | **507–1183 ms** |
 
+**`PLOT_BUDGET_OFF=1` is not a clean reading and the first draft of this plan treated it as one.** It disables the concurrency slot AND the ledger append. Splitting the two guards attributes the cost (median of five, 2026-09-21):
+
+| cell | |
+|---|---|
+| everything on | **4020 ms** |
+| slot off | **895 ms** |
+| append off | **3608 ms** |
+| both off | **597 ms** |
+
+**The slot path costs ~3100 ms and the append ~400 ms** — an 8:1 ratio the combined switch hides.
+
+### The read is reached from the slot, not from the write
+
+Slot acquisition itself is cheap: `ln`-based, **11 ms**, and it succeeds immediately on an idle account. The cost is one layer above it — `host_slot_take` calls `host_concurrency_bound`, which calls `budget_rate`, which scans the whole file.
+
+**And it happens three times per `pr-list`**, counted with a probe: once per host call the operation makes. So the ~1650 ms of scanning is the dominant term, and the appends are the remainder.
+
+That reframes the fix. Pruning the ledger makes the READ cheap, which removes most of the slot cost as a side effect. A second, independent lever exists — `budget_rate`'s answer does not change three times inside one process, so caching it per process removes the 3× multiplier without touching the file at all.
+
 **The window filters which lines COUNT, not which are READ.** Every line is parsed by awk on every call, so cost grows with total file size forever while the answer only ever needs the last hour. That is why this is a defect rather than a tuning opportunity: the growth has no ceiling.
+
+### Where the pruning goes — REOPENED by the panel
+
+> The paragraph below argued for the shell and is kept because the plan's first slice was built on it. **It no longer decides anything**: the estate juror showed the rule a shell prune would duplicate is `survivors` (per-key, regrouped) rather than `truncationOwed`, and that `spend-rate` is an operator-frequency seam where the domain can simply be called. The second slice states the decision as open.
 
 ### Where the pruning goes, and why it is the shell
 
@@ -54,11 +78,21 @@ So the shell gets the pruning, and `PRUNE_THRESHOLD` stays the domain's number �
 
 **The threshold is not one.** `PRUNE_THRESHOLD = 100` exists so that pruning happens on some reads rather than every read; a threshold of one would make every reader a writer and reintroduce the contention the append-only design removes.
 
+**And on this estate it is not a throttle.** Against 118455 dead lines it is true on every read until the backlog clears, then true again every ~3 minutes at the measured 2586 lines/hour — it was sized against 1160/hour. The released plan `one-account-has-one-budget` bounded it by TIME, *"at most once per reset"*, and that bound is the one to restore.
+
+**`plot-budget.sh`'s header says the file never prunes.** Any slice that makes it prune amends that header in the same commit, or the file documents the opposite of what it does.
+
 ## Slices
 
-### The shell prunes what it read (Branch: bug/the-shell-prunes-what-it-read)
+**The panel split this, and the measurement agrees with the split.** Read cost and disk growth are two problems; the first is the one a caller waits on.
 
-- `bug/the-shell-prunes-what-it-read` — `budget_rate` counts the dead lines it skipped and, past the threshold, rewrites the ledger through a scratch file and one `mv`; a corpus test pins the shell's threshold against `PRUNE_THRESHOLD`, and a test proves a concurrent append cannot see a partial file
+### The rate is read once per process (Branch: bug/the-rate-is-read-once-per-process)
+
+- `bug/the-rate-is-read-once-per-process` — `budget_rate` memoises its answer per (connector, account, bucket) for the life of the process, so three calls inside one `pr-list` scan once. Nothing is written, nothing is deleted, no rule is duplicated, and the saving is measured rather than argued: 3 → 1 scan. This is the slice that needs no permission
+
+### The disk stops growing (Branch: bug/the-disk-stops-growing)
+
+- `bug/the-disk-stops-growing` — the ledger stops growing without bound. **The shape is open and the panel named three candidates**: day-files as `plot-commit-record.sh` already does next door, a window-bounded reverse read, or `survivors` called through a bundle at the `spend-rate` seam, which is operator-frequency and therefore `docs/shell-and-domain.md` §1's *call the domain*. **Decide before building** — a juror measured a correct multi-key prune at 685 ms, slower than the 516 ms read it would amortise, so the rewrite-in-place shape is refuted as written
 
 ## Notes
 
