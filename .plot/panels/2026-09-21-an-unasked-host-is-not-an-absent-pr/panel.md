@@ -64,6 +64,18 @@ This is the CLAUDE.md shape the plan itself invokes, applied one level up: *a me
 
 **This is a real design disagreement and the author must settle it, not split the difference.** The question is whether *the host did not answer* is a property of the READING (`prState` gains a word) or of the VERDICT (`QuietKind` gains a kind). Two jurors say the reading; one says the verdict.
 
+### Settled 2026-09-21 — the reading, and not by counting votes
+
+Three things in the code decide it:
+
+1. **`prState` is documented as *"The host's state for the branch's PR"*** — what the host SAID. A host that said nothing has no state; `pr ? 'open' : 'none'` (`fleet.ts:4698`) is the constructor inventing one from an absence it never checked.
+2. **The interface already handles silence per reading.** `hasMergedPr` carries *"An unreachable host answers `false`, so silence is never a merge."* Same question, one field over, answered on the reading.
+3. **The estate made this exact call three lines above the defect.** `fleet.ts:3088`: *"Null, never 'github': **"not yet asked" and "asked, and it is GitHub" are different answers**."*
+
+So `prState` gains `'unknown'` — the vocabulary juror's word, already used by `HostReach`, `PrSchema.state` and `BriefStateSchema` — and `QuietKind` keeps its four values. **Board impact drops to none on the wire**, which removes the compatibility finding the wire juror raised in the same stroke: no old client meets a value it cannot parse.
+
+The dissenting juror's substantive requirements all survive and are in the slice: ordering below `hasMergedPr`, the plumbing named honestly, `everyCase()` gaining a dimension.
+
 ## Three things that break silently if this ships as written
 
 Each was verified in this session:
