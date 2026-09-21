@@ -149,6 +149,33 @@ read index  →  ask delta  →  merge  →  serve
 
 **`PR_REQUESTS_PER_REFRESH` must follow.** The declared cost is how `prRefreshMsFor` stretches the cadence; a delta is one request where the listing was three, and under-declaring is the failure that file names.
 
+## The desks, and why they are not the problem people remember
+
+**Measured on this estate today: 20 git calls, 1257 ms, 15 worktrees.** Three `git -C` calls, not fifteen — `plot-fleet-scan.sh:1663` skips a worktree with no branch checked out (`[ -n "$wt_branch" ] || continue`), and 12 of the 15 are detached free desks. One `git status` in a desk is **11 ms**. The ref walk is ONE `for-each-ref`: 266 refs cost the same as 4, measured.
+
+**So the desk side is already bundled and does not scale with desk count.** An earlier measurement said so directly, and `plot-release-refs.sh:11` records it:
+
+```
+worktrees  branches  scan
+54         43        462.9 s
+42         43         51.3 s     ← 42 worktrees FASTER than 11
+11         43        218.5 s
+11         34        111.5 s     ← deleting 9 merged branches halved it
+```
+
+**Worktree count does not order those runs. Branch count does.** And the mechanism is a host call, not a git one: `plot-fleet-scan.sh:1031` falls through to `host_pr_state --ask` — one round trip per branch — for any branch the bundled list did not answer for.
+
+> MEASURED, 2026-08-23: 28 of 29 host calls in a scan were for branches with no ref and no PR — branches an approved plan NAMES and nobody has started. Each cost a round trip to re-learn `NONE`, every scan, forever. One board spent ~3,600 calls/hour that way.
+
+**That is the same defect this design fixes, reached from the other side.** The `.list-complete` marker exists to prevent the fallthrough, and it is written only when the bundled list can prove it was whole. **The index makes that proof durable**: a branch absent from a complete index has no PR, and the fallthrough never fires.
+
+**So the branch-count blowup is a host problem wearing a local disguise**, and the index answers it. Two consequences for the build:
+
+- The index must record **completeness** explicitly, the way `plot-host.sh`'s sweep already states it — a partial index must never license `NONE` for a branch nobody asked about.
+- A branch a plan names but nobody started is the **common** case (28 of 29), so the index must hold *"asked, and there is no PR"* as a fact with a timestamp, not as an absence.
+
+**What the index does NOT help with is git's own share**, which is 1257 ms here and bounded: one `for-each-ref`, one bundled `git log`, one `status` per occupied desk. If that grows, the lever is `plot-release-refs.sh` — deleting merged refs, measured at 218.5 s → 111.5 s — and not this design.
+
 ## What this does not fix
 
 **A cold start still costs 30 s.** The index removes repetition, not the first read.
