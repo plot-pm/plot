@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-21, jwloka, in-session
 - **Started:** 2026-09-21, Jan Wloka, `bug/the-rule-knows-it-was-not-asked`
+- **Delivered:** 2026-09-21
 
 ## Changelog
 
