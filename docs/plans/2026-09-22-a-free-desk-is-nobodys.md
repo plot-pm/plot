@@ -9,6 +9,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-22, in-session review
+- **Started:** 2026-09-22, Jan Wloka, `bug/the-reaper-reaches-a-free-desk`
 
 ## Changelog
 
