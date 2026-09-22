@@ -53,6 +53,14 @@ before(() => {
     path.join(repo, 'CLAUDE.md'),
     '## Plot Config\n\n- **Plan directory:** plans/\n- **Worktree root:** .worktrees\n',
   );
+  // THE PID FILE MUST BE IGNORED, as it is in any repository Plot adopts
+  // (`.gitignore:60` here). It is machine-local state the dispatcher writes,
+  // and a sandbox without this rule reads every desk as carrying an
+  // uncommitted change — so `uncommitted-changes` refuses before the reading
+  // under test is ever reached. Measured in CI 2026-09-22: `free-idle` was
+  // kept for `?? .plot-worker.pid` while the same test passed locally, where
+  // the outer repository's own ignore rule happened to cover it.
+  fs.writeFileSync(path.join(repo, '.gitignore'), '.plot-worker.pid\n');
   fs.mkdirSync(path.join(repo, 'plans'), { recursive: true });
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'config');
