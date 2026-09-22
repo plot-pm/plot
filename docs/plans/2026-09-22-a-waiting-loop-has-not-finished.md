@@ -6,10 +6,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Superseded
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Superseded:** 2026-09-22, by `a-clear-desk-is-not-a-finished-one` — panel rejected it 2026-09-22 (divided, nobody said proceed): the proposed arm fires on every orphaned desk, three matches of which one was really working
 - **Rounds:** 1
 
 ## Changelog
