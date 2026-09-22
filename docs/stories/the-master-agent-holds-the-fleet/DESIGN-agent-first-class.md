@@ -179,6 +179,39 @@ The operator settles the open question from the previous section: on a dispatche
 
 **Step 2 is where the design decision lives.** A slice that names a capability nobody has must not starve silently, and `DESIGN-agent.md`'s own line — *"a specialised agent that never becomes a loop-worker still has a registry entry and still has no worker fields"* — says the model already expects such agents to exist.
 
+### Settled 2026-09-22: ask up to the cap while the machine says yes
+
+**This rule is already implemented and needs no change.** `rules/fleet-size.ts`:
+
+```ts
+const ceiling = ceilingFor(headroom);
+const start = Math.min(wanted, ceiling);
+```
+
+and the machine's four answers:
+
+| headroom | ceiling |
+|---|---|
+| `starved` | `STARVED_CEILING` |
+| `tight` | `TIGHT_CEILING` |
+| `clear` / `unmeasured` | **`Infinity`** — *"the machine is not vetoing, so the request stands"* |
+
+**The refusal is explicitly not final**, which is what makes repeated asking safe:
+
+> started 1 of 3 — the machine is at its bound … **Run it again when it clears.**
+
+So a dispatcher that asks every tick costs nothing when the machine is tight and gets its agent the moment it clears. No backoff, no queue of pending requests, no state to keep — the ask is idempotent because `fleetSize` subtracts `running` first.
+
+**`unmeasured` permitting is the deliberate half.** A machine that could not be read does not veto, for the reason `DESIGN-machine.md` §10 established: *headroom is a prediction, and a prediction does not earn a refusal.* An unreadable machine must not become a silent cap.
+
+**So the complete shape is three bounds, all already enforced and all already reported:**
+
+1. **the cap** — `parallelAgents`, what the operator ordered
+2. **the machine** — `ceilingFor(headroom)`, which says *not now* rather than *no*
+3. **the desks** — how many worktrees the tick could cut, reported separately so `started 1 of 3` never blames the machine for a disk
+
+**Nothing in the ask-up-to-the-cap rule needs building.** What needs building is the two triggers reaching it: the standing order asking unconditionally rather than only when a slice waits, and the dispatcher's capability request arriving as a request at all.
+
 ## What to change, in order
 
 1. **Fix the free-agent state.** Nothing else in this document can be observed until an idle agent reports `running` rather than `finished`. Plan written.
