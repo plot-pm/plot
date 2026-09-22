@@ -10,7 +10,7 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -35,9 +35,9 @@ Board impact: none directly; the board reads the registry, not this command. Wha
 
 ### The reading, and why it is wrong
 
-`--status` asks launchd whether the label is loaded. **A loaded label and a running process are different facts**, and launchd reports the label even when the process it names has exited — the third column of `launchctl list` was `-` on both occasions, which is launchd saying *no pid*.
+`--status` asks launchd whether the label is loaded. **A loaded label and a running process are different facts**, and launchd reports the label even when the process it names has exited — `launchctl list`'s **first** column is the pid, and it read `-` on both occasions, which is launchd saying *no pid*. (The columns are `pid | last-exit | label`; an earlier draft of this plan called the `-` the third column and that was wrong.)
 
-`KeepAlive: true` is set in the unit and did not restart it, which is its own finding: the daemon exits in a way launchd treats as final, with an empty `registryd.err` and exit status 0.
+**`KeepAlive: true` DOES restart it**, and the first draft of this plan said the opposite. Measured by the panel: `runs` counted 38 → 39 → 40 in roughly forty seconds. So the deaths were a **throttled crash loop** — launchd restarting a daemon that kept exiting — and not launchd declining to act. That makes the status defect worse rather than better: a label whose daemon is crash-looping reports `running` at every moment between restarts, which is most of them.
 
 **The consequence is the worst kind of wrong answer.** A status command exists to be believed when something is broken, and this one is confidently wrong in exactly that case. An operator who runs it sees `running`, looks elsewhere, and the queue stays unserved.
 
@@ -67,13 +67,15 @@ Board impact: none directly; the board reads the registry, not this command. Wha
 
 ### `install=` must move with it
 
-`fleet_install_state` returns `running` for any loaded label, and `supervisorState` maps what it is handed. **Either it gains the third state or the plan accepts `install=running` beside `exit 1`** — and if it accepts, `supervisorState` needs the matching arm, or the board renders the new state as plain `down`. The slice must say which.
+`fleet_install_state` returns `running` for any loaded label, and `supervisorState` maps what it is handed.
+
+**Decided: `install=` gains the third value.** Accepting `install=running` beside `exit 1` would put the same contradiction one field deeper — a caller reading `install=running` while the command exits 1 has to know which to believe, which is the defect this plan exists to remove. `supervisorState` gains the matching arm in the same slice, so the board does not render the new state as plain `down`.
 
 ## Slices
 
 ### The status asks the process table (Branch: bug/the-status-asks-the-process-table)
 
-- `bug/the-status-asks-the-process-table` — `--status` reads the label AND asks `supervisor_pid` (not `ps | grep`, which a sibling's command line can flip and which regresses the systemd arm), reports both readings on separate lines, answers `loaded, not running` with the two-command repair, exits 1 there, and prints the last tick's age as evidence rather than as the verdict. `install=` either gains the third state or the slice states that it does not and gives `supervisorState` the matching arm. **The test promise is scoped to what CI can reach** — `:243-246` already concedes the launchd arm is unexercisable under `ubuntu-latest`
+- `bug/the-status-asks-the-process-table` — `--status` reads the label AND asks `supervisor_pid` (not `ps | grep`, which a sibling's command line can flip and which regresses the systemd arm), reports both readings on separate lines, answers `loaded, not running` with the two-command repair, exits 1 there, and prints the last tick's age as evidence rather than as the verdict. `install=` gains the third value and `supervisorState` gains the matching arm, both in this slice. **All three rows are tested on CI**, through the seam `fleetctl.test.mjs:392-398` already uses: `fleet_install_state` is driven with `platform` and `supervisor_loaded` stubbed, *"which is what makes the launchd arm reachable on CI's `ubuntu-latest`"*. An earlier draft scoped the promise away on the premise that the arm was unexercisable there; the panel measured that false and the seam is the reason
 
 ## Notes
 

@@ -49,3 +49,36 @@ Its stub registryd exits 0 instantly with an empty error log — **reproducing e
 5. **The stale Notes are corrected**: the cause has its own plan and it merged the same day.
 
 **The plan is amended and stays Draft.** The corrections are in the file; a caller may approve it now or send it back.
+
+---
+
+# Round 2 — the amendment lens
+
+**Position:** `amend`, gated. One lens, checking round 1's six requirements against the amended file.
+
+## The verdict that matters
+
+> **a plan that announces corrections it did not make has moved from wrong to wrong-and-self-certifying, and the next reader has no reason to check.**
+
+Three of six answered, one contradicted by its own slice, **two not answered at all** — both refuted sentences survived verbatim in the Design while the Notes announced them corrected. That is the failure this round found, and it is worse than the original error.
+
+| # | requirement | round 2 |
+|---|---|---|
+| 1 | correct the two refuted facts | **NOT ANSWERED** — both sentences survived |
+| 2 | `supervisor_pid`, not `ps \| grep` | answered, Design and slice agree |
+| 3 | say what `install=` carries | half — the plan said "the slice must decide" and the slice did not |
+| 4 | withdraw the boardctl precedent | answered, correctly |
+| 5 | scope the test promise | half — scoped **on a premise the juror measured false** |
+| 6 | establish the observations were production | answered, and the answer is no |
+
+## What the author did with it
+
+Five edits, all in the plan file rather than in the panel record:
+
+1. **`KeepAlive` DOES restart it** — `runs` 38→39→40 in ~40 s. The deaths were a throttled crash loop, which makes the status defect *worse*: a crash-looping label reports `running` at every moment between restarts.
+2. **`launchctl list`'s columns are `pid | last-exit | label`** — the `-` is column one, and the earlier draft named the third.
+3. **`install=` gains the third value, decided rather than deferred.** Accepting `install=running` beside `exit 1` would put the contradiction one field deeper.
+4. **The test promise is restored rather than scoped away.** `fleetctl.test.mjs:392-398` stubs `platform` and `supervisor_loaded` *"which is what makes the launchd arm reachable on CI's ubuntu-latest"* — verified. All three rows are testable.
+5. `Rounds: 2`.
+
+**Requirement 6 needs no edit**: the plan already records that the measured label was a leaked test unit, and that the leak is a separate defect.
