@@ -59,6 +59,8 @@ import {
   type Reaction,
   type SupervisorRun,
   foldPrIndex,
+  prWindowFor,
+  type PrIndex,
   type PrIndexRow,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
@@ -212,6 +214,21 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // UNDER-DECLARING IS THE FAILURE NAMED ABOVE, and over-declaring is its
   // mirror: stretching this board's cadence for queries it never issues would
   // slow every refresh to pay for nothing.
+  //
+  // A DELTA CHANGED WHAT EACH REQUEST COSTS AND NOT HOW MANY ARE MADE, so this
+  // number is unchanged by the `--since` slice. The Bitbucket arm still calls
+  // once per state plus once for issues, whether or not a window narrows each
+  // call: `bb pr list` has no query flag, so its bulk listing is asked in full
+  // regardless, and the per-branch sweep — the only Bitbucket path a window
+  // reaches — is not the shape this file uses. GitHub likewise makes one call
+  // with `--search` exactly as it made one without.
+  //
+  // WHAT A CHEAPER CALL BUYS IS LATENCY, NOT BUDGET, and conflating the two is
+  // how a table like this goes wrong. 29 811 ms became 943 ms because the host
+  // stopped assembling 933 rows; it is still one request against the same quota
+  // and must still be spaced as one. Lowering this to "pay for" a faster call
+  // would tighten the cadence against a limit that never moved — the ~1400
+  // requests and account-wide `HTTP 429` this table's own header records.
   bitbucket: 4,
 };
 
@@ -250,6 +267,34 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
  * next reader ask whether it is still enough.
  */
 const PR_LIMIT = 1000;
+
+/**
+ * How long a delta may run before the board re-reads everything.
+ *
+ * **A FULL READ IS REQUIRED, NOT OPTIONAL, AND THIS IS THE WHOLE REASON.** A
+ * delta cannot see a DELETION: `updated:>` returns rows that changed, and a PR
+ * the host no longer has changes nothing — it simply stops being listed, which
+ * a narrowed call cannot distinguish from a PR that did not change. Only a
+ * whole answer replaces the store, and only a replacement drops it. The same
+ * applies to a PR force-pushed without a metadata change, and to a host that
+ * back-dates `updated_on`: both sit stale until something asks again.
+ *
+ * **TWENTY-FOUR HOURS IS A GUESS, AND IT IS RECORDED AS ONE.** The design says
+ * so in `DESIGN-index.md` §"What is still open" item 3: *"Daily is a guess; the
+ * honest input is how often a delta misses something, which only running it
+ * will say."* No measurement of the miss rate exists yet, so nothing here could
+ * derive it, and inventing an argument for a number nobody measured would be
+ * worse than naming the guess.
+ *
+ * **WHAT MAKES THE GUESS SAFE RATHER THAN MERELY CHEAP** is the cost either way
+ * round. Too long, and a deleted PR lingers as a row whose link 404s — visible,
+ * local, and corrected on the next full read. Too short, and the board pays
+ * 29 811 ms more often than it needs to, which is the cost this whole plan
+ * exists to remove. The first is a wrong row; the second is a slow board. A day
+ * sits where a wrong row is corrected before most operators would act on it,
+ * and the 30 s is paid once against roughly 1440 refreshes.
+ */
+const PR_FULL_READ_MS = 24 * 60 * 60 * 1000;
 
 /**
  * How many open issues to ask for.
@@ -2556,25 +2601,66 @@ const seedPrsFromStore = async (entry: CacheEntry, connector: string): Promise<v
   // unreadable one answers `failed`. Both mean the same thing here: nothing to
   // seed from, so the board waits for the host exactly as it does today.
   if (!held.ok || held.value === null) return;
-  const map = new Map<string, PrRecord>();
+  applyPrMaps(entry, mapsOfRows(held.value.rows));
+};
+
+/** The three maps the board serves, derived from one set of rows. */
+interface PrMaps {
+  /** Open PRs by head branch — what `classify` reads. */
+  prs: Map<string, PrRecord>;
+  /** Every PR by number, whatever its state. */
+  byNumber: Map<number, PrRecord>;
+  /** One PR per head branch, ranked; every state, for the link. */
+  byHead: Map<string, PrRecord>;
+}
+
+/**
+ * Builds the three served maps from stored rows.
+ *
+ * **EXTRACTED SO THE DELTA PATH CAN REACH IT, and `seedPrsFromStore`'s guard
+ * deliberately did not come with it.** That guard — `prsByNumber !== null` —
+ * is what stops disk moving a live board backwards, and a delta path that
+ * bypassed it would be one that could seed over live data too. So the guard
+ * stays where it decides, and only the derivation moved.
+ *
+ * **THE THREE RULES ARE THE HOST PATH'S**, re-applied rather than shared by
+ * accident: a stored row reaches these maps under exactly the conditions a
+ * fetched one does, or a board served from the store would classify branches by
+ * a rule the refreshed board does not use.
+ *
+ * @param rows - the rows to derive from, as the store holds them.
+ * @returns the three maps.
+ */
+const mapsOfRows = (rows: readonly PrIndexRow[]): PrMaps => {
+  const prs = new Map<string, PrRecord>();
   const byNumber = new Map<number, PrRecord>();
   const byHead = new Map<string, PrRecord>();
-  for (const row of held.value.rows) {
+  for (const row of rows) {
     const pr = recordOf(row);
-    // THE SAME THREE RULES THE HOST PATH APPLIES, and they are re-applied
-    // rather than shared by accident: a stored row reaches these maps under
-    // exactly the conditions a fetched one does, or a seeded board would
-    // classify branches by a rule the refreshed board does not use.
-    if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
+    if (pr.head && pr.state === 'OPEN') prs.set(pr.head, pr);
     byNumber.set(pr.number, pr);
     if (pr.head) {
       const ranked = byHead.get(pr.head);
       if (!ranked || prOutranks(pr, ranked)) byHead.set(pr.head, pr);
     }
   }
-  entry.prs = map;
-  entry.prsByNumber = byNumber;
-  entry.prsByHead = byHead;
+  return { prs, byNumber, byHead };
+};
+
+/**
+ * Puts one set of maps on the entry, as the three fields the board serves.
+ *
+ * One assignment site rather than three repeated at each caller: the maps are
+ * always set together, and a path that set two of them would serve a board
+ * whose `prs` and `prsByNumber` disagreed about which PRs exist.
+ *
+ * @param entry - the cache entry to fill.
+ * @param maps - the maps to serve.
+ */
+const applyPrMaps = (entry: CacheEntry, maps: PrMaps): void => {
+  entry.prs = maps.prs;
+  entry.prsByNumber = maps.byNumber;
+  entry.prsByHead = maps.byHead;
 };
 
 /**
@@ -2593,31 +2679,46 @@ const seedPrsFromStore = async (entry: CacheEntry, connector: string): Promise<v
  * inherited by the next process as good data, where an in-memory one dies with
  * this one.
  *
+ * **IT RETURNS WHAT IT FOLDED, AND THAT IS WHAT THE DELTA PATH SERVES.** The
+ * fold is the one place a partial answer is merged with what was held, so the
+ * caller building its maps from this return value gets the merge for free —
+ * where building them from the pass's own rows would serve a 3-row window as
+ * the whole estate. `null` where nothing could be folded or written, which the
+ * caller reads as *fall back to the rows I have*.
+ *
  * @param connector - which connector answered.
  * @param rows - the rows the host returned this pass.
  * @param complete - whether the answer covered every state asked about.
+ * @returns the store as it was folded and written, or null where it could not be.
  */
 const writePrStore = async (
   connector: string, rows: readonly PrIndexRow[], complete: boolean,
-): Promise<void> => {
+): Promise<PrIndex | null> => {
   try {
     const held = await prStore.read(connector);
     // An unreadable store is merged into as if it were absent: a whole answer
     // replaces it anyway, and a partial one keeping nothing is the safe
     // direction — it under-claims rows rather than inventing them.
     const previous = held.ok ? held.value : null;
-    await prStore.write(connector, foldPrIndex(previous, {
+    const folded = foldPrIndex(previous, {
       connector,
       rows,
       complete,
       // THIS MACHINE'S CLOCK, AND ONLY FOR AN OPERATOR READING THE FILE. The
       // watermark is taken from the ROWS by `foldPrIndex` and never from here.
       at: new Date().toISOString(),
-    }));
+    });
+    // THE FOLD IS RETURNED WHETHER OR NOT THE WRITE LANDED. A read-only disk
+    // must cost the board time and not answers, and the merged view is correct
+    // in memory whatever the filesystem did with it — refusing to serve it
+    // because the write failed would turn a disk problem into a wrong board.
+    await prStore.write(connector, folded);
+    return folded;
   } catch {
     // The adapter answers with values rather than throwing, so reaching this is
     // a bug rather than a disk. It is still swallowed: the store may cost the
     // board time and may never cost it an answer.
+    return null;
   }
 };
 
@@ -2689,14 +2790,40 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   // must not reach the catch that owns the backoff and the banner, which report
   // the connector. It swallows its own failures for the same reason.
   await seedPrsFromStore(entry, backend);
+  // THE WINDOW, DECIDED BEFORE THE CALL AND FROM THE STORE THE CALL WILL FOLD
+  // INTO. A second read is one local `readFile` against a host call measured at
+  // 29 811 ms, and reading it here rather than reusing the seed's read is what
+  // makes the window right on a warm entry: `seedPrsFromStore` returns
+  // immediately once this process has heard from the host, so its read never
+  // happens on the passes that matter most.
+  //
+  // OUTSIDE THE `try`, like the seed above it and for the same reason: a store
+  // that cannot be read is not the host, and must not reach the catch that owns
+  // the backoff and the banner. An unreadable store answers `null` here, which
+  // `prWindowFor` reads as *ask for everything* — today's call exactly.
+  let stored: PrIndex | null = null;
+  try {
+    const held = await prStore.read(backend);
+    stored = held.ok ? held.value : null;
+  } catch {
+    stored = null;
+  }
+  const window = prWindowFor(stored, Date.now(), PR_FULL_READ_MS);
   try {
     // BOUNDED HERE, WHERE THE CALL IS. The gate wraps the host request and
     // nothing else — reading the record, parsing the answer and scheduling the
     // next refresh spend no host budget, and holding a slot across them would
     // count this board as a caller while it is not calling.
-    const said = await withHostSlot(entry, () =>
-      scriptsFor(opts).hostSaid(['pr-list', '--rich',
-        '--state', 'all', '--limit', String(PR_LIMIT)]));
+    //
+    // `--since` IS APPENDED ONLY WHERE THERE IS A WINDOW, and never with an
+    // empty value. A cold store, a store carrying no watermark and a store due
+    // its full read each answer `since: null` here, and the call that goes out
+    // is byte-identical to the one this file has always made. `--since ""`
+    // would reach GitHub as `--search "updated:>"`, a syntax error the host may
+    // answer with everything or with nothing.
+    const args = ['pr-list', '--rich', '--state', 'all', '--limit', String(PR_LIMIT)];
+    if (window.since !== null) args.push('--since', window.since);
+    const said = await withHostSlot(entry, () => scriptsFor(opts).hostSaid(args));
     // A refusal is thrown so the catch below keeps owning the backoff. It is one
     // policy — keep the last good map, wait where the host named a wait — and
     // the two paths that reach it (a refused call, and a map that came back all
@@ -2798,9 +2925,65 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       scheduleNextPr(entry, startedAt, waitOf(reaction), backend, rate);
     } else {
       // The happy path: the host answered and at least some PRs are readable.
-      entry.prs = map;
-      entry.prsByNumber = byNumber;
-      entry.prsByHead = byHead;
+      //
+      // COMPLETENESS IS THE WINDOW'S AND THE PARTIAL ANSWER'S TOGETHER, and
+      // they are two different facts about one answer. `window.complete` says
+      // *was this a full read* — did the call ask about the whole history, or
+      // about one window of it. `partialSaid` says *did every host state
+      // answer* — a Bitbucket-only shape, since `bb` has no `all` state and its
+      // arm calls once per state.
+      //
+      // CONFLATING THEM FAILS IN BOTH DIRECTIONS. A successful delta exits 0
+      // and carries no partial sentence, so reading completeness from
+      // `partialSaid === null` alone would mark a 3-row window `complete: true`
+      // and replace 933 stored rows with 3 — #912 reproduced on disk, where the
+      // next process inherits it. And treating a delta as a degraded reading
+      // would raise the partial banner on every healthy refresh.
+      //
+      // Only an answer that is BOTH a full read and whole may replace.
+      const complete = window.complete && partialSaid === null;
+      // THE SERVED MAPS COME FROM THE FOLD, NOT FROM THIS PASS'S ROWS. A
+      // delta's window returns the rows that changed — 3 on a quiet estate —
+      // and `map`/`byNumber`/`byHead` above hold exactly those. Serving them
+      // would report 930 branches as having no PR while the store on disk is
+      // perfectly correct, which is the defect a test asserting only the
+      // store's contents would pass straight through.
+      //
+      // `writePrStore` returns what `foldPrIndex` merged, so the merge happens
+      // once and in the rule that owns it rather than a second time here.
+      //
+      // THE STORE IS WRITTEN ON THIS PATH AND ON NO OTHER. The host answered
+      // and at least some rows are readable, which is the only state in which
+      // what is on disk should change. The `allUnknown` path and the `catch`
+      // keep their map in memory and leave the file alone: a dark map written
+      // to disk is inherited by the next process as good data.
+      //
+      // AWAITED, so a refresh cannot overlap its own write, so a test can
+      // assert the file without racing it, and — since this slice — so the maps
+      // it serves are derived from a fold that has already happened. The write
+      // is one local `rename` against a host call measured at 29 811 ms.
+      const folded = await writePrStore(backend, rows, complete);
+      // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
+      // optimisation: a whole answer REPLACED the store, so the fold and this
+      // pass hold the same rows by construction. Deriving from the fold anyway
+      // would make a board whose disk write failed serve nothing.
+      //
+      // A DELTA FALLS BACK TO ITS OWN ROWS ONLY WHERE THE FOLD IS ABSENT, which
+      // means the store could neither be read nor written. That board is
+      // already in the state this whole path exists to avoid, and serving the
+      // window's rows is the last honest thing left: they are what the host
+      // just said.
+      if (complete || folded === null) {
+        entry.prs = map;
+        entry.prsByNumber = byNumber;
+        entry.prsByHead = byHead;
+      } else {
+        applyPrMaps(entry, mapsOfRows(folded.rows));
+      }
+      // `map` RATHER THAN THE FOLDED OPEN PRS, deliberately. `refreshRuns` asks
+      // the CI connector about the branches it is given, and a delta's job is
+      // to ask about what CHANGED — handing it every open PR in the store would
+      // undo the saving on the connector this slice never set out to narrow.
       await refreshRuns(opts, entry, map, build);
       entry.prAt = Date.now();
       scheduleNextPr(entry, startedAt, null, backend, rate);
@@ -2810,23 +2993,6 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       // wrong answer this adapter refuses elsewhere. A whole answer clears the
       // field exactly as before.
       entry.prError = partialSaid;
-      // THE STORE IS WRITTEN ON THIS PATH AND ON NO OTHER. The host answered
-      // and at least some rows are readable, which is the only state in which
-      // what is on disk should change.
-      //
-      // `partialSaid === null` IS THE COMPLETENESS, and it is RECORDED rather
-      // than inferred. A partial answer merges into whatever the store held; a
-      // whole one replaces it, so a PR the host no longer lists leaves rather
-      // than outliving the host's own record of it. Inferring wholeness from
-      // "the file exists" is what would license *asked, and there is no PR*
-      // from a read that never saw the state the PR is in —
-      // `plot-fleet-scan.sh:1031`'s failure, which cost one board ~3600
-      // calls/hour re-learning `NONE`.
-      //
-      // AWAITED, so a refresh cannot overlap its own write, and so a test can
-      // assert the file without racing it. The write is one local `rename`
-      // against a host call measured at 29 811 ms.
-      await writePrStore(backend, rows, partialSaid === null);
     }
   } catch (err) {
     // Same rule as the pulse: a failure keeps the last good map rather than

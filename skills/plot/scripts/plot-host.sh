@@ -61,6 +61,30 @@
 #   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
 #   pr-list [--state open|merged|closed|all] [--limit N] [--rich]
+#                                 [--since <iso>] narrows the listing to pull
+#                                 requests the host has seen change since that
+#                                 stamp. Measured 2026-09-21 on this repository:
+#                                 one `--state all` over 933 pull requests takes
+#                                 29 811 ms with the fields the board needs, and
+#                                 the same call over one day takes 943 ms for 3
+#                                 rows — factor 32, with every expensive field
+#                                 still included.
+#                                 THE STAMP IS THE HOST'S OWN, passed through
+#                                 byte-for-byte: a caller that re-renders it
+#                                 sends its own clock's spelling, and a client
+#                                 two seconds fast excludes the PRs updated in
+#                                 that gap from every later window — forever,
+#                                 because the window never reopens.
+#                                 GITHUB NARROWS AND BITBUCKET'S BULK LISTING
+#                                 CANNOT. `gh pr list` takes `--search`; `bb pr
+#                                 list` has no query flag at all (verified
+#                                 against bb 1.9.0: `unknown flag: --query`), so
+#                                 only the per-branch sweep's REST `q=` can
+#                                 carry it. The bulk Bitbucket listing SAYS it
+#                                 could not narrow and answers in full, because
+#                                 a full answer reported as a delta is what
+#                                 would let a caller advance a watermark over a
+#                                 window it never applied.
 #                                 [--repo <owner/repo>] pins the list to ONE
 #                                 repository, exactly as pr-state and pr-merged
 #                                 do. A checkout with remotes on two hosts lets
@@ -735,6 +759,24 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
   local _br="$1" _st="$2"; shift 2
   local _q _path _out _rc
   _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND source.branch.name=$(url_encode "\"$_br\"")"
+  # THE WINDOW COMPOSES WITH THE STATE FILTER AND NEVER REPLACES IT. Bitbucket
+  # takes ONE `q=` parameter, so a second one would silently win or lose
+  # depending on the host's parsing — and either way the state clause this query
+  # is built around would be the term at risk. `AND` is the same conjunction the
+  # two terms above already use.
+  #
+  # ENCODED LIKE EVERY OTHER TERM ON THIS PATH, and an ISO stamp needs it: `:`
+  # and `-` are not in `url_encode`'s safe set, and the block header records
+  # what an unencoded value costs — `/` ends the filter early, so the query asks
+  # about one thing and answers about another.
+  #
+  # `>=` RATHER THAN `>`, and the asymmetry with the GitHub arm is deliberate.
+  # Bitbucket's `updated_on` carries microseconds and GitHub's stamp does not,
+  # so an exclusive comparison against a truncated stamp would drop a PR updated
+  # inside the same second. Re-reading one row the caller already holds costs a
+  # row; missing one costs a change nobody ever sees again.
+  [ -n "$PR_LIST_SINCE" ] \
+    && _q="$_q AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
   # The space between the two terms is encoded too; `bb api` passes the path to
   # curl verbatim and an unencoded space would truncate the request line.
   _q="${_q// /%20}"
@@ -840,6 +882,19 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
 # containing a space or a tab — verified 2026-09-20, both exit non-zero — so the
 # separator is git's guarantee rather than a hopeful convention.
 PR_LIST_BRANCHES=""
+
+# The window a sweep's query carries, the host's own stamp. Empty means ask
+# about everything, which is what every caller predating `--since` asks.
+#
+# A GLOBAL FOR `PR_LIST_BRANCHES`' REASON, and it travels the same route: the
+# `pr-list` arm sets it immediately before the call, `bb_branch_sweep` passes
+# through without reading it, and `bb_branch_query` composes it into the one
+# `q=` Bitbucket takes. Threading it through the sweep as an argument would mean
+# teaching that function a parameter it only forwards, and its header already
+# refuses the mirror of that — "teaching `pr_list_states` which of its commands
+# is a sweep would put a backend's shape inside the one piece of this file that
+# has none."
+PR_LIST_SINCE=""
 
 # How many branches the last sweep asked about, and how many answered.
 #
@@ -3331,12 +3386,22 @@ case "$op" in
     # existing caller's result changes.
     limit=""
     branches=""
+    # THE WINDOW, AND IT IS THE HOST'S OWN STAMP. Empty means ask about
+    # everything, which is what every caller predating this asks and what a
+    # caller with no stored watermark must ask. A caller that has one sends it
+    # verbatim — see the header: re-rendering it is how a window closes forever.
+    since=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --state) state="${2:?}"; shift 2 ;;
         --limit) limit="${2:?}"; shift 2 ;;
         --rich) rich=1; shift ;;
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        # `${2:?}` REFUSES AN EMPTY VALUE, and that is the point rather than
+        # boilerplate. `--since ""` would reach GitHub as `--search "updated:>"`,
+        # a syntax error the host may answer with everything or with nothing —
+        # and a caller whose watermark was null would send exactly that.
+        --since) since="${2:?}"; shift 2 ;;
         # THE BRANCHES THE CALLER TRACKS, repeatable, and OPT-IN. Given any,
         # the Bitbucket arm sweeps the REST endpoint once per branch per state
         # instead of listing the repository; given none, every existing caller
@@ -3357,6 +3422,23 @@ case "$op" in
     done
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
+    # THE WINDOW AS GITHUB TAKES IT, built once and appended at all three call
+    # sites — the same argument `pr_list_call`'s header makes about the six
+    # hand-applied fixes: three sites each composing their own search string is
+    # three places for the next window's shape to drift.
+    #
+    # `updated:>` is EXCLUSIVE, and that is the safe direction here. The
+    # watermark is the stamp of a row the caller has ALREADY stored, so
+    # excluding it re-asks nothing; including it would re-fetch that row every
+    # pass for no new information. A PR updated in the same second as the
+    # watermark is the one this can miss, and the periodic full read the caller
+    # is required to keep making is what corrects it.
+    #
+    # THE STAMP IS NOT QUOTED INSIDE THE QUERY. `gh` sends `--search`'s value as
+    # one API parameter and an ISO-8601 stamp carries no space, so a quote would
+    # travel to GitHub as part of the term and match nothing.
+    search_args=()
+    [ -n "$since" ] && search_args=(--search "updated:>$since")
 
     # --- Jenkins CI integration (orthogonal to Git host) ---
     # When `CI: jenkins` is configured, build status comes from Jenkins rather
@@ -3467,7 +3549,7 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
             --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -3497,7 +3579,7 @@ case "$op" in
               }'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
             --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -3529,7 +3611,7 @@ case "$op" in
               }'
         fi
       else
-        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
           --json number,title,state,headRefName)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -3574,6 +3656,23 @@ case "$op" in
       # ways, which is how the six hand-applied fixes `pr_list_call` warns about
       # began. One assignment here; the sites are untouched but for this word.
       PR_LIST_BRANCHES="$branches"
+      # THE WINDOW REACHES THE SWEEP AND NOT THE LISTING, and the asymmetry is
+      # the CLI's rather than a choice. `bb pr list` takes `--state`, `--author`,
+      # `--json` and `--jq` and no query flag at all — verified against bb 1.9.0,
+      # which answers `unknown flag: --query` — so the only Bitbucket path that
+      # can carry `updated_on` is `bb_branch_query`'s own REST `q=`.
+      #
+      # SAID RATHER THAN SWALLOWED, for the reason `--limit` two blocks up is
+      # said: a caller that asked for a window and got a full listing must not
+      # read the answer as a delta. It would advance its watermark over a window
+      # it never applied — harmless this pass, since a full listing holds every
+      # row a narrow one would, and wrong the moment the caller uses the flag to
+      # decide whether its answer was complete.
+      PR_LIST_SINCE="$since"
+      if [ -n "$since" ] && [ -z "$branches" ]; then
+        echo "plot-host: bitbucket ignores --since $since on a listing; bb pr list has no query flag (bb 1.9.0) — answering in full" >&2
+        PR_LIST_SINCE=""
+      fi
       PR_SWEEP_ASKED=0
       bb_cmd=(bb ${repo_args[@]+"${repo_args[@]}"} pr list)
       if [ -n "$branches" ]; then

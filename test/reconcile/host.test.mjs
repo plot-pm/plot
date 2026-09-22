@@ -5163,3 +5163,145 @@ test('host: the sweep folds DECLINED into CLOSED, as the listing does', () => {
   assert.equal(res.status, 0, res.stderr);
   assert.equal(JSON.parse(res.stdout.trim()).state, 'CLOSED', 'DECLINED folds to CLOSED');
 });
+
+// --- the window: pr-list --since (the delta slice) --------------------------
+//
+// One `gh pr list --state all` over 933 pull requests takes 29 811 ms with the
+// fields the board needs. The same call with `--search "updated:>"` over one
+// day takes 943 ms for 3 rows — factor 32, with every expensive field still
+// included, which is why the answer is a narrower CALL rather than a cache in
+// front of the same one.
+//
+// WHAT THESE PIN is the translation and nothing above it. Whether to send a
+// window is `prWindowFor`'s decision and is asserted in the domain; what the
+// adapter owes is that a stamp becomes the right host filter, that it composes
+// with the state filter Bitbucket already carries, and that a backend which
+// cannot narrow SAYS so rather than answering in full silently.
+
+test('host: --since becomes a gh --search window, and nothing else changes', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all',
+    '--limit', '1000', '--since', '2026-09-20T18:42:10Z'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  // THE STAMP TRAVELS BYTE-FOR-BYTE. A caller that re-rendered it would send
+  // its own clock's spelling of the host's value, and a client two seconds fast
+  // excludes the PRs updated in that gap from every later window — forever,
+  // because the window never reopens.
+  assert.ok(argv.includes('--search'), 'the window reaches gh as a search');
+  assert.equal(argv[argv.indexOf('--search') + 1], 'updated:>2026-09-20T18:42:10Z');
+  // The rest of the call is untouched: same state, same limit, same fields.
+  assert.ok(argv.includes('--state') && argv[argv.indexOf('--state') + 1] === 'all');
+  assert.ok(argv.includes('--limit') && argv[argv.indexOf('--limit') + 1] === '1000');
+});
+
+test('host: no --since means the call gh has always been sent', () => {
+  // THE DONE-WHEN, asserted as an ABSENCE. A `--search` with an empty value
+  // would reach GitHub as `updated:>`, which is a syntax error the host may
+  // answer with everything or with nothing — and either reading is worse than
+  // the full call this is meant to preserve.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(!argvOf(stubs.ghArgv).includes('--search'), 'no window, no search');
+});
+
+test('host: --since with an empty value is refused, never sent', () => {
+  // The one shape that "works" and asks the wrong question. A caller whose
+  // watermark was null would send exactly this.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--since', ''], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.notEqual(res.status, 0, 'an empty window is a caller bug and fails loudly');
+  assert.equal(res.stdout.trim(), '', 'and prints nothing, so no reader sees an empty list');
+});
+
+test('host: --since is carried on the plain (non-rich) gh call too', () => {
+  // THREE CALL SITES, ONE WINDOW. The arm branches on rich × Jenkins into three
+  // gh invocations, and `pr_list_call`'s own header makes the argument: a fix
+  // applied by hand at some of them is a fix that drifts, and the arm that
+  // drifts is the one nobody's repo exercises.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'open',
+    '--since', '2026-09-20T18:42:10Z'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[argv.indexOf('--search') + 1], 'updated:>2026-09-20T18:42:10Z');
+});
+
+test('host: --since composes with the sweep q=, rather than replacing it', () => {
+  // THE DONE-WHEN. Bitbucket takes ONE `q=` parameter, so a second one would
+  // silently win or lose depending on the host's parsing — and either way the
+  // state clause this query is built around is the term at risk.
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--rich',
+    '--branch', 'feature/x', '--since', '2026-09-20T18:42:10Z'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const call = sweepCalls(bb.callsFile)[0];
+  // ALL THREE TERMS SURVIVE, joined by the conjunction the first two already use.
+  assert.match(call, /state=%22MERGED%22/, 'the state clause is intact');
+  assert.match(call, /source.branch.name=%22feature%2Fx%22/, 'the branch clause is intact');
+  // THE OPERATOR TRAVELS LITERALLY AND THE VALUE IS ENCODED, which is the same
+  // split the two clauses above already use: `state=` and `AND` are query
+  // grammar, `%22MERGED%22` is a value. Encoding `>=` would break the filter
+  // rather than protect it.
+  assert.match(call, /%20AND%20updated_on>=%22/,
+    'the window is a third term joined by AND, not a second q=');
+  assert.equal(call.match(/q=/g).length, 1, 'exactly one q= parameter');
+});
+
+test('host: the sweep encodes the stamp, so a colon cannot end the filter', () => {
+  // AN ISO STAMP IS NOT URL-SAFE, the same rule the branch name follows two
+  // tests up: `:` and `-` are outside `url_encode`'s safe set, and the block
+  // header records what an unencoded value costs — a `/` ends the filter early,
+  // so the query asks about one thing and answers about another.
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--rich',
+    '--branch', 'x', '--since', '2026-09-20T18:42:10Z'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const call = sweepCalls(bb.callsFile)[0];
+  assert.match(call, /%222026-09-20T18%3A42%3A10Z%22/, 'the colons are encoded inside the value');
+  assert.ok(!/18:42:10/.test(call), 'no raw colon survives inside the q= value');
+});
+
+test('host: a bitbucket LISTING says it cannot narrow, and answers in full', () => {
+  // THE DISCOVERY THIS SLICE MADE. `bb pr list` takes --state, --author, --json
+  // and --jq and has NO query flag — verified against bb 1.9.0, which answers
+  // `unknown flag: --query`. So the bulk listing cannot carry a window at all.
+  //
+  // SAID RATHER THAN SWALLOWED, for the reason `--limit` is said one block up:
+  // a caller that asked for a window and got a full listing must not read the
+  // answer as a delta. It would advance its watermark over a window it never
+  // applied — harmless this pass, since a full listing holds every row a narrow
+  // one would, and wrong the moment the caller uses the flag to decide whether
+  // its answer was complete.
+  const bb = makeStrictBbStub({ json: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'open',
+    '--since', '2026-09-20T18:42:10Z'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stderr, /since/i, 'the shortfall is reported, never swallowed');
+  // AND THE FLAG NEVER REACHES `bb`, which would refuse it. The strict stub is
+  // what makes this an assertion rather than a hope.
+  assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--since')));
+  assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--query')));
+});
