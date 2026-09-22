@@ -76,10 +76,58 @@ A dispatch that **queues regardless** and additionally **reports that nothing ca
 
 **The fourth is the only genuinely new one**, and the argument for it is that the supervisor's `--start-agents` already does exactly this — from the queue's side rather than the dispatcher's. Whether the dispatcher should also be able to ask is a question about *who owns the decision*, not about coupling: the queue is already the trigger.
 
+## Asked 2026-09-22: the fleet MAINTAINS N, with capabilities
+
+Two further claims, measured the same way.
+
+### "N agents at start, and the fleet keeps N available" — already built
+
+`rules/fleet-size.ts` holds the maintenance semantics explicitly:
+
+> **THE FLEET ALREADY ON THE MACHINE IS SUBTRACTED FIRST**, because `start N` asks for a fleet of N rather than for N more. Running it twice must not give six agents.
+
+And `workflows/assign.ts:178` runs it **every supervisor tick**, not only at start:
+
+```ts
+const waiting = held.filter((slice) => slice.hold === 'no-free-agent').length;
+const running = readings.agents.length;          // free or busy alike
+fleetSize({ requested: waiting === 0 ? running : fleet.size, running, … });
+```
+
+**Read that `requested` line carefully, because it is the whole policy:** with nothing waiting it asks for exactly what is running — a no-op — and the moment one slice is held on `no-free-agent` it asks for the full `fleet.size`. So the fleet is topped up **on demand rather than held at N**, which is a deliberate difference from the question as put.
+
+The counting rule is stated too: **every registered agent counts as running, free or busy**, because *"a free agent is carrying one — it holds a slot and is about to be handed a slice"*.
+
+**Two bounds are reported rather than silently applied** — the machine's headroom, and the desks the daemon could cut this tick. An operator reading `started 1 of 3` must be able to tell which one stopped it.
+
+**So the only gap against the claim is the trigger**: top-up happens when a slice is waiting, not continuously. Whether that is a defect depends on what the idle fleet is for — holding N warm costs N workers' memory for work that may not arrive, and the current shape pays only when there is something to pay for.
+
+### "with the requested capabilities" — the one genuine gap
+
+**The vocabulary exists and is not connected.** `entities/charter.ts` carries `capabilities: readonly string[]` and defines a charter as *"what a person declared one agent to be"*, with the warning that matters:
+
+> Declared rather than derived — a matcher reading a plan could guess a capability, and a guess that is usually right produces a fleet whose wrong answers cannot be explained.
+
+**What does not exist:**
+
+- `FleetCap` carries `size`, `headroom`, `spawnCostMs`, `desks` — **no capability**.
+- `matchQueue` names capabilities nowhere; it filters on `isAgentFree` alone.
+- A slice declares no capability requirement, and the charter spec forbids inferring one.
+
+So the fleet can be asked for *three agents* and never for *three agents that can build the board*. Making that possible needs three things in order, and the middle one is the hard part:
+
+1. **A slice declares what it needs** — and per the charter's own rule this must be declared, not guessed. That is a plan-format change, which is the expensive half.
+2. **`matchQueue` matches a free agent's charter against that declaration**, and reports `no-capable-agent` distinctly from `no-free-agent` — otherwise a fleet with three idle agents and no matching one reads as full.
+3. **`scaleUp` asks for the missing capability**, not merely for a bigger number.
+
+**Step 2 is where the design decision lives.** A slice that names a capability nobody has must not starve silently, and `DESIGN-agent.md`'s own line — *"a specialised agent that never becomes a loop-worker still has a registry entry and still has no worker fields"* — says the model already expects such agents to exist.
+
 ## What to change, in order
 
 1. **Fix the free-agent state.** Nothing else in this document can be observed until an idle agent reports `running` rather than `finished`. Plan written.
 2. **Give the lifecycle a word for it.** Eight states and none says *running and idle*; the reader needs it and so does the board.
-3. **Then decide the dispatcher's ask** — and decide it as an ownership question, with `--start-agents` on the table as the existing answer from the other direction.
+3. **Decide whether the fleet holds N warm or tops up on demand.** It tops up today, and the difference is a cost decision rather than a defect.
+4. **Then decide the dispatcher's ask** — as an ownership question, with `--start-agents` on the table as the existing answer from the other direction.
+5. **Capabilities last, and as three changes rather than one.** The declaration side is a plan-format change and the matching side needs a distinct `no-capable-agent` hold; neither is worth building before an idle agent is visible.
 
 **Nothing here proposes changing the Agent/Worker split.** `DESIGN-agent.md`'s three lifetimes — manifest to the Registry, worktree to the agent, worker to the Machine — survive this question intact. What changes is that the worker's bracket is the AGENT's life rather than one slice's, which the free agent already demonstrates and the spec already says.
