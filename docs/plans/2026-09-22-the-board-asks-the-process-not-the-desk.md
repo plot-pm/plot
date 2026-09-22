@@ -160,9 +160,9 @@ The reason is the consequence juror's: three live agents genuinely occupy machin
 
 ## Slices
 
-### The row reads the process (Branch: bug/the-row-reads-the-process)
+### The row reads the process (Branch: bug/the-row-reads-the-process, PR: #962)
 
-- `bug/the-row-reads-the-process` — the registry row's state reads `running` where the shell answers `finished` and the recorded pid is alive, leaving every other state and the shell itself untouched; unit tests for the live and exited cases; a browser test pinning a between-slices agent in WORKING
+- `bug/the-row-reads-the-process` — the registry row's state reads `running` where the shell answers `finished` and the recorded pid is alive, leaving every other state and the shell itself untouched; unit tests for the live and exited cases; a browser test pinning a between-slices agent in WORKING → #962
 
 ## Notes
 
