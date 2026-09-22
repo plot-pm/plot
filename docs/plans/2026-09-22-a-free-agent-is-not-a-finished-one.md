@@ -2,6 +2,8 @@
 
 > A free agent waiting to be handed work reads as `finished`, so the board drops it and an operator starting agents sees nothing appear.
 
+> **REJECTED BY PANEL, 2026-09-22.** Four lenses, `divided` — two reject, two amend, none proceed. **The diagnosis survives and was reproduced from a fixture; the fix is wrong in three independent ways.** As written it would make started agents UNDISPATCHABLE (`isAgentFree` filters any state that is not `running` out of `matchQueue`'s free list), its discriminator `branch: ""` is what `plot-worker-loop.sh:2150` writes when a slice FINISHES, and a shell-only change fails the declared corpus pair `agent-state.corpus.test.ts`. All four jurors found the same omission: the plan never names `rules/free.ts`, which already answers this question. See `.plot/panels/2026-09-22-a-free-agent-is-not-a-finished-one/panel.md`. **Not dispatchable as written.**
+
 ## Status
 
 - **State:** Draft
@@ -68,7 +70,7 @@ Two readings, one process state:
 
 ## Slices
 
-### The state knows a free agent (Branch: bug/the-state-knows-a-free-agent)
+### The state knows a free agent (Branch: bug/the-state-knows-a-free-agent) <!-- deferred: rejected by panel 2026-09-22 — the fix would make started agents undispatchable, the discriminator collides with what the loop writes on slice completion, and a shell-only change fails the declared corpus pair. Rewrite before dispatching -->
 
 - `bug/the-state-knows-a-free-agent` — `plot-worker-state.sh` answers `free` where the manifest carries no branch and the loop is alive, leaving every other arm unchanged; the board's registry keeps a `free` entry the way it keeps a `running` one, and `dropSettledWorkers` is untouched. Tests pin that a dispatched agent with no `claude` child still reads `finished`, and that the root-exclusion still refuses to read a bare loop shell as alive for a branch-holding desk
 
