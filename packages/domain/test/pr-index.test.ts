@@ -133,6 +133,47 @@ describe('a partial answer merges and a whole one replaces', () => {
   });
 });
 
+describe('the two shapes an answer can have at the edges', () => {
+  it('a partial answer at a COLD store keeps its rows and says it is not whole', () => {
+    // Bitbucket's first refresh may reach some states and not others. The rows
+    // that arrived are real and are kept; what must not happen is the store
+    // claiming to be whole, which would license "asked, and there is no PR"
+    // for every state that never answered.
+    const folded = foldPrIndex(null, {
+      connector: 'bitbucket', complete: false, at: '2026-09-21T10:00:00Z', rows: [row(1)],
+    });
+    expect(folded.rows.map((r) => r.number)).toEqual([1]);
+    expect(folded.complete).toBe(false);
+  });
+
+  it('an EMPTY whole answer empties the store', () => {
+    // A repository whose last PR was deleted must end with an empty store, not
+    // one frozen at its last non-empty state. `refreshPrs` reaches this path
+    // deliberately: its outage guard is `allPrs.length > 0`, because an empty
+    // map is not evidence of an outage — it means no PRs exist.
+    const held = store([row(1), row(2)], { watermark: '2026-09-01T00:00:00Z' });
+    const folded = foldPrIndex(held, {
+      connector: 'github', complete: true, at: '2026-09-21T10:00:00Z', rows: [],
+    });
+    expect(folded.rows).toEqual([]);
+    // And the watermark goes with them: it is derived from the rows, so a store
+    // holding none can say nothing about freshness rather than keeping a stamp
+    // no row backs.
+    expect(folded.watermark).toBeNull();
+  });
+
+  it('an EMPTY partial answer changes nothing', () => {
+    // The mirror of the case above, and the one a naive implementation gets
+    // wrong: a state that failed to answer returns no rows, and emptying the
+    // store on that would delete every PR in it.
+    const held = store([row(1), row(2)]);
+    const folded = foldPrIndex(held, {
+      connector: 'bitbucket', complete: false, at: '2026-09-21T10:00:00Z', rows: [],
+    });
+    expect(folded.rows.map((r) => r.number)).toEqual([1, 2]);
+  });
+});
+
 describe('the store is keyed by number, never by branch', () => {
   // THE DONE-WHEN: catches branch-keying, which loses the older PR and is the
   // `--limit 1` defect by another route — `plot-pr-merged.sh` measured three
