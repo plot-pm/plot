@@ -2,9 +2,11 @@
 
 > `/plot-panel` produces verdict files and a moderation and writes no `Rounds:` field, so a plan four lenses rejected reads on the board as one nobody has questioned.
 
+> **SUPERSEDED 2026-09-22 by `a-round-is-a-domain-fact.md`.** This plan proposed adding the write as an INSTRUCTION to `/plot-panel` step 5. That is a rule in CLAUDE.md's sense, and the estate already measured what rules are worth here: four panels ran that day and four writes were skipped. The successor makes it a controller call with five named refusals, one of which (`no-moderation`) is exactly what prose cannot enforce. **The diagnosis in this file stands and is the successor's evidence.**
+
 ## Status
 
-- **State:** Draft
+- **State:** Superseded
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -57,7 +59,7 @@ That refusal is right and must not be relaxed. **The gap is that the panel was e
 
 ## Slices
 
-### The moderation records its round (Branch: bug/the-moderation-records-its-round)
+### The moderation records its round (Branch: bug/the-moderation-records-its-round) <!-- deferred: superseded by a-round-is-a-domain-fact — the write becomes a controller call rather than a skill instruction -->
 
 - `bug/the-moderation-records-its-round` — `/plot-panel` step 5 gains the instruction to write or increment the subject plan's `Rounds:` field beside the moderation, stated as the caller's act rather than the mechanism's; the skill names that a direct invocation is a caller too. `/challenge-the-plan`'s own write is untouched, and the shape is pinned by the unattended sweep that already checks every skill
 
