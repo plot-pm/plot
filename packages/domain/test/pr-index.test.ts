@@ -7,7 +7,7 @@ import {
   type PrIndex,
   type PrIndexRow,
 } from '../src/entities/pr-index.js';
-import { foldPrIndex, watermarkOf } from '../src/rules/pr-index.js';
+import { foldPrIndex, prWindowFor, watermarkOf } from '../src/rules/pr-index.js';
 
 /**
  * A row carrying only what every host answers, so a test adding an optional
@@ -282,5 +282,93 @@ describe('the encoding', () => {
       rows: [row(1, { updatedAt: '2026-09-20T00:00:00Z', mergeable: 'mergeable' })],
     });
     expect(decodePrIndex(encodePrIndex(original))).toEqual(original);
+  });
+});
+
+describe('the window one refresh asks for', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.parse('2026-09-21T12:00:00Z');
+
+  /** A store as a healthy refresh leaves it: whole, watermarked, just written. */
+  const held = (over: Partial<PrIndex> = {}): PrIndex => ({
+    v: PR_INDEX_VERSION,
+    connector: 'github',
+    watermark: '2026-09-20T18:42:10Z',
+    complete: true,
+    at: '2026-09-21T11:30:00Z',
+    rows: [row(1)],
+    ...over,
+  });
+
+  it('asks for everything where there is no store', () => {
+    // THE DONE-WHEN: a cold store issues the unchanged full call. `--since`
+    // with an empty value would reach GitHub as `updated:>`, a syntax error the
+    // host may answer with everything or with nothing — so the absence must be
+    // `null` rather than a blank string.
+    expect(prWindowFor(null, now, DAY)).toEqual({ since: null, complete: true });
+  });
+
+  it('asks for everything where the store carries no watermark', () => {
+    // An adapter that does not answer `updatedAt` leaves the store unable to
+    // advance. That costs one full read, which is exactly today's behaviour.
+    expect(prWindowFor(held({ watermark: null }), now, DAY).since).toBeNull();
+  });
+
+  it('asks for everything where the store was never proven whole', () => {
+    // A partial store has rows it has NEVER seen — belonging to a state that
+    // did not answer — and a window over `updated:>` would never see them
+    // either, because they did not change. Narrowing against it makes the gap
+    // permanent.
+    expect(prWindowFor(held({ complete: false }), now, DAY).since).toBeNull();
+  });
+
+  it('sends the watermark byte-for-byte, never a re-rendering of it', () => {
+    // THE DONE-WHEN, and the fixture is deliberately a stamp `Date` would
+    // re-spell: parsing and re-rendering sends this machine's spelling of the
+    // host's value, and a client two seconds fast excludes the PRs updated in
+    // that gap from every later window — forever, because it never reopens.
+    const watermark = '2026-09-20T18:42:10Z';
+    const window = prWindowFor(held({ watermark }), now, DAY);
+    expect(window.since).toBe(watermark);
+    expect(window.complete).toBe(false);
+  });
+
+  it('a delta is never complete', () => {
+    // THE DONE-WHEN: `complete: true` on a delta would make `foldPrIndex`
+    // REPLACE, deleting every PR outside the window on the first refresh —
+    // #912 reproduced on disk, where the next process inherits it.
+    expect(prWindowFor(held(), now, DAY).complete).toBe(false);
+  });
+
+  it('asks for everything once the full read is due', () => {
+    // A delta cannot see a DELETION: a PR the host no longer has changes
+    // nothing, it simply stops being listed. Only a whole answer replaces the
+    // store, and only a replacement drops it.
+    const stale = held({ at: '2026-09-20T11:00:00Z' });
+    expect(prWindowFor(stale, now, DAY).since).toBeNull();
+  });
+
+  it('measures the full read against `at`, never against the watermark', () => {
+    // A QUIET ESTATE IS NOT A STALE STORE. The watermark is the HOST's clock
+    // and answers how far we have asked; on a repository whose newest PR is a
+    // month old it is a month old too. Reading it as the store's age would make
+    // that board do a full read every single refresh — the cost this whole
+    // plan exists to remove.
+    const quiet = held({ watermark: '2026-08-01T00:00:00Z', at: '2026-09-21T11:59:00Z' });
+    expect(prWindowFor(quiet, now, DAY).since).toBe('2026-08-01T00:00:00Z');
+  });
+
+  it('asks for everything where `at` cannot be read', () => {
+    // A stamp that does not parse is not evidence the store is fresh, and the
+    // safe direction is the expensive one.
+    expect(prWindowFor(held({ at: 'not a date' }), now, DAY).since).toBeNull();
+  });
+
+  it('asks for everything where the store claims to be from the future', () => {
+    // A clock that moved back makes `now - at` negative, and a negative age
+    // reads as freshly written FOREVER — the store would never do another full
+    // read. Bounded in both directions by one rule.
+    const ahead = held({ at: '2026-09-25T00:00:00Z' });
+    expect(prWindowFor(ahead, now, DAY).since).toBeNull();
   });
 });

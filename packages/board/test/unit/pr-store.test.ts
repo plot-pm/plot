@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rmTree } from '../helpers.mjs';
-import { refreshPrs, freshCacheEntry, type CacheEntry } from '../../src/server/fleet.js';
+import { refreshPrs, freshCacheEntry, type CacheEntry, type PrRecord } from '../../src/server/fleet.js';
 import { decodePrIndex, type PrIndex } from '@plot-pm/domain';
 
 // THE SUBJECT: `refreshPrs` reads a durable store before its host call and
@@ -50,6 +50,12 @@ const fakeHost = (rows: readonly string[], code = 0, stderr = ''): string => {
   fs.writeFileSync(
     path.join(dir, 'plot-host.sh'),
     '#!/usr/bin/env bash\n'
+    // EVERY INVOCATION IS RECORDED, APPENDED RATHER THAN OVERWRITTEN. The
+    // window's whole contract is about WHICH arguments went out — a cold store
+    // must issue the call unchanged, and a warm one must add `--since` with the
+    // stored stamp. An overwriting record would show only the last call and
+    // hide exactly the comparison these tests make.
+    + `printf '%s\\n' "$*" >> ${JSON.stringify(path.join(dir, 'argv'))}\n`
     + 'if [ "$1" = pr-list ]; then\n'
     + `${body}\n`
     + (stderr ? `  printf '%s\\n' ${JSON.stringify(stderr)} >&2\n` : '')
@@ -57,6 +63,13 @@ const fakeHost = (rows: readonly string[], code = 0, stderr = ''): string => {
   );
   fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
   return dir;
+};
+
+/** Every `plot-host.sh` invocation that scripts directory saw, in order. */
+const argvOf = (scriptsDir: string): string[] => {
+  const file = path.join(scriptsDir, 'argv');
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() !== '');
 };
 
 const dirs: string[] = [];
@@ -208,6 +221,15 @@ describe('a partial answer merges rather than replaces', () => {
   it('drops a row a WHOLE pass no longer lists', async () => {
     const home = storeHome();
     await refresh(host([line(), line({ number: 2, head: 'feature/two' })]), home);
+    // THE SECOND PASS MUST BE A FULL READ TO REPLACE, and since the delta slice
+    // a warm, whole, freshly-written store is narrowed instead. The store is
+    // aged past the full-read cadence so the pass this test is about is the
+    // pass that happens — asserting the fold's REPLACE rule, which is what the
+    // test has always been for. A delta merging here is correct and is asserted
+    // separately, in `the call asks only for the delta`.
+    const file = path.join(home, 'github.json');
+    const held = decodePrIndex(fs.readFileSync(file, 'utf8'))!;
+    fs.writeFileSync(file, JSON.stringify({ ...held, at: '2026-01-01T00:00:00Z' }));
     await refresh(host([line()]), home);
     expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
   });
@@ -262,13 +284,26 @@ describe('a cold store costs time and never answers', () => {
 
   it('a warm store produces the same maps a cold one does', async () => {
     // The store is an optimisation, so deleting it must never change an answer.
+    //
+    // ASSERTED ON EVERY FIELD `PrRecord` DECLARES, rather than on the parsed
+    // object. Since the delta slice a warm refresh serves maps derived from
+    // STORED rows, and the store holds what `PrIndexRowSchema` names — which
+    // deliberately excludes `title`, a key that rides along on the host's JSON,
+    // is declared by no type and is read by nothing. Comparing the raw objects
+    // would fail on that passenger and say nothing about the board's answers.
+    const fields = (pr: PrRecord) => [
+      pr.number, pr.head, pr.state, pr.draft, pr.checks,
+      pr.review, pr.url, pr.mergeable, pr.failing_checks,
+    ];
     const rows = [line(), line({ number: 2, head: 'feature/two', state: 'MERGED' })];
     const home = storeHome();
     await refresh(host(rows), home);
     const warm = await refresh(host(rows), home);
     const cold = await refresh(host(rows), storeHome());
-    expect([...warm.prsByNumber!.entries()]).toEqual([...cold.prsByNumber!.entries()]);
-    expect([...warm.prs!.entries()]).toEqual([...cold.prs!.entries()]);
+    expect([...warm.prsByNumber!].map(([n, pr]) => [n, fields(pr)]))
+      .toEqual([...cold.prsByNumber!].map(([n, pr]) => [n, fields(pr)]));
+    expect([...warm.prs!].map(([h, pr]) => [h, fields(pr)]))
+      .toEqual([...cold.prs!].map(([h, pr]) => [h, fields(pr)]));
   });
 
   it('an unreadable store leaves the board working', async () => {
@@ -337,5 +372,199 @@ describe('the store seeds a cold process', () => {
     // A second refresh on the SAME entry must not re-seed number 7 from disk.
     await refresh(host([line({ number: 8, head: 'feature/new' })]), home, entry);
     expect([...entry.prsByNumber!.keys()]).toEqual([8]);
+  });
+});
+
+describe('the call asks only for the delta', () => {
+  // THE SUBJECT OF THIS WAVE. One `gh pr list --state all` over 933 pull
+  // requests takes 29 811 ms with the fields the board needs; the same call
+  // with `--search "updated:>"` over one day takes 943 ms for 3 rows. Factor
+  // 32, with every expensive field still included — which is why the answer is
+  // a delta call rather than a cache in front of the same call.
+  //
+  // The window is only asked for once a store exists, carries a watermark and
+  // has been proven whole. `prWindowFor` owns that rule and is tested against
+  // it directly; what these assert is the SEAM — that the decision reaches the
+  // arguments, and that the answer reaches the maps the board serves.
+
+  /** The `pr-list` invocation from one recorded argv line. */
+  const prListCall = (scriptsDir: string, nth = 0): string =>
+    argvOf(scriptsDir).filter((l) => l.startsWith('pr-list'))[nth] ?? '';
+
+  it('a cold store issues the unchanged full call', async () => {
+    // THE DONE-WHEN, and it asserts the ARGUMENTS rather than that a call
+    // happened. `--since` with an empty value would still "work" and would ask
+    // GitHub for `updated:>`, a syntax error the host may answer with
+    // everything or with nothing.
+    const scripts = host([line()]);
+    await refresh(scripts, storeHome());
+    expect(prListCall(scripts)).toBe('pr-list --rich --state all --limit 1000');
+  });
+
+  it('a warm store sends the stored watermark, byte-for-byte', async () => {
+    const home = storeHome();
+    await refresh(host([line({ updatedAt: '2026-09-20T18:42:10Z' })]), home);
+    expect(onDisk(home)?.watermark).toBe('2026-09-20T18:42:10Z');
+
+    const second = host([]);
+    await refresh(second, home, freshCacheEntry());
+    // The stamp the HOST wrote, not this machine's rendering of it. A client
+    // two seconds fast excludes the PRs updated in that gap from every later
+    // window — forever, because the window never reopens.
+    expect(prListCall(second))
+      .toBe('pr-list --rich --state all --limit 1000 --since 2026-09-20T18:42:10Z');
+  });
+
+  it('a delta whose window returns 3 rows still serves 933', async () => {
+    // THE DEFECT THE PLAN DID NOT ANTICIPATE, and the one a store-only
+    // assertion passes straight through. `entry.prs`, `prsByNumber` and
+    // `prsByHead` were each built inside the parse loop and assigned wholesale
+    // — correct for a full read, and for a delta it would replace the whole map
+    // with the window's rows and report every other branch as having no PR.
+    const home = storeHome();
+    const many = Array.from({ length: 12 }, (_, i) =>
+      line({ number: i + 1, head: `feature/b${i + 1}`, updatedAt: '2026-09-20T10:00:00Z' }));
+    await refresh(host(many), home);
+    expect(onDisk(home)?.rows).toHaveLength(12);
+
+    // A new process, and a window answering about ONE pull request.
+    const entry = await refresh(
+      host([line({ number: 5, head: 'feature/b5', state: 'MERGED', updatedAt: '2026-09-20T18:00:00Z' })]),
+      home, freshCacheEntry());
+
+    // The store is right AND the maps are right. Asserting only the first is
+    // what lets the board render 1 PR while the file holds 12.
+    expect(onDisk(home)?.rows).toHaveLength(12);
+    expect(entry.prsByNumber?.size).toBe(12);
+    // The window's own row won, because the host has just spoken about it.
+    expect(entry.prsByNumber?.get(5)?.state).toBe('MERGED');
+    // And a row outside the window survived untouched.
+    expect(entry.prsByNumber?.get(11)?.head).toBe('feature/b11');
+    // `prs` is the open-only map `classify` reads: the merged one left it and
+    // the other eleven stayed.
+    expect(entry.prs?.has('feature/b5')).toBe(false);
+    expect(entry.prs?.size).toBe(11);
+    expect(entry.prsByHead?.get('feature/b11')?.number).toBe(11);
+  });
+
+  it('a delta never writes `complete: true`', async () => {
+    // THE DONE-WHEN. `foldPrIndex` REPLACES on a complete answer, so a delta
+    // claiming wholeness would delete every PR outside its window on the first
+    // refresh — #912 reproduced on disk, where the next process inherits it.
+    //
+    // A successful delta exits 0 and carries no partial sentence, so reading
+    // completeness from `partialSaid === null` alone is exactly the mistake.
+    const home = storeHome();
+    await refresh(host([line({ number: 1 }), line({ number: 2, head: 'feature/two' })]), home);
+    expect(onDisk(home)?.complete).toBe(true);
+
+    await refresh(host([line({ number: 2, head: 'feature/two', state: 'MERGED' })]),
+      home, freshCacheEntry());
+    expect(onDisk(home)?.complete).toBe(false);
+    // The rows the window did not mention are still there, which is the same
+    // fact seen from the store's side.
+    expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1, 2]);
+  });
+
+  it('a delta returning zero rows is a success, not an outage', async () => {
+    // THE NORMAL STEADY STATE ON A QUIET ESTATE. A path treating "nothing
+    // changed" as "the host did not answer" would raise the outage banner every
+    // minute on a healthy board.
+    const home = storeHome();
+    await refresh(host([line()]), home);
+    const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
+
+    const entry = await refresh(host([]), home, freshCacheEntry());
+    expect(entry.prError).toBeNull();
+    // The rows survived the empty window — the fold merged nothing into them.
+    expect(entry.prsByNumber?.get(1)?.head).toBe('feature/one');
+    // `prAt` was stamped, because the host DID answer. An empty answer is an
+    // answer, and reporting the data as older than it is would be the same lie
+    // the seed path refuses to tell in the other direction.
+    expect(entry.prAt).not.toBeNull();
+    // The store is rewritten rather than left alone — `at` moves, so the next
+    // full read is measured from this pass. The rows are unchanged.
+    expect(onDisk(home)?.rows).toEqual(decodePrIndex(before)?.rows);
+  });
+
+  it('a failed delta leaves the watermark where it was', async () => {
+    // THE ONE DIRECTION THIS FEATURE MAY NOT FAIL IN. A skipped window is a
+    // change nobody ever sees again, so the window must still be open on the
+    // next pass. Catches a `catch` block that writes a store before rethrowing.
+    const home = storeHome();
+    await refresh(host([line({ updatedAt: '2026-09-20T18:42:10Z' })]), home);
+    const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
+
+    const failed = host([], 3, 'could not reach the host');
+    const entry = await refresh(failed, home, freshCacheEntry());
+    expect(entry.prError).toBeTruthy();
+    // The file is untouched, watermark included.
+    expect(fs.readFileSync(path.join(home, 'github.json'), 'utf8')).toBe(before);
+
+    // AND THE NEXT PASS RE-ASKS THE SAME WINDOW, which is the half that
+    // matters: a store left alone is only useful if the window reopens.
+    const retry = host([]);
+    await refresh(retry, home, freshCacheEntry());
+    expect(prListCall(retry)).toContain('--since 2026-09-20T18:42:10Z');
+  });
+
+  it('a full read is issued again once the delta has run long enough', async () => {
+    // A DELTA CANNOT SEE A DELETION: a PR the host no longer has changes
+    // nothing, it simply stops being listed. Only a whole answer replaces the
+    // store, and only a replacement drops the row.
+    //
+    // The cadence is reached by ageing the store's `at` rather than by waiting:
+    // `at` is this machine's record of when it wrote the file, and a test that
+    // slept a day would be a test nobody runs.
+    const home = storeHome();
+    await refresh(host([line({ number: 1 }), line({ number: 2, head: 'feature/two' })]), home);
+    const file = path.join(home, 'github.json');
+    const aged = decodePrIndex(fs.readFileSync(file, 'utf8'))!;
+    fs.writeFileSync(file, JSON.stringify({ ...aged, at: '2026-01-01T00:00:00Z' }));
+
+    // The full read answers about ONE PR, and the other leaves the store —
+    // which is the whole point of keeping a full read at all.
+    const full = host([line({ number: 1 })]);
+    await refresh(full, home, freshCacheEntry());
+    expect(prListCall(full)).toBe('pr-list --rich --state all --limit 1000');
+    expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
+    expect(onDisk(home)?.complete).toBe(true);
+  });
+
+  it('a partial store is never narrowed against', async () => {
+    // A partial store has rows it has NEVER seen — belonging to a state that
+    // did not answer — and a window over `updated:>` would never see them
+    // either, because they did not change. Narrowing against it makes the gap
+    // permanent.
+    const home = storeHome();
+    await refresh(host([line({ updatedAt: '2026-09-20T18:42:10Z' })], 7, 'a state did not answer'), home);
+    expect(onDisk(home)?.complete).toBe(false);
+    expect(onDisk(home)?.watermark).toBe('2026-09-20T18:42:10Z');
+
+    const next = host([line()]);
+    await refresh(next, home, freshCacheEntry());
+    expect(prListCall(next)).toBe('pr-list --rich --state all --limit 1000');
+  });
+
+  it('a partial DELTA merges and stays partial', async () => {
+    // The two facts are separate and both point the same way here: the answer
+    // was neither a full read nor whole, so it may only merge.
+    const home = storeHome();
+    await refresh(host([
+      line({ number: 1, updatedAt: '2026-09-20T10:00:00Z' }),
+      line({ number: 2, head: 'feature/two', updatedAt: '2026-09-20T11:00:00Z' }),
+    ]), home);
+
+    const entry = await refresh(
+      host([line({ number: 2, head: 'feature/two', state: 'MERGED', updatedAt: '2026-09-20T18:00:00Z' })],
+        7, 'the closed state did not answer'),
+      home, freshCacheEntry());
+    // The gap is still SAID — a short list reported as whole is the quiet wrong
+    // answer this path refuses everywhere.
+    expect(entry.prError).toContain('did not answer');
+    expect(onDisk(home)?.complete).toBe(false);
+    expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1, 2]);
+    // And the maps carry both, not just the one row that answered.
+    expect(entry.prsByNumber?.size).toBe(2);
   });
 });
