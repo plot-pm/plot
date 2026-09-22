@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-22, in-session review after panel (amend 3/3, amendments applied)
 - **Rounds:** 1
 - **Supersedes:** `a-clear-desk-is-not-a-finished-one` (panel-rejected 4/4, 2026-09-22)
 
@@ -132,7 +133,11 @@ Of ten readers traced, seven are honest improvements — and one is a stated inv
 - **Let the budget see them** — `liveCount` rises by three, so `parallelAgents - liveCount` falls and the board starts *fewer* workers. Correct if these agents are occupying slots, which they are.
 - **Hold the budget** — scope the reading to the display path only, leaving `auto-dispatch.ts` on today's counts.
 
-**This plan does not decide it.** An operator's `parallelAgents` is 5 with 3 live agents, so the first option changes the fall-through from *start up to 5* to *start up to 2*, which is a real behavioural change on a live machine and a person's call.
+**Settled 2026-09-22 by the operator: LET THE BUDGET SEE THEM.** `liveCount` rises by three, the fall-through goes from *start up to 5* to *start up to 2*, and the board starts fewer workers.
+
+The reason is the consequence juror's: three live agents genuinely occupy machine slots, so counting them is the correct arithmetic and today's `0` is the bug — `fleet.ts:7642`'s own comment already requires its count to equal what WORKING renders. Scoping the reading to the display path would repair the invariant in one place and leave it broken in the other.
+
+**So this is a dispatch change as well as a display one, and the implementer must treat it as such.** `liveAgentCount`, `freeAgentCount` and `pruneInFlight` each need a test pinning their behaviour for a between-slices agent, and the PR must say in its body that the fall-through budget narrows on a machine with live agents.
 
 ### Done when
 
