@@ -56,7 +56,7 @@ Machine-local and gitignored, `plot-boardctl.sh:83`'s reason: a store travelling
 
 - `feature/the-store-holds-what-the-host-said` — `refreshPrs` reads the store before its call and writes it after, keyed by PR number, with the watermark taken from the returned data. **`updatedAt` is requested and stored HERE, not in slice 2** — settled 2026-09-21 after the brief raised it: the watermark IS the store's own field, a store that cannot say how fresh it is has no way to be refreshed incrementally, and asking for one more cheap field costs nothing measurable against the 5417 ms the base fields already take. The call itself is unchanged, so this slice is measurable on its own: a restart stops costing a full read. A cold store, an unrecognised version and a failed write each fall back to today's behaviour
 
-### The call asks only for the delta (Branch: feature/the-call-asks-only-for-the-delta) <!-- waits: feature/the-store-holds-what-the-host-said -->
+### The call asks only for the delta (Branch: feature/the-call-asks-only-for-the-delta, PR: #959) <!-- waits: feature/the-store-holds-what-the-host-said -->
 
 - `feature/the-call-asks-only-for-the-delta` — `plot-host.sh pr-list` gains `--since <iso>`, passing `--search "updated:>…"` on GitHub and `q=updated_on>=…` on Bitbucket; `refreshPrs` sends the watermark and merges the answer into the store. A periodic full read stays, because a delta cannot see a deletion. `PR_REQUESTS_PER_REFRESH` follows the new cost
 
