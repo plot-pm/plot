@@ -411,6 +411,93 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
     assert.equal(e.state, 'unknown');
   });
 
+  // ---------------------------------------------------------------------
+  // THE ROW READS THE PROCESS, NOT THE DESK — `the-row-reads-the-process`.
+  //
+  // `plot-worker-state.sh` answers about the DESK. Its orphan arm
+  // (`plot-worker-state.sh:863`) fires when the WRAPPER is alive and no agent
+  // sits beneath it, and hands the answer to `plot_worker_task_state` — which
+  // on a clear desk says `finished`. That is the agent BETWEEN SLICES: the
+  // loop shell sleeps in `sleep 60` with the last slice's PR open.
+  //
+  // Measured 2026-09-22: three agents with live pids — 243, 6542, 27820 —
+  // every one `finished`, every one filtered out of WORKING, while the
+  // supervisor's tick reported `idle=3 agents=3` for the same day.
+  //
+  // The refinement is ONE consumer's, so neither side of the corpus pair
+  // moves. Only `finished` is refined — `waiting` and `stalled` are states the
+  // reaper depends on.
+  // ---------------------------------------------------------------------
+
+  it('renders an agent between slices as `running` — a finished desk with a live pid', async () => {
+    // THE POSITIVE CASE. Three such agents rendered nothing for a whole day.
+    manifest('a.json', { session: 'between', pid: '4242', worktree: '/wt/between',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/between': 'finished' }),
+      pidAlive: () => true,
+    });
+    assert.equal(e.state, 'running');
+  });
+
+  it('leaves a finished desk `finished` when its pid is gone', async () => {
+    // CATCHES A FIX THAT KEYS ON THE DESK BEING CLEAR rather than on the pid.
+    // Such a fix would resurrect every finished desk on the estate.
+    manifest('a.json', { session: 'done', pid: '4242', worktree: '/wt/done',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/done': 'finished' }),
+      pidAlive: () => false,
+    });
+    assert.equal(e.state, 'finished');
+  });
+
+  it('leaves `waiting` and `stalled` alone even with a live pid', async () => {
+    // CATCHES AN OVER-BROAD ARM mapping every live pid to `running`. A
+    // `PLOT-BLOCKED` marker means a person owes the branch an answer, and
+    // unpushed work means work is on the floor; the reaper depends on both, and
+    // `waiting` is LIVE already, so promoting it would lose the distinction
+    // without even changing whether the row renders.
+    manifest('a.json', { session: 'blocked', pid: '1', worktree: '/wt/blocked',
+      startedAt: '2026-08-20T10:00:00Z' });
+    manifest('b.json', { session: 'stalled', pid: '2', worktree: '/wt/stalled',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const got = await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/blocked': 'waiting', '/wt/stalled': 'stalled' }),
+      pidAlive: () => true,
+    });
+    assert.equal(got.find((e) => e.session === 'blocked')!.state, 'waiting');
+    assert.equal(got.find((e) => e.session === 'stalled')!.state, 'stalled');
+  });
+
+  it('asks for the pid only where the shell said `finished`', async () => {
+    // The refinement is the ONLY reason to read a pid, and every other answer
+    // is returned untouched. A desk that is blocked, stalled or failed costs no
+    // extra read — which is what keeps the pulse's cost where it was.
+    const asked: string[] = [];
+    manifest('a.json', { session: 'a', pid: '1', worktree: '/wt/fin', startedAt: '2026-08-20T10:00:00Z' });
+    manifest('b.json', { session: 'b', pid: '2', worktree: '/wt/run', startedAt: '2026-08-20T10:00:00Z' });
+    manifest('c.json', { session: 'c', pid: '3', worktree: '/wt/wait', startedAt: '2026-08-20T10:00:00Z' });
+    await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/fin': 'finished', '/wt/run': 'running', '/wt/wait': 'waiting' }),
+      pidAlive: (wt) => { asked.push(wt); return false; },
+    });
+    assert.deepEqual(asked, ['/wt/fin']);
+  });
+
+  it('keeps the shell\'s answer when the pid reading throws', async () => {
+    // THE REFINEMENT CAN ONLY EVER PROMOTE, so its failure must never invent a
+    // live row. An unreadable pid leaves `finished` standing — the reading it
+    // would have had before this existed.
+    manifest('a.json', { session: 'x', pid: '1', worktree: '/wt/x',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/x': 'finished' }),
+      pidAlive: () => { throw new Error('procfs unreadable'); },
+    });
+    assert.equal(e.state, 'finished');
+  });
+
   it('counts the live entries in one pass — the cap asks every pulse', async () => {
     // Derivable without a per-entry shell-out: the states are already on the
     // entries, so the cap is one filter over the array.
@@ -706,6 +793,37 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
       startedAt: '2026-08-20T10:00:00Z' });
     const [e] = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
     assert.equal(e.state, 'finished');
+  });
+
+  it('reads `running` for an agent BETWEEN SLICES — the measured defect, end to end', async () => {
+    // THE DEFECT, THROUGH THE REAL SHELL. A stub cannot produce this: it needs
+    // `plot-worker-state.sh`'s orphan arm to fire, which takes a live wrapper
+    // pid, a `.plot-worker.wrapper.pid` beside it, and NO agent process
+    // beneath — the shape of a loop shell sleeping between slices.
+    //
+    // The shell answers `finished` here and is RIGHT to: it is asked about the
+    // desk, and the desk is clear. The row asks who is sitting at it.
+    //
+    // `PLOT_AGENT_GRACE_SECONDS=0` because `plot_worker_agent_alive` answers
+    // *unaskable* for a wrapper younger than the grace, and unaskable falls
+    // through to `running` — which would pass this test for the wrong reason.
+    live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    const pid = live.pid!;
+    const wt = worktree('wt-between', pid);
+    // The wrapper's own record: proof Plot launched a worker here, which is
+    // what licenses the shell to ask whether an agent is still beneath it.
+    fs.writeFileSync(path.join(wt, '.plot-worker.wrapper.pid'), String(pid));
+    manifest('a.json', { session: 'between', pid: String(pid), worktree: wt,
+      startedAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z') });
+    const prev = process.env.PLOT_AGENT_GRACE_SECONDS;
+    process.env.PLOT_AGENT_GRACE_SECONDS = '0';
+    try {
+      const [e] = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+      assert.equal(e.state, 'running');
+    } finally {
+      if (prev === undefined) delete process.env.PLOT_AGENT_GRACE_SECONDS;
+      else process.env.PLOT_AGENT_GRACE_SECONDS = prev;
+    }
   });
 
   it('reads `ended` from the shell rather than folding it into `unknown`', async () => {

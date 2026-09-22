@@ -168,6 +168,38 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     }
   });
 
+  it('renders an agent BETWEEN SLICES — live, holding no branch', async () => {
+    // `the-row-reads-the-process`. THIS SECTION HAD NO SUCH FIXTURE, which is
+    // why a whole day of `none` looked plausible: every agent here had a
+    // branch, so the one shape the defect produces was never rendered.
+    //
+    // Between slices an agent holds NO branch — its loop shell sleeps in
+    // `sleep 60` with the last slice's PR open, and `update_manifest_on_hop`
+    // has not yet set the next one. `plot-worker-state.sh` answers `finished`
+    // for that desk and is right to; the REGISTRY now reads the process and
+    // lands `running` on the row, which is what reaches this payload.
+    //
+    // Measured 2026-09-22: three such agents — pids 243, 6542, 27820 — rendered
+    // nothing while the supervisor's own tick reported `idle=3 agents=3`.
+    const payload = fleet();
+    payload.agents = [
+      ...payload.agents,
+      agent({ session: 'btwn0008', branch: '', worktree: '/wt/free-fe7ff576', state: 'running' }),
+    ];
+    const page = await openAgents(payload);
+    try {
+      const working = group(page, 'Working');
+      // The four live entries above, plus this one. A between-slices agent is
+      // counted by the same filter as any other live worker.
+      await expect.poll(() => working.locator('[data-agent-row]').count()).toBe(5);
+      // And it is discoverable by its own identity rather than by a branch it
+      // does not have — the session is what names an agent holding no branch.
+      await expect.poll(() => working.getByText(/btwn0008/).count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('does NOT render an ended session — stalled, finished or unknown — in WORKING', async () => {
     // Done when #1: the three ended entries are absent from WORKING. This is the
     // measured defect the plan exists to fix — a section whose subject is *who
