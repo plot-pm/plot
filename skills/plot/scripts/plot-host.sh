@@ -70,7 +70,24 @@
 #                                 JSON lines: {"number":N,"title":"...",
 #                                 "state":"...","head":"..."}
 #                                 --rich adds: draft, checks, mergeable, review,
-#                                 url, failing_checks — `failing_checks` names
+#                                 url, updatedAt, failing_checks —
+#                                 `updatedAt` is WHEN THE HOST LAST SAW THE PR
+#                                 CHANGE, in the host's own words and on the
+#                                 host's own clock (`updatedAt` on GitHub,
+#                                 `updated_on` on Bitbucket), "" where the CLI
+#                                 omits it. It is the field a durable store
+#                                 advances its watermark by, and it is the
+#                                 host's rather than this machine's because a
+#                                 client clock two seconds fast would exclude
+#                                 every PR updated in that gap from every later
+#                                 window — permanently, and silently.
+#                                 Measured 2026-09-21: over 937 PRs,
+#                                 `number,updatedAt` is 4715 ms against 5417 ms
+#                                 for the base fields and 18842 ms for
+#                                 `statusCheckRollup`. Asked on --rich ONLY —
+#                                 the plain arm is the cheap one and no shell
+#                                 caller reads a watermark.
+#                                 `failing_checks` names
 #                                 WHICH checks failed, the detail `checks`
 #                                 collapses to one word, from the same response
 #                                 at no extra call; [] on bitbucket and wherever
@@ -3451,7 +3468,7 @@ case "$op" in
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url)" || exit $?
+            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
@@ -3471,6 +3488,7 @@ case "$op" in
                   else "unknown" end),
                 review:(.reviewDecision // ""),
                 url:.url,
+                updatedAt:(.updatedAt // ""),
                 failing_checks:(
                   if $jentry != null and $jentry.checks == "failing"
                   then [$jentry.job]
@@ -3480,7 +3498,7 @@ case "$op" in
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url)" || exit $?
+            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
@@ -3502,6 +3520,7 @@ case "$op" in
                   else "unknown" end),
                 review:(.reviewDecision // ""),
                 url:.url,
+                updatedAt:(.updatedAt // ""),
                 failing_checks:[
                   .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                     | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
@@ -3586,6 +3605,7 @@ case "$op" in
                   mergeable:"unknown",
                   review:"",
                   url:(.links.html.href // ""),
+                  updatedAt:(.updated_on // ""),
                   failing_checks:(
                     if $jentry != null and $jentry.checks == "failing"
                     then [$jentry.job]
@@ -3596,7 +3616,7 @@ case "$op" in
           # Bitbucket without Jenkins: checks remain unknown
           PR_LIST_JQ_ARGS=()
           pr_list_states bitbucket "$limit" "$bb_states" \
-            '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}' \
+            '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),failing_checks:[]}' \
             "${bb_cmd[@]}" || exit $?
         fi
       else

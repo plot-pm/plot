@@ -58,6 +58,8 @@ import {
   type LimitReading,
   type Reaction,
   type SupervisorRun,
+  foldPrIndex,
+  type PrIndexRow,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -65,7 +67,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { slotsFile } from '@plot-pm/domain/adapters';
+import { slotsFile, prIndexFile } from '@plot-pm/domain/adapters';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -406,6 +408,20 @@ export interface PrRecord {
    * consumers must render as *no link* rather than as a guess.
    */
   url: string;
+  /**
+   * When the host last saw this PR change, in the host's own words.
+   *
+   * `updatedAt` on GitHub, `updated_on` on Bitbucket, normalized to the one
+   * name by `plot-host.sh pr-list --rich`. Absent on an older adapter, and
+   * absent is not a date: a row carrying none contributes nothing to the
+   * store's watermark rather than contributing a zero, which would reopen a
+   * window back to 1970 on every refresh.
+   *
+   * **THE HOST'S CLOCK, NEVER THIS BOARD'S.** A client two seconds ahead of the
+   * host excludes every PR updated in that gap from every later `updated:>`
+   * window — permanently and silently, because the window never reopens.
+   */
+  updatedAt?: string;
 }
 
 /**
@@ -2434,7 +2450,183 @@ function scheduleNextPr(
   entry.prNextIsBackoff = due.hard;
 }
 
-async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+/**
+ * THE ONE PR STORE THIS PROCESS WRITES, constructed here for `slotsFile`'s
+ * reason: it is machine-local state rather than a fixture a caller substitutes,
+ * and a board handed an in-memory one would keep a store no later process could
+ * read — which is the entire point of having one. Seamed by
+ * `PLOT_PR_INDEX_HOME`, which is how a test moves it.
+ *
+ * Module-level rather than per-refresh so the `git rev-parse --git-common-dir`
+ * lookup the adapter caches is made once per process rather than once a minute.
+ */
+const prStore = prIndexFile();
+
+/**
+ * One host row reduced to what the store holds.
+ *
+ * **AN ABSENT FIELD STAYS ABSENT.** `refreshPrs` normalizes three fields to
+ * three DIFFERENT absent values — `url` to `""`, `mergeable` to `"unknown"`,
+ * `failing_checks` to `[]` — and each says something the others do not. This
+ * copies whichever it was handed and invents no fourth: writing `false` or
+ * `"none"` for a field the host never answered manufactures exactly the verdict
+ * `an-unasked-host-is-not-an-absent-pr` exists to remove.
+ *
+ * @param pr - the record as the adapter reported and `refreshPrs` normalized it.
+ * @returns the row to store.
+ */
+const storeRow = (pr: PrRecord): PrIndexRow => {
+  const row: PrIndexRow = {
+    number: pr.number,
+    head: pr.head,
+    state: pr.state,
+    draft: pr.draft,
+    checks: pr.checks,
+    review: pr.review,
+    url: pr.url,
+  };
+  // Each guarded separately and each on its own absent value, so a row the host
+  // answered partially round-trips as partially answered.
+  if (typeof pr.mergeable === 'string') row.mergeable = pr.mergeable;
+  if (Array.isArray(pr.failing_checks)) row.failing_checks = pr.failing_checks;
+  if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
+  return row;
+};
+
+/**
+ * One stored row back in the shape the board's maps hold.
+ *
+ * The inverse of `storeRow`, and absence survives the round trip in both
+ * directions: a row stored without `mergeable` comes back without it, and the
+ * caller normalizes it exactly as it normalizes a host row that omitted it. A
+ * value invented here would be indistinguishable from one the host answered.
+ *
+ * @param row - the row as the store holds it.
+ * @returns the record the board's maps hold.
+ */
+const recordOf = (row: PrIndexRow): PrRecord => {
+  const pr: PrRecord = {
+    number: row.number,
+    head: row.head,
+    state: row.state,
+    draft: row.draft,
+    checks: row.checks,
+    review: row.review,
+    url: row.url,
+  };
+  if (row.mergeable !== undefined) pr.mergeable = row.mergeable;
+  if (row.failing_checks !== undefined) pr.failing_checks = row.failing_checks;
+  if (row.updatedAt !== undefined) pr.updatedAt = row.updatedAt;
+  return pr;
+};
+
+/**
+ * Seeds the entry's PR maps from the store, where it holds anything and the
+ * entry holds nothing.
+ *
+ * **THIS IS WHAT A RESTART BUYS, and it is the whole of this slice's own
+ * measurable win.** The host call is unchanged — still `--state all --limit
+ * 1000` — so the store cannot make it cheaper here. What it can do is stop the
+ * board being blank for the 29 811 ms the call takes: a process that has just
+ * started renders the last answer immediately and replaces it when the host
+ * speaks.
+ *
+ * **IT REFUSES TO OVERWRITE A LIVE MAP.** `prsByNumber !== null` means this
+ * process has already heard from the host, and disk is older than that by
+ * construction. Seeding over it would move the board backwards on every
+ * refresh.
+ *
+ * **`prAt` IS NOT STAMPED.** It answers *how old is this data*, and the answer
+ * for a seeded map is *as old as the store*, not *now*. `prAgeSeconds` is what
+ * the operator reads to decide whether to trust the screen, so stamping it here
+ * would report stale rows as fresh — the one lie this path could tell.
+ *
+ * @param entry - the cache entry to seed.
+ * @param connector - which connector's store to read.
+ */
+const seedPrsFromStore = async (entry: CacheEntry, connector: string): Promise<void> => {
+  if (entry.prsByNumber !== null) return;
+  let held;
+  try {
+    held = await prStore.read(connector);
+  } catch {
+    return;
+  }
+  // A missing, unparseable or unrecognised store answers `null`, and an
+  // unreadable one answers `failed`. Both mean the same thing here: nothing to
+  // seed from, so the board waits for the host exactly as it does today.
+  if (!held.ok || held.value === null) return;
+  const map = new Map<string, PrRecord>();
+  const byNumber = new Map<number, PrRecord>();
+  const byHead = new Map<string, PrRecord>();
+  for (const row of held.value.rows) {
+    const pr = recordOf(row);
+    // THE SAME THREE RULES THE HOST PATH APPLIES, and they are re-applied
+    // rather than shared by accident: a stored row reaches these maps under
+    // exactly the conditions a fetched one does, or a seeded board would
+    // classify branches by a rule the refreshed board does not use.
+    if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
+    byNumber.set(pr.number, pr);
+    if (pr.head) {
+      const ranked = byHead.get(pr.head);
+      if (!ranked || prOutranks(pr, ranked)) byHead.set(pr.head, pr);
+    }
+  }
+  entry.prs = map;
+  entry.prsByNumber = byNumber;
+  entry.prsByHead = byHead;
+};
+
+/**
+ * Folds one answer into the store and writes it, reporting nothing upward.
+ *
+ * **EVERY FAILURE IS SWALLOWED, AND THAT IS THE CONTRACT.** A read-only
+ * filesystem, a full disk and a store this Plot cannot parse must each cost the
+ * board time and not answers — the caller carries on with the map it already
+ * built. Surfacing a store failure as `prError` would put a local disk problem
+ * into the banner that reports the HOST, and an operator would go looking at
+ * GitHub.
+ *
+ * **CALLED ONLY WHERE THE HOST ANSWERED.** The `allUnknown` path and the
+ * `catch` keep the last good map in memory and must leave the file alone for
+ * the stronger version of the same reason: a dark map written to disk is
+ * inherited by the next process as good data, where an in-memory one dies with
+ * this one.
+ *
+ * @param connector - which connector answered.
+ * @param rows - the rows the host returned this pass.
+ * @param complete - whether the answer covered every state asked about.
+ */
+const writePrStore = async (
+  connector: string, rows: readonly PrIndexRow[], complete: boolean,
+): Promise<void> => {
+  try {
+    const held = await prStore.read(connector);
+    // An unreadable store is merged into as if it were absent: a whole answer
+    // replaces it anyway, and a partial one keeping nothing is the safe
+    // direction — it under-claims rows rather than inventing them.
+    const previous = held.ok ? held.value : null;
+    await prStore.write(connector, foldPrIndex(previous, {
+      connector,
+      rows,
+      complete,
+      // THIS MACHINE'S CLOCK, AND ONLY FOR AN OPERATOR READING THE FILE. The
+      // watermark is taken from the ROWS by `foldPrIndex` and never from here.
+      at: new Date().toISOString(),
+    }));
+  } catch {
+    // The adapter answers with values rather than throwing, so reaching this is
+    // a bug rather than a disk. It is still swallowed: the store may cost the
+    // board time and may never cost it an answer.
+  }
+};
+
+// EXPORTED SO THE STORE'S REFUSALS CAN BE ASSERTED. Four of them — the
+// `allUnknown` path leaving the file untouched, the `catch` leaving it
+// untouched, a partial answer merging, a failed write costing nothing — are
+// about what this function does NOT do, and a test driving it through the
+// cadence gate would prove only that the gate was shut.
+export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   // Captured BEFORE the call, and this is the whole fix. `prNextAt` is the
   // cadence's anchor, and anchoring it to the finish made every period cost the
   // call's duration — the tick meant to satisfy it arrived just too early, was
@@ -2488,6 +2680,15 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // A cap that refuses nothing and reports nothing is indistinguishable from no
   // cap at all.
   entry.prSlotsHeld = await liveSlotsFor(entry);
+  // READ BEFORE THE CALL, and this is the half of the store a restart feels.
+  // A cold process renders the last answer the host gave rather than nothing
+  // for the 29 811 ms the call takes. It seeds only an EMPTY entry, so a board
+  // that has already heard from the host is never moved backwards by disk.
+  //
+  // Outside the `try` because it is not the host: a store that cannot be read
+  // must not reach the catch that owns the backoff and the banner, which report
+  // the connector. It swallows its own failures for the same reason.
+  await seedPrsFromStore(entry, backend);
   try {
     // BOUNDED HERE, WHERE THE CALL IS. The gate wraps the host request and
     // nothing else — reading the record, parsing the answer and scheduling the
@@ -2517,6 +2718,12 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     const map = new Map<string, PrRecord>();
     const byNumber = new Map<number, PrRecord>();
     const byHead = new Map<string, PrRecord>();
+    // THE STORE'S ROWS, COLLECTED FROM THE SAME PARSE. A second pass over
+    // `byNumber` would be the same rows by a different route, and `byHead`
+    // holds one PR per branch by design — reading the store off it would flatten
+    // a branch's several PRs into its newest, which is the `--limit 1` defect
+    // `plot-pr-merged.sh` measured.
+    const rows: PrIndexRow[] = [];
     for (const line of out.split('\n')) {
       if (!line.trim()) continue;
       const pr = JSON.parse(line) as PrRecord;
@@ -2541,6 +2748,11 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       // merged PR is exactly what a delivered plan's card wants.
       if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
       byNumber.set(pr.number, pr);
+      // AFTER the three normalizations above and BEFORE the open-only filter
+      // below: the store holds what the adapter said about every PR, in the
+      // shape every consumer already checks, and it is keyed by number so a
+      // merged PR is stored exactly as an open one is.
+      rows.push(storeRow(pr));
       // EVERY state, for the link alone — see `prsByHead`. The open-only filter
       // above is right about `classify` and wrong about the address, so the row
       // reads its number from here instead of losing it to a merge.
@@ -2598,6 +2810,23 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       // wrong answer this adapter refuses elsewhere. A whole answer clears the
       // field exactly as before.
       entry.prError = partialSaid;
+      // THE STORE IS WRITTEN ON THIS PATH AND ON NO OTHER. The host answered
+      // and at least some rows are readable, which is the only state in which
+      // what is on disk should change.
+      //
+      // `partialSaid === null` IS THE COMPLETENESS, and it is RECORDED rather
+      // than inferred. A partial answer merges into whatever the store held; a
+      // whole one replaces it, so a PR the host no longer lists leaves rather
+      // than outliving the host's own record of it. Inferring wholeness from
+      // "the file exists" is what would license *asked, and there is no PR*
+      // from a read that never saw the state the PR is in —
+      // `plot-fleet-scan.sh:1031`'s failure, which cost one board ~3600
+      // calls/hour re-learning `NONE`.
+      //
+      // AWAITED, so a refresh cannot overlap its own write, and so a test can
+      // assert the file without racing it. The write is one local `rename`
+      // against a host call measured at 29 811 ms.
+      await writePrStore(backend, rows, partialSaid === null);
     }
   } catch (err) {
     // Same rule as the pulse: a failure keeps the last good map rather than

@@ -4822,6 +4822,11 @@ const restPr = (id, branch, state = 'MERGED') => ({
   source: { branch: { name: branch } },
   draft: false,
   links: { html: { href: `https://bitbucket.org/x/${id}` } },
+  // BITBUCKET'S OWN SPELLING, which the arm renames to `updatedAt`. Carried on
+  // the fixture so the rename is asserted rather than assumed: a row reaching
+  // the store under Bitbucket's name would leave the watermark permanently
+  // null, and the store would be unadvanceable for a reason nothing reported.
+  updated_on: `2026-09-20T12:00:0${id % 10}+00:00`,
 });
 
 const sweepCalls = (f) => readFileSync(f, 'utf8').trim().split('\n').filter(Boolean);
@@ -5131,9 +5136,15 @@ test('host: the sweep emits every --rich field the arm promises', () => {
   assert.equal(res.status, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.deepEqual(Object.keys(row).sort(),
-    ['checks', 'draft', 'failing_checks', 'head', 'mergeable', 'number', 'review', 'state', 'title', 'url'].sort(),
+    ['checks', 'draft', 'failing_checks', 'head', 'mergeable', 'number', 'review', 'state', 'title',
+      'updatedAt', 'url'].sort(),
     'the field set is exactly what the listing arm emits');
   assert.equal(row.url, 'https://bitbucket.org/x/11', 'url comes from .links.html.href');
+  // THE HOST'S STAMP UNDER THE ADAPTER'S NAME. Bitbucket says `updated_on` and
+  // GitHub says `updatedAt`; one name reaches a consumer, or a store keyed on
+  // either would hold half the rows' freshness and advance by none of it.
+  assert.equal(row.updatedAt, '2026-09-20T12:00:01+00:00',
+    'updated_on is carried through under the adapter\'s one name');
   assert.equal(row.draft, false);
   assert.equal(row.checks, 'unknown', 'Bitbucket carries no rollup — honest, not green');
   assert.deepEqual(row.failing_checks, []);
