@@ -153,7 +153,8 @@ Please report this to https://github.com/markedjs/marked.`,e){let i="<p>An error
 `);continue}t+=a.value}return t>0&&r(`  started ${t} free agent(s) for the queue
 `),t},PS=async(e,n,r=a=>process.stdout.write(a),i=a=>new Promise(s=>setTimeout(s,a)),t=()=>!1,o=a=>process.stderr.write(a))=>{let a=hS(e);if(a===null)return process.stderr.write(`usage: plot-registryd.mjs [--once] [--dry-run] [--start-agents] [--max N] [--interval SECONDS]
 `),2;let s=process.env.PLOT_REPO_ROOT??process.cwd(),c=gS(n),u=bS(s,c),d=vS(s,c),p=kS(s,c),f=Xc({repoRoot:s,scriptDir:c});for(r(`plot-registryd: supervising ${u}
-`);;){if(t())return 0;let h=await og({registry:()=>yS(u,o,!a.once),world:d,queue:p,fleet:a.startAgents?()=>SS(s,c):void 0,max:a.max}),x=AS(h,r,o,!a.once);if(a.startAgents&&await _S(h,f,r,o),a.once)return x;await i(a.intervalMs)}},IS={"already-merged":"queue","merge-unknown":"queue","no-brief":"queue","not-claimable":"estate","no-free-agent":"queue"},TS=12,AS=(e,n,r,i=!1)=>{if(e.incomplete!=="")return r(`${Au(e)}
+`);;){if(t())return 0;let h;try{h=await og({registry:()=>yS(u,o,!a.once),world:d,queue:p,fleet:a.startAgents?()=>SS(s,c):void 0,max:a.max})}catch(T){if(o(`plot-registryd tick failed: ${T instanceof Error?T.message:String(T)}
+`),a.once)return 1;await i(a.intervalMs);continue}let x=AS(h,r,o,!a.once);if(a.startAgents&&await _S(h,f,r,o),a.once)return x;await i(a.intervalMs)}},IS={"already-merged":"queue","merge-unknown":"queue","no-brief":"queue","not-claimable":"estate","no-free-agent":"queue"},TS=12,AS=(e,n,r,i=!1)=>{if(e.incomplete!=="")return r(`${Au(e)}
 `),1;n(`${Au(e)}
 `);for(let t of e.decision.detail.agents)t.supervision.verdict!=="leave"&&n(`  ${t.branch}: ${t.supervision.verdict} (${t.supervision.cause})
 `);if(!i)for(let t of ig(e))n(`${t}
@@ -161,4 +162,5 @@ Please report this to https://github.com/markedjs/marked.`,e){let i="<p>An error
 `);if(e.handOver!==null){let t=e.handOver.detail.held;for(let o of Pn){let a=t.filter(u=>u.hold===o);if(a.length===0||(n(`  held on ${o} (${a.length}):
 `),i&&IS[o]==="estate"))continue;let s=i?a.slice(0,TS):a;for(let u of s)n(`    ${u.branch}
 `);let c=a.length-s.length;c>0&&n(`    \u2026 and ${c} more
-`)}}return 0};process.argv[1]&&import.meta.url===`file://${process.argv[1]}`&&PS(process.argv.slice(2),pS(mS(import.meta.url))).then(e=>process.exit(e));export{hS as argsFrom,SS as fleetCapForRepo,kS as queueWorldForRepo,yS as readRegistry,bS as registryDirFor,AS as reportTick,PS as run,_S as startAgents,vS as worldForRepo};
+`)}}return 0};process.argv[1]&&import.meta.url===`file://${process.argv[1]}`&&PS(process.argv.slice(2),pS(mS(import.meta.url))).then(e=>process.exit(e)).catch(e=>{process.stderr.write(`plot-registryd failed to start: ${e instanceof Error?e.message:String(e)}
+`),process.exit(1)});export{hS as argsFrom,SS as fleetCapForRepo,kS as queueWorldForRepo,yS as readRegistry,bS as registryDirFor,AS as reportTick,PS as run,_S as startAgents,vS as worldForRepo};
