@@ -106,3 +106,68 @@ export const foldPrIndex = (held: PrIndex | null, update: PrIndexUpdate): PrInde
     rows: merged,
   };
 };
+
+/** What a refresh may ask the host for. */
+export interface PrWindow {
+  /**
+   * The stamp to send as `--since`, or null to ask for everything.
+   *
+   * The host's own value, passed through byte-for-byte — never re-rendered.
+   */
+  since: string | null;
+  /**
+   * Whether the answer this window produces will cover every PR the host has.
+   *
+   * **THE SAME WORD `foldPrIndex` TAKES, AND THAT IS THE POINT.** A delta
+   * answer merges; only a full read replaces, so only a full read can drop a PR
+   * the host no longer lists.
+   */
+  complete: boolean;
+}
+
+/**
+ * Decides what one refresh asks the host for.
+ *
+ * **A DELTA IS ASKED FOR ONLY WHERE ALL THREE HOLD:** the store was read, it
+ * carries a watermark, and it was proven whole recently enough. Any of the
+ * three missing means one full read, which is exactly the behaviour a board
+ * with no store has always had.
+ *
+ * **A PARTIAL STORE MAY NOT BE NARROWED AGAINST.** `complete: false` means some
+ * state did not answer, so rows exist that this store has never seen — and a
+ * window over `updated:>` would never see them either, because they did not
+ * change. Narrowing against a store nobody proved whole is how a gap becomes
+ * permanent.
+ *
+ * **THE FULL-READ CLOCK IS `at`, NOT THE WATERMARK.** `at` is this machine's
+ * record of when it last wrote the store and is compared against this machine's
+ * own `now` — one clock, so no skew. The watermark is the HOST's and answers a
+ * different question entirely; using it here would make a quiet estate, whose
+ * newest PR is a month old, do a full read every single refresh.
+ *
+ * **AN UNREADABLE `at` MEANS A FULL READ.** A stamp that does not parse is not
+ * evidence the store is fresh, and the safe direction is the expensive one: a
+ * full read costs 30 s, where a delta over a store of unknown age is a window
+ * whose start nobody can name.
+ *
+ * @param held - the store as it was read, or null where there was none.
+ * @param now - this machine's clock, in epoch milliseconds.
+ * @param fullReadMs - how long a delta may run before a full read is due.
+ * @returns what to ask the host for.
+ */
+export const prWindowFor = (
+  held: PrIndex | null, now: number, fullReadMs: number,
+): PrWindow => {
+  const full: PrWindow = { since: null, complete: true };
+  if (held === null) return full;
+  if (held.watermark === null || held.watermark === '') return full;
+  if (!held.complete) return full;
+  const wroteAt = Date.parse(held.at);
+  if (Number.isNaN(wroteAt)) return full;
+  // A STORE FROM THE FUTURE IS DUE A FULL READ. `now - wroteAt` is negative
+  // where a clock moved back or a file travelled between machines, and a
+  // negative age would read as freshly written forever. The comparison is on
+  // the absolute distance so both directions are bounded by the same rule.
+  if (Math.abs(now - wroteAt) >= fullReadMs) return full;
+  return { since: held.watermark, complete: false };
+};
