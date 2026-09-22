@@ -77,7 +77,7 @@ That measurement found trees the reaper could not *classify*. This is narrower a
 
 ## Slices
 
-### The reaper reaches a free desk (Branch: bug/the-reaper-reaches-a-free-desk)
+### The reaper reaches a free desk (Branch: bug/the-reaper-reaches-a-free-desk, PR: #961)
 
 - `bug/the-reaper-reaches-a-free-desk` — `plot-reap.sh` enumerates worktrees under the configured `Worktree root` in addition to the plan estate's branches, judges a detached desk by the same five refusals, and states the no-branch-no-commits reading that replaces the merged-PR question for a desk that never held a slice; `plot-reconcile-scan.sh` section 21 counts the same population so the two cannot disagree
 
