@@ -51,7 +51,7 @@ Machine-local and gitignored, `plot-boardctl.sh:83`'s reason: a store travelling
 
 ## Slices
 
-### The store holds what the host said (Branch: feature/the-store-holds-what-the-host-said)
+### The store holds what the host said (Branch: feature/the-store-holds-what-the-host-said, PR: #958)
 
 - `feature/the-store-holds-what-the-host-said` — `refreshPrs` reads the store before its call and writes it after, keyed by PR number, with the watermark taken from the returned data. **`updatedAt` is requested and stored HERE, not in slice 2** — settled 2026-09-21 after the brief raised it: the watermark IS the store's own field, a store that cannot say how fresh it is has no way to be refreshed incrementally, and asking for one more cheap field costs nothing measurable against the 5417 ms the base fields already take. The call itself is unchanged, so this slice is measurable on its own: a restart stops costing a full read. A cold store, an unrecognised version and a failed write each fall back to today's behaviour
 
