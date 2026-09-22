@@ -72,6 +72,19 @@ Two readings, one process state:
 
 - `bug/the-state-knows-a-free-agent` — `plot-worker-state.sh` answers `free` where the manifest carries no branch and the loop is alive, leaving every other arm unchanged; the board's registry keeps a `free` entry the way it keeps a `running` one, and `dropSettledWorkers` is untouched. Tests pin that a dispatched agent with no `claude` child still reads `finished`, and that the root-exclusion still refuses to read a bare loop shell as alive for a branch-holding desk
 
+## A second disagreement, found the same way and NOT fixed here
+
+**The scan and the supervisor disagree about the same slice.** Measured 2026-09-22, minutes apart, on `feature/the-store-holds-what-the-host-said`:
+
+```
+plot-fleet-scan.sh     The store holds what the host said — eligible
+plot-registryd tick    handed=0  not-claimable=257  no-free-agent=0
+```
+
+No claim ref exists, no branch ref exists, the brief is on `origin/main`, and the plan is Approved. The scan calls it eligible; the supervisor counts it among 257 not-claimable and hands nothing over, so a freshly started agent sat free for ten minutes with work waiting.
+
+**This is a separate defect from the one above** — that one is a process state read wrongly, this one is two components disagreeing about eligibility — and it is recorded rather than fixed because the cause is not yet measured. Whoever takes it should start by asking which of the two readings `not-claimable` actually fails, since `no-free-agent=0` proves the supervisor saw the agent.
+
 ## Notes
 
 - Found while asking why a started agent never appeared on the board. Two other things were ruled out first and both are recorded so nobody re-checks them: `dropSettledWorkers`'s predicate is correct, and the `startedAt`-versus-`ps -o lstart` comparison is NOT a timezone defect — measured, both with and without `date -u`, the pid reads current.
