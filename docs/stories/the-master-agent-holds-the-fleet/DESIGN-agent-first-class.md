@@ -100,7 +100,32 @@ The counting rule is stated too: **every registered agent counts as running, fre
 
 **Two bounds are reported rather than silently applied** — the machine's headroom, and the desks the daemon could cut this tick. An operator reading `started 1 of 3` must be able to tell which one stopped it.
 
-**So the only gap against the claim is the trigger**: top-up happens when a slice is waiting, not continuously. Whether that is a defect depends on what the idle fleet is for — holding N warm costs N workers' memory for work that may not arrive, and the current shape pays only when there is something to pay for.
+**So the only gap against the claim is the trigger**: top-up happens when a slice is waiting, not continuously.
+
+### Settled 2026-09-22: the fleet must KEEP N, and the gap is measurable right now
+
+The operator's statement is that a person calls the controller, and from then on the fleet **with the registry** must ensure the agents are provided **and stay available**. That is availability as a standing obligation, not a response to a queue.
+
+**The order already persists.** `.plot/state/fleet-controls.json` holds `parallelAgents: 5` and survives restarts — so the fleet is told what it owes and keeps the number. Measured on this estate, minutes after this was written:
+
+```
+ordered:     5
+registered:  1
+```
+
+**Nothing is topping it up, because nothing is waiting.** `requested: waiting === 0 ? running : fleet.size` makes the tick a no-op whenever the queue is empty, so a fleet that loses agents overnight shrinks silently and an operator who ordered five has one.
+
+**The cost argument for the current shape does not survive the measurement.** *"Holding N warm pays for work that may not arrive"* is true, and it is what the operator ORDERED — `parallelAgents` is the statement of how much warm capacity they want to pay for. A fleet that quietly under-delivers the order is not saving the operator money; it is ignoring the number they set.
+
+**And the latency it trades for is real**: work arrives, the slice is held on `no-free-agent`, the tick then starts an agent, and the dispatch waits out a spawn it could have avoided. The current shape moves the cost from memory to the critical path, which is the wrong direction for the one thing an operator watches.
+
+**The change is one expression, and its blast radius is the reason to be careful:**
+
+```ts
+requested: fleet.size      // rather than `waiting === 0 ? running : fleet.size`
+```
+
+`fleetSize` already subtracts `running` and reports both bounds, so the arithmetic needs nothing. What needs deciding is the **stop condition** — a fleet that always asks for `fleet.size` will restart an agent an operator killed by hand, and `--stop` sets no order to zero today. **Maintaining N requires that stopping means setting N**, or the two commands fight every 60 seconds.
 
 ### "with the requested capabilities" — the one genuine gap
 
