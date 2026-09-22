@@ -72,18 +72,29 @@ Two readings, one process state:
 
 - `bug/the-state-knows-a-free-agent` — `plot-worker-state.sh` answers `free` where the manifest carries no branch and the loop is alive, leaving every other arm unchanged; the board's registry keeps a `free` entry the way it keeps a `running` one, and `dropSettledWorkers` is untouched. Tests pin that a dispatched agent with no `claude` child still reads `finished`, and that the root-exclusion still refuses to read a bare loop shell as alive for a branch-holding desk
 
-## A second disagreement, found the same way and NOT fixed here
+## The blockage was a DEAD SUPERVISOR, and the disagreement was my misreading
 
-**The scan and the supervisor disagree about the same slice.** Measured 2026-09-22, minutes apart, on `feature/the-store-holds-what-the-host-said`:
+**Recorded because I got it wrong twice and the wrong readings are worth naming.**
+
+An earlier draft of this plan reported that the scan and the supervisor disagreed about `feature/the-store-holds-what-the-host-said` — the scan calling it `eligible`, the supervisor counting it in `not-claimable=257`. **Both halves were false.**
+
+Running the tick by hand printed:
 
 ```
-plot-fleet-scan.sh     The store holds what the host said — eligible
-plot-registryd tick    handed=0  not-claimable=257  no-free-agent=0
+feature/the-store-holds-what-the-host-said: hand over to a0583977-…
+handed=1
 ```
 
-No claim ref exists, no branch ref exists, the brief is on `origin/main`, and the plan is Approved. The scan calls it eligible; the supervisor counts it among 257 not-claimable and hands nothing over, so a freshly started agent sat free for ten minutes with work waiting.
+The supervisor decides correctly. `not-claimable=261` counts 261 OTHER branches; I read a total as if it named this slice.
 
-**This is a separate defect from the one above** — that one is a process state read wrongly, this one is two components disagreeing about eligibility — and it is recorded rather than fixed because the cause is not yet measured. Whoever takes it should start by asking which of the two readings `not-claimable` actually fails, since `no-free-agent=0` proves the supervisor saw the agent.
+**What was actually wrong:** the daemon was dead. `launchctl list` showed the label loaded with status `-`, `ps` found no process, and the last tick in its log was **15:52 the previous day** — while `plot-fleetctl.sh --status` reported `supervisor: running` because it reads the label, not the process. Its log had grown to **131 MB**.
+
+The repair was `--stop`, rotate the log, `--start`. The slice was handed over within a minute.
+
+**Two readings to distrust, both measured here:**
+
+- **`--once` decides and performs nothing.** Its `handed=1` is a decision, not a hand-over — the property `/plot-fleet` documents and I read as a write.
+- **`plot-fleetctl.sh --status` reports the LABEL, not the process.** A dead daemon under a loaded label reads as `supervisor: running`, which is the one case an operator most needs it to catch. **That is a defect worth its own plan**, and it is the reason this one took three wrong turns.
 
 ## Notes
 
