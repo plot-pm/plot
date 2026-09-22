@@ -1,0 +1,1 @@
+../2026-09-22-the-board-asks-the-process-not-the-desk.md
