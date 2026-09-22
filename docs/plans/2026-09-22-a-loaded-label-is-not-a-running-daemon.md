@@ -2,6 +2,8 @@
 
 > `plot-fleetctl.sh --status` reports `supervisor: running` while no supervisor process exists, so a fleet that has stopped handing over work looks healthy and an operator watches an empty board.
 
+> **AMENDED AFTER PANEL, 2026-09-22. The defect is real and reproduced; three facts in the evidence were wrong and are corrected below.** The reading lens verified the symptom and refuted the mechanism. Most seriously, **the label that was measured was a LEAKED TEST UNIT** — `com.plot-pm.registryd.test-start-interrupted-25315`, pointing at a temp repo, `runs = 43`, alongside **103 leaked test directories**. It had taken the production label, so this repository's own supervisor could never load. That is a separate defect and is recorded in the Notes. The symptom this plan fixes stands; its evidence did not describe production.
+
 ## Status
 
 - **State:** Draft
@@ -40,13 +42,9 @@ Board impact: none directly; the board reads the registry, not this command. Wha
 
 ### What the reading should be
 
-**Ask the process table**, which is what every other liveness question in this estate does:
+**Ask `supervisor_pid`**, which already exists in `plot-fleetctl.sh`, is already called in the arm being changed, and is **scoped to the label**. The panel refused `ps | grep` for two reasons worth keeping: a sibling agent's command line can flip it, and it silently regresses the systemd arm, where `is-active` already answers correctly.
 
-```sh
-ps ax -o command= | grep -c '[r]egistryd.mjs'
-```
-
-`plot-boardctl.sh` already holds the pattern for this exact problem on the board side: it requires **two facts to agree** — the recorded pid and the port's listener — and names every disagreement rather than guessing. The supervisor has no port, so the pair is the label and the process.
+**The `plot-boardctl.sh` precedent is withdrawn.** Read correctly, its `--status` reports three facts and reconciles none — the two-facts-must-agree rule is `--stop`'s. What it actually argues for is **reporting both readings on separate lines** rather than folding them into one verdict, which is the shape this slice should take.
 
 **Three answers, not two:**
 
@@ -66,13 +64,18 @@ ps ax -o command= | grep -c '[r]egistryd.mjs'
 
 **The tick age is evidence, not the verdict.** A log's mtime says when it last wrote, and a busy daemon between ticks has not written for up to 60 s. Report the age; do not derive liveness from it.
 
+### `install=` must move with it
+
+`fleet_install_state` returns `running` for any loaded label, and `supervisorState` maps what it is handed. **Either it gains the third state or the plan accepts `install=running` beside `exit 1`** — and if it accepts, `supervisorState` needs the matching arm, or the board renders the new state as plain `down`. The slice must say which.
+
 ## Slices
 
 ### The status asks the process table (Branch: bug/the-status-asks-the-process-table)
 
-- `bug/the-status-asks-the-process-table` — `--status` reads the label AND the process, reports `loaded, not running` as its own answer with the two-command repair, exits 1 there, and prints the last tick's age as supporting evidence. Tests pin all three rows and that the command still starts nothing
+- `bug/the-status-asks-the-process-table` — `--status` reads the label AND asks `supervisor_pid` (not `ps | grep`, which a sibling's command line can flip and which regresses the systemd arm), reports both readings on separate lines, answers `loaded, not running` with the two-command repair, exits 1 there, and prints the last tick's age as evidence rather than as the verdict. `install=` either gains the third state or the slice states that it does not and gives `supervisorState` the matching arm. **The test promise is scoped to what CI can reach** — `:243-246` already concedes the launchd arm is unexercisable under `ubuntu-latest`
 
 ## Notes
 
-- **Why the daemon dies is NOT in this plan and is the more important question.** Two occurrences, roughly hourly, empty `registryd.err`, exit status 0, `KeepAlive: true` not restarting it. That needs its own measurement — a daemon exiting cleanly under KeepAlive is launchd saying it *asked* to stop. This plan makes the failure visible; it does not stop it.
+- **Why the daemon dies has its own plan and is already fixed**: `2026-09-22-a-failed-tick-must-not-end-the-daemon.md`, merged the same day. The supervisor's loop had no `catch`. This plan reports the symptom; that one removed a cause. The Notes' earlier claim that the cause *"needs its own measurement"* is stale — the measurement happened in the branch next to it.
+- **A LEAKED TEST UNIT HELD THE PRODUCTION LABEL, and that is a separate defect worth its own plan.** Measured 2026-09-22: `com.plot-pm.registryd` was bound to a plist under `/private/var/folders/.../plot-fleetctl-start-interrupted-tk8DCK/`, with **103 such directories** on this machine. launchd keys by label, so the repository's own supervisor could not load while a test's sandbox held it — the fourth refusal `plot-fleetctl.sh` already names, reached from a direction nobody expected. The leaked unit was booted out by hand; `fleetctl.test.mjs` should not be able to leave one behind.
 - The first occurrence is recorded in `2026-09-22-a-free-agent-is-not-a-finished-one.md`, whose own investigation it derailed.
