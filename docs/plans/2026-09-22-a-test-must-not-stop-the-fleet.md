@@ -8,10 +8,11 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- The fleet test suite stops unloading the machine's real supervisor. Its own header states that every run passes `PLOT_FLEET_LABEL` and that the suite never unloads anything; measured 2026-09-22, **7 of 22 runs pass the label** and three `--stop` runs pass none, so `launchctl bootout` is called on `com.plot-pm.registryd` — the label an operator's fleet is loaded under. The supervisor died three times in one morning, each time within two minutes of a test run.
+- The fleet test suite stops unloading the machine's real supervisor. Its own header states that every run passes `PLOT_FLEET_LABEL` and that the suite never unloads anything; measured 2026-09-22, **9 of 21 runs pass the label** and three `--stop` runs pass none, so `launchctl bootout` is called on `com.plot-pm.registryd` — the label an operator's fleet is loaded under. The supervisor died three times in one morning, each time within two minutes of a test run.
 
 Board impact: none in code. What changes is that a fleet keeps running while the suite does.
 
@@ -26,11 +27,13 @@ Board impact: none in code. What changes is that a fleet keeps running while the
 **Both halves are false.**
 
 ```
-run(ctl, …) call sites        22
-      … passing a label        7
+run(ctl, …) call sites        21
+      … passing a label        9
 '--stop' call sites            3
       … passing a label        0
 ```
+
+*(An earlier draft said 7 of 22. The panel recounted; a plan whose argument is that a header's count was false must get its own right.)*
 
 `run()` defaults its `env` parameter to `{}` and spreads `process.env`, so a call without an explicit label inherits the operator's environment — where `PLOT_FLEET_LABEL` is unset. `plot-fleetctl.sh:84` then falls back:
 
@@ -65,11 +68,17 @@ if supervisor_loaded; then
 
 **The label being UNLOADED is what separates this from a crash.** The first two deaths left the label loaded with no process, which is a crash loop under `KeepAlive`. This one left no label at all, and nothing but `bootout` does that.
 
-### The fix, and the two halves it needs
+### The fix is the PATH, not the label — settled by the panel
 
-**Pass the label on every run.** `run()`'s `env` default is the defect: an omitted label is not a choice, it is an oversight that reaches the machine. The sandbox already mints one; `run` must require it rather than default around it.
+**A required label closes one direction only.** It stops a call that UNLOADS the operator's unit. It cannot stop a sandbox plist being BOOTSTRAPPED under the production label, which occupies it — and that has already taken a supervisor down once on this machine, recorded in `a-loaded-label-is-not-a-running-daemon.md`. An operator cannot tell the two apart: both present as a supervisor that is not there.
 
-**And make the claim checkable.** The header's *"never unloads anything"* is a rule in CLAUDE.md's sense — nothing enforces it, and it was false for the whole life of the file. A guard that refuses a `--stop` run without an explicit label turns it into a gate.
+**A stub `launchctl` on `PATH` can do neither**, so one seam closes both. It also sees a wrong-but-present label, which an unset-check never can.
+
+**And the tool is already in this file.** `stubPlatform` mints exactly such a bin for two cases; the fix applies it to every case. `sandbox()` returns a `guardBin` beside the label it already mints, `run()` takes it as a required argument, and **throws** without it — the gate the header's claim never had.
+
+**The two `stubPlatform` cases still override `PATH` deliberately**, to drive a LOADED launchd. Those are stubs too, so the guarantee holds: what the guard refuses is reaching the machine's own binary.
+
+**It also makes the launchd arm run on CI**, which has no launchd at all — the reason `stubPlatform`'s own docstring gives for existing, applied to every case rather than two.
 
 ### What must not break
 
@@ -81,11 +90,12 @@ if supervisor_loaded; then
 
 ## Slices
 
-### The suite passes the label it mints (Branch: bug/the-suite-passes-the-label-it-mints)
+### The suite cannot reach launchctl (Branch: bug/the-suite-passes-the-label-it-mints)
 
-- `bug/the-suite-passes-the-label-it-mints` — `run()` takes the label as a required argument rather than defaulting its env, all twenty-two call sites pass the sandbox's own, and a guard refuses a run whose `PLOT_FLEET_LABEL` is unset so the header's claim becomes checkable. The suite's header is corrected in the same commit, since it currently documents behaviour the file does not have
+- `bug/the-suite-passes-the-label-it-mints` — `sandbox()` mints a `guardBin` with stub `launchctl` and `systemctl` returning the real exit codes, `run()` takes it as a required argument and throws without it, and all twenty-one call sites pass it. The header is corrected in the same commit, since it documents behaviour the file does not have. **Proven by loading a decoy under the production label**: the suite removes it before, and it survives after
 
 ## Notes
 
-- **The 2822 leaked sandbox directories are a separate defect** and are not this plan's scope. One of them held the production label earlier the same day, which is recorded in `a-loaded-label-is-not-a-running-daemon.md`.
+- **The leak's CAPABILITY is closed here; its disk cleanup is not.** A stubbed `launchctl` cannot `bootstrap` a unit under any label, so the suite can no longer create the occupation that took a supervisor down earlier the same day. **The 2822 existing directories and an `after()` teardown remain a separate housekeeping plan** — the panel accepted that split and refused the other one.
+- **CI cannot see this defect.** `ubuntu-latest` has no launchd, so neither the bug nor the fix is observable there. The PATH gate partly repairs that by driving the real arm on Linux.
 - Found by asking why the daemon still died after `a-failed-tick-must-not-end-the-daemon` merged. It did not die: it was stopped. The `catch` from that plan is what made the difference legible — the log shows a complete tick and no failure, which rules out the class that plan removed.
