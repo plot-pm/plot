@@ -41,3 +41,43 @@ So the fix did not remove the cause. The plan said so — *"It may not be the on
 3. **Reopen the cause.** The daemon still dies. The `catch` bought observability and the observation is now available: it died again without a logged tick failure, which rules out the class this fix removed.
 
 **The code stays on main.** It is correct, its guards hold under execution, and reverting it would remove the only instrument now measuring the remaining cause.
+
+---
+
+# Round 2 — premise and coverage
+
+**Reconciliation across both rounds:** `unanimous refuted` — behaviour, premise, coverage. **Three lenses, all `refuted`, all `executed`.**
+
+## The premise lens: the guarded class is empty in production
+
+Round 1 established that `tick` already had its own `catch`. Round 2 asked what the new one can therefore still catch, and answered it with a probe:
+
+> **The loop's catch is reachable only by a broken build or a hostile thrown value, neither of which is the failure the plan was written about.** It is not literally dead code — V2 fires — but the class it guards is empty on the production path, and the plan's three named failure modes are all in V1.
+
+**The three failures the plan named — a failing git command, a throwing host call, a manifest vanishing mid-read — all land in `tick`'s own catch.** The new one catches what escapes *that*, which on this codebase is nothing: every thrower is an `Error` or a string.
+
+**And the day's other finding settles it.** The daemon never died: `fleetctl.test.mjs` was unloading it. So the fix is correct, well-built, verified by injection — and solves a problem that did not exist.
+
+## The coverage lens: the seam was built for the test, and the test was not written
+
+I had expected the architecture to be the excuse. It is the opposite:
+
+> **The tests were cheap, the seam was already built, and they were simply not written.**
+
+`run` is `export const run`, takes four of five collaborators as parameters, and its `import.meta.url` guard exists *specifically* so an importer gets no loop — its own comment says *"a test importing `run` must not have the process loop under it."*
+
+> **Somebody built this seam deliberately for a test that was then not written.**
+
+That is `Gates Over Rules` in its sharpest form: the slice promised four pins in the present tense, the commit cited 123 passing tests that pass identically without the change, and the seam that would have caught it was sitting ready.
+
+## What the moderation concludes
+
+**The delivery is refuted three times over, and the code stays on main.**
+
+Reverting would remove a correct, tested-by-injection guard that costs nothing and would close a real class on a machine where `tick`'s catch is ever weakened. What it must not do is claim to have fixed the daemon's death.
+
+Three corrections are owed:
+
+1. **The plan's premise is false and published.** `tick` had a `catch`; the loop and the entry point did not. Say what the fix actually closes — and that the class is empty on today's production path.
+2. **Say what killed the daemon.** `a-test-must-not-stop-the-fleet` has the answer, measured and fixed. This plan's own hedge — *"it may not be the only cause"* — turned out to be the whole story.
+3. **Write the four tests or withdraw the promise.** The seam admits them. There is no architectural excuse, which makes the omission a plain one.
