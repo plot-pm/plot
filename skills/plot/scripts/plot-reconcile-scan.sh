@@ -2475,7 +2475,7 @@ else
   # a path may hold a quote or a backslash, and a hand-built string breaks the
   # parser on exactly the tree somebody needs to read about.
   desk_rows=""
-  while IFS=$'\t' read -r dwt dbr dprunable; do
+  while IFS=$'\037' read -r dwt dbr dprunable; do
     [ -n "$dwt" ] || continue
     dshort=${dbr#refs/heads/}
 
@@ -2515,6 +2515,20 @@ else
     d_merged=false
     if [ "$pr_reliable" = 1 ] && [ -n "$dshort" ] && [ -n "$(merged_pr_for_branch "$dshort")" ]; then
       d_merged=true
+    elif [ "$d_detached" = true ] \
+         && [ "$(git -C "$dwt" rev-list --count "origin/$MAIN..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
+      # A DETACHED DESK HAS NOTHING TO LAND. `plot-dispatch.sh --start` cuts a
+      # free agent's desk detached at `origin/<main>`, so it never held a
+      # branch and can never carry a PR — reading it as `no-merged-pr` would
+      # keep every one of them forever. This mirrors `plot-reap.sh`'s reading
+      # exactly, because the two must not disagree about one estate.
+      #
+      # IT DOES NOT ASK THE HOST, so `pr_reliable` does not gate it: the
+      # question is answered entirely from git, and an outage cannot change
+      # whether a detached desk holds commits.
+      #
+      # A detached desk CARRYING commits stays `false` and is kept.
+      d_merged=true
     fi
 
     desk_rows+=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -2522,10 +2536,10 @@ else
       "$d_marker" "$d_clean" "$d_main" "$d_detached" "$d_merged")
     desk_rows+=$'\n'
   done < <(git worktree list --porcelain \
-            | awk '/^worktree /{ if (br != "") print p"\t"br"\t"pr; p=$2; br=""; pr="no"; next }
+            | awk -v OFS="\037" '/^worktree /{ if (p != "") print p, br, pr; p=$2; br=""; pr="no"; next }
                    /^branch /  { br=$2; next }
                    /^prunable/ { pr="yes"; next }
-                   END         { if (br != "") print p"\t"br"\t"pr }')
+                   END         { if (p != "") print p, br, pr }')
 
   desk_answer=$(printf '%s' "$desk_rows" | PLOT_MAIN="$MAIN" node --input-type=module -e '
 const rows = [];

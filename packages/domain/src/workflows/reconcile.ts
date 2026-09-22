@@ -378,11 +378,26 @@ const NEEDS_A_PERSON: ReadonlySet<string> = new Set([
 const deskFindings = (readings: ReapReadings): DriftFinding[] => {
   const decision = reap(readings);
   const findings: DriftFinding[] = [];
+
+  // WHY A DESK IS FINISHED, and the two reasons are not the same sentence.
+  // A desk that held a slice is finished because its PR merged; a DETACHED one
+  // never held a slice and is finished because it carries nothing to land.
+  // Both reach `reaping`, and reporting the merged wording for a detached desk
+  // states a merge that never happened — the operator reading it goes looking
+  // for a PR that does not exist. The tree is read from the candidate rather
+  // than added to the decision, because the decision names what to do and this
+  // names why, which only the reporting layer needs.
+  const detachedPaths = new Set(
+    readings.candidates.filter((c) => c.tree.detached).map((c) => c.tree.path),
+  );
+
   for (const path of decision.detail.reaping) {
     findings.push({
       kind: 'worktree',
       subject: path,
-      evidence: 'the desk is finished — its PR merged and nothing runs in it',
+      evidence: detachedPaths.has(path)
+        ? 'the desk is finished — detached, carrying nothing to land, and nothing runs in it'
+        : 'the desk is finished — its PR merged and nothing runs in it',
       repair: `git worktree remove ${path}`,
       blocking: false,
     });
