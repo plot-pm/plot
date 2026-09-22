@@ -53,8 +53,6 @@ export const PrIndexRowSchema = z
      * to the watermark.
      */
     updatedAt: z.string().optional(),
-    /** The PR's title, where the adapter answered one. */
-    title: z.string().optional(),
   })
   .strict();
 
