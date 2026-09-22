@@ -6,10 +6,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Superseded
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Superseded:** 2026-09-22, by `a-clear-desk-is-not-a-finished-one` — panel rejected it 2026-09-22 (divided, nobody said proceed): the fix would have made the started agents undispatchable, `free` collides with `rules/free.ts`, and a declared corpus pair forbids a shell-only change
 - **Rounds:** 1
 
 ## Changelog
