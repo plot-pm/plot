@@ -145,6 +145,38 @@ So the fleet can be asked for *three agents* and never for *three agents that ca
 2. **`matchQueue` matches a free agent's charter against that declaration**, and reports `no-capable-agent` distinctly from `no-free-agent` — otherwise a fleet with three idle agents and no matching one reads as full.
 3. **`scaleUp` asks for the missing capability**, not merely for a bigger number.
 
+### Measured after writing the above: step 1 exists and is unused
+
+**The capability path is further along than the domain rules suggest.** `plot-dispatch.sh` sets `PLOT_AGENT` at four sites, `plan_declared_agent` reads a kind from the PLAN that names the branch, and a real charter exists:
+
+```json
+{ "name": "reviewer", "prompt": ".plot/worker-prompt.sh",
+  "model": "opus", "effort": "high", "capabilities": ["read-only"] }
+```
+
+So a slice CAN already declare what it needs and the declaration reaches the worker as an environment variable. **Measured on this estate: 0 of 306 plans declare one.** The mechanism is built, unused, and therefore untested by practice.
+
+**A missing charter is reported and dispatched anyway** (`plot-dispatch.sh:1012`) — the honest default, and the one that must not change: a declaration nobody can satisfy should degrade to an ordinary agent rather than starve a slice.
+
+**What is still missing is the request half.** The declaration reaches an agent that ALREADY EXISTS; nothing asks the registry to bring one into being. `--start` cuts a free agent with `PLOT_AGENT` empty by construction — *"a free agent has no branch and so has no plan to read"* — so every agent the fleet maintains is generic.
+
+### Settled 2026-09-22: the dispatcher may ask, and new capabilities come with it
+
+The operator settles the open question from the previous section: on a dispatcher request, new agents should be provided **where possible**, including with capabilities the fleet does not yet hold.
+
+**`where possible` is what makes this compatible with the coupling rule.** A request that may be answered *not now* is not a refusal of the dispatch — the slice still queues, exactly as `DESIGN-machine.md` §10 requires. The dispatcher gains a way to ASK; it gains no way to WAIT.
+
+**So there are two triggers for one spawn path, and they differ in what they name:**
+
+| trigger | asks for | answered by |
+|---|---|---|
+| the standing order | a COUNT — keep `parallelAgents` available | every tick, unconditionally |
+| a dispatcher request | a CAPABILITY — one agent that can take this slice | best effort, reported when refused |
+
+**The second must not consume the first.** An agent started to satisfy a capability request is still an agent, so it counts toward `running` and would otherwise let the standing order decay by one. Either the order counts only generic agents, or a capability agent is started ABOVE it — and that is the decision to make before building, because it is the difference between a fleet that drifts and one that does not.
+
+**The hold vocabulary must split, and that is the gate.** `no-free-agent` today means *nobody is idle*. With capabilities it must also mean *somebody is idle and cannot do this*, and those are different requests to the registry — one asks for any agent, the other for a specific charter. A single word makes the second invisible, which is how three idle agents and a starving slice read as a full fleet.
+
 **Step 2 is where the design decision lives.** A slice that names a capability nobody has must not starve silently, and `DESIGN-agent.md`'s own line — *"a specialised agent that never becomes a loop-worker still has a registry entry and still has no worker fields"* — says the model already expects such agents to exist.
 
 ## What to change, in order
