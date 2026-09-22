@@ -9,6 +9,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-22, in-session review after panel (amend 3/3, amendments applied)
+- **Started:** 2026-09-22, jwloka, `bug/the-row-reads-the-process`
 - **Rounds:** 1
 - **Supersedes:** `a-clear-desk-is-not-a-finished-one` (panel-rejected 4/4, 2026-09-22)
 
