@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Superseded
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Superseded:** 2026-09-22, by `the-board-asks-the-process-not-the-desk` — panel rejected it 4/4: the discriminator was false on two of its own three named desks, `idle` collides with `AgentActivitySchema` ten lines below the enum it would join, `tsc` names two of fourteen consumers, and the corpus pair forbids the change
 - **Rounds:** 1
 - **Supersedes:** `a-free-agent-is-not-a-finished-one`, `a-waiting-loop-has-not-finished`
 
