@@ -8,6 +8,7 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 - **Supersedes:** `a-clear-desk-is-not-a-finished-one` (panel-rejected 4/4, 2026-09-22)
 
 ## Changelog

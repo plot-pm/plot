@@ -8,6 +8,7 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 - **Supersedes:** `a-free-agent-is-not-a-finished-one`, `a-waiting-loop-has-not-finished`
 
 ## Changelog
