@@ -110,6 +110,10 @@ async function drop(
     port: opts.port ?? 7777,
     // `finished` is droppable; injected so the test needs no live process.
     liveness: opts.liveness ?? fixedLiveness('finished'),
+    // FORWARDED RATHER THAN DEFAULTED. Omitted, the production `deskPidAlive`
+    // runs — which is what the default-reading test below asserts — so this
+    // must pass `undefined` through rather than substituting a stub.
+    ...(opts.pidAlive === undefined ? {} : { pidAlive: opts.pidAlive }),
     manifestDir: opts.manifestDir,
   };
   await handleDrop(request({ session }), res, full);
@@ -309,6 +313,76 @@ describe('a GONE worktree is droppable; an unknown one that EXISTS is not', () =
     assert.equal(body.dropped, false);
     assert.match(body.reason, /still running/);
     assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
+  it('refuses an agent BETWEEN SLICES — a finished desk whose pid is alive', async () => {
+    // `the-row-reads-the-process`. The drop shares the ROW's rule rather than
+    // inventing a guard: `plot-worker-state.sh` answers `finished` for a desk
+    // whose wrapper sleeps between slices, and dropping that manifest would
+    // remove the record of a worker still on the machine.
+    //
+    // `rowState` promotes it to `running`, and the existing `LIVE_STATES` guard
+    // one line below does the refusing — no second rule, no second place to
+    // drift.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-between');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-between', wt);
+
+    const got = await drop('sess-between', {
+      repoRoot: root,
+      liveness: fixedLiveness('finished'),
+      pidAlive: () => true,
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'a live process outranks a finished desk');
+    assert.match(body.reason, /running/);
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
+  it('still drops a finished desk whose pid is gone', async () => {
+    // THE OTHER SIDE, and the reason the refinement is safe to share. A
+    // refinement that promoted every finished desk would make the drop refuse
+    // the whole population it exists to clean up.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-done');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-done', wt);
+
+    const got = await drop('sess-done', {
+      repoRoot: root,
+      liveness: fixedLiveness('finished'),
+      pidAlive: () => false,
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, true, 'a finished desk with no live process still drops');
+    assert.ok(!fs.existsSync(file), 'the manifest is gone');
+  });
+
+  it('the default pid reading answers `false` for a desk holding no pid file', async () => {
+    // THE DEFAULT IS LOAD-BEARING and is pinned rather than inherited. Every
+    // other test in this file omits `pidAlive`, so the production default runs
+    // — and it must leave `finished` droppable for a desk with no
+    // `.plot-worker.pid`, or this refinement would refuse the entire estate.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-nopid');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-nopid', wt);
+
+    // No `pidAlive` override: `deskPidAlive` reads the real (absent) file.
+    const got = await drop('sess-nopid', {
+      repoRoot: root,
+      liveness: fixedLiveness('finished'),
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, true, 'no pid record means no live worker');
+    assert.ok(!fs.existsSync(file));
   });
 
   it('a RUNNING worker whose worktree is gone is still refused as live', async () => {

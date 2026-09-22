@@ -518,7 +518,20 @@ const EXPECTED_FILES = 49;
 //
 // Re-derived by running this gate rather than by arithmetic, per this file's
 // own rule: it reported 498.
-const EXPECTED_TESTS = 498;
+//
+// 498 → 499 ON 2026-09-22: one in `working-shows-every-agent.browser.test.ts`,
+// for the agent BETWEEN SLICES — live, holding no branch. Added, not moved:
+// `EXPECTED_FILES` is unchanged, since it joins a file that already drove a
+// browser page, and no file lost an `it(` for it to appear.
+//
+// It is a browser assertion because that section had NO fixture for an agent
+// without a branch — every agent in the suite carried one — which is why a
+// whole day of three live agents rendering nothing looked plausible. The
+// derivation is pinned in `test/unit/registry.test.ts`; this pins the page.
+//
+// Re-derived by running this gate rather than by arithmetic, per this file's
+// own rule: it reported 499.
+const EXPECTED_TESTS = 499;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
