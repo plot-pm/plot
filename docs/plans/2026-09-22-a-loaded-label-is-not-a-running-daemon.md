@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-22, jwloka, in-session
 - **Rounds:** 2
+- **Started:** 2026-09-22, jwloka, `bug/the-status-asks-the-process-table`
 
 ## Changelog
 
