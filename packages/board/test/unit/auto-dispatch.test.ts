@@ -8,6 +8,7 @@ import {
   liveAgentCount,
   liveAgentBranches,
   freeAgentCount,
+  pruneInFlight,
   freeAgentLabels,
   mergedBranches,
   planSlug,
@@ -722,6 +723,75 @@ describe('mergedBranches — sliceHasMerged, sourced from the pulse', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// THE BETWEEN-SLICES AGENT, THROUGH THE BUDGET — `the-row-reads-the-process`.
+//
+// The row's `state` feeds BOTH halves of auto-dispatch's budget
+// (`auto-dispatch.ts:479`, `:1017`, `:1106`):
+//
+//     let budget = controls.parallelAgents - (liveCount + inFlight.size);
+//     if (budget <= 0) { budget = freeAgentCount(agents, pulse); ... }
+//
+// So flipping a row from `finished` to `running` is a change to what the board
+// STARTS, not only to what it shows. Three live agents raise `liveCount` by
+// three and NARROW the fall-through budget — on the measured machine from
+// *start up to 5* to *start up to 2*. That arithmetic is correct: three live
+// agents genuinely occupy machine slots, and `fleet.ts:7642`'s own comment
+// already requires its count to equal what WORKING renders.
+//
+// These three tests exist so that change cannot arrive as a silent side effect
+// of a change to the display.
+// ---------------------------------------------------------------------------
+describe('the between-slices agent, counted — what the board starts, not only shows', () => {
+  it('liveAgentCount counts it: a live agent holding no branch occupies a slot', () => {
+    // Before `the-row-reads-the-process` this agent read `finished` and counted
+    // zero, so the cap believed its machine was free while three workers sat on
+    // it. The branch is empty because the agent is between slices.
+    const agents = [agent('', 'running'), agent('', 'running'), agent('', 'running')];
+    expect(liveAgentCount(agents)).toBe(3);
+  });
+
+  it('the budget narrows by exactly the agents that became visible', () => {
+    // THE ARITHMETIC, STATED. `parallelAgents − (liveCount + inFlight)` with
+    // three between-slices agents newly visible: 5 − 3 = 2, where the same
+    // machine offered 5 while they read `finished`.
+    const between = [agent('', 'running'), agent('', 'running'), agent('', 'running')];
+    expect(5 - (liveAgentCount(between) + 0)).toBe(2);
+    // And the counterfactual: had they stayed `finished`, the board would still
+    // offer all five slots on a machine already running three agents.
+    const asFinished = [agent('', 'finished'), agent('', 'finished'), agent('', 'finished')];
+    expect(5 - (liveAgentCount(asFinished) + 0)).toBe(5);
+  });
+
+  it('freeAgentCount counts it as able to take a slice', () => {
+    // The SECOND question, and both answers are true of this agent: it occupies
+    // a machine AND it can take the next slice. That is the fall-through
+    // budget's whole purpose — a spent cap that still has a free agent.
+    const agents = [agent('', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
+    expect(freeAgentCount(agents, p)).toBe(1);
+  });
+
+  it('pruneInFlight retires a mark once the agent that took it reads live', () => {
+    // `pruneInFlight` reads `LIVE_STATES` to decide which in-flight marks
+    // retire. An agent that has picked up `feature/a` and is working on it
+    // confirms the dispatch landed, so the mark drops.
+    const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
+    const pruned = pruneInFlight(new Set(['feature/a']), p, [agent('feature/a', 'running')]);
+    expect(pruned.has('feature/a')).toBe(false);
+  });
+
+  it('pruneInFlight holds a mark whose agent reads `finished` with the branch still startable', () => {
+    // THE OTHER SIDE, and the reason the reading matters here too. A mark is
+    // held while the dispatch has not visibly landed. A between-slices agent
+    // holds NO branch, so it can never confirm another branch's mark — which is
+    // why this refinement cannot retire a mark early.
+    const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
+    const pruned = pruneInFlight(new Set(['feature/a']), p, [agent('', 'running')]);
+    expect(pruned.has('feature/a')).toBe(true);
+  });
+});
+
 describe('freeAgentCount — can any agent take a slice?', () => {
   it('counts a running agent whose branch has landed', () => {
     // Occupied AND free at once: it still holds a machine, and it can still
@@ -734,12 +804,12 @@ describe('freeAgentCount — can any agent take a slice?', () => {
   });
 
   it('counts a running agent between slices, holding no branch', () => {
-    // Asserted against a FIXTURE, and deliberately so: no live estate produces
-    // this state yet. The 3600s `Worker bound` kills every agent mid-run, and
-    // `update_manifest_on_hop` sets the next branch rather than clearing it, so
-    // nothing has ever passed through the empty state. `isFree`'s first
-    // condition is unreachable in production today —
-    // `a-working-agent-is-not-a-hung-one` is what makes it reachable.
+    // NO LONGER FIXTURE-ONLY. This comment read *"no live estate produces this
+    // state yet … `isFree`'s first condition is unreachable in production
+    // today"* until 2026-09-22, when `the-row-reads-the-process` made it
+    // reachable: a between-slices agent has a finished desk and a live pid, and
+    // now reads `running` rather than being filtered out before `isFree` runs.
+    // Amended rather than quietly broken.
     const agents = [agent('', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
     expect(freeAgentCount(agents, p)).toBe(1);
