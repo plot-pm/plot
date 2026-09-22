@@ -806,20 +806,56 @@ export const run = async (
 
   for (;;) {
     if (stop()) return 0;
-    // THE REGISTRY IS RE-READ HERE, at the top of every tick. That is the whole
-    // of the daemon's state: there is nothing else to lose, so `kill -9` costs
-    // one tick.
-    const report = await tick({
-      registry: () => readRegistry(registryDir, warn, !args.once),
-      world,
-      queue,
-      // THE CAP IS ASKED ONLY WHERE THE DAEMON MAY ACT ON IT. A tick that read
-      // the cap and started nothing would print `started=0` beside a queue it
-      // was never allowed to serve, which reads as *the fleet is the right
-      // size* rather than as *nobody asked me to grow it*.
-      fleet: args.startAgents ? () => fleetCapForRepo(repoRoot, scriptsDir) : undefined,
-      max: args.max,
-    });
+    // A THROWN TICK IS A REPORTED TICK, NOT A DEAD DAEMON.
+    //
+    // The paragraph below — *the loop continues whatever the tick reported* —
+    // was written about a tick that REPORTS a failure, and there was nothing
+    // here to catch one that THROWS. `tick` reaches git, the host and the
+    // filesystem through the world; any of them can reject, and an unhandled
+    // rejection ends the process before the recovery below is reached.
+    //
+    // MEASURED 2026-09-22: the supervisor died twice in ninety minutes,
+    // leaving `registryd.err` EMPTY and the launchd label loaded with no
+    // process under it — `launchctl print` reporting `runs = 1` across both
+    // deaths, so `KeepAlive` did not restart it. An empty error log is the
+    // evidence: the process was vanishing rather than reporting.
+    //
+    // THE CATCH IS INSIDE THE LOOP, which is what makes the recovery the one
+    // the contract already promises: the next iteration re-reads the registry
+    // and the desks from disk, exactly as it does after a restart.
+    let report;
+    try {
+      // THE REGISTRY IS RE-READ HERE, at the top of every tick. That is the
+      // whole of the daemon's state: there is nothing else to lose, so
+      // `kill -9` costs one tick.
+      report = await tick({
+        registry: () => readRegistry(registryDir, warn, !args.once),
+        world,
+        queue,
+        // THE CAP IS ASKED ONLY WHERE THE DAEMON MAY ACT ON IT. A tick that
+        // read the cap and started nothing would print `started=0` beside a
+        // queue it was never allowed to serve, which reads as *the fleet is
+        // the right size* rather than as *nobody asked me to grow it*.
+        fleet: args.startAgents ? () => fleetCapForRepo(repoRoot, scriptsDir) : undefined,
+        max: args.max,
+      });
+    } catch (err) {
+      // STDERR, AND THE ERROR'S OWN TEXT. `registryd.err` being empty on both
+      // measured deaths is why this cannot go to the tick log: a failure
+      // written where the ticks go is as invisible as the crash was.
+      warn(`plot-registryd tick failed: ${err instanceof Error ? err.message : String(err)}\n`);
+      // `--once` IS A GATE AND MUST STILL FAIL. An operator installing a
+      // supervisor runs it to learn whether the daemon works; swallowing the
+      // failure would report a healthy daemon and hand them a crash loop with
+      // a restart policy.
+      if (args.once) return 1;
+      // NOTHING IS REPORTED FOR THIS TICK, and that is deliberate: a tick that
+      // threw halfway decided nothing, and the contract says the decision is
+      // empty rather than truncated. The interval is still waited, so a
+      // failure that repeats cannot spin.
+      await sleep(args.intervalMs);
+      continue;
+    }
 
     // `!args.once` IS THE LOOP, and this is the only place that knows. The
     // `if (args.once) return code` below is what separates them, so until that
@@ -965,7 +1001,17 @@ export const reportTick = (
 // Only when RUN, never when imported — a test importing `run` must not have the
 // process loop under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  void run(process.argv.slice(2), dirname(fileURLToPath(import.meta.url))).then((code) =>
-    process.exit(code),
-  );
+  void run(process.argv.slice(2), dirname(fileURLToPath(import.meta.url)))
+    .then((code) => process.exit(code))
+    // THE SECOND HALF, AND NOT A SUBSTITUTE FOR THE FIRST. The loop's `catch`
+    // covers a failing tick; this covers what throws before the loop is
+    // reached — an unreadable argument, a missing registry directory. Without
+    // it such a failure is an unhandled rejection, which ends the process with
+    // the same empty `registryd.err` that made the tick deaths invisible.
+    .catch((err: unknown) => {
+      process.stderr.write(
+        `plot-registryd failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(1);
+    });
 }
