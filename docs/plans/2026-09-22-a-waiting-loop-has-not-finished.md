@@ -2,6 +2,8 @@
 
 > `plot-worker-state.sh` answers `finished` for an agent whose loop is alive and waiting for work, so the registry drops it and an operator who started agents sees nothing on the board.
 
+> **REJECTED BY PANEL, 2026-09-22 — and this rewrite failed the same way its predecessor did, one level deeper.** The corpus lens found that **`orphaned` already exists** as a fourth `PidLiveness` value, and that `agentState` handles it with a comment describing exactly this population. The proposed arm — *pid alive AND no exit record → running* — fires on **every orphaned desk**, because an orphaned wrapper by construction has no exit record. **Measured on this estate the day it was written: three desks match, and only ONE was actually working.** The other two would have been reported `running`, re-introducing the defect commit `64787cd4b` fixed — *"four agents ended mid-slice and every one reported `running`"*. The plan's own guard (*"a dispatched agent with an EXIT RECORD still reads finished"*) protects a population that was never at risk. **The root failure is named by the juror and is mine: the plan answered the previous panel faithfully and did not re-read the code, and the code had moved.** See `.plot/panels/2026-09-22-a-waiting-loop-has-not-finished/`. **Not dispatchable as written.**
+
 ## Status
 
 - **State:** Draft
@@ -99,7 +101,7 @@ elif [ "$?" -eq 1 ]; then                    # none → task state → finished
 
 ## Slices
 
-### The loop is running until it exits (Branch: bug/the-loop-is-running-until-it-exits)
+### The loop is running until it exits (Branch: bug/the-loop-is-running-until-it-exits) <!-- deferred: rejected by panel 2026-09-22 — the arm fires on every orphaned desk, measured 3 on this estate of which 1 was working. `orphaned` already exists as a PidLiveness value and agentState returns on it before any exit arm. Re-read the code before rewriting -->
 
 - `bug/the-loop-is-running-until-it-exits` — `plot-worker-state.sh` answers `running` where the recorded pid is alive and no exit record exists, before the descendant question is asked; `rules/agent-state.ts` gains the same arm from the same readings so `corpus/agent-state.corpus.test.ts` passes on both sides in one slice. Tests pin that a desk WITH an exit record and no `claude` child still reads `finished`, that the root-exclusion still refuses to read a bare loop shell as alive for a dispatched desk, and that `dropSettledWorkers` keeps the row
 
