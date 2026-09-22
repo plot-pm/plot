@@ -9,6 +9,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-22, jwloka, in-session
+- **Started:** 2026-09-22, jwloka, `feature/the-domain-knows-a-round`
 
 ## Changelog
 
