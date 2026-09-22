@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-21, jwloka, in-session
 - **Started:** 2026-09-21, Jan Wloka, `feature/the-store-holds-what-the-host-said`
 - **Started:** 2026-09-22, Jan Wloka, `feature/the-call-asks-only-for-the-delta`
+- **Delivered:** 2026-09-22
 
 ## Changelog
 
