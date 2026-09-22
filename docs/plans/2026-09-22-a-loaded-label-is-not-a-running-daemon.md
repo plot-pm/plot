@@ -75,7 +75,7 @@ Board impact: none directly; the board reads the registry, not this command. Wha
 
 ## Slices
 
-### The status asks the process table (Branch: bug/the-status-asks-the-process-table)
+### The status asks the process table (Branch: bug/the-status-asks-the-process-table, PR: #960)
 
 - `bug/the-status-asks-the-process-table` — `--status` reads the label AND asks `supervisor_pid` (not `ps | grep`, which a sibling's command line can flip and which regresses the systemd arm), reports both readings on separate lines, answers `loaded, not running` with the two-command repair, exits 1 there, and prints the last tick's age as evidence rather than as the verdict. `install=` gains the third value and `supervisorState` gains the matching arm, both in this slice. **All three rows are tested on CI**, through the seam `fleetctl.test.mjs:392-398` already uses: `fleet_install_state` is driven with `platform` and `supervisor_loaded` stubbed, *"which is what makes the launchd arm reachable on CI's `ubuntu-latest`"*. An earlier draft scoped the promise away on the premise that the arm was unexercisable there; the panel measured that false and the seam is the reason
 
