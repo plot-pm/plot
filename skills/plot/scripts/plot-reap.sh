@@ -385,10 +385,18 @@ manifest_for() {
 reap=0; kept=0; removed=0; cleared=0; vanished=0; unplaced=0
 printf '%-8s %-52s %s\n' "verdict" "branch" "why"
 
-while IFS=$'\t' read -r wt br prunable; do
+while IFS=$'\037' read -r wt br prunable; do
   [ -n "$wt" ] || continue
   short=${br#refs/heads/}
   [ "$wt" = "$ROOT" ] && continue
+
+  # WHAT THE REPORT CALLS THIS TREE. `short` is the branch and stays empty for
+  # a detached desk, which is the correct reading and a useless label — an
+  # operator reading a blank column cannot tell which of thirteen it names.
+  # The directory is what identifies such a tree, so the report says so and
+  # every refusal still measures `short`.
+  label=$short
+  [ -z "$label" ] && label="(detached) $(basename "$wt")"
 
   # 4a. GIT'S OWN ANSWER THAT THE DIRECTORY IS GONE, and it is a REPORT rather
   #     than a sixth refusal. The five below each say *do not remove this* and
@@ -414,7 +422,7 @@ while IFS=$'\t' read -r wt br prunable; do
   #     prune stays the operator's decision — the same discipline that makes
   #     every refusal a measurement rather than an act.
   if [ "$prunable" = "yes" ]; then
-    printf '%-8s %-52s %s\n' "vanished" "$short" "directory gone — 'git worktree prune' clears the entry"
+    printf '%-8s %-52s %s\n' "vanished" "$label" "directory gone — 'git worktree prune' clears the entry"
     vanished=$((vanished+1)); continue
   fi
 
@@ -482,7 +490,7 @@ while IFS=$'\t' read -r wt br prunable; do
   # population the rule excludes. It counts, because a refusal that counts is
   # the difference between *nothing to clean* and *nothing was looked at*.
   if [ "$unclassified" = true ]; then
-    printf '%-8s %-52s %s\n' "unknown" "$short" \
+    printf '%-8s %-52s %s\n' "unknown" "$label" \
       "under $(basename "$WT_ROOT")/, no worker pid and no recognised name — needs a person"
     unplaced=$((unplaced+1)); continue
   fi
@@ -531,6 +539,25 @@ while IFS=$'\t' read -r wt br prunable; do
     merge=merged; why="merged into $DEFAULT"
   elif [ -n "$short" ] && pr_merged "$short"; then
     merge=merged; why="PR merged (squash)"
+  elif [ -z "$short" ] \
+       && [ "$(git -C "$wt" rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
+    # A DETACHED DESK HAS NOTHING TO LAND, and that is a measurement rather
+    # than a weakened refusal. `plot-dispatch.sh --start` cuts a free agent's
+    # desk detached at `origin/<main>` because a free agent holds no slice, so
+    # such a tree never had a branch and can never have a PR. Reading it
+    # through `no-merged-pr` would refuse every one of them forever — the same
+    # silence this slice removes, in the opposite direction.
+    #
+    # THE READING IS `HEAD` AGAINST THE DEFAULT BRANCH, never the desk's name.
+    # Measured 2026-09-22: three `free-*` desks hold a branch and two carry
+    # live workers (pids 27820, 6542), so a prefix-keyed test reaps a running
+    # agent. Detachment is the condition; the name is not.
+    #
+    # A detached desk carrying commits falls through to `not-merged` and is
+    # kept, which is correct: somebody committed there and nothing says the
+    # work landed. The live-pid, marker and dirty refusals are all asked
+    # before this and are unaffected.
+    merge=merged; why="detached, nothing to land"
   fi
 
   # THE DECISION. One call, and the script holds no `if` about whether a
@@ -599,11 +626,11 @@ NODE_EOF
       no-merged-pr)        reason="unlanded work — no merged PR" ;;
       *)                   reason="rule could not be asked — keeping" ;;
     esac
-    printf '%-8s %-52s %s\n' "keep" "$short" "$reason"; kept=$((kept+1)); continue
+    printf '%-8s %-52s %s\n' "keep" "$label" "$reason"; kept=$((kept+1)); continue
   fi
 
   if [ "$MAX" -gt 0 ] && [ "$reap" -ge "$MAX" ]; then
-    printf '%-8s %-52s %s\n' "keep" "$short" "--max $MAX reached"; kept=$((kept+1)); continue
+    printf '%-8s %-52s %s\n' "keep" "$label" "--max $MAX reached"; kept=$((kept+1)); continue
   fi
 
   # Resolved BEFORE the removal, because `canonical` needs the directory to
@@ -619,7 +646,7 @@ NODE_EOF
 
   reap=$((reap+1))
   if [ "$DRY" -eq 1 ]; then
-    printf '%-8s %-52s %s\n' "would" "$short" "$why${logs:+, log $logs}"
+    printf '%-8s %-52s %s\n' "would" "$label" "$why${logs:+, log $logs}"
   else
     if git worktree remove --force "$wt" 2>/dev/null; then
       # The worktree is gone; NOW the manifest may go. Inside the success arm
@@ -647,16 +674,16 @@ NODE_EOF
         while IFS= read -r f; do rm -f "$f" 2>/dev/null; done < <(branch_log_files "$short")
         why="$why, log removed"
       fi
-      printf '%-8s %-52s %s\n' "reaped" "$short" "$why"; removed=$((removed+1))
+      printf '%-8s %-52s %s\n' "reaped" "$label" "$why"; removed=$((removed+1))
     else
-      printf '%-8s %-52s %s\n' "FAILED" "$short" "git worktree remove refused"; kept=$((kept+1))
+      printf '%-8s %-52s %s\n' "FAILED" "$label" "git worktree remove refused"; kept=$((kept+1))
     fi
   fi
 done < <(git worktree list --porcelain \
-          | awk '/^worktree /{ if (br != "") print p"\t"br"\t"pr; p=$2; br=""; pr="no"; next }
+          | awk -v OFS="\037" '/^worktree /{ if (p != "") print p, br, pr; p=$2; br=""; pr="no"; next }
                  /^branch /  { br=$2; next }
                  /^prunable/ { pr="yes"; next }
-                 END         { if (br != "") print p"\t"br"\t"pr }')
+                 END         { if (p != "") print p, br, pr }')
 
 [ "$DRY" -eq 0 ] && git worktree prune 2>/dev/null
 

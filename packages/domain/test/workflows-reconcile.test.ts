@@ -478,3 +478,40 @@ describe('reconcile — a tree it cannot classify is reported, not skipped', () 
     expect(findingsFor(silent)).toEqual([]);
   });
 });
+
+describe('reconcile — a finished desk says WHY it is finished', () => {
+  // Two desks reach `reaping` for two different reasons, and one sentence for
+  // both states a merge that never happened. A detached desk never held a
+  // slice, so it has no PR to have merged — an operator reading the merged
+  // wording goes looking for one.
+  const findingFor = (tree: Partial<Worktree>) => {
+    const out = reconcile(
+      estate({
+        desks: {
+          candidates: [finishedDesk(tree)],
+          orphanedManifests: [],
+          defaultBranch: 'main',
+        },
+      }),
+      { kind: 'workspace' },
+    );
+    if (!decided(out)) throw new Error('expected a decision');
+    return out.detail.findings.find((f) => f.kind === 'worktree');
+  };
+
+  it('says a desk that held a branch is finished because its PR merged', () => {
+    expect(findingFor({})?.evidence).toBe(
+      'the desk is finished — its PR merged and nothing runs in it',
+    );
+  });
+
+  it('says a detached desk is finished because it carries nothing to land', () => {
+    expect(findingFor({ branch: '', detached: true })?.evidence).toBe(
+      'the desk is finished — detached, carrying nothing to land, and nothing runs in it',
+    );
+  });
+
+  it('offers the same repair either way — the reason differs, the act does not', () => {
+    expect(findingFor({})?.repair).toBe(findingFor({ branch: '', detached: true })?.repair);
+  });
+});
