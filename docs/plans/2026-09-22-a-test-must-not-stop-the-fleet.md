@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-22, jwloka, in-session
 - **Rounds:** 1
 
 ## Changelog
@@ -90,7 +91,7 @@ if supervisor_loaded; then
 
 ## Slices
 
-### The suite cannot reach launchctl (Branch: bug/the-suite-passes-the-label-it-mints)
+### The suite cannot reach launchctl (Branch: bug/the-suite-passes-the-label-it-mints) <!-- deferred: built directly on main 2026-09-22 (6d47cfa7a) after the panel improved the fix — the guard seam is in fleetctl.test.mjs and proven by decoy. Nothing left to dispatch -->
 
 - `bug/the-suite-passes-the-label-it-mints` — `sandbox()` mints a `guardBin` with stub `launchctl` and `systemctl` returning the real exit codes, `run()` takes it as a required argument and throws without it, and all twenty-one call sites pass it. The header is corrected in the same commit, since it documents behaviour the file does not have. **Proven by loading a decoy under the production label**: the suite removes it before, and it survives after
 

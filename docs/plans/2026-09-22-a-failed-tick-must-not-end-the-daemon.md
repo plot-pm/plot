@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-22, jwloka, in-session
 
 ## Changelog
 
@@ -87,7 +88,7 @@ for (;;) {
 
 ## Slices
 
-### The loop survives a failed tick (Branch: bug/the-loop-survives-a-failed-tick)
+### The loop survives a failed tick (Branch: bug/the-loop-survives-a-failed-tick) <!-- deferred: built directly on main 2026-09-22 (65071ef52) and verified by injected throw. The delivery panel refuted it for MISSING TESTS, not missing code — that is a follow-up, not a dispatch -->
 
 - `bug/the-loop-survives-a-failed-tick` — the tick is wrapped in `try`/`catch` inside the loop, the failure is reported to stderr with the error's own text, and the loop sleeps and continues; `--once` still returns non-zero on a failed tick; the entry point gains a `.catch` that reports and exits non-zero rather than dying silently. Tests pin that a throwing tick leaves the loop running, that the next tick is attempted, that `--once` does not swallow it, and that the report is empty rather than partial
 
