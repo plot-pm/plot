@@ -469,16 +469,29 @@ test('the systemd unit keeps its Nice, which is priority without eviction', () =
 // launchd arm reachable on CI's `ubuntu-latest`.
 
 /**
- * Asks `fleet_install_state` with the platform and liveness pinned.
+ * Asks `fleet_install_state` with the platform and BOTH readings pinned.
  *
  * The real probes are stubbed AFTER sourcing so the launchd branch of
  * `unit_target` is exercised on Linux too — the arm a macOS operator uses, and
  * the one CI could otherwise never run.
+ *
+ * `supervisor_pid` IS PINNED TOO, AND IT IS THE SECOND READING. The label and
+ * the process are different facts since 2026-09-22, so a seam that pinned only
+ * the label left the other probe reaching the real machine: `loaded: true`
+ * then answered `running` on a developer's macOS and `loaded-not-running` on
+ * CI, where `systemctl` reports nothing for a label nothing holds. Measured on
+ * the branch that introduced the split — the suite passed locally and failed
+ * on `ubuntu-latest`, which is the direction this seam exists to prevent.
+ *
+ * @param opts.loaded - whether the init system holds the label
+ * @param opts.pid - the process behind it; defaults to one when loaded, none otherwise
  */
-function installState(root, ctl, home, { loaded = false, plat = 'launchd' } = {}) {
+function installState(root, ctl, home, { loaded = false, plat = 'launchd', pid } = {}) {
+  const pinnedPid = pid ?? (loaded ? '4242' : '');
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'
 platform() { echo ${plat}; }
 supervisor_loaded() { return ${loaded ? 0 : 1}; }
+supervisor_pid() { printf '%s' '${pinnedPid}'; }
 printf '%s' "$(fleet_install_state)"`;
   return execFileSync('bash', ['-c', probe], {
     encoding: 'utf8', cwd: root, env: { ...process.env, HOME: home },
@@ -530,6 +543,19 @@ test('marker: a LOADED supervisor is running whatever the marker says', () => {
   // took the marker as authoritative would call a healthy fleet interrupted.
   const { root, box, ctl, guardBin } = sandbox('state-running');
   assert.equal(installState(root, ctl, fakeHome(box, { unit: true }), { loaded: true }), 'running');
+});
+
+test('marker: a loaded label with no process behind it is not running', () => {
+  // THE LABEL IS NOT THE PROCESS, and the marker is not consulted for either.
+  // A held label with nothing behind it is the state measured twice in ninety
+  // minutes on 2026-09-22, and `fleet_install_state` must name it rather than
+  // answering `running` for any held label.
+  const { root, box, ctl, guardBin } = sandbox('state-loaded-no-pid');
+  fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), '2026-09-22T00:00:00Z\n');
+  assert.equal(
+    installState(root, ctl, fakeHome(box, { unit: true }), { loaded: true, pid: '' }),
+    'loaded-not-running');
 });
 
 // ── --status names the third state, and prints its repair ─────────────────────
