@@ -59,6 +59,16 @@ export {
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
+
+// THE PR STORE'S FILE ADAPTER. One file per connector under the COMMON git
+// dir's `.plot/state/index/`, so every dispatch worktree of one repository
+// reads the store the reaper cannot delete.
+export {
+  prIndexFile,
+  connectorFile,
+  PR_INDEX_HOME_ENV,
+  type PrIndexFileOptions,
+} from './pr-index/pr-index-file.js';
 export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 
 export { refsGit } from './refs/refs-git.js';
