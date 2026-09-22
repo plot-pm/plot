@@ -24,6 +24,15 @@
 // pass it as `PLOT_FLEET_LABEL`; the suite never unloads anything, because
 // `--stop` ends work in flight and is a person's call.
 //
+// CORRECTED 2026-09-22: BOTH SENTENCES WERE FALSE FOR THE FILE'S WHOLE LIFE.
+// 9 of 21 call sites passed the label and none of the three `--stop` sites did,
+// so those runs reached launchd under the production label and unloaded this
+// machine's own supervisor — proven by loading a decoy under
+// `com.plot-pm.registryd` and watching the suite boot it out. The claim is now
+// enforced rather than asserted: `sandbox()` mints a `guardBin` with stub
+// `launchctl` and `systemctl`, `run()` REFUSES a call that does not pass it,
+// and the decoy survives.
+//
 // CI IS `ubuntu-latest` ONLY, so the launchd arm cannot run there at all — and
 // that is the arm a macOS operator uses. What IS assertable everywhere is that
 // both units FILL with no placeholder left and PARSE, which is what the last
@@ -96,18 +105,80 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
   // describes. The pid keeps concurrent runs of the suite apart too.
   const fleetLabel = `com.plot-pm.registryd.test-${label}-${process.pid}`;
 
+  // A `launchctl` THIS SUITE CANNOT REACH PAST, and it is the guard rather
+  // than the label.
+  //
+  // The label above is necessary and was not sufficient: `run()` defaulted its
+  // env, so a call that forgot `PLOT_FLEET_LABEL` inherited the OPERATOR'S
+  // environment where it is unset, `plot-fleetctl.sh:84` fell back to
+  // `com.plot-pm.registryd`, and `:672` ran `launchctl bootout` on it.
+  // Measured 2026-09-22: **9 of 21 call sites passed a label and none of the
+  // three `--stop` sites did**; this machine's supervisor went down three
+  // times in one morning, each within two minutes of a suite run.
+  //
+  // WHY THE PATH AND NOT THE ARGUMENT. A required label closes ONE direction —
+  // a call that unloads the operator's unit. It cannot close the other: a
+  // sandbox whose plist is BOOTSTRAPPED under the production label occupies it,
+  // and an operator cannot tell the two apart because both present as a
+  // supervisor that is not there. A stub on `PATH` cannot `bootout` a real unit
+  // and cannot `bootstrap` a leaked one, so one seam closes both. It also sees
+  // a wrong-but-present label, which an unset-check never can.
+  //
+  // AND IT MAKES THE LAUNCHD ARM RUN ON CI, which has no launchd at all — the
+  // reason `stubPlatform` already gives for existing, applied to every case
+  // rather than two.
+  const guardBin = path.join(box, 'guard-bin');
+  fs.mkdirSync(guardBin, { recursive: true });
+  for (const [name, body] of [
+    // THE REAL EXIT CODES, so the arms under test see what they would see.
+    // `113` is what launchctl answers for an absent label and is the code that
+    // once reached the board; `supervisor_loaded` normalises it.
+    ['launchctl', 'exit 113'],
+    ['systemctl', 'exit 3'],
+  ]) {
+    const f = path.join(guardBin, name);
+    fs.writeFileSync(f, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(f, 0o755);
+  }
+
   fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-qm', 'init');
-  return { root, box, fleetLabel, ctl: path.join(dst, 'plot-fleetctl.sh') };
+  return { root, box, fleetLabel, guardBin, ctl: path.join(dst, 'plot-fleetctl.sh') };
 }
 
-function run(ctl, args, cwd, env = {}) {
+// THE GUARD IS THE FIRST ARGUMENT AFTER THE CWD, AND IT IS REFUSED WHEN ABSENT.
+//
+// See `sandbox()`'s `guardBin` for what this closes and why the PATH rather
+// than the label. The refusal is the gate per CLAUDE.md's *Gates Over Rules*:
+// this file's header claimed *"the suite never unloads anything"* for its whole
+// life and nothing enforced it, which is exactly a rule. A throw cannot be
+// talked past.
+//
+// A CALLER MAY STILL OVERRIDE `PATH` through `env` — `stubPlatform`'s two cases
+// do, deliberately, to drive a LOADED launchd. That is a stub too, so the
+// guarantee holds: what this refuses is reaching the machine's own binary.
+function run(ctl, args, cwd, guardBin, env = {}) {
+  if (typeof guardBin !== 'string' || guardBin === '') {
+    throw new Error(
+      'fleetctl.test: run() needs the sandbox guard bin — an unguarded run '
+      + "reaches this machine's launchctl and can unload the operator's own "
+      + 'supervisor',
+    );
+  }
   try {
     return {
       status: 0,
       out: execFileSync('bash', [ctl, ...args], {
-        encoding: 'utf8', cwd, timeout: 60000, env: { ...process.env, ...env },
+        encoding: 'utf8',
+        cwd,
+        timeout: 60000,
+        env: {
+          ...process.env,
+          PLOT_FLEET_LABEL: undefined,
+          PATH: `${guardBin}:${process.env.PATH}`,
+          ...env,
+        },
       }),
     };
   } catch (e) {
@@ -118,22 +189,22 @@ function run(ctl, args, cwd, env = {}) {
 // ── The verbs refuse to be guessed ────────────────────────────────────────────
 
 test('fleetctl: no verb is a refusal, not a default', () => {
-  const { root, ctl } = sandbox('noverb');
-  const r = run(ctl, [], root);
+  const { root, ctl, guardBin } = sandbox('noverb');
+  const r = run(ctl, [], root, guardBin);
   assert.equal(r.status, 1);
   assert.match(r.out, /one of --status, --once, --start, --stop/);
 });
 
 test('fleetctl: an unknown argument is named rather than ignored', () => {
-  const { root, ctl } = sandbox('unknown');
-  const r = run(ctl, ['--restart'], root);
+  const { root, ctl, guardBin } = sandbox('unknown');
+  const r = run(ctl, ['--restart'], root, guardBin);
   assert.equal(r.status, 1);
   assert.match(r.out, /unknown argument '--restart'/);
 });
 
 test('fleetctl: --wait takes a number', () => {
-  const { root, ctl } = sandbox('waitarg');
-  const r = run(ctl, ['--stop', '--wait', 'soon'], root);
+  const { root, ctl, guardBin } = sandbox('waitarg');
+  const r = run(ctl, ['--stop', '--wait', 'soon'], root, guardBin);
   assert.equal(r.status, 1);
   assert.match(r.out, /--wait needs a number, got 'soon'/);
 });
@@ -141,16 +212,16 @@ test('fleetctl: --wait takes a number', () => {
 // ── Refusal 1: nothing to start ───────────────────────────────────────────────
 
 test('refusal: no supervisor artifact names the build that makes one', () => {
-  const { root, ctl } = sandbox('noartifact', { registryd: false });
-  const r = run(ctl, ['--start'], root);
+  const { root, ctl, guardBin } = sandbox('noartifact', { registryd: false });
+  const r = run(ctl, ['--start'], root, guardBin);
   assert.equal(r.status, 1);
   assert.match(r.out, /no supervisor artifact/);
   assert.match(r.out, /pnpm build:board/);
 });
 
 test('refusal: --once refuses the same absence, and says the same repair', () => {
-  const { root, ctl } = sandbox('noartifact-once', { registryd: false });
-  const r = run(ctl, ['--once'], root);
+  const { root, ctl, guardBin } = sandbox('noartifact-once', { registryd: false });
+  const r = run(ctl, ['--once'], root, guardBin);
   assert.equal(r.status, 1);
   assert.match(r.out, /no supervisor artifact/);
   assert.match(r.out, /pnpm build:board/);
@@ -159,8 +230,8 @@ test('refusal: --once refuses the same absence, and says the same repair', () =>
 // ── Refusal 2: the wrong node, which is the one that fails silently later ─────
 
 test('refusal: a node that is not the pinned major, before anything is written', () => {
-  const { root, ctl } = sandbox('wrongnode', { nvmrc: '99' });
-  const r = run(ctl, ['--start'], root);
+  const { root, ctl, guardBin } = sandbox('wrongnode', { nvmrc: '99' });
+  const r = run(ctl, ['--start'], root, guardBin);
   assert.equal(r.status, 1);
   assert.match(r.out, /this repository pins 99/);
   assert.match(r.out, /bakes/);
@@ -168,17 +239,17 @@ test('refusal: a node that is not the pinned major, before anything is written',
 });
 
 test('refusal: the wrong node refuses --dry-run too — a probe is not a preview', () => {
-  const { root, ctl } = sandbox('wrongnode-dry', { nvmrc: '99' });
-  const r = run(ctl, ['--start', '--dry-run'], root);
+  const { root, ctl, guardBin } = sandbox('wrongnode-dry', { nvmrc: '99' });
+  const r = run(ctl, ['--start', '--dry-run'], root, guardBin);
   assert.equal(r.status, 1);
   assert.match(r.out, /this repository pins 99/);
 });
 
 test('refusal: the wrong node leaves no unit behind', () => {
-  const { root, ctl } = sandbox('wrongnode-clean', { nvmrc: '99' });
+  const { root, ctl, guardBin } = sandbox('wrongnode-clean', { nvmrc: '99' });
   const home = path.join(root, 'home');
   fs.mkdirSync(home);
-  run(ctl, ['--start'], root, { HOME: home });
+  run(ctl, ['--start'], root, guardBin, { HOME: home });
   // Nothing was filled: the probe runs before the first write.
   assert.equal(fs.existsSync(path.join(home, 'Library', 'LaunchAgents')), false);
   assert.equal(fs.existsSync(path.join(home, '.config', 'systemd')), false);
@@ -187,14 +258,14 @@ test('refusal: the wrong node leaves no unit behind', () => {
 // ── The pin is read from .nvmrc, not from `engines` ───────────────────────────
 
 test('the pin is .nvmrc — engines says >=24, which is a floor', () => {
-  const { root, ctl } = sandbox('pin');
+  const { root, ctl, guardBin } = sandbox('pin');
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'; printf '%s' "$(pinned_major)"`;
   const out = execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd: root });
   assert.equal(out, '24');
 });
 
 test('no .nvmrc means no pin to compare against, so the node probe does not refuse', () => {
-  const { root, ctl } = sandbox('nopin', { nvmrc: '' });
+  const { root, ctl, guardBin } = sandbox('nopin', { nvmrc: '' });
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'; printf '[%s]' "$(pinned_major)"`;
   const out = execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd: root });
   assert.equal(out, '[]');
@@ -203,8 +274,8 @@ test('no .nvmrc means no pin to compare against, so the node probe does not refu
 // ── --status starts nothing, and says so by its exit code ─────────────────────
 
 test('--status starts nothing and reports the platform', () => {
-  const { root, ctl } = sandbox('status');
-  const r = run(ctl, ['--status'], root);
+  const { root, ctl, guardBin } = sandbox('status');
+  const r = run(ctl, ['--status'], root, guardBin);
   assert.match(r.out, /^platform: /m);
   assert.match(r.out, /^summary: agents_running=\d+ /m);
   // No unit was filled by asking.
@@ -212,22 +283,22 @@ test('--status starts nothing and reports the platform', () => {
 });
 
 test('--status names the fleet root when there are no worktrees', () => {
-  const { root, ctl } = sandbox('statusempty');
-  const r = run(ctl, ['--status'], root);
+  const { root, ctl, guardBin } = sandbox('statusempty');
+  const r = run(ctl, ['--status'], root, guardBin);
   assert.match(r.out, /no fleet worktrees under/);
 });
 
 // ── --stop orchestrates the one stop rule, and takes the supervisor last ──────
 
 test('--stop with nothing running still reports, and does not invent an agent', () => {
-  const { root, ctl } = sandbox('stopempty');
-  const r = run(ctl, ['--stop'], root);
+  const { root, ctl, guardBin } = sandbox('stopempty');
+  const r = run(ctl, ['--stop'], root, guardBin);
   assert.match(r.out, /no agents on a branch/);
   assert.match(r.out, /supervisor/);
 });
 
 test('--stop calls plot-dispatch --stop once per branch, and the supervisor last', () => {
-  const { root, box, ctl } = sandbox('stoporder');
+  const { root, box, ctl, guardBin } = sandbox('stoporder');
   // A desk with a live worker, and a `plot-dispatch.sh` that records the call
   // rather than signalling anything. THE ORDER IS THE ASSERTION: an agent
   // stopped after the supervisor was unloaded would have been unwatched for the
@@ -244,7 +315,7 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
     `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nkill ${sleeper} 2>/dev/null\nexit 0\n`);
   fs.chmodSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), 0o755);
 
-  const r = run(ctl, ['--stop', '--wait', '10'], root);
+  const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin);
   try {
     const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
     assert.match(calls, /dispatch --stop feature\/a/,
@@ -436,17 +507,17 @@ test('marker: no unit and no marker is NOT INSTALLED, not interrupted', () => {
   // THE FRESH-CLONE CASE. `.plot/state/` is gitignored, so a machine that never
   // ran `--start` has no marker — reading the marker alone would send every new
   // checkout to a `launchctl bootstrap` for a unit that does not exist.
-  const { root, box, ctl } = sandbox('state-fresh');
+  const { root, box, ctl, guardBin } = sandbox('state-fresh');
   assert.equal(installState(root, ctl, fakeHome(box)), 'not-installed');
 });
 
 test('marker: a unit with no marker is INTERRUPTED — the state that read as absent', () => {
-  const { root, box, ctl } = sandbox('state-interrupted');
+  const { root, box, ctl, guardBin } = sandbox('state-interrupted');
   assert.equal(installState(root, ctl, fakeHome(box, { unit: true })), 'interrupted');
 });
 
 test('marker: a unit with a marker is INSTALLED', () => {
-  const { root, box, ctl } = sandbox('state-installed');
+  const { root, box, ctl, guardBin } = sandbox('state-installed');
   fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
   fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), '2026-09-09T00:00:00Z\n');
   assert.equal(installState(root, ctl, fakeHome(box, { unit: true })), 'installed');
@@ -457,7 +528,7 @@ test('marker: a LOADED supervisor is running whatever the marker says', () => {
   // machine 2026-09-09: a supervisor loaded at pid 81406 with no marker beside
   // it, because the marker post-dates the run that started it. A reading that
   // took the marker as authoritative would call a healthy fleet interrupted.
-  const { root, box, ctl } = sandbox('state-running');
+  const { root, box, ctl, guardBin } = sandbox('state-running');
   assert.equal(installState(root, ctl, fakeHome(box, { unit: true }), { loaded: true }), 'running');
 });
 
@@ -478,7 +549,7 @@ test('supervisor_loaded answers 1 for an absent label, never the init system cod
   // with no launchd at all. The default label masked the defect — launchctl
   // answers 1 for some absences and 113 for others — so a case pinned to the
   // real label could never have found it.
-  const { root, ctl } = sandbox('loaded-rc');
+  const { root, ctl, guardBin } = sandbox('loaded-rc');
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'
 platform() { echo launchd; }
 launchctl() { return 113; }
@@ -488,9 +559,9 @@ supervisor_loaded; printf '%s' "$?"`;
 });
 
 test('--status says NOT LOADED and prints the one-line bootstrap for an installed unit', () => {
-  const { root, box, ctl, fleetLabel } = sandbox('status-interrupted');
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('status-interrupted');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
-  const r = run(ctl, ['--status'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  const r = run(ctl, ['--status'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
 
   // Only meaningful where the platform probe answers launchd; on CI it does
   // not, and the state machine itself is asserted above.
@@ -508,8 +579,8 @@ test('--status says NOT LOADED and prints the one-line bootstrap for an installe
 });
 
 test('--status says NOT INSTALLED where there is no unit at all', () => {
-  const { root, box, ctl, fleetLabel } = sandbox('status-fresh');
-  const r = run(ctl, ['--status'], root, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('status-fresh');
+  const r = run(ctl, ['--status'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
   if (!/^platform: launchd$/m.test(r.out)) return;
   assert.match(r.out, /not installed/);
   assert.match(r.out, /start it: \/plot-fleet --start/);
@@ -523,11 +594,11 @@ test('--status says a supervisor DIED where a start finished and nothing unloade
   // after a clean unload, so reaching it means the supervisor went away on its
   // own. It printed *not installed — no unit on this machine*, false about the
   // machine and silent about the death.
-  const { root, box, ctl, fleetLabel } = sandbox('status-died');
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('status-died');
   fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
   fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), '2026-09-18T00:00:00Z\n');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
-  const r = run(ctl, ['--status'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  const r = run(ctl, ['--status'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
   if (!/^platform: launchd$/m.test(r.out)) return;
 
   // THE NEGATIVE IS THE ASSERTION THAT CATCHES IT. Asserting only the new
@@ -558,13 +629,13 @@ test('--status reports its install state ON the summary line, in every state', (
     ['interrupted', false, true],
     ['died', true, true],
   ]) {
-    const { root, box, ctl, fleetLabel } = sandbox(`summary-${name}`);
+    const { root, box, ctl, fleetLabel, guardBin } = sandbox(`summary-${name}`);
     if (marker) {
       fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
       fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), 'ts\n');
     }
     const home = fakeHome(box, { unit, label: fleetLabel });
-    const r = run(ctl, ['--status'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+    const r = run(ctl, ['--status'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
     assert.match(r.out, /^summary: agents_running=\d+ agents_other=\d+ supervisor=\S+ install=\S+$/m,
       `${name}: the install state is not on the summary line the board reads`);
   }
@@ -634,14 +705,14 @@ test('--status exits exactly 1 for every not-loaded state, on any platform', () 
     installed: { unit: true, marker: true },
     none: { unit: false, marker: false, kernel: 'PlotTestKernel' },
   })) {
-    const { root, box, ctl, fleetLabel } = sandbox(`exit-${state}`);
+    const { root, box, ctl, fleetLabel, guardBin } = sandbox(`exit-${state}`);
     if (marker) {
       fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
       fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), 'ts\n');
     }
     const home = fakeHome(box, { unit, label: fleetLabel });
     const bin = stubPlatform(box, kernel ? { kernel } : {});
-    const r = run(ctl, ['--status'], root, {
+    const r = run(ctl, ['--status'], root, guardBin, {
       HOME: home,
       PLOT_FLEET_LABEL: fleetLabel,
       PATH: `${bin}:${process.env.PATH}`,
@@ -656,10 +727,10 @@ test('--status exits exactly 1 for every not-loaded state, on any platform', () 
 test('--status exits 0 and says up where the init system holds the label', () => {
   // THE OTHER HALF OF THE CONTRACT, and it runs on CI too. Without it the
   // case above is satisfied by a script that answers 1 unconditionally.
-  const { root, box, ctl, fleetLabel } = sandbox('exit-loaded');
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('exit-loaded');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
   const bin = stubPlatform(box, { loaded: true });
-  const r = run(ctl, ['--status'], root, {
+  const r = run(ctl, ['--status'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
     PATH: `${bin}:${process.env.PATH}`,
@@ -674,9 +745,9 @@ test('--status starts nothing in any state, and keeps the board contract', () =>
   // (0 loaded, 1 not) and the `summary:` line that proves the code was the
   // script's; widening the prose must change neither, or the board renders
   // `down` from a run it could not interpret.
-  const { root, box, ctl, fleetLabel } = sandbox('status-inert');
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('status-inert');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
-  const r = run(ctl, ['--status'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  const r = run(ctl, ['--status'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
 
   assert.match(r.out, /^summary: agents_running=\d+ /m, 'the summary line the board reads is gone');
   if (/^platform: launchd$/m.test(r.out)) {
@@ -700,13 +771,13 @@ test('--start writes no completion marker when it is interrupted cutting desks',
   // THE MEASURED FAILURE, REPRODUCED. `plot-dispatch.sh --start` is where a run
   // spends its time and where both interruptions happened; a stand-in that
   // fails stands for one. The marker's ABSENCE is the assertion.
-  const { root, box, ctl, fleetLabel } = sandbox('start-interrupted');
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('start-interrupted');
   const home = fakeHome(box);
   fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'),
     '#!/usr/bin/env bash\necho "cutting desks" >&2\nexit 1\n');
   fs.chmodSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), 0o755);
 
-  const r = run(ctl, ['--start'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
   // The launchd/systemd load is never reached under a fake HOME on CI; where it
   // refuses earlier there is nothing to assert beyond the marker's absence,
   // which holds in both cases and is the point.
@@ -720,9 +791,9 @@ test('--dry-run reports the state it would act on, and writes nothing', () => {
   // `--start` refuses a label that is already loaded, launchd keys by label,
   // and this machine holds `com.plot-pm.registryd` — so the default made every
   // `--start` case here exit 1 on a refusal about a unit the test never wrote.
-  const { root, box, ctl, fleetLabel } = sandbox('start-dry');
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('start-dry');
   const home = fakeHome(box);
-  const r = run(ctl, ['--start', '--dry-run'], root, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  const r = run(ctl, ['--start', '--dry-run'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
   assert.equal(r.status, 0);
   assert.match(r.out, /^state: (not-installed|interrupted|installed|running)$/m);
   assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-start.done')), false,
