@@ -25,9 +25,21 @@
  * - `up` — the script answered that the supervisor is loaded.
  * - `down` — the script answered that it is not.
  * - `unknown` — the script could not be asked, or did not finish answering.
- * - `died` — it is not loaded, AND the script recorded that a start finished
- *   here. Nothing unloaded it: `--stop` clears that record only after a clean
- *   unload, so the supervisor went away on its own.
+ * - `died` — it is not usable, AND the supervisor went away on its own. Two
+ *   scripts' words reach it: `installed`, where a start finished here and
+ *   `--stop` never cleared its record; and `loaded-not-running`, where the
+ *   init system still holds the label and no process is behind it.
+ *
+ * `loaded-not-running` IS `died` AND NOT A FIFTH STATE, decided 2026-09-22
+ * with the arm that reads it. The test is what a reader does next, which is
+ * what separates every state here from a flag: both mean the supervisor was
+ * started, is gone, and nothing stopped it, so both want the log read before
+ * the next start. Under launchd the new word is most often a throttled crash
+ * loop — `KeepAlive` restarts the daemon and it exits again — which is
+ * `died`'s *"whatever killed it once will kill it again"* exactly. A fifth
+ * state would carry the same prominence, the same verdict and the same
+ * sentence, and would differ only in naming a mechanism the reader cannot act
+ * on differently.
  *
  * `died` IS A KIND OF `down` AND NOT A FOURTH DIRECTION. Both mean no slice
  * will be picked up; they differ in what a reader should do next, which is why
@@ -199,9 +211,17 @@ export interface SupervisorVerdict {
  * board that never got an answer.
  *
  * `died` REFINES `down` AND NEVER REPLACES A CHECK. It is reached only from
- * exit 1 with the script's own `install=installed` beside it, so every gate
- * above it is unchanged: a run that could not be asked, or that stopped before
- * its summary line, is still `unknown` whatever field it carried.
+ * exit 1 with one of the script's two self-inflicted-death words beside it —
+ * `installed` or `loaded-not-running` — so every gate above it is unchanged: a
+ * run that could not be asked, or that stopped before its summary line, is
+ * still `unknown` whatever field it carried.
+ *
+ * `loaded-not-running` ARRIVES WITH EXIT 1 BECAUSE THE SCRIPT DECIDES THAT.
+ * A loaded label whose process is absent answers *no* to the only question a
+ * caller asks — *can I rely on it* — so the script exits 1 and this reads the
+ * field to learn which kind of no. Were it ever to arrive with exit 0 the
+ * gate above would answer `up`, which is the script's contract to keep and
+ * not this rule's to second-guess.
  *
  * AN ABSENT FIELD IS `down`, and that is the compatibility contract. A board
  * reading a script that predates the field must behave exactly as it did
@@ -217,7 +237,9 @@ export const supervisorState = (readings: SupervisorRun): SupervisorState => {
   if (!readings.asked) return 'unknown';
   if (!readings.summarised) return 'unknown';
   if (readings.exitCode === 0) return 'up';
-  if (readings.exitCode === 1) return readings.install === 'installed' ? 'died' : 'down';
+  if (readings.exitCode === 1) {
+    return readings.install === 'installed' || readings.install === 'loaded-not-running' ? 'died' : 'down';
+  }
   return 'unknown';
 };
 

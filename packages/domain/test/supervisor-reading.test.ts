@@ -109,6 +109,28 @@ describe('supervisorState — which stop it is, read beside the code and never f
     expect(supervisorState(reading({ exitCode: 127, install: 'installed' }))).toBe('unknown');
   });
 
+  it('reads a loaded label with no process behind it as died', () => {
+    // THE STATE THE SCRIPT LEARNED TO SEE, 2026-09-22. `--status` answered
+    // `running` whenever launchd held the label, without asking whether a
+    // process was behind it — so a dead daemon read as a healthy fleet twice
+    // in ninety minutes while dispatched slices sat unserved.
+    //
+    // IT MUST NOT RENDER AS PLAIN `down`, which is the half of the fix that
+    // lives here. `down` prints *start it*, and starting a crash-looping
+    // supervisor runs straight back into whatever killed it. `died` prints
+    // *find out what happened first*, which is the action this reading wants.
+    expect(supervisorState(reading({ exitCode: 1, install: 'loaded-not-running' }))).toBe('died');
+  });
+
+  it('alerts on a loaded-but-dead supervisor with agents running', () => {
+    // `died` TAKES `down`'s PROMINENCE RULE and the new word must inherit it
+    // rather than fall through to `quiet` — grey, no `role="alert"`, no detail
+    // sentence. A state whose whole purpose is to explain an unexplained death
+    // would have arrived explaining nothing.
+    expect(supervisorProminence(reading({ exitCode: 1, install: 'loaded-not-running', agentsRunning: 2 })))
+      .toBe('alert');
+  });
+
   it('reads exit 0 as up whatever the field says', () => {
     // A LOADED SUPERVISOR IS LOADED whatever the last run recorded — the same
     // precedence `fleet_install_state` applies, where liveness is tested first
