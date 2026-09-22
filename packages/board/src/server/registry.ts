@@ -57,6 +57,102 @@ export const KNOWN_STATES: ReadonlySet<string> = new Set<string>(
 );
 
 /**
+ * Whether a desk's own `.plot-worker.pid` names a process that is alive.
+ *
+ * THE SECOND FACT THE ROW READS, beside the shell's verdict. The default reads
+ * the file and asks `kill -0`, exactly as `workerAlive` does for the queue
+ * (`entry/registryd-main.ts`, `supervisor.ts`); injected in tests so a row can
+ * be driven to `running` without a live process.
+ *
+ * ABSENT OR UNREADABLE READS AS NOT ALIVE, and that direction is deliberate:
+ * this reading can only ever PROMOTE a desk to `running`, so a guess would
+ * invent a live agent, raise `liveAgentCount` and narrow auto-dispatch's
+ * budget on no evidence. The queue's own resolver reads an unanswerable check
+ * as alive because there it WITHHOLDS work; here it would manufacture a worker,
+ * so the safe direction is the opposite one and the shell's answer stands.
+ */
+export type PidLiveness = (worktree: string) => boolean | Promise<boolean>;
+
+/**
+ * The state a row should show, given the shell's verdict and the desk's pid.
+ *
+ * `plot-worker-state.sh` answers about the DESK — *did the work land?* — and
+ * `finished` is right for the reaper, for dispatch and for the fleet scan,
+ * which all ask exactly that. A registry ROW asks a different question: *is
+ * anyone sitting here now?* Those two answers diverge for one population, the
+ * agent BETWEEN SLICES: its wrapper sleeps in `sleep 60` with the last slice's
+ * PR already open, so the desk is finished and the process is not.
+ *
+ * Measured 2026-09-22: three agents with live pids — 243, 6542, 27820 in
+ * `.worktrees/free-fe7ff576`, `free-c810e5bb`, `free-719604d9` — all answered
+ * `finished`, so `LIVE_STATES` filtered every one out of WORKING while the
+ * supervisor's own tick reported `idle=3 agents=3` for the same day. The queue
+ * could see them the entire time, because `queue-reading.ts`'s `stateOf` reads
+ * the pid and never the shell.
+ *
+ * ONLY `finished` IS REFINED, and the narrowness is the safety argument.
+ * `waiting` (a `PLOT-BLOCKED` marker) and `stalled` (work on the floor) are
+ * states the reaper depends on, and an arm mapping every live pid to `running`
+ * would destroy both.
+ *
+ * ## The guard is `bashLiveness`'s EMPTY PR ARGUMENT, not the arm order
+ *
+ * `taskState`'s FIRST arm is `if (readings.hasPr) return 'finished'`, which
+ * outranks `blocked` and `dirty` both. Measured against the real shell on five
+ * synthetic desks, `finished` has five ways in:
+ *
+ * | desk | PR fact | shell answers |
+ * |---|---|---|
+ * | clean | `''` | `finished` |
+ * | dirty | `''` | `stalled` |
+ * | **dirty** | **`pr`** | **`finished`** |
+ * | **blocked** | **`pr`** | **`finished`** |
+ * | blocked | `''` | `waiting` |
+ *
+ * Rows three and four are unreachable ONLY because {@link bashLiveness}
+ * hardcodes an empty PR argument — `plot_worker_state "$wt" ''`. A later caller
+ * that passed a real PR fact would silently widen this refinement to cover a
+ * dirty or a blocked desk, and nothing here would say so. The plan's own first
+ * draft asserted the arm order instead, which is false; a safety argument that
+ * is wrong is more dangerous than none.
+ *
+ * NEITHER SIDE OF THE CORPUS PAIR MOVES. `packages/domain/corpus/agent-state.
+ * corpus.test.ts` pins `agentState` against the shell and forbids adjusting
+ * either to make the comparison pass. This refines ONE CONSUMER'S reading after
+ * the shell has answered, so it sits outside that pair entirely.
+ */
+export function rowState(shellAnswer: AgentState, pidAlive: boolean): AgentState {
+  return shellAnswer === 'finished' && pidAlive ? 'running' : shellAnswer;
+}
+
+/**
+ * The default pid reading — `$worktree/.plot-worker.pid`, then `kill -0`.
+ *
+ * The same two facts `workerAlive` uses for the queue, read here rather than
+ * imported because the queue's resolver is built inside the registry daemon's
+ * world and this runs in the board's request path.
+ */
+export function deskPidAlive(worktree: string): boolean {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(worktree, '.plot-worker.pid'), 'utf8');
+  } catch {
+    return false; // No record: nothing was ever started here.
+  }
+  const pid = Number(text.trim());
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    // Signal 0 tests existence and permission without delivering anything.
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    // ESRCH (gone) and EPERM (alive, not ours) both land here. Reading EPERM as
+    // not-alive keeps this reading unable to invent a worker — see PidLiveness.
+    return false;
+  }
+}
+
+/**
  * Resolve liveness for a batch of worktrees, in the same order.
  *
  * A BATCH, not one call per entry: the default resolver forks bash ONCE per
@@ -537,6 +633,13 @@ export interface ReadRegistryOptions {
    */
   liveness?: LivenessResolver;
   /**
+   * Whether a desk's own `.plot-worker.pid` is alive — the SECOND fact a row
+   * reads, beside the shell's verdict. Injected in tests; in production the
+   * default is {@link deskPidAlive}. See {@link rowState} for why a row's
+   * question differs from the desk's, and why only `finished` is refined.
+   */
+  pidAlive?: PidLiveness;
+  /**
    * Enumerate the repo's worktrees, for Fix C — synthesizing an entry for a
    * worktree no manifest names. Injected in tests; in production the default
    * {@link gitWorktrees} runs `git worktree list --porcelain`. When it throws or
@@ -722,7 +825,7 @@ export async function readAgentRegistryWithInfo(
       synthesizedCount++;
     }
   }
-  await refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir));
+  await refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir), opts.pidAlive ?? deskPidAlive);
   // Drop settled workers: session ended AND worktree clean. A worker with either
   // condition outstanding — live session OR dirty/unpushed — stays visible.
   const filtered = await dropSettledWorkers(
@@ -798,7 +901,11 @@ function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
  * the wrong number of answers, leaves every entry `unknown`: the registry must
  * list its agents even when it cannot classify them.
  */
-async function refreshStates(entries: AgentEntry[], liveness: LivenessResolver): Promise<void> {
+async function refreshStates(
+  entries: AgentEntry[],
+  liveness: LivenessResolver,
+  pidAlive: PidLiveness,
+): Promise<void> {
   const checkable = entries.filter((e) => e.worktree !== '');
   if (checkable.length === 0) return;
   let answers: string[];
@@ -808,9 +915,25 @@ async function refreshStates(entries: AgentEntry[], liveness: LivenessResolver):
     return; // Every entry stays `unknown`.
   }
   if (answers.length !== checkable.length) return;
+  // The pid is read ONLY for the entries the shell called `finished` — the one
+  // population {@link rowState} can move. Every other answer is returned
+  // unchanged, so a desk that is blocked, stalled or failed costs no extra read.
+  const refined = await Promise.all(
+    checkable.map(async (entry, i) => {
+      const answer = answers[i] as AgentState;
+      if (!KNOWN_STATES.has(answer)) return 'unknown' as AgentState;
+      if (answer !== 'finished') return answer;
+      try {
+        return rowState(answer, await pidAlive(entry.worktree));
+      } catch {
+        // A pid reading that throws leaves the shell's answer standing. This
+        // refinement can only promote, so its failure must never invent a row.
+        return answer;
+      }
+    }),
+  );
   checkable.forEach((entry, i) => {
-    const answer = answers[i] as AgentState;
-    entry.state = KNOWN_STATES.has(answer) ? answer : 'unknown';
+    entry.state = refined[i] as AgentState;
   });
 }
 

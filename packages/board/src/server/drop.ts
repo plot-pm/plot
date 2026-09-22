@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { KNOWN_STATES, parseManifest, resolveManifestDir, type AgentEntry, type LivenessResolver } from './registry.js';
+import { KNOWN_STATES, deskPidAlive, parseManifest, resolveManifestDir, rowState, type AgentEntry, type LivenessResolver, type PidLiveness } from './registry.js';
 import { LIVE_STATES } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 
@@ -50,6 +50,13 @@ export interface DropOptions extends BuildBoardOptions {
    * whose state cannot be verified is an entry that might be running.
    */
   liveness?: LivenessResolver;
+  /**
+   * Whether a desk's `.plot-worker.pid` is alive. Injected in tests; in
+   * production the default is {@link deskPidAlive}. It can only ever make the
+   * drop MORE cautious: it promotes a finished desk with a live process to
+   * `running`, which {@link LIVE_STATES} refuses.
+   */
+  pidAlive?: PidLiveness;
   /**
    * The manifest directory, already resolved — the test seam. When absent, the
    * directory is resolved through {@link resolveManifestDir} from `repoRoot` and
@@ -151,12 +158,22 @@ function worktreeIsGone(entry: AgentEntry): boolean {
 async function classifyState(
   entry: AgentEntry,
   liveness: LivenessResolver | undefined,
+  pidAlive: PidLiveness,
 ): Promise<AgentEntry['state']> {
   if (!entry.worktree) return 'unknown';
   if (!liveness) return 'unknown';
   try {
     const [answer] = await liveness([entry.worktree]);
-    if (KNOWN_STATES.has(answer)) return answer as AgentEntry['state'];
+    if (!KNOWN_STATES.has(answer)) return 'unknown';
+    const state = answer as AgentEntry['state'];
+    // IT READS THE ROW'S RULE, not a second one. An agent between slices has a
+    // finished desk and a live process, and the drop must refuse it for the
+    // same reason WORKING must show it — the manifest it would remove belongs
+    // to a worker still on the machine. `LIVE_STATES` below then sees
+    // `running`, and the refusal follows from the shared reading rather than
+    // from a guard this route invented.
+    if (state !== 'finished') return state;
+    return rowState(state, await pidAlive(entry.worktree));
   } catch {
     // Liveness check failed — cannot verify, cannot drop.
   }
@@ -221,7 +238,7 @@ export async function handleDrop(
   }
 
   // 2. Classify the state — refuse live workers.
-  const state = await classifyState(entry, opts.liveness);
+  const state = await classifyState(entry, opts.liveness, opts.pidAlive ?? deskPidAlive);
   if (LIVE_STATES.has(state)) {
     json(200, {
       session,
