@@ -200,8 +200,42 @@ unit_target() {
 # supervisor was loaded on 2026-09-09 with no marker beside it, and a reading
 # that took the marker as authoritative would have called a healthy fleet
 # interrupted.
+# THE LABEL AND THE PROCESS ARE TWO READINGS, and `fleet_install_state` takes
+# both rather than asking for them, because the `--status` arm has already paid
+# for them. Measured 2026-09-22 on this estate, twice in ninety minutes: the
+# label was loaded, `launchctl list` printed `-` in its FIRST column — which is
+# launchd saying *no pid* — and no `registryd.mjs` process existed. `--status`
+# answered `running` on both occasions while dispatched slices sat unserved.
+#
+# A LOADED LABEL WITH NO PID IS ITS OWN STATE, not a variant of `running`.
+# Accepting `running` beside `exit 1` would move the same contradiction one
+# field deeper: a caller reading `install=running` while the command exits 1
+# must decide which to believe, and that decision is the defect being removed.
+#
+# `KeepAlive: true` DOES restart the daemon — measured, `runs` counted
+# 38 → 39 → 40 in about forty seconds. So this state is most often a throttled
+# crash loop, and a crash-looping label reports `running` at every moment
+# BETWEEN restarts, which is most of them. Waiting for a restart is not the
+# repair; reporting the reading is.
+#
+# BOTH READINGS ARE OPTIONAL AND THIS PROBES WHEN IT IS NOT TOLD. `--status`
+# has already paid for them and passes them in, honouring the budget its own
+# comment states; `--stop`'s `state:` line and the test seam call it bare, and
+# both must keep answering exactly what they answered before. A required
+# parameter would have changed those two answers silently.
+#
+# @param $1 - `loaded`/`unloaded` where the caller already asked; omitted to probe
+# @param $2 - the supervisor's pid where the caller already asked, or empty for none
 fleet_install_state() {
-  supervisor_loaded && { echo running; return; }
+  local loaded="${1-}" pid="${2-}"
+  if [ -z "$loaded" ]; then
+    if supervisor_loaded; then loaded=loaded; pid=$(supervisor_pid); else loaded=unloaded; fi
+  fi
+  if [ "$loaded" = "loaded" ]; then
+    [ -n "$pid" ] && { echo running; return; }
+    echo "loaded-not-running"
+    return
+  fi
   local unit
   unit=$(unit_target)
   if [ -n "$unit" ] && [ -f "$unit" ]; then
@@ -305,12 +339,51 @@ if [ "$mode" = "status" ]; then
   # machine with no init system, and that is the state whose printed repair the
   # board gets wrong. `--start` refuses it by design at REFUSAL 3.
   install_state=none
+  # BOTH READINGS, TAKEN ONCE. The label and the process are different facts and
+  # the arm needs both in three places — the prose, the `install=` field and the
+  # exit code — so each is asked for exactly once here. `supervisor_loaded` was
+  # called four times in this arm, twice AFTER the message was printed, and the
+  # last of those composed the exit code: a change to the prose alone printed
+  # the right sentence and still exited 0.
+  sup_loaded=1
+  sup_pid=""
+  if [ "$plat" != "none" ]; then
+    supervisor_loaded && sup_loaded=0
+    [ "$sup_loaded" = 0 ] && sup_pid=$(supervisor_pid)
+  fi
   if [ "$plat" = "none" ]; then
     echo "supervisor: no init system here — neither launchd nor systemd"
-  elif supervisor_loaded; then
+  elif [ "$sup_loaded" = 0 ] && [ -n "$sup_pid" ]; then
     install_state=running
-    pid=$(supervisor_pid)
-    echo "supervisor: running${pid:+ (pid $pid)} — $LABEL"
+    echo "supervisor: running (pid $sup_pid) — $LABEL"
+  elif [ "$sup_loaded" = 0 ]; then
+    # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
+    # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`
+    # process existed, and `launchctl list` showed the label with `-` in its
+    # first column — launchd's own way of saying *no pid*. An operator was told
+    # the fleet was healthy while dispatched slices sat unserved.
+    #
+    # THE TWO READINGS PRINT ON SEPARATE LINES rather than folding into one
+    # verdict. That is what `plot-boardctl.sh --status` does and it is the only
+    # part of that precedent which applies: its two-facts-must-agree rule
+    # belongs to `--stop`, where a wrong guess kills a process.
+    install_state="loaded-not-running"
+    echo "supervisor: LOADED, NOT RUNNING ($LABEL) — $(platform) holds the label and no process is behind it"
+    echo "  label:   loaded"
+    echo "  process: absent"
+    # THE TICK AGE IS EVIDENCE AND NEVER THE VERDICT. A log's mtime says when
+    # the daemon last wrote, and a healthy supervisor between ticks has not
+    # written for up to 60 s — so a reader gets the number and this derives
+    # nothing from it.
+    tick_log="$repo_root/.plot/logs/registryd.log"
+    if [ -f "$tick_log" ]; then
+      now=$(date +%s)
+      touched=$(stat -f %m "$tick_log" 2>/dev/null || stat -c %Y "$tick_log" 2>/dev/null || echo "$now")
+      echo "  last tick: $((now - touched))s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
+    fi
+    echo "  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held."
+    echo "  Read why before restarting: $tick_log"
+    echo "  then repair it: /plot-fleet --stop, then /plot-fleet --start"
   else
     # THREE STATES WHERE THERE WERE TWO, AND THE REPAIR IS PRINTED. The two
     # failures read identically to a person and cost differently: an operator
@@ -325,7 +398,7 @@ if [ "$mode" = "status" ]; then
     # proving the code was the script's), so this widens the PROSE and nothing a
     # machine reads. What renders the third state on the board belongs to
     # `bug/the-board-says-the-fleet-is-stopped`.
-    install_state=$(fleet_install_state)
+    install_state=$(fleet_install_state unloaded)
     case "$install_state" in
       interrupted)
         unit=$(unit_target)
@@ -404,9 +477,24 @@ if [ "$mode" = "status" ]; then
   # exactly those two and answers `unknown` for everything else, so encoding the
   # state in the code would render `unknown` from every machine in the new
   # state. The state travels as a field precisely so the code does not have to.
-  echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$(supervisor_loaded && echo up || echo down) install=$install_state"
-  supervisor_loaded
-  exit $?
+  # BOTH FIELDS READ THE CAPTURE, and `supervisor=` follows the PROCESS rather
+  # than the label. A loaded label with nothing behind it is not `up`: the
+  # question a caller asks is *can I rely on it*, and there the answer is no.
+  sup_word=down
+  [ "$install_state" = running ] && sup_word=up
+  echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$sup_word install=$install_state"
+  # THE EXIT CODE COMES FROM THE CAPTURE, NEVER FROM A FRESH PROBE. This line
+  # read `supervisor_loaded; exit $?` — a fourth call to the init system that
+  # recomputed the verdict from the label alone, so a loaded-but-dead
+  # supervisor printed the truth and still exited 0. The code a board branches
+  # on was decided after the message and disagreed with it.
+  #
+  # THE CODE STAYS 0/1 AND DOES NOT CARRY THE NEW STATE. `supervisorState`
+  # gates on exactly those two and answers `unknown` for everything else, so a
+  # third code would render *could not ask* from precisely the machines that
+  # most need an alarm. The state travels in `install=`.
+  [ "$install_state" = running ] && exit 0
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------

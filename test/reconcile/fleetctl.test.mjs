@@ -469,16 +469,29 @@ test('the systemd unit keeps its Nice, which is priority without eviction', () =
 // launchd arm reachable on CI's `ubuntu-latest`.
 
 /**
- * Asks `fleet_install_state` with the platform and liveness pinned.
+ * Asks `fleet_install_state` with the platform and BOTH readings pinned.
  *
  * The real probes are stubbed AFTER sourcing so the launchd branch of
  * `unit_target` is exercised on Linux too — the arm a macOS operator uses, and
  * the one CI could otherwise never run.
+ *
+ * `supervisor_pid` IS PINNED TOO, AND IT IS THE SECOND READING. The label and
+ * the process are different facts since 2026-09-22, so a seam that pinned only
+ * the label left the other probe reaching the real machine: `loaded: true`
+ * then answered `running` on a developer's macOS and `loaded-not-running` on
+ * CI, where `systemctl` reports nothing for a label nothing holds. Measured on
+ * the branch that introduced the split — the suite passed locally and failed
+ * on `ubuntu-latest`, which is the direction this seam exists to prevent.
+ *
+ * @param opts.loaded - whether the init system holds the label
+ * @param opts.pid - the process behind it; defaults to one when loaded, none otherwise
  */
-function installState(root, ctl, home, { loaded = false, plat = 'launchd' } = {}) {
+function installState(root, ctl, home, { loaded = false, plat = 'launchd', pid } = {}) {
+  const pinnedPid = pid ?? (loaded ? '4242' : '');
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'
 platform() { echo ${plat}; }
 supervisor_loaded() { return ${loaded ? 0 : 1}; }
+supervisor_pid() { printf '%s' '${pinnedPid}'; }
 printf '%s' "$(fleet_install_state)"`;
   return execFileSync('bash', ['-c', probe], {
     encoding: 'utf8', cwd: root, env: { ...process.env, HOME: home },
@@ -530,6 +543,19 @@ test('marker: a LOADED supervisor is running whatever the marker says', () => {
   // took the marker as authoritative would call a healthy fleet interrupted.
   const { root, box, ctl, guardBin } = sandbox('state-running');
   assert.equal(installState(root, ctl, fakeHome(box, { unit: true }), { loaded: true }), 'running');
+});
+
+test('marker: a loaded label with no process behind it is not running', () => {
+  // THE LABEL IS NOT THE PROCESS, and the marker is not consulted for either.
+  // A held label with nothing behind it is the state measured twice in ninety
+  // minutes on 2026-09-22, and `fleet_install_state` must name it rather than
+  // answering `running` for any held label.
+  const { root, box, ctl, guardBin } = sandbox('state-loaded-no-pid');
+  fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.plot', 'state', 'fleet-start.done'), '2026-09-22T00:00:00Z\n');
+  assert.equal(
+    installState(root, ctl, fakeHome(box, { unit: true }), { loaded: true, pid: '' }),
+    'loaded-not-running');
 });
 
 // ── --status names the third state, and prints its repair ─────────────────────
@@ -662,9 +688,21 @@ test('--status reports its install state ON the summary line, in every state', (
  * `platform`'s `case` recognises only `Darwin` and `Linux` and falls through to
  * `echo none` for anything else, and that arm runs before any `command -v`.
  *
+ * THE PID IS A SEPARATE READING FROM THE LABEL, and a stub that emits none
+ * IS the loaded-but-dead machine rather than a simplification of a healthy
+ * one. `supervisor_pid` parses `pid = N` out of `launchctl print`, so a bare
+ * `exit 0` answers *the label is held and nothing is behind it* — which is
+ * precisely the state measured on this estate on 2026-09-22 and precisely
+ * what `--status` used to call `running`.
+ *
+ * So `loaded: true` emits a pid and means a healthy supervisor, and
+ * `loaded: 'no-pid'` holds the label while naming no process. Passing the pid
+ * through the stub rather than through `supervisor_pid` keeps the real
+ * function under test: the parse is the part that reads launchd's output.
+ *
  * @param box - the sandbox directory to place the stubs in
  * @param opts.kernel - what `uname -s` answers; anything but Darwin/Linux is `none`
- * @param opts.loaded - whether the stubbed init system holds the label
+ * @param opts.loaded - `false` not loaded, `true` loaded with a live pid, `'no-pid'` loaded with none
  * @returns the directory to prepend to `PATH`
  */
 function stubPlatform(box, { kernel = 'Darwin', loaded = false } = {}) {
@@ -679,8 +717,21 @@ function stubPlatform(box, { kernel = 'Darwin', loaded = false } = {}) {
   // EXIT 113 FOR AN ABSENT LABEL, which is what launchctl really answers and is
   // the code that once reached the board. The normalisation is
   // `supervisor_loaded`'s; this only reproduces the input.
-  write('launchctl', loaded ? 'exit 0' : 'exit 113');
-  write('systemctl', loaded ? 'exit 0' : 'exit 3');
+  //
+  // THE PID GOES TO `print` ONLY. `supervisor_loaded` and `supervisor_pid`
+  // both shell to `launchctl print`; the first discards its output and the
+  // second parses `pid = N` out of it, so one stub serves both and the
+  // pid-bearing case has to name the subcommand to stay honest about which
+  // call sees what.
+  write('launchctl', loaded
+    ? `[ "$1" = print ] && [ "${loaded === 'no-pid' ? 'no' : 'yes'}" = yes ] && echo "	pid = 4242"\nexit 0`
+    : 'exit 113');
+  // `systemctl show -p MainPID --value` answers 0 for a unit with no process,
+  // and `supervisor_pid` greps that zero out. So the dead-but-loaded case is
+  // the init system's own way of saying the same thing launchd's `-` does.
+  write('systemctl', loaded
+    ? `[ "$1" = show ] && echo ${loaded === 'no-pid' ? 0 : 4242}\nexit 0`
+    : 'exit 3');
   return bin;
 }
 
@@ -726,7 +777,15 @@ test('--status exits exactly 1 for every not-loaded state, on any platform', () 
 
 test('--status exits 0 and says up where the init system holds the label', () => {
   // THE OTHER HALF OF THE CONTRACT, and it runs on CI too. Without it the
-  // case above is satisfied by a script that answers 1 unconditionally.
+  // case above is satisfied by a script that answers 1 unconditionally — and
+  // since 2026-09-22 it is also what keeps the new middle row from swallowing
+  // the healthy one: a script that answered `loaded, not running` for every
+  // held label would satisfy that row and fail here.
+  //
+  // THE STUB EMITS A PID, and that is the contract moving rather than a
+  // regression. `loaded: true` used to be a bare `exit 0` with no stdout, so
+  // `supervisor_pid` parsed empty and this sandbox WAS the loaded-but-dead
+  // machine — the state now under test one case below.
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('exit-loaded');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
   const bin = stubPlatform(box, { loaded: true });
@@ -736,8 +795,77 @@ test('--status exits 0 and says up where the init system holds the label', () =>
     PATH: `${bin}:${process.env.PATH}`,
   });
   assert.equal(r.status, 0, 'a loaded supervisor did not answer 0');
+  assert.match(r.out, /^supervisor: running \(pid 4242\)/m,
+    'a loaded supervisor with a live process is not reported as running with its pid');
   assert.match(r.out, /^summary:.*supervisor=up install=running$/m,
     'a loaded supervisor is not reported as running on the summary line');
+});
+
+test('--status says loaded, not running when the label is held and no process is behind it', () => {
+  // THE MIDDLE ROW, AND THE WHOLE SLICE. Measured twice in ninety minutes on
+  // 2026-09-22: `--status` said `supervisor: running`, no `registryd.mjs`
+  // process existed, and `launchctl list` showed the label with `-` in its
+  // FIRST column — launchd saying *no pid*. An operator was told the fleet was
+  // healthy while dispatched slices sat unserved.
+  //
+  // ON CI TOO, through the `PATH` seam the cases above use. The launchd arm is
+  // reachable on `ubuntu-latest` because `uname` and `launchctl` both resolve
+  // through `PATH` — an earlier draft claimed otherwise and was measured wrong.
+  for (const plat of ['launchd', 'systemd']) {
+    const kernel = plat === 'launchd' ? 'Darwin' : 'Linux';
+    const { root, box, ctl, fleetLabel, guardBin } = sandbox(`loaded-no-pid-${plat}`);
+    const home = fakeHome(box, { unit: true, label: fleetLabel });
+    const bin = stubPlatform(box, { kernel, loaded: 'no-pid' });
+    const r = run(ctl, ['--status'], root, guardBin, {
+      HOME: home,
+      PLOT_FLEET_LABEL: fleetLabel,
+      PATH: `${bin}:${process.env.PATH}`,
+    });
+
+    // THE EXIT CODE IS THE HALF A NAIVE FIX MISSES. `supervisor_loaded` was
+    // called four times in this arm and the LAST one composed the exit code
+    // from the label alone, after the message was printed — so a change to the
+    // prose alone prints this row correctly and still exits 0. The question a
+    // caller asks is *can I rely on it*, and here the answer is no.
+    assert.equal(r.status, 1, `${plat}: a loaded label with no process behind it did not exit 1`);
+
+    // THE FIELD GAINS A THIRD VALUE RATHER THAN REUSING `running`. Accepting
+    // `install=running` beside `exit 1` would put the same contradiction one
+    // field deeper — a caller reading the field while reading the code has to
+    // know which to believe, and that is the defect being removed.
+    assert.match(r.out, /^summary:.*supervisor=down install=loaded-not-running$/m,
+      `${plat}: the summary line does not carry the third state`);
+
+    // BOTH READINGS ON SEPARATE LINES, which is all that survives of the
+    // `plot-boardctl.sh` precedent — its two-facts-must-agree rule belongs to
+    // `--stop`, where a wrong guess kills a process.
+    assert.match(r.out, /^\s+label:\s+loaded$/m, `${plat}: the label reading is not reported`);
+    assert.match(r.out, /^\s+process:\s+absent$/m, `${plat}: the process reading is not reported`);
+
+    // THE REPAIR IS IN THE MESSAGE, NEVER IN THE COMMAND — the rule this arm
+    // already holds: a status that started what it was asked about could never
+    // report an absence.
+    assert.match(r.out, /--stop.*--start/s, `${plat}: the two-command repair is not named`);
+    assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-start.done')), false,
+      `${plat}: --status wrote the completion marker`);
+  }
+});
+
+test('--status keeps the summary line shape in the loaded-but-dead state', () => {
+  // THE BOARD'S CONTRACT, asserted for the new state as it is for the other
+  // three. `rules/supervisor-reading.ts` finds the state on the `summary:`
+  // line, and a field printed on its own line would be absent from exactly the
+  // killed runs that most need explaining.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('summary-loaded-no-pid');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const bin = stubPlatform(box, { loaded: 'no-pid' });
+  const r = run(ctl, ['--status'], root, guardBin, {
+    HOME: home,
+    PLOT_FLEET_LABEL: fleetLabel,
+    PATH: `${bin}:${process.env.PATH}`,
+  });
+  assert.match(r.out, /^summary: agents_running=\d+ agents_other=\d+ supervisor=\S+ install=\S+$/m,
+    'the loaded-but-dead state is not on the summary line the board reads');
 });
 
 test('--status starts nothing in any state, and keeps the board contract', () => {
