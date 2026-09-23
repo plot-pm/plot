@@ -4,11 +4,12 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Approved:** 2026-09-23, in-session review after panel (amend 2/2); the auto-deliver gate the panel required is built in the same slice
 
 ## Changelog
 
