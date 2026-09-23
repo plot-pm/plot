@@ -221,9 +221,22 @@ const routeHandlers = (code: string): string[] =>
 export const bindsNonLocalhost = (code: string): boolean =>
   /\bHOST\s*:\s*['"`](?!127\.0\.0\.1|localhost)[^'"`]+['"`]/.test(code);
 
-/** Both halves, per *The third arm* above: a popup opened AND its shell read. */
+/**
+ * Both halves, per *The third arm* above: a popup opened AND its shell read.
+ *
+ * **The event name is the signal; the options after it are not.** The pattern
+ * required the closing paren immediately after `'page'` until 2026-09-23, when
+ * giving that wait an explicit `{ timeout }` — a change to how long it waits,
+ * not to what it waits FOR — dropped `tiny-garden.browser.test.ts` out of the
+ * entitled population and failed three tests across two files.
+ *
+ * A proxy narrower than the property it stands for refuses on spelling. This
+ * one asks the question the entitlement's name asks: was a popup awaited, and
+ * was the shell the SERVER assembles read from it. A second argument answers
+ * neither way, so it is not consulted.
+ */
 export const assertsServerPageAssembly = (code: string): boolean =>
-  /waitForEvent\(\s*['"]page['"]\s*\)/.test(code)
+  /waitForEvent\(\s*['"]page['"]\s*[,)]/.test(code)
   && /plan-titlebar|plan-back/.test(code);
 
 export interface Entitlement {

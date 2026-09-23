@@ -117,6 +117,20 @@ expect(await back.getAttribute('href')).toBe('/');
 `;
 
 /**
+ * The same shape, with the popup wait given an explicit timeout.
+ *
+ * THE REGRESSION LOCK. The arm's pattern required the closing paren directly
+ * after `'page'`, so on 2026-09-23 adding `{ timeout: 60_000 }` — a change to
+ * how long the wait allows, not to what it waits for — dropped `tiny-garden`
+ * out of the entitled population and failed three tests across two files.
+ * Nothing covered the two-argument form, so the gate's own suite was green.
+ */
+const ASSERTS_PAGE_ASSEMBLY_WITH_TIMEOUT = ASSERTS_PAGE_ASSEMBLY.replace(
+  "waitForEvent('page')",
+  "waitForEvent('page', { timeout: 60_000 })",
+);
+
+/**
  * A SERVED document, asserted through `srcdoc` — and it must NOT entitle.
  *
  * `story-overlay.browser.test.ts`'s shape after `serveDoc`: it asserts the
@@ -265,6 +279,17 @@ describe('the marker declares and the structure verifies', () => {
 
     it("entitles a file that asserts the server's own page assembly", () => {
       const j = judge(ASSERTS_PAGE_ASSEMBLY);
+      expect(j.verdict).toBe('entitled');
+      expect(j.entitlements).toContain(
+        "the server's own page assembly — a popup opened AND its page shell read",
+      );
+    });
+
+    it('entitles that file still when the popup wait carries a timeout', () => {
+      // The options after the event name answer neither half of the question
+      // the arm's name asks, so they must not decide it. Asserted against the
+      // same fixture so the two can only differ in the argument.
+      const j = judge(ASSERTS_PAGE_ASSEMBLY_WITH_TIMEOUT);
       expect(j.verdict).toBe('entitled');
       expect(j.entitlements).toContain(
         "the server's own page assembly — a popup opened AND its page shell read",
