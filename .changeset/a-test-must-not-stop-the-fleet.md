@@ -1,5 +1,0 @@
----
-'plot': patch
----
-
-`fleetctl.test.mjs` can no longer reach this machine's `launchctl`. Its header claimed the runs pass `PLOT_FLEET_LABEL` and that the suite never unloads anything; measured 2026-09-22, **9 of 21 call sites passed a label and none of the three `--stop` sites did**, so `run()`'s defaulted env let those runs fall back to `com.plot-pm.registryd` and boot out the operator's own supervisor — proven by loading a decoy under that label and watching the suite remove it. The fix is the PATH rather than the label, because a required label closes only the direction where a call UNLOADS a unit: a sandbox plist bootstrapped under the production label OCCUPIES it, which has already taken a supervisor down once, and an operator cannot tell the two apart. `sandbox()` now mints a guard bin with stub `launchctl` and `systemctl` returning the real exit codes, `run()` takes it as a required argument and throws without it, and the decoy survives. The two `stubPlatform` cases still override `PATH` deliberately to drive a loaded launchd. It also makes the launchd arm run on CI, which has no launchd at all.
