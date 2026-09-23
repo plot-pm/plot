@@ -373,7 +373,15 @@ describe('tiny-garden: the standalone plan page (the server assembles it)', () =
       await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 5_000 });
 
       const [popup] = await Promise.all([
-        page.context().waitForEvent('page'),
+        // 60s, for the reason the test timeout below is 60s: this wait carries
+        // its own Playwright default of 30s, which the test timeout does not
+        // cover. Measured 2026-09-23 — it timed out twice in 25 CI runs, both
+        // times on unrelated commits, reporting `{ log: [] }`: an EMPTY
+        // actionability log, so the click had already fired and no `page`
+        // event followed. The link is not occluded (probed at this viewport:
+        // right edge 297 of 390, `elementFromPoint` returns the <a> itself),
+        // so what is slow is Chromium creating the target on a loaded runner.
+        page.context().waitForEvent('page', { timeout: 60_000 }),
         page.getByRole('link', { name: 'Open in new tab' }).click(),
       ]);
       await popup.waitForLoadState('domcontentloaded');
@@ -390,11 +398,16 @@ describe('tiny-garden: the standalone plan page (the server assembles it)', () =
     } finally {
       await page.close();
     }
-    // 60s, because this is the ONE test in the suite that waits on a real board
+    // 90s, because this is the ONE test in the suite that waits on a real board
     // to answer `/api/board` from a git scan. Measured 2026-09-01: it passed in
     // 1.1s locally and timed out at the 30s default on a CI runner — the first
     // board request now lands after 400s of other tests rather than at the top
     // of a warm file, so the scan is cold and the runner is slower than a
     // laptop by more than the default's margin.
-  }, 60_000);
+    //
+    // It must stay ABOVE the popup wait above it. That wait is 60s, and a test
+    // timeout equal to it would fire first and report the test dying rather
+    // than the popup never arriving — which is the error text that made the
+    // 2026-09-23 diagnosis possible.
+  }, 90_000);
 });
