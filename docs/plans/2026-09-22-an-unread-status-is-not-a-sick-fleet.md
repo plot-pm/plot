@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Superseded
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Superseded:** 2026-09-23 — the premise is gone rather than answered. The plan argued to raise `SUPERVISOR_TIMEOUT_MS` because `--status` took 5724 ms against a 5000 ms budget. Its panel could not reproduce that in 14 runs (max 2579 ms) and found the cost removable rather than inherent: `install_state` is assigned 75 ms in, above a desk walk whose output the board discards. Reaping thirteen finished desks took the estate from 20 worktrees to 7, and `--status` now answers in **555-1188 ms** over three runs. The panel's reading of the estate's own doctrine was right — a budget may be raised to cover honest variance and must not be raised to cover work that should be removed. No replacement plan: there is nothing left to fix
 - **Rounds:** 1
 
 ## Changelog
