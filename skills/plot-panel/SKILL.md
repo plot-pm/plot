@@ -45,6 +45,7 @@ A wave holds slices from several plans and is *"sized by the agents available, b
 | 3. Check every verdict | Small | One script call per file, exit code decides |
 | 4. Send a refused juror back | Small | Mechanical: re-run the same juror with the refusal appended |
 | 5. Reconcile | Frontier | Naming a disagreement, and naming a shared blind spot, is judgment |
+| 6. Record the round | Small | Increment one field by a rule `/challenge-the-plan` already owns |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
 >
@@ -161,6 +162,21 @@ Then **write the moderation** to `.plot/panels/<subject>/panel.md`. This is judg
 
 > **Unattended (`PLOT_UNATTENDED=1`):** write the moderation and stop. The panel reports; acting on a divided panel is the caller's decision and has no safe default in either direction.
 > `PLOT-UNASKED: The panel is divided — proceed on the majority, or hold? — stopped — moderation written, nothing acted on`
+
+### 6. The moderation completes a round — record it
+
+**A panel on a Draft plan IS a round, and the moderation is where it completes.** The caller owes the plan `- **Rounds:** N` in its `## Status`, incremented, by [`/challenge-the-plan` Phase 5b](../challenge-the-plan/SKILL.md#phase-5b-record-the-round) — which already states the rule for exactly this case:
+
+> The round is owed by anyone who interrogates a plan, whether or not this skill did the interrogating — an interrogation conducted directly writes `- **Rounds:** N` to `## Status` by the same rule, and needs no metadata block to do it.
+
+**This mechanism does not write it**, and that refusal is load-bearing: `/plot-deliver` is a caller too, and a delivery round is meaningless. The mechanism cannot tell which kind it just ran, so the caller records it — `/challenge-the-plan` does, and a direct invocation must.
+
+**It is a pointer rather than a rule, because the rule exists.** Restating it here would be a second copy free to drift from the one `/challenge-the-plan` owns.
+
+**Measured 2026-09-23, which is why this step exists at all:** five panels were run directly in one session and none recorded a round. Across the estate 39 of 42 panel subjects carry the field — 93%, against a 27.6% base rate — so the practice is healthy and what was missing was an instruction in this file. A caller reading these steps end to end now reaches one.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** record the round. It is a count of work that happened, with no judgement in it, so there is nothing to ask.
+> `PLOT-UNASKED: Record this panel as a round? — default — recorded; a round that changed nothing is still a round`
 
 ## What this skill does not do
 
