@@ -83,28 +83,49 @@ const askShell = (slug: string): Counts | null => {
   return { merged, deferred, deliverable: out.includes('would flip Phase') };
 };
 
-/** Every approved plan on this estate — the population both readers can answer. */
-const approvedPlans = (): Array<{ slug: string; file: string }> => {
+/**
+ * The plans both readers can answer about.
+ *
+ * **NOT `Approved`, and that is a measurement rather than a preference.** This
+ * keyed on `Approved` until 2026-09-23, when the estate reached zero open
+ * plans and CI went red on the population guard below — a corpus test that
+ * fails when the work is finished is a gate pointing the wrong way. `Approved`
+ * is a transient phase and legitimately empties; `Delivered` and `Released` do
+ * not, and the two readers must agree about those too.
+ *
+ * **BOUNDED, because each plan costs two spawned processes.** 286 plans on
+ * this estate against a corpus suite already measured at 282 s, so the newest
+ * are taken — a drift between the readers shows up on recent plans first, and
+ * an older plan's answer has been stable for months.
+ */
+const LIMIT = 12;
+
+const comparablePlans = (): Array<{ slug: string; file: string }> => {
   const dir = path.join(ROOT, 'docs', 'plans');
   if (!fs.existsSync(dir)) return [];
   const out: Array<{ slug: string; file: string }> = [];
-  for (const name of fs.readdirSync(dir)) {
+  // Newest first: the filename carries the date, so a reverse sort is the order.
+  for (const name of fs.readdirSync(dir).sort().reverse()) {
     if (!name.endsWith('.md')) continue;
     const rel = path.join('docs', 'plans', name);
     const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-    if (!/^- \*\*State:\*\* Approved\s*$/m.test(text)) continue;
+    if (!/^- \*\*State:\*\* (Approved|Delivered|Released)\s*$/m.test(text)) continue;
     out.push({ slug: name.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''), file: rel });
+    if (out.length >= LIMIT) break;
   }
   return out;
 };
 
 describe('deliverable — the bundle and the shell answer one question', () => {
-  const plans = approvedPlans();
+  const plans = comparablePlans();
 
   it('finds a population to compare', () => {
-    // A zero here is not a pass. It means the estate holds no approved plan,
-    // and the comparison below asserted nothing — which is how a corpus test
-    // goes quietly green while the pair drifts.
+    // A zero here is not a pass: the comparison below would assert nothing,
+    // which is how a corpus test goes quietly green while the pair drifts.
+    //
+    // It is safe to require now that the population is `Delivered` and
+    // `Released` as well as `Approved` — 299 plans on this estate, and a
+    // repository with none has no readers to compare.
     expect(plans.length).toBeGreaterThan(0);
   });
 
