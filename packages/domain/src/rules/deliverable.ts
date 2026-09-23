@@ -70,6 +70,20 @@ export const allSlicesMerged = (
   const plan = pulse.plans.find((p) => p.file === basename(meta.file));
   if (!plan) return 'not-merged';
   let merged = 0;
+  // WORK GIVEN UP, counted apart from work that landed.
+  //
+  // A deferred branch means the work is NOT DONE HERE — built elsewhere,
+  // folded into another branch, or abandoned. The annotation does not say
+  // which, and this rule does not ask: all three mean nothing is coming on
+  // that branch, which is what makes the plan finishable.
+  //
+  // It is counted rather than ignored because `merged` alone cannot separate
+  // *a plan whose work was given up* from *a plan nobody built* — both reach
+  // the end with `merged === 0`, and the second is what the final guard is
+  // for. Measured 2026-09-22 on this estate: ten plans carry only deferred
+  // slices and four of them reached `Released`, every one delivered by
+  // `plot-deliver.sh`, which has always read the annotation this way.
+  let deferred = 0;
   for (const slice of plan.slices) {
     const branches = slice.branches.filter((b) => b.state !== 'deferred');
     // A SLICE NAMING NO BRANCH IS NOT LANDED WORK, and it is refused here
@@ -83,10 +97,14 @@ export const allSlicesMerged = (
     // branches names work somebody gave up, which is a decision; a slice
     // holding none names no work at all, which is a malformed plan.
     if (slice.branches.length === 0) return 'not-merged';
+    deferred += slice.branches.length - branches.length;
     if (branches.length === 0) continue;
     if (slice.verdict !== 'complete') return 'not-merged';
     merged += branches.length;
   }
-  // Every slice complete over no branches at all is a plan nobody built.
-  return merged > 0 ? 'merged' : 'not-merged';
+  // A PLAN THAT NAMES NO WORK IS NOT DELIVERABLE, which is the only case this
+  // guard now refuses: `merged + deferred` is zero exactly when every slice
+  // named no branch at all. A plan whose branches were all given up names
+  // work and has an answer about it.
+  return merged + deferred > 0 ? 'merged' : 'not-merged';
 };

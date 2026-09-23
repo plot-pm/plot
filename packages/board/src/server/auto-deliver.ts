@@ -205,10 +205,25 @@ function joinKey(file: string): PlanMeta {
  *    what lets a fix to the gate reach this actor without anyone remembering to
  *    copy it.
  *
- *  - **At least one branch actually merged.** `allSlicesMerged`'s own `merged > 0`
- *    guard, and the reason a plan whose remaining slices are ALL `deferred` is not
- *    delivered here. Shelved is not finished: delivering it would record a
- *    completion nobody decided, and that call stays with a person.
+ *  - **At least one branch actually merged**, and since 2026-09-23 this actor
+ *    MEASURES IT rather than inheriting it. Shelved is not finished: delivering
+ *    it would record a completion nobody decided, and that call stays with a
+ *    person.
+ *
+ *    This property was always the contract and was enforced by borrowing
+ *    `allSlicesMerged`'s `merged > 0` guard. That guard answered a different
+ *    question — *does this plan name any work at all* — and could not separate
+ *    a plan whose branches were given up from a plan nobody built, so a plan
+ *    of only deferred slices was undeliverable BY HAND for the same reason it
+ *    was undelivered here. `the-rule-counts-what-was-given-up` fixed the
+ *    manual path; this gate keeps the automatic one where it was.
+ *
+ *    The asymmetry is deliberate. A person delivering an all-deferred plan is
+ *    deciding; this path runs on the scan's clock with no switch and no cap,
+ *    and chains delivery to a reap and then to `plot-release-refs.sh --yes`,
+ *    which deletes refs. Measured 2026-09-22: widening the rule alone would
+ *    have auto-delivered two approved plans on the next tick, one of them
+ *    carrying three corrections its delivery panel owed to a person.
  *
  *  - **No delivery is already in flight for it.** The scan fires every few
  *    seconds and `plot-deliver.sh` pushes to the default branch; without this,
@@ -219,6 +234,27 @@ function joinKey(file: string): PlanMeta {
  * plan file, because the plan file carries no merge record and inventing one
  * here would answer a different question than the scan does.
  */
+/**
+ * How many of a plan's branches the scan saw MERGE.
+ *
+ * Deliberately not `allSlicesMerged`'s arithmetic: that rule answers *is this
+ * plan finished*, which an all-deferred plan legitimately is. This answers
+ * *did anything land here*, which is what separates a delivery a person
+ * decided from one this actor would perform unattended.
+ *
+ * Read from the pulse, never from the plan file. The plan file carries no
+ * merge record, and inventing one would answer a different question than the
+ * scan does — the same rule the docstring above states for merge state.
+ *
+ * @param plan - the plan as the pulse reports it.
+ * @returns the count of branches in the `merged` state, across every slice.
+ */
+const landedBranches = (plan: FleetReading['plans'][number]): number =>
+  plan.slices.reduce(
+    (n, slice) => n + slice.branches.filter((b) => b.state === 'merged').length,
+    0,
+  );
+
 export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] {
   const { pulse, inFlight, complete = true } = input;
   if (!pulse) return [];
@@ -227,14 +263,36 @@ export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] 
     if (plan.phase.toLowerCase() !== 'approved') continue;
     const slug = planSlug(plan.file);
     if (inFlight.has(slug)) continue;
-    // The measurement, unmodified. `allSlicesMerged` returns false for a plan the
-    // pulse does not know, for any unmerged non-deferred branch, and for a plan
-    // with no merged branch at all — the all-deferred case included.
-    // , not truthiness: since #491 this returns
+    // The measurement. `allSlicesMerged` answers `not-merged` for a plan the
+    // pulse does not know and for any unmerged non-deferred branch.
+    //
+    // THE WORD, not truthiness: since #491 this returns
     // 'merged' | 'not-merged' | 'unknown', and 'unknown' means the scan could
     // not answer. Auto-delivery acts only on a definite yes — delivering on an
     // unanswered question is the defect #491 removes, one layer up.
     if (allSlicesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
+
+    // AND AT LEAST ONE BRANCH MUST HAVE LANDED HERE. This gate is narrower
+    // than the rule above on purpose, and the asymmetry is the whole point.
+    //
+    // A plan whose every slice is deferred IS deliverable — that is what
+    // `allSlicesMerged` now says, and it is right for the board's Deliver
+    // control and for `/plot-deliver`, where a person is deciding. It is not
+    // right for THIS path, which runs unattended on the scan's clock with no
+    // switch and no cap, and chains delivery to a reap and then to
+    // `plot-release-refs.sh --yes` — a ref deletion that cannot be undone.
+    //
+    // Measured 2026-09-22, before this gate existed: widening the rule alone
+    // would have auto-delivered two approved plans on the next tick, one of
+    // them `a-failed-tick-must-not-end-the-daemon`, whose delivery panel
+    // refuted it and left three corrections owed to a person. An automatic
+    // path must not resolve a question a person has been asked.
+    //
+    // A deferred branch is work NOT DONE HERE, so nothing about it was
+    // verified on this machine. `landedBranches > 0` is the measurement that
+    // something was: a PR merged, and the scan saw it.
+    if (landedBranches(plan) === 0) continue;
+
     out.push({ slug, file: plan.file });
   }
   return out;
