@@ -32,6 +32,7 @@ import {
   DELIVER_COMMAND_KEY,
 } from '../../src/server/auto-deliver.js';
 import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
+import { allSlicesMerged } from '@plot-pm/domain';
 
 const made: string[] = [];
 afterEach(() => {
@@ -418,5 +419,54 @@ describe('maybeAutoDeliver — the act', () => {
     await settle();
     expect(runs().length).toBe(before);
     expect([...second]).toEqual(['ship-it']);
+  });
+});
+
+describe('planAutoDeliver — shelved is not finished', () => {
+  // THE ASYMMETRY THIS BLOCK EXISTS FOR. `allSlicesMerged` answers `merged`
+  // for a plan whose every branch was given up — that is what
+  // `work-given-up-is-not-work-never-done` changed, and it is right for the
+  // board's Deliver control and for `/plot-deliver`, where a person decides.
+  //
+  // This actor is not a person. It runs on the scan's clock with no switch and
+  // no cap, and chains delivery to a reap and then to a ref deletion that
+  // cannot be undone. Measured 2026-09-22, before this gate existed: widening
+  // the rule alone would have auto-delivered two approved plans on the next
+  // tick, one carrying three corrections its delivery panel owed to a person.
+  it('does not deliver a plan whose every branch was given up', () => {
+    const p = pulse([['2026-09-22-shelved.md', 'approved', [
+      slice('W', [['feature/a', 'deferred']]),
+    ]]]);
+    expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
+  });
+
+  it('does not deliver one whose branches were given up across several slices', () => {
+    const p = pulse([['2026-09-22-shelved.md', 'approved', [
+      slice('one', [['feature/a', 'deferred']]),
+      slice('two', [['feature/b', 'deferred'], ['feature/c', 'deferred']]),
+    ]]]);
+    expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
+  });
+
+  // The gate is `landedBranches > 0`, not `no branch is deferred`. A plan that
+  // merged something and gave up the rest HAS landed work here, and the scan
+  // saw it merge — so the automatic path may take it.
+  it('delivers a plan that merged one branch and gave up another', () => {
+    const p = pulse([['2026-09-22-partly.md', 'approved', [
+      slice('W', [['feature/a', 'merged'], ['feature/b', 'deferred']]),
+    ]]]);
+    expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([
+      { slug: 'partly', file: '2026-09-22-partly.md' },
+    ]);
+  });
+
+  // The rule and the gate disagree here BY DESIGN, and this pins that they do.
+  // A reader who "fixes" the disagreement removes the protection.
+  it('is stricter than the rule it calls', () => {
+    const p = pulse([['2026-09-22-shelved.md', 'approved', [
+      slice('W', [['feature/a', 'deferred']]),
+    ]]]);
+    expect(allSlicesMerged({ file: '2026-09-22-shelved.md' }, p, true)).toBe('merged');
+    expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
   });
 });

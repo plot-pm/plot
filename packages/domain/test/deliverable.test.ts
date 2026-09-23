@@ -91,10 +91,20 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       expect(allSlicesMerged({ file: PLAN }, pulse(BASE, []), true)).toBe('not-merged');
     });
 
-    it('refuses a plan whose every branch is deferred', () => {
-      // All deferred: there is no landed work to testify to. The slice is
-      // skipped as not-outstanding, and contributes nothing to the count either.
-      const p = pulse(BASE, [slice('Shelved', 'complete', [['feature/a', 'deferred']])]);
+    // REWRITTEN 2026-09-23, and deliberately: this asserted `not-merged` for a
+    // plan whose branches were all given up, which is the behaviour
+    // `work-given-up-is-not-work-never-done` removes. It lives on in the
+    // `work given up` block below, asserting `merged`.
+    //
+    // What survives here is the guard it was conflated with: a plan that names
+    // NO branch is still refused, and that is a different question from a plan
+    // whose branches were given up. The old `merged > 0` could not tell them
+    // apart, which is the defect.
+    it('refuses a plan whose slices name no branch, however complete they read', () => {
+      const p = pulse(BASE, [
+        slice('prose', 'complete', []),
+        slice('also-prose', 'complete', []),
+      ]);
       expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
     });
   });
@@ -162,5 +172,67 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       const p = pulse(BASE, [slice('Reached', 'complete', [['feature/a', 'merged']])]);
       expect(allSlicesMerged({ file: '///' }, p, true)).toBe('not-merged');
     });
+  });
+});
+
+describe('allSlicesMerged — work given up is not work never done', () => {
+  // The defect: `merged > 0` counted only non-deferred branches, so a plan
+  // whose branches were ALL deferred reached the end with `merged === 0` and
+  // answered `not-merged` — the same word a plan nobody built gets. Measured
+  // 2026-09-22: the deliver controller refused `a-test-must-not-stop-the-fleet`
+  // while `plot-deliver.sh --dry-run` reported "0 merged, 1 deferred" and
+  // would have delivered it.
+  it('delivers a plan whose every branch was given up', () => {
+    const p = pulse(BASE, [slice('only-wave', 'complete', [['feature/gone', 'deferred']])]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  it('delivers a plan whose branches were given up across several slices', () => {
+    const p = pulse(BASE, [
+      slice('one', 'complete', [['feature/a', 'deferred']]),
+      slice('two', 'complete', [['feature/b', 'deferred'], ['feature/c', 'deferred']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  // THE GUARD THAT MUST SURVIVE. `merged + deferred` is zero exactly when
+  // every slice named no branch at all, which is the case the original
+  // `merged > 0` was written for — a prose heading that parses as a finished
+  // wave. The line above it already refuses an individual empty slice; this
+  // is the second net.
+  it('refuses a plan that names no branch at all', () => {
+    const p = pulse(BASE, [slice('prose-heading', 'complete', [])]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  // The regression this change must not cause: a deferred branch beside an
+  // unfinished one must not make the plan deliverable. The `slice.verdict`
+  // test refuses first, before the counter is ever read.
+  it('still refuses a plan with one branch given up and one unfinished', () => {
+    const p = pulse(BASE, [
+      slice('done', 'complete', [['feature/a', 'deferred']]),
+      slice('open', 'eligible', [['feature/b', 'open']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  // The slice's VERDICT carries the merge state, not the branch's own word:
+  // the rule counts every non-deferred branch of a `complete` slice as landed
+  // and never inspects `b.state`. So an unfinished branch is refused by its
+  // slice not being `complete`, which is the shape the scan actually emits —
+  // a `complete` slice holding an `open` branch is a contradiction no pulse
+  // produces, and asserting on one tests the fixture rather than the rule.
+  it('still refuses a plan whose slice holds a given-up branch and is unfinished', () => {
+    const p = pulse(BASE, [
+      slice('mixed', 'eligible', [['feature/a', 'deferred'], ['feature/b', 'open']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  it('delivers a plan mixing a merged branch and a given-up one', () => {
+    const p = pulse(BASE, [
+      slice('mixed', 'complete', [['feature/a', 'merged'], ['feature/b', 'deferred']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
   });
 });

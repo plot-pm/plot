@@ -124,11 +124,28 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
     expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
 
-  it('is false when the plan has only deferred branches — nothing landed to testify to', () => {
-    // The empty-reduction trap: "every non-deferred branch merged" is vacuously
-    // true when there is no non-deferred branch. Substantively the plan built
-    // nothing, and must not be promoted. The `merged > 0` guard is what catches
-    // this.
+  // REWRITTEN 2026-09-23 by `work-given-up-is-not-work-never-done`, and this
+  // is the SECOND home of the same anti-contract assertion — its twin is
+  // `packages/domain/test/deliverable.test.ts`. Both asserted `not-merged` for
+  // a plan whose branches were all given up; that is the behaviour the plan
+  // removes, so both move with it.
+  //
+  // The old `merged > 0` conflated two questions: *did anything land* and
+  // *does this plan name any work*. Only the second is a refusal — a plan
+  // whose branches were given up names work and has an answer about it, which
+  // is why `plot-deliver.sh` has always delivered that shape.
+  //
+  // This keeps the half that survives, through the board's re-export, which is
+  // what this file is for.
+  it('is false when the plan names no branch at all — vacuous completion is not delivery', () => {
+    const m = meta({ waves: [{ name: 'Prose', branches: [] }] });
+    const p = pulse('2026-08-21-done-means-delivered.md', [
+      slice('Prose', 'complete', []),
+    ]);
+    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
+  });
+
+  it('is TRUE when every branch was given up — shelved work is still answered work', () => {
     const m = meta({
       waves: [{
         name: 'Reached',
@@ -138,7 +155,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       slice('Reached', 'blocked', [['feature/shelved', 'deferred']]),
     ]);
-    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
+    expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
 
   it('is UNKNOWN without a pulse — a cold cache is not "all merged" and not "unmerged"', () => {
