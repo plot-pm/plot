@@ -313,14 +313,27 @@ describe('bridge: a real scan wins immediately over the file', () => {
     while (Date.now() < deadline) {
       fleet = await fetchFleet(server.port);
       const live = fleet.rows.some((r) => r.branch === 'feature/board-bridges-its-restart');
+      // THE BRIDGED ROW'S ABSENCE IS WAITED FOR, not merely asserted after.
+      //
+      // This loop tested two facts and kept a third. `live` says the scan has
+      // ARRIVED; it does not say the bridged rows have been REPLACED, and the
+      // served payload can carry both while the replacement is in flight. The
+      // snapshot kept in `fleet` was then handed to an assertion about the
+      // bridged row that the loop had never checked.
+      //
+      // Measured 2026-09-23 in CI (run 35890754523): the suite finished in
+      // 2008 ms — nowhere near the 120 s bound — with two of three sub-tests
+      // passing and only `no bridged row may survive a completed scan`
+      // failing. The scan had landed; the snapshot was taken one poll early.
+      const stale = fleet.rows.some((r) => r.branch === 'feature/a-branch-that-is-gone');
       const written = fs.readFileSync(path.join(fixture.repo, BRIDGE), 'utf8');
-      if (live && written.includes('board-bridges-its-restart')) {
+      if (live && !stale && written.includes('board-bridges-its-restart')) {
         landed = true;
         break;
       }
       await new Promise((r) => setTimeout(r, 250));
     }
-    assert.ok(landed, `the real scan did not land within ${WAIT_MS}ms — the assertions below would report its absence as a bridge defect`);
+    assert.ok(landed, `the real scan did not fully replace the bridge within ${WAIT_MS}ms — the assertions below would report its absence as a bridge defect`);
   });
 
   after(() => {
