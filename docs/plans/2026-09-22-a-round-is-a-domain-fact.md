@@ -133,25 +133,20 @@ A plan can face a panel twice: `a-waiting-loop-has-not-finished` is the rewrite 
 
 ## Slices
 
-> **RESLICED 2026-09-23, from two slices to one.** The split existed because
-> slice 2 was going to wire two callers. **One of them is already wired** —
-> `/plot-panel` step 6 names a direct invocation as a caller that owes the
-> write, shipped as `plot-panel: the moderation completes a round`. And the
-> justification for wiring the other is gone: the panel showed
-> `no-moderation` cannot enforce anything from a filesystem-free transition,
-> so *"call it instead of editing the field"* is no longer the argument.
->
-> **`feature/the-domain-knows-a-round` held no work.** Its tip was an ancestor
-> of main with an empty diff — a stale claim marker, not a delivery, which is
-> why the scan read the wave `complete` while `recordRound` existed nowhere.
->
-> What remains is the rule, built for the refusals that genuinely hold.
-
 ### The domain knows a round (Branch: feature/a-round-is-a-domain-fact)
 
 - `feature/a-round-is-a-domain-fact` — `recordRound` lands in `transitions/`, taking the plan text plus `moderationPresent` as a **`Precondition` reading** (`transitions/plan.ts:76`) rather than a path the domain cannot check; it INCREMENTS and never sets; it refuses `not-a-plan`, `count-unparseable`, `phase-terminal` over `{Delivered, Released, Rejected, Superseded}`, `zero-rounds` on an explicit `0`, and `precondition-unmet` where the caller reports no moderation. Unit tests pin each refusal and the increment rule. **It wires no caller**: `/plot-panel` step 6 already names the obligation in prose, and whether a skill calls a controller instead of editing one field is a separate question this plan no longer answers
 
 ## Notes
+
+### Resliced 2026-09-23, from two slices to one
+
+The split existed because slice 2 was going to wire two callers. **One of them is already wired** — `/plot-panel` step 6 names a direct invocation as a caller that owes the write, shipped as `plot-panel: the moderation completes a round`. And the justification for wiring the other is gone: the panel showed `no-moderation` cannot enforce anything from a filesystem-free transition, so *"call it instead of editing the field"* is no longer the argument.
+
+**The superseded first slice held no work.** Its branch tip was an ancestor of main with an empty diff — a stale claim marker, not a delivery, which is why the scan read the wave `complete` while `recordRound` existed nowhere on the estate.
+
+**The note lives here rather than in `## Slices`, and that is the parser's rule rather than taste.** `test/reconcile/parser.test.mjs` sweeps the branches section and refuses any line an unanchored matcher would read as a branch claim. A blockquote opening with a backticked branch name is exactly that ambiguity: prose ABOUT a branch, indistinguishable from a line NAMING one. CI caught it on this plan.
+
 
 - **`plot-state-gate.sh` does not cover this**, and should not: it guards `State:` lines, and `Rounds:` is not a lifecycle phase. The refusals are the gate here.
 - The bundle is a SIXTH one beside `plot-panel.mjs` for the reason the others give: `plot-ask.mjs` answers by running `plot-fleet-scan.sh`, so a skill recording a round must not start a fleet scan to do it.
