@@ -190,6 +190,24 @@ export type {
  * collide with `transitions/plan.ts`, which is why they are aliased and the
  * verbs are not.
  */
+/**
+ * The round a plan's interrogation completes.
+ *
+ * `recordRound` is not aliased: nothing collides with it, and an alias on an
+ * uncollided name is the residue `scripts/count-domain-aliases.sh` holds at
+ * zero. The four names below DO collide with `transitions/plan.ts`, for the
+ * same reason `transitions/story.ts`'s do.
+ */
+export { recordRound, isDecision as isRoundDecision, isRefusal as isRoundRefusal } from './transitions/round.js';
+export type {
+  RecordRoundInput,
+  Decision as RoundDecision,
+  Refusal as RoundRefusal,
+  Precondition as RoundPrecondition,
+  RefusalReason as RoundRefusalReason,
+  TransitionResult as RoundTransitionResult,
+} from './transitions/round.js';
+
 export {
   setStoryStatus,
   archiveStory,
