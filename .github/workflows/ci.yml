@@ -4,7 +4,21 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    # `changeset-release/main` IS HERE BECAUSE ITS PULL REQUEST CANNOT RUN CI.
+    #
+    # The release PR is opened by `app/github-actions`, and GitHub holds
+    # workflows on a bot-authored PR at `action_required` until a person
+    # approves each run. Measured 2026-09-23 on PR #957: twelve CI runs on that
+    # branch, ELEVEN stuck at `action_required` and never approved. `validate`
+    # is a required check on `main`, so the PR sat permanently BLOCKED while
+    # being MERGEABLE, and every release to date has gone in with `--admin`.
+    #
+    # A PUSH-TRIGGERED RUN IS NOT GATED THAT WAY. Changesets force-pushes this
+    # branch on every merge to main, so each update runs `validate` under the
+    # same job name, and the required check reports without anyone approving
+    # it. Nothing else changes: the check stays required, and every other pull
+    # request still runs it as a pull request.
+    branches: [main, changeset-release/main]
 
 jobs:
   # ── The corpus tier: do the adapters feed the domain the same readings
