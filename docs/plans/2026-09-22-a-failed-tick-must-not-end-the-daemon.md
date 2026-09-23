@@ -25,7 +25,28 @@ CLAUDE.md states the supervisor's contract:
 
 > **A tick that cannot complete reports and the loop continues** — the reason goes to stderr, the decision is empty rather than truncated, and the next tick re-reads the registry and the desks from disk.
 
-**There is no `catch` anywhere on that path.** `registryd-main.ts:807`:
+> **CORRECTED 2026-09-23, after the delivery panel refuted this section.** The
+> claim below — *"there is no `catch` anywhere on that path"* — is FALSE and was
+> published. `tick` carries its own `catch` at
+> `packages/board/src/server/entry/registryd.ts:214`, which is the file that
+> DEFINES it; the grep that produced the claim ran against `registryd-main.ts`,
+> which merely CALLS it.
+>
+> **What this fix actually closes** is the LOOP and the ENTRY POINT, neither of
+> which had one. A throw that escapes `tick`'s own catch — or one raised by the
+> loop's own code around it — would still have ended the process. On today's
+> production path that class is empty, because `tick` catches its own.
+>
+> **And it is not what killed the daemon.** That was
+> `a-test-must-not-stop-the-fleet`: `fleetctl.test.mjs` was unloading the
+> production launchd label, measured and fixed the same day. This plan's own
+> hedge — *"it may not be the only cause"* — turned out to be the whole story.
+>
+> The guard stays on main: it costs nothing and closes a real class wherever
+> `tick`'s catch is ever weakened. What it must not do is claim to have fixed
+> the daemon's death.
+
+**The original claim, as published:** `registryd-main.ts:807`:
 
 ```ts
 for (;;) {
@@ -43,6 +64,8 @@ void run(process.argv.slice(2), …).then((code) => process.exit(code));   // �
 ```
 
 `grep -c catch` over the tick path returns **zero**. The `catch` blocks in the file are per-file-read (`:217`, `:657`, `:669`) — they protect individual reads, not the tick.
+
+**That grep was run against the wrong file** — see the correction above. It searched `registryd-main.ts`, which calls `tick`, rather than `registryd.ts`, which defines it and catches.
 
 **So a rejected promise from `tick` — a git command that fails, a host call that throws, a manifest that disappears mid-read — is an unhandled rejection, and Node ends the process.**
 
@@ -92,6 +115,8 @@ for (;;) {
 ### The loop survives a failed tick (Branch: bug/the-loop-survives-a-failed-tick) <!-- deferred: built directly on main 2026-09-22 (65071ef52) and verified by injected throw. The delivery panel refuted it for MISSING TESTS, not missing code — that is a follow-up, not a dispatch -->
 
 - `bug/the-loop-survives-a-failed-tick` — the tick is wrapped in `try`/`catch` inside the loop, the failure is reported to stderr with the error's own text, and the loop sleeps and continues; `--once` still returns non-zero on a failed tick; the entry point gains a `.catch` that reports and exits non-zero rather than dying silently. Tests pin that a throwing tick leaves the loop running, that the next tick is attempted, that `--once` does not swallow it, and that the report is empty rather than partial
+
+**Kept in part, 2026-09-23.** Four tests are in `packages/board/test/unit/registryd-main.test.ts`: the loop returns rather than rejecting on an unreadable estate, `stop()` ends it before any tick, `--once` never reaches the sleep, and every line written is complete. **The throwing-tick pin is NOT among them**: `world` is constructed inside `run` and cannot be injected, so making a tick throw needs a change to `run`'s signature — a different slice. Recorded as partially kept rather than quietly dropped, which is what the delivery panel asked for
 
 ## Notes
 

@@ -814,11 +814,18 @@ export const run = async (
     // filesystem through the world; any of them can reject, and an unhandled
     // rejection ends the process before the recovery below is reached.
     //
-    // MEASURED 2026-09-22: the supervisor died twice in ninety minutes,
-    // leaving `registryd.err` EMPTY and the launchd label loaded with no
-    // process under it — `launchctl print` reporting `runs = 1` across both
-    // deaths, so `KeepAlive` did not restart it. An empty error log is the
-    // evidence: the process was vanishing rather than reporting.
+    // WHAT THIS CLOSES, CORRECTED 2026-09-23 after a delivery panel refuted
+    // the original claim. `tick` CARRIES ITS OWN CATCH — `entry/registryd.ts`
+    // — so the class this guard closes is a throw that escapes that catch, or
+    // one raised by this loop's own code around it. On today's production
+    // path that class is empty, and this guard is defence in depth rather
+    // than a fix for an observed death.
+    //
+    // THE SUPERVISOR'S DEATHS ON 2026-09-22 WERE NOT THIS. `fleetctl.test.mjs`
+    // was unloading the production launchd label; `a-test-must-not-stop-the-fleet`
+    // measured and fixed it. The `runs = 1` reading cited in the original plan
+    // was re-measured as `38 -> 39 -> 40` in forty seconds — `KeepAlive` was
+    // restarting it, and the label was being taken away underneath.
     //
     // THE CATCH IS INSIDE THE LOOP, which is what makes the recovery the one
     // the contract already promises: the next iteration re-reads the registry

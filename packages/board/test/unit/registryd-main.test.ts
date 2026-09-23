@@ -7,6 +7,7 @@ import {
   argsFrom,
   readRegistry,
   reportTick,
+  run,
   startAgents,
 } from '../../src/server/entry/registryd-main.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
@@ -730,5 +731,122 @@ describe('starting agents is the one write this daemon performs', () => {
     expect(await startAgents(withStarts(0), performer, (s) => out.push(s), () => {})).toBe(0);
     expect(asked).toEqual([]);
     expect(out).toEqual([]);
+  });
+});
+
+/**
+ * THE FOUR PINS `a-failed-tick-must-not-end-the-daemon` PROMISED.
+ *
+ * Its slice said: "Tests pin that a throwing tick leaves the loop running,
+ * that the next tick is attempted, that `--once` does not swallow it, and that
+ * the report is empty rather than partial." None was written, and a delivery
+ * panel refuted the delivery for exactly that — the seam was already built and
+ * the tests were simply absent. `run` takes `write`, `sleep`, `stop` and
+ * `warn` as parameters, and the `import.meta.url` guard exists so an importer
+ * gets no loop.
+ *
+ * WHAT THESE ACTUALLY REACH. `world` is constructed inside `run` and cannot be
+ * injected, so a tick cannot be forced to throw from here. What CAN be driven
+ * is the loop's own shape: that a run against an unreadable estate reports
+ * rather than dying, that `stop()` ends it, and that `--once` returns its own
+ * exit code. Those are the observable halves of the same contract.
+ *
+ * THIS IS LESS THAN THE SLICE PROMISED, and saying so is the point: a
+ * throwing-tick pin needs `world` injectable, which is a change to `run`'s
+ * signature and a different slice. The promise is recorded as partially kept
+ * rather than quietly dropped.
+ */
+describe('run — a failed tick must not end the daemon', () => {
+  const sandbox = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-loop-'));
+    writeFileSync(join(dir, 'not-a-manifest.json'), '{ this is not json');
+    return dir;
+  };
+
+  it('returns rather than throwing when the estate cannot be read', async () => {
+    const dir = sandbox();
+    try {
+      const warnings: string[] = [];
+      const code = await run(
+        ['--once'],
+        dir,
+        () => {},
+        async () => {},
+        () => false,
+        (s) => warnings.push(s),
+      );
+      // The contract's own words: a tick that cannot complete REPORTS. Whatever
+      // the code, the call resolved — it did not reject, which is the death the
+      // guard exists to prevent.
+      expect(typeof code).toBe('number');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stops when stop() says so, without running a tick', async () => {
+    const dir = sandbox();
+    try {
+      let ticks = 0;
+      const code = await run(
+        [],
+        dir,
+        () => {},
+        async () => { ticks += 1; },
+        () => true,
+        () => {},
+      );
+      // `run` returns 0 when `stop()` ends it before any tick — the clean
+      // shutdown path, distinct from the 2 it returns for a bad argument.
+      expect(code).toBe(0);
+      // `stop()` is tested at the TOP of the loop, so a run that is stopped
+      // before its first tick sleeps zero times.
+      expect(ticks).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not loop under --once, whatever the tick reported', async () => {
+    const dir = sandbox();
+    try {
+      let sleeps = 0;
+      await run(
+        ['--once'],
+        dir,
+        () => {},
+        async () => { sleeps += 1; },
+        () => false,
+        () => {},
+      );
+      // `--once` returns after one tick, so the loop's sleep is never reached.
+      // Without this, a failed tick under `--once` could fall through to the
+      // sleep and loop forever — which is the swallowing the slice named.
+      expect(sleeps).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes nothing to stdout that is not a report', async () => {
+    const dir = sandbox();
+    try {
+      const out: string[] = [];
+      await run(
+        ['--once'],
+        dir,
+        (s) => out.push(s),
+        async () => {},
+        () => false,
+        () => {},
+      );
+      // The report is empty rather than partial: whatever is written is a
+      // complete line, never a truncated tick.
+      for (const line of out) {
+        expect(line.endsWith('\n') || line === '').toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
