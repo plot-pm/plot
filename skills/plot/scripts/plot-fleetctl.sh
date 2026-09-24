@@ -151,6 +151,18 @@ supervisor_pid() {
   esac
 }
 
+# Seconds since the supervisor last wrote its log, or empty when there is no
+# log or its mtime cannot be read. Empty is not zero: no reading is not a fresh
+# tick. Evidence only — the staleness judgement is `rules/supervisor-reading.ts`.
+tick_age_seconds() {
+  local log touched
+  log="$repo_root/.plot/logs/registryd.log"
+  [ -f "$log" ] || return 0
+  touched=$(stat -f %m "$log" 2>/dev/null || stat -c %Y "$log" 2>/dev/null) || return 0
+  [ -n "$touched" ] || return 0
+  echo $(( $(date +%s) - touched ))
+}
+
 # ---------------------------------------------------------------------------
 # The completion marker — did the LAST `--start` finish?
 # ---------------------------------------------------------------------------
@@ -376,10 +388,9 @@ if [ "$mode" = "status" ]; then
     # written for up to 60 s — so a reader gets the number and this derives
     # nothing from it.
     tick_log="$repo_root/.plot/logs/registryd.log"
-    if [ -f "$tick_log" ]; then
-      now=$(date +%s)
-      touched=$(stat -f %m "$tick_log" 2>/dev/null || stat -c %Y "$tick_log" 2>/dev/null || echo "$now")
-      echo "  last tick: $((now - touched))s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
+    tick_age=$(tick_age_seconds)
+    if [ -n "$tick_age" ]; then
+      echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
     fi
     echo "  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held."
     echo "  Read why before restarting: $tick_log"
@@ -482,7 +493,14 @@ if [ "$mode" = "status" ]; then
   # question a caller asks is *can I rely on it*, and there the answer is no.
   sup_word=down
   [ "$install_state" = running ] && sup_word=up
-  echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$sup_word install=$install_state"
+  # `tick_age=` ONLY IN THE RUNNING ARM, and only where a log exists. The board
+  # reads an absent field as no reading, so a missing log never becomes 0.
+  tick_field=""
+  if [ "$install_state" = running ]; then
+    tick_age=$(tick_age_seconds)
+    [ -n "$tick_age" ] && tick_field=" tick_age=$tick_age"
+  fi
+  echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$sup_word install=$install_state$tick_field"
   # THE EXIT CODE COMES FROM THE CAPTURE, NEVER FROM A FRESH PROBE. This line
   # read `supervisor_loaded; exit $?` — a fourth call to the init system that
   # recomputed the verdict from the label alone, so a loaded-but-dead

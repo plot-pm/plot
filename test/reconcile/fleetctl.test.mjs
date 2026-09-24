@@ -965,6 +965,49 @@ test('--status exits 0 and says up where the init system holds the label', () =>
     'a loaded supervisor is not reported as running on the summary line');
 });
 
+test('--status carries the tick age on the running summary line, and only with a log', () => {
+  // 2026-09-23: `--status` said running while `registryd.log` was 25 hours
+  // old. The field is evidence for the board's rule; the shell judges nothing.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('tick-age-stale');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const bin = stubPlatform(box, { loaded: true });
+  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${bin}:${process.env.PATH}` };
+
+  // No log: the field is absent, never 0.
+  const bare = run(ctl, ['--status'], root, guardBin, env);
+  assert.equal(bare.status, 0);
+  assert.match(bare.out, /^summary:.*supervisor=up install=running$/m,
+    'with no log the summary line gained a field');
+  assert.doesNotMatch(bare.out, /tick_age=/, 'a missing log produced a tick age');
+
+  const log = path.join(root, '.plot', 'logs', 'registryd.log');
+  fs.mkdirSync(path.dirname(log), { recursive: true });
+  fs.writeFileSync(log, 'tick\n');
+  const past = new Date(Date.now() - 90_061_000);
+  fs.utimesSync(log, past, past);
+  const r = run(ctl, ['--status'], root, guardBin, env);
+  assert.equal(r.status, 0, 'a stale tick changed the exit code');
+  assert.match(r.out, /^summary:.*supervisor=up install=running tick_age=\d+$/m,
+    'the running summary line does not carry tick_age=');
+  const age = Number(/^summary:.* tick_age=(\d+)$/m.exec(r.out)[1]);
+  assert.ok(age >= 90_000, `tick_age=${age} does not reflect the backdated log`);
+});
+
+test('--status prints no tick age outside the running arm', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('tick-age-dead');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const bin = stubPlatform(box, { loaded: 'no-pid' });
+  const log = path.join(root, '.plot', 'logs', 'registryd.log');
+  fs.mkdirSync(path.dirname(log), { recursive: true });
+  fs.writeFileSync(log, 'tick\n');
+  const r = run(ctl, ['--status'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${bin}:${process.env.PATH}`,
+  });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /^\s+last tick: \d+s ago/m, 'the loaded-not-running arm lost its tick line');
+  assert.doesNotMatch(r.out, /^summary:.*tick_age=/m, 'a non-running arm carried tick_age=');
+});
+
 test('--status says loaded, not running when the label is held and no process is behind it', () => {
   // THE MIDDLE ROW, AND THE WHOLE SLICE. Measured twice in ninety minutes on
   // 2026-09-22: `--status` said `supervisor: running`, no `registryd.mjs`
