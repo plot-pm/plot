@@ -392,7 +392,13 @@ describe('a browser test that stubs its own state starts no board', () => {
 // this asserts what the CARD renders, and that the four counters stay reachable
 // on the badge's tooltip. It serves its own state through the catalogue and
 // starts no board.
-const EXPECTED_FILES = 49;
+// 49 → 50 ON 2026-09-24: `a-plan-less-row-is-not-a-plan.browser.test.ts`, three
+// `it(`. A PLAIN ADDITION and nothing moved. What only a rendered page can
+// settle is that NOT STARTED draws no nameless plan head over rows no plan
+// names, and that its header counts the lines it shows. The tally is pinned in
+// `test/unit/agent-list.test.ts`; this asserts the render. It serves its own
+// state through the catalogue and starts no board.
+const EXPECTED_FILES = 50;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -531,7 +537,9 @@ const EXPECTED_FILES = 49;
 //
 // Re-derived by running this gate rather than by arithmetic, per this file's
 // own rule: it reported 499.
-const EXPECTED_TESTS = 499;
+// 499 → 502 ON 2026-09-24: the three in `a-plan-less-row-is-not-a-plan.browser.test.ts`,
+// the new file counted in `EXPECTED_FILES` above. Added, not moved.
+const EXPECTED_TESTS = 502;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
