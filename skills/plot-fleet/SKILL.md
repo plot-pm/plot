@@ -188,8 +188,17 @@ keeps them. This ends processes and decides nothing about disk; what may be
 removed is `/plot-reconcile`'s and `plot-reap.sh`'s question.
 
 **An agent that does not exit is named, not waited on forever.** Past the bound
-the branch is reported still running and the run carries on to the next. Exit 1
-says at least one did not exit.
+the branch is reported still running and the run carries on to the next.
+
+**The supervisor's unload is verified to the same bound.** After `bootout` the
+run polls until the init system reports the label gone, and only a confirmed
+unload clears the start marker. At the bound the run reports the supervisor
+still loaded, names its pid, and keeps the marker — the supervisor is reported,
+never killed, because ending a wedged process is a person's call.
+
+**Exit 1 says at least one agent did not exit, or the unload was not confirmed
+within the bound, or both.** Both reports print before the exit: a run where an
+agent and the supervisor both fail names both.
 
 ### 6. Free agents hold no branch, and are left running
 

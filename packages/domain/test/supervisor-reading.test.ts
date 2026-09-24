@@ -82,6 +82,16 @@ describe('supervisorState — which stop it is, read beside the code and never f
     // THE THREE THAT ARE HONESTLY DOWN, asserted together: no unit at all, a
     // unit launchd was never told about, and a machine with no init system.
     // Only `installed` means something died.
+    //
+    // `interrupted` IS THE STATE A CLEAN `--stop` LEAVES, and that is what this
+    // case pins for it. A confirmed unload removes the start marker and leaves
+    // the unit file on disk, which `--status` reports as `interrupted` with
+    // exit 1 — so a deliberate stop must read as `down` here and never `died`.
+    // Measured 2026-09-24: a `--stop` whose unload check gave a false negative
+    // kept the marker, which made this same reading `installed` and rendered
+    // FLEET STOPPED UNEXPECTEDLY at `alert` prominence for a stop somebody
+    // asked for. The observation was fixed in `plot-fleetctl.sh --stop`; this
+    // line is where a regression in the rule would surface.
     for (const install of ['not-installed', 'interrupted', 'none']) {
       expect(supervisorState(reading({ exitCode: 1, install }))).toBe('down');
     }
