@@ -1,6 +1,6 @@
 # A supervisor that stopped ticking is not running
 
-> `--status` printed `supervisor: running (pid 3260)` over a daemon whose last log line was 25 hours old. A pid satisfies the check; ticking is what the fleet needs, and nothing asked. Three agents waited out their eight-hour bound for work a stopped supervisor was never going to hand them.
+> `--status` printed `supervisor: running (pid 3260)` over a daemon whose last log line was 25 hours old. A pid satisfies the check; ticking is what the fleet needs, and nothing asked.
 
 ## Status
 
@@ -8,25 +8,36 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- `/plot-fleet --status` reports how long ago the supervisor last ticked when it reports it running, so a daemon that holds a pid and stopped working is visible. Measured 2026-09-23: `--status` said `running (pid 3260)` while `.plot/logs/registryd.log` had not been written for 25 hours and the last tick recorded `cost=2478705ms` — 41 minutes against a normal 13–49 s. Three free agents timed out at their eight-hour bound waiting for hand-overs from it.
+- `/plot-fleet --status` reports how long ago the supervisor last ticked when it reports it running, so a daemon that holds a pid and stopped working is visible, and the board shows the same reading. Measured 2026-09-23: `--status` said `running (pid 3260)` while `.plot/logs/registryd.log` had not been written for 25 hours and the last tick recorded `cost=2478705ms` — 41 minutes against a normal 13–49 s.
 
-Board impact: none. The reading is `--status`'s own output; no plan field, template or board payload changes.
+Board impact: **yes**, in the second slice. `supervisor-reading.ts` already spawns `plot-fleetctl.sh --status` every refresh and parses its `summary:` line; carrying the tick age there is what puts the reading on the surface an operator actually visits.
 
 ## Motivation
 
 **The fleet's failure mode is silence, and `running` is the word that hides it.** A supervisor that crashes is noticed — the label goes, or the process does. A supervisor that holds its pid and stops ticking looks identical to a healthy one at the only place an operator asks.
 
-The cost was paid the same night: three free agents sat their full eight-hour `Worker bound` and exited 124, having been offered nothing. Their logs are correct and say nothing wrong happened —
+### What this plan first claimed, and why it was wrong
 
-```
-free for 28800s with no slice offered, past the 28800s wait bound; ending worker.
-Nothing was cut short
-```
+The first draft said three free agents timed out because this supervisor had stopped handing out work. **A panel refuted that from the plan's own numbers, and the refutation is kept here rather than quietly deleted.**
 
-— because from the agent's side nothing did. The fact that no work arrived **because the supervisor had stopped** is only visible in a log nobody had reason to open.
+The two measurements are mutually inconsistent as a causal story:
+
+- the three agents' `.plot-worker.pid` files are written **2026-09-23 14:10:23–14:10:24**
+- the supervisor's log went silent at **2026-09-23 11:01** — three hours *earlier*
+
+A daemon that stopped before the agents existed cannot be what stopped handing *those* agents work.
+
+The log holds the real explanation. **547 ticks read `agents=3 … idle=3` and handed out nothing**, and `no-free-agent=0` on 986 of 987 ticks — so the agents were seen, and were free, and the supervisor had nothing claimable to give them. Every held slice is held `not-claimable`, plus one `no-brief`. Three agents idling for eight hours over an estate with no claimable work is the fleet working correctly.
+
+**The error was this repo's named recurring one** — a small sample written as a property — committed in a plan that cites the rule. Two facts were adjacent and a cause was written between them.
+
+### What remains, and why it is still worth fixing
+
+Strip the causality and a real defect stands: **`--status` reported a supervisor `running` whose last tick was 25 hours old, and nothing anywhere would have said otherwise.** That is a lie about a machine fact, told by the command whose whole job is to report machine facts. The harm it is insurance against has not yet been paid — and the fix is one line reusing a reading that already exists.
 
 ## Design
 
@@ -47,7 +58,7 @@ last tick: cost=2478705ms                   (41 minutes)
 the eight ticks before it: 13364 49305 28947 48257 18802 48871 19688 ms
 ```
 
-The final tick completed and printed its full counts, so this was not a crash mid-tick. It finished, and nothing followed.
+The final tick completed and printed its full counts, so this was not a crash mid-tick. It finished, and nothing followed. **This half survives the refutation above**: the log still holds `cost=2478705ms` and the seven ticks before it in order, so *the tick completed and nothing followed* is established from the surviving file rather than from the lost mtime.
 
 > The log's mtime has since moved: measuring `bootout` timing for the sibling plan bootstrapped the unit briefly on 2026-09-24. **The 11:01 reading above was taken before that** and is the evidence; the file will not show it again.
 
@@ -108,9 +119,15 @@ A heartbeat file is that memo, promoted to disk. The log's mtime is free, alread
 
 ## Slices
 
+Two slices, and the second is why the first is worth building. The reading belongs in the shell script; **the surface an operator visits is the board.**
+
 ### The status says when it last ticked (Branch: bug/the-status-says-when-it-last-ticked)
 
-- `bug/the-status-says-when-it-last-ticked` — print the tick-age line in `--status`'s running arm, reusing the reading the loaded-not-running arm already makes; tests for a stale log, a fresh log and no log; `summary:` unchanged
+- `bug/the-status-says-when-it-last-ticked` — print the tick-age line in `--status`'s running arm, reusing the reading the loaded-not-running arm already makes at `:378`; tests for a stale log, a fresh log and no log; `summary:` unchanged
+
+### The board shows the tick age (Branch: bug/the-board-shows-the-tick-age)
+
+- `bug/the-board-shows-the-tick-age` — carry the tick age from `--status`'s `summary:` line through `supervisor-reading.ts` into the supervisor payload, and render it in the existing banner; the staleness judgement is a **domain** property with unit tests, never a threshold in shell
 
 ## Notes
 
