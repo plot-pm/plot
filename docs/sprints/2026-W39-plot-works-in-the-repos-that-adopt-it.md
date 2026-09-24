@@ -30,14 +30,17 @@ Three conditions, and all must hold.
 - [ ] [#967](https://github.com/plot-pm/plot/issues/967) — WAITING ON YOU collects plans, branches, PRs and build states across a dozen verdicts and presents them as one list, while a reader arrives with one of three questions: what should I pick up, what finished, what is broken. Measured on a Bitbucket repository with a clean estate (`drift=0 attention=0`): **18 rows, 2 actionable.**
 - [ ] [#966](https://github.com/plot-pm/plot/issues/966) — a sprint whose Must Haves are all lightweight tasks (`- [ ] description`, no `[slug]`) cannot be committed: `commitment-empty` fires with *"names no Must"* while `plot-sprint-release.sh` parsed all eight and scored them `open`. `skills/plot-sprint/SKILL.md:240` documents both item forms, so the refusal contradicts the skill.
 - [ ] [#965](https://github.com/plot-pm/plot/issues/965) — `plot-panel.mjs check` given a `|`-separated positions list reports every juror as uncommitted (exit 3) instead of an unusable argument (exit 2), blaming the juror for the caller's mistake. Exit 3 triggers step 4's re-ask, so a broken caller looks like a hedging panel and the re-ask cannot help.
+- [ ] [#970](https://github.com/plot-pm/plot/issues/970) — a burst refusal on a Bitbucket host discards rows the host **already answered**: the scan reports `secondary`, every branch falls back to local evidence, and none is offered to `--next`, even where per-state calls succeeded before the refusal. Filed 2026-09-24, after this sprint was drafted. Same class as the four above — a Bitbucket estate of 28 branches in one `pr-list`, which this repository's host never produces.
 
 ### Should Have
 
 - [ ] [a-stop-that-reports-failure-does-not-exit-zero](../plans/2026-09-24-a-stop-that-reports-failure-does-not-exit-zero.md) — `/plot-fleet --stop` printed *"supervisor did NOT unload"* and exited 0. Panelled 2026-09-24, unanimous `amend`, amended: the mechanism is recorded as undetermined and the fix is correct under all three candidates.
 - [ ] [a-supervisor-that-stopped-ticking-is-not-running](../plans/2026-09-24-a-supervisor-that-stopped-ticking-is-not-running.md) — `--status` reported `running` over a daemon silent for 25 hours. Panelled the same day; its harm claim was refuted from its own numbers and the plan now records the refutation. Two slices, the second carrying the reading to the board.
+- [ ] `feature/one-monitor-watches-the-slice` — **work in flight that no plan names.** 5 commits and 13 code files, pushed 2026-09-24 after sitting unpushed on one laptop for 17 days. Its first half is built: the AgentMonitor and BuildMonitor are one loop, taking a dispatched agent from four resident processes to three. It stopped at a `PLOT-BLOCKED.md` posing a real design question — moving `idle` to the supervisor's tick needs persistent state, which `supervisor.ts:49` names as the one property the daemon does not have. **It owes a plan before it owes code**, and the blocked question is a decision, not an implementation task.
 
 ### Could Have
 
+- [ ] Close [#935](https://github.com/plot-pm/plot/issues/935) — its work shipped in 2.19.0 (`a-gate-matches-an-invocation`, PR #942) and the ticket is still open. **Not backlog: a stale tracker entry.** It is listed so the sweep that found it does not have to find it again; closing is one call and needs no plan.
 - [ ] [the-board-shows-me-only-my-work](../plans/2026-09-24-the-board-shows-me-only-my-work.md) — a My-work filter. **Could rather than Should, because its own measurements say it cannot be tested here**: no current-user concept exists, `Assignee:` is abandoned (71 of 321 plans, none since 08-30), and a PR row carries no author. On a one-contributor estate a filter that hides nothing looks identical to one that works.
 
 ### Deferred
@@ -52,10 +55,19 @@ Three conditions, and all must hold.
 
 **This sprint will be refused at commit by one of its own Must Haves.** Its five Must items are tracker references, not `[slug]` plan links, which is the lightweight form #966 reports as unable to commit — `transitions/sprint.ts:263` raises `commitment-empty` with *"names no Must"*. Expect that refusal, and read it as the bug rather than as a malformed sprint. Committing it becomes possible either once #966 lands, or once each issue has a plan whose slug the item can name.
 
-**Why #935 is not here.** It is open on the tracker and its work shipped: `2026-09-17-a-gate-matches-an-invocation.md` is `Released` via PR #942. A stale ticket, not backlog — including it would arm the release gate against work that is already done. It wants closing, not planning.
+**#935 is a Could Have and deliberately not a Must.** It is open on the tracker and its work shipped: `2026-09-17-a-gate-matches-an-invocation.md` is `Released` via PR #942. Making it a Must would arm the release gate against work already done; leaving it out entirely means the next sweep rediscovers it. So it is listed as the one thing it needs — a close.
 
 **None of the five has a plan yet.** Each Must is an issue reference, so `/plot-idea` runs before `/plot-implement` for all of them. #969, #968 and #965 are each diagnosed to a line in their issue body and should be quick; #967 is a design change to a whole section and is the one that could consume the timebox.
 
+**What was checked and left out, so the next sweep need not re-derive it.** Every open ticket (7), every unfinished plan (3), and every remote branch carrying unlanded code (5) were cross-checked against this sprint on 2026-09-24.
+
+- `bug/the-index-is-read-once` — 6 commits ahead and **not** unfinished: PR #948 merged and its plan is Released. A surviving ref, already reported by the reconcile sweep's section 20. It wants `plot-release-refs.sh`, not a sprint item.
+- `fork/worktree-plot-skills-impl`, `fork/worktree-plot-skills-review`, `fork/worktree-plot-status-board` — one code file each, named by no plan and carried by no PR. Experiments rather than backlog; a person decides whether they are anything.
+
 ### Scope Changes
+
+- 2026-09-24: Added #970 as a Must — filed after this sprint was drafted, same class as the other four.
+- 2026-09-24: Added `feature/one-monitor-watches-the-slice` as a Should — work in flight that no plan names.
+- 2026-09-24: Added #935 as a Could — a close, not an implementation.
 
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
