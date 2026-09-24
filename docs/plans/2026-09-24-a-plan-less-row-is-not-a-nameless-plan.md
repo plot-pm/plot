@@ -123,7 +123,7 @@ Two readers, one answer, neither in the first draft.
 
 ## Slices
 
-### A row with no plan is not a plan (Branch: bug/a-row-with-no-plan-is-not-a-plan)
+### A row with no plan is not a plan (Branch: bug/a-row-with-no-plan-is-not-a-plan, PR: #974)
 
 - `bug/a-row-with-no-plan-is-not-a-plan` — decide the destination for plan-less rows and record the argument in the plan; keep them out of NOT STARTED; stop `groupByPlan` producing a nameless group and stop the tally counting it; browser test on a fixture carrying two plan-less branches
 
