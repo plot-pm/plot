@@ -47,7 +47,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops |
-| 5b. Record the Release in the Plans | Small | Mechanical per plan; the version comes from `git tag --contains`, not judgment. Gate on the sweep's real footer |
+| 5b. Record the Release in the Plans | Small | Mechanical per plan; the version comes from `git tag --contains`, not judgment. Gate on the sweep's real footer. The issue status write is one `plot-issue-status.sh` call per plan, reported and never gating |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -419,6 +419,14 @@ left untouched. Re-running after a partial failure converges.
 Commit on the default branch using the disposable-branch mechanic from
 `/plot-approve` step 4 (including its branch-protection fallback).
 
+**Then tell each plan's tracker, once per plan marked Released, after the commit lands:**
+
+```bash
+bash ../plot/scripts/plot-issue-status.sh <plan file>
+```
+
+The script writes the `Tracker released status` word to each issue the plan's `Issue:` line names, through the tracker port, and ends with `summary: tracker=<outcome>`. `none` means no write was owed (no issue, or the key is not set); `unaskable` means the repository declares no `Tracker`. **A `failed` write is reported in the summary and never undoes or repeats the release record.** It closes no issue, creates none and comments on none. Skip it for a plan whose commit did not land.
+
 **Then the gate.** This is a multi-file write followed by a push, the shape that
 half-lands — and worse than delivery's, because it touches N plans, so a partial
 write leaves some released and some not with nothing to say which. Run the sweep
@@ -472,6 +480,7 @@ Print:
   the summary is where the cutter reads it
 - Plans marked Released: `<slug>` → `<version>` for each, and every plan **not**
   marked with its reason (docs/infra, or unresolvable)
+- Tracker: each marked plan's `tracker=` value from step 5b, with the `<issue>` lines of any `failed` write
 - Release-recorded gate: paste the sweep's actual `summary:` footer from step 5b
   — the objective artifact, not the word "verified"
 - RC iterations: <count> (if any)

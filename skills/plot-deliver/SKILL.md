@@ -42,7 +42,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 1-4. Parse through Verify PRs | Small | Git/gh commands, helper script, state checks; discovery and existence read each plan's declared phase via `plot-plan-meta.sh` — the index is never asked |
 | 5. Verify Completeness | Frontier (orchestrator + jurors) + Small (the gate) | Orchestrator extracts deliverables and reads the panel's moderation; `/plot-panel` fans out one juror per lens, each running `gh pr diff` across the plan's PRs; the two commitment checks are one script call each |
 | 6. Release Note Check | Small | File existence checks |
-| 7-8. Deliver and Board Status | Small | File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort |
+| 7-8. Deliver and Board Status | Small | File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
 
@@ -422,18 +422,32 @@ The script:
 - Moves the `active/` → `delivered/` symlink (best effort, cannot fail the delivery)
 - Checks the sprint item's box
 - Pushes via `plot-push-main.sh`, with micro-PR fallback for branch protection
+- After the push lands, writes the status of each issue the plan's `Issue:` line names, through `plot-issue-status.sh` and the tracker port
 
 Output is one `step:` line per operation, then a `summary:` line:
 
 ```
 step: verified 3 branch(es) merged, 1 deferred
   push: clean — plot/deliver-slug → main
-summary: phase=flipped record=written index=moved sprint=updated push=clean
+summary: phase=flipped record=written index=moved sprint=updated push=clean tracker=none
 ```
 
 The push status (`clean`, `bypassed`, `unknown`, `rejected`) comes from
 `plot-push-main.sh`. Only `rejected` needs action — the script opens a micro-PR
 automatically if branch protection refuses the push.
+
+The `tracker=` field reports the issue status write:
+
+| Value | Meaning |
+|-------|---------|
+| `none` | No write was owed: the plan names no issue, or `Tracker delivered status` is not set |
+| `written` | The status reached the tracker |
+| `no-target` | The tracker is reachable and has nowhere to put the status (a GitHub tracker has no issue status; a number is no Jira key) |
+| `unaskable` | The repository declares no `Tracker` |
+| `failed` | The write broke; the `tracker:` lines above the summary name why |
+| `skipped` | The push was rejected, so the delivery did not land and no status is owed |
+
+**A `failed` tracker write is reported to the operator and never re-runs the delivery.** The plan is delivered; the tracker holds a copy of one fact about it. The status word comes from the `Tracker delivered status` config key and is never a literal. The script closes no issue, creates none and comments on none.
 
 > **Why the index writes are best-effort.** A repo with no `active/` link (a plan
 > written directly), no `delivered/` directory (a fresh adopter), or a read-only
@@ -525,6 +539,7 @@ Print:
   delivery — report the index move, if it happened, as a separate convenience
   line, and say so plainly if it was skipped)
 - All implementation PRs: merged
+- Tracker: the `tracker=` value from step 7's summary, and each `tracker:` line when it is not `none`
 - Delivery-landed gate: paste the **actual** `summary:` footer line the scan produced in step 7b (the objective artifact — not the words "verified" or "clean"), e.g. `summary: drift=0 merged_not_delivered=0 stale=… claims=… attention=0 concurrent=… unreleased_delivered=… unsliced_waves=… prose_wave_names=… index_drift=… pr_source=… main=…`. If the gate was skipped, print `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)` instead. Add any optional branch-cleanup commands the scan suggested.
 - If the plan has a Sprint field: show sprint progress ("N/M sprint items delivered")
 - Progress: `[ ] Draft > [ ] Approved > [x] Delivered > [ ] Released`
