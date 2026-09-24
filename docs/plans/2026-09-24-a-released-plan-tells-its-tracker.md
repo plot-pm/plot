@@ -138,9 +138,9 @@ Add one call at the end of the transition that already succeeded:
 
 - `bug/the-scan-reports-an-open-issue` — a read-only section naming every plan at `Delivered` or `Released` whose `issues[]` are still open on the tracker; gated on the host being reachable, reports and never writes. **First because it catches the case at a tenth of the cost**, and because it keeps working where the write is refused
 
-### A finished plan writes its issue status (Branch: feature/a-finished-plan-writes-its-issue-status)
+### A finished plan writes its issue status (Branch: feature/a-finished-plan-writes-its-issue-status, PR: #975)
 
-- `feature/a-finished-plan-writes-its-issue-status` — the domain rule deciding the status from a plan's phase and `issues[]`, called by the deliver and release workflows, written through the tracker port; unit tests for the no-issue, no-tracker and failed-write arms
+- `feature/a-finished-plan-writes-its-issue-status` — the domain rule deciding the status from a plan's phase and `issues[]`, called by the deliver and release workflows, written through the tracker port; unit tests for the no-issue, no-tracker and failed-write arms → #975
 
 ## Notes
 
