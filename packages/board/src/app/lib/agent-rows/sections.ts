@@ -435,7 +435,10 @@ export function sectionTally(
       && loose.length === 0 && grouped.length > 0;
     const headed = !countsPlans && section !== 'waiting-on-you'
       && showPlanHeading(group);
-    planLines += countsPlans || planHeads || headed ? 1 : groupSlices;
+    // A plan-less group heads nothing in NOT STARTED either, so it counts as
+    // the lines it renders — the component's `countsPlans && group.plan`.
+    const planRow = countsPlans && Boolean(group.plan);
+    planLines += planRow || planHeads || headed ? 1 : groupSlices;
   }
   const plans = planLines + issueCount;
   const slicesCount = sliceLines + issueCount;

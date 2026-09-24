@@ -396,15 +396,18 @@ describe('groupByPlan with unplanned rows', () => {
        group: 'waiting-on-you', ageMinutes: 1, note: '', branchUrl: '',
        pr: null, waitingDays: null }) as never;
 
-  it('keeps unplanned rows together under one nameless group', () => {
-    // They share `plan: ''` by construction, so they collapse into one group
-    // whose name is empty. That is fine — but the RENDERER must not head it,
-    // or it prints a bare "(3)" that labels nothing. Pinned here because the
-    // grouping is what makes such a group possible at all.
+  it('keeps unplanned rows in one nameless bucket that nothing heads or counts as a plan', () => {
+    // They share `plan: ''` by construction, so they collapse into one bucket
+    // whose name is empty. The grouping stays — keying on `row.plan` is right
+    // for real plans — and the bucket is not a plan: no heading names it, and
+    // no section's tally counts it as one. NOT STARTED is where it did both,
+    // measured on Plot 2.20.0 as `(1 plan · 2 slices)` under a nameless head.
     const groups = groupByPlan([row('a', ''), row('b', ''), row('c', 'real-plan')]);
     const nameless = groups.find((g) => g.plan === '');
     expect(nameless?.rows).toHaveLength(2);
     expect(groups.filter((g) => g.plan === '')).toHaveLength(1);
+    expect(showPlanHeading(nameless!)).toBe(false);
+    expect(sectionTally(nameless!.rows, 'not-started', [], 0).plans).toBe(2);
   });
 });
 
@@ -3897,6 +3900,35 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
     expect(tally.plans).toBe(3);
     expect(tally.slices).toBe(4);
     expect(tally.differ).toBe(true);
+  });
+
+  it('never counts two plan-less branches as one plan, in any section', () => {
+    // Two branches no plan names share the bucket `plan: ''`. In NOT STARTED
+    // every group used to count as one head, so they read `1 plan`. A real plan
+    // with two slices sits beside them and must still count as ONE head.
+    const planless = (branch: string, group: AgentRow['group']) =>
+      row({ plan: '', planFile: '', wave: '', branch, group, ageMinutes: 5 });
+    const real = [
+      row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'open', group: 'not-started' }),
+      row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'open', group: 'not-started' }),
+    ];
+    const slices: Slice[] = [
+      slice({ plan: 'alpha', name: 'One', branches: ['a1'], section: 'not-started', verdict: 'eligible', complete: false, planSliceCount: 2 }),
+      slice({ plan: 'alpha', name: 'Two', branches: ['a2'], section: 'not-started', verdict: 'eligible', complete: false, planSliceCount: 2 }),
+    ];
+    const notStarted = sectionTally(
+      [...real, planless('b/one', 'not-started'), planless('b/two', 'not-started')],
+      'not-started', slices, 0);
+    // One plan head for alpha, plus each plan-less row as its own line.
+    expect(notStarted.plans).toBe(3);
+    expect(notStarted.slices).toBe(4);
+    // The real plan alone: unchanged by its plan-less neighbours.
+    expect(sectionTally(real, 'not-started', slices, 0).plans).toBe(1);
+    for (const section of ['waiting-on-you', 'quiet', 'done'] as const) {
+      const tally = sectionTally(
+        [planless('b/one', section), planless('b/two', section)], section, [], 0);
+      expect(tally.plans, section).toBe(2);
+    }
   });
 });
 

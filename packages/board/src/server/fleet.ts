@@ -92,6 +92,12 @@ import { findingsFor } from './findings.js';
  * than misleading.
  */
 const DEFAULT_QUIET_MINUTES = 30;
+/**
+ * A quiet window no age falls inside — `ageMinutes <= NO_QUIET_WINDOW` is false
+ * for every age. Passed by the loose-branch loop in `rowsFromPulse`, whose rows
+ * name no plan and so have no agent to wait for.
+ */
+const NO_QUIET_WINDOW = Number.NEGATIVE_INFINITY;
 
 /**
  * The scan takes 0.5–1.05 s. The board is a single-threaded HTTP server, so
@@ -7058,11 +7064,21 @@ export function rowsFromPulse(
     // commits, no PR ever opened, nobody on it is ABANDONED, and it is the one
     // kind of quiet that genuinely needs a person — revive it, or drop it.
     //
-    // The row still lands in NOT STARTED while the commit is recent, which is
-    // the half that mattered: nothing is asked of the reader by a branch
-    // someone may still be writing, and the quiet window is what separates the
-    // two. Past it, the row used to say *no commit for 126 days* — a duration
-    // standing in for a state — and now says which state it is in.
+    // THE QUIET WINDOW DOES NOT APPLY HERE. `classifyGroup` returns a recent
+    // `wip` tip to NOT STARTED because *an agent may take it* — and an agent
+    // takes a slice of a plan. Every row this loop builds carries `plan: ''`,
+    // so there is nothing to dispatch it from, and NOT STARTED's hint —
+    // *approved — nobody has taken it* — describes a phase this row does not
+    // have. Measured on Plot 2.20.0: two such branches rendered as
+    // `NOT STARTED (1 plan · 2 slices)` under a nameless `PLAN (2)` head.
+    //
+    // So the window is passed as `NO_QUIET_WINDOW` and the row reaches the
+    // `abandoned` arm whatever its age: WAITING ON YOU, a person's call to
+    // revive or drop, with the age said second in the note. The gate stays in
+    // `classifyGroup` for every PLANNED branch, where its reason holds; this is
+    // the one call site that knows the row has no plan, so the decision is
+    // made here and not keyed on `planPhase === ''`, which means *unknown*
+    // rather than *none*.
     // THE HOST'S `MERGED` REACHES THIS ARM TOO, and it did not before. This
     // loop walks `unmergedBranches`, which asks git — and **squash-merge leaves
     // a branch permanently ahead of main**, so ancestry calls a landed branch
@@ -7101,7 +7117,7 @@ export function rowsFromPulse(
     // board knew, and the rule was never asked.
     const prClosed: 'closed' | null = known?.state === 'CLOSED' ? 'closed' : null;
     const { group, note } = classify(
-      'wip', 'eligible', ageMinutes, quietMinutes, null,
+      'wip', 'eligible', ageMinutes, NO_QUIET_WINDOW, null,
       // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
       // localLocked, workerDirtyPaths, workerQuestion, held, localWorktree,
       // deferredReason — every default, spelled out because `hostUnasked` is

@@ -117,33 +117,34 @@ describe('a branch with work on it is visible', () => {
     }
   });
 
-  it('keeps a branch someone may still be writing out of WAITING ON YOU', () => {
-    // Done when #5. Nothing is asked of the reader by a branch someone may still
-    // be writing, and WAITING ON YOU's whole value is that its rows need an
-    // answer — swamping it with ~31 branches destroys that.
-    //
-    // THE STRUCTURAL ARGUMENT NO LONGER HOLDS, and it is worth saying why
-    // rather than deleting the sentence. It read: *"no PR is handed to
-    // `classify`, and every one of its `waiting-on-you` arms requires a PR
-    // record."* `quiet-is-not-one-state` added an arm that requires the
-    // ABSENCE of one — abandoned work is *real commits, no PR ever opened* —
-    // so the absence of a PR is now itself a reason to ask a person.
-    //
-    // THE VOLUME CONCERN IS REAL AND IS BOUNDED BY THE WINDOW. Only branches
-    // past the quiet window reach it: a branch pushed within the window is
-    // NOT STARTED, which is where `bug/commits-only` stays and what this
-    // assertion still guards. The estate measured 6 abandoned rows against the
-    // 17 closed PRs the same change takes OUT of the reader's way, so the
-    // section that needs a person gets smaller overall, not larger.
-    expect(build().find((r) => r.branch === 'bug/commits-only')!.group).not.toBe('waiting-on-you');
+  it('keeps a recently-pushed branch with no plan OUT of NOT STARTED', () => {
+    // NOT STARTED's hint is *approved — nobody has taken it*, and a branch no
+    // plan names has no phase to be approved. This test used to pin the
+    // opposite — *"lands a recently-pushed branch in NOT STARTED"* — on the
+    // quiet window's reason: an agent may still take it. An agent takes a slice
+    // of a plan, and this branch has none, so the reason does not reach it.
+    // Measured on Plot 2.20.0: two such branches rendered as
+    // `NOT STARTED (1 plan · 2 slices)` under a nameless plan head.
+    // `a-plan-less-row-is-not-a-nameless-plan`.
+    expect(build().find((r) => r.branch === 'bug/commits-only')!.group).not.toBe('not-started');
   });
 
-  it('lands a recently-pushed branch in NOT STARTED', () => {
-    // The plan's section choice: work that exists and that nobody is waiting on a
-    // machine for. Reached through the existing `wip` routing rather than a
-    // special case — which is why a worker running on the branch still moves it
-    // to WORKING through the path every other row uses.
-    expect(build().find((r) => r.branch === 'bug/commits-only')!.group).toBe('not-started');
+  it('sends a recently-pushed branch with no plan to WAITING ON YOU as abandoned', () => {
+    // The arm written for this population: real commits, no PR, nobody on it —
+    // revive it or drop it. The age is said second, and here it is 12 minutes.
+    //
+    // THE VOLUME CONCERN THIS TEST USED TO GUARD — ~31 branches swamping the
+    // section — is a count of branches the fleet could not place in a plan.
+    // Measured on the live board 2026-09-24: 2 plan-less rows, both DONE.
+    const row = build().find((r) => r.branch === 'bug/commits-only')!;
+    expect(row.group).toBe('waiting-on-you');
+    expect(row.note).toBe('commits, no PR ever opened — last commit 12 min ago');
+  });
+
+  it('leaves a PLANNED branch with a recent tip in NOT STARTED', () => {
+    // The quiet window still holds where its reason does: a plan's branch is
+    // work an agent may take. A real plan's placement is unchanged.
+    expect(build().find((r) => r.branch === 'feature/planned')!.group).toBe('not-started');
   });
 
   it('names an abandoned branch ABANDONED, as every stale wip row now does', () => {

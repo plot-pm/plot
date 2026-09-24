@@ -1301,7 +1301,13 @@ export function AgentList({
                   const planHeads = !countsPlans && Boolean(group.plan)
                     && ungroupedRows(group.rows, key, slices).length === 0
                     && sliceGroupsFor(group.rows, key, slices).length > 0;
-                  if (countsPlans) {
+                  // A GROUP WITH NO PLAN HAS NOTHING TO HEAD — the rule
+                  // `showPlanHeading` and `planHeads` already apply, and
+                  // `sectionTally` reads the same guard. Without it every
+                  // plan-less row in the section folded under one `PlanRow`
+                  // with an empty name, and the tally counted that bucket as a
+                  // plan. Such a group renders its rows as themselves, below.
+                  if (countsPlans && group.plan) {
                     const foldable = showsSliceFold(group);
                     // A FOLD WITH EXCEPTIONS STAYS OPEN — the reader must see
                     // the conflict, claim, or structural issue the fold holds.
