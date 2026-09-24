@@ -1,0 +1,1 @@
+../2026-09-24-a-stop-that-reports-failure-does-not-exit-zero.md
