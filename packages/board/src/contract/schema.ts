@@ -3534,10 +3534,14 @@ export const SupervisorSchema = z.object({
    * agents running is `alert`, because every one of them is unreapable and no
    * slice will be picked up. `alert` is the level a chip cannot carry: measured
    * 2026-09-09, the correct sentence sat in a grey chip for an hour and nobody
-   * acted on it.
+   * acted on it. `warn` is `up` whose last tick is stale: the state stays `up`
+   * and the label names how long the fleet has been silent.
    */
   prominence: z.enum(['quiet', 'note', 'warn', 'alert']),
-  /** Whether there is anything worth saying; false for a loaded supervisor. */
+  /**
+   * Whether there is anything worth saying; false for a loaded supervisor that
+   * ticked recently or reported no tick age.
+   */
   shown: z.boolean(),
   /** The badge's label. */
   label: z.string(),
