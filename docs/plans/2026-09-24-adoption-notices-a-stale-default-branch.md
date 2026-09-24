@@ -7,6 +7,7 @@
 - **State:** Draft
 - **Type:** bug
 - **Issue:** #971
+- **Rounds:** 1
 
 ## Changelog
 
@@ -25,6 +26,10 @@ Board impact: **yes.** The wrong ref is what the board enumerates plans from; th
 | `board.ts:733-761` | `Main branch` key → local `origin/HEAD` → `main` | `main` |
 
 `origin/HEAD` is a **local cache written at clone time**. A default branch changed afterwards does not update it, and nothing in git notices.
+
+**And a FOURTH reader already asks the host — in the same workflow.** `skills/plot-idea/SKILL.md:252` runs `plot-host.sh default-branch`. So the reporter's three plans were cut from `develop`, **correctly**, while the board read `origin/main`. Two readings, live in one session, minutes apart, and nothing compared them.
+
+The first draft listed three readers and missed that one of them is already the host-asking half. **This is not only a probe gap; it is a live inconsistency inside one workflow**, and that is the sharper statement of the defect.
 
 **Adoption is where this must be caught**, because it is the one moment Plot asks the host anything about the repository's shape and writes a config from it. Miss it there and every later reading is wrong in the same direction, silently.
 
@@ -80,7 +85,8 @@ Silence here would be the worse failure: it reads as confirmation.
 ### Done when
 
 - The probe reports the host's default branch beside the local one, and reports *could not ask* where the host is unreachable.
-- `/plot-init` and `/plot-board-setup` propose `Main branch` where the two disagree, and say nothing where they agree.
+- `/plot-init` proposes `Main branch` where the two disagree, and says nothing where they agree.
+- **`/plot-board-setup` does too — through whichever probe it actually runs.** The draft promised this while changing only the probe board setup does not use.
 - **A repository where they agree gains no key** — the regression this must not cause, since that is every repository including this one.
 - The proposal names both answers, so the operator sees what disagreed rather than a bare suggestion.
 
@@ -92,9 +98,11 @@ Silence here would be the worse failure: it reads as confirmation.
 
 ### Adoption proposes the key when the two disagree (Branch: bug/adoption-proposes-the-main-branch-key)
 
-- `bug/adoption-proposes-the-main-branch-key` — `/plot-init` and `/plot-board-setup` compare the two readings and propose `- **Main branch:** <host>` where they differ, naming both answers; silent where they agree or where the host could not be asked
+- `bug/adoption-proposes-the-main-branch-key` — `/plot-init` compares the two readings and proposes `- **Main branch:** <host>` where they differ, naming both answers; silent where they agree or where the host could not be asked. **`/plot-board-setup` needs its own reading and the draft did not say so**: it runs `plot-board-probe.sh` (`SKILL.md:83`), not the adoption probe slice 1 changes, so either that probe gains the same field or board setup calls the adoption probe — the slice decides which and names it
 
 ## Notes
 
 - Reported from a clone whose GitHub default moved from `main` to `develop` after cloning. **Not reproducible here**: this repository's host, `origin/HEAD` and probe all answer `main`, which is why a defect affecting every reading Plot makes went unnoticed.
 - Two slices rather than one, and the order is forced: the proposal cannot compare a reading the probe does not take. The first is a reading with no behaviour change and can land alone.
+- **Panelled 2026-09-24: `unanimous amend`.** The adoption juror traced the reporter's three commands and found the fix lands at `/plot-init` only — `/plot-board-setup` runs a different probe, and `/plot-idea` was already asking the host correctly the whole time.
+- **The fix arrives before the moment the reporter actually noticed.** They did not report at adoption; they reported after the board looked wrong. A proposal at `/plot-init` is the right place to prevent it and is not where this operator was looking, so the plan prevents the next occurrence rather than catching this class late. That is acceptable and worth stating rather than implying.
