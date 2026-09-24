@@ -7,6 +7,7 @@
 - **State:** Draft
 - **Type:** bug
 - **Issue:** #965
+- **Rounds:** 1
 
 ## Changelog
 
@@ -50,13 +51,32 @@ export const commitmentLine = (commitment: Commitment): string =>
 
 So the error a caller sees is *"must write `Position: <proceed|amend|reject>`"* — pipes — and the skill's own prose uses the same notation. **The caller copied the shape the tool renders.** This is a tool teaching the wrong input, not a user mistake, and a fix that only rejects pipes leaves that teaching in place.
 
+### A worse shape, found by two jurors independently
+
+**`"proceed, amend, reject"` — the natural way to type a list — is a SILENT PARTIAL failure**, and the plan's first draft caught neither it nor anything like it.
+
+Measured 2026-09-24:
+
+```
+positions "proceed, amend, reject"     split → ['proceed', ' amend', ' reject']
+
+  juror writes 'proceed'  → rc=0  committed
+  juror writes 'amend'    → rc=3  uncommitted  ('amend' is not one of proceed,  amend,  reject)
+```
+
+Only the first entry lacks a leading space, so **some jurors commit and others are refused.** The pipe case fails everyone loudly and is recognisable; this one produces a panel that looks legitimately split. **A divided verdict manufactured by an argument typo** is worse than a unanimous refusal, because a moderator reconciles it as a real disagreement.
+
+The draft's rule — fewer than two positions, or a `|` inside one — catches neither: this yields three positions and contains no pipe.
+
 ### The shape of the fix
 
-Two halves, and the second is what stops it recurring:
+Three halves now, and the middle one is the important one:
 
-1. **Refuse an unusable vocabulary with exit 2.** A positions argument yielding fewer than two positions cannot be a vocabulary — a commitment with one option is not a commitment — and one containing a `|` inside a position is the measured mistake. Exit 2 is documented as *a broken caller, not a hedging juror*, so the existing contract already covers this; it is simply not reached.
+1. **Refuse an unusable vocabulary with exit 2.** Fewer than two positions cannot be a vocabulary, and a `|` inside a position is the measured mistake. Exit 2 is documented as *a broken caller, not a hedging juror*, so the contract already covers this; it is simply not reached.
 
-2. **Say what was wrong and what to type.** The refusal names the separator, because the caller's next action is a one-character edit.
+2. **Trim each position, and refuse one that was not already trimmed.** Trimming alone would accept the typo silently and change behaviour invisibly; refusing names the caller's error while the edit is still one character. **A position is caller-supplied text and whitespace inside it is never meaningful.**
+
+3. **Say what was wrong and what to type.** The refusal names the separator, because the caller's next action is a one-character edit.
 
 ### Why not accept pipes as well
 
@@ -72,6 +92,7 @@ Tempting and wrong. A vocabulary is caller-supplied text, and a word may legitim
 
 - `check` with a `|`-separated positions list exits **2**, names the separator, and reports no juror.
 - A single-word positions argument exits 2 — a commitment with one option is not a commitment.
+- **`"proceed, amend, reject"` exits 2 rather than committing some jurors and refusing others.** This is the regression the first draft would have shipped, and its test asserts the partial case explicitly: two verdict files, two different positions, one exit code.
 - **A comma-separated list still behaves exactly as today**, including exit 3 for a real hedge. The regression this must not cause.
 - The usage line shows the comma form, so the message a broken caller reads contains the fix.
 
@@ -79,9 +100,10 @@ Tempting and wrong. A vocabulary is caller-supplied text, and a word may legitim
 
 ### The check refuses a vocabulary it cannot use (Branch: bug/the-check-refuses-an-unusable-vocabulary)
 
-- `bug/the-check-refuses-an-unusable-vocabulary` — validate the positions argument before building the `Commitment`: fewer than two positions, or a `|` inside one, exits 2 naming the separator; unit tests for the pipe form, the single-word form, and the unchanged comma path including a genuine hedge
+- `bug/the-check-refuses-an-unusable-vocabulary` — validate the positions argument before building the `Commitment`: fewer than two positions, a `|` inside one, or a position carrying surrounding whitespace, exits 2 naming the separator; unit tests for the pipe form, the single-word form, the **whitespace form asserted as a partial-commit regression**, and the unchanged comma path including a genuine hedge
 
 ## Notes
 
 - Found by the issue's reporter and reproduced here in two commands. **It is reachable from this repository**, unlike #968 and #969 — the panel run earlier today used the comma form and passed, which is why eight jurors committed and nothing looked wrong.
 - The deeper finding is the notation collision: `commitmentLine` joins with `|` and the CLI splits on `,`. Neither is wrong alone, and together they teach a caller to type what the tool refuses.
+- **Panelled 2026-09-24: `unanimous amend`.** Both jurors independently found the whitespace form, which the draft's validation rule missed entirely. The contracts lens separately confirmed the plan breaks no caller (all pass commas), contradicts no documentation, scopes `reconcile` correctly (it takes no positions argument), and picks the right separator — a position can never contain a comma, while a pipe inside one works today.
