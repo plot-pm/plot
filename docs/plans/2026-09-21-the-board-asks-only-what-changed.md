@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
@@ -12,6 +12,7 @@
 - **Started:** 2026-09-21, Jan Wloka, `feature/the-store-holds-what-the-host-said`
 - **Started:** 2026-09-22, Jan Wloka, `feature/the-call-asks-only-for-the-delta`
 - **Delivered:** 2026-09-22
+- **Released:** 2026-09-23, 2.20.0
 
 ## Changelog
 

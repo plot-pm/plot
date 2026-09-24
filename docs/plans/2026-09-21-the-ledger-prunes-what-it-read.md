@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-21, jwloka, in-session
 - **Started:** 2026-09-21, Jan Wloka, `bug/the-rate-is-read-once-per-process`
 - **Delivered:** 2026-09-21
+- **Released:** 2026-09-23, 2.20.0
 
 ## Changelog
 

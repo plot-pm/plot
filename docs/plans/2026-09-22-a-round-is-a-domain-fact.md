@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
@@ -12,6 +12,7 @@
 - **Approved:** 2026-09-22, jwloka, in-session
 - **Started:** 2026-09-22, jwloka, `feature/the-domain-knows-a-round`
 - **Delivered:** 2026-09-23
+- **Released:** 2026-09-23, 2.20.0
 
 ## Changelog
 

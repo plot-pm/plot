@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-22, jwloka, in-session
 - **Rounds:** 1
 - **Delivered:** 2026-09-23
+- **Released:** 2026-09-23, 2.20.0
 
 ## Changelog
 
