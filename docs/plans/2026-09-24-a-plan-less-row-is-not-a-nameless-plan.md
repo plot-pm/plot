@@ -6,6 +6,8 @@
 
 - **State:** Draft
 - **Type:** bug
+- **Review:** in-session
+- **Impl:** own branches
 - **Issue:** #973
 - **Rounds:** 1
 

@@ -89,6 +89,8 @@ And its comment gives the reason the plan should have found: *"`gh api user` wou
 
 **This is the fifth plan today whose first slice already exists somewhere on the estate.** Slice 1 becomes *expose what `budget_account` already knows*, not *build an identity reading*.
 
+**Checked: no CLI op reaches it.** Every caller is internal to the budget machinery (`:1621`, `:2701`, `:2908`), so the slice is one op plus the payload field — and the reading it exposes is already exercised on every rate-limited call this estate makes.
+
 ### Where each piece belongs
 
 The layering rule decides this and there is no latitude:
@@ -147,7 +149,7 @@ Three slices, and the first is a reading with no UI. The order is deliberate: **
 
 ### The board knows who is asking (Branch: feature/the-board-knows-who-is-asking)
 
-- `feature/the-board-knows-who-is-asking` — a connector reading that answers the current identity from the host CLI, with git's `user.email` beside it; carried in the board payload; no filtering and no control, so the reading can be proved before anything depends on it
+- `feature/the-board-knows-who-is-asking` — **expose `budget_account()`, which already answers this.** `plot-host.sh:2568` computes the current account per backend — the GitHub arm from `gh`'s `hosts.yml`, the Bitbucket arm from `remote.origin.url` — and **no CLI op reaches it**: every caller is internal to the budget machinery (`:1621`, `:2701`, `:2908`). The slice adds the op, carries the answer in the board payload with git's `user.email` beside it, and adds no filtering and no control, so the reading can be proved before anything depends on it
 
 ### A row says whose it is (Branch: feature/a-row-says-whose-it-is)
 

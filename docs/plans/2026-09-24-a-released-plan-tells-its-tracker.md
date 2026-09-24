@@ -6,6 +6,8 @@
 
 - **State:** Draft
 - **Type:** bug
+- **Review:** in-session
+- **Impl:** own branches
 - **Issue:** #935
 - **Rounds:** 1
 
@@ -47,7 +49,7 @@ open tickets                     10   (draft said 7)
 
 Nine of the ten open tickets are today's own drafts.
 
-### THE BLOCKING FINDING: the port takes a PR, not an issue
+### The port takes a PR — RESOLVED, and the two connectors want different things
 
 `packages/domain/src/ports/tracker.ts:41-46`:
 
@@ -55,14 +57,22 @@ Nine of the ten open tickets are today's own drafts.
 export interface StatusWrite {
   /** The pull request the status is about, as its address. */
   prUrl: string;
-  /** The status to record, in the tracker's own vocabulary. */
   status: string;
 }
 ```
 
-**The draft assumed `statusWrite` addresses an issue. It addresses a pull request.** So *"nothing new is built there"* is false, and **slice 2 as written cannot be built against the port it names.**
+The draft assumed this addresses an issue. **A panel found it addresses a pull request, and reading the two connectors resolves what to do about it:**
 
-The slice must first decide whether `StatusWrite` gains an issue address or the port gains a second operation — a port change, which is a different and larger thing than adding a caller.
+| Connector | What it does with `prUrl` | Its real subject |
+|---|---|---|
+| **Jira** (`tracker-jira.ts:78`) | `keyIn(write.prUrl)` — **mines an issue key out of the URL** | the **issue** |
+| **GitHub** (`tracker-github.ts:90`) | passes it to `plot-update-board.sh` — *"Update GitHub Projects board status for a PR"* | the **PR** |
+
+**So `prUrl` is not the subject; on the Jira side it is a carrier the connector parses a subject out of.** A plan reaching `Released` already names its issues directly in `issues[]` — a *better* address than a URL to be mined, not an incompatible one.
+
+**The resolution: `StatusWrite` gains an optional issue address, and neither connector is broken by it.** Jira prefers the explicit key over parsing; GitHub keeps writing a PR's Projects status, because on that side the PR genuinely is the subject and `plot-update-board.sh` has no issue equivalent.
+
+**That asymmetry is the real finding**, and it narrows the plan: **a released plan can tell a Jira tracker and cannot tell a GitHub Projects board**, because the GitHub arm's write is about a PR by construction. This estate is GitHub, which is why #935 could not have been written even with the caller in place.
 
 ### The gap itself is confirmed, harder than the draft claimed
 
@@ -109,7 +119,7 @@ Add one call at the end of the transition that already succeeded:
 
 ### Open Questions
 
-- [ ] **Does `StatusWrite` gain an issue address, or does the port gain a second operation?** The blocking finding above. This is settled before slice 2 is scoped, not during it.
+- [ ] **What should a GitHub estate do?** The Jira path works with an issue address; the GitHub arm writes a PR's Projects status and has no issue equivalent. Either the plan is Jira-only and says so, or `issue-status` gains a GitHub implementation — a bigger change than this plan. **Slice 1's reconcile section serves both**, which is another argument for its ordering.
 - [ ] **Delivered, released, or both?** Delivered means the code merged; Released means it shipped to users. A tracker's *Done* probably means the second, but a team watching progress may want the first.
 - [ ] **Is one miss enough to justify this?** Stated plainly because it is the honest question: the alternative is a `/plot-reconcile` section reporting released plans with open issues, which costs less and catches the same case a person then acts on. **A reporting section may be the better first slice.**
 
