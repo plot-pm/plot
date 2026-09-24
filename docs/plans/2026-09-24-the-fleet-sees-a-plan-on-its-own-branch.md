@@ -7,6 +7,7 @@
 - **State:** Draft
 - **Type:** bug
 - **Issue:** #972
+- **Rounds:** 1
 
 ## Changelog
 
@@ -55,24 +56,36 @@ Give the scan the enumeration the board already has: after reading plans from `o
 
 **The dedup rule is not optional and must be copied, not re-derived.** Two branches cut from one point carry the same plan file, and without `onDefault`/`seen` the scan would report one plan as several — a defect the board already measured and fixed.
 
-### The cost, and why it must be measured before it is paid
+**But "copy the dedup" understates the work, and a juror named what else moves.** Four helpers are hardcoded to `origin/$MAIN` — `ref_ls`, `ref_mode_of`, `ref_plan_file` and `PLAN_MODES`, including symlink resolution in ref-space at `:2569` — and all must become ref-parameterised to fit the one-invocation `parse_plan_estate` constraint at `:3002-3005`. That is the slice's real size.
 
-The scan is **18.3 s** and `plot-fleet-scan.sh` already carries a `--stream` mode because *"git alone is 12.7 s of that"*. Adding a `ls-tree` per branch multiplies the git work by the branch count — 28 branches on the reporting estate, 54 here.
+### The cost: MEASURED, and the first draft was wrong three ways
 
-**So the slice measures before and after and reports both.** If the cost is unacceptable the fix narrows — to branches with no PR, which is the population the defect describes — rather than shipping a scan nobody waits for.
+**Every number in the draft's cost section was quoted rather than measured, and every one was wrong in the direction that made a cheap fix sound expensive.**
+
+| Claim | Drafted | Measured 2026-09-24 |
+|---|---|---|
+| scan cost | 18.3 s | **44.4 s** here, 50 s and 58.8 s under load — stale by up to 3× |
+| *"git alone is 12.7 s"* | quoted | **not reproduced.** 44.4 s wall against 9.3 s CPU is **21% utilisation** — ~35 s is waiting, not computing |
+| branches to walk | 54 | **15 remote refs, 3 under a configured prefix** |
+| added work | "multiplies the git work" | one `ls-tree` over the plan dir is **~0.00 s**; a juror measured the whole addition at **0.24 s, 0.4% of the scan** |
+
+**The fix is cheap and the draft's caution was aimed at the wrong thing.** The scan being three times worse than believed makes the added cost *more* worth getting right, not less — but the addition is not where the 44 s lives.
+
+**The narrowing to PR-less branches is withdrawn.** It was a fallback against a cost that does not exist, and with 3 prefixed branches it would save nothing measurable.
 
 ### What this does NOT do
 
 - **It does not change `Impl: same branch`.** The flow is correct; the reading is what is missing.
 - **It does not move plan enumeration into the board.** `plot-fleet-scan.sh` is the scan's own reading and the two stay separate — what transfers is the rule, not the call.
 - **It does not re-derive the dedup.** The board's `onDefault`/`seen` pair is the measured answer.
+- **It does not close the attribution gap, and the draft implied otherwise.** The scan walks outward from a plan's `## Branches` section (`:3820-3832`), not inward from branches — so a ceremony-light plan that does not name its own branch becomes a visible plan whose branch stays a plan-less row. That population is #973's, not this one's.
 - **It does not touch #973's rendering.** A plan-less row is a separate defect with its own plan; this one reduces how many rows are plan-less, and does not make the remainder render correctly.
 
 ### Done when
 
 - A branch whose tree holds a plan file the default branch does not carry is reported with that plan's slug and phase in `/api/fleet`.
 - **Two branches carrying one plan file report one plan, not two** — the regression the board's comment names.
-- The scan's cost is measured before and after, and both numbers are in the slice's commit message.
+- The scan's cost is measured before and after, and both numbers are in the slice's commit message — **against the measured 44.4 s baseline, not the 18.3 s the draft quoted.**
 - A branch with no plan anywhere still reports `plan: ""`, which is #973's subject and not this one's.
 
 ## Slices
