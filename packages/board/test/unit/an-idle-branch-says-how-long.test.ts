@@ -119,37 +119,32 @@ describe('the age scales, so an idle branch is legible at a glance', () => {
   });
 });
 
-describe('the row still lands where wave 1 put it', () => {
-  // WAVE 1's ITEM 5 MUST NOT REGRESS, and it is the assertion the brief calls
-  // out by name. Nothing about a display format should move a row between
-  // sections — but the section routing reads `ageMinutes`, so a change made
-  // near it is exactly when to prove it did not.
+describe('the row lands where its state puts it, whatever its age', () => {
+  // Nothing about a display format should move a row between sections — but
+  // the section routing reads `ageMinutes`, so a change made near it is exactly
+  // when to prove it did not. Wave 1's item 5 kept a fresh branch out of
+  // WAITING ON YOU; `a-plan-less-row-is-not-a-nameless-plan` moved a fresh
+  // branch with NO PLAN there, and these assertions state that placement.
 
-  it('keeps a branch someone may still be writing out of WAITING ON YOU', () => {
-    // Nothing is asked of the reader by a branch someone may still be writing,
-    // and WAITING ON YOU's whole value is that its rows need an answer.
-    //
-    // ONLY INSIDE THE QUIET WINDOW NOW, and the window is what bounds the
-    // change. `quiet-is-not-one-state` moved the two stale branches
-    // deliberately: commits under no PR, untouched for fourteen hours or four
-    // months, are not someone still writing — that is work needing a revive-or-
-    // drop call, and the call is a person's. A branch pushed five minutes ago
-    // is the one this still guards, and it is the case the sentence was always
-    // about.
-    expect(build().find((r) => r.branch === 'bug/fresh')!.group).not.toBe('waiting-on-you');
+  it('keeps a fresh branch with no plan out of NOT STARTED', () => {
+    // This test used to pin the opposite: *"keeps a branch someone may still be
+    // writing out of WAITING ON YOU"*. Every branch in this fixture is one no
+    // plan names, and NOT STARTED promises *approved — nobody has taken it*,
+    // which a branch with no phase cannot be. The quiet window's reason — an
+    // agent may take it — needs a plan to dispatch from.
+    // `a-plan-less-row-is-not-a-nameless-plan`.
+    expect(build().find((r) => r.branch === 'bug/fresh')!.group).not.toBe('not-started');
   });
 
-  it('leaves a recent branch in NOT STARTED and names a stale one ABANDONED', () => {
-    // Recent work is something to pick up. A branch nobody has touched in four
-    // months used to be *an errand to go check* — QUIET, described by its age —
-    // and the age was the whole of what the row said. It now says what the
-    // branch IS: real commits, no PR ever opened, nobody on it.
-    //
-    // THE AGE IS NOT LOST, which is this file's own subject. It follows the
-    // state rather than standing in for it, and the format this wave fixed is
-    // still what renders it.
+  it('names a fresh branch and a stale one ABANDONED, and says how long each has idled', () => {
+    // Real commits, no PR ever opened, nobody on it: a revive-or-drop call, at
+    // five minutes as at four months. THE AGE IS NOT LOST, which is this file's
+    // own subject. It follows the state rather than standing in for it, and
+    // the format this wave fixed is still what renders it.
     const rows = build();
-    expect(rows.find((r) => r.branch === 'bug/fresh')!.group).toBe('not-started');
+    const fresh = rows.find((r) => r.branch === 'bug/fresh')!;
+    expect(fresh.group).toBe('waiting-on-you');
+    expect(fresh.note).toBe('commits, no PR ever opened — last commit 5 min ago');
     const abandoned = rows.find((r) => r.branch === 'docs/abandoned')!;
     expect(abandoned.group).toBe('waiting-on-you');
     expect(abandoned.note).toMatch(/commits, no PR ever opened/);
