@@ -127,7 +127,7 @@ Two slices, and the second is why the first is worth building. The reading belon
 
 - `bug/the-status-says-when-it-last-ticked` — print the tick-age line in `--status`'s running arm, reusing the reading the loaded-not-running arm already makes at `:378`; tests for a stale log, a fresh log and no log; `summary:` unchanged
 
-### The board shows the tick age (Branch: bug/the-board-shows-the-tick-age)
+### The board shows the tick age (Branch: bug/the-board-shows-the-tick-age, PR: #976)
 
 - `bug/the-board-shows-the-tick-age` — carry the tick age from `--status`'s `summary:` line through `supervisor-reading.ts` into the supervisor payload, and render it in the existing banner; the staleness judgement is a **domain** property with unit tests, never a threshold in shell
 
