@@ -11,6 +11,7 @@
 - **Issue:** #971
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
+- **Started:** 2026-09-24, Jan Wloka (claude session), `bug/the-probe-asks-the-host-for-the-default`
 
 ## Changelog
 
