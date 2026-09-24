@@ -9,6 +9,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #967
+- **Rounds:** 1
 
 ## Changelog
 
@@ -31,7 +32,7 @@ WAITING ON YOU is the board's answer to *what needs a human?* On a one-person es
 | Reading | Result |
 |---|---|
 | Current-user concept in `packages/board/src` or `packages/domain/src` | **none** — no `whoami`, no `currentUser`, no `user.email` |
-| Plans carrying `Assignee:` | **71 of 321 (22%)**, and **none since 2026-08-30** |
+| Plans carrying `Assignee:` | **115 of 331 (35%)** — see the correction below; the draft said 71 of 321 |
 | `Assignee:` in either plan template | **absent from both** — `.plot/templates/plan.md` and the shipped one |
 | Spellings in those 71 | **three** — `eins78`, `jwloka`, `Jan Wloka`; the last two are one person |
 | Fields on a PR row (`CardPrSchema:262-303`) | `number`, `url`, `checks`, `mergeable` — **no author** |
@@ -39,7 +40,13 @@ WAITING ON YOU is the board's answer to *what needs a human?* On a one-person es
 | `gh api user --jq .login` | **`jwloka`** — the host knows |
 | `git config user.email` | `jan.wloka@quatico.com` — the machine knows |
 
-**So `Assignee:` cannot be the answer.** It is not under-used, it is **abandoned**: the parser reads a field nothing writes, no template offers it, and a filter keyed on it would hide 78% of plans while splitting one person's work across two spellings.
+### The draft's rejection of `Assignee:` rested on a number the parser gets wrong
+
+**115 plan files carry an `Assignee:` line. `plot-plan-meta.sh` reports 71.** The field is section-gated at `:863` — read only under `## Approval` — so **44 plans that write it under `## Status` are silently dropped**, which is the section both templates actually offer.
+
+So the field is **under-READ, not abandoned**: 35% of plans carry it, and a third of those are invisible to every consumer that asks the parser. The draft called it *"a parser reading a field nothing writes"*; the truth is closer to the opposite.
+
+**That is a defect in its own right and this plan does not fix it** — but it means option A was rejected on evidence produced by the bug that makes the field look dead. The rejection may still be right: the spelling problem (`eins78`, `jwloka`, `Jan Wloka` for two people) survives the recount, and so does the fact that no template offers the field. **What does not survive is the word "abandoned".**
 
 ### The design question this plan exists to settle
 
@@ -70,6 +77,17 @@ Honest and explicit; **rejected as the first slice.** It requires every plan aut
 Cheapest and already true for agent rows. **Wrong alone**: it makes a colleague's PR mine if I fetched it, and stops my own work being mine on a second machine.
 
 **The recommendation is B, with C for agent rows**, where the machine's own record is the better answer and already exists.
+
+### Slice 1's reading already exists
+
+**`plot-host.sh:2557-2588`, `budget_account()`** already answers *who is the current user*, per backend:
+
+- the GitHub arm reads `gh`'s `hosts.yml` directly — a juror ran it and got **`jwloka`**
+- the Bitbucket arm derives the workspace owner from `remote.origin.url`
+
+And its comment gives the reason the plan should have found: *"`gh api user` would answer authoritatively and cost one request against the very bucket this is counting."* **The identity reading is a file read, already written, already cached.**
+
+**This is the fifth plan today whose first slice already exists somewhere on the estate.** Slice 1 becomes *expose what `budget_account` already knows*, not *build an identity reading*.
 
 ### Where each piece belongs
 
@@ -142,5 +160,6 @@ Three slices, and the first is a reading with no UI. The order is deliberate: **
 ## Notes
 
 - The three slices are a wave order, not a cohort: slice 2 cannot be built before slice 1 answers *who*, and slice 3 has nothing to filter on before slice 2.
+- **Panelled 2026-09-24: `amend`.** The direction survived every check — no current-user concept, no prior ownership filter, `CardPrSchema` and `StorySchema.author` quoted exactly, the `collapse.ts` argument sound. Three measurement claims did not.
 - **The riskiest assumption was that this estate could test it, and #967 removes it.** Every reading in this plan comes from a one-contributor repository, where a filter that hides nothing looks identical to one that works. The issue measures a four-contributor estate with 9 of 11 PRs belonging to other people — that is the mixed-ownership case, and slice 2's fixture should be built from its shape rather than invented.
 - `Assignee:` is left alone. This plan neither revives nor removes it — that it is read by a parser and written by nothing is a separate finding, and deleting a field 71 plans carry is not this plan's call.

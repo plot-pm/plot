@@ -7,6 +7,7 @@
 - **State:** Draft
 - **Type:** bug
 - **Issue:** #935
+- **Rounds:** 1
 
 ## Changelog
 
@@ -32,18 +33,48 @@ Every piece is built:
 
 ## Design
 
-### What was measured, 2026-09-24
+### What was measured — RECOUNTED by a panel, and the first draft was wrong three ways
 
 ```
-plans naming an issue            23   (of 322)
-  of those, released             22
-  whose issue is still open       1   → #935
-open tickets                      7
+plans                           331   (draft said 322)
+  naming an issue                33   (draft said 23 — +43%)
+  released and naming one        18   (draft said 22; 21 counting delivered)
+open tickets                     10   (draft said 7)
+  finished plan, issue open       1 → #935          ← the one number that held
 ```
 
-**The gap is one ticket, and the plan says so rather than inflating it.** A single miss is not a crisis; it is evidence that the path does not exist, which is the finding. The other 21 are closed because a person closed them — by hand, silently, and only when they happened to look.
+**Every error moves against the plan's own case per capita** — more issue-naming plans, still one miss — so this is a correction rather than a refutation. But **a plan whose stated evidence is three-quarters wrong cannot be approved on that evidence**, which is why this round is an amend.
 
-**The failure mode is not the count, it is who notices.** #935 was found by a sprint sweep cross-checking tickets against plans, five days after the work shipped. Nothing in Plot reported it, and nothing would have.
+Nine of the ten open tickets are today's own drafts.
+
+### THE BLOCKING FINDING: the port takes a PR, not an issue
+
+`packages/domain/src/ports/tracker.ts:41-46`:
+
+```ts
+export interface StatusWrite {
+  /** The pull request the status is about, as its address. */
+  prUrl: string;
+  /** The status to record, in the tracker's own vocabulary. */
+  status: string;
+}
+```
+
+**The draft assumed `statusWrite` addresses an issue. It addresses a pull request.** So *"nothing new is built there"* is false, and **slice 2 as written cannot be built against the port it names.**
+
+The slice must first decide whether `StatusWrite` gains an issue address or the port gains a second operation — a port change, which is a different and larger thing than adding a caller.
+
+### The gap itself is confirmed, harder than the draft claimed
+
+A juror checked from three directions:
+
+- `statusWrite` has **zero production callers** — only the port interface, the four connectors, and one test
+- `deliver.ts`, `release.ts`, `transitions/release.ts`, `entities/release.ts` and the board's `deliver.ts` contain **zero** matches for `tracker|issue`
+- `git log -S 'statusWrite'` shows the port's own construction and nothing else; `git log -S 'issueStatus'` returns nothing
+
+**No sibling arm already ships it** — unlike four other plans panelled today.
+
+Two citations in the draft's table were also off: `statusWrite` on GitHub is in `adapters/tracker/`, not `adapters/`, and the Jira one is at `:77` with `:86` being the `issue-status` call inside it.
 
 ### Where this belongs
 
@@ -78,6 +109,7 @@ Add one call at the end of the transition that already succeeded:
 
 ### Open Questions
 
+- [ ] **Does `StatusWrite` gain an issue address, or does the port gain a second operation?** The blocking finding above. This is settled before slice 2 is scoped, not during it.
 - [ ] **Delivered, released, or both?** Delivered means the code merged; Released means it shipped to users. A tracker's *Done* probably means the second, but a team watching progress may want the first.
 - [ ] **Is one miss enough to justify this?** Stated plainly because it is the honest question: the alternative is a `/plot-reconcile` section reporting released plans with open issues, which costs less and catches the same case a person then acts on. **A reporting section may be the better first slice.**
 
@@ -100,6 +132,7 @@ Add one call at the end of the transition that already succeeded:
 
 ## Notes
 
+- **Panelled 2026-09-24: `amend`.** The conclusion survived and the evidence did not: three of four headline numbers were recounted wrong, two citations were off by a directory or a line, and the port turned out to take a `prUrl` rather than an issue key — which blocks slice 2 until a port decision is made. The juror's own summary is the fair one: *a correction, not a refutation.*
 - Found by a sprint sweep on 2026-09-24 cross-checking every open ticket against the plan estate, not by anything in Plot. That is the finding restated: **the only detector was a person looking.**
 - **The slice order is a hedge and says so.** The Open Question asks whether one miss justifies a write path at all. Slice 1 answers the same need read-only; if it proves the case is rare, slice 2 can be dropped without having built anything that writes to a remote service.
 - The gate that guards this lifecycle fired on this plan's own research: a `grep` naming the deliver script in a search argument was refused as a controller-owned action. That is #935 — a Must Have in the same sprint — reproducing itself while a plan about its sibling was being written.
