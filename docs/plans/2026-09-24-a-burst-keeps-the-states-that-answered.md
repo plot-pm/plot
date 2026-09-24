@@ -46,7 +46,7 @@ There is nothing to build.
 
 It claimed `die6`'s `exit 6` kills the process before `pr_list_states` reaches its `_ok > 0` test. Three independent disproofs:
 
-1. **`exit` inside `$(...)` kills only the subshell.** A five-line experiment: the loop continued, `ok=2 failed=1`, script exit 0.
+1. **`exit` inside `$(...)` kills only the subshell.** A five-line experiment: the loop continued, `ok=2 failed=1`, script exit 0. And **`plot-host.sh:379` is `set -uo pipefail` with no `-e`**, so a non-zero subshell status escalates nowhere — the loop survives by construction, not by luck.
 2. **`die6` is never called.** `pr_list_failed` (`:517-530`) is the real path.
 3. **The file says the property three times** — `:558-565`, `:610-617`, `:955-960`, each describing the exact mechanism the draft claimed was broken.
 
