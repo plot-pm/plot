@@ -1,0 +1,1 @@
+../2026-09-24-a-plan-less-row-is-not-a-nameless-plan.md
