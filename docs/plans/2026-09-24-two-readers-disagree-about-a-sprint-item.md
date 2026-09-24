@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #966
 - **Rounds:** 1
+- **Approved:** 2026-09-24, in-session review after panel (round 1)
 
 ## Changelog
 
