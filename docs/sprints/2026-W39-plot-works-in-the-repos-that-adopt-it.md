@@ -54,7 +54,9 @@ Three conditions, and all must hold.
 
 ## Notes
 
-**This sprint will be refused at commit by one of its own Must Haves.** Its five Must items are tracker references, not `[slug]` plan links, which is the lightweight form #966 reports as unable to commit — `transitions/sprint.ts:263` raises `commitment-empty` with *"names no Must"*. Expect that refusal, and read it as the bug rather than as a malformed sprint. Committing it becomes possible either once #966 lands, or once each issue has a plan whose slug the item can name.
+**This sprint commits cleanly — an earlier note here predicted otherwise and was wrong.** Tested 2026-09-24 against a sandbox copy: `plot-sprint-state.sh … Committed` exits 0 and writes `State: Committed`. The prediction assumed #966 fires on any item without a `[slug]` plan link; it does not fire on these, because a markdown link of any kind satisfies the parser and every Must here links its issue.
+
+**What #966 actually needs is a BARE item**, and that was reproduced in the same sandbox by varying one thing: `- [ ] rename the deploy step` under a correct `### Must Have` heading is refused with *"names no Must"*, and the identical item written `- [ ] [some-slug](../plans/x.md) — rename the deploy step` commits. The discriminator is the bracket, not the heading the issue's title blames.
 
 **#935 is a Could Have and deliberately not a Must.** It is open on the tracker and its work shipped: `2026-09-17-a-gate-matches-an-invocation.md` is `Released` via PR #942. Making it a Must would arm the release gate against work already done; leaving it out entirely means the next sweep rediscovers it. So it is listed as the one thing it needs — a close.
 
