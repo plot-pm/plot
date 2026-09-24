@@ -11,6 +11,7 @@
 - **Issue:** #972
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
+- **Started:** 2026-09-24, Jan Wloka (plot-implement), `bug/the-scan-reads-a-branch-s-own-plans`
 
 ## Changelog
 
