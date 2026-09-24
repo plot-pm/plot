@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
+- **Issue:** #967
 
 ## Changelog
 
@@ -94,10 +95,24 @@ The layering rule decides this and there is no latitude:
 - **It does not filter DONE.** *What shipped* is the estate's business, not the reader's.
 - **It does not guess.** A row whose owner cannot be determined is **shown**, never hidden. Hiding on an absent reading is how a filter loses work silently, and this estate has already measured that shape: `plot-release-refs.sh` permits on `unknown` for the same reason.
 
+### #967 answers this plan's biggest objection
+
+**Filed 2026-09-24 from a four-contributor estate, and it supplies what this plan said it lacked.** The draft's riskiest assumption was that no shared estate existed to test against — *"a filter that hides nothing looks identical to a filter that works."* The issue measures one:
+
+- **11 open PRs, 9 belonging to other people** — 4, 3 and 2 across three colleagues, 2 the reader's
+- **18 rows in WAITING ON YOU, 2 actionable**
+- three of the bare branches carry colleagues' open PRs
+
+**And it confirms the author data exists at the host**: `bb pr list --json` returns an `author` field per PR, the GitHub arm the same, and `plot-host.sh` already knows the term. *"The gap is the hand-off"* — `plot-fleet-scan.sh` does not carry the author through, and `/api/board` exposes `author` only on stories.
+
+That is precisely slice 2's scope, independently measured. **The recommendation of derived authorship over `Assignee:` is therefore no longer only an argument from this estate's abandoned field** — it is what the reporting estate's data already supports.
+
+**The issue also proposes the larger version**: splitting WAITING ON YOU along three questions — *my tasks*, *my results*, *my problems* — noting the verdicts already carry enough, so *"the grouping is a rename of what the data says, not a new inference."* **That is deliberately not in this plan's slices.** It is a section redesign whose value depends on whether the filter alone suffices, and shipping the filter first is what answers that.
+
 ### Open Questions
 
 - [ ] **Which identity is canonical when the two disagree?** The host says `jwloka`, git says `jan.wloka@quatico.com`. Does the connector answer both and the rule match either?
-- [ ] **Does a shared estate exist yet?** Every measurement here is from a one-person repo. If nobody else's rows are present, the filter cannot be seen to work — what is the test estate?
+- [ ] **Does the filter alone suffice, or is the three-way split needed?** #967 proposes both. The filter is smaller and answers *most of this is not mine*; the split answers *these are different kinds of thing*. **Ship the filter and re-read the section before deciding** — and if the split wins, it is its own plan.
 - [ ] **Is an unowned row mine if I dispatched its agent?** Locality and authorship disagree for a slice I dispatched but did not write.
 
 ### Done when
@@ -127,5 +142,5 @@ Three slices, and the first is a reading with no UI. The order is deliberate: **
 ## Notes
 
 - The three slices are a wave order, not a cohort: slice 2 cannot be built before slice 1 answers *who*, and slice 3 has nothing to filter on before slice 2.
-- **The riskiest assumption is that this estate can test it.** Every reading here comes from a repository with one contributor, so a filter that hides nothing looks identical to a filter that works. Naming a mixed-ownership test fixture belongs in slice 2.
+- **The riskiest assumption was that this estate could test it, and #967 removes it.** Every reading in this plan comes from a one-contributor repository, where a filter that hides nothing looks identical to one that works. The issue measures a four-contributor estate with 9 of 11 PRs belonging to other people — that is the mixed-ownership case, and slice 2's fixture should be built from its shape rather than invented.
 - `Assignee:` is left alone. This plan neither revives nor removes it — that it is read by a parser and written by nothing is a separate finding, and deleting a field 71 plans carry is not this plan's call.
