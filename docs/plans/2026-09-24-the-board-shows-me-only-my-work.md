@@ -11,6 +11,7 @@
 - **Issue:** #967
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
+- **Started:** 2026-09-24, Jan Wloka (claude session), `feature/the-board-knows-who-is-asking`
 
 ## Changelog
 
