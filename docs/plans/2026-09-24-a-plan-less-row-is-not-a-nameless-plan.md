@@ -112,7 +112,11 @@ Two readers, one answer, neither in the first draft.
 
 ### Open Questions
 
-- [ ] **Does the age gate at `fleet.ts:5033` need narrowing, or bypassing for plan-less rows?** The destination is settled; how a recent-tipped branch reaches it is the implementation question, and it is the slice's first decision.
+- [x] **Does the age gate at `fleet.ts:5033` need narrowing, or bypassing for plan-less rows?** The destination is settled; how a recent-tipped branch reaches it is the implementation question, and it is the slice's first decision.
+  - **Answer: bypassed at the loose-branch call site; the gate itself is unchanged.** The loose-branch loop in `rowsFromPulse` passes `NO_QUIET_WINDOW` (`Number.NEGATIVE_INFINITY`) in place of `quietMinutes`, so no age falls inside the window and the row reaches the `abandoned` arm at any age. `quietMinutes` is read by `classifyGroup` only at the two window gates, and the `claimed` one is unreachable from a `wip` call, so the substitution moves nothing else.
+  - **Why not narrow the gate inside `classifyGroup`:** the only condition available there is `planPhase === ''`, and `''` means *unknown phase*, not *no plan*. A planned branch whose phase the scan did not report would move too, which breaks *a real plan's grouping is unchanged*. The loose-branch loop is the one place that knows the row has no plan, because it builds the row with `plan: ''`.
+  - **The argument the loop's comment made, and why it no longer holds:** it said a recent commit asks nothing of the reader, and the gate's own comment gives the reason, *an agent may take it*. An agent takes a slice of a plan, and a plan-less branch has none to dispatch from. The comment now says this. Two unit tests pinned the old placement (`branch-with-work-is-seen.test.ts`, `an-idle-branch-says-how-long.test.ts`) and now assert the new one. Their volume concern, about 31 branches swamping WAITING ON YOU, counts branches the fleet could not place in a plan. The live board on 2026-09-24 showed 2 plan-less rows, both in DONE.
+  - **Not done:** plan-less rows carry no explicit *no plan* label. They render with no plan link and with the note *commits, no PR ever opened*, and no nameless head is drawn. A label in the row or the note would change every plan-less row kind (releases, unplanned PRs) or `rules/quiet.ts`, which this slice does not own.
 
 ### Done when
 
