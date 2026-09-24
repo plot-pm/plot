@@ -70,6 +70,16 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
 
     statusWrite: async (write: StatusWrite): Promise<PortResult<StatusOutcome>> => {
+      // NO PULL REQUEST IS NO SUBJECT. This arm writes a PR's Projects status
+      // and has no issue equivalent, so an issue-only write reaches nothing —
+      // and `plot-update-board.sh` is never handed an empty address.
+      if (write.prUrl === '') {
+        reads.refuse(
+          `no pull request to write against${write.issue === undefined ? '' : ` for issue ${write.issue}`}: ` +
+            'the GitHub tracker writes a pull request’s Projects status and has no issue status to write',
+        );
+        return answered<StatusOutcome>('no-target');
+      }
       const board = await runProcess('bash', [config, 'get', BOARD_KEY, ''], inRepo);
       if (board.code !== 0) {
         reads.refuse(board.stderr.trim() || `plot-config.sh exited ${board.code}`);

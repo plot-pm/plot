@@ -75,7 +75,10 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
 
     statusWrite: async (write: StatusWrite): Promise<PortResult<StatusOutcome>> => {
-      const key = keyIn(write.prUrl);
+      // THE ISSUE A CALLER NAMED WINS OVER ONE MINED FROM THE ADDRESS. It is
+      // still read through `keyIn`, so a number from a `#NNN` line is no key
+      // and writes nothing rather than a guessed one.
+      const key = keyIn(write.issue ?? write.prUrl);
       // NO KEY IS `no-target`, NEVER A FAILURE. A pull request that names no
       // issue is the ordinary case for work nobody ticketed; the tracker was
       // reachable and there was simply nothing to write against.

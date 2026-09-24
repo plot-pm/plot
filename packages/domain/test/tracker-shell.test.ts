@@ -349,6 +349,55 @@ describe('a status reaches the tracker it was told about', () => {
     ).toBe('no-target');
   });
 
+  it('writes against the issue a caller named, not one mined from the address', async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'plot-tracker-log-')), 'written');
+    roots.push(log);
+    const context = scriptsThat({
+      'plot-host.sh': `
+        [ "$1" = issue-status ] || exit 1
+        printf '%s %s\\n' "$2" "$3" > "${log}"
+        echo written
+      `,
+    });
+    const result = await trackerJira(context).statusWrite({
+      prUrl: 'https://git.invalid/plot/pull/9/PROJ-1-a-thing',
+      issue: 'PROJ-7',
+      status: 'Done',
+    });
+    expect(answer<StatusOutcome>(result)).toBe('written');
+    expect((await import('node:fs')).readFileSync(log, 'utf8').trim()).toBe('PROJ-7 Done');
+  });
+
+  it('still mines the address where no issue was named', async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'plot-tracker-log-')), 'written');
+    roots.push(log);
+    const context = scriptsThat({
+      'plot-host.sh': `printf '%s\\n' "$2" > "${log}"; echo written`,
+    });
+    const result = await trackerJira(context).statusWrite({
+      prUrl: 'https://git.invalid/plot/pull/9/PROJ-1-a-thing',
+      status: 'Done',
+    });
+    expect(answer<StatusOutcome>(result)).toBe('written');
+    expect((await import('node:fs')).readFileSync(log, 'utf8').trim()).toBe('PROJ-1');
+  });
+
+  it('answers no-target for an issue-only write on GitHub, and never calls the board script', async () => {
+    // This arm's subject is a pull request. An empty address handed to
+    // `plot-update-board.sh` would ask it to move a PR that does not exist.
+    const marker = join(mkdtempSync(join(tmpdir(), 'plot-board-marker-')), 'called');
+    roots.push(marker);
+    const context = scriptsThat({
+      'plot-config.sh': 'echo acme/7',
+      'plot-update-board.sh': `touch "${marker}"`,
+    });
+    const tracker = trackerGithub(context);
+    const result = await tracker.statusWrite({ prUrl: '', issue: '935', status: 'Done' });
+    expect(answer<StatusOutcome>(result)).toBe('no-target');
+    expect((await import('node:fs')).existsSync(marker)).toBe(false);
+    expect(tracker.lastRefusal()).toContain('issue 935');
+  });
+
   it('reads a board key only in the shape it was promised', () => {
     expect(boardOf('acme/7')).toEqual({ owner: 'acme', number: '7' });
     expect(boardOf('  acme/7  ')).toEqual({ owner: 'acme', number: '7' });
