@@ -7,6 +7,7 @@
 - **State:** Draft
 - **Type:** bug
 - **Issue:** #966
+- **Rounds:** 1
 
 ## Changelog
 
@@ -112,25 +113,42 @@ Once a bare item commits, `commitment-empty` stops firing on it and the misleadi
 - **It does not remove `commitment-empty`.** A sprint with an empty `### Must Have` must still be refused at commit.
 - **It does not touch the struck-through `~~[slug]~~` handling** (`plot-sprint-release.sh:249`), which is a separate measured case with its own comment.
 
-### Open Questions
+### The Open Question is answered: there are THREE readers, not two
 
-- [ ] **Does the board's sprint membership use the same parser as the transition?** `entry/sprint-transition.ts:82` mentions `parseSprintMembers` applying the same tier rule — if that reader shares `MEMBER_LINE`, a bare item is invisible on the board too and the blast radius is three readers, not two.
+**`board.ts:1148`** holds a second independent copy:
+
+```js
+const SPRINT_MEMBER_LINE = /^- \[( |x)\] \[([^\]]+)\]/;
+```
+
+Same mandatory second bracket, its own tier table, its own dedup. **So the estate parses one file format three ways**, and the plan's own title undercounts:
+
+| Reader | Bare `- [ ] task` | File |
+|---|---|---|
+| `emit_tier` (release gate) | **an item** | `plot-sprint-release.sh:234` |
+| `itemsFrom` (commit gate) | not an item | `entry/sprint-transition.ts:64` |
+| `parseSprintMembers` (the board) | **not an item** | `board.ts:1148` |
+
+**Fixing only the transition would land green while the board still drops bare items** — and the corpus pair as first scoped would not catch it, because it never asks the third reader.
 
 ### Done when
 
 - A sprint whose Must Haves are all bare items **commits**, and a unit test pins it.
 - **A sprint with an empty `### Must Have` is still refused** — the regression this must not cause.
-- A corpus test pairs the two item readers on which lines are items and at which tier, and **fails on a disagreement rather than being adjusted to pass** — `docs/shell-and-domain.md`'s one forbidden move.
+- A corpus test pairs **all three** item readers on which lines are items and at which tier, and **fails on a disagreement rather than being adjusted to pass** — `docs/shell-and-domain.md`'s one forbidden move.
+- **The board shows a bare-item sprint's members**, which it does not today. A fix landing in the transition alone is green and wrong.
 - #966's message is accurate for the cases that still refuse.
 
 ## Slices
 
 ### The readers agree about what an item is (Branch: bug/the-readers-agree-about-an-item)
 
-- `bug/the-readers-agree-about-an-item` — make the `[…]` group optional in `MEMBER_LINE` (`entry/sprint-transition.ts:64`) and re-key `itemsFrom`'s dedup so bare items do not collide on `''`; unit tests asserting an all-bare sprint yields the right COUNT and commits, plus the empty-Must regression; a corpus pair under `packages/domain/corpus/` comparing the two readers' item sets and tiers
+- `bug/the-readers-agree-about-an-item` — make the `[…]` group optional in **both** `MEMBER_LINE` (`entry/sprint-transition.ts:64`) and `SPRINT_MEMBER_LINE` (`board.ts:1148`), and re-key each dedup so bare items do not collide; **the key must not be the item text**, or two identical bare lines collapse and reproduce the defect in miniature. Unit tests asserting an all-bare sprint yields the right COUNT and commits, the board rendering its members, and the empty-Must regression; a corpus pair under `packages/domain/corpus/` comparing **all three** readers' item sets and tiers
 
 ## Notes
 
 - Found while acting on #966 rather than by reading it: the sprint written for W39 was predicted to be refused, committed cleanly instead, and isolating why produced the two-reader disagreement. **The prediction was wrong and the sprint's own Notes record the correction**, because a plan estate that quietly deletes a wrong prediction teaches nothing.
+- **Panelled 2026-09-24: `unanimous amend`, and both jurors verified by EXECUTION rather than reading** — the standard a sibling panel set the same day by rejecting a plan whose mechanism a five-line experiment disproved. The estate juror reproduced the two-reader disagreement on a scratch sprint, and measured the dedup trap exactly: **1 of 3 as shipped, 2 of 3 with the bracket optional, and 1 of 8 for eight bare Musts.**
+- **No test covers a bare item.** All 15 relevant fixtures are `- [ ] [slug]`, and `sprint-members.test.ts:45` bakes the bracket into its own oracle — so the parsers' own suites could never have caught this.
 - The issue's title — *"a message that points at the headings"* — names the symptom. Retitling it is worth doing when this lands; the heading is not the cause and a reader following the title will look in the wrong place.
 - The gate guarding this lifecycle fired on this plan's own research: a `grep` naming the deliver script in a search argument was refused as a controller-owned action. That is #935, a Must Have in the same sprint, reproducing itself during the work.
