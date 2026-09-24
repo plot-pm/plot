@@ -50,6 +50,7 @@ skills/plot/scripts/board/plot-ask.mjs -merge
 skills/plot/scripts/board/plot-branch-state.mjs -merge
 skills/plot/scripts/board/plot-delta.mjs -merge
 skills/plot/scripts/board/plot-fleet-size.mjs -merge
+skills/plot/scripts/board/plot-issue-status.mjs -merge
 skills/plot/scripts/board/plot-landed.mjs -merge
 skills/plot/scripts/board/plot-movable.mjs -merge
 skills/plot/scripts/board/plot-panel.mjs -merge
