@@ -760,9 +760,34 @@ EOF
       launchd) launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null ;;
       systemd) systemctl --user disable --now plot-registryd >/dev/null 2>&1 ;;
     esac
-    if supervisor_loaded; then
-      echo "  supervisor did NOT unload — $LABEL is still loaded"
-    else
+    # THE UNLOAD IS VERIFIED TO A BOUND, NEVER ASKED ONCE. Measured 2026-09-24:
+    # a single `supervisor_loaded` after `bootout` answered *loaded*, this
+    # printed `supervisor did NOT unload`, and `launchctl print` moments later
+    # exited 113 — the job was gone. The check reported a failure the world did
+    # not have, and the marker it kept made the next `--status` announce a crash.
+    #
+    # THE MECHANISM IS UNDETERMINED AND THE POLL DOES NOT DEPEND ON ONE. No
+    # reading exists from inside that window, so three candidates still fit:
+    # teardown still running, launchd restarting the job under `KeepAlive`, or
+    # `bootout` failing silently. A bounded poll is correct under all three —
+    # the first finishes inside the bound, the other two are still loaded at it
+    # and are honestly reported as unconfirmed.
+    #
+    # THE BOUND IS `--wait` AND NOT A NEW CONSTANT. `ExitTimeOut` is unset in
+    # the plist, so launchd escalates SIGTERM to SIGKILL after 20 s, and
+    # `registryd-main.ts` registers no signal handler — so a real teardown has
+    # an upper bound and the existing 30 s default covers it with margin.
+    #
+    # THE SHAPE IS THE AGENT LOOP'S, thirty lines above. Three open-coded
+    # copies of it exist here and in `plot-boardctl.sh`; this is the fourth,
+    # deliberately, rather than a helper extracted for one caller.
+    started=$(date +%s)
+    unloaded=0
+    while [ $(( $(date +%s) - started )) -lt "$wait_bound" ]; do
+      supervisor_loaded || { unloaded=1; break; }
+      sleep 0.5
+    done
+    if [ "$unloaded" = 1 ]; then
       echo "  supervisor unloaded"
       # THE MARKER GOES WITH THE SUPERVISOR, and only once it is actually gone.
       # It records that a `--start` finished; a deliberate stop ends the run it
@@ -770,6 +795,20 @@ EOF
       # chose to end. A unit that did NOT unload keeps its marker, because the
       # run it recorded is still the live one.
       rm -f "$(start_marker)"
+    else
+      # REPORTED, NEVER KILLED. `plot-boardctl.sh --stop` escalates to
+      # `kill -KILL` at `:528`; this deliberately does not. Ending a wedged
+      # supervisor is a person's call, and the refusal names what to look at.
+      #
+      # THE PID IS THE READING THAT WAS MISSING on 2026-09-24. A pid different
+      # from the one this run signalled says launchd restarted the job under
+      # `KeepAlive`; the same pid says the teardown is stuck.
+      sup_pid_now=$(supervisor_pid)
+      echo "  supervisor did NOT unload within ${wait_bound}s — $LABEL is still loaded (pid ${sup_pid_now:-unknown})"
+      echo "  The start marker is kept: the run it records is still the live one."
+      # SET, NOT EXITED ON. The agent summary below prints after this block, and
+      # an early exit here swallows it when agents and supervisor both fail.
+      sup_unconfirmed=1
     fi
   else
     echo "  supervisor was not loaded"
@@ -779,6 +818,11 @@ EOF
     echo "$n_still agent(s) did not exit within ${wait_bound}s:"
     printf '%s' "$still"
     echo "Each desk and claim stands. Look in the worktree, or raise the bound: --wait N"
+  fi
+  # ONE EXIT FOR BOTH FAILURES, and both reports print first. Exit 1 says an
+  # agent did not exit, or the unload was not confirmed, or both — a stop that
+  # printed a failure may never exit 0.
+  if [ "$n_still" -gt 0 ] || [ "${sup_unconfirmed:-0}" = 1 ]; then
     exit 1
   fi
   exit 0

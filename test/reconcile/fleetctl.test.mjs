@@ -334,6 +334,109 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
   }
 });
 
+// ── The unload is VERIFIED to a bound, and a reported failure exits non-zero ──
+//
+// EXIT CODES ARE ASSERTED EXACTLY, never merely zero/non-zero, for the reason
+// the `--status` cases above give: a caller gates on the number.
+
+/** Arm a sandbox with a start marker, and answer where it is. */
+function armedMarker(root) {
+  const marker = path.join(root, '.plot', 'state', 'fleet-start.done');
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
+  fs.writeFileSync(marker, 'ts\n');
+  return marker;
+}
+
+test('--stop polls the unload past a still-loaded first answer, clears the marker, exits 0', () => {
+  // THE MEASURED FAILURE, REPRODUCED. `sticky: 2` makes the first two questions
+  // after `bootout` answer *still loaded* — which is what the machine answered
+  // on 2026-09-24 — so the confirmed arm is reachable only by asking again.
+  // A single-sample implementation prints `did NOT unload` here and fails.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopunloadok');
+  const marker = armedMarker(root);
+  const bin = stubUnload(box, { sticky: 2 });
+  const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin, {
+    HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PATH: `${bin}:${process.env.PATH}`,
+  });
+  assert.equal(r.status, 0, 'a confirmed unload is a clean stop');
+  assert.match(r.out, /supervisor unloaded/);
+  assert.doesNotMatch(r.out, /did NOT unload/,
+    'the first still-loaded answer was reported as a failure');
+  // THE MARKER IS ASSERTED, NOT ONLY THE TEXT. It is what the next `--status`
+  // reads, and leaving it is how a deliberate stop came to render as a crash.
+  assert.equal(fs.existsSync(marker), false, 'a confirmed unload clears the start marker');
+});
+
+test('--stop keeps the marker and exits 1 when the unload is never confirmed', () => {
+  // `sticky: 'forever'` is the supervisor that does not go away — a stuck
+  // teardown, or launchd restarting it under `KeepAlive`. `--wait 1` keeps the
+  // case fast; the bound is the contract, not its value.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopunloadfail');
+  const marker = armedMarker(root);
+  const bin = stubUnload(box, { sticky: 'forever' });
+  const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
+    HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PATH: `${bin}:${process.env.PATH}`,
+  });
+  assert.equal(r.status, 1, 'a stop that printed a failure may not exit 0');
+  assert.match(r.out, /did NOT unload within 1s/);
+  assert.match(r.out, /pid 4242/,
+    'the pid at the bound is the reading that distinguishes a restart from a stuck teardown');
+  assert.equal(fs.existsSync(marker), true,
+    'an unconfirmed unload keeps the marker: the run it records is still the live one');
+});
+
+test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1', () => {
+  // THE EARLY-EXIT TRAP. The agent summary prints after the supervisor block,
+  // so an `exit 1` inside that block swallows it — and this is exactly the run
+  // where an operator needs both halves. The flag-and-one-exit shape is what
+  // this asserts.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopboth');
+  const desk = path.join(box, 'plot-wt-feature-b');
+  git(root, 'worktree', 'add', '-q', '-b', 'feature/b', desk);
+  const sleeper = execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+  // A dispatch stop that is accepted and kills nothing: the agent stays running
+  // past the bound, which is the `n_still` arm.
+  const dispatch = path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh');
+  fs.writeFileSync(dispatch, '#!/usr/bin/env bash\nexit 0\n');
+  fs.chmodSync(dispatch, 0o755);
+
+  const bin = stubUnload(box, { sticky: 'forever' });
+  try {
+    const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
+      HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+      PLOT_FLEET_LABEL: fleetLabel,
+      PATH: `${bin}:${process.env.PATH}`,
+    });
+    assert.equal(r.status, 1, 'both failures reach one non-zero exit');
+    assert.match(r.out, /did NOT unload within 1s/, 'the supervisor failure is reported');
+    assert.match(r.out, /1 agent\(s\) did not exit within 1s/,
+      'the agent summary survives the supervisor failure — it prints after that block');
+  } finally {
+    try { process.kill(Number(sleeper)); } catch { /* already gone */ }
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('--stop of an unloaded supervisor still exits 0 and says so', () => {
+  // THE REGRESSION THE POLL MUST NOT CAUSE. Nothing was loaded, so nothing is
+  // waited for and nothing failed. `stubPlatform` with no `loaded` answers 113
+  // from the first call, which is a machine that never held the label.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopnotloaded');
+  const bin = stubPlatform(box, {});
+  const r = run(ctl, ['--stop'], root, guardBin, {
+    HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PATH: `${bin}:${process.env.PATH}`,
+  });
+  assert.equal(r.status, 0, 'nothing was loaded, so nothing failed');
+  assert.match(r.out, /supervisor was not loaded/);
+});
+
 // ── The units fill and parse — the check CI can actually run on Linux ─────────
 
 test('both unit templates carry exactly the three documented placeholders', () => {
@@ -732,6 +835,67 @@ function stubPlatform(box, { kernel = 'Darwin', loaded = false } = {}) {
   write('systemctl', loaded
     ? `[ "$1" = show ] && echo ${loaded === 'no-pid' ? 0 : 4242}\nexit 0`
     : 'exit 3');
+  return bin;
+}
+
+/**
+ * A `launchctl`/`systemctl` stub that CHANGES ITS ANSWER, which the static one
+ * above cannot express.
+ *
+ * `stubPlatform` answers one fixed state, so it can say *loaded* or *not
+ * loaded* but never *loaded, then unloaded after `bootout`* — and that
+ * sequence is the whole subject of the bounded unload poll. A test built on the
+ * static stub passes against the single-sample code, which is the code the
+ * poll replaces.
+ *
+ * THE COUNTER IS A FILE, because each `launchctl` call is a fresh process and
+ * a shell variable cannot outlive one. `bootout` (or `disable`) arms it; every
+ * `print` after that spends one tick, answering *loaded* while `sticky` ticks
+ * remain and `113` afterwards.
+ *
+ * WITH `sticky >= 1` THE CONFIRMED ARM IS ONLY REACHABLE BY POLLING. The first
+ * question after `bootout` answers *still loaded*, exactly as the machine
+ * answered on 2026-09-24 — so a single-sample implementation reports a failure
+ * here and the test fails against it.
+ *
+ * @param box - the sandbox directory to place the stubs in
+ * @param opts.sticky - how many `print` calls after `bootout` still answer loaded; `'forever'` never unloads
+ * @returns the directory to prepend to `PATH`
+ */
+function stubUnload(box, { sticky = 1 } = {}) {
+  const bin = path.join(box, 'stub-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const ticks = path.join(box, 'unload-ticks');
+  const write = (name, body) => {
+    const p = path.join(bin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
+  // THE PID IS EMITTED ON EVERY LOADED ANSWER, so the unconfirmed report can
+  // name it. `supervisor_pid` parses `pid = N` out of this same output.
+  const body = (bootoutVerb) => `
+TICKS="${ticks}"
+if [ "$1" = ${bootoutVerb} ]; then echo ${sticky === 'forever' ? -1 : sticky} > "$TICKS"; exit 0; fi
+if [ "$1" = print ] || [ "$1" = is-active ] || [ "$1" = show ]; then
+  if [ ! -f "$TICKS" ]; then EMIT=yes; else
+    n=$(cat "$TICKS")
+    if [ "$n" -lt 0 ]; then EMIT=yes
+    elif [ "$n" -gt 0 ]; then echo $((n - 1)) > "$TICKS"; EMIT=yes
+    else EMIT=no; fi
+  fi
+  if [ "$EMIT" = yes ]; then
+    [ "$1" = print ] && echo "	pid = 4242"
+    [ "$1" = show ] && echo 4242
+    exit 0
+  fi
+  exit ${bootoutVerb === 'bootout' ? 113 : 3}
+fi
+exit 0`;
+  write('launchctl', body('bootout'));
+  // `systemctl --user disable --now` arms the same counter; `is-active` and
+  // `show -p MainPID` are the two reads the systemd arm makes.
+  write('systemctl', body('disable'));
   return bin;
 }
 
