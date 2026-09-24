@@ -7,6 +7,7 @@
 - **State:** Draft
 - **Type:** bug
 - **Issue:** #968
+- **Rounds:** 1
 
 ## Changelog
 
@@ -44,7 +45,7 @@ The failure direction is the bad one. A probe that cannot tell reports `unknown`
 out=$(jen -I "$jen_instance" auth status 2>&1); st=$?
 ```
 
-`$jen_instance` is the raw config value (`:312`). The contract `plot-host.sh:702` states is `<slug>` **or** `<slug>/<job/path>`, so any repository that names a job path — which #913 established is required for PRs to resolve at all — hands `jen` a slug it does not have.
+`$jen_instance` is the raw config value (`:312`). The contract `plot-host.sh:1173-1174` states is `<slug>` **or** `<slug>/<job/path>`, so any repository that names a job path — which #913 established is required for PRs to resolve at all — hands `jen` a slug it does not have.
 
 Reproduced by hand in the issue: `jen -I "ewz/kus-portal/continuous-build-multi" auth status` fails where the slug alone succeeds.
 
@@ -61,7 +62,17 @@ https://jenkins.example.com/quaweb/cb → '/jenkins.example.com/quaweb/cb'  host
 
 It strips the scheme and authority first (`_ji="${_ji#*://}"`), then splits at the first `/`.
 
-**So this is not a missing rule. It is a rule applied to one field and not to the call that needed it equally.** The fix is to hoist that computation above the auth block and pass its slug to `-I` — not to write a second split, which would create the two-readers defect this estate has already measured twice today.
+**But it computes a JOB, not a SLUG** — a panel caught this, and it changes the fix's shape. `:376-394` produces `_ji` (scheme-stripped) and `_jen_job_raw` (everything after the first `/`). **Nothing there is the slug**, so "hoist the computation" as first written would move code that does not answer the question.
+
+**The slug expression exists, in the other file.** `plot-host.sh:1228`:
+
+```bash
+slug="${instance%%/*}"
+```
+
+and every `jen -I` call there uses it (`:1250`, `:1268`, `:1321`).
+
+**So the estate has the correct parse written down twice over, and the probe has neither half.** The fix is: hoist the scheme-strip so `_ji` is available early, add `${_ji%%/*}` as the slug, and pass that to `-I`.
 
 ### Why the ordering is the whole change
 
@@ -76,9 +87,11 @@ The job split sits **outside** the `jen_installed` block deliberately, and its c
 - **It does not make `auth` report `unknown` instead.** A real authentication failure must still say `failed`; the point is that this one is not real.
 - **It does not touch `plot-host.sh`'s own `jen` calls.** Whether they split correctly is a separate reading, and the slice checks it rather than assuming either way.
 
-### Open Questions
+### The Open Question is answered, and it NARROWS the slice
 
-- [ ] **Do `plot-host.sh`'s `jen` invocations have the same defect?** It states the `<slug>/<job/path>` contract at `:702`, so it plausibly splits — but #913 was about the job path resolving wrongly there, and a second occurrence would widen this slice.
+**`plot-host.sh` splits correctly.** `:1228` computes `slug="${instance%%/*}"` and all three `jen -I` calls use it — auth (`:1250`), job view (`:1268`), job list (`:1321`).
+
+So the host adapter is right and **`plot-board-probe.sh:316` is the estate's only caller passing an unsplit value.** The slice does not widen, and the plan's argument strengthens: the correct expression is already written down, in the file whose contract comment the probe is failing to honour.
 
 ### Done when
 
@@ -91,9 +104,10 @@ The job split sits **outside** the `jen_installed` block deliberately, and its c
 
 ### The probe splits once and uses it twice (Branch: bug/the-probe-splits-once)
 
-- `bug/the-probe-splits-once` — hoist the existing scheme-stripping split above the `jen_installed` block and pass its slug to `jen -I`; keep the split outside the installed block so a machine with the value and not the tool still answers; check whether `plot-host.sh`'s `jen` calls share the defect and report rather than widen silently
+- `bug/the-probe-splits-once` — hoist the scheme-strip above the `jen_installed` block, add the slug (`${_ji%%/*}`, the expression `plot-host.sh:1228` already uses) and pass it to `jen -I`; keep the computation outside the installed block so a machine with the value and not the tool still answers; the host adapter is verified correct and is not touched
 
 ## Notes
 
 - Reported from an adopting repository (`ewz/kus-portal`), not reproducible here: this checkout declares no `Jenkins instance`, so `jen_instance` is empty and the auth branch takes the `unknown` arm that never calls `jen`. **The defect needs a configured Jenkins to appear at all**, which is why a repository that ships the Jenkins connector never saw it.
 - The same shape as #969, filed the same day: a rule that exists and is correct, and a caller beside it that does not use it.
+- **Panelled 2026-09-24: `unanimous amend`.** Three corrections accepted: the contract is at `plot-host.sh:1173-1174` and the plan cited `:702`; the existing splitter computes a job and **no slug**, so "hoist the computation" was the wrong description of the fix; and the Open Question is answerable from the code — `plot-host.sh` splits correctly, so this **narrows** rather than widens.
