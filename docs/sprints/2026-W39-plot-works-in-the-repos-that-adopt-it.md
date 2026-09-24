@@ -41,6 +41,7 @@ Three conditions, and all must hold.
 ### Could Have
 
 - [ ] Close [#935](https://github.com/plot-pm/plot/issues/935) — its work shipped in 2.19.0 (`a-gate-matches-an-invocation`, PR #942) and the ticket is still open. **Not backlog: a stale tracker entry.** It is listed so the sweep that found it does not have to find it again; closing is one call and needs no plan.
+- [ ] [a-released-plan-tells-its-tracker](../plans/2026-09-24-a-released-plan-tells-its-tracker.md) — why #935 stayed open: the tracker write is implemented in both connectors and `plot-host.sh`, and no lifecycle step calls it. Measured 22 released plans naming an issue, one left open. **Could rather than Must, because its own Open Question asks whether one miss justifies a write path** — its first slice answers the same need read-only.
 - [ ] [the-board-shows-me-only-my-work](../plans/2026-09-24-the-board-shows-me-only-my-work.md) — a My-work filter. **Could rather than Should, because its own measurements say it cannot be tested here**: no current-user concept exists, `Assignee:` is abandoned (71 of 321 plans, none since 08-30), and a PR row carries no author. On a one-contributor estate a filter that hides nothing looks identical to one that works.
 
 ### Deferred
@@ -69,5 +70,6 @@ Three conditions, and all must hold.
 - 2026-09-24: Added #970 as a Must — filed after this sprint was drafted, same class as the other four.
 - 2026-09-24: Added `feature/one-monitor-watches-the-slice` as a Should — work in flight that no plan names.
 - 2026-09-24: Added #935 as a Could — a close, not an implementation.
+- 2026-09-24: Added [a-released-plan-tells-its-tracker] as a Could — the cause behind #935 staying open.
 
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
