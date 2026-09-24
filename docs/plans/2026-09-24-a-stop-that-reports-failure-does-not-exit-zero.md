@@ -116,9 +116,9 @@ supervisor: STOPPED — a --start finished here and the supervisor is gone since
 
 ## Slices
 
-### The unload is verified to a bound (Branch: bug/the-unload-is-verified-to-a-bound)
+### The unload is verified to a bound (Branch: bug/the-unload-is-verified-to-a-bound, PR: #977)
 
-- `bug/the-unload-is-verified-to-a-bound` — poll `supervisor_loaded` after `bootout` up to the `--wait` bound; exit non-zero and keep the marker when the bound is reached; tests for the confirmed arm, the unconfirmed arm and the not-loaded arm
+- `bug/the-unload-is-verified-to-a-bound` — poll `supervisor_loaded` after `bootout` up to the `--wait` bound; exit non-zero and keep the marker when the bound is reached; tests for the confirmed arm, the unconfirmed arm and the not-loaded arm → #977
 
 ## Notes
 
