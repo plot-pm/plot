@@ -116,6 +116,15 @@ export interface SupervisorRun {
    * rule exists to refuse.
    */
   install?: string;
+  /**
+   * Seconds since the supervisor last wrote its log, read off the `summary:`
+   * line's `tick_age=` field, or absent.
+   *
+   * Absent means an older script, a machine with no log, or a state other than
+   * running. None of these is a fresh tick or a stale one, so an absent value
+   * leaves the verdict exactly as it is without the field.
+   */
+  tickAgeSeconds?: number;
 }
 
 /**
@@ -143,9 +152,9 @@ export interface SupervisorReadings extends SupervisorRun {
  *   with none.
  * - `note` — `unknown`. Worth saying and never an alarm, because the board's
  *   own inability to ask is not a fact about the fleet.
- * - `warn` — a chip's worth of concern. No supervisor reading produces it
- *   today; it stays because prominence is a scale and the level between a note
- *   and an alert is a real one a later state may need.
+ * - `warn` — a chip's worth of concern. `up` whose last tick is older than
+ *   {@link FLEET_TICK_STALE_SECONDS}: a process holds the label and has
+ *   written nothing for longer than a busy tick takes.
  * - `alert` — `down` while agents run. Every one of them is unreapable, so this
  *   is work not happening, and it earns the top of the section rather than the
  *   end of a status line.
@@ -244,6 +253,44 @@ export const supervisorState = (readings: SupervisorRun): SupervisorState => {
 };
 
 /**
+ * How old the last tick may be before a running fleet is called silent.
+ *
+ * The supervisor waits 60 s after each tick, and a tick takes up to about 50 s,
+ * so a healthy estate writes at least every 110 s. Ten minutes is over five
+ * times that bound.
+ */
+export const FLEET_TICK_STALE_SECONDS = 600;
+
+/**
+ * Whether the run reports a tick older than {@link FLEET_TICK_STALE_SECONDS}.
+ *
+ * An absent, non-finite or negative age is not stale: it says nothing about
+ * the tick.
+ *
+ * @param readings - what one run of the script left behind.
+ * @returns true when the last tick is known and too old.
+ */
+export const tickStale = (readings: SupervisorRun): boolean => {
+  const age = readings.tickAgeSeconds;
+  return age !== undefined && Number.isFinite(age) && age >= FLEET_TICK_STALE_SECONDS;
+};
+
+/**
+ * A tick age in the largest whole unit a reader needs: seconds, minutes,
+ * hours, or days.
+ *
+ * @param seconds - the age, in seconds.
+ * @returns the age as text, for example `25h` or `12m`.
+ */
+export const formatTickAge = (seconds: number): string => {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3_600) return `${Math.floor(s / 60)}m`;
+  if (s < 172_800) return `${Math.floor(s / 3_600)}h`;
+  return `${Math.floor(s / 86_400)}d`;
+};
+
+/**
  * How loudly to say it — the rule that combines the state with the agent count.
  *
  * `down` WITH NO AGENTS IS A QUIET FACT. Nothing is being neglected, and a
@@ -269,6 +316,7 @@ export const supervisorState = (readings: SupervisorRun): SupervisorState => {
 export const supervisorProminence = (readings: SupervisorReadings): SupervisorProminence => {
   const state = supervisorState(readings);
   if (state === 'unknown') return 'note';
+  if (state === 'up') return tickStale(readings) ? 'warn' : 'quiet';
   if ((state === 'down' || state === 'died') && readings.agentsRunning > 0) return 'alert';
   return 'quiet';
 };
@@ -280,13 +328,14 @@ export const supervisorProminence = (readings: SupervisorReadings): SupervisorPr
  * already uses: it renders only when the manifest count is zero or something
  * was synthesized. A supervisor that is up is the ordinary state and needs no
  * word; `down` and `unknown` are both worth one, because both mean an agent
- * that finishes will sit there.
+ * that finishes will sit there. An `up` whose last tick is stale is worth one
+ * too: a process holds the label and nothing shows that it still works.
  *
  * @param readings - what one run of the script left behind.
  * @returns true when there is something worth saying.
  */
 export const supervisorShown = (readings: SupervisorRun): boolean =>
-  supervisorState(readings) !== 'up';
+  supervisorState(readings) !== 'up' || tickStale(readings);
 
 /**
  * The whole verdict — state, prominence, and the two pieces of text.
@@ -325,6 +374,16 @@ export const supervisorVerdict = (readings: SupervisorReadings): SupervisorVerdi
   const state = supervisorState(readings);
   const prominence = supervisorProminence(readings);
   const agents = readings.agentsRunning;
+  if (state === 'up' && tickStale(readings)) {
+    const age = formatTickAge(readings.tickAgeSeconds as number);
+    return {
+      state,
+      prominence,
+      shown: true,
+      label: `fleet silent for ${age}`,
+      detail: `The fleet is running and has not ticked for ${age} — a working fleet ticks every few minutes. Finished desks may not be reaped and slices may not be picked up. Find out what happened: /plot-fleet --status`,
+    };
+  }
   if (state === 'up') {
     return {
       state,
