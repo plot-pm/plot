@@ -1,0 +1,1 @@
+../2026-09-25-a-plugin-install-finds-its-own-scripts.md

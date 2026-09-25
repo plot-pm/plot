@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -13,6 +13,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-25, Jan Wloka, in-session after two panel rounds
 - **Started:** 2026-09-25, Jan Wloka, `bug/the-installer-writes-a-path-that-runs`
+- **Delivered:** 2026-09-25
 
 ## Changelog
 
