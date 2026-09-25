@@ -849,6 +849,10 @@ export function App() {
             timeboxLabel: '',
             members: matchingCards.map((c) => ({
               slug: c.slug,
+              // Every member here names a plan, so the label renders from the
+              // slug and the text is never read. Filled from the card's title
+              // rather than left `''` so the value is honest if it ever is.
+              text: c.title,
               tier: 'could' as const,
               // `Released` is the only terminal phase the board models —
               // `Delivered` is a PLAN phase and never appears in a card's

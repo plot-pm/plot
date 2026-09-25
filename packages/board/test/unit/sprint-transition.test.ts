@@ -214,3 +214,152 @@ describe('the sprint transitions are reachable from a controller', () => {
     });
   });
 });
+
+/**
+ * THE READERS AGREE ABOUT WHAT AN ITEM IS.
+ *
+ * A bare `- [ ] rename the deploy step` under `### Must Have` is the
+ * lightweight form `skills/plot-sprint/SKILL.md:240` documents. Measured
+ * 2026-09-24 on one sandbox sprint with two such lines:
+ * `plot-sprint-release.sh` reported **2 Must items, both open**, and this
+ * reader refused the commit with `commitment-empty`, *"names no Must"* —
+ * because `MEMBER_LINE`'s second bracket was mandatory and the line never
+ * became an item at all.
+ *
+ * EVERY TEST HERE ASSERTS THE COUNT. Making the bracket optional without
+ * re-keying the dedup keeps 2 of 3 (and 1 of 8), and a test asserting only
+ * *"it commits"* passes on that 2. The count is the discriminator.
+ */
+describe('a bare item is an item', () => {
+  /** A `## Status` block a sprint parses from, at the given state. */
+  const sprint = (state: string, must: string) => `# Sprint: bare items
+
+## Status
+
+- **State:** ${state}
+- **Start:** 2026-09-24
+- **End:** 2026-09-30
+- **Release:** 2.21.0
+
+## Sprint Goal
+
+**The readers agree.**
+
+## Commitment
+
+### Must Have
+
+${must}
+`;
+
+  it('reads three lines as three items when two of them are bare', () => {
+    // THE MEASURED CASE. As shipped this kept 1 of 3; with the bracket made
+    // optional and the dedup left alone it kept 2 of 3, because both bare
+    // lines captured the plan `''` and collided on that one key.
+    const items = itemsFrom(sprint('Planning', [
+      '- [ ] rename the deploy step',
+      '- [ ] update the runbook',
+      '- [ ] [a-slug](../plans/x.md) — do a thing',
+    ].join('\n')));
+    expect(items).toHaveLength(3);
+    expect(items.map((i) => i.tier)).toEqual(['must', 'must', 'must']);
+    // The bare ones carry no plan and keep their own text — the text is the
+    // only name such an item has.
+    expect(items[0]).toMatchObject({ plan: '', text: 'rename the deploy step' });
+    expect(items[1]).toMatchObject({ plan: '', text: 'update the runbook' });
+    expect(items[2].plan).toBe('a-slug');
+  });
+
+  it('reads eight bare Musts as eight items', () => {
+    // The panel measured 1 of 8 for the shipped reader. Eight is the number
+    // that separates a fixed dedup from a regex-only change.
+    const must = Array.from({ length: 8 }, (_, i) => `- [ ] task ${i}`).join('\n');
+    expect(itemsFrom(sprint('Planning', must))).toHaveLength(8);
+  });
+
+  it('counts two IDENTICAL bare lines as two items', () => {
+    // THE KEY MUST NOT BE THE TEXT. Two lines reading the same are two items;
+    // keying on the text would collapse them and reproduce this very defect in
+    // miniature, on a sprint where nothing looks wrong.
+    const items = itemsFrom(sprint('Planning', [
+      '- [ ] rename the deploy step',
+      '- [ ] rename the deploy step',
+    ].join('\n')));
+    expect(items).toHaveLength(2);
+  });
+
+  it('still dedupes a slug listed twice, keeping its strongest tier', () => {
+    // THE REGRESSION THE NEW KEY MUST NOT CAUSE. A plan sliced across slices
+    // lists its slug once per slice and the sprint contains it once — the
+    // reason dedup exists. Only a line naming NO plan escapes it.
+    const items = itemsFrom(`# Sprint: dupes
+
+## Status
+
+- **State:** Planning
+- **Release:** 2.21.0
+
+## Commitment
+
+### Must Have
+
+- [ ] [a-plan] wave one
+
+### Should Have
+
+- [ ] [a-plan] wave two
+`);
+    expect(items).toHaveLength(1);
+    expect(items[0].tier).toBe('must');
+  });
+
+  it('commits a sprint whose Must Haves are all bare', () => {
+    // The end-to-end shape of the bug: this exact file was refused with
+    // `commitment-empty` while the release gate counted its two open Musts.
+    const content = sprint('Planning', [
+      '- [ ] rename the deploy step',
+      '- [ ] update the runbook',
+    ].join('\n'));
+    expect(itemsFrom(content)).toHaveLength(2);
+    expect(answer({ to: 'Committed', on: '', slug: 's', content })).toBe('Committed\t\n');
+  });
+
+  it('still refuses a sprint with an empty Must Have', () => {
+    // `commitment-empty` STAYS. Its sentence is correct for a sprint that
+    // genuinely promises nothing, and the fix feeds the rule items rather than
+    // removing the refusal that reports their absence.
+    const result = ask(sprint('Planning', ''), 'Committed');
+    expect(isRefusal(result)).toBe(true);
+    expect(isRefusal(result) && result.reason).toBe('commitment-empty');
+  });
+
+  it('does not treat a checkbox outside a tier heading as an item', () => {
+    // The tier is the heading the line sits under, and the optional bracket
+    // must not widen that. A checkbox in the goal or the notes is not a
+    // promise — this is the property the mandatory bracket used to enforce
+    // accidentally, and it has to survive on its own.
+    const items = itemsFrom(`# Sprint: stray boxes
+
+## Status
+
+- **State:** Planning
+- **Release:** 2.21.0
+
+## Sprint Goal
+
+- [ ] this is prose in the goal
+
+## Commitment
+
+### Must Have
+
+- [ ] a real item
+
+## Notes
+
+- [x] a checkbox in the notes
+`);
+    expect(items).toHaveLength(1);
+    expect(items[0].text).toBe('a real item');
+  });
+});

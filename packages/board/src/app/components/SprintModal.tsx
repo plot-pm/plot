@@ -146,9 +146,12 @@ export function SprintModal({ sprint, onClose, onOpenPlan }: SprintModalProps) {
                   {tier} ({members.length})
                 </h4>
                 <ul className="space-y-1">
-                  {members.map((m) => (
+                  {members.map((m, i) => (
                     <li
-                      key={m.slug}
+                      // A BARE MEMBER HAS NO SLUG, so every one of them would
+                      // share the key `''`. The index is within one tier's
+                      // already-rendered list, which is the list React reconciles.
+                      key={m.slug === '' ? `${tier}:${i}` : m.slug}
                       className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm dark:bg-slate-800"
                     >
                       {/* Checkbox indicator */}
@@ -165,8 +168,13 @@ export function SprintModal({ sprint, onClose, onOpenPlan }: SprintModalProps) {
                           </svg>
                         )}
                       </span>
-                      {/* Plan slug (members don't carry titles) */}
-                      {onOpenPlan ? (
+                      {/*
+                        The label: the plan slug where the line names one, the
+                        line's own text where it does not. A bare item has no
+                        plan to open, so it renders as text rather than as a
+                        button that would call `onOpenPlan('')`.
+                      */}
+                      {onOpenPlan && m.slug !== '' ? (
                         <button
                           type="button"
                           onClick={() => onOpenPlan(m.slug)}
@@ -186,7 +194,7 @@ export function SprintModal({ sprint, onClose, onOpenPlan }: SprintModalProps) {
                               : 'text-slate-700 dark:text-slate-200'
                           }`}
                         >
-                          {m.slug}
+                          {m.slug === '' ? m.text : m.slug}
                         </span>
                       )}
                       {/* Delivered badge */}
