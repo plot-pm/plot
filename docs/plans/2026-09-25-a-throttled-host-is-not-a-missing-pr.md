@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #985
 - **Sprint:** a-refusal-names-what-it-cannot-see
 - **Rounds:** 1
+- **Approved:** 2026-09-25, Jan Wloka, in-session after panel
 
 ## Changelog
 
