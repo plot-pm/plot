@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Planning
+- **State:** Active
 - **Start:** 2026-09-24
 - **End:** 2026-10-08
 - **Release:** 2.21.0
@@ -24,18 +24,12 @@ Three conditions, and all must hold.
 **Separable.** WAITING ON YOU answers one question at a time. Measured on an adopting repository: **18 rows, of which 2 were actionable.**
 
 ### Must Have
-
 - [ ] [fleet-control-finds-its-own-artifact](../plans/2026-09-24-fleet-control-finds-its-own-artifact.md) — [#969](https://github.com/plot-pm/plot/issues/969). `plot-fleetctl.sh:89` resolves `plot-registryd.mjs` against the consumer's repo root, so `/plot-fleet` cannot run in any repository that consumes Plot without also building it. Both lines of the error mislead: the artifact is not missing, and the `pnpm build:board` it suggests does not exist there. `plot-boardctl.sh` resolves the same class of artifact correctly, through `plot-board-probe.sh` — so the fix has a working sibling to follow.
 - [ ] [the-probe-asks-jenkins-by-its-slug](../plans/2026-09-24-the-probe-asks-jenkins-by-its-slug.md) — [#968](https://github.com/plot-pm/plot/issues/968). `plot-board-probe.sh` hands the whole `Jenkins instance` value to `jen -I` instead of splitting at the first `/`, reporting a correctly authenticating instance as `auth: failed`. The probe's own `job` field is parsed correctly from the same value, so one value is split two ways in one script.
-- [ ] [the-board-shows-me-only-my-work](../plans/2026-09-24-the-board-shows-me-only-my-work.md) — [#967](https://github.com/plot-pm/plot/issues/967). WAITING ON YOU collects plans, branches, PRs and build states across a dozen verdicts and presents them as one list, while a reader arrives with one of three questions: what should I pick up, what finished, what is broken. Measured on a Bitbucket repository with a clean estate (`drift=0 attention=0`): **18 rows, 2 actionable.**
-- [ ] [two-readers-disagree-about-a-sprint-item](../plans/2026-09-24-two-readers-disagree-about-a-sprint-item.md) — [#966](https://github.com/plot-pm/plot/issues/966). Planned 2026-09-24, and the plan found more than the issue reports: `MEMBER_LINE` (`entry/sprint-transition.ts:64`) requires a second bracket, so a bare item never becomes a `SprintItem` at all, while `plot-sprint-release.sh` matches the checkbox alone and reads the same lines as two open Musts. **Two readers, one file, opposite answers** — and the naive fix keeps 2 of 3 items because bare items collide on an empty dedup key.
 - [ ] [a-broken-caller-is-not-a-hedging-juror](../plans/2026-09-24-a-broken-caller-is-not-a-hedging-juror.md) — [#965](https://github.com/plot-pm/plot/issues/965). `plot-panel.mjs check` given a `|`-separated positions list reports every juror as uncommitted (exit 3) instead of an unusable argument (exit 2), blaming the juror for the caller's mistake. Exit 3 triggers step 4's re-ask, so a broken caller looks like a hedging panel and the re-ask cannot help.
 - [ ] [a-burst-keeps-the-states-that-answered](../plans/2026-09-24-a-burst-keeps-the-states-that-answered.md) — [#970](https://github.com/plot-pm/plot/issues/970). A burst refusal on a Bitbucket host discards rows the host **already answered**: the scan reports `secondary`, every branch falls back to local evidence, and none is offered to `--next`, even where per-state calls succeeded before the refusal. Filed 2026-09-24, after this sprint was drafted. Same class as the four above — a Bitbucket estate of 28 branches in one `pr-list`, which this repository's host never produces.
 - [ ] [the-fleet-sees-a-plan-on-its-own-branch](../plans/2026-09-24-the-fleet-sees-a-plan-on-its-own-branch.md) — [#972](https://github.com/plot-pm/plot/issues/972). A plan created with `Impl: same branch` is read by the Board tab and invisible to the Fleet tab: `board.ts:810` walks every branch's tree, `plot-fleet-scan.sh:122` enumerates from `origin/<main>` only. **The board already does it right**, dedup included.
 - [ ] [a-plan-less-row-is-not-a-nameless-plan](../plans/2026-09-24-a-plan-less-row-is-not-a-nameless-plan.md) — [#973](https://github.com/plot-pm/plot/issues/973). `groupByPlan` keys on `row.plan`, so every plan-less row folds into one group keyed `''`, renders as a nameless `PLAN` head and is counted as a plan — in a section whose hint promises *approved* work. Visible on this repository's board right now.
-- [ ] [adoption-notices-a-stale-default-branch](../plans/2026-09-24-adoption-notices-a-stale-default-branch.md) — [#971](https://github.com/plot-pm/plot/issues/971). The probe reads `origin/HEAD` and never asks the host, so a clone whose default moved reads every plan from the wrong ref while adoption reports it healthy.
-
-- [ ] [a-merged-pr-is-not-asked-for-its-checks](../plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md) — the fleet scan asks GitHub for `statusCheckRollup` on 957 pull requests, of which **920 are merged and 3 are open**. A merged PR's checks cannot change, so the call re-fetches settled CI results every pass. Measured 2026-09-25: **20.8 s with the rollup against 0.6 s asking only the open ones** — 38% of a 54-second scan, and the reason two boards wedged today under a 4-second fleet cadence. Git is 5% of that scan and is deliberately left alone.
 
 ### Should Have
 

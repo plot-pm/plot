@@ -8,7 +8,8 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
-- **Sprint:** plot-works-in-the-repos-that-adopt-it
+- **Sprint:** a-refusal-names-what-it-cannot-see
+- **Rounds:** 1
 
 ## Changelog
 
@@ -88,16 +89,21 @@ Both are already `plot-host.sh pr-list` invocations with existing flags. **No ne
 - The scan requests `statusCheckRollup` for open pull requests only, and a merged PR's row still carries `mergedAt`, `state` and `headRefName`.
 - One scan on this estate is measured **before and after**, and the `pr-list` component falls from ~20 s to ~1 s.
 - A contract test asserts the `all` call does not request the rollup, and the `open` call does.
-- `pr_reliable` degrades on a failure of **either** call, with a test per arm.
-- **No behaviour change in what the scan reports** — the same branches, the same verdicts, the same footer counts, on a fixture with merged and open PRs both present.
+- **A STATE-AWARE stub**, returning rich rows only for `--state open` and plain rows only for `--state all`. Today's shims ignore `--state` entirely (`test/reconcile/fleet.test.mjs:4350,4620`), so they answer rich rows to both calls and would certify a build that had lost every rollup. Without this clause the acceptance criterion is satisfiable by a broken implementation.
+- **An open PR still carries its rollup after the merge** — asserted on the parsed cache line, not on the call shape. This is the failure the dedup produces and no existing test can see.
+- `HOST_VERDICT` is the worse of the two results, with a test per arm. **Exit 7 is not the path to guard on GitHub** — `pr_list_states` is reached only from the Bitbucket arm (`plot-host.sh:3766`), and `:611` says GitHub *"can never reach this shape"*; what must compose is the ordinary non-zero case across two calls.
+- **No behaviour change in what the scan reports** — the same branches, the same verdicts, the same footer counts.
 
 ## Slices
 
 ### The rollup is asked of open PRs only (Branch: bug/the-rollup-is-asked-of-open-prs-only)
 
-- `bug/the-rollup-is-asked-of-open-prs-only` — split `plot-fleet-scan.sh:747` into a `--state open --rich` call and a `--state all` call without `--rich`; merge the two lists by PR number; keep `--limit` and the `--branch` arguments on the `all` call; `pr_reliable` degrades if either fails; contract tests for both arms and for a fixture carrying merged and open PRs
+- `bug/the-rollup-is-asked-of-open-prs-only` — split `plot-fleet-scan.sh:747` into a `--state open --rich` call and a `--state all` call without `--rich`. **Exclude OPEN rows from the plain payload before concatenating**, so each branch contributes exactly one row and the rank-and-dedup at `:877-917` is a no-op rather than a coin flip — the plain row's `-` sentinel otherwise wins at equal rank and deletes every rollup. Keep `--limit` and the `--branch` arguments on the `all` call. `HOST_VERDICT` is **the worse of the two** results, not the last one. Contract tests driven by a **state-aware** stub: rich rows for `--state open`, plain rows for `--state all`, as GitHub answers
 
 ## Notes
+
+- **Panelled 2026-09-25: `amend` (design lens, `Evidence: executed`).** The premise verified LARGER than drafted — the juror measured **31.7 s** for the rich call against the plan's 20.8 s, 6.8 s plain, 2.5 s open-rich — and it traced every reader of `checks` and `draft` to confirm no consumer reads a rollup on a non-open PR. Three amendments, two blocking, all folded in above: the dedup at `:877-917` ranks OPEN-rich and OPEN-plain identically, so `sort` falls back to a whole-line compare and the plain row's `-` wins deterministically in **both** concatenation orders, degrading `--loose` to strict for 100% of open PRs; the contract stubs are state-blind and would pass against exactly that build; and the `exit 7` safeguard guards a Bitbucket-only path on the host the measurement came from. Verdict file: `.plot/panels/a-merged-pr-is-not-asked-for-its-checks/design.md`.
+- **`packages/board/src/server/fleet.ts:2830` is deliberately out of scope.** The board makes its own `pr-list --rich --state all` call and its PR index stores `checks` for every state on purpose (`:2534`, `:2886`) — *"a merged PR is stored exactly as an open one is"*. Narrowing that call would break the store. A later reader optimising "the same call" must not touch it.
 
 - Found while diagnosing two board outages on 2026-09-25. Both were self-starvation rather than crashes: the fleet cadence is 4 s (`App.tsx:30`) and the scan is 54 s, so polls overlap and each forks its own git pile. The board recovered on its own once the machine went quiet, which is the evidence that it was contention rather than a fault.
 - **The operator's first instinct was to reduce git subprocesses, and the measurement refused it.** 81 invocations at 5 ms fork overhead is 2.4 s of 54. The same conversation proposed reading local refs instead of `origin/*` — which saves nothing and breaks correctness, since the scan derives from `origin/<branch>` precisely so an agent's pushed work on another machine is visible.
