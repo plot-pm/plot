@@ -58,6 +58,15 @@ const SPEC = [
     title: 'Canonical plan with sprint, story, and assignee',
     sprint: 'alpha-week', story: 'kanban-board', assignee: 'octocat',
   }],
+  ['canonical-status-assignee.md', {
+    // Both templates offer `## Status` and neither offers `## Approval`.
+    format: 'canonical', phase: 'draft', type: 'bug', assignee: 'octocat',
+  }],
+  ['canonical-assignee-both-sections.md', {
+    // The sections disagree: Approval outranks Status although Status comes
+    // first, so a plan writing both keeps the answer it parsed to before.
+    format: 'canonical', phase: 'approved', assignee: 'from-approval',
+  }],
   ['frontmatter-title-story.md', {
     // Front matter title: wins over the H1; sprint/story/assignee from front matter.
     format: 'frontmatter', phase: 'draft', type: 'docs',
@@ -2354,4 +2363,70 @@ test('plan-meta: the plan templates document `agent:` without declaring it', () 
         `${rel} documents the marker and must not DECLARE one: ${b.branch} parsed agent=${b.agent}`);
     }
   }
+});
+
+const statusPlan = (body) => `# Plan
+
+## Status
+
+- **Phase:** Draft
+- **Type:** docs
+${body}
+`;
+
+test('plan-meta: prose under Status that mentions an assignee is not one', () => {
+  const meta = parseSource(statusPlan('\nThe Assignee: line is filled when somebody takes the plan.'));
+  assert.equal(meta.assignee, '');
+});
+
+test('plan-meta: a fenced assignee example under Status is not one', () => {
+  const meta = parseSource(statusPlan('\n```markdown\n- **Assignee:** fenced-example\n```'));
+  assert.equal(meta.assignee, '');
+});
+
+test('plan-meta: an unfilled assignee placeholder under Status reads as absent', () => {
+  const meta = parseSource(statusPlan('- **Assignee:** <!-- github handle -->'));
+  assert.equal(meta.assignee, '');
+});
+
+test('plan-meta: a placeholder does not claim the Status assignee slot', () => {
+  const meta = parseSource(statusPlan('- **Assignee:** <!-- github handle -->\n- **Assignee:** octocat'));
+  assert.equal(meta.assignee, 'octocat');
+});
+
+test('plan-meta: every plan that writes an assignee parses one (differential)', () => {
+  // A SET COMPARISON, NOT A NUMBER: the estate grows with every plan, so a
+  // literal count fails a correct parser the next time a plan lands. The grep
+  // side reads `- **Assignee:** <value>` in any section, outside fences and
+  // multi-line comments; the parser must answer a value for exactly those files.
+  const plansDir = path.join(repoRoot, 'docs', 'plans');
+  const files = readdirSync(plansDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .map((e) => e.name);
+  assert.ok(files.length > 0, 'the estate has plans to sweep');
+
+  const written = new Set();
+  const parsed = new Set();
+  for (const name of files) {
+    const abs = path.join(plansDir, name);
+    let inFence = false;
+    let inComment = false;
+    for (const line of readFileSync(abs, 'utf8').split('\n')) {
+      if (/^[ \t]*(```|~~~)/.test(line)) { inFence = !inFence; continue; }
+      if (inFence) continue;
+      if (inComment) { if (line.includes('-->')) inComment = false; continue; }
+      if (/^[ \t]*<!--/.test(line) && !line.includes('-->')) { inComment = true; continue; }
+      if (/^- \*\*Assignee:\*\* *\S/.test(line)) { written.add(name); break; }
+    }
+  }
+  // One parser call for the whole estate: it parses many files in one awk pass.
+  const records = execFileSync('bash', [parser, ...files.map((n) => path.join(plansDir, n))],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(records.length, files.length, 'one record per plan');
+  for (const r of records) if (r.assignee !== '') parsed.add(path.basename(r.file));
+  assert.ok(written.size > 0, 'the sweep found assignee lines to compare');
+  const dropped = [...written].filter((n) => !parsed.has(n));
+  const invented = [...parsed].filter((n) => !written.has(n));
+  assert.deepEqual(dropped, [], 'plans writing an assignee the parser drops');
+  assert.deepEqual(invented, [], 'plans the parser gives an assignee they do not write');
 });
