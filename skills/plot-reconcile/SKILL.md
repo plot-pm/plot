@@ -80,7 +80,7 @@ Run the scanner (it lives in the plot skill's `scripts/` directory, next to the 
 ../plot/scripts/plot-reconcile-scan.sh --offline  # no network at all (skips fetch + git-host pr list)
 ```
 
-It reads `origin/*` refs, the configured plan directory and the repository's worktrees, and emits nineteen sections, each finding carrying its exact remediating command as copy-paste text. The ones an operator acts on most often:
+It reads `origin/*` refs, the configured plan directory and the repository's worktrees, and emits twenty-three sections, each finding carrying its exact remediating command as copy-paste text. The ones an operator acts on most often:
 
 1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode.
 2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Slices` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
@@ -181,7 +181,7 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
 ```
-summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 pr_source=gh main=main
+summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 pr_source=gh main=main
 ```
 
 `uncut_slices` is the count from section 7 — slices carrying more than one
@@ -196,6 +196,22 @@ the plan, and a cosmetic name must not gate a delivery.
 `index_drift` is the convenience count from section 9. It is reported so the
 gap is visible, and it must never be read as a blocker: `attention=0` with
 `index_drift=2` is a healthy estate with two stale browsing links.
+
+`open_issues` is the count from the open-issue section — a plan at Delivered or
+Released whose `Issue:` field names a ticket the tracker still reports as open.
+Measured 2026-09-24: a plan released in 2.19.0 left its issue open for five
+days, and a person reading a sprint sweep was the only thing that noticed.
+Non-blocking for a reason the others do not share: a tracker is a **copy** of
+Plot's state, so an open ticket must never stop a delivery. It stays out of
+`attention=` like the rest.
+
+**Absence is not a closed issue.** The section asks the tracker once for its
+open issues and tests membership, so an issue outside the returned window is
+absent for a reason that has nothing to do with its state. The window is
+printed; when it is full, the section says what it may have missed. A tracker
+that cannot be asked, or a failed question, prints `(not evaluated — …)` and
+never `(none)` — and on a Jira tracker it refuses outright, because a plan's
+`Issue: #N` number can never match a Jira key.
 
 `double_claims` is the count from section 12 — branches listed by more than one
 plan, each finding naming both plans and the wave each lists it under. Only
