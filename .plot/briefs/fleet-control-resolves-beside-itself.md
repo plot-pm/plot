@@ -65,6 +65,10 @@ This branch owns: `skills/plot/scripts/plot-fleetctl.sh`, `test/reconcile/fleetc
 
 Out of scope: `plot-board-probe.sh`, `plot-boardctl.sh`, `plot-pr-merged.sh` (read them, do not change them), and every other `$repo_root` in `plot-fleetctl.sh`.
 
-Verified at dispatch (2026-09-24): no other remote branch touches `plot-fleetctl.sh`, its test, `scripts/check-*.sh` or `.github/workflows/ci.yml`. `ci.yml` is a shared hotspot, so rebase before opening the PR.
+Verified 2026-09-25 against `origin/main` at `73f6ad790`. The line numbers above still hold after #977 (`d1742c68e`, *the unload is verified to a bound*), which changed `--stop` only.
+
+**One branch in flight collides by file:** `bug/the-board-shows-the-tick-age` (plan `2026-09-24-a-supervisor-that-stopped-ticking-is-not-running`) edits `plot-fleetctl.sh` and `test/reconcile/fleetctl.test.mjs`. Its hunks sit in `supervisor_pid()` (`:151`) and the `--status` block (`:376`, `:482`). They do not touch `:89`, `:110` or `:505-593`. If it merges first, every line number in this brief moves down by about 19. Find the lines by content (`registryd=`, `pinned_major`, `no supervisor artifact`, `__REGISTRYD__`) and not by number. Both branches add tests to the same file, so expect a textual conflict at the end of `fleetctl.test.mjs` and keep both sides.
+
+No other remote branch touches `scripts/check-*.sh` or `.github/workflows/ci.yml`. `ci.yml` is a shared hotspot, so rebase before opening the PR.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
