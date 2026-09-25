@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
 - **Started:** 2026-09-24, Jan Wloka (claude session), `bug/the-status-says-when-it-last-ticked`
+- **Delivered:** 2026-09-25
 
 ## Changelog
 
