@@ -122,9 +122,9 @@ That sentence is correct under both arms and guesses nothing.
 
 - `bug/the-installer-writes-a-path-that-runs` — `--verify` tests the path the installer WROTE rather than the script beside itself (`gate_path()`, `:191-195`), so an entry pointing at a missing script reports **unverified**; where the written path is absent the installer names both readings rather than choosing one. **No plugin detection** — the signal is absent and a wrong guess leaves a vendored repository ungated. Tests: the vendored arm unchanged, and a settings entry at a missing path reporting unverified, which all five existing `--verify` tests miss because `repoWithGates()` always copies the gates into place
 
-### A refusal names a command that exists (Branch: bug/a-refusal-names-a-command-that-exists)
+### A refusal names a command that exists (Branch: bug/a-refusal-names-a-command-that-exists, PR: #996)
 
-- `bug/a-refusal-names-a-command-that-exists` — `plot-controller-gate.sh:232` builds the escape command from `HERE` (`:187`) — **not `$script_dir`, which does not exist in that file**; a test asserts the printed path resolves to a real file from a checkout whose layout differs from the caller's
+- `bug/a-refusal-names-a-command-that-exists` — `plot-controller-gate.sh:232` builds the escape command from `HERE` (`:187`) — **not `$script_dir`, which does not exist in that file**; a test asserts the printed path resolves to a real file from a checkout whose layout differs from the caller's → #996
 
 ## Notes
 
