@@ -119,6 +119,10 @@ export const treesGit = (context: ShellContext): Trees => {
     currentBranch: (path) =>
       runScript('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
 
+    // `git config` exits 1 for an unset key, which is the `failed` answer.
+    userEmail: (path) =>
+      runScript('git', ['-C', path, 'config', '--get', 'user.email'], asText, inRepo),
+
     markers: (path, prefix) =>
       runScript(
         'bash',

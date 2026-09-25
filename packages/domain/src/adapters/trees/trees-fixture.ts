@@ -52,6 +52,11 @@ export interface TreesFixture {
    */
   branches?: Readonly<Record<string, string>>;
   /**
+   * The `user.email` each checkout reports, keyed by path. A path absent from
+   * the table has none configured, which `userEmail` answers as `failed`.
+   */
+  emails?: Readonly<Record<string, string>>;
+  /**
    * What each checkout reports as changed, keyed by path.
    *
    * The porcelain text verbatim, so a caller comparing two readings can see a
@@ -119,6 +124,11 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     currentBranch: async (path) => {
       const branch = branches[path];
       return branch === undefined ? failed<string>() : answered(branch);
+    },
+
+    userEmail: async (path) => {
+      const email = fixture.emails?.[path];
+      return email === undefined ? failed<string>() : answered(email);
     },
 
     // Both writes SUCCEED and change nothing. A fixture holds no git records to

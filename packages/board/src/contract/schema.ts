@@ -1016,6 +1016,21 @@ export const ServerInfoSchema = z.object({
    */
   branch: z.string().default(''),
   /**
+   * The git host user this machine is signed in as, e.g. `jwloka` — read from
+   * the host CLI's config through `plot-host.sh account`.
+   *
+   * `''` where the host names nobody for free: an unreadable `hosts.yml`, and
+   * every Bitbucket repository, whose one free reading is the workspace. Never
+   * the literal `unknown`, which would read as a login that matches nothing.
+   */
+  hostUser: z.string().default(''),
+  /**
+   * The `user.email` git commits under in this server's checkout. It travels
+   * beside {@link hostUser} because the two spell one person two ways, and
+   * each matches a different kind of row. `''` where git has none configured.
+   */
+  gitEmail: z.string().default(''),
+  /**
    * The repository this server is serving — the root it resolves plans, scripts
    * and worktrees against.
    *
@@ -1047,7 +1062,15 @@ export const BoardSchema = z.object({
   /** See DispatchInfoSchema — a server capability, not plan data. */
   dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
   /** See ServerInfoSchema — how to start this server again, and where it is. */
-  server: ServerInfoSchema.default({ restartCommand: '', port: 0, branch: '', repo: '', ci: '' }),
+  server: ServerInfoSchema.default({
+    restartCommand: '',
+    port: 0,
+    branch: '',
+    hostUser: '',
+    gitEmail: '',
+    repo: '',
+    ci: '',
+  }),
   /**
    * Whether the server will act on an Approve click, and why not.
    *

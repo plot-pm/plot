@@ -142,6 +142,17 @@ export interface Host {
   backend(): Promise<PortResult<HostBackend>>;
 
   /**
+   * Names the host user this machine is signed in as.
+   *
+   * Read from the host CLI's own configuration, so asking costs no request.
+   *
+   * @returns the user's login. `failed` where the configuration names no user;
+   *   `unaskable` where this host stores none that can be read without a
+   *   request. Never the word `unknown`, and never a workspace or owner name.
+   */
+  account(): Promise<PortResult<string>>;
+
+  /**
    * Reads one PR, by number or by branch.
    *
    * @param ref - a PR number, or the branch a PR would belong to.

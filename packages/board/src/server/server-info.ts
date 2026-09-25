@@ -1,4 +1,4 @@
-import { planStoreFor, treesFor } from './board.js';
+import { hostFor, planStoreFor, treesFor } from './board.js';
 import type { BuildBoardOptions } from './board.js';
 import type { ServerInfo } from '../contract/schema.js';
 
@@ -164,6 +164,45 @@ const ciSystem = async (opts: BuildBoardOptions): Promise<string> => {
   return cachedCi;
 };
 
+/** Who is reading this board: the host user and git's email, `''` where absent. */
+interface Identity {
+  hostUser: string;
+  gitEmail: string;
+}
+
+let cachedIdentity: Identity | null = null;
+let identityAt = 0;
+
+/**
+ * How long an identity reading stands. `plot-host.sh` is a bash process, and
+ * `/api/board` is polled every few seconds. A `gh auth switch` shows up within
+ * a minute.
+ */
+const IDENTITY_TTL_MS = 60_000;
+
+/**
+ * Who is reading, asked through the host and trees adapters.
+ *
+ * Each reading that does not answer is `''`, never a placeholder word. The
+ * rule that consumes it shows a row whose owner cannot be determined, and it
+ * needs an honest empty value to test on.
+ */
+const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
+  const now = Date.now();
+  if (cachedIdentity === null || now - identityAt > IDENTITY_TTL_MS) {
+    const [user, email] = await Promise.all([
+      hostFor(opts).account(),
+      treesFor(opts).userEmail(opts.repoRoot),
+    ]);
+    cachedIdentity = {
+      hostUser: user.ok ? user.value : '',
+      gitEmail: email.ok ? email.value : '',
+    };
+    identityAt = now;
+  }
+  return cachedIdentity;
+};
+
 /**
  * Assemble the server's self-description for the board payload.
  *
@@ -179,10 +218,11 @@ export async function serverInfo(
   // be synchronous spawns on the `/api/board` path, which is the defect this
   // migration exists for: a synchronous spawn cannot yield, so the loop served
   // nothing while either ran.
-  const [restartCommand, branch, ci] = await Promise.all([
+  const [restartCommand, branch, ci, who] = await Promise.all([
     readConfig(opts, BOARD_COMMAND_KEY, NO_COMMAND),
     currentBranch(opts),
     ciSystem(opts),
+    identity(opts),
   ]);
   return {
     restartCommand,
@@ -190,6 +230,10 @@ export async function serverInfo(
     // Memoised on a 5 s TTL. Empty for a detached HEAD or an unreadable repo,
     // which the header renders as no element rather than a fabricated name.
     branch,
+    // Both identities travel: they spell one person two ways, and each matches
+    // a different kind of row. Memoised on a 60 s TTL.
+    hostUser: who.hostUser,
+    gitEmail: who.gitEmail,
     // A STARTUP FACT, like `branch`, and already resolved before the first
     // response — `repoRoot` is what every helper spawn is measured against, so
     // this reports a value the server already holds rather than computing one.

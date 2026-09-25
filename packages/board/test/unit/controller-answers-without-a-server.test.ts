@@ -107,7 +107,7 @@ describe('the controller answers without a server', () => {
       // the repository's config — so the controller, which never saw a socket
       // and never read a key, has nothing to say about it either.
       assert.deepEqual(
-        answer.server, { restartCommand: '', port: 0, branch: '', repo: '', ci: '' },
+        answer.server, { restartCommand: '', port: 0, branch: '', hostUser: '', gitEmail: '', repo: '', ci: '' },
         'the controller names no binding',
       );
     } finally {
