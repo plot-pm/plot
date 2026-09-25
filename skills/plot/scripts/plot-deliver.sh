@@ -5,7 +5,10 @@
 #   --who       the name recorded in the `Delivered:` line (default: git user.name)
 #   <slug>      the plan to deliver
 # Output: one `step:` line per step, then a machine-countable summary:
-#             summary: phase=flipped record=written index=moved sprint=updated push=clean
+#             summary: phase=flipped record=written index=moved sprint=updated push=clean tracker=none
+#         `tracker=` is plot-issue-status.sh's outcome (none|written|no-target|
+#         unaskable|failed), or `skipped` when the push was rejected. It never
+#         changes the exit code: a failed status write is reported, not raised.
 #         Exit 0 when the plan is Delivered on the default branch (whether this
 #         run did the work or found it already done); 1 on a refusal or a
 #         failure, with the reason on stderr.
@@ -654,6 +657,12 @@ git -C "$tmpwt" add -- "${ACTIVE_DIR#/}" >/dev/null 2>&1 || true
 git -C "$tmpwt" add -- "${DELIVERED_DIR#/}" >/dev/null 2>&1 || true
 [ "$sprint_report" = "updated" ] && git -C "$tmpwt" add -- "${SPRINT_DIR#/}" >/dev/null 2>&1
 
+# THE BOOKED PLAN, KEPT FOR THE TRACKER. The booking worktree is removed on
+# every exit below, and the working tree may still read `Approved`; the issue
+# status is decided from the file that reached the default branch.
+booked_plan=$(mktemp "${TMPDIR:-/tmp}/plot-deliver-plan.XXXXXX")
+cp "$tmpwt/$rel" "$booked_plan" 2>/dev/null || : > "$booked_plan"
+
 if git -C "$tmpwt" diff --cached --quiet 2>/dev/null; then
   # THE IDEMPOTENT EXIT. Everything this run would have written was already
   # on the default branch, so there is nothing to push and nothing wrong.
@@ -694,13 +703,25 @@ else
       echo "plot-deliver: the delivery is committed on '$bookbr' but could not reach $MAIN." >&2
       echo "  Land '$bookbr' by hand, or re-run this command once the push works." >&2
       git worktree remove --force "$tmpwt" >/dev/null 2>&1 || true
-      echo "summary: phase=$phase_report record=$record_report index=$index_report sprint=$sprint_report push=$push_report"
+      rm -f "$booked_plan"
+      # NOTHING REACHED THE DEFAULT BRANCH, so no status is owed yet.
+      echo "summary: phase=$phase_report record=$record_report index=$index_report sprint=$sprint_report push=$push_report tracker=skipped"
       exit 1
     fi
   fi
 fi
 
-echo "summary: phase=$phase_report record=$record_report index=$index_report sprint=$sprint_report push=$push_report"
+# THE TRACKER HEARS AFTER THE DELIVERY LANDED, and never decides it. The plan is
+# delivered; the tracker holds a copy of one fact about it. Every outcome of
+# plot-issue-status.sh, a failed write and an unreadable bundle included, is a
+# report on the summary line and leaves this script's exit code alone.
+tracker_out=$(bash "$script_dir/plot-issue-status.sh" "$booked_plan" 2>&1)
+printf '%s\n' "$tracker_out" | grep -v '^summary: ' | sed '/^$/d; s/^/  tracker: /'
+tracker_report=$(printf '%s' "$tracker_out" | sed -n 's/^summary: tracker=\([a-z-]*\).*/\1/p' | tail -1)
+[ -n "$tracker_report" ] || tracker_report="failed"
+rm -f "$booked_plan"
+
+echo "summary: phase=$phase_report record=$record_report index=$index_report sprint=$sprint_report push=$push_report tracker=$tracker_report"
 # THE RECEIPT IS SPENT HERE, on the action COMPLETING — never at the gate.
 # `plot-controller-gate.sh` clears on a receipt and LEAVES it, so an
 # interrupted run can be repeated on the same licence: this script documents

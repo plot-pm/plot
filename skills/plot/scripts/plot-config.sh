@@ -95,6 +95,16 @@
 #   Hosts plans         yes | no                      (no = refuse plan files)
 #   Tracker             plot | jira | github-issues | linear  (+ URL)
 #                       (plot = plans in this repo ARE the tracker; absent = same)
+#   Tracker delivered status
+#                       the status word a plan's issues are set to when the plan
+#                       reaches Delivered, in the tracker's own vocabulary
+#                       (`In Review`, `Done`). Read by plot-issue-status.sh.
+#                       Absent or empty = Delivered writes nothing — never an
+#                       empty status, and never the released word instead.
+#   Tracker released status
+#                       the same for Released. A team whose *Done* means
+#                       *shipped* sets only this one; a team watching progress
+#                       sets both.
 #   Ticket prefixes     the tracker project keys this repository's work lives
 #                       in, comma-separated (`PROJ-A, PROJ-B`). NOT
 #                       `Branch prefixes`, which sits next to it and holds

@@ -39,8 +39,15 @@ export interface TrackerConfig {
  * exists to refuse.
  */
 export interface StatusWrite {
-  /** The pull request the status is about, as its address. */
+  /** The pull request the status is about, as its address; `''` where there is none. */
   prUrl: string;
+  /**
+   * The issue the status is about, where the caller knows it — a plan's
+   * `Issue:` line. A connector whose subject is an issue reads this before it
+   * reads `prUrl`; one whose subject is a pull request answers `no-target`
+   * where `prUrl` is empty.
+   */
+  issue?: string;
   /** The status to record, in the tracker's own vocabulary. */
   status: string;
 }

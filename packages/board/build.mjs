@@ -329,6 +329,29 @@ await esbuild.build({
 fs.copyFileSync(panelArtifact, shippedPanel);
 fs.chmodSync(shippedPanel, 0o755);
 
+// A finished plan's issue status, for plot-deliver.sh and /plot-release.
+//
+// Its own artifact: plot-transition.mjs spawns nothing, and this spawns
+// plot-host.sh through the tracker connector; plot-ask.mjs runs the fleet scan
+// to answer anything at all.
+const issueStatusArtifact = path.join(here, 'dist/plot-issue-status.mjs');
+const shippedIssueStatus = path.join(here, '../../skills/plot/scripts/board/plot-issue-status.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/issue-status.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: issueStatusArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(issueStatusArtifact, shippedIssueStatus);
+fs.chmodSync(shippedIssueStatus, 0o755);
+
 // The agent state, for the callers already in node.
 //
 // The same reason the seventh gives, and it is NOT on the hot path the seventh
@@ -921,6 +944,7 @@ const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
 const sliceSpendKb = (fs.statSync(shippedSliceSpend).size / 1024).toFixed(1);
 const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
+const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -944,4 +968,5 @@ console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/
 console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-spend.mjs (${sliceSpendKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
