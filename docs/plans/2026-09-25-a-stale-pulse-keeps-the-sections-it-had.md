@@ -130,7 +130,7 @@ The classification already happens in one place per row, and the last successful
 
 ## Slices
 
-### A failed scan keeps the last sections (Branch: bug/a-failed-scan-keeps-the-last-sections)
+### A failed scan keeps the last sections (Branch: bug/a-failed-scan-keeps-the-last-sections, PR: #999)
 
 - `bug/a-failed-scan-keeps-the-last-sections` — carry each row's section forward from the last successful pulse when the current scan failed or timed out, rather than re-deriving it; a row unseen by that pulse renders unplaced and never in a section; `coldState`'s never-scanned arm unchanged; tests for the carried-forward case, the unplaced case, the #995 reproduction, and an unchanged successful scan
 
