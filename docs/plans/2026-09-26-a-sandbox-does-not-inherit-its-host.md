@@ -81,34 +81,15 @@ CLAUDE.md's *Gates Over Rules*: **can you answer "did I do this?" without doing 
 
 So the slice adds a gate as well: **a contract test asserting the registry is unchanged across the suite**, or an assertion in the shared helper that no manifest was written outside the sandbox. Which shape is the slice's to choose, but *"every test remembers"* is not a fix.
 
-### The second half: a manifest with no desk is swept
-
-**Nothing reaps a manifest whose desk never existed, and that is structural rather than an oversight.** `sweepable.ts:185-186` defines the manifest as an ATTRIBUTE of a worktree — *"the registry manifest naming it, or `''` when none does"* — used to decide **ownership**: a tree with a manifest belongs to someone, so leave it. `plot-reap.sh:130` then clears the manifest *with* the tree, worktree first and manifest second.
-
-So a manifest is reachable only by walking from a tree. One whose desk was a temp directory that has since vanished is **in no population at all**.
-
-The reaper does promise a sweep — *"a failure between them this way round leaves an orphaned manifest, which the sweep below clears on the next run"* (`:133-134`). Read the condition: that is a manifest orphaned **mid-reap**, where the tree was there a moment ago. The promise holds for its own failure mode and was never about a manifest that arrived without a tree.
-
-**So the sweep gains a fourth kind**, beside local branch, claim ref and log. `plot-reap.sh:84-85` sets the standard: *"a backstop that guesses is worse than none. Each new kind brings its own gate instead, in `rules/sweepable.ts`."*
-
-The gate, two measurements and no judgement:
-
-- the manifest's desk path **does not exist**, and
-- its recorded pid **is not running**.
-
-Both are readings. Neither infers intent, which is what the existing five refusals are careful about — and it is strictly narrower than they are, since a manifest naming a live desk or a live pid is untouched.
-
-**Why this belongs in the same plan as the env fix:** they are prevention and containment of one defect. The first stops the leak; the second bounds it, and bounds the next cause too. Their files are disjoint and neither waits on the other, so the env fix can merge first.
-
 ### What this does NOT do
 
 - **It does not change `plot-config.sh`'s precedence.** That is deliberate, argued and measured; reverting it would restore 21 git spawns per board build.
 - It does not change `plot-dispatch.sh`, which resolves correctly.
-- It does not reap the manifests already leaked. They were cleared by hand on 2026-09-25 and a reaper for them is a separate question — though worth noting: **nothing reaps a manifest whose desk is gone**, because the supervisor reaps desks.
+- It does not reap the manifests already leaked. They were cleared by hand on 2026-09-25 and a reaper for them is a separate question. `plot-reap.sh:690-718` already sweeps a manifest whose recorded worktree is gone, and has since #474 on 2026-08-27.
 
 ### Open questions
 
-- [x] **Should the registry refuse a manifest whose desk does not exist?** **Answered: yes, as slice 2.** It bounds this cause and the next one, and the gate is two measurements rather than a judgement.
+- [ ] **Should the registry refuse a manifest whose desk does not exist at CREATION?** An earlier answer said yes and made it slice 2; that answer rested on a refuted premise, since `plot-reap.sh:690-718` already sweeps such a manifest after the fact. Refusing to create one is a different question and remains open.
 - [ ] **How many of the other 91 tests are exposed?** Only the four measured write manifests, but any test reading a config key in a sandbox has the same hazard, and the two that scrub found it independently.
 
 ## Done when
@@ -116,8 +97,6 @@ Both are readings. Neither infers intent, which is what the existing five refusa
 - The four sites scrub `PLOT_REPO_ROOT`, and a run with it exported writes no manifest into the host registry — **asserted with the variable deliberately set**, since that is the only condition under which the bug appears.
 - A gate catches a future test that forgets: the suite fails if it leaves the host registry changed.
 - `plot-config.sh` is untouched.
-- A manifest whose desk path is absent **and** whose pid is not running is swept, reported per entry like the other kinds. A manifest naming a live desk, or a live pid, is untouched — asserted in both directions.
-- The five existing refusals are unchanged, and the new kind carries its own gate in `rules/sweepable.ts` rather than widening any of them.
 - The two tests that already scrub keep passing unchanged.
 
 ## Slices
@@ -126,11 +105,11 @@ Both are readings. Neither infers intent, which is what the existing five refusa
 
 - `bug/a-sandboxed-test-scrubs-the-hosts-root` — `delete env.PLOT_REPO_ROOT` at the four sites in `dispatch.test.mjs` and `restart.test.mjs`, following `approve-record-outside-comments.test.mjs:125`; a regression test that exports the variable and asserts no manifest reaches the host registry; a gate failing the suite if the host registry changes across a run
 
-### A manifest with no desk is swept (Branch: bug/a-manifest-with-no-desk-is-swept)
-
-- `bug/a-manifest-with-no-desk-is-swept` — a fourth sweep kind in `rules/sweepable.ts`, gated on two measurements: the manifest's desk path does not exist AND its pid is not running. Reported per entry as the other kinds are; `--dry-run` by default like the reaper. The five existing refusals untouched, and tests for a live desk, a live pid, and the orphan — the case measured 19 times on 2026-09-25
-
 ## Notes
+
+- **Panelled 2026-09-26: slice 2 `reject`, `Evidence: executed`.** **The sweep it proposed already exists.** `plot-reap.sh:690-718` loops the registry, tests `[ -d "$mwt" ] && continue` and removes the rest — landed in `923720c79` (#474) on **2026-08-27**, a month before this plan. Its comment names the same population: *"seven of them, measured 2026-08-26."* It is also **better than the proposed gate**: it needs only the absent desk, because *"nothing runs in a directory that does not exist"*, where the plan demanded a redundant liveness check that would have made the sweep narrower. Verdict: `.plot/panels/a-sandbox-does-not-inherit-its-host/slice2.md`.
+- **The 19 manifests were clearable all along.** `plot-reap.sh:690-718` matches on a recorded worktree path that is not a directory, which every one of them satisfied. They accumulated because nobody ran the reaper, not because nothing could clear them — so the leak's cost is a noisy board between reaps rather than an unbounded registry. **That lowers the severity and does not remove the defect**: a suite should not write into the host's registry at all.
+- **A FOURTH wrong reading of this defect**, recorded beside the other three: that nothing sweeps an orphaned manifest. Every one of the four was a plausible next guess, and every one was settled by reading the code rather than by argument.
 
 - Found by an operator reading two agents sharing a desk named `feature/stopped` and asking what they were. Neither existed: dead pids, deleted temp desks, and a branch present nowhere.
 - **Three readings of this defect were wrong before the reproduction settled it**, and the plan records them because each is a plausible next guess: that the e2e suite was the source (it is `test/reconcile/`, which runs routinely); that this repository's absolute `Agent registry` escapes the sandbox (the tests declare no such key, and the default is relative); and that a relative path resolves against the cwd (`plot-dispatch.sh:1123-1126` roots it at `$repo_root`). Only an inherited `PLOT_REPO_ROOT` produces it.
