@@ -64,7 +64,7 @@ So the fix widens the sections, it does not remove the anchor: **the field is re
 
 ## Slices
 
-### The assignee is read in Status too (Branch: bug/the-assignee-is-read-in-status-too)
+### The assignee is read in Status too (Branch: bug/the-assignee-is-read-in-status-too, PR: #987)
 
 - `bug/the-assignee-is-read-in-status-too` — widen the section gate to `## Status` and `## Approval`, keeping the list-item anchor; contract tests for both sections, for prose, and for a fenced example; assert the parsed count matches the grep across the whole estate
 
