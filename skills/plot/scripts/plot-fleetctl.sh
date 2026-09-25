@@ -375,6 +375,12 @@ if [ "$mode" = "status" ]; then
   elif [ "$sup_loaded" = 0 ] && [ -n "$sup_pid" ]; then
     install_state=running
     echo "supervisor: running (pid $sup_pid) — $LABEL"
+    # A pid is not a tick: measured 2026-09-23, this arm printed `running`
+    # over a 25-hour-old log. The age is evidence and the state word stays.
+    tick_age=$(tick_age_seconds)
+    if [ -n "$tick_age" ]; then
+      echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
+    fi
   elif [ "$sup_loaded" = 0 ]; then
     # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
     # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`
