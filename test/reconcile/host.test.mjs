@@ -481,7 +481,8 @@ test('host: pr-list bitbucket flattens to number/title/state/head', () => {
     bbJson: '[{"id":3,"title":"A","state":"OPEN","source":{"branch":{"name":"feature/a"}}}]',
   });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
-  assert.deepEqual(out, { number: 3, title: 'A', state: 'OPEN', head: 'feature/a' });
+  // `author` is `""` where the host names none; this payload carries no author.
+  assert.deepEqual(out, { number: 3, title: 'A', state: 'OPEN', head: 'feature/a', author: '' });
   assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'list', '--state', 'open', '--json']);
 });
 
@@ -717,7 +718,8 @@ test('host: pr-list without --rich is unchanged', () => {
   // The board is a new consumer; every existing caller must be untouched.
   const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]') });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
-  assert.deepEqual(Object.keys(out).sort(), ['head', 'number', 'state', 'title']);
+  // One field is added, `author`, which the domain's `Host.prList` reads.
+  assert.deepEqual(Object.keys(out).sort(), ['author', 'head', 'number', 'state', 'title']);
 });
 
 test('host: pr-list --rich names WHICH checks failed', () => {
