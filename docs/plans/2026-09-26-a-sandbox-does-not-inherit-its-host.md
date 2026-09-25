@@ -81,6 +81,25 @@ CLAUDE.md's *Gates Over Rules*: **can you answer "did I do this?" without doing 
 
 So the slice adds a gate as well: **a contract test asserting the registry is unchanged across the suite**, or an assertion in the shared helper that no manifest was written outside the sandbox. Which shape is the slice's to choose, but *"every test remembers"* is not a fix.
 
+### The second half: a manifest with no desk is swept
+
+**Nothing reaps a manifest whose desk never existed, and that is structural rather than an oversight.** `sweepable.ts:185-186` defines the manifest as an ATTRIBUTE of a worktree — *"the registry manifest naming it, or `''` when none does"* — used to decide **ownership**: a tree with a manifest belongs to someone, so leave it. `plot-reap.sh:130` then clears the manifest *with* the tree, worktree first and manifest second.
+
+So a manifest is reachable only by walking from a tree. One whose desk was a temp directory that has since vanished is **in no population at all**.
+
+The reaper does promise a sweep — *"a failure between them this way round leaves an orphaned manifest, which the sweep below clears on the next run"* (`:133-134`). Read the condition: that is a manifest orphaned **mid-reap**, where the tree was there a moment ago. The promise holds for its own failure mode and was never about a manifest that arrived without a tree.
+
+**So the sweep gains a fourth kind**, beside local branch, claim ref and log. `plot-reap.sh:84-85` sets the standard: *"a backstop that guesses is worse than none. Each new kind brings its own gate instead, in `rules/sweepable.ts`."*
+
+The gate, two measurements and no judgement:
+
+- the manifest's desk path **does not exist**, and
+- its recorded pid **is not running**.
+
+Both are readings. Neither infers intent, which is what the existing five refusals are careful about — and it is strictly narrower than they are, since a manifest naming a live desk or a live pid is untouched.
+
+**Why this belongs in the same plan as the env fix:** they are prevention and containment of one defect. The first stops the leak; the second bounds it, and bounds the next cause too. Their files are disjoint and neither waits on the other, so the env fix can merge first.
+
 ### What this does NOT do
 
 - **It does not change `plot-config.sh`'s precedence.** That is deliberate, argued and measured; reverting it would restore 21 git spawns per board build.
@@ -89,7 +108,7 @@ So the slice adds a gate as well: **a contract test asserting the registry is un
 
 ### Open questions
 
-- [ ] **Should the registry refuse a manifest whose desk does not exist?** It would have bounded this regardless of the env, and bounds the next cause too. Orthogonal to the fix here, and a better safety net than either.
+- [x] **Should the registry refuse a manifest whose desk does not exist?** **Answered: yes, as slice 2.** It bounds this cause and the next one, and the gate is two measurements rather than a judgement.
 - [ ] **How many of the other 91 tests are exposed?** Only the four measured write manifests, but any test reading a config key in a sandbox has the same hazard, and the two that scrub found it independently.
 
 ## Done when
@@ -97,6 +116,8 @@ So the slice adds a gate as well: **a contract test asserting the registry is un
 - The four sites scrub `PLOT_REPO_ROOT`, and a run with it exported writes no manifest into the host registry — **asserted with the variable deliberately set**, since that is the only condition under which the bug appears.
 - A gate catches a future test that forgets: the suite fails if it leaves the host registry changed.
 - `plot-config.sh` is untouched.
+- A manifest whose desk path is absent **and** whose pid is not running is swept, reported per entry like the other kinds. A manifest naming a live desk, or a live pid, is untouched — asserted in both directions.
+- The five existing refusals are unchanged, and the new kind carries its own gate in `rules/sweepable.ts` rather than widening any of them.
 - The two tests that already scrub keep passing unchanged.
 
 ## Slices
@@ -104,6 +125,10 @@ So the slice adds a gate as well: **a contract test asserting the registry is un
 ### A sandboxed test scrubs the host's root (Branch: bug/a-sandboxed-test-scrubs-the-hosts-root)
 
 - `bug/a-sandboxed-test-scrubs-the-hosts-root` — `delete env.PLOT_REPO_ROOT` at the four sites in `dispatch.test.mjs` and `restart.test.mjs`, following `approve-record-outside-comments.test.mjs:125`; a regression test that exports the variable and asserts no manifest reaches the host registry; a gate failing the suite if the host registry changes across a run
+
+### A manifest with no desk is swept (Branch: bug/a-manifest-with-no-desk-is-swept)
+
+- `bug/a-manifest-with-no-desk-is-swept` — a fourth sweep kind in `rules/sweepable.ts`, gated on two measurements: the manifest's desk path does not exist AND its pid is not running. Reported per entry as the other kinds are; `--dry-run` by default like the reaper. The five existing refusals untouched, and tests for a live desk, a live pid, and the orphan — the case measured 19 times on 2026-09-25
 
 ## Notes
 
