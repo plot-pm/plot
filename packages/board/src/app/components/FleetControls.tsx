@@ -342,6 +342,9 @@ export function WorkingCounts({
  * an eligible slice untaken, and this exact sentence in a grey chip a person
  * read for an hour without acting.
  *
+ * `warn` — a running fleet whose last tick is stale — is amber and prints its
+ * detail, because the label alone does not say what to do.
+ *
  * `note` — the `unknown` state — is deliberately NOT amber: a board that could
  * not ask must render neither an alarm nor an all-clear. Promoting it would
  * train the operator to dismiss the alert that matters.
@@ -386,7 +389,11 @@ export function FleetAlert({ supervisor }: { supervisor?: Supervisor }) {
         was written from is exactly the case where the reader needed the
         sentence rather than the word.
       */}
-      {loud && <span data-fleet-supervisor-detail className="font-normal">{supervisor.detail}</span>}
+      {(loud || supervisor.prominence === 'warn') && (
+        <span data-fleet-supervisor-detail className="font-normal">
+          {supervisor.detail}
+        </span>
+      )}
     </div>
   );
 }

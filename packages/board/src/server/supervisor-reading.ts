@@ -84,22 +84,45 @@ const SUMMARY_PREFIX = 'summary:';
 const INSTALL_PREFIX = 'install=';
 
 /**
- * Reads the install state off the `summary:` line, or nothing.
+ * The field `--status` appends to its summary line in the running arm: seconds
+ * since the supervisor last wrote its log. The script omits it when no log
+ * exists, and older scripts never print it.
+ */
+const TICK_AGE_PREFIX = 'tick_age=';
+
+/**
+ * Reads one `key=value` field off the `summary:` line, or nothing.
  *
  * SCANNED ON THE SUMMARY LINE ITSELF rather than anywhere in stdout, because
- * the prose arms above it print words like `installed` in sentences. Matching
- * `install=` loose in the buffer would read a state out of an explanation.
+ * the prose arms above it print words like `installed` and `last tick:` in
+ * sentences. Matching a field loose in the buffer would read a value out of an
+ * explanation.
  *
  * @param stdout - everything the run printed.
- * @returns the state word, or undefined where the script printed none.
+ * @param prefix - the field name with its `=`.
+ * @returns the value, or undefined where the script printed none or an empty one.
  */
-const installState = (stdout: string): string | undefined => {
+const summaryField = (stdout: string, prefix: string): string | undefined => {
   const line = stdout.split('\n').find((l) => l.startsWith(SUMMARY_PREFIX));
   if (line === undefined) return undefined;
-  const field = line.split(/\s+/).find((w) => w.startsWith(INSTALL_PREFIX));
+  const field = line.split(/\s+/).find((w) => w.startsWith(prefix));
   if (field === undefined) return undefined;
-  const value = field.slice(INSTALL_PREFIX.length);
+  const value = field.slice(prefix.length);
   return value === '' ? undefined : value;
+};
+
+/**
+ * Reads the tick age off the `summary:` line, or nothing.
+ *
+ * An empty or non-numeric value is absent, never 0: a zero would read as a
+ * fresh tick the script never reported.
+ *
+ * @param stdout - everything the run printed.
+ * @returns the age in seconds, or undefined.
+ */
+const tickAge = (stdout: string): number | undefined => {
+  const value = summaryField(stdout, TICK_AGE_PREFIX);
+  return value !== undefined && /^\d+$/.test(value) ? Number(value) : undefined;
 };
 
 /**
@@ -131,7 +154,8 @@ export async function readSupervisor(
       asked: true,
       exitCode: run.code,
       summarised: run.stdout.includes(SUMMARY_PREFIX),
-      install: installState(run.stdout),
+      install: summaryField(run.stdout, INSTALL_PREFIX),
+      tickAgeSeconds: tickAge(run.stdout),
     };
   } catch {
     return { asked: false, exitCode: null, summarised: false };

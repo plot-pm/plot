@@ -4,6 +4,9 @@ import {
   supervisorProminence,
   supervisorShown,
   supervisorVerdict,
+  tickStale,
+  formatTickAge,
+  FLEET_TICK_STALE_SECONDS,
   type SupervisorReadings,
 } from '../src/index.js';
 
@@ -360,6 +363,7 @@ describe('the vocabulary is FLEET, in every state and in both fields', () => {
     ['died with agents', reading({ exitCode: 1, install: 'installed', agentsRunning: 3 })],
     ['died with none', reading({ exitCode: 1, install: 'installed', agentsRunning: 0 })],
     ['could not ask', reading({ asked: false, exitCode: null, agentsRunning: 3 })],
+    ['running and silent', reading({ exitCode: 0, tickAgeSeconds: 90_061, agentsRunning: 3 })],
   ];
 
   for (const [name, readings] of everyReading) {
@@ -414,5 +418,89 @@ describe('the vocabulary is FLEET, in every state and in both fields', () => {
     expect(stopped.label).not.toBe(cannotAsk.label);
     expect(cannotAsk.label.toLowerCase()).toContain('unknown');
     expect(stopped.label.toLowerCase()).not.toContain('unknown');
+  });
+});
+
+describe('a running fleet that stopped ticking — the tick age', () => {
+  it('shows a stale up with a warning, not silently', () => {
+    // 2026-09-23: `--status` said running while the log was 25 hours old, and
+    // the board rendered nothing because `up` was never shown.
+    const verdict = supervisorVerdict(reading({ exitCode: 0, tickAgeSeconds: 90_061 }));
+    expect(verdict.shown).toBe(true);
+    expect(verdict.prominence).toBe('warn');
+    expect(verdict.label).toBe('fleet silent for 25h');
+    expect(verdict.detail).toContain('25h');
+    expect(verdict.detail).toContain('/plot-fleet --status');
+  });
+
+  it('keeps a stale up at warn with agents running', () => {
+    const verdict = supervisorVerdict(reading({ exitCode: 0, tickAgeSeconds: 90_061, agentsRunning: 3 }));
+    expect(verdict.prominence).toBe('warn');
+  });
+
+  it('stays silent just under the threshold', () => {
+    const verdict = supervisorVerdict(reading({ exitCode: 0, tickAgeSeconds: FLEET_TICK_STALE_SECONDS - 1 }));
+    expect(verdict.shown).toBe(false);
+    expect(verdict.prominence).toBe('quiet');
+  });
+
+  it('warns at the threshold', () => {
+    expect(supervisorVerdict(reading({ exitCode: 0, tickAgeSeconds: FLEET_TICK_STALE_SECONDS })).shown).toBe(true);
+  });
+
+  it('never flags a busy healthy tick — 60 s wait plus a 49 s tick', () => {
+    expect(FLEET_TICK_STALE_SECONDS).toBeGreaterThan(110);
+    expect(tickStale(reading({ tickAgeSeconds: 109 }))).toBe(false);
+  });
+
+  it('flags the measured 25-hour silence', () => {
+    expect(tickStale(reading({ tickAgeSeconds: 90_061 }))).toBe(true);
+  });
+
+  it('reads an absent tick age on up as exactly today\'s verdict', () => {
+    const { tickAgeSeconds: _unused, ...without } = reading({ exitCode: 0, agentsRunning: 2 });
+    expect(supervisorVerdict(without)).toEqual(supervisorVerdict(reading({ exitCode: 0, agentsRunning: 2 })));
+    expect(supervisorVerdict(without)).toEqual({
+      state: 'up',
+      prominence: 'quiet',
+      shown: false,
+      label: 'fleet running',
+      detail: 'The fleet is supervised — finished desks are reaped and spent agents are marked.',
+    });
+  });
+
+  it('reads a non-finite or negative tick age as not stale', () => {
+    for (const tickAgeSeconds of [Number.NaN, Number.POSITIVE_INFINITY, -5]) {
+      const verdict = supervisorVerdict(reading({ exitCode: 0, tickAgeSeconds }));
+      expect(verdict.shown).toBe(false);
+      expect(verdict.prominence).toBe('quiet');
+    }
+  });
+
+  it('keeps the state up for every tick age', () => {
+    for (const tickAgeSeconds of [undefined, 0, 109, FLEET_TICK_STALE_SECONDS, 90_061]) {
+      expect(supervisorState(reading({ exitCode: 0, tickAgeSeconds }))).toBe('up');
+      expect(supervisorVerdict(reading({ exitCode: 0, tickAgeSeconds })).state).toBe('up');
+    }
+  });
+
+  it('ignores the tick age on a run that was not asked or did not summarise', () => {
+    expect(supervisorState(reading({ asked: false, exitCode: null, tickAgeSeconds: 90_061 }))).toBe('unknown');
+    expect(supervisorState(reading({ exitCode: 0, summarised: false, tickAgeSeconds: 90_061 }))).toBe('unknown');
+    expect(supervisorProminence(reading({ exitCode: 0, summarised: false, tickAgeSeconds: 90_061 }))).toBe('note');
+  });
+
+  it('ignores the tick age on a died or down fleet', () => {
+    const died = reading({ exitCode: 1, install: 'loaded-not-running', agentsRunning: 2 });
+    expect(supervisorVerdict({ ...died, tickAgeSeconds: 90_061 })).toEqual(supervisorVerdict(died));
+    const down = reading({ exitCode: 1, agentsRunning: 0 });
+    expect(supervisorVerdict({ ...down, tickAgeSeconds: 90_061 })).toEqual(supervisorVerdict(down));
+  });
+
+  it('formats the age in the largest whole unit', () => {
+    expect(formatTickAge(45)).toBe('45s');
+    expect(formatTickAge(600)).toBe('10m');
+    expect(formatTickAge(90_061)).toBe('25h');
+    expect(formatTickAge(3 * 86_400)).toBe('3d');
   });
 });

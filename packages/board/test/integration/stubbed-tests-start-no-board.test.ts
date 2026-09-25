@@ -537,9 +537,16 @@ const EXPECTED_FILES = 50;
 //
 // Re-derived by running this gate rather than by arithmetic, per this file's
 // own rule: it reported 499.
-// 499 → 502 ON 2026-09-24: the three in `a-plan-less-row-is-not-a-plan.browser.test.ts`,
-// the new file counted in `EXPECTED_FILES` above. Added, not moved.
-const EXPECTED_TESTS = 502;
+// 499 → 503 ON 2026-09-24, from two branches that each added to the same base:
+//   +3  `a-plan-less-row-is-not-a-plan.browser.test.ts` (main)
+//   +1  `supervisor-badge.browser.test.ts` — a running fleet that stopped
+//       ticking, `state: 'up'` at `warn`; a browser assertion because `up`
+//       rendered nothing before, and the claim is that the banner now appears
+//       with its detail
+// Added, not moved: `EXPECTED_FILES` counts the new file and nothing lost an
+// `it(`. THE SUM IS THE RESOLUTION — each side read 502 and 500 against a base
+// of 499, so taking either would drop the other's tests and fail this gate.
+const EXPECTED_TESTS = 503;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

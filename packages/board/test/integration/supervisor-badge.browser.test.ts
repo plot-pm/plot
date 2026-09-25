@@ -271,6 +271,31 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
       await page.close();
     }
   });
+  it('shows a running fleet that stopped ticking, at warn', async () => {
+    // 2026-09-23: `--status` said running while the log was 25 hours old, and
+    // the board rendered nothing because `up` was never shown. The state stays
+    // `up`; the verdict carries the staleness through `shown` and `warn`.
+    const page = await open(fleet({
+      state: 'up', prominence: 'warn', shown: true,
+      label: 'fleet silent for 25h',
+      detail: 'The fleet is running and has not ticked for 25h. Find out what happened: /plot-fleet --status',
+    }));
+    try {
+      const badge = page.locator('[data-fleet-supervisor]');
+      await expect.poll(() => badge.count()).toBe(1);
+      expect(await badge.getAttribute('data-fleet-supervisor-state')).toBe('up');
+      expect(await badge.getAttribute('data-fleet-supervisor-prominence')).toBe('warn');
+      expect(await badge.getAttribute('class')).toContain('text-amber-600');
+      expect(await badge.getAttribute('role')).toBeNull();
+      expect(await badge.textContent()).toContain('fleet silent for 25h');
+      const detail = page.locator('[data-fleet-supervisor-detail]');
+      await expect.poll(() => detail.count()).toBe(1);
+      expect(await detail.textContent()).toContain('/plot-fleet --status');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('keeps every WORKING row when the fleet is stopped', async () => {
     // THE NAIVE IMPLEMENTATION OF "the section carries the warning" IS TO
     // REPLACE THE SECTION'S CONTENTS WITH IT, and that is what this refuses.
