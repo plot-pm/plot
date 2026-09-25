@@ -26,13 +26,13 @@ The plan is canonical; this is orientation.
 
 **The existing splitter computes a JOB, not a slug.** A panel caught this. `:376-394` produces `_ji` and `_jen_job_raw` and no slug, so "hoist the splitter and reuse it" moves code that does not answer the question. The slug is one new expression over the hoisted `_ji`.
 
-**The computation stays OUTSIDE the `jen_installed` block.** The job reading is a string test on a config value, and it must answer on a machine that has the value and not the tool (comment at `:343-346`). Hoisting it above the block keeps that. Putting it inside the block makes `job` disappear when `jen` is absent, and an existing test covers that case.
+**The computation stays OUTSIDE the `jen_installed` block.** The job reading is a string test on a config value, and it must answer on a machine that has the value and not the tool (comment at `:344-347`). Hoisting it above the block keeps that. Putting it inside the block makes `job` disappear when `jen` is absent, and an existing test covers that case.
 
 **No second splitter.** The file keeps one. The four URL forms in the comment at `:356-364` were measured, and a fresh `${value%%/*}` over the raw value re-introduces the `https:` defect: `https://host/x` splits to `https:`.
 
 **The URL form gives the host as the slug, and that is correct.** For `https://jenkins.example.com/quaweb/cb`, `_ji` is `jenkins.example.com/quaweb/cb` and the slug is `jenkins.example.com`. `plot-host.sh:1127` records that `jen -I` accepts a bare host or a URL, so the bare host is a valid `-I` argument.
 
-**`plot-host.sh` is not touched.** The plan checked its three `jen -I` calls (`:1250`, `:1268`, `:1321`), and all three use the split slug. `plot-host.sh:1228` does not strip a scheme, so a URL-form value gives `https:` there. That is a separate latent defect, which the probe's own comment at `:369-371` already names as deliberately out of scope. Report it in the PR body and do not fix it here.
+**`plot-host.sh` is not touched.** The plan checked its three `jen -I` calls (`:1250`, `:1268`, `:1321`), and all three use the split slug. `plot-host.sh:1228` does not strip a scheme, so a URL-form value gives `https:` there. That is a separate latent defect, which the probe's own comment at `:368-370` already names as deliberately out of scope. Report it in the PR body and do not fix it here.
 
 **`classify` and the `OK` match stay unchanged.** The value passed to `jen` is the defect. The reading of the answer (`:317-326`) is correct. **Do not change `auth` to `unknown`:** a real authentication failure must still report `failed`.
 
