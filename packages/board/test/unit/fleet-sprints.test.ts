@@ -322,3 +322,65 @@ describe('planStatusBySlug — reads plan.status, does not recompute it', () => 
     expect(map.get('plan-done')).toBe('delivered');
   });
 });
+
+/**
+ * A BARE ITEM COUNTS THE WAY THE RELEASE GATE COUNTS IT.
+ *
+ * `scoreItem` returns `done` or `open` for `no-plan-named` and calls that a
+ * stated limit rather than a failed lookup. The counts loop reads
+ * `statusBySlug.get(member.slug)`, and a bare member's `''` finds nothing — so
+ * without an arm of its own it falls through to `default: continue` and is
+ * dropped from the total, as if it were a plan that could not be found. That
+ * is the same conflation `collectSprints` had to stop making with `known`.
+ */
+describe('activeSprints — a bare item is counted on its checkbox', () => {
+  it('counts an unticked bare item open and a ticked one done', async () => {
+    const opts = withEstate(
+      { 'plan-app': APPROVED },
+      {
+        '2026-W40-alpha.md': sprintFile(
+          '- **Phase:** Active\n- **Release:** 3.1.0',
+          '- [ ] [plan-app] a\n- [ ] rename the deploy step\n- [x] update the runbook\n',
+        ),
+      },
+    );
+    const [sprint] = await activeSprints(opts, null);
+    // 3 members: the approved plan and the unticked bare item are open, the
+    // ticked bare item is done. Every one of them is in the total.
+    expect(sprint.counts).toEqual({ total: 3, open: 2, wip: 0, done: 1, withdrawn: 0 });
+    expect(() => FleetSprintSchema.parse(sprint)).not.toThrow();
+  });
+
+  it('keeps total = open + wip + done + withdrawn with bare items present', async () => {
+    // THE INVARIANT THE FILE IS BUILT ON. A bare item that incremented a bucket
+    // without the total, or the reverse, breaks it silently.
+    const opts = withEstate(
+      { 'plan-run': STARTED, 'plan-gone': REJECTED },
+      {
+        '2026-W40-alpha.md': sprintFile(
+          '- **Phase:** Active\n- **Release:** 3.1.0',
+          '- [ ] [plan-run] a\n- [ ] [plan-gone] b\n- [ ] bare one\n- [x] bare two\n',
+        ),
+      },
+    );
+    const [sprint] = await activeSprints(opts, null);
+    const c = sprint.counts;
+    expect(c.total).toBe(c.open + c.wip + c.done + c.withdrawn);
+    expect(c).toEqual({ total: 4, open: 1, wip: 1, done: 1, withdrawn: 1 });
+  });
+
+  it('does not count a bare item under ### Deferred', async () => {
+    // A deferred member was never a commitment, and that rule is about the
+    // TIER rather than the link — so it must hold for a bare line too.
+    const opts = withEstate(
+      { 'plan-app': APPROVED },
+      {
+        '2026-W40-alpha.md':
+          `# Sprint: Fixture\n\n## Status\n\n- **Phase:** Active\n- **Release:** 3.1.0\n\n` +
+          `### Must Have\n\n- [ ] [plan-app] a\n\n### Deferred\n\n- [ ] a bare deferred line\n`,
+      },
+    );
+    const [sprint] = await activeSprints(opts, null);
+    expect(sprint.counts).toEqual({ total: 1, open: 1, wip: 0, done: 0, withdrawn: 0 });
+  });
+});

@@ -220,6 +220,27 @@ describe('collectSprints — a slug naming no plan is reported, not dropped', ()
     const sprints = await collectSprints(repoRoot, sprintDir);
     expect(sprints[0].members[0].known).toBe(true);
   });
+
+  it('does NOT flag a bare item unknown — it names no plan to look up', async () => {
+    // A BARE ITEM IS NOT AN UNKNOWN PLAN. `known: false` means *the sprint
+    // lists a plan the board cannot find*, which earns the `?` badge. A line
+    // naming no plan never made that claim, so flagging it would report a
+    // missing plan that was never named — the separation `scoreItem` draws
+    // between `no-plan-named` and a failed lookup.
+    const { repoRoot, sprintDir } = withSprintDir(
+      '2026-W40-fixture.md',
+      `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n` +
+        `- [ ] [real-plan] here\n- [ ] rename the deploy step\n- [ ] [ghost-plan] renamed away\n`,
+    );
+    const sprints = await collectSprints(repoRoot, sprintDir, new Set(['real-plan']));
+    const members = sprints[0].members;
+    expect(members).toHaveLength(3);
+    const bare = members.find((m) => m.slug === '')!;
+    expect(bare.known).toBe(true);
+    expect(bare.text).toBe('rename the deploy step');
+    // The genuine ghost is still flagged — the exemption is for `''` alone.
+    expect(members.find((m) => m.slug === 'ghost-plan')!.known).toBe(false);
+  });
 });
 
 describe('sprintMembership — which active sprint claims each plan', () => {
