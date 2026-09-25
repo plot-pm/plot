@@ -1,0 +1,1 @@
+../2026-09-24-the-probe-asks-jenkins-by-its-slug.md
