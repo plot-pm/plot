@@ -126,6 +126,37 @@ describe('treesGit: the desks this machine holds', () => {
     });
   });
 
+  it('answers the email git commits under in one checkout', async () => {
+    // What the board's identity reading asks of a worktree. `user.email` is set
+    // on `repo` in setup, and a linked worktree shares the common config, so
+    // both answer the same address without either being asked to infer it.
+    expect(await trees().userEmail(repo)).toEqual({ ok: true, value: 'test@example.com' });
+    expect(await trees().userEmail(linked)).toEqual({ ok: true, value: 'test@example.com' });
+  });
+
+  it('reports an empty user.email as an empty answer, not as a failure', async () => {
+    // `git config --get` EXITS 1 FOR AN UNSET KEY, which is the `failed` answer
+    // this arm's comment names. The distinction is load-bearing: `''` would read
+    // as an identity that matches nothing, and a filter built on it would hide
+    // every row rather than report that it could not tell whose they are.
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-noemail-'));
+    try {
+      // THE ISOLATION IS IN THE REPOSITORY, not in the environment. A fresh
+      // checkout inherits `user.email` from the developer's global file, so
+      // clearing only the local key passes on CI and fails on every machine
+      // where git is configured. `includeIf`-free local config wins over
+      // global, so setting the key empty here is what git reports back — and
+      // an EMPTY value is the case that matters: `--get` succeeds, so this
+      // proves the adapter distinguishes *unset* from *set to nothing*.
+      execFileSync('git', ['-C', bare, 'init', '-q'], { stdio: 'ignore' });
+      execFileSync('git', ['-C', bare, 'config', 'user.email', ''], { stdio: 'ignore' });
+      const answer = await trees().userEmail(bare);
+      expect(answer).toEqual({ ok: true, value: '' });
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
   it('answers a detached checkout with an empty branch, not a failure', async () => {
     // THE DISTINCTION THE OLD `execFileSync` COLLAPSED. `git branch
     // --show-current` exits 0 and prints nothing for a detached HEAD, so this
@@ -221,6 +252,21 @@ describe('treesFixture: the same port with no machine behind it', () => {
     expect(answer.ok).toBe(true);
     if (!answer.ok) return;
     expect(answer.value.map((tree) => tree.isMain)).toEqual([true, false]);
+  });
+
+  it('answers a stated email, and answers an unstated one as failed', async () => {
+    // BOTH ARMS IN ONE TEST, because the pair is the contract: a path in the
+    // table has an address, and a path absent from it has none configured —
+    // which is `failed`, never `''`. The fixture must be able to produce the
+    // unset case without a checkout, or the rule that consumes it could only
+    // be tested on a machine whose git happens to be unconfigured.
+    const port = treesFixture({
+      worktrees: [{ path: '/repo', branch: 'main' }, { path: '/repo-wt', branch: 'feature/x' }],
+      emails: { '/repo': 'someone@example.com' },
+    });
+    expect(await port.userEmail('/repo')).toEqual({ ok: true, value: 'someone@example.com' });
+    const missing = await port.userEmail('/repo-wt');
+    expect(missing.ok).toBe(false);
   });
 
   it('reports every unstated tree as unclean, so unlanded work stays visible', async () => {

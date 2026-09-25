@@ -152,7 +152,23 @@ if [ "$cmd" != "get" ]; then
   exit 1
 fi
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || root="."
+# THE CALLER'S ROOT IS TAKEN WHERE IT OFFERS ONE. `git rev-parse` is ~5 ms and
+# this script runs once per config key, so a caller reading several keys pays
+# for the same constant repeatedly. Measured on CI 2026-09-25: one board build
+# spawned `git rev-parse --show-toplevel` 21 times out of 42 git processes
+# total, which `plan-read-shape.test.mjs` caught as the spawn count crossing
+# its bound. The board already exports `PLOT_REPO_ROOT` (`index.ts:65`) and
+# `plot-deliver.sh` and `plot-issue-status.sh` already read it.
+#
+# IT MUST BE A DIRECTORY, and a wrong one falls back rather than failing: an
+# exported stale path would otherwise make every config read answer from a
+# repository that is not this one, silently. Asking git is the safe answer and
+# stays the default for every caller that offers nothing.
+if [ -n "${PLOT_REPO_ROOT:-}" ] && [ -d "$PLOT_REPO_ROOT" ]; then
+  root="$PLOT_REPO_ROOT"
+else
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root="."
+fi
 
 # Find the first repo-root file that contains a ## Plot Config section.
 # CLAUDE.md wins for backwards compatibility; AGENTS.md is the modern fallback.

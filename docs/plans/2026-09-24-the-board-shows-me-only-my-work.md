@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
+- **Sprint:** a-refusal-names-what-it-cannot-see
 - **Issue:** #967
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
@@ -154,9 +155,9 @@ Three slices, and the first is a reading with no UI. The order is deliberate: **
 
 - `feature/the-board-knows-who-is-asking` — **expose `budget_account()`, which already answers this.** `plot-host.sh:2568` computes the current account per backend — the GitHub arm from `gh`'s `hosts.yml`, the Bitbucket arm from `remote.origin.url` — and **no CLI op reaches it**: every caller is internal to the budget machinery (`:1621`, `:2701`, `:2908`). The slice adds the op, carries the answer in the board payload with git's `user.email` beside it, and adds no filtering and no control, so the reading can be proved before anything depends on it
 
-### A row says whose it is (Branch: feature/a-row-says-whose-it-is)
+### A row says whose it is (Branch: feature/a-row-says-whose-it-is, PR: #993)
 
-- `feature/a-row-says-whose-it-is` — the PR row gains an author from the host, the agent row reports the machine's own record, and `isMine(row, identity)` decides in the domain with unit tests including the unowned-row-is-shown arm
+- `feature/a-row-says-whose-it-is` — the PR row gains an author from the host, the agent row reports the machine's own record, and `isMine(row, identity)` decides in the domain with unit tests including the unowned-row-is-shown arm → #993
 
 ### The board filters to my work (Branch: feature/the-board-filters-to-my-work)
 
