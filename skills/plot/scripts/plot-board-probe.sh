@@ -311,9 +311,35 @@ fi
 jen_installed=$(cli_installed jen); jen_auth="unknown"
 jen_instance=$(bash "$here/plot-config.sh" get "Jenkins instance" "" 2>/dev/null || echo "")
 [ -n "$jen_instance" ] || jen_instance="${JENKINS_INSTANCE:-}"
+
+# ONE SPLIT, TWO ANSWERS. `_ji` is the instance with any scheme and authority
+# removed; the slug is its first segment and the job path is the remainder. The
+# auth call below and the job reading further down both read THIS computation,
+# so the two can never disagree about where one value's slug ends.
+#
+# IT SITS ABOVE THE `jen_installed` BLOCK, not inside it. The job reading is a
+# string test on a config value and must answer on a machine that has the value
+# and not the tool — the comment below states that contract and a test covers
+# it. Moving the computation earlier keeps its scope; narrowing it into the
+# block would make `job` disappear when `jen` is absent.
+#
+# MEASURED 2026-09-24 (#968): `jen -I` was given the whole
+# `<slug>/<job/path>` value, so `ewz/kus-portal/continuous-build-multi` — the
+# form `/plot-board-setup` prescribes and #913 requires — reported `failed` for
+# an instance that authenticates. `job` parsed correctly from the same string.
+_ji="$jen_instance"
+case "$_ji" in
+  http://*|https://*) _ji="${_ji#*://}" ;;
+esac
+# THE SLUG IS `plot-host.sh:1228`'s EXPRESSION, over the scheme-stripped value
+# rather than the raw one. A fresh `${jen_instance%%/*}` would send `https:`
+# for the URL form; here the bare host is the slug, which `plot-host.sh:1127`
+# records `jen -I` accepts.
+jen_slug="${_ji%%/*}"
+
 if [ "$jen_installed" = true ]; then
   if [ -n "$jen_instance" ]; then
-    out=$(jen -I "$jen_instance" auth status 2>&1); st=$?
+    out=$(jen -I "$jen_slug" auth status 2>&1); st=$?
     # `NOT reachable` must be tested BEFORE `reachable`, since it contains it.
     if printf '%s' "$out" | grep -qiE 'jenkins auth:[[:space:]]*not reachable'; then
       jen_auth="failed"
@@ -374,13 +400,9 @@ fi
 jen_job=""
 jen_job_source="none"
 if [ -n "$jen_instance" ]; then
-  _ji="$jen_instance"
-  # Strip the scheme, then the authority — everything up to and including the
-  # first `/` of what remains. A value with no scheme keeps its first segment
-  # as the slug, which is the same rule one level down.
-  case "$_ji" in
-    http://*|https://*) _ji="${_ji#*://}" ;;
-  esac
+  # `_ji` IS ALREADY SCHEME-STRIPPED, above the auth block. The strip used to
+  # live here; it was hoisted so the auth call could read the same split, and
+  # this reads the result rather than repeating it — one splitter in the file.
   _jen_job_raw="${_ji#*/}"
   [ "$_jen_job_raw" = "$_ji" ] && _jen_job_raw=""
   # A trailing slash names no job: `https://host/` splits to an empty remainder
