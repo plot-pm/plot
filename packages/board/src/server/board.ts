@@ -2001,6 +2001,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
           url: record?.url ?? '',
           checks: asChecks(record?.checks),
           mergeable: asMergeability(record?.mergeable),
+          author: record?.author ?? '',
         };
       }),
       // Read from the record this card's OWN column measures recency by. Always

@@ -276,6 +276,7 @@ describe('hostFixture: a connector the domain has never heard of', () => {
           checks: 'green',
           failingChecks: [],
           url: 'https://quokka.invalid/pr/7',
+          author: '',
         },
       ],
       limits: [predictedLimit(backend, 'api', 100)],

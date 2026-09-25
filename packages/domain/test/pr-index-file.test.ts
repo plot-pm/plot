@@ -237,7 +237,7 @@ describe('the round trip', () => {
     const adapter = prIndexFile({ home, env: {} });
     await adapter.write('github', store([row(1)]));
     const text = readFileSync(join(home, 'github.json'), 'utf8');
-    expect(text).toContain('\n  "v": 1');
+    expect(text).toContain(`\n  "v": ${PR_INDEX_VERSION}`);
     expect(text.endsWith('\n')).toBe(true);
   });
 });

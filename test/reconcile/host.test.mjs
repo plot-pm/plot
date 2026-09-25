@@ -4827,6 +4827,9 @@ const restPr = (id, branch, state = 'MERGED') => ({
   // the store under Bitbucket's name would leave the watermark permanently
   // null, and the store would be unadvanceable for a reason nothing reported.
   updated_on: `2026-09-20T12:00:0${id % 10}+00:00`,
+  // Bitbucket's user object as bb 1.9.0 returns it, measured 2026-09-25: no
+  // username, and `nickname` is the one handle field.
+  author: { display_name: 'Pat Example', nickname: 'pexample', account_id: '557058:x', uuid: '{u}' },
 });
 
 const sweepCalls = (f) => readFileSync(f, 'utf8').trim().split('\n').filter(Boolean);
@@ -5137,8 +5140,9 @@ test('host: the sweep emits every --rich field the arm promises', () => {
   const row = JSON.parse(res.stdout.trim());
   assert.deepEqual(Object.keys(row).sort(),
     ['checks', 'draft', 'failing_checks', 'head', 'mergeable', 'number', 'review', 'state', 'title',
-      'updatedAt', 'url'].sort(),
+      'updatedAt', 'url', 'author'].sort(),
     'the field set is exactly what the listing arm emits');
+  assert.equal(row.author, 'pexample', 'the author is the nickname, never the display name');
   assert.equal(row.url, 'https://bitbucket.org/x/11', 'url comes from .links.html.href');
   // THE HOST'S STAMP UNDER THE ADAPTER'S NAME. Bitbucket says `updated_on` and
   // GitHub says `updatedAt`; one name reaches a consumer, or a store keyed on
@@ -5434,3 +5438,47 @@ test('host: default-branch asks the host on github too, over a stale cache', () 
   rmSync(repo, { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
 });
+
+// --- pr-list: whose PR it is ------------------------------------------------
+//
+// The author travels in the same call on both backends. An author that reached
+// the board on GitHub and was dropped on Bitbucket would make every Bitbucket
+// row unknown for a reason nothing reported.
+
+const ghAuthored = JSON.stringify([
+  { number: 7, title: 'T', state: 'OPEN', headRefName: 'feature/x', isDraft: false, statusCheckRollup: [],
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: '', url: 'u', updatedAt: 't',
+    author: { login: 'jwloka', name: 'Jan Wloka', is_bot: false } },
+  { number: 8, title: 'U', state: 'OPEN', headRefName: 'feature/y', isDraft: false, statusCheckRollup: [],
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: '', url: 'v', updatedAt: 't',
+    author: null },
+]);
+
+const bbAuthored = JSON.stringify([
+  { id: 11, title: 'T', state: 'OPEN', source: { branch: { name: 'feature/x' } }, draft: false,
+    links: { html: { href: 'https://bitbucket.org/x/11' } }, updated_on: 't',
+    author: { display_name: 'Pat Example', nickname: 'pexample', account_id: '557058:x', uuid: '{u}' } },
+  { id: 12, title: 'U', state: 'OPEN', source: { branch: { name: 'feature/y' } }, draft: false,
+    links: { html: { href: 'https://bitbucket.org/x/12' } }, updated_on: 't' },
+]);
+
+const rowsOf = (out) => out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+for (const rich of [true, false]) {
+  const flag = rich ? ['--rich'] : [];
+  const label = rich ? 'pr-list --rich' : 'pr-list';
+
+  test(`host: github ${label} carries the author's login, and "" where the host names none`, () => {
+    const stubs = makeStubs({ ghJson: ghAuthored });
+    const rows = rowsOf(run(['pr-list', ...flag], { env: { PLOT_HOST: 'github' }, stubs }));
+    assert.deepEqual(rows.map((r) => r.author), ['jwloka', '']);
+    const fields = argvOf(stubs.ghArgv)[argvOf(stubs.ghArgv).indexOf('--json') + 1];
+    assert.ok(fields.split(',').includes('author'), `author is asked in the same call: ${fields}`);
+  });
+
+  test(`host: bitbucket ${label} carries the author's nickname, and "" where the host names none`, () => {
+    const stubs = makeStubs({ bbJson: bbAuthored });
+    const rows = rowsOf(run(['pr-list', '--state', 'open', ...flag], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+    assert.deepEqual(rows.map((r) => r.author), ['pexample', '']);
+  });
+}
