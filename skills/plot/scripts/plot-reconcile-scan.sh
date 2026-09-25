@@ -15,7 +15,7 @@
 #         below the marker are NOT in printed order — the number is a label and
 #         the marker is the boundary.
 #         The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -2761,6 +2761,157 @@ else
 fi
 echo
 
+echo "== 23. A finished plan's issue is still open (a person decides) =="
+# THE ONLY DETECTOR WAS A PERSON LOOKING. Measured 2026-09-24:
+# `a-gate-matches-an-invocation` reached `Released` in 2.19.0 naming
+# `Issue: #935`, and #935 was still open five days later — found by a sprint
+# sweep cross-checking every open ticket against the plan estate, not by
+# anything in Plot. Both sides of that comparison were already readable here:
+# the phase and `issues[]` come from the parse this sweep already holds, and
+# the open list is one host call.
+#
+# ONE CALL, NEVER ONE PER PLAN. `issue-list` answers every open issue as JSON
+# lines; membership in that set is then a test per plan, so cost is constant in
+# plan count (21 finished plans name an issue on this estate). The alternative
+# is `issue-view` per plan, and it cannot answer the question at all: its
+# payload is `{number,title,body,url}` with NO state, it is documented as
+# reading *one open issue*, and a closed or missing issue exits 3 — a failure,
+# not a "closed" answer. Twenty-one calls to learn less.
+#
+# MEMBERSHIP MEANS OPEN; ABSENCE DOES NOT MEAN CLOSED. `issue-list` is bounded
+# — `gh issue list` defaults to 30 without `--limit` — so an issue outside the
+# window is absent for a reason that has nothing to do with its state. The
+# window is therefore STATED, the way section 22 states its merge window and
+# `MERGED_PR_LIMIT` states the PR one, and when the returned count reaches the
+# limit the section says what it may have missed rather than printing `(none)`
+# as if complete.
+#
+# THREE OUTCOMES STAY APART, exactly as `issue-list` documents them: exit 0
+# with lines is an answer, exit 4 is *this host has no tracker to ask*, and any
+# other non-zero is the question FAILING. The last two both print
+# `(not evaluated — …)` with the reason, because an outage that printed
+# `(none)` would report a clean estate it never measured — an outage is not an
+# answer, the failure the adapter's own three-way split exists for.
+#
+# `issues[]` HOLDS NUMBERS, AND JIRA ANSWERS KEYS. `plot-plan-meta.sh` parses
+# `Issue: #N`, so on a Jira tracker no returned key can ever match a parsed
+# number and every plan would read as clean. That is a silent false negative,
+# so the section refuses to evaluate rather than confirming an estate it cannot
+# compare. Extending the parser is a different change. The key is read the way
+# section 21 reads `Worktree root` — `plot-host.sh` exposes no scheme op, and
+# adding one belongs to whoever owns that file.
+#
+# IT HONOURS `--offline`/`--no-pr` and names what that costs. The scan promises
+# no git-host network call under them and section 6 keeps the same promise by
+# reading `PR_SOURCE`; the note counts the plans that went unchecked, because
+# "some plans" is a sentence a reader cannot act on and "21 plans" is one they
+# can.
+#
+# IT REPORTS AND NEVER GATES. A tracker is a COPY of Plot's state — the plan is
+# the record — so an open ticket must never stop `/plot-deliver`. It carries
+# `open_issues=`, stays OUT of `attention=`, and sits below the
+# `== blocking sections end ==` marker with every advisory section since 7.
+#
+# AND IT NAMES A DECISION, NOT A REPAIR. The plan behind this section settles
+# that Plot closes no ticket: `plot-host.sh` *"creates no ticket, closes none,
+# and touches no comment, label or assignee"*. So no close command is printed —
+# what a person decides is whether the issue is genuinely finished or whether
+# it outlived its plan, and only one of those ends in a close.
+n_open_issues=0
+# THE WINDOW, stated rather than implied. `PLOT_ISSUE_LIMIT` raises it; the
+# default is far above `gh`'s own 30 and above this estate's open count.
+ISSUE_LIMIT=${PLOT_ISSUE_LIMIT:-200}
+oi_out=""
+# The finished plans that name an issue, read from the parse already in memory
+# (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
+# scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
+# cannot tell a signal from a citation, and plans here cite issues constantly.
+oi_claims=""
+if [ -n "$plan_json" ]; then
+  oi_claims=$(printf '%s\n' "$plan_json" | jq -r '
+    select(.phase == "delivered" or .phase == "released")
+    | select((.issues // []) | length > 0)
+    | "\(.file)\t\(.phase)\t\(.issues | map(tostring) | join(","))"' 2>/dev/null)
+fi
+oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
+
+oi_scheme=$(cfg "Tracker" "" 2>/dev/null | awk '{print tolower($1)}')
+if [ "$oi_plans" -eq 0 ]; then
+  echo "  (none — no delivered or released plan names an issue)"
+elif [ "$PR_SOURCE" = off ]; then
+  # THE OFFLINE PROMISE IS THE SCAN'S OWN, printed in its header. Section 6
+  # keeps it the same way and names the same cost: what is given up is a
+  # correct answer, not a broken one.
+  echo "  (not evaluated — pr_source=off, and asking the tracker is a host call)"
+  echo "  note: $oi_plans finished plan(s) naming an issue went unchecked —"
+  echo "        a plan's issue cannot be checked without asking the tracker."
+  echo "        Re-run without --offline/--no-pr."
+elif [ "$oi_scheme" = "jira" ]; then
+  # A SILENT CLEAN RESULT IS THE ONE ANSWER THIS MUST NOT GIVE. Numbers cannot
+  # match keys, so every plan would read as clean for a reason that has nothing
+  # to do with its issue.
+  echo "  (not evaluated — plan Issue: numbers cannot be matched to Jira keys)"
+  echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
+else
+  oi_err_file=$(mktemp) || oi_err_file=""
+  # SEPARATE call from parse, the shape section 3 uses at `:473`: capture the
+  # adapter's own exit status rather than jq's, because a rate limit makes it
+  # exit 5 and testing `$?` after a pipe loses that.
+  oi_raw=$(bash "$script_dir/plot-host.sh" issue-list --limit "$ISSUE_LIMIT" </dev/null 2>"${oi_err_file:-/dev/null}")
+  oi_rc=$?
+  oi_err=""
+  [ -n "$oi_err_file" ] && oi_err=$(head -1 "$oi_err_file" 2>/dev/null)
+  [ -n "$oi_err_file" ] && /bin/rm -f "$oi_err_file" 2>/dev/null
+
+  if [ "$oi_rc" -eq 4 ]; then
+    # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to ask.
+    echo "  (not evaluated — this host cannot be asked for issues: ${oi_err:-tracker unavailable})"
+    echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
+  elif [ "$oi_rc" -ne 0 ]; then
+    echo "  (not evaluated — the tracker question failed: ${oi_err:-plot-host.sh exited $oi_rc})"
+    echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
+  else
+    # An empty answer is a VALUE — zero open issues — not a failure. The
+    # adapter exits non-zero with empty stdout when the question fails, so
+    # reaching here means the host answered.
+    oi_open=$(printf '%s' "$oi_raw" | jq -r 'select(.number != null) | .number' 2>/dev/null)
+    oi_count=$(printf '%s' "$oi_open" | grep -c . 2>/dev/null) || oi_count=0
+
+    while IFS=$'\t' read -r oi_file oi_phase oi_nums; do
+      [ -n "$oi_file" ] || continue
+      # PER ISSUE, NOT PER PLAN. A plan naming `#1, #2` where only #2 is open
+      # must report #2 alone — a whole-plan match would name a closed issue as
+      # the finding and send a person to the wrong ticket.
+      oi_hits=""
+      oi_first=""
+      while IFS= read -r oi_n; do
+        [ -n "$oi_n" ] || continue
+        printf '%s\n' "$oi_open" | grep -qx -- "$oi_n" || continue
+        oi_hits="${oi_hits:+$oi_hits, }#$oi_n"
+        [ -n "$oi_first" ] || oi_first="$oi_n"
+      done < <(printf '%s' "$oi_nums" | tr ',' '\n')
+      [ -n "$oi_hits" ] || continue
+
+      oi_base=$(basename "$oi_file")
+      oi_out+="  $oi_base — $oi_phase, still open: $oi_hits\n"
+      oi_out+="    inspect: plot-host.sh issue-view $oi_first\n"
+      oi_out+="    decide: close the issue by hand, or record why it stays open\n"
+      n_open_issues=$((n_open_issues + 1))
+    done <<< "$oi_claims"
+
+    if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
+    echo "  window: the $oi_count open issue(s) the tracker returned, limit $ISSUE_LIMIT (raise with PLOT_ISSUE_LIMIT)."
+    if [ "$oi_count" -ge "$ISSUE_LIMIT" ]; then
+      # A FULL WINDOW CANNOT CLAIM COMPLETENESS. Absence past the limit says
+      # nothing about an issue's state, so the section says so rather than
+      # letting `(none)` read as a measured clean estate.
+      echo "  note: the tracker returned as many issues as the limit allows — an open"
+      echo "        issue beyond this window would not be seen. Raise PLOT_ISSUE_LIMIT."
+    fi
+  fi
+fi
+echo
+
 # ---------------------------------------------------------------------------
 # 6. Delivered plans whose work is already inside a release tag.
 #
@@ -2911,5 +3062,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues pr_source=$PR_SOURCE main=$MAIN"
 exit 0
