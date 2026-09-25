@@ -4247,7 +4247,8 @@ test('section 23 sits below the marker and stays out of the delivery gate', () =
     assert.equal(runGate(f.report, '2026-01-01-released-open').trim(), '',
       "the delivery gate must not see this section's findings");
     // The counter exists, is non-zero, and is not `attention=`.
-    assert.match(f.report, /open_issues=2/, 'the section carries its own counter');
+    // THREE findings: #101, #102 and the open half of the partly-open plan.
+    assert.match(f.report, /open_issues=3/, 'the section carries its own counter');
     assert.match(f.report, /attention=0/, 'an open ticket is not an attention finding');
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
