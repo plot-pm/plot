@@ -158,7 +158,14 @@ tick_age_seconds() {
   local log touched
   log="$repo_root/.plot/logs/registryd.log"
   [ -f "$log" ] || return 0
-  touched=$(stat -f %m "$log" 2>/dev/null || stat -c %Y "$log" 2>/dev/null) || return 0
+  # GNU FIRST, AND THE ORDER IS THE WHOLE FIX. `-f` means `--format` on BSD and
+  # `--file-system` on GNU, and BOTH EXIT 0 — measured 2026-09-25 on Alpine,
+  # where `stat -f %m <file>` prints a filesystem report and succeeds, so a
+  # `||` fallback never fires and `touched` becomes that report with the real
+  # mtime appended. The arithmetic below then fails on a non-numeric operand
+  # and the field vanishes. An exit code cannot separate these two `stat`s;
+  # only asking GNU first can, because `-c` is unambiguous — BSD rejects it.
+  touched=$(stat -c %Y "$log" 2>/dev/null || stat -f %m "$log" 2>/dev/null) || return 0
   [ -n "$touched" ] || return 0
   echo $(( $(date +%s) - touched ))
 }
