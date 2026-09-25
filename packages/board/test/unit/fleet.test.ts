@@ -3424,6 +3424,8 @@ describe('the row carries the PR condition as fields', () => {
       // The SET travels too, and `state` is its head — the invariant the row
       // depends on to name a subject without recomputing the precedence.
       states: ['green'],
+      // The fixture's record names no author, so the owner is unknown.
+      author: '',
     });
   });
 

@@ -211,7 +211,7 @@ describe('CardSchema — pull requests', () => {
       prs: [{ number: 113, url: 'https://example.test/pr/113', checks: 'green', mergeable: 'mergeable' }],
     });
     expect(card.prs).toEqual([
-      { number: 113, url: 'https://example.test/pr/113', checks: 'green', mergeable: 'mergeable' },
+      { number: 113, url: 'https://example.test/pr/113', checks: 'green', mergeable: 'mergeable', author: '' },
     ]);
   });
 
@@ -339,6 +339,7 @@ describe('AgentRowSchema.pr', () => {
       // Absent in the input, so `[]` — the older-pulse default. Empty is not a
       // seventh meaning: a consumer that finds it empty falls back to `state`.
       states: [],
+      author: '',
     });
   });
 
