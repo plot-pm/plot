@@ -979,6 +979,7 @@ test('--status carries the tick age on the running summary line, and only with a
   assert.match(bare.out, /^summary:.*supervisor=up install=running$/m,
     'with no log the summary line gained a field');
   assert.doesNotMatch(bare.out, /tick_age=/, 'a missing log produced a tick age');
+  assert.doesNotMatch(bare.out, /last tick:/, 'a missing log printed a last tick line');
 
   const log = path.join(root, '.plot', 'logs', 'registryd.log');
   fs.mkdirSync(path.dirname(log), { recursive: true });
@@ -991,6 +992,10 @@ test('--status carries the tick age on the running summary line, and only with a
     'the running summary line does not carry tick_age=');
   const age = Number(/^summary:.* tick_age=(\d+)$/m.exec(r.out)[1]);
   assert.ok(age >= 90_000, `tick_age=${age} does not reflect the backdated log`);
+  // The person reads the same number the machine does, on its own line.
+  const line = /^\s+last tick: (\d+)s ago/m.exec(r.out);
+  assert.ok(line, 'the running arm printed no last tick line for a person');
+  assert.ok(Number(line[1]) >= 90_000, `last tick: ${line[1]}s does not reflect the backdated log`);
 });
 
 test('--status prints no tick age outside the running arm', () => {
@@ -1006,6 +1011,17 @@ test('--status prints no tick age outside the running arm', () => {
   assert.equal(r.status, 1);
   assert.match(r.out, /^\s+last tick: \d+s ago/m, 'the loaded-not-running arm lost its tick line');
   assert.doesNotMatch(r.out, /^summary:.*tick_age=/m, 'a non-running arm carried tick_age=');
+
+  // Both arms print one line, apart from the number.
+  const upBin = stubPlatform(fs.mkdtempSync(path.join(box, 'up-')), { loaded: true });
+  const up = run(ctl, ['--status'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${upBin}:${process.env.PATH}`,
+  });
+  assert.equal(up.status, 0);
+  const tickLine = (out) => (/^\s+last tick: .*$/m.exec(out) ?? [''])[0].replace(/\d+s ago/, 'Ns ago');
+  const caveat = '  last tick: Ns ago (evidence, not the verdict — a busy tick writes at most every 60s)';
+  assert.equal(tickLine(r.out), caveat, 'the loaded-not-running arm changed its wording');
+  assert.equal(tickLine(up.out), caveat, 'the running arm words its tick line differently');
 });
 
 test('--status says loaded, not running when the label is held and no process is behind it', () => {
