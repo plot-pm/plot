@@ -94,7 +94,7 @@ Give the scan the enumeration the board already has: after reading plans from `o
 
 ## Slices
 
-### The scan reads a branch's own plans (Branch: bug/the-scan-reads-a-branch-s-own-plans)
+### The scan reads a branch's own plans (Branch: bug/the-scan-reads-a-branch-s-own-plans, PR: #988)
 
 - `bug/the-scan-reads-a-branch-s-own-plans` — enumerate plan files from each candidate branch's tree as well as `origin/<main>`, carrying the board's `onDefault`/`seen` dedup; measure the scan before and after and report both; narrow to PR-less branches if the cost demands it
 
