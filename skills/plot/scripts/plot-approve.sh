@@ -420,6 +420,10 @@ append_approved_line() { # $1=in $2=out $3=record
       insert = start
       for (i = start + 1; i <= n; i++) {
         if (lines[i] ~ /^##[ \t]/) break
+        # An HTML comment ends the writable region. Checked BEFORE the
+        # placeholder arms so a commented-out `- **Approved:**` template line
+        # is never mistaken for the slot to fill.
+        if (lines[i] ~ /<!--/) break
         if (lines[i] ~ /^[ \t]*[-*][ \t]*\*\*Approved:\*\*[ \t]*$/) { slot = i; break }
         if (lines[i] ~ /^[ \t]*[-*][ \t]/) insert = i
       }

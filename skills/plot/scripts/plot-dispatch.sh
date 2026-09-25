@@ -3063,6 +3063,10 @@ append_started_line() { # $1=file $2=date $3=who $4=branch
       insert = start
       for (i = start + 1; i <= n; i++) {
         if (lines[i] ~ /^##[ \t]/) break
+        # An HTML comment ends the writable region. Checked BEFORE the
+        # placeholder arms so a commented-out `- **Started:**` template line
+        # is never mistaken for the slot to fill.
+        if (lines[i] ~ /<!--/) break
         if (lines[i] ~ /^[ \t]*[-*][ \t]*\*\*Started:\*\*[ \t]*$/) { slot = i; break }
         if (lines[i] ~ /^[ \t]*[-*][ \t]/) insert = i
       }
