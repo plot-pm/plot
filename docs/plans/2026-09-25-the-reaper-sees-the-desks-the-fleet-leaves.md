@@ -8,6 +8,7 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -90,6 +91,10 @@ The obvious fix — treat any tree under `Worktree root` as a desk — trades a 
 - `bug/every-desk-carries-its-marker` — each path that creates a worktree under `Worktree root` writes `.plot-worker.pid` at creation, so the reaper's existing test places it; a test per creator; the unplaced count measured before and after
 
 ## Notes
+
+- **Panelled 2026-09-25: `divided` — 2 reject (estate, design), 2 amend (evidence, scope).** All four committed `Evidence: executed`, and all four established the same facts; the split is about remedy, not evidence. **Slice 1 already ships** as PR #878 (2026-09-10) — `unclassified-tree` is a finding kind in `reconcile.ts:53`, emitted by `unclassifiedFindings` at `:436-454` with `repair: ''`, rendered by `plot-reconcile-scan.sh:2578-2584`; two jurors proved it by cutting a pid-less worktree and watching both readers name it. **Slice 2's premise is false**: no creation path writes `.plot-worker.pid` — the worker-launch wrapper writes it at `plot-dispatch.sh:1418`, after the agent process exists, and `:1034` says the desk already exists by then. So the slice has no honest value to write, and an empty file would make a never-started desk reapable. The scope lens added the finding nobody else reached: slice 2 would mark `plot-approve` and `plot-deliver` **booking worktrees** as reapable desks, widening the removal population this plan's own line 66 promises not to touch. **The measurement is also gone** — 16 worktrees / 10 unplaced now reads 5 / 0, and both desks named by hash no longer exist, so the plan's Open Question can no longer be investigated. Moderation: `.plot/panels/the-reaper-sees-the-desks-the-fleet-leaves/panel.md`.
+- **What survives the panel, and it is a different plan:** a commit count and branch on the existing `unclassified-tree` finding; a footer key splitting `desks=` into judged desks and unplaced trees; `plot-resolve-artifact.sh` naming its tree recognisably (the one live creator that still does not); and booking worktrees excluded from the unplaced population rather than marked as desks.
+- **The panel corrected CLAUDE.md, which is where this plan's error came from.** Its §21 entry said *"measured 2026-09-09"* and cited `plot-reap.sh:384`; the reaper's header says 2026-09-10, PR #878 landed that day, and the recognition test is at `:467-470`. Fixed on main in `75bf077ff` — the plan inherited both errors from the estate's own documentation.
 
 - Found by an operator reading *"1 manifest, 10 synthesized"* on the board and asking whether the registry should reap abandoned desks. **It already checks every 60 s** — `reap`, `correct`, `person`, `defer` are tick counters — and `--start-agents` already keeps the agent count up. The gap is not the cadence; it is that ten desks never reach the rule.
 - **The reaper's silence is the estate's own recorded defect, recurring.** Its header measured *"ten finished desks while the reaper reported three"* on 2026-09-09, and the fix then was to report the unclassifiable rather than widen removal. This plan applies the same remedy to the same shape, one layer out.
