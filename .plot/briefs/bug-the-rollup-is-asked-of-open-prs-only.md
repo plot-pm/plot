@@ -2,7 +2,7 @@
 
 - **Plan (canonical):** `docs/plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md` on `main`
 - **Approved:** 2026-09-25, Jan Wloka, in-session after two panel rounds
-- **Branch:** `bug/the-rollup-is-asked-of-open-prs-only` (base: `main`) — claimed 2026-09-25 by ref push at `6753b2403`
+- **Branch:** `bug/the-rollup-is-asked-of-open-prs-only` (base: `main`) — claimed 2026-09-25 by ref push; the ref now sits at `e40b89d87` on `main` with no work on it
 - **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
 - **Review of the code:** PR review per repo convention; CI is the authority
 
@@ -45,7 +45,8 @@ The plan's `## Done when` list is the specification. These are the assertions th
 - **An open PR still carries its rollup after the merge.** Assert this on the parsed cache line (`STATE<TAB>checks<TAB>draft`), not on the call shape. A call-shape test passes against the sentinel-wins defect.
 - **A contract test on the call shape.** The `all` call does not carry `--rich`, and the `open` call does. Record the calls through the shim's `PLOT_TEST_CALLS` log, as the existing tests do.
 - **`HOST_VERDICT` per arm:** open fails and all succeeds, open succeeds and all fails, both fail. Each case degrades the verdict, and a success does not hide a failure.
-- **A merged PR keeps `mergedAt`, `state` and `head`** in the cache after the change.
+- **A merged PR's cache line still reads `MERGED`.** The scan reads no `mergedAt` from this call: the plain GitHub `pr-list` emits `number, title, state, head, author`, and the cache stores `STATE<TAB>checks<TAB>draft`. The plan's `mergedAt` line holds in this form.
+- **The completeness count reads the `all` payload before the filter.** `_pr_rows` (`:873-876`) counts rows after the merge, and `:986` compares it against `PR_LIST_LIMIT` to write `.list-complete`. With OPEN rows removed from the plain payload, an `all` call that returns exactly the limit gives a count below the limit. A truncated list then reads as whole, and a cache miss derives `NONE` for a branch that has a PR. Write a test for this case.
 - **Measure before and after** on this estate, through `plot-host.sh` with the scan's arguments, and put the figures in the PR body. The expected result is that the `pr-list` component falls from ~20–37 s to a few seconds.
 - **The scan's reported output does not change:** the same branches, verdicts and footer counts. Compare a `--json` scan on this estate before and after.
 
@@ -56,6 +57,11 @@ Repo gates: `nvm use` (Node 24), `pnpm test`, `pnpm run test:contracts`, and the
 - Push the first real commit as soon as it exists.
 - Open the PR with `skills/plot/scripts/plot-open-pr.sh` (use `--draft` while the work is still moving). **Do not run `gh pr create`.**
 - When the PR exists, append `, PR: #<number>` inside the wave heading in the plan's `## Slices` section on `main`: `(Branch: bug/the-rollup-is-asked-of-open-prs-only, PR: #N)`. This plan uses the heading form, and a trailing `→ #N` parses as `prs=[]`.
+
+### Drift since approval
+
+- `911dd0118` (#993) added an `author` field to `plot-host.sh pr-list`. The scan's `sed` at `:893-895` anchors on `"state":…,"head":` and is unaffected. A state-aware stub may omit the field.
+- A second brief, `.plot/briefs/the-rollup-is-asked-of-open-prs-only.md`, exists for this branch. This file is canonical. Where the two disagree on the PR annotation, the heading form `, PR: #N` above is correct.
 
 ### Scope guard
 
