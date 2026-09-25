@@ -1,0 +1,1 @@
+../2026-09-25-a-stale-pulse-keeps-the-sections-it-had.md

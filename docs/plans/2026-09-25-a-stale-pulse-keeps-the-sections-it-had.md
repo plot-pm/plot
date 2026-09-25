@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-25, Jan Wloka, in-session after panel
 - **Started:** 2026-09-25, Jan Wloka, `bug/a-failed-scan-keeps-the-last-sections`
+- **Delivered:** 2026-09-25
 
 ## Changelog
 
