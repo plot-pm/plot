@@ -17,7 +17,16 @@
 #
 # Fields:
 #   git_host          github | bitbucket | "" (from origin's URL)
-#   default_branch    from origin/HEAD, else the current branch, else ""
+#   default_branch    from origin/HEAD, else the current branch, else "" — the
+#                     LOCAL reading, unchanged
+#   host_default_branch what the host calls its default branch, asked through
+#                     `plot-host.sh default-branch`; "" where it was not asked
+#                     or could not answer
+#   host_default_branch_status ok | unknown — `unknown` where there is no
+#                     git_host, no adapter, or the adapter failed. The field
+#                     above means nothing unless this reads `ok`. THE TWO ARE
+#                     REPORTED AND NEVER COMPARED: `/plot-init` decides what a
+#                     disagreement implies
 #   dod_candidates    package.json script names that look like quality gates
 #   ticket_prefix     the most frequent prefix in the sample, e.g. QUACDS; ""
 #                     if none was seen at all
@@ -61,8 +70,58 @@ case "$url" in
 esac
 
 # --- default branch -----------------------------------------------------
+# TWO READINGS OF ONE FACT, REPORTED SIDE BY SIDE AND NEVER COMPARED.
+#
+# `default_branch` is the LOCAL reading and keeps the meaning and the value it
+# has always had. `origin/HEAD` is a cache written at clone time: a default
+# branch changed afterwards does not update it, and nothing in git notices.
+# Reported 2026-09-24 — a clone whose GitHub default had moved to `develop` kept
+# `origin/HEAD → main`, `/plot-init` wrote no key, and the board then read plans
+# from `origin/main` and showed one untitled group listing `develop` as a branch.
+#
+# `host_default_branch` is what the HOST calls its default, asked through the
+# adapter. Both are kept because the proposal must name both answers; replacing
+# the local one with the host's would destroy the evidence for the disagreement
+# it exists to report.
+#
+# IT REPORTS BOTH AND COMPARES NEITHER. There is deliberately no
+# `default_branch_stale`, no `agree` and no proposed key: that is the second
+# answer the 2026-09-08 split removed from this file, and `/plot-init` is where
+# the comparison belongs.
 def_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 [ -n "$def_branch" ] || def_branch=$(git branch --show-current 2>/dev/null || true)
+
+# `host_default_branch_status` IS A TWO-STATE ENUM AND THE FIELD BESIDE IT IS
+# ONLY MEANINGFUL WHEN IT READS `ok`. An unasked host is `unknown` — never
+# `main`, never `""` read as agreement — which is the direction
+# `plot-board-probe.sh` already takes with `auth`: *"Report that we cannot tell,
+# never that it is fine."* Silence here would read as confirmation, and nobody
+# investigates a green light.
+#
+# THE EXIT CODE DECIDES, NOT THE EMPTINESS OF STDOUT. The adapter prints an
+# empty line and exits 0 where neither the host nor the cache can answer, and it
+# exits 3 for a `bb` that cannot do `--json`; a reader testing stdout alone reads
+# the first as an answer. Both are checked, in that order.
+#
+# NO HOST MEANS NO QUESTION. Without `git_host` the adapter would guess `github`
+# and say so on stderr (`plot-host.sh` "no 'Git host' key and no remote names
+# one"), so a repository with no remote would get a GitHub lookup it never asked
+# for. `unknown` is the honest answer there.
+#
+# ONE CALL, ONCE, AT ADOPTION. This runs when a stranger adopts Plot, not on the
+# board's hot path — `board.ts:738` avoids this op deliberately and that stays
+# true.
+host_def_branch=""
+host_def_status="unknown"
+if [ -n "$host" ]; then
+  _host_sh="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-host.sh"
+  if [ -f "$_host_sh" ]; then
+    if _hb=$(bash "$_host_sh" default-branch 2>/dev/null) && [ -n "$_hb" ]; then
+      host_def_branch="$_hb"
+      host_def_status="ok"
+    fi
+  fi
+fi
 
 # --- Definition-of-Done candidates --------------------------------------
 # Only names that are recognisably quality gates. A repo's own `deploy` or
@@ -224,6 +283,8 @@ cat <<JSON
 {
   "git_host": "$(j "$host")",
   "default_branch": "$(j "$def_branch")",
+  "host_default_branch": "$(j "$host_def_branch")",
+  "host_default_branch_status": "$(j "$host_def_status")",
   "dod_candidates": $dod,
   "ticket_prefix": "$(j "$ticket")",
   "ticket_prefix_count": ${ticket_count:-0},

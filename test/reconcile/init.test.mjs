@@ -266,3 +266,113 @@ test('detect: an untracked Jenkins hostname cannot answer for the repository', (
   fs.writeFileSync(path.join(r, 'README.local.md'), 'jenkins-ghost.example.dev\n');
   assert.equal(probe(r).jenkins_host, '');
 });
+
+// --- the host's default branch, beside the local one ----------------------
+//
+// `origin/HEAD` is a CACHE WRITTEN AT CLONE TIME. Reported 2026-09-24: a clone
+// whose GitHub default had moved to `develop` kept `origin/HEAD → main`, and
+// every Plot reading downstream was wrong in the same direction, silently.
+//
+// THE TESTS STUB `gh`, NOT `plot-host.sh`. The probe reaches the adapter by
+// path, so a stub on PATH exercises the real adapter underneath — which is what
+// makes the disagree case below discriminating. A stubbed `plot-host.sh` would
+// pass equally against a probe that had simply read `origin/HEAD` twice.
+//
+// THE STUB DIR GOES FIRST AND THE REAL PATH STAYS. Total PATH replacement is
+// what boardprobe.test.mjs does, and it is right there because that probe only
+// needs `gh`/`bb`/`jen`. Here the subject is a whole adapter: measured
+// 2026-09-25, an isolated PATH carrying a hand-listed toolset lost `dirname`,
+// so the probe could not resolve the adapter's own path, never asked, and
+// reported `unknown` — the test failed for a reason that had nothing to do with
+// the code under test, in the reassuring direction. A whitelist one entry short
+// is not isolation.
+//
+// PREPENDING IS SAFE HERE BECAUSE THE STUB IS ALWAYS PRESENT. The CI-vs-macOS
+// failure that argued for replacement was about a CLI expected to be ABSENT: a
+// real `/usr/bin/gh` answered where the test wanted nothing. Every case below
+// stubs `gh` with a file of its own, so a real `gh` further down PATH is
+// shadowed and never reached.
+function stubGh(body) {
+  const dir = fs.mkdtempSync(path.join(tmp, 'ghstub-'));
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\n${body}\n`);
+  fs.chmodSync(path.join(dir, 'gh'), 0o755);
+  return dir;
+}
+/** Probe `cwd` with `stubDir` ahead of the real PATH. */
+function probeWith(cwd, stubDir) {
+  return JSON.parse(execFileSync('bash', [detect], {
+    encoding: 'utf8',
+    cwd,
+    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  }));
+}
+
+test('detect: reports the host default branch beside the local one when they agree', () => {
+  const r = repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:acme/thing.git' });
+  const d = probeWith(r, stubGh(`printf '%s' main`));
+  assert.equal(d.host_default_branch, 'main');
+  assert.equal(d.host_default_branch_status, 'ok');
+  assert.equal(d.default_branch, 'main', 'the local reading keeps its value');
+});
+
+test('detect: reports BOTH answers where the host and origin/HEAD disagree', () => {
+  // THE REPORTED CASE, and the one an implementation reading `origin/HEAD` twice
+  // passes the agree test with. The local reading is `main` (the branch this
+  // fixture is on) and the host says `develop`; both survive into the report,
+  // because the proposal /plot-init makes has to name each of them.
+  const r = repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:acme/thing.git' });
+  const d = probeWith(r, stubGh(`printf '%s' develop`));
+  assert.equal(d.host_default_branch, 'develop', "the host's answer is the host's");
+  assert.equal(d.default_branch, 'main', 'and the local reading is NOT overwritten');
+  assert.equal(d.host_default_branch_status, 'ok');
+  // AND THE PROBE STILL DECIDES NOTHING. No `default_branch_stale`, no `agree`,
+  // no proposed key — that is the second answer the 2026-09-08 split removed
+  // from this file, and `/plot-init` is where the comparison belongs.
+  assert.ok(!('default_branch_stale' in d), 'the probe reports; it does not judge');
+  assert.ok(!('default_branch_agrees' in d));
+});
+
+test('detect: a host that cannot be asked reports unknown, never the local answer', () => {
+  // THE FAILURE DIRECTION IS THE WHOLE POINT. An implementation that falls back
+  // to `origin/HEAD` here passes every other test in this block and quietly
+  // reintroduces the silence: two equal readings read as *the host confirms*,
+  // and nobody investigates a green light.
+  const r = repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:acme/thing.git' });
+  const d = probeWith(r, stubGh(`echo "gh: could not connect" >&2; exit 1`));
+  assert.equal(d.host_default_branch_status, 'unknown');
+  assert.notEqual(d.host_default_branch, d.default_branch,
+    'an unasked host must not read as one that agreed');
+  assert.equal(d.default_branch, 'main', 'the local reading is untouched by the failure');
+});
+
+test('detect: a host answering nothing at all is unknown, not an empty agreement', () => {
+  // READ THE EXIT CODE, NOT THE EMPTINESS OF STDOUT — and then read both. A `gh`
+  // exiting 0 with no output is the shape that made the adapter's own Bitbucket
+  // fallback dead code for months.
+  const r = repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:acme/thing.git' });
+  const d = probeWith(r, stubGh(`exit 0`));
+  assert.equal(d.host_default_branch_status, 'unknown');
+  assert.equal(d.host_default_branch, '');
+});
+
+test('detect: no git host means no question was asked', () => {
+  // A repository with no remote. The adapter would GUESS `github` and say so on
+  // stderr, so asking would spend a lookup nobody requested and report an answer
+  // about a host this repository does not have.
+  const r = repoWith({ 'a.txt': 'x' });
+  const d = probe(r);
+  assert.equal(d.git_host, '');
+  assert.equal(d.host_default_branch_status, 'unknown');
+  assert.equal(d.host_default_branch, '');
+});
+
+test('detect: default_branch keeps reading origin/HEAD, else the current branch', () => {
+  // THE FIELD'S CONTRACT IS UNCHANGED, and this pins it because nothing did.
+  // Wave 2 compares the two readings, so a silent change to either half would
+  // move a comparison neither slice would show.
+  const r = repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:acme/thing.git' });
+  assert.equal(probe(r).default_branch, 'main', 'the current branch, with no origin/HEAD');
+  git(r, 'checkout', '-q', '-b', 'some-feature');
+  assert.equal(probe(r).default_branch, 'some-feature',
+    'still the local reading, whatever the host would say');
+});

@@ -5305,3 +5305,132 @@ test('host: a bitbucket LISTING says it cannot narrow, and answers in full', () 
   assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--since')));
   assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--query')));
 });
+
+// --- default-branch: the host is asked, on both backends ------------------
+//
+// THIS OP HAD NO TEST AT ALL until 2026-09-25, which is how the Bitbucket arm's
+// fallback stayed dead code. `git symbolic-ref … | sed … || bb repo view …`
+// takes the PIPELINE's exit status — `sed`'s — and `sed` exits 0 on empty input,
+// so `bb` had never once been reached. A Bitbucket clone with no `origin/HEAD`
+// printed an empty line and exited 0, and a caller read that as a branch named "".
+//
+// AND THE ORDER IS THE CONTRACT, NOT MERELY THE OUTPUT. `origin/HEAD` is a cache
+// written at clone time; asking it first means this op answers from the very
+// cache `adoption-notices-a-stale-default-branch` exists to bypass, so on
+// Bitbucket the two readings could never disagree and the defect was invisible.
+// Each test below therefore pins WHICH source answered, in a repo that has both.
+
+/** A repo with a real `origin/HEAD`, so a cache-first implementation has something to find. */
+function repoWithOriginHead(cacheSays) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-defbr-'));
+  execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: dir });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:acme/thing.git'], { cwd: dir });
+  // A symbolic ref may be set without the remote branch existing.
+  execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${cacheSays}`], { cwd: dir });
+  return dir;
+}
+
+/** A `bb` that answers `repo view --json` and records every call. */
+function bbRepoStub(mainbranch, { fail = false } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbrepo-'));
+  const calls = path.join(dir, 'bb.calls');
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s\\n' "$*" >> "${calls}"
+${fail ? 'echo "An error occurred: repository not found" >&2; exit 1'
+       : `printf '%s' '{"mainbranch":{"name":"${mainbranch}"}}'`}
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, calls };
+}
+
+// `callsOf` is declared once, at the top of this file.
+
+test('host: default-branch asks bb BEFORE origin/HEAD on bitbucket', () => {
+  // THE REGRESSION LOCK FOR ROUTE 1. The cache says `main` and the host says
+  // `develop` — the reported shape. A cache-first arm answers `main` and never
+  // calls `bb`, which is what this asserts against on both counts.
+  const repo = repoWithOriginHead('main');
+  const stub = bbRepoStub('develop');
+  const res = spawnSync('bash', [adapter, 'default-branch'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'develop', "the host's answer wins over the clone-time cache");
+  assert.ok(callsOf(stub.calls).some((c) => c.includes('repo view')),
+    'bb was actually asked — a cache-first arm never reaches it');
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test('host: default-branch falls back to origin/HEAD when bb cannot answer', () => {
+  // THE FALLBACK IS REACHABLE NOW, which it provably was not: this is the case
+  // whose `||` never fired. Every caller — plot-open-pr.sh, plot-approve.sh,
+  // plot-deliver.sh, plot-reap.sh, plot-release-refs.sh — needs a usable branch
+  // name, and worked from this reading alone before the host was asked at all.
+  const repo = repoWithOriginHead('trunk');
+  const stub = bbRepoStub('', { fail: true });
+  const res = spawnSync('bash', [adapter, 'default-branch'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'trunk', 'the cache answers where the host cannot');
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test('host: default-branch prints nothing when neither the host nor the cache can answer', () => {
+  // AND IT EXITS 0 DOING IT, which is why `plot-detect-repo.sh` checks the VALUE
+  // as well as the status: a reader testing the exit code alone reads this empty
+  // line as an answer.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-nohead-'));
+  execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: dir });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:acme/thing.git'], { cwd: dir });
+  const stub = bbRepoStub('', { fail: true });
+  const res = spawnSync('bash', [adapter, 'default-branch'], {
+    cwd: dir, encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, 'a caller that needs a name is not made to handle an exit code');
+  assert.equal(res.stdout.trim(), '', 'and the absence is honest rather than invented');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('host: default-branch reads a null mainbranch as no answer, never as a branch named null', () => {
+  // `jq -r` PRINTS THE WORD `null` for an absent field. A `[ -n "$x" ]` guard
+  // accepts it, and a branch named `null` reaches five callers that would then
+  // push, merge and delete against it.
+  const repo = repoWithOriginHead('trunk');
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbnull-'));
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s' '{"slug":"thing"}'
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  const res = spawnSync('bash', [adapter, 'default-branch'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.stdout.trim(), 'trunk', 'a payload with no mainbranch falls through to the cache');
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('host: default-branch asks the host on github too, over a stale cache', () => {
+  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-ghdefbr-'));
+  execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: repo });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/thing.git'], { cwd: repo });
+  execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], { cwd: repo });
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-ghstub-'));
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s' develop\n`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const res = spawnSync('bash', [adapter, 'default-branch'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.stdout.trim(), 'develop');
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+});
