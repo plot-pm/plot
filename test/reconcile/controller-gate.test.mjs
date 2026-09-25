@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -377,4 +377,62 @@ test('controller gate: the `bash <script>` form its own callers use still refuse
   // `test/reconcile/controller-gate.test.mjs` and `plot-install-hooks.sh:246`
   // both drive the gate this way; both must behave as today.
   assert.equal(run(repo(), DISPATCH).status, 2);
+});
+
+// --- the escape names a script that exists where the gate runs --------------
+//
+// On a plugin install the gate runs from the plugin cache and the repository
+// has no `skills/`, so a repo-relative escape names nothing. Every test above
+// runs the gate from this checkout, where that relative path also resolves;
+// this one copies the gate somewhere else, with a space in the path, and fires
+// it from a repository that has no `skills/` directory at all.
+
+/** The gate and its receipt script, copied beside each other outside any repo. */
+function pluginCopy() {
+  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-controller-gate-plugin-'));
+  const dir = path.join(tmp, 'plugin cache', 'plot', '9.9.9', 'scripts');
+  mkdirSync(dir, { recursive: true });
+  for (const f of [gate, receipt]) copyFileSync(f, path.join(dir, path.basename(f)));
+  return dir;
+}
+
+/** The escape line the refusal printed, with the command's words as bash reads them. */
+function escapeOf(stderr) {
+  const line = stderr.split('\n').find((l) => /--unowned-action /.test(l));
+  assert.ok(line, `the refusal prints an escape line:\n${stderr}`);
+  const cmd = line.trim();
+  const words = spawnSync('bash', ['-c', `printf '%s\\n' ${cmd.replace(/<slug>/, 's').replace(/"<reason>"/, 'r')}`],
+    { encoding: 'utf8' }).stdout.trim().split('\n');
+  return { cmd, words };
+}
+
+test('controller gate: from a plugin copy, the escape names the receipt script beside the gate', () => {
+  const copy = pluginCopy();
+  const dir = repo();
+  assert.ok(!existsSync(path.join(dir, 'skills')), 'the fixture repository has no skills/');
+  const r = spawnSync('bash', [path.join(copy, 'plot-controller-gate.sh')], {
+    cwd: dir, input: JSON.stringify({ tool_input: { command: DISPATCH } }), encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  const { words } = escapeOf(r.stderr);
+  assert.equal(words[0], 'bash');
+  assert.equal(words[1], path.join(copy, 'plot-state-receipt.sh'), 'the path is the copy beside the gate, one word');
+  assert.ok(existsSync(words[1]), `the printed path exists: ${words[1]}`);
+});
+
+test('controller gate: the printed escape runs, from a path with a space, and is counted', () => {
+  const copy = pluginCopy();
+  const dir = repo();
+  const r = spawnSync('bash', [path.join(copy, 'plot-controller-gate.sh')], {
+    cwd: dir, input: JSON.stringify({ tool_input: { command: DISPATCH } }), encoding: 'utf8',
+  });
+  const { cmd } = escapeOf(r.stderr);
+  const filled = cmd.replace('<slug>', 'some-slug').replace('"<reason>"', '"the board is not running"');
+  const log = path.join(dir, '.plot', 'state', 'unowned-action-writes.tsv');
+  const before = existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).length : 0;
+  const ran = spawnSync('bash', ['-c', filled], { cwd: dir, encoding: 'utf8' });
+  assert.equal(ran.status, 0, `the copied command runs: ${filled}\n${ran.stderr}`);
+  const after = readFileSync(log, 'utf8').split('\n').filter(Boolean);
+  assert.equal(after.length, before + 1, 'the escape is counted');
+  assert.match(after.at(-1), /the board is not running/);
 });
