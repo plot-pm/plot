@@ -12,6 +12,7 @@
 - **Sprint:** a-refusal-names-what-it-cannot-see
 - **Rounds:** 1
 - **Approved:** 2026-09-25, Jan Wloka, in-session after panel
+- **Started:** 2026-09-25, Jan Wloka, `bug/the-approval-reads-why-the-host-said-nothing`
 
 ## Changelog
 
