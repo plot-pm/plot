@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1000
 - **Sprint:** a-refusal-names-what-it-cannot-see
+- **Rounds:** 1
+- **Approved:** 2026-09-26, Jan Wloka, in-session after panel
 
 ## Changelog
 
@@ -35,14 +37,15 @@ manifests in .plot/agents/    20
 
 Two rendered as agents sharing a desk named `feature/stopped` — a branch that exists neither locally nor on the remote — with desks under `/private/var/folders/.../plot-restart-*`, long deleted.
 
-The four sites:
+The leak is not per-`mkdtemp`; it is at the **three places an environment is built** and handed to a Plot script:
 
 ```
-test/reconcile/dispatch.test.mjs:1420   plot-realworker-
-test/reconcile/dispatch.test.mjs:1565   plot-wrappid-
-test/reconcile/dispatch.test.mjs:2944   plot-sessenv-
-test/reconcile/restart.test.mjs:52      plot-restart-
+test/reconcile/dispatch.test.mjs:299    env: { ...process.env, PLOT_PLUGIN_ROOT: …, ...(opts.env ?? {}) }
+test/reconcile/dispatch.test.mjs:3336   env: { ...process.env, ...env }
+test/reconcile/restart.test.mjs:122     const env = { ...process.env }
 ```
+
+At `:299` the `delete` must come **after** the `...(opts.env ?? {})` spread, or a caller passing the variable puts it back.
 
 ### Why the sandbox is otherwise correct
 
@@ -55,7 +58,7 @@ $ (cd $TMPREPO && plot-config.sh get "Agent registry" ".plot/agents")
 
 And `plot-dispatch.sh:1123-1126` resolves a relative value against `$repo_root`, which is the temp repo. **Every deliberate part of the isolation works.**
 
-What defeats it is a variable nobody in the test mentions. `plot-config.sh:167` prefers an exported `PLOT_REPO_ROOT` over `git rev-parse --show-toplevel`; when a suite runs inside a dispatched worker's desk, that variable is already set to the host checkout, so the host's `CLAUDE.md` is read and its **absolute** `Agent registry` is returned. The relative-path arm never fires, because the value was never relative.
+What defeats it is a variable nobody in the test mentions. `plot-config.sh:167` prefers an exported `PLOT_REPO_ROOT` over `git rev-parse --show-toplevel`; when a suite runs inside a dispatched worker's desk, that variable is already set to the host checkout, so the host's `CLAUDE.md` is read instead of the sandbox's. **On this estate** the key is absolute, so the value comes back absolute and `plot-dispatch.sh`'s relative-path arm never fires. A repository whose key is relative leaks one hop later instead — `plot-dispatch.sh:1125` resolves it against the **host** `$repo_root`. Same defect, different path; reading the wrong config is the fault, not the shape of the value.
 
 **An earlier reading of this defect, recorded in #1000, was wrong.** It blamed `plot-config.sh` for finding its file by cwd. With `cwd: repo` the file is found correctly; the failure requires the inherited variable, which is why the manifests accumulated today — while agents were running suites inside their desks — rather than steadily over months.
 
@@ -94,8 +97,9 @@ So the slice adds a gate as well: **a contract test asserting the registry is un
 
 ## Done when
 
-- The four sites scrub `PLOT_REPO_ROOT`, and a run with it exported writes no manifest into the host registry — **asserted with the variable deliberately set**, since that is the only condition under which the bug appears.
-- A gate catches a future test that forgets: the suite fails if it leaves the host registry changed.
+- The three env choke points scrub `PLOT_REPO_ROOT`, and a run with it exported writes no manifest into the host registry — **asserted with the variable deliberately set**, since that is the only condition under which the bug appears.
+- **The regression test points `PLOT_REPO_ROOT` at a decoy temp root, never the real repository.** A test that fails by writing into the host registry is a test that causes the defect it defends against.
+- A gate catches a future test that forgets, and its discriminator is **no manifest in the host registry names a worktree under the system temp directory** — not *"the registry is unchanged"*, which cannot be implemented: live agents write manifests during a suite run, and two were measured doing so.
 - `plot-config.sh` is untouched.
 - The two tests that already scrub keep passing unchanged.
 
@@ -103,9 +107,11 @@ So the slice adds a gate as well: **a contract test asserting the registry is un
 
 ### A sandboxed test scrubs the host's root (Branch: bug/a-sandboxed-test-scrubs-the-hosts-root)
 
-- `bug/a-sandboxed-test-scrubs-the-hosts-root` — `delete env.PLOT_REPO_ROOT` at the four sites in `dispatch.test.mjs` and `restart.test.mjs`, following `approve-record-outside-comments.test.mjs:125`; a regression test that exports the variable and asserts no manifest reaches the host registry; a gate failing the suite if the host registry changes across a run
+- `bug/a-sandboxed-test-scrubs-the-hosts-root` — `delete env.PLOT_REPO_ROOT` at the three env choke points (`dispatch.test.mjs:299` **after** the `opts.env` spread, `dispatch.test.mjs:3336`, `restart.test.mjs:122`), following `approve-record-outside-comments.test.mjs:125`; a regression test that exports the variable **pointed at a decoy temp root** and asserts no manifest reaches the host registry; a gate whose discriminator is *no host manifest names a worktree under the system temp directory*, since live agents make *"unchanged"* unimplementable
 
 ## Notes
+
+- **Panelled 2026-09-26: slice 1 `amend`, `Evidence: executed`.** **The mechanism holds** — the juror tried to refute it and could not, reproducing the leak directly and then tracing the variable on the live fleet. The subtlety strengthens it: **no Plot script exports `PLOT_REPO_ROOT`.** It arrives by plain inheritance from the launchd supervisor's plist (`units/com.plot-pm.registryd.plist:44-45`) and travels supervisor → dispatcher → wrapper → worker loop → any suite that worker runs, measured on pids 1506 and 2949. Nothing a test could reasonably anticipate sets it, which is why scrubbing must be explicit. Four amendments, all applied: the sites were named by `mkdtemp` rather than by the three places an env is built; the regression test needed a decoy root so a failure cannot cause the defect; the gate as written was **unimplementable**, since live agents write manifests during a run; and *"the absolute key"* read as universal when it is this estate's. Verdict: `.plot/panels/a-sandbox-does-not-inherit-its-host/slice1.md`.
 
 - **Panelled 2026-09-26: slice 2 `reject`, `Evidence: executed`.** **The sweep it proposed already exists.** `plot-reap.sh:690-718` loops the registry, tests `[ -d "$mwt" ] && continue` and removes the rest — landed in `923720c79` (#474) on **2026-08-27**, a month before this plan. Its comment names the same population: *"seven of them, measured 2026-08-26."* It is also **better than the proposed gate**: it needs only the absent desk, because *"nothing runs in a directory that does not exist"*, where the plan demanded a redundant liveness check that would have made the sweep narrower. Verdict: `.plot/panels/a-sandbox-does-not-inherit-its-host/slice2.md`.
 - **The 19 manifests were clearable all along.** `plot-reap.sh:690-718` matches on a recorded worktree path that is not a directory, which every one of them satisfied. They accumulated because nobody ran the reaper, not because nothing could clear them — so the leak's cost is a noisy board between reaps rather than an unbounded registry. **That lowers the severity and does not remove the defect**: a suite should not write into the host's registry at all.
