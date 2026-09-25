@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { sectionUnderFailure } from '../../src/server/fleet.js';
 import { sectionKey } from '../../src/contract/schema.js';
 import { branchState } from '@plot-pm/domain';
+import { rowsBySection } from '../../src/app/lib/agent-rows/sections.js';
 import type { WaitingGroup } from '../../src/contract/schema.js';
 
 /**
@@ -32,6 +33,8 @@ import type { WaitingGroup } from '../../src/contract/schema.js';
  */
 describe('a failed scan keeps the last sections', () => {
   const row = { repo: 'plot', branch: 'bug/a-slice', plan: 'a-plan' };
+  // Only the fields `rowsBySection` reads; the rest is cast, as the client casts.
+  const BARE = { wave: '', state: 'open', verdict: null } as Record<string, unknown>;
   const remembered = new Map<string, WaitingGroup>([
     [sectionKey(row), 'not-started'],
   ]);
@@ -104,6 +107,24 @@ describe('a failed scan keeps the last sections', () => {
     // completes. That is the honest answer rather than a section invented from
     // a pulse this process never saw.
     expect(sectionUnderFailure(true, new Map(), row, 'done')).toBeNull();
+  });
+
+  it('a slice may not place an unplaced row from its siblings', () => {
+    // `rowsBySection` rewrites a row's group to its SLICE's section, so an
+    // unplaced row sharing a wave with remembered ones would silently inherit
+    // their section — a derivation from the pulse the banner called stale,
+    // which is the one thing the rule forbids. A slice-mate that WAS seen says
+    // nothing about a row that was not.
+    const seen = {
+      ...BARE, repo: 'plot', branch: 'bug/seen', plan: 'p', wave: 'One',
+      group: 'not-started' as WaitingGroup | null,
+    };
+    const unseen = {
+      ...BARE, repo: 'plot', branch: 'bug/unseen', plan: 'p', wave: 'One',
+      group: null as WaitingGroup | null,
+    };
+    const out = rowsBySection([seen, unseen] as never);
+    expect(out.find((r) => r.branch === 'bug/unseen')?.group).toBeNull();
   });
 
   it('the identity carries the PLAN, so two rows for one branch cannot swap', () => {
