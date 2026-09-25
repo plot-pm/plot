@@ -123,7 +123,7 @@ A heartbeat file is that memo, promoted to disk. The log's mtime is free, alread
 
 Two slices, and the second is why the first is worth building. The reading belongs in the shell script; **the surface an operator visits is the board.**
 
-### The status says when it last ticked (Branch: bug/the-status-says-when-it-last-ticked)
+### The status says when it last ticked (Branch: bug/the-status-says-when-it-last-ticked, PR: #982)
 
 - `bug/the-status-says-when-it-last-ticked` — print the tick-age line in `--status`'s running arm, reusing the reading the loaded-not-running arm already makes at `:378`; tests for a stale log, a fresh log and no log; `summary:` unchanged
 
