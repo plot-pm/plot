@@ -7,7 +7,7 @@
 - **Review of the code:** PR review per repo convention
 - **Issue:** #971
 
-Wave 2 (`bug/adoption-proposes-the-main-branch-key`) waits on this branch: it compares the field this branch adds, so it cannot start until this one merges.
+Wave 2 (`bug/adoption-proposes-the-main-branch-key`) waits on this branch: it compares the field this branch adds, so it cannot start until this one merges. That branch is already claimed and carries a `PLOT-BLOCKED.md` naming this one (`a3a66a31b`); this branch's merge is what releases it.
 
 ### What to build
 
@@ -72,6 +72,6 @@ This branch owns: `skills/plot/scripts/plot-detect-repo.sh`, its tests under `te
 
 It does not own: `skills/plot-init/SKILL.md`, `skills/plot-board-setup/SKILL.md` (wave 2), `plot-board-probe.sh`, `packages/board/src/**` (the board's three-step resolution stays as is, per the plan).
 
-Verified at dispatch (2026-09-24): no other remote branch touches `plot-detect-repo.sh`, `plot-init/SKILL.md`, `plot-board-setup/SKILL.md` or `rules/stack.ts`.
+Verified at dispatch (2026-09-24): no other remote branch touches `plot-detect-repo.sh`, `plot-init/SKILL.md`, `plot-board-setup/SKILL.md` or `rules/stack.ts`. Re-verified 2026-09-25: no remote branch changes `plot-detect-repo.sh`, `plot-host.sh` or their tests, and the two commits on `main` since approval (#975, #977) touch only unrelated test files. This branch has no remote ref yet; the first push is the claim.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
