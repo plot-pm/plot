@@ -114,10 +114,19 @@ const approveAndRead = (planBody) => {
   git(repo, 'remote', 'set-head', 'origin', 'main');
 
   fs.writeFileSync(statePath, JSON.stringify({ number: 42, state: 'OPEN', draft: false }));
+  // PLOT_REPO_ROOT IS SCRUBBED, and the sandbox is the point. Since
+  // `config-takes-the-callers-root`, `plot-config.sh` prefers an exported
+  // `PLOT_REPO_ROOT` over `git rev-parse`, so a run inheriting one from a
+  // dispatched worker reads the HOST repo's `## Plot Config` rather than this
+  // sandbox's. This test happens to use the same `Plan directory` as the repo
+  // it lives in, so it would pass either way today — and would start reading
+  // the wrong config the moment either changed. The env must not decide it.
+  const env = { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_HOST: 'github' };
+  delete env.PLOT_REPO_ROOT;
   execFileSync('bash', [approve, '--who', 'Probe', 'approve-me'], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+    env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
