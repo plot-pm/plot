@@ -276,7 +276,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // `desk-finding.test.mjs` guards from the other side.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 pr_source=degraded main=main');
 });
 
 // A docs plan that also names a Sprint. Section 6 exempts docs/infra plans by
@@ -3955,5 +3955,302 @@ exit 0
       `the inspect line must still name gh on a GitHub repo:\n${sections['6']}`);
   } finally {
     fs.rmSync(path.join(s6Repo, 'plans', '2026-03-06-nomerge.md'), { force: true });
+  }
+});
+
+// --- Section 23: a finished plan whose issue is still open ------------------
+//
+// THE FIXTURE NEEDS A TRACKER, so it takes section 20's shape: the scripts are
+// copied into a shim, a stub `plot-host.sh` answers `issue-list`, and `origin`
+// is pointed at a github.com URL after the push so `--no-fetch` never dials.
+//
+// Measured on the estate this section was written for: 21 plans at Delivered
+// or Released name an issue, 12 issues are open, and the intersection is
+// exactly one — `a-gate-matches-an-invocation` and #935, found by a person
+// reading a sprint sweep rather than by anything in Plot.
+
+/**
+ * A repository whose plans name issues, with a stubbed tracker.
+ *
+ * `hostBody` is the whole `plot-host.sh` stub, so a test can make the tracker
+ * answer, fail, or refuse to be asked. `markerPath`, when the stub writes one,
+ * is what proves `--no-pr` never asked at all — the absence of a call cannot
+ * be asserted from output that is absent for either reason.
+ */
+const issueFixture = (hostBody, scanArgs = ['--no-fetch']) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-'));
+  const origin = path.join(tmp, 'origin.git');
+  const repo = path.join(tmp, 'repo');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(repo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+  const plan = (phase, issue) =>
+    `## Status\n\n- **State:** ${phase}\n- **Type:** feature\n- **Issue:** ${issue}\n\n`;
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  // #101 open → reported. Released is the phase the observed failure had.
+  w('plans/2026-01-01-released-open.md', `# Released open\n\n${plan('Released', '#101')}`);
+  // #102 open → reported. Delivered must be caught too: a filter on `released`
+  // alone is the naive implementation this catches.
+  w('plans/2026-01-02-delivered-open.md', `# Delivered open\n\n${plan('Delivered', '#102')}`);
+  // #103 absent from the stub's open list → closed → silent.
+  w('plans/2026-01-03-released-closed.md', `# Released closed\n\n${plan('Released', '#103')}`);
+  // Approved is not finished, and #104 is open. Nine approved plans on the
+  // real estate name an issue, so a missing phase filter is loud there.
+  w('plans/2026-01-04-approved-open.md', `# Approved open\n\n${plan('Approved', '#104')}`);
+  // Two issues, one open: the finding must name #106 alone.
+  w('plans/2026-01-05-partly-open.md', `# Partly open\n\n${plan('Released', '#105, #106')}`);
+
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'open-issue fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-shim-'));
+  shimScripts(shim);
+  const host = path.join(shim, 'scripts', 'plot-host.sh');
+  fs.writeFileSync(host, hostBody);
+  fs.chmodSync(host, 0o755);
+
+  git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+
+  const report = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), ...scanArgs],
+    { encoding: 'utf8', cwd: repo });
+  return { tmp, repo, shim, report, sections: splitSections(report) };
+};
+
+/** A stub answering `issue-list` with the given open issue numbers. */
+const issueHost = (numbers, { marker = '', limitEcho = false } = {}) => `#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  issue-list)
+    ${marker ? `printf 'called\\n' >> '${marker}'` : ':'}
+    ${limitEcho ? 'true' : 'true'}
+${numbers.map((n) => `    echo '{"number":${n},"title":"t","url":"u"}'`).join('\n')}
+    ;;
+  pr-list) ;;
+  *) echo "{}" ;;
+esac
+exit 0
+`;
+
+test('section 23 reports a Released and a Delivered plan naming an open issue', () => {
+  const f = issueFixture(issueHost([101, 102, 106]));
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /2026-01-01-released-open\.md — released, still open: #101/,
+      `a released plan whose issue is open is the observed failure:\n${s}`);
+    // DELIVERED TOO. `Delivered` means the code merged; the ticket is just as
+    // open. A filter on `released` alone passes every other test in this block.
+    assert.match(s, /2026-01-02-delivered-open\.md — delivered, still open: #102/,
+      `a delivered plan must be caught as well:\n${s}`);
+    assert.match(s, /decide: close the issue by hand, or record why it stays open/,
+      `the finding names a decision, never a repair:\n${s}`);
+    // PLOT CLOSES NO TICKET. `plot-host.sh` creates none and closes none, so a
+    // close command must not appear as a remedy.
+    assert.doesNotMatch(s, /issue close/, `no close command may be printed:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 is silent about a plan whose issue is closed', () => {
+  const f = issueFixture(issueHost([101, 102, 106]));
+  try {
+    const s = f.sections['23'];
+    // #103 is absent from the stub's open list, which is what "closed" looks
+    // like through `issue-list`. Reporting it would mean reporting every plan
+    // that names an issue at all.
+    assert.doesNotMatch(s, /2026-01-03-released-closed/,
+      `a closed issue is not a finding:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 is silent about an Approved plan naming an open issue', () => {
+  const f = issueFixture(issueHost([101, 102, 104, 106]));
+  try {
+    const s = f.sections['23'];
+    // #104 IS open, and the plan is not finished — so there is nothing to
+    // reconcile. Nine approved plans name an issue on the real estate, so a
+    // missing phase filter turns one finding into ten.
+    assert.doesNotMatch(s, /2026-01-04-approved-open/,
+      `an unfinished plan's open issue is not drift:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 reports only the open issues of a plan naming several', () => {
+  const f = issueFixture(issueHost([106]));
+  try {
+    const s = f.sections['23'];
+    const line = s.split('\n').find((l) => l.includes('2026-01-05-partly-open'));
+    assert.ok(line, `the plan must be reported for its open issue:\n${s}`);
+    // PER ISSUE, NOT PER PLAN. #105 is closed; naming it would send a person
+    // to a ticket that needs nothing.
+    assert.match(line, /still open: #106$/, `only the open issue may be named:\n${line}`);
+    assert.doesNotMatch(line, /#105/, `a closed issue must not be named:\n${line}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 says not evaluated when the tracker cannot be asked (exit 4)', () => {
+  const f = issueFixture(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  issue-list) echo "no tracker configured for this host" >&2; exit 4 ;;
+  pr-list) ;;
+  *) echo "{}" ;;
+esac
+exit 0
+`);
+  try {
+    const s = f.sections['23'];
+    // AN OUTAGE IS NOT AN ANSWER. `(none)` here would report a clean estate
+    // the section never measured — the failure the adapter's three-way exit
+    // split exists to prevent.
+    assert.match(s, /\(not evaluated — this host cannot be asked for issues/,
+      `exit 4 is a configuration, and it must say so:\n${s}`);
+    assert.doesNotMatch(s, /\(none/, `an unasked tracker must never print (none):\n${s}`);
+    assert.match(f.report, /open_issues=0/, 'an unevaluated section counts zero findings');
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 says not evaluated when the tracker question fails (exit 3)', () => {
+  const f = issueFixture(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  issue-list) echo "HTTP 503 upstream unavailable" >&2; exit 3 ;;
+  pr-list) ;;
+  *) echo "{}" ;;
+esac
+exit 0
+`);
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /\(not evaluated — the tracker question failed/,
+      `a failed question is not an empty estate:\n${s}`);
+    // THE ERROR TEXT IS THE HOST'S OWN, the rule `PR_ERROR` already follows: a
+    // person reads "HTTP 503" and acts; no word this scan invents is worth more.
+    assert.match(s, /HTTP 503 upstream unavailable/,
+      `the host's own words carry the reason:\n${s}`);
+    assert.doesNotMatch(s, /\(none/, `a failed question must never print (none):\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 never asks the tracker under --no-pr', () => {
+  const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-marker-')), 'called');
+  const f = issueFixture(issueHost([101, 102, 106], { marker }), ['--no-fetch', '--no-pr']);
+  try {
+    // THE ABSENCE OF A CALL CANNOT BE ASSERTED FROM ABSENT OUTPUT — the section
+    // is quiet under `--no-pr` whether it asked or not. The marker file is the
+    // only evidence that distinguishes them.
+    assert.ok(!fs.existsSync(marker),
+      '--no-pr promises no git-host network call, and the tracker is one');
+    const s = f.sections['23'];
+    assert.match(s, /\(not evaluated — pr_source=off/,
+      `the skip is stated, not silent:\n${s}`);
+    // NAMES THE NUMBER. "some plans" is a sentence a reader cannot act on;
+    // section 6's own offline note sets the pattern.
+    // FOUR, not three: the plan whose issue is closed is unchecked too. Offline
+    // the section cannot know which of them is closed — that is the point.
+    assert.match(s, /note: 4 finished plan\(s\) naming an issue went unchecked/,
+      `the note counts what went unchecked:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 warns when the tracker returned a full window', () => {
+  // PLOT_ISSUE_LIMIT=2 with two issues returned: the count equals the limit, so
+  // a third open issue would be invisible and the section must say so. Absence
+  // past the window says nothing about an issue's state.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-limit-'));
+  const origin = path.join(tmp, 'origin.git');
+  const repo = path.join(tmp, 'repo');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
+    '# F\n\n## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n- **Delivered index:** plans/delivered/\n');
+  fs.mkdirSync(path.join(repo, 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'plans', '2026-01-01-r.md'),
+    '# R\n\n## Status\n\n- **State:** Released\n- **Type:** feature\n- **Issue:** #101\n\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'limit fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-limit-shim-'));
+  shimScripts(shim);
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), issueHost([101, 999]));
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+  git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+  try {
+    const out = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), '--no-fetch'], {
+      encoding: 'utf8', cwd: repo, env: { ...process.env, PLOT_ISSUE_LIMIT: '2' },
+    });
+    const s = splitSections(out)['23'];
+    assert.match(s, /window: the 2 open issue\(s\) the tracker returned, limit 2/,
+      `the window is stated the way section 22 states its own:\n${s}`);
+    assert.match(s, /an open\n\s+issue beyond this window would not be seen/,
+      `a full window cannot claim completeness:\n${s}`);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 sits below the marker and stays out of the delivery gate', () => {
+  const f = issueFixture(issueHost([101, 102, 106]));
+  try {
+    // IT REPORTS AND NEVER GATES. A tracker is a copy of Plot's state, so an
+    // open ticket must not stop `/plot-deliver` — the rule every advisory
+    // section since 7 follows.
+    const before = f.report.slice(0, f.report.indexOf(BOUNDARY));
+    assert.ok(!before.includes('== 23.'),
+      'section 23 must sit BELOW the blocking-sections marker');
+    assert.equal(runGate(f.report, '2026-01-01-released-open').trim(), '',
+      "the delivery gate must not see this section's findings");
+    // The counter exists, is non-zero, and is not `attention=`.
+    assert.match(f.report, /open_issues=2/, 'the section carries its own counter');
+    assert.match(f.report, /attention=0/, 'an open ticket is not an attention finding');
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
   }
 });

@@ -2877,27 +2877,31 @@ else
     oi_open=$(printf '%s' "$oi_raw" | jq -r 'select(.number != null) | .number' 2>/dev/null)
     oi_count=$(printf '%s' "$oi_open" | grep -c . 2>/dev/null) || oi_count=0
 
-    while IFS=$'\t' read -r oi_file oi_phase oi_nums; do
+    # THE CLAIMS ARE READ ON FD 3, and the reason is a measured defect rather
+    # than style: a nested `while read` inside a loop fed by `<<<` drains the
+    # OUTER loop's stdin. Measured while writing this section — the first plan
+    # never iterated, the second saw only its first issue, and the third read
+    # the previous plan's numbers, so a fixture with three findings reported
+    # none. A dedicated descriptor is what keeps the two readers apart.
+    while IFS=$'\t' read -r oi_file oi_phase oi_nums <&3; do
       [ -n "$oi_file" ] || continue
       # PER ISSUE, NOT PER PLAN. A plan naming `#1, #2` where only #2 is open
       # must report #2 alone — a whole-plan match would name a closed issue as
-      # the finding and send a person to the wrong ticket.
-      oi_hits=""
-      oi_first=""
-      while IFS= read -r oi_n; do
-        [ -n "$oi_n" ] || continue
-        printf '%s\n' "$oi_open" | grep -qx -- "$oi_n" || continue
-        oi_hits="${oi_hits:+$oi_hits, }#$oi_n"
-        [ -n "$oi_first" ] || oi_first="$oi_n"
-      done < <(printf '%s' "$oi_nums" | tr ',' '\n')
+      # the finding and send a person to the wrong ticket. `grep -x -F -f` is
+      # the whole membership test in one call: fixed strings, whole line, so
+      # `#10` can never match inside `#101`.
+      oi_hits=$(printf '%s' "$oi_nums" | tr ',' '\n' \
+                 | grep -x -F -f <(printf '%s\n' "$oi_open") 2>/dev/null)
       [ -n "$oi_hits" ] || continue
+      oi_first=$(printf '%s\n' "$oi_hits" | head -1)
+      oi_list=$(printf '%s\n' "$oi_hits" | sed 's/^/#/' | paste -sd, - | sed 's/,/, /g')
 
       oi_base=$(basename "$oi_file")
-      oi_out+="  $oi_base — $oi_phase, still open: $oi_hits\n"
+      oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n"
       oi_out+="    inspect: plot-host.sh issue-view $oi_first\n"
       oi_out+="    decide: close the issue by hand, or record why it stays open\n"
       n_open_issues=$((n_open_issues + 1))
-    done <<< "$oi_claims"
+    done 3<<< "$oi_claims"
 
     if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
     echo "  window: the $oi_count open issue(s) the tracker returned, limit $ISSUE_LIMIT (raise with PLOT_ISSUE_LIMIT)."
