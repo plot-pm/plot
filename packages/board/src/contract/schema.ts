@@ -3150,6 +3150,29 @@ export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
  */
 export const issueKey = (n: string | number): string => String(n);
 
+/**
+ * One row identity, so a section remembered on one pulse is found again on the
+ * next.
+ *
+ * `repo/branch/plan`, and the PLAN is the load-bearing third part. `repo/branch`
+ * was the key until a board FLASHED: two rows for one double-claimed branch
+ * shared it, so each pulse one overwrote the other's remembered `wave`, saw a
+ * difference, and lit the change mark — for hours, on a branch nobody had
+ * touched. A carried-forward section keyed the same way would inherit that bug
+ * whole, handing one row the other's section.
+ *
+ * THE CLIENT'S `rowKey` IS THIS FUNCTION. `app/lib/agent-rows/row-identity.ts`
+ * lives in the client tree, which the server may not import — so the shared
+ * identity lives here, in the contract both sides already read, rather than as
+ * a second copy that would drift the first time either changed.
+ *
+ * @param row - anything carrying the three identity fields.
+ * @returns the row's identity, stable across pulses.
+ */
+export const sectionKey = (
+  row: { repo: string; branch: string; plan?: string | null },
+): string => `${row.repo}/${row.branch}/${row.plan ?? ''}`;
+
 export const IssueRowSchema = z.object({
   /**
    * `ticket`, always — and stated rather than assumed, for the same reason

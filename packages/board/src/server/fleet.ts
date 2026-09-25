@@ -1,4 +1,4 @@
-import { RELEASE_BRANCH, issueKey } from '../contract/schema.js';
+import { RELEASE_BRANCH, issueKey, sectionKey } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -5980,6 +5980,62 @@ export function humanAge(minutes: number): string {
 export const GROUP_ORDER: WaitingGroup[] = [
   'waiting-on-you', 'working', 'waiting-on-machine', 'not-started', 'quiet', 'done',
 ];
+
+/**
+ * What a row's section should be when the CURRENT scan failed — the section the
+ * last successful scan gave it, or `null` where that scan never saw the row.
+ *
+ * WHY THE CURRENT ANSWER IS NOT USED. A failed scan does not empty the cache:
+ * `entry.pulse` survives and the banner says so — *"showing the last successful
+ * pulse below"*. The sections, though, are RE-DERIVED from that pulse every
+ * render, and re-derivation runs the classification rules over refs that have
+ * moved on. Those rules are not safe on input the banner has already labelled
+ * stale.
+ *
+ * THE ARM THAT PROVES IT, measured 2026-09-25 against `branchState`:
+ *
+ *     fresh pulse (commitsAhead=1, realCommitsAhead=0) -> claimed
+ *     stale pulse (commitsAhead=0, refTip != mainTip)  -> merged
+ *
+ * A claim-only branch reads `claimed` while the pulse can see its claim commit,
+ * and `merged` once it cannot — `branch-state.ts:264`, reached because
+ * `commitsAhead === 0` skips the `claimed` arm at `:215` entirely. From there
+ * `classify` sends `merged` straight to `{ group: 'done' }`, which is how five
+ * approved, unstarted plans rendered under DONE with no PR and no code on the
+ * default branch (#995).
+ *
+ * `null` IS NOT A SECTION AND MUST NOT BECOME ONE. A row the last good pulse
+ * never held has no remembered answer, and inventing one is the failure this
+ * function exists to stop. The caller shows the row — hiding it would be its own
+ * lie — without sorting it anywhere, and least of all into DONE.
+ *
+ * THIS IS A TRADE, NOT A STRICT IMPROVEMENT. A slice that genuinely merges
+ * during the outage keeps its old section and reads as still working. That is
+ * accepted: a stale WORKING row understates progress, a stale DONE row hides
+ * work somebody is waiting on, and only the second is acted on by
+ * `auto-deliver`.
+ *
+ * Pure and exported for the reason `coldState` is: the bug it answers is a
+ * CONDITION, not a layout, and a condition is only testable where it can be
+ * called without a render.
+ *
+ * @param failed - whether the current scan failed or timed out.
+ * @param remembered - sections by {@link sectionKey}, from the last good scan.
+ * @param row - the row being placed.
+ * @param fresh - the section this scan derived, used only when it succeeded.
+ * @returns the section to render the row under, or `null` for unplaced.
+ */
+export const sectionUnderFailure = (
+  failed: boolean,
+  remembered: ReadonlyMap<string, WaitingGroup>,
+  row: { repo: string; branch: string; plan?: string | null },
+  fresh: WaitingGroup,
+): WaitingGroup | null => {
+  // A SUCCESSFUL SCAN IS UNCHANGED, byte for byte. This function is a detour
+  // around one failure mode and must be invisible on every other pass.
+  if (!failed) return fresh;
+  return remembered.get(sectionKey(row)) ?? null;
+};
 
 /**
  * Order two rows of the SAME group.
