@@ -294,10 +294,25 @@ function repoForBrief(label, { brief, briefCommand, pluginReach = true } = {}) {
       fs.writeFileSync(md, fs.readFileSync(md, 'utf8') + `- **Brief command:** ${cmd}\n`);
     },
     // Run dispatch against this fixture's registry rather than the machine's.
-    dispatch: (args, opts = {}) => execFileSync('bash', [dispatch, ...args], {
-      encoding: 'utf8', cwd: r, timeout: 30_000, ...opts,
-      env: { ...process.env, PLOT_PLUGIN_ROOT: plugins.root, ...(opts.env ?? {}) },
-    }),
+    dispatch: (args, opts = {}) => {
+      // PLOT_REPO_ROOT IS SCRUBBED, and the sandbox is the point. Since
+      // `config-takes-the-callers-root`, `plot-config.sh` prefers an exported
+      // `PLOT_REPO_ROOT` over `git rev-parse`, so a run inheriting one from a
+      // dispatched worker reads the HOST repo's `## Plot Config` rather than
+      // this fixture's. This estate declares an ABSOLUTE `Agent registry`, so
+      // the leak lands a manifest in the host's `.plot/agents/` — measured
+      // 2026-09-25, 19 of 20 manifests there were fixtures. The env must not
+      // decide it.
+      //
+      // The delete comes AFTER the `opts.env` spread deliberately: a caller
+      // passing the variable would otherwise put it back, and no caller has a
+      // reason to point this fixture at another checkout.
+      const env = { ...process.env, PLOT_PLUGIN_ROOT: plugins.root, ...(opts.env ?? {}) };
+      delete env.PLOT_REPO_ROOT;
+      return execFileSync('bash', [dispatch, ...args], {
+        encoding: 'utf8', cwd: r, timeout: 30_000, ...opts, env,
+      });
+    },
     // The brief command is detached, so a test must wait for it exactly as it
     // waits for a worker.
     briefCommandRan: () => {
@@ -3331,9 +3346,13 @@ function reapFixtureWorkers(checkout) {
  */
 function runDetached(args, cwd, env = {}) {
   const log = path.join(cwd, '.plot-start-test.out');
+  // PLOT_REPO_ROOT IS SCRUBBED — see the `dispatch:` helper above for why. The
+  // delete follows the caller's spread for the same reason it does there.
+  const childEnv = { ...process.env, ...env };
+  delete childEnv.PLOT_REPO_ROOT;
   spawnSync('bash', [dispatch, ...args], {
     cwd,
-    env: { ...process.env, ...env },
+    env: childEnv,
     stdio: ['ignore', fs.openSync(log, 'w'), fs.openSync(log, 'a')],
   });
   return fs.readFileSync(log, 'utf8');

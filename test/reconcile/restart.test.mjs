@@ -120,6 +120,14 @@ function ghShim({ state = null } = {}) {
 // which is exactly the behaviour under test.
 function run(repo, args, { gh = null, expectFail = false } = {}) {
   const env = { ...process.env };
+  // PLOT_REPO_ROOT IS SCRUBBED, and the sandbox is the point. `plot-config.sh`
+  // prefers an exported `PLOT_REPO_ROOT` over `git rev-parse`, so a run
+  // inheriting one from a dispatched worker reads the HOST repo's
+  // `## Plot Config` — and on an estate declaring an absolute `Agent registry`
+  // this fixture's manifests land in the host's registry. Measured 2026-09-25:
+  // two of the leaked manifests named `plot-restart-*` desks written from here.
+  // The env must not decide it.
+  delete env.PLOT_REPO_ROOT;
   // WHAT COUNTS AS THE AGENT, IN THIS TEST'S WORLD. The liveness reading asks
   // whether a process named `$PLOT_AGENT_PROCESS` runs under the recorded pid,
   // and the name is the project's — Plot hardcodes no tooling. `spawnLive`
