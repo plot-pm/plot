@@ -136,7 +136,7 @@ Add one call at the end of the transition that already succeeded:
 
 ### The reconcile scan reports a released plan with an open issue (Branch: bug/the-scan-reports-an-open-issue)
 
-- `bug/the-scan-reports-an-open-issue` — a read-only section naming every plan at `Delivered` or `Released` whose `issues[]` are still open on the tracker; gated on the host being reachable, reports and never writes. **First because it catches the case at a tenth of the cost**, and because it keeps working where the write is refused
+- `bug/the-scan-reports-an-open-issue` — a read-only section naming every plan at `Delivered` or `Released` whose `issues[]` are still open on the tracker; gated on the host being reachable, reports and never writes. **First because it catches the case at a tenth of the cost**, and because it keeps working where the write is refused → #983
 
 ### A finished plan writes its issue status (Branch: feature/a-finished-plan-writes-its-issue-status, PR: #975)
 
