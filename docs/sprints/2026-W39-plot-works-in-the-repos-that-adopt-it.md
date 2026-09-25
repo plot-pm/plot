@@ -35,6 +35,8 @@ Three conditions, and all must hold.
 - [ ] [a-plan-less-row-is-not-a-nameless-plan](../plans/2026-09-24-a-plan-less-row-is-not-a-nameless-plan.md) — [#973](https://github.com/plot-pm/plot/issues/973). `groupByPlan` keys on `row.plan`, so every plan-less row folds into one group keyed `''`, renders as a nameless `PLAN` head and is counted as a plan — in a section whose hint promises *approved* work. Visible on this repository's board right now.
 - [ ] [adoption-notices-a-stale-default-branch](../plans/2026-09-24-adoption-notices-a-stale-default-branch.md) — [#971](https://github.com/plot-pm/plot/issues/971). The probe reads `origin/HEAD` and never asks the host, so a clone whose default moved reads every plan from the wrong ref while adoption reports it healthy.
 
+- [ ] [a-merged-pr-is-not-asked-for-its-checks](../plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md) — the fleet scan asks GitHub for `statusCheckRollup` on 957 pull requests, of which **920 are merged and 3 are open**. A merged PR's checks cannot change, so the call re-fetches settled CI results every pass. Measured 2026-09-25: **20.8 s with the rollup against 0.6 s asking only the open ones** — 38% of a 54-second scan, and the reason two boards wedged today under a 4-second fleet cadence. Git is 5% of that scan and is deliberately left alone.
+
 ### Should Have
 
 - [ ] [a-stop-that-reports-failure-does-not-exit-zero](../plans/2026-09-24-a-stop-that-reports-failure-does-not-exit-zero.md) — `/plot-fleet --stop` printed *"supervisor did NOT unload"* and exited 0. Panelled 2026-09-24, unanimous `amend`, amended: the mechanism is recorded as undetermined and the fix is correct under all three candidates.
