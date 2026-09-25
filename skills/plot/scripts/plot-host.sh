@@ -25,6 +25,12 @@
 #                                 answer — that ref is a clone-time cache and a
 #                                 default branch moved since then never updates
 #                                 it. Prints "" where neither can answer.
+#   account                       print the signed-in host user, read from the
+#                                 CLI's config file (no API request).
+#                                 `PLOT_BUDGET_ACCOUNT` overrides it. Exit 3
+#                                 where GitHub's `hosts.yml` names no user;
+#                                 exit 4 on Bitbucket, which stores no username
+#                                 for free. Never prints `unknown`.
 #   pr-state <number|branch> [--repo <owner/repo>]   one JSON object:
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
 #                                    "draft":true|false,"url":"..."}
@@ -3040,6 +3046,38 @@ case "$op" in
     # worked from this reading alone before today.
     [ -n "$_db" ] || _db=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
     printf '%s\n' "$_db"
+    ;;
+
+  account)
+    # WHO IS READING, from the same free reading `budget_account` makes. It
+    # costs a file read and no request, which matters because the board asks on
+    # its timer. `PLOT_BUDGET_ACCOUNT` overrides it on every backend.
+    #
+    # THE BITBUCKET ARM IS NOT EXPOSED. `budget_account bitbucket` answers the
+    # remote's owner segment, which is the WORKSPACE: on a team workspace every
+    # contributor gets the same word, and it matches no PR author. Measured
+    # 2026-09-25, neither `bb` stores a username for free. Quatico's keeps only
+    # the Atlassian email, in the Keychain. craftamap's keeps an email in
+    # `configuration.toml`. A Bitbucket PR author carries a nickname, an
+    # account id and a uuid, and never an email. So this backend has no answer,
+    # and exit 4 says so.
+    #
+    # `unknown` IS NEVER PRINTED. It groups budget lines correctly and names
+    # nobody, so an unreadable `hosts.yml` exits 3 with the reason on stderr.
+    _acct=''
+    if [ -n "${PLOT_BUDGET_ACCOUNT:-}" ]; then
+      _acct="$PLOT_BUDGET_ACCOUNT"
+    elif [ "$be" = "github" ]; then
+      _acct="$(budget_account github)"
+    else
+      echo "plot-host.sh: account: $be names no signed-in user without an API request" >&2
+      exit 4
+    fi
+    if [ -z "$_acct" ] || [ "$_acct" = "unknown" ]; then
+      echo "plot-host.sh: account: no user in ${GH_CONFIG_DIR:-$HOME/.config/gh}/hosts.yml" >&2
+      exit 3
+    fi
+    printf '%s\n' "$_acct"
     ;;
 
   pr-state)
