@@ -104,7 +104,7 @@ Tempting and wrong. A vocabulary is caller-supplied text, and a word may legitim
 
 ### The check refuses a vocabulary it cannot use (Branch: bug/the-check-refuses-an-unusable-vocabulary)
 
-- `bug/the-check-refuses-an-unusable-vocabulary` — validate the positions argument before building the `Commitment`: fewer than two positions, a `|` inside one, or a position carrying surrounding whitespace, exits 2 naming the separator; unit tests for the pipe form, the single-word form, the **whitespace form asserted as a partial-commit regression**, and the unchanged comma path including a genuine hedge
+- `bug/the-check-refuses-an-unusable-vocabulary` — validate the positions argument before building the `Commitment`: fewer than two positions, a `|` inside one, or a position carrying surrounding whitespace, exits 2 naming the separator; unit tests for the pipe form, the single-word form, the **whitespace form asserted as a partial-commit regression**, and the unchanged comma path including a genuine hedge → #984
 
 ## Notes
 
