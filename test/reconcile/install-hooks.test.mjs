@@ -380,3 +380,157 @@ test('/plot-init reports an unproved gate and continues rather than failing adop
   // `unverified` is the word, and it is stated as distinct from installed.
   assert.match(step, /`unverified` is never `installed`/);
 });
+
+// --- `--verify` reads the path the operator's hooks RUN -----------------------
+//
+// `repoWithGates()` above copies the gates into `<dir>/skills/plot/scripts/` —
+// the same place the registered command points — so the written reading and the
+// sibling reading find one file and cannot be told apart. All five `--verify`
+// tests above therefore exercise a single input class, and the two readings
+// disagree in classes none of them constructs.
+//
+// THE TWO READINGS, AND WHY NEITHER MAY BE REQUIRED ALONE.
+//
+//   written  the command out of `.claude/settings.json`, with
+//            `$CLAUDE_PROJECT_DIR` resolved. This is what the harness invokes,
+//            so it is what "does this repository have gates" means.
+//   sibling  the script beside the installer. A plugin-registered entry is
+//            `${CLAUDE_PLUGIN_ROOT}`-rooted and that variable is UNSET when the
+//            installer runs by hand, so the written path resolves to nothing on
+//            an install the `current` test above documents as correct.
+//
+// Requiring `written` alone reports red on that perfect plugin install; keeping
+// `sibling` alone is the measured defect. So either finding the script is
+// enough, and `unverified` is for the case where NEITHER does.
+//
+// Three classes, and the fixtures below are built to separate them:
+//
+//   written  sibling  verdict
+//   present  absent   verified   — a vendored repo whose installer runs from
+//                                  elsewhere. The sibling-only reading called
+//                                  this UNVERIFIED, on gates that do fire.
+//   absent   absent   unverified — nothing would run. Both readings are named,
+//                                  because a plugin install and an incomplete
+//                                  vendoring are indistinguishable from here
+//                                  and guessing "plugin" leaves a vendored
+//                                  repository silently ungated.
+//   absent   present  verified   — the plugin install. Unchanged, and asserted
+//                                  so a fix that requires the written path
+//                                  fails here rather than in the field.
+
+// A consumer repository and an installer that does NOT sit beside it, which is
+// the shape `repoWithGates()` cannot express. `vendorGates` puts the gates where
+// the registered command points; `siblingGates` puts them beside the installer.
+// The two are independent, which is exactly the point.
+function splitInstall({ vendorGates = false, siblingGates = false } = {}) {
+  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-install-hooks-split-'));
+  const consumer = path.join(tmp, 'consumer');
+  // Three below `plugin/` so the installer's own `../../../hooks/hooks.json`
+  // walk finds the shipped file, the way a real install is laid out.
+  const plugin = path.join(tmp, 'plugin', 'skills', 'plot', 'scripts');
+  mkdirSync(consumer, { recursive: true });
+  mkdirSync(plugin, { recursive: true });
+  mkdirSync(path.join(tmp, 'plugin', 'hooks'), { recursive: true });
+  execSync('git init -q -b main && git config user.email t@t && git config user.name t', { cwd: consumer, stdio: 'pipe' });
+  copyFileSync(shippedHooks, path.join(tmp, 'plugin', 'hooks', 'hooks.json'));
+
+  const installerPath = path.join(plugin, 'plot-install-hooks.sh');
+  copyFileSync(installer, installerPath);
+  chmodSync(installerPath, 0o755);
+
+  const place = (dest) => {
+    mkdirSync(dest, { recursive: true });
+    for (const g of gateScripts) {
+      const src = path.join(repoRoot, 'skills', 'plot', 'scripts', g);
+      if (!existsSync(src)) continue;
+      const dst = path.join(dest, g);
+      copyFileSync(src, dst);
+      chmodSync(dst, 0o755);
+    }
+  };
+  if (vendorGates) place(path.join(consumer, 'skills', 'plot', 'scripts'));
+  if (siblingGates) place(plugin);
+
+  // The entries exactly as gate_command() writes them.
+  mkdirSync(path.join(consumer, '.claude'), { recursive: true });
+  writeFileSync(
+    path.join(consumer, '.claude', 'settings.json'),
+    JSON.stringify(
+      {
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: shippedGates.map((g) => ({
+                type: 'command',
+                command: `"$CLAUDE_PROJECT_DIR"/skills/plot/scripts/${g}`,
+              })),
+            },
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  return { consumer, installer: installerPath };
+}
+
+const runAt = (cwd, script, args = []) => {
+  const r = spawnSync('bash', [script, ...args], { cwd, encoding: 'utf8' });
+  return { code: r.status, out: `${r.stdout}${r.stderr}` };
+};
+
+test('--verify proves the gate at the path the entry names, not the one beside the installer', () => {
+  // written present, sibling ABSENT. The gates are where the operator's hooks
+  // will run them, and the sibling-only reading reported `unverified` here — red
+  // on a repository whose gates fire with exit 2.
+  const { consumer, installer: inst } = splitInstall({ vendorGates: true });
+  assert.equal(
+    existsSync(path.join(path.dirname(inst), 'plot-state-gate.sh')),
+    false,
+    'the fixture must not place a gate beside the installer, or the readings cannot be told apart',
+  );
+
+  const { code, out } = runAt(consumer, inst, ['--verify']);
+  assert.equal(code, 0, `gates at the registered path must verify (out: ${out})`);
+  assert.match(out, /^verified/m);
+  assert.match(out, /verified\s+plot-state-gate\.sh/);
+});
+
+test('--verify reports unverified when neither reading finds the script', () => {
+  // written ABSENT, sibling ABSENT: the entries are registered and nothing would
+  // run. A missing hook script exits ~127, which `PreToolUse` treats as
+  // non-blocking, so this repository has no gate and must never read as gated.
+  const { consumer, installer: inst } = splitInstall();
+  const { code, out } = runAt(consumer, inst, ['--verify']);
+  assert.equal(code, 3, `a gate registered at a missing script must not verify (out: ${out})`);
+  assert.match(out, /^unverified/m);
+  assert.doesNotMatch(out, /^verified/m);
+  for (const g of shippedGates) assert.match(out, new RegExp(g.replace('.', '\\.')));
+
+  // BOTH READINGS ARE NAMED AND NEITHER IS CHOSEN. `existing_bash_hooks` reads
+  // only settings.json and a plugin registers nothing there, so the signal that
+  // would tell these two installs apart is absent — and the wrong guess writes
+  // no gate into a vendored repository while reporting it gated.
+  assert.match(out, /inert/, 'the plugin reading is named');
+  assert.match(out, /vendor/i, 'the vendored reading is named');
+});
+
+test('--verify still verifies a plugin install, where only the sibling holds the script', () => {
+  // written ABSENT, sibling present — the plugin arm, unchanged. ${CLAUDE_PLUGIN_ROOT}
+  // is unset when the installer runs by hand, so requiring the written path
+  // turns this red. The verdict comment in the script argues the case: a check
+  // that cries wolf on a good install is one operators learn to ignore.
+  const { consumer, installer: inst } = splitInstall({ siblingGates: true });
+  assert.equal(
+    existsSync(path.join(consumer, 'skills')),
+    false,
+    'the fixture must not vendor Plot, or this is the vendored arm again',
+  );
+
+  const { code, out } = runAt(consumer, inst, ['--verify']);
+  assert.equal(code, 0, `a plugin install with its gates in place must verify (out: ${out})`);
+  assert.match(out, /^verified/m);
+  assert.match(out, /verified\s+plot-state-gate\.sh/);
+});

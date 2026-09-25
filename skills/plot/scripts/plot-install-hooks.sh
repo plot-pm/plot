@@ -188,11 +188,70 @@ if [ "$verify_only" = 1 ]; then
     printf '%s\n' "$existing_bash_hooks" | grep -qF "$1"
   }
 
-  # Where the gate scripts actually live. The registered command is
-  # repo-relative by construction (gate_command), but a plugin-registered entry
-  # is ${CLAUDE_PLUGIN_ROOT}-rooted, so the script beside THIS one is the
-  # reading that works for both.
-  gate_path() { printf '%s/%s' "$script_dir" "$1"; }
+  # WHERE THE GATE SCRIPTS LIVE, READ TWO WAYS, AND NEITHER IS SUFFICIENT ALONE.
+  #
+  # The WRITTEN path is the one the operator's hooks actually run: the command
+  # string out of `.claude/settings.json`, with `$CLAUDE_PROJECT_DIR` resolved to
+  # this repository. That is the reading this mode exists to test — measured
+  # 2026-09-25 on Plot 2.20.0 installed as a plugin, three gates were registered
+  # at a `skills/plot/scripts/` that does not exist and `--verify` reported
+  # `verified`, exit 0, because only the SIBLING was ever consulted.
+  #
+  # The SIBLING path is the script beside this one, and it cannot be dropped. A
+  # plugin-registered entry is `${CLAUDE_PLUGIN_ROOT}`-rooted and that variable
+  # is UNSET when the installer runs by hand, so the written path resolves to
+  # nothing on an install this file's own tests document as correct
+  # (`a plugin-registered gate reports current`). Requiring the written path
+  # alone turns a perfect plugin install red — the outcome the verdict comment
+  # below argues against, because a check that cries wolf on a good install is
+  # one operators learn to ignore.
+  #
+  # SO EITHER READING FINDING THE SCRIPT IS ENOUGH, and `unverified` is for the
+  # case where NEITHER does. What is deliberately absent is any attempt to tell
+  # a plugin install from an incomplete vendoring: the signal is not there —
+  # `existing_bash_hooks` reads only `settings.json` and a plugin registers
+  # nothing in it — and a wrong guess in the "plugin" direction writes no gate
+  # into a vendored repository and reports that it is gated. So where the
+  # written path is absent, both readings are NAMED and neither is chosen.
+
+  # The command registered for a gate, as written, with the hook's own variables
+  # resolved the way the harness resolves them. Prints nothing when the gate is
+  # not registered here.
+  written_command() { # $1=basename
+    printf '%s\n' "$existing_bash_hooks" | grep -F "$1" | head -n 1
+  }
+
+  # The written command reduced to a path this shell can test. Quotes and the
+  # `$CLAUDE_PROJECT_DIR` root come out; an unset `${CLAUDE_PLUGIN_ROOT}`
+  # deliberately leaves a path that cannot exist, which is the case above.
+  written_path() { # $1=basename
+    local cmd
+    cmd="$(written_command "$1")"
+    [ -n "$cmd" ] || return 1
+    cmd="${cmd%%  *}"
+    cmd=$(printf '%s' "$cmd" | sed \
+      -e 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+      -e 's/"//g' -e "s/'//g" \
+      -e "s#\${CLAUDE_PROJECT_DIR}#$root#g" \
+      -e "s#\$CLAUDE_PROJECT_DIR#$root#g")
+    case "$cmd" in
+      /*) printf '%s' "$cmd" ;;
+      *) printf '%s/%s' "$root" "$cmd" ;;
+    esac
+  }
+
+  sibling_path() { printf '%s/%s' "$script_dir" "$1"; }
+
+  # The path a prober should drive: the written one where it holds the script,
+  # else the sibling. Prints nothing when neither does — the unverified case.
+  gate_path() { # $1=basename
+    local w s
+    w="$(written_path "$1" 2>/dev/null)"
+    [ -n "$w" ] && [ -f "$w" ] && { printf '%s' "$w"; return 0; }
+    s="$(sibling_path "$1")"
+    [ -f "$s" ] && { printf '%s' "$s"; return 0; }
+    return 1
+  }
 
   # A scratch git repo. Fresh per probe, because a spent receipt and a staged
   # index both leak between cases.
@@ -278,7 +337,6 @@ if [ "$verify_only" = 1 ]; then
 
   while IFS= read -r g; do
     [ -n "$g" ] || continue
-    gp="$(gate_path "$g")"
 
     if ! registered_here "$g"; then
       unverified_count=$((unverified_count + 1))
@@ -286,9 +344,19 @@ if [ "$verify_only" = 1 ]; then
       continue
     fi
 
-    if [ ! -f "$gp" ]; then
+    # Resolved only once the gate is known to be registered: an unregistered
+    # gate has no written command to read, and that case is already answered.
+    gp="$(gate_path "$g")" || gp=""
+
+    if [ -z "$gp" ] || [ ! -f "$gp" ]; then
+      # NEITHER READING FOUND IT, AND BOTH ARE NAMED. A hook whose script is
+      # missing exits ~127, which `PreToolUse` treats as non-blocking — so this
+      # gate permits, and reporting it `verified` would tell a repository it has
+      # a gate it does not have. Which of the two installs this is cannot be
+      # determined here, so it is not guessed: the sentence is true under both.
       unverified_count=$((unverified_count + 1))
-      report="${report}  unverified  ${g} — registered, but the script is not at $gp"$'\n'
+      wp="$(written_path "$g" 2>/dev/null)"
+      report="${report}  unverified  ${g} — registered at ${wp:-the recorded command}, which holds no script, and none beside $script_dir/. If Plot is installed as a plugin these entries are inert and the plugin's own gates apply; if it is vendored, the vendoring is incomplete"$'\n'
       continue
     fi
 
