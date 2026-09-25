@@ -126,7 +126,7 @@ one that already has a test is the cheaper direction.
 
 ## Slices
 
-### An insertion point is not inside a comment (Branch: bug/an-insertion-point-is-not-inside-a-comment)
+### An insertion point is not inside a comment (Branch: bug/an-insertion-point-is-not-inside-a-comment, PR: #997)
 
 - `bug/an-insertion-point-is-not-inside-a-comment` — copy `plot-deliver.sh:330`'s `if (lines[i] ~ /<!--/) break` into `append_approved_line` (`plot-approve.sh`) and `append_started_line` (`plot-dispatch.sh:3026-3078`), which is where all 38 measured losses came from; a test per writer modelled on `deliver-record-outside-comments.test.mjs`; the shipped template exercised end to end — approve, parse, assert the record reads back
 
