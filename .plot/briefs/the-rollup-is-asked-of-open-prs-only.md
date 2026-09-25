@@ -74,3 +74,18 @@ Deterministic, order-independent, always wrong. `:885` then stores an empty roll
 - `pnpm test`, `pnpm run test:contracts`.
 - **Do not run `pnpm run test:e2e`** — that is CI's gate, not a local one.
 - A changeset naming `plot`, description first and the `bumps:` block last.
+
+### Two readings the plan does not state (verified at claim, 2026-09-25)
+
+- **The completeness test must read the `all` call's own row count.** `.list-complete` compares `_pr_rows` against `PR_LIST_LIMIT`, and `_pr_rows` counts rows after the merge. With OPEN rows removed from the plain payload, an `all` call returning exactly the limit plus an `open` call returning fewer rows gives a count below the limit — a truncated list then reads as whole, and a cache miss derives `NONE` for a branch that has a PR. Count the `all` payload before the filter, and pass `--limit` to the `open` call too (without it the host returns 30).
+- **The scan never reads `mergedAt` from this call.** The plain GitHub `pr-list` emits `number, title, state, head, author`; the cache stores `STATE<TAB>checks<TAB>draft`. The Done-when line about `mergedAt` holds as: a merged PR's cache line still reads `MERGED`.
+- `plot-host.sh` gained an `author` field in 911dd0118 (after approval). The scan's `sed` anchors on `"state":…,"head":` and is unaffected; a state-aware stub may omit it.
+
+### Bookkeeping
+
+- Push the first real commit as soon as it exists — the branch is claimed at `origin/main` with no work on it.
+- Open the PR with `skills/plot/scripts/plot-open-pr.sh` (never `gh pr create`), then append `→ #<number>` to the branch line under `## Slices` in the plan on `main`.
+
+### Scope guard
+
+This branch owns `skills/plot/scripts/plot-fleet-scan.sh` (the `pr-list` call, the merge before the rank-and-dedup, `HOST_VERDICT`, the `:716` comment), the fleet-scan tests under `test/reconcile/`, and one changeset. Checked at claim: no other remote branch touches `plot-fleet-scan.sh` or `test/reconcile/fleet.test.mjs`. `plot-host.sh` and `packages/board/**` are out of scope. If you find something the plan did not anticipate, report it rather than improvising outside scope.
