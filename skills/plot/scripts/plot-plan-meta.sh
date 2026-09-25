@@ -107,8 +107,9 @@
 #                  placeholder
 #   story          story slug the plan belongs to (`## Status` `Story:` or
 #                  front matter `story:`); "" if absent or a placeholder
-#   assignee       github handle from the `## Approval` `Assignee:` line or
-#                  front matter `assignee:`; "" if absent
+#   assignee       github handle from front matter `assignee:`, else the
+#                  `## Approval` `Assignee:` line, else the `## Status`
+#                  `Assignee:` line; "" if absent or a placeholder
 #   branches       branch names, sorted and unique, read from EITHER spelling:
 #                  the old `## Branches` section (a LIST ITEM whose first token
 #                  is the backtick-quoted name, matching the known prefixes) OR
@@ -415,7 +416,7 @@ function reset_state() {
   fm_delivered = ""; fm_design = ""
   fm_rounds = ""
   canon_state = ""; canon_phase = ""; canon_type = ""
-  canon_sprint = ""; canon_story = ""; canon_assignee = ""
+  canon_sprint = ""; canon_story = ""; canon_assignee = ""; status_assignee = ""
   canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
   canon_delivered = ""; canon_design = ""
   canon_rounds = ""
@@ -478,6 +479,9 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   sprint   = strip_placeholder((fm_sprint   != "") ? fm_sprint   : canon_sprint)
   story    = strip_placeholder((fm_story    != "") ? fm_story    : canon_story)
   assignee = strip_placeholder((fm_assignee != "") ? fm_assignee : canon_assignee)
+  # `## Status` is the section both templates offer; `## Approval` is older and
+  # outranks it, so a plan writing both keeps the answer it parsed to before.
+  if (fm_assignee == "" && assignee == "") assignee = status_assignee
   review   = strip_placeholder((fm_review   != "") ? fm_review   : canon_review)
   impl     = strip_placeholder((fm_impl     != "") ? fm_impl     : canon_impl)
   design   = strip_placeholder((fm_design   != "") ? fm_design   : canon_design)
@@ -823,6 +827,9 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**issue[:*]/ && canon_issue == "") canon_issue = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
+  # Its own slot, not `canon_assignee`: the `## Approval` line outranks this one
+  # in `emit_record`, whichever section comes first.
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**assignee[:*]/ && status_assignee == "") status_assignee = strip_placeholder(val_after_colon($0))
   # EACH TAKES THE FIRST LINE THAT CARRIES A VALUE, NOT THE FIRST LINE.
   #
   # A plan may hold both a record and an unfilled placeholder for the same
