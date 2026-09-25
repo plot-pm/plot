@@ -19,7 +19,12 @@
 #                                 than a transient to retry. Adding a host is
 #                                 an edit to `HOST_DRIVES` and the arms below,
 #                                 and to nothing in `packages/domain`.
-#   default-branch                print the repo's default branch name
+#   default-branch                print the repo's default branch name. THE HOST
+#                                 IS ASKED, on both backends, and the local
+#                                 `origin/HEAD` is the fallback where it cannot
+#                                 answer — that ref is a clone-time cache and a
+#                                 default branch moved since then never updates
+#                                 it. Prints "" where neither can answer.
 #   pr-state <number|branch> [--repo <owner/repo>]   one JSON object:
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
 #                                    "draft":true|false,"url":"..."}
@@ -2996,14 +3001,45 @@ case "$op" in
     ;;
 
   default-branch)
+    # THE HOST IS ASKED FIRST, ON BOTH BACKENDS, and `origin/HEAD` is the
+    # fallback rather than the answer. `origin/HEAD` is a LOCAL CACHE WRITTEN AT
+    # CLONE TIME: a default branch changed afterwards never updates it and
+    # nothing in git notices. Reported 2026-09-24 — a clone whose GitHub default
+    # had moved to `develop` kept `origin/HEAD → main`, the board read plans from
+    # `origin/main`, and two of three plans went missing.
+    #
+    # THE BITBUCKET ARM ASKED THE CACHE FIRST UNTIL 2026-09-25, so on Bitbucket
+    # this op answered from the very cache it exists to bypass, the two readings
+    # could never disagree, and the defect was invisible there. Every caller —
+    # `plot-open-pr.sh:73`, `plot-approve.sh:205`, `plot-deliver.sh:218`,
+    # `plot-reap.sh:176`, `plot-release-refs.sh:162`, `/plot-idea:252` — wants
+    # the branch the host calls default, which is what this now answers.
+    #
+    # AND THE FALLBACK WAS DEAD CODE. `git symbolic-ref … | sed … || bb …` takes
+    # the PIPELINE's exit status, which is `sed`'s, and `sed` exits 0 on empty
+    # input — measured 2026-09-25 against a ref that does not exist. So `bb repo
+    # view` had never once been reached, and a Bitbucket clone with no
+    # `origin/HEAD` printed an empty line and exited 0. Each reading is now
+    # tested for a NON-EMPTY value of its own, never for a pipeline's status.
+    _db=""
     if [ "$be" = "github" ]; then
-      gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
+      _db=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)
     else
-      # Symbolic ref of origin/HEAD is host-neutral and offline; fall back to
-      # the bb API only when the local clone has no origin/HEAD.
-      git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' \
-        || bb repo view --json 2>/dev/null | jq -r '.mainbranch.name'
+      # `--json` IS A CAPABILITY, NOT A GIVEN. Two products share the name `bb`
+      # and craftamap's rejects the flag (see `bb_require_json`) — against it
+      # this call emits `unknown flag: --json`, `jq` reads non-JSON, and the arm
+      # would answer nothing while exiting 0. This call was unguarded while it
+      # was unreachable; asking the host makes it live.
+      bb_require_json
+      _db=$(bb repo view --json 2>/dev/null | jq -r '.mainbranch.name // empty' 2>/dev/null || true)
     fi
+    # `null` is what `jq` prints for an absent field and it is not a branch name.
+    [ "$_db" = "null" ] && _db=""
+    # THE CACHE IS THE FALLBACK: a host that cannot be asked is not a reason to
+    # answer nothing, since every caller above needs a usable branch name and
+    # worked from this reading alone before today.
+    [ -n "$_db" ] || _db=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+    printf '%s\n' "$_db"
     ;;
 
   pr-state)
