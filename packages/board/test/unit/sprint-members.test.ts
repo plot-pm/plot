@@ -123,6 +123,69 @@ describe('parseSprintFile — members', () => {
     );
     expect(parseSprintFile(abs)!.members[0].known).toBe(true);
   });
+
+  // --- A BARE ITEM IS A MEMBER ---------------------------------------------
+  //
+  // The third of three readers of one sprint format. A bare `- [ ] task` was an
+  // item to `plot-sprint-release.sh` and not a member here, so the board dropped
+  // the lightweight form the skill documents. Measured on this estate
+  // 2026-09-25: five such lines across two live sprint files.
+  //
+  // THE ORACLE ABOVE BAKES THE BRACKET IN on purpose — `:45` filters
+  // `/^- \[[ x]\] \[/` because its subject is this repo's own W35 file, which
+  // contains no bare line. These cases sit beside it rather than rewriting it.
+
+  it('reads a bare `- [ ] task` as a member carrying its text', async () => {
+    const abs = writeSprint(
+      `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n- [ ] rename the deploy step\n`,
+    );
+    const members = parseSprintFile(abs)!.members;
+    expect(members).toHaveLength(1);
+    expect(members[0]).toMatchObject({
+      slug: '',
+      text: 'rename the deploy step',
+      tier: 'must',
+      checked: false,
+    });
+  });
+
+  it('keeps every bare member of an all-bare sprint', async () => {
+    // THE COUNT IS THE ASSERTION. With the bracket optional and the dedup left
+    // keyed on the captured slug, all eight collide on `''` and one survives.
+    const must = Array.from({ length: 8 }, (_, i) => `- [ ] task ${i}`).join('\n');
+    const abs = writeSprint(`# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n${must}\n`);
+    expect(parseSprintFile(abs)!.members).toHaveLength(8);
+  });
+
+  it('counts two identical bare lines as two members', async () => {
+    // The key must not be the item text.
+    const abs = writeSprint(
+      `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n- [ ] same\n- [ ] same\n`,
+    );
+    expect(parseSprintFile(abs)!.members).toHaveLength(2);
+  });
+
+  it('mixes bare and linked members in one tier', async () => {
+    const abs = writeSprint(
+      `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n` +
+        `- [ ] rename the deploy step\n- [x] [a-plan] the linked one\n- [ ] update the runbook\n`,
+    );
+    const members = parseSprintFile(abs)!.members;
+    expect(members).toHaveLength(3);
+    expect(members.map((m) => m.slug)).toEqual(['', 'a-plan', '']);
+    expect(members[1].checked).toBe(true);
+  });
+
+  it('a prose bullet is still not a member, bracket or no bracket', async () => {
+    // THE PROPERTY THE MANDATORY BRACKET USED TO ENFORCE BY ACCIDENT. What
+    // makes a member is the CHECKBOX, so a `- **Renaming Endgame.**` bullet is
+    // still excluded — by the anchor rather than by the second bracket.
+    const abs = writeSprint(
+      `# Sprint: Fixture\n\n${STATUS}\n### Deferred\n\n` +
+        `- **Renaming Endgame.** prose, no slug\n- plain bullet\n`,
+    );
+    expect(parseSprintFile(abs)!.members).toEqual([]);
+  });
 });
 
 describe('collectSprints — a slug naming no plan is reported, not dropped', () => {
