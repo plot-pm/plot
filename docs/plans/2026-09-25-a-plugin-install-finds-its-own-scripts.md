@@ -10,6 +10,7 @@
 - **Impl:** own branches
 - **Issue:** #980
 - **Sprint:** a-refusal-names-what-it-cannot-see
+- **Rounds:** 1
 
 ## Changelog
 
@@ -33,11 +34,27 @@ Board impact: none directly. The gates are `PreToolUse` hooks and the refusal te
 
 ### The installed gates permit everything
 
-`plot-install-hooks.sh:145` writes `.claude/settings.json` entries rooted at `$CLAUDE_PROJECT_DIR`. In a plugin install that path holds no script, so every gate invocation runs a missing file. A `PreToolUse` hook that cannot execute is **non-blocking** — it permits. So the phase gate, the state gate and the controller gate are all installed, all reported as installed, and none of them refuses anything.
+`plot-install-hooks.sh:145` writes `.claude/settings.json` entries rooted at `$CLAUDE_PROJECT_DIR`. In a plugin install that path holds no script, so every gate invocation runs a missing file.
 
-**`--verify` says `verified` anyway**, because it runs the scripts next to itself rather than the paths it wrote. That is the part that makes this worse than a plain absence: the installer confirms a protection that is not in place.
+**What a missing hook does at runtime is NOT established, and this plan does not assert it.** A nonexistent command under `bash` exits **127**; whether the harness reads that as permit, as a surfaced error, or as a block is a property this repository records nowhere — no hooks documentation states it, and the estate's own contract (`plot-install-hooks.sh:38-45`) measures only the outcomes of *running* a gate, reading a refusal from exit 2. The defect below needs none of that.
 
-**The plugin already registers the same gates** through `hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}`, so on a plugin install the project-level entries are not merely broken — they are redundant. `plot-install-hooks.sh`'s own rule already refuses to add a gate a plugin install has registered, *"because the state gate spends its receipt when it clears, so a second reader finds it spent and refuses a write that was properly owned."* A broken duplicate cannot spend a receipt, so today the redundancy is harmless and the silence is not — but the rule says the right answer is to write no entry at all.
+**`--verify` says `verified` anyway**, and that is the measured defect. Reproduced in a scratch consumer repository with no `skills/` directory, settings written exactly as `gate_command()` writes them, `--verify` run from the plugin copy:
+
+```
+verified — 2 gate(s) refused a guarded write; 1 could not be proved here:
+  verified    plot-controller-gate.sh — refused a guarded write (exit 2)
+  unprobed    plot-phase-gate.sh — …
+  verified    plot-state-gate.sh — refused a guarded write (exit 2)
+exit=0
+```
+
+Three gates registered at a directory that does not exist, and the installer reports `verified`. **It is a design decision rather than an oversight** — `gate_path()` at `:191-195` resolves beside the script *on purpose*, with the rationale written above it, and the existence check at `:289` therefore tests the sibling and can never fire for this case.
+
+**All five existing `--verify` tests miss it.** Each uses `repoWithGates()` (`test/reconcile/install-hooks.test.mjs:279-290`), which copies the gates into `<dir>/skills/plot/scripts/`. The vendored arm is the only arm tested.
+
+**The plugin already registers the same three gates** through `hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` — verified, exactly the same set. So on a plugin install the project-level entries are redundant as well as broken.
+
+**But the existing no-duplicate rule does NOT reach this case, and an earlier draft of this plan claimed it did.** That rule is a basename grep over `existing_bash_hooks` (`:365-370`), and `existing_bash_hooks` reads **only `$root/.claude/settings.json`** (`:149-155`). A plugin's hooks are registered by the harness and never merged into that file, so on a real plugin install the installer sees nothing and reports `absent`. The test that proves the rule works (`install-hooks.test.mjs:135`) constructs a fixture with the plugin-spelled entry literally inside `settings.json` — a repository where somebody pasted the block in, not a plugin install.
 
 ### The refusal texts prescribe a command that is not there
 
@@ -57,12 +74,22 @@ On a plugin install that file does not exist, so **the named escape from a gate 
 
 ### What each site needs
 
-**`plot-install-hooks.sh`** — the written path must point at the scripts that will actually run. Two cases, and they are not the same:
+**`--verify` must test the path it WROTE, not a sibling.** That is the whole of the measured defect and it needs no detection: the check at `:289` takes `gate_path()` and must take the registered command's path instead. A settings entry pointing at a missing script reports **unverified**.
 
-- **vendored**: `$CLAUDE_PROJECT_DIR/skills/plot/scripts/…` is correct and stays.
-- **plugin**: the plugin's own `hooks/hooks.json` already registers the gates. The installer should detect this and **write nothing**, reporting that the gates are registered rather than adding entries that cannot fire.
+**The installer must NOT try to detect a plugin install.** An earlier draft proposed exactly that — detect, and write nothing. It is refuted by measurement and it fails in the unsafe direction:
 
-`--verify` must test **the path it wrote**, not a sibling. That is the defect that turned a broken install into a confirmed one.
+| a wrong guess | what happens |
+|---|---|
+| guesses **vendored** when it is a plugin (today) | writes entries at a missing path. They are inert, and the plugin's own `hooks/hooks.json` gates are registered by the harness regardless — **the repository is still gated**. |
+| guesses **plugin** when it is vendored | writes nothing, reports the gates are registered. The repository now has **no gates at all**, and an installer that said otherwise. |
+
+The second is strictly worse, and it is the arm "write nothing" produces. It also reintroduces the measured failure `plot-install-hooks.sh:52-58` exists to fix. **A detection whose wrong answer removes every gate must not gate the action** — and the signal it would need is absent, because `existing_bash_hooks` cannot see a plugin registration at all.
+
+**So the installer reports what it cannot determine rather than deciding it.** Where the written path does not exist, say so and name both readings:
+
+> registered at `$CLAUDE_PROJECT_DIR/skills/plot/scripts/`, which does not exist here — if Plot is installed as a plugin these entries are inert and the plugin's own gates apply; if it is vendored, the vendoring is incomplete.
+
+That sentence is correct under both arms and guesses nothing.
 
 **`plot-controller-gate.sh`** — the refusal text names `$script_dir/plot-state-receipt.sh`, which it can compute. A reader copying the line gets a command that runs.
 
@@ -82,20 +109,23 @@ On a plugin install that file does not exist, so **the named escape from a gate 
 - `plot-install-hooks.sh` on a plugin install writes no project-level gate entry and says why; on a vendored install it writes what it writes today.
 - `--verify` tests the path it wrote. A test asserts that a settings entry pointing at a missing script reports **not** verified.
 - `plot-controller-gate.sh`'s refusal names a path that exists on the machine printing it.
-- **A test per site**, and one asserting `plot-fleetctl.sh` is untouched.
+- **A test per site.** No test asserting `plot-fleetctl.sh` is untouched — `scripts/check-bundle-resolution.sh` already holds that invariant across every bundle caller, which is more than one test would.
 - The gate set is still read from `hooks/hooks.json` rather than hardcoded — the existing rule, unchanged.
 
 ## Slices
 
 ### The installer writes a path that runs (Branch: bug/the-installer-writes-a-path-that-runs)
 
-- `bug/the-installer-writes-a-path-that-runs` — `plot-install-hooks.sh` detects a plugin install and writes no project-level entry, reporting the plugin's own registration instead; `--verify` tests the written path rather than a sibling, so a broken entry reports unverified; tests for the vendored arm unchanged, the plugin arm writing nothing, and `--verify` refusing a missing target
+- `bug/the-installer-writes-a-path-that-runs` — `--verify` tests the path the installer WROTE rather than the script beside itself (`gate_path()`, `:191-195`), so an entry pointing at a missing script reports **unverified**; where the written path is absent the installer names both readings rather than choosing one. **No plugin detection** — the signal is absent and a wrong guess leaves a vendored repository ungated. Tests: the vendored arm unchanged, and a settings entry at a missing path reporting unverified, which all five existing `--verify` tests miss because `repoWithGates()` always copies the gates into place
 
 ### A refusal names a command that exists (Branch: bug/a-refusal-names-a-command-that-exists)
 
 - `bug/a-refusal-names-a-command-that-exists` — `plot-controller-gate.sh:232` builds the escape command from `$script_dir`; a test asserts the printed path resolves to a real file from a checkout whose layout differs from the caller's
 
 ## Notes
+
+- **Panelled 2026-09-25: `amend`, `Evidence: executed`.** Every verbatim citation reproduced — `:97`, `:145`, `:232`, and the three plugin-registered gates. The juror **reproduced the silent `verified`** in a scratch consumer repository and found it stronger than drafted: the sibling resolution is deliberate, with its rationale written at `:191-195`, so this is a design defect rather than an oversight. Two things were refuted. The *"a missing hook permits"* premise has **no evidence in this estate** — a nonexistent command exits 127 and the harness's reading of that is recorded nowhere — so the Motivation no longer asserts it. And *"detect a plugin install and write nothing"* was refuted by measurement: `existing_bash_hooks` reads only `settings.json`, a plugin registers nothing there, and the wrong half of that guess leaves a vendored repository with no gates. Verdict file: `.plot/panels/a-plugin-install-finds-its-own-scripts/juror.md`.
+- **The gate for this class already exists next door.** `scripts/check-bundle-resolution.sh` holds the bundle-path pattern at zero after #986, but neither live site here is a bundle path — one is a settings string, one is prose in a refusal. The sweep this plan scopes out has an obvious model.
 
 - Reported as one issue naming three sites. The first shipped separately as `fleet-control-finds-its-own-artifact` (#969 → PR #986) before this plan was written, which is why this plan covers two slices rather than three and says so in a table rather than quietly dropping it.
 - **The silent failure is the serious half.** A missing gate script permits, and the installer reports `verified`, so a repository can believe it has three gates and have none. The refusal-text defect is real and merely inconvenient by comparison.

@@ -473,6 +473,14 @@ export interface PrRecord {
    * window — permanently and silently, because the window never reopens.
    */
   updatedAt?: string;
+  /**
+   * The author's handle as the host spells it — GitHub's login, Bitbucket's
+   * `nickname` — or `''` where the host did not answer.
+   *
+   * `''` means the owner is unknown, and `ownership` in the domain shows such a
+   * row. It is never written to the store as `''`: `storeRow` omits it.
+   */
+  author?: string;
 }
 
 /**
@@ -2541,6 +2549,7 @@ const storeRow = (pr: PrRecord): PrIndexRow => {
   if (typeof pr.mergeable === 'string') row.mergeable = pr.mergeable;
   if (Array.isArray(pr.failing_checks)) row.failing_checks = pr.failing_checks;
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
+  if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
   return row;
 };
 
@@ -2568,6 +2577,7 @@ const recordOf = (row: PrIndexRow): PrRecord => {
   if (row.mergeable !== undefined) pr.mergeable = row.mergeable;
   if (row.failing_checks !== undefined) pr.failing_checks = row.failing_checks;
   if (row.updatedAt !== undefined) pr.updatedAt = row.updatedAt;
+  if (row.author !== undefined) pr.author = row.author;
   return pr;
 };
 
@@ -2875,6 +2885,9 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       // [] does NOT mean nothing failed: `checks` answers that, and an adapter
       // that cannot name the failures has not claimed there were none.
       if (!Array.isArray(pr.failing_checks)) pr.failing_checks = [];
+      // Its absent value is "", the one `url` has: an unknown owner. The store
+      // keeps no "" — `storeRow` omits it — so a stored row stays unanswered.
+      if (typeof pr.author !== 'string') pr.author = '';
       // A merged or declined PR must NOT reach `classify` by head: it would
       // answer for a branch whose git state has already answered, and reopen a
       // question the merge closed. Numbers are indexed regardless — a link to a
@@ -5929,10 +5942,13 @@ export function rowKind(
  */
 export function agentPr(pr: PrRecord): {
   number: number; url: string; draft: boolean;
-  state: PrStateWord; states: PrStateWord[];
+  state: PrStateWord; states: PrStateWord[]; author: string;
 } {
   const states = prStates(pr);
-  return { number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: states[0], states };
+  return {
+    number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: states[0], states,
+    author: pr.author ?? '',
+  };
 }
 
 function withNote(base: string, note: string): string {

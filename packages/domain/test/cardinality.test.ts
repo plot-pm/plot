@@ -28,7 +28,7 @@ const PLAN: Plan = {
 const pr = (number: number, mergedAt: string | null): Pr => ({
   number, repo: '', head: 'feature/x', state: mergedAt === null ? 'OPEN' : 'CLOSED',
   mergedAt, mergeCommit: mergedAt === null ? '' : 'abc', draft: false,
-  mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '',
+  mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '', author: '',
 });
 
 describe('Story 1 ── * Plan — a story spans plans; a plan has ≤1 story', () => {

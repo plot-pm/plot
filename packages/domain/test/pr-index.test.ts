@@ -243,6 +243,20 @@ describe('an unreadable store is nothing to start from', () => {
     expect(decodePrIndex(future)).toBeNull();
   });
 
+  it('reads a version-1 store, written before rows carried an author, as null', () => {
+    // One full read re-asks every PR, so a quiet PR the incremental window
+    // would never re-ask still gains its author.
+    expect(PR_INDEX_VERSION).toBe(2);
+    const before = JSON.stringify({ ...store([row(1)]), v: 1 });
+    expect(decodePrIndex(before)).toBeNull();
+  });
+
+  it('keeps a row with no author without the key, and a row with one with it', () => {
+    const back = decodePrIndex(encodePrIndex(store([row(1), row(2, { author: 'jwloka' })])))?.rows;
+    expect(back?.[0]).not.toHaveProperty('author');
+    expect(back?.[1]?.author).toBe('jwloka');
+  });
+
   it('reads unparseable JSON, an empty file and a foreign shape as null', () => {
     expect(decodePrIndex('{not json')).toBeNull();
     expect(decodePrIndex('')).toBeNull();

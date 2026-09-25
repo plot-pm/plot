@@ -69,6 +69,11 @@ export interface Pr {
   failingChecks: readonly string[];
   /** The host's URL, verbatim; `''` renders as plain text. */
   url: string;
+  /**
+   * The author's handle as the host spells it — the GitHub login, or the
+   * Bitbucket `nickname` — or `''` where the host did not answer.
+   */
+  author: string;
 }
 
 /**

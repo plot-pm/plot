@@ -72,6 +72,7 @@ export * from './rules/landed.js';
 export * from './rules/stack.js';
 export * from './rules/adoption.js';
 export * from './rules/slice-pr.js';
+export * from './rules/ownership.js';
 /**
  * The BranchState producer, beside the three rules that consume it.
  *

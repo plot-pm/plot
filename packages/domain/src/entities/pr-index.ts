@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take.
  */
-export const PR_INDEX_VERSION = 1;
+export const PR_INDEX_VERSION = 2;
 
 /**
  * One PR as the store holds it — exactly what the host answered, and nothing
@@ -44,6 +44,11 @@ export const PrIndexRowSchema = z
     mergeable: z.string().optional(),
     /** Absent where the adapter did not answer it; never defaulted to `[]`. */
     failing_checks: z.array(z.string()).optional(),
+    /**
+     * The author's handle as the host spelled it. Absent where the host did not
+     * answer; never stored as `''`.
+     */
+    author: z.string().optional(),
     /**
      * When the host last saw this PR change, ISO-8601 as the host spelled it.
      *

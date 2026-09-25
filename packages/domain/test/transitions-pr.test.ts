@@ -22,6 +22,7 @@ const prWith = (over: Partial<Pr> = {}): Pr => ({
   checks: 'green',
   failingChecks: [],
   url: 'https://github.com/plot-pm/plot/pull/736',
+  author: '',
   ...over,
 });
 

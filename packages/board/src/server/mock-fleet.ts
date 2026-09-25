@@ -132,6 +132,7 @@ export function mockFleet(): Fleet {
         number: 304, url: 'https://example.invalid/pull/304', draft: false,
         state: 'green',
         states: ['green'],
+        author: '',
       },
     }),
     // A SECOND PR IN THE SAME SLICE, so `Modelled` has a SET to name and earns a
@@ -151,6 +152,7 @@ export function mockFleet(): Fleet {
         number: 307, url: 'https://example.invalid/pull/307', draft: false,
         state: 'failing',
         states: ['failing'],
+        author: '',
       },
     }),
     // AND ONE THAT BELONGS TO NONE. `opus5-longhorizon-hardening` reaches the
@@ -168,6 +170,7 @@ export function mockFleet(): Fleet {
         number: 57, url: 'https://example.invalid/pull/57', draft: false,
         state: 'conflicts',
         states: ['conflicts'],
+        author: '',
       },
     }),
     row({
@@ -192,6 +195,7 @@ export function mockFleet(): Fleet {
         number: 283, url: 'https://example.invalid/pull/283', draft: false,
         state: 'pending',
         states: ['pending'],
+        author: '',
       },
     }),
     // AND ONE ON A BRANCH THAT BELONGS TO NO SLICE — the release branch, whose CI
@@ -207,6 +211,7 @@ export function mockFleet(): Fleet {
         number: 240, url: 'https://example.invalid/pull/240', draft: false,
         state: 'pending',
         states: ['pending'],
+        author: '',
       },
     }),
     // A PLAN WITH SLICES IN QUIET — two branches of one slice that stopped moving.
@@ -246,6 +251,7 @@ export function mockFleet(): Fleet {
         number: 271, url: 'https://example.invalid/pull/271', draft: false,
         state: 'green',
         states: ['green'],
+        author: '',
       },
     }),
     row({
@@ -260,6 +266,7 @@ export function mockFleet(): Fleet {
         number: 272, url: 'https://example.invalid/pull/272', draft: false,
         state: 'green',
         states: ['green'],
+        author: '',
       },
     }),
     row({
@@ -302,6 +309,7 @@ export function mockFleet(): Fleet {
         number: 305, url: 'https://example.invalid/pull/305', draft: true,
         state: 'none',
         states: ['none'],
+        author: '',
       },
     }),
     // THE SAME KIND, READY FOR REVIEW — the half that proves the kind does not
@@ -320,6 +328,7 @@ export function mockFleet(): Fleet {
         number: 306, url: 'https://example.invalid/pull/306', draft: false,
         state: 'green',
         states: ['green'],
+        author: '',
       },
     }),
     row({
@@ -336,6 +345,7 @@ export function mockFleet(): Fleet {
         number: 240, url: 'https://example.invalid/pull/240', draft: false,
         state: 'none',
         states: ['none'],
+        author: '',
       },
     }),
   ];
@@ -496,9 +506,9 @@ export function mockCards(): Column[] {
           // one has no CI configured, and one the board could not ask about —
           // and a mock showing only the first would hide the whole feature.
           prs: [
-            { number: 57, url: 'https://example.invalid/pull/57', checks: 'green', mergeable: 'mergeable' },
-            { number: 58, url: 'https://example.invalid/pull/58', checks: 'none', mergeable: 'mergeable' },
-            { number: 59, url: 'https://example.invalid/pull/59', checks: 'unknown', mergeable: 'unknown' },
+            { number: 57, url: 'https://example.invalid/pull/57', checks: 'green', mergeable: 'mergeable', author: '' },
+            { number: 58, url: 'https://example.invalid/pull/58', checks: 'none', mergeable: 'mergeable', author: '' },
+            { number: 59, url: 'https://example.invalid/pull/59', checks: 'unknown', mergeable: 'unknown', author: '' },
           ],
         }),
       ],

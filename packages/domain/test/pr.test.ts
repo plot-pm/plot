@@ -19,7 +19,7 @@ import {
 
 const pr: Pr = {
   number: 421, repo: '', head: 'feature/x', state: 'OPEN', mergedAt: null, mergeCommit: '',
-  draft: false, mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '',
+  draft: false, mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '', author: '',
 };
 
 const merged: Pr = { ...pr, state: 'CLOSED', mergedAt: '2026-08-27T10:00:00Z', mergeCommit: 'abc123' };

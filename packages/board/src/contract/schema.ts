@@ -299,6 +299,15 @@ export const CardPrSchema = z.object({
    * written before the field existed. A consumer must not read it as clean.
    */
   mergeable: MergeabilitySchema.default('unknown'),
+  /**
+   * The author's handle as the host spells it — GitHub's login, Bitbucket's
+   * `nickname` — for `ownership` in the domain to compare with the reader.
+   *
+   * `''` means the owner is unknown: the host did not answer, or the server
+   * predates the field. The client casts rather than parses, so an older
+   * server also delivers `undefined`, and a consumer reads both as unknown.
+   */
+  author: z.string().default(''),
 });
 export type CardPr = z.infer<typeof CardPrSchema>;
 
@@ -2576,6 +2585,11 @@ export const AgentRowSchema = z.object({
      */
     states: z.array(z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed']))
       .default([]),
+    /**
+     * The PR author's handle, as on {@link CardPrSchema}'s `author`. `''` —
+     * or `undefined` from an older server — means the owner is unknown.
+     */
+    author: z.string().default(''),
   }).nullable().default(null),
   /**
    * Where this branch lives on the git host, or "" — the address the row's own
