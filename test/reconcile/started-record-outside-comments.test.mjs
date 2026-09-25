@@ -88,7 +88,13 @@ const handOverAndRead = (statusBlock) => {
     const env = { ...process.env };
     delete env.PLOT_REPO_ROOT;
     execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
-      { encoding: 'utf8', cwd: r, timeout: 60_000, env });
+      // TEN MINUTES, and the budget is a measurement rather than caution. One
+      // `--offline --no-start` takes ~3 s on an idle machine here and exceeded
+      // 120 s at load 32, with several dispatch worktrees running their own
+      // suites — `fleet.test.mjs` carries a ten-minute bound for the same
+      // reason. An ETIMEDOUT here reports the machine, not this writer, and a
+      // tight bound turns contention into a red test nobody can reproduce.
+      { encoding: 'utf8', cwd: r, timeout: 600_000, env });
 
     git(r, 'fetch', '-q', 'origin', 'main');
     const text = git(r, 'show', `origin/main:${rel}`);
