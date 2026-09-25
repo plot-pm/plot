@@ -118,7 +118,7 @@ That sentence is correct under both arms and guesses nothing.
 
 ## Slices
 
-### The installer writes a path that runs (Branch: bug/the-installer-writes-a-path-that-runs)
+### The installer writes a path that runs (Branch: bug/the-installer-writes-a-path-that-runs, PR: #998)
 
 - `bug/the-installer-writes-a-path-that-runs` — `--verify` tests the path the installer WROTE rather than the script beside itself (`gate_path()`, `:191-195`), so an entry pointing at a missing script reports **unverified**; where the written path is absent the installer names both readings rather than choosing one. **No plugin detection** — the signal is absent and a wrong guess leaves a vendored repository ungated. Tests: the vendored arm unchanged, and a settings entry at a missing path reporting unverified, which all five existing `--verify` tests miss because `repoWithGates()` always copies the gates into place
 
