@@ -96,7 +96,7 @@ Silence here would be the worse failure: it reads as confirmation.
 
 ## Slices
 
-### The probe asks the host what the default is (Branch: bug/the-probe-asks-the-host-for-the-default)
+### The probe asks the host what the default is (Branch: bug/the-probe-asks-the-host-for-the-default, PR: #989)
 
 - `bug/the-probe-asks-the-host-for-the-default` — the adoption probe reports the host's default branch as its own field beside the local reading, with an explicit *unknown* where the host cannot be asked; it decides nothing
 
