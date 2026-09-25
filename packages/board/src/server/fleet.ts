@@ -526,6 +526,21 @@ export function branchUrlBase(origin: string): string {
 // it is already holding.
 export interface CacheEntry {
   /**
+   * The section each row was given by the last SUCCESSFUL scan, by
+   * {@link sectionKey}.
+   *
+   * Written only on a scan that succeeded, and read only on one that failed —
+   * {@link sectionUnderFailure} is the rule, and this is the memory it needs.
+   * The classification was recomputed from the cached pulse on every render and
+   * stored nowhere, so a failed scan re-derived sections from refs the banner
+   * had already called stale.
+   *
+   * Empty until the first successful scan, which is *nothing remembered* rather
+   * than *nothing placed*: a row with no entry renders unplaced, never in a
+   * section.
+   */
+  sections: Map<string, WaitingGroup>;
+  /**
    * Terminal branch answers, carried from one pulse to the next.
    *
    * Measured on this repo 2026-08-19: 26 of 54 branches are terminal — merged
@@ -3470,6 +3485,11 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
 export function freshCacheEntry(): CacheEntry {
   return {
     pulse: null, ages: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
+    // Empty until the first SUCCESSFUL scan. A restart therefore remembers no
+    // section, so every row is unplaced until one completes — which is the
+    // honest answer rather than a section invented from a pulse this process
+    // never saw.
+    sections: new Map(),
     // Empty at construction, which is the whole of "a restart re-derives
     // everything": nothing survives this process, so the first pulse is cold.
     terminal: '',
@@ -7344,7 +7364,12 @@ export function rowsFromPulse(
   }
 
   rows.sort((a, b) => {
-    const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
+    // `rowsFromPulse` IS TOTAL and this sort proves it: every row it derives
+    // carries one of the six groups. `null` exists only on the WIRE, applied by
+    // `sectionUnderFailure` after this function has returned — so a row reaching
+    // here without a group would be a defect, not an unplaced row.
+    const g = GROUP_ORDER.indexOf(a.group as WaitingGroup)
+      - GROUP_ORDER.indexOf(b.group as WaitingGroup);
     if (g !== 0) return g;
     return compareWithinGroup(a, b);
   });
@@ -7621,6 +7646,42 @@ export async function buildFleet(
       // the ages and versions above follow.
       entry.unmerged)
     : [];
+
+  // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
+  // one place that has both the derived rows and the scan's outcome.
+  //
+  // A SUCCESSFUL SCAN RECORDS; A FAILED ONE READS. The two never run together,
+  // so a failure can neither overwrite the memory nor be answered from the
+  // pulse it has just been told not to trust. `entry.error` is the outcome —
+  // set on the failure path and cleared on success, which is what the banner
+  // already renders from.
+  //
+  // `rows` IS REPLACED RATHER THAN MUTATED, so the derived objects `rowsFromPulse`
+  // returned are never edited in place: `deriveSlices` reads the same pulse
+  // below and must not see a section this rule decided.
+  const scanFailed = Boolean(entry.error);
+  const placedRows = scanFailed
+    ? rows.map((row) => {
+      // A row with no group of its own cannot be re-derived either, so the
+      // remembered answer is the only one there is.
+      const kept = row.group === null
+        ? (entry.sections.get(sectionKey(row)) ?? null)
+        : sectionUnderFailure(true, entry.sections, row, row.group);
+      // `null` is UNPLACED, and it must not become a group here. The row is
+      // still returned — hiding work the board cannot classify would be its own
+      // lie — carrying the honest absence for the client to render.
+      return { ...row, group: kept };
+    })
+    : rows;
+  if (!scanFailed) {
+    // Rebuilt rather than merged, so a row that has left the estate leaves the
+    // memory with it. A stale key would hand its section to a future row that
+    // happened to reuse the name — the `repo/branch` collision one level down,
+    // one pulse later.
+    entry.sections = new Map(
+      rows.flatMap((row) => (row.group === null ? [] : [[sectionKey(row), row.group] as const])),
+    );
+  }
   // HOW MANY AGENTS ARE RUNNING — one derivation, read twice. The stepper's
   // "N working" label and the supervisor badge's prominence both need it, and
   // two filters over the same list are two things that drift the first time a
@@ -7658,7 +7719,7 @@ export async function buildFleet(
     complete: entry.pulseComplete,
     error: entry.error,
     shrink: entry.shrink,
-    rows,
+    rows: placedRows,
     // THE SLICES, derived once from the same pulse the rows came from — beside
     // `rows`, not left for the client to re-group. Emitted unconditionally: []
     // on a cold cache, because the client CASTS this payload and a Zod
