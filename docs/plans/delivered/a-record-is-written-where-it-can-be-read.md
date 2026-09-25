@@ -1,0 +1,1 @@
+../2026-09-25-a-record-is-written-where-it-can-be-read.md
