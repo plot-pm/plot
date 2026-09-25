@@ -106,7 +106,7 @@ So the host adapter is right and **`plot-board-probe.sh:316` is the estate's onl
 
 ## Slices
 
-### The probe splits once and uses it twice (Branch: bug/the-probe-splits-once, PR: #990)
+### The probe splits once and uses it twice (Branch: bug/the-probe-splits-once)
 
 - `bug/the-probe-splits-once` — hoist the scheme-strip above the `jen_installed` block, add the slug (`${_ji%%/*}`, the expression `plot-host.sh:1228` already uses) and pass it to `jen -I`; keep the computation outside the installed block so a machine with the value and not the tool still answers; the host adapter is verified correct and is not touched
 
