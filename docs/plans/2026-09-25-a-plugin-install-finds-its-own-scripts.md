@@ -12,6 +12,7 @@
 - **Sprint:** a-refusal-names-what-it-cannot-see
 - **Rounds:** 2
 - **Approved:** 2026-09-25, Jan Wloka, in-session after two panel rounds
+- **Started:** 2026-09-25, Jan Wloka, `bug/the-installer-writes-a-path-that-runs`
 
 ## Changelog
 
