@@ -64,6 +64,20 @@ Two candidates, neither verified:
   `delivered · merged` — *delivered* is a phase word. **Against it:** all five plans read
   `Approved` on `main`, not `delivered`, so this needs a stale or mis-read phase to fire.
 
+**THE ARM IS IDENTIFIED — `branch-state.ts:264`, and it is a FOURTH `merged` return this plan never named.** Measured 2026-09-25 by driving `branchState` directly:
+
+```
+fresh pulse (claim visible, commitsAhead=1, realCommitsAhead=0) -> claimed
+stale pulse (commitsAhead=0, refTip != mainTip)                 -> merged   <-- :264
+ref tip EQUALS main tip                                          -> open
+```
+
+**The panel was right about `:215` and `:215` is not the arm.** That line sits inside the `commitsAhead > 0` block (`:209`). A pulse taken BEFORE the claim commit was pushed reports `commitsAhead === 0`, so the branch never enters that block at all: it falls to `:259`, fails the `refTip === mainTip` test (the ref points at its claim, main does not), and returns `merged` at `:264`. The refutation checked the fresh-pulse path and concluded the shape was safe — it is safe, **on a fresh pulse only**.
+
+The chain to the screen, every link verified: `:264` returns `merged` → `fleet.ts:5037` (`if (state === 'merged')`) → `{ group: 'done', note: 'merged' }` → the row renders under DONE.
+
+**`:264`'s own comment already describes this failure** from the other direction — a branch reset to main, measured 2026-08-29, *"reported the branch `merged`, completed its wave, and opened the next one on work that does not exist."* #995 is the same defect reached by a second route to `commitsAhead === 0`: staleness rather than a reset. The discriminator at `:260` compares the ref against a `mainTip` the failed scan has already labelled stale.
+
 **Settling this needs the board reproduced under a failed scan**, which was not available
 at panel time. The rule below is worth building on its own argument; it must not be sold as
 the fix for five rows whose cause is unidentified.
