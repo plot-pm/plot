@@ -820,3 +820,27 @@ describe('the exit code this adapter reads is the one the script spends', () => 
     expect(run.stderr).toContain('no state answered');
   });
 });
+
+describe('the signed-in account', () => {
+  it('answers the login the script printed', async () => {
+    const answer = await hostShell(hostThat('echo octo-reader')).account();
+    expect(answer).toEqual({ ok: true, value: 'octo-reader' });
+  });
+
+  it('never answers `unknown` as a login, even on a zero exit', async () => {
+    // `budget_account`'s group name for an unread account. As a login it
+    // matches nothing and reads as a name.
+    const answer = await hostShell(hostThat('echo unknown')).account();
+    expect(answer).toEqual({ ok: false, why: 'failed' });
+  });
+
+  it('reads an unreadable hosts.yml (exit 3) as failed', async () => {
+    const answer = await hostShell(hostThat('echo "no user" >&2; exit 3')).account();
+    expect(answer).toEqual({ ok: false, why: 'failed' });
+  });
+
+  it('reads a host that stores no free username (exit 4) as unaskable', async () => {
+    const answer = await hostShell(hostThat('exit 4')).account();
+    expect(answer).toEqual({ ok: false, why: 'unaskable' });
+  });
+});

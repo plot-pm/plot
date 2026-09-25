@@ -5,7 +5,7 @@ import {
   type LimitReading,
 } from '../../entities/limit.js';
 import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../entities/pr.js';
-import { answered, type PortResult } from '../../port-result.js';
+import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
   Host,
   HostBackend,
@@ -287,6 +287,13 @@ export const hostShell = (context: ShellContext): Host => {
         refusal = { kind: 'failed', said: run.stderr.trim() || 'plot-host.sh exited 4' };
       }
       return answer;
+    },
+
+    // `unknown` IS REFUSED HERE AS WELL AS IN THE SCRIPT. It is the budget's
+    // group name for an unread account, and as a login it matches nobody.
+    account: async (): Promise<PortResult<string>> => {
+      const read = await ask(['account'], asText);
+      return read.ok && (read.value === '' || read.value === 'unknown') ? failed() : read;
     },
 
     prState: async (ref): Promise<PortResult<PrLookup>> => {

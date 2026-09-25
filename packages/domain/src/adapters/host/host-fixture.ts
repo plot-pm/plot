@@ -44,6 +44,11 @@ export interface HostFixture {
    * host that opened nothing because nothing asked. Default is to succeed.
    */
   prCreateFails?: boolean;
+  /**
+   * The signed-in user `account` reports. Absent means the host names none,
+   * which `account` answers as `failed`.
+   */
+  account?: string;
 }
 
 /**
@@ -74,6 +79,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
   return {
     backend: async (): Promise<PortResult<HostBackend>> =>
       answered(fixture.backend ?? 'github'),
+
+    account: async (): Promise<PortResult<string>> =>
+      fixture.account === undefined || fixture.account === ''
+        ? failed()
+        : answered(fixture.account),
 
     // BY NUMBER **OR BY BRANCH**, which is what the port says it takes. The
     // number half was the only one implemented until 2026-09-01, so a fixture
