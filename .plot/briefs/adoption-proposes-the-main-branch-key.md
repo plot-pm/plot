@@ -7,7 +7,16 @@
 - **Review of the code:** PR review per repo convention
 - **Issue:** #971
 
-This branch waits on wave 1, `bug/the-probe-asks-the-host-for-the-default`. It compares a field that wave 1 adds to `plot-detect-repo.sh`. At the time of writing (2026-09-24) that branch is claimed and holds no commit. Do not start until its PR is merged, and cut this branch from `origin/main` after that merge. Read the field name and its "could not ask" value from the merged probe. Do not guess them from this brief.
+Wave 1, `bug/the-probe-asks-the-host-for-the-default`, merged as #989 on 2026-09-25. This branch was re-cut from `origin/main` after that merge (2026-09-25). An earlier claim of this branch stopped on 2026-09-24 because wave 1 had not landed. The plan's `## Notes` records why, and the old branch is kept locally as `backup/bug/adoption-proposes-the-main-branch-key-blocked-2026-09-24`.
+
+**Wave 1's contract, read from the merged probe (`skills/plot/scripts/plot-detect-repo.sh:82-124`):**
+
+- `default_branch`: the local reading (`origin/HEAD`, else the current branch). Unchanged.
+- `host_default_branch`: the host's answer, from `plot-host.sh default-branch`.
+- `host_default_branch_status`: `ok | unknown`. `host_default_branch` means nothing unless this reads `ok`. `unknown` covers no `git_host`, no adapter, a non-zero exit and an empty answer.
+- The probe compares nothing (`:88-90`). The comparison is this branch's job.
+
+**One gap in wave 1, reported and not yours to fix.** `plot-host.sh default-branch` (`:3038-3041`) falls back to `origin/HEAD` when `gh`/`bb` gives no answer, and exits 0. An offline or unauthenticated clone therefore reports `status: ok` with the cache's value. The two readings then agree, and this branch's rule proposes nothing. Your rule is still correct against the contract above. Do not work around the gap in `stack.ts`, for example by treating `host == local` as suspect. That would propose a key for every healthy repository. Name the gap in the PR body. `plot-detect-repo.sh` and `plot-host.sh` are outside this branch's scope.
 
 ### What to build
 
@@ -81,6 +90,6 @@ This branch owns:
 
 It does not own `skills/plot/scripts/plot-detect-repo.sh` or `plot-host.sh` (wave 1), `plot-board-probe.sh`, or `packages/board/src/server/board.ts` and `idea.ts` (the resolution chain stays as is).
 
-Verified at dispatch (2026-09-24): no remote branch changes any file in the lists above. Wave 1's branch is claimed and holds no commit yet. When it merges, it will own `plot-detect-repo.sh` and possibly the Bitbucket arm of `plot-host.sh default-branch`. Its brief flags that the Bitbucket arm reads `origin/HEAD` first, so on Bitbucket the two readings may always agree. Read wave 1's PR for which route it took. If it took the route that reports `unknown` on Bitbucket, this slice shows "unverified" there and proposes nothing, which is correct.
+Verified at dispatch (2026-09-25): no commit since approval changes any file in the lists above (`git log --since=2026-09-24` over them is empty). Wave 1 changed `plot-detect-repo.sh` and the Bitbucket arm of `plot-host.sh default-branch`. That arm now asks `bb repo view --json` first and reads `origin/HEAD` only as the fallback, so on Bitbucket the two readings can disagree, as they can on GitHub.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
