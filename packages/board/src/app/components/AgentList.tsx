@@ -2142,6 +2142,41 @@ export function AgentList({
       }); })()}
       </div>
 
+      {/* THE UNPLACED ROWS — shown, and in no section.
+
+          A row the last successful scan never held has no remembered section,
+          and the current scan failed, so nothing may be derived for it. Every
+          section above filters `r.group === key`, so a `null` group falls out
+          of all six by construction — which is the "never sorted" half for
+          free, and would also make these rows INVISIBLE. Hiding work the board
+          cannot classify is its own lie, so they render here instead, under a
+          heading that says what the board does not know.
+
+          This is where the #995 rows would have landed: five approved,
+          unstarted plans that a stale pulse classified `merged` and sent to
+          DONE. Unplaced understates what is known about them; DONE asserted
+          something false about work somebody was waiting on. */}
+      {(() => {
+        const unplaced = fleet.rows.filter((r) => r.group === null);
+        if (unplaced.length === 0) return null;
+        return (
+          <section data-unplaced className="px-3 pt-2">
+            <p className="text-xs text-amber-600 dark:text-amber-500">
+              {unplaced.length} {unplaced.length === 1 ? 'row' : 'rows'} the last
+              successful scan had not seen — shown without a section until a scan
+              completes.
+            </p>
+            <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {unplaced.map((r) => (
+                <li key={`${r.repo}/${r.branch}/${r.plan ?? ''}`} data-unplaced-row data-branch={r.branch}>
+                  {r.branch || r.plan || r.repo}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })()}
+
       {/* The ages are the honesty: a stale source says so rather than looking
           live. They are reported separately because they fail separately —
           "git 3s ago, PR data 4 min ago" is a different situation from both

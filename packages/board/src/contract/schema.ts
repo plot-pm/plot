@@ -2455,7 +2455,28 @@ export const AgentRowSchema = z.object({
    * empty rather than guessing a column.
    */
   phase: z.enum(BOARD_PHASES).nullable().default(null),
-  group: WaitingGroupSchema,
+  /**
+   * The section this row renders under — or `null` for UNPLACED, a row the
+   * board is currently unable to place.
+   *
+   * `null` ONLY ON A FAILED SCAN, and only for a row the last successful scan
+   * never saw. Every other pass sends one of the six groups exactly as before.
+   * See {@link sectionUnderFailure}: on a failed scan a row keeps the section
+   * the last good scan gave it, and a row that scan never held has no
+   * remembered answer to keep.
+   *
+   * SHOWN, NEVER SORTED. The row still reaches the client — hiding work the
+   * board cannot classify would be its own lie — but it belongs to no section,
+   * and least of all DONE. That is the whole point: five approved, unstarted
+   * plans rendered under DONE as `merged` (#995) because a stale pulse was
+   * re-classified rather than left alone.
+   *
+   * NULLABLE RATHER THAN A SEVENTH GROUP. `unplaced` as a `WaitingGroup` would
+   * reach `GROUP_ORDER`, the collapse state persisted in localStorage, and every
+   * consumer that switches on the six — teaching all of them about a state that
+   * means *no section*. The absence is not a section and is not spelled as one.
+   */
+  group: WaitingGroupSchema.nullable(),
   /** Minutes since the branch tip, or null when there is no branch yet. */
   ageMinutes: z.number().nullable(),
   note: z.string(),
@@ -3149,6 +3170,29 @@ export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
  * @returns the same identity as a string.
  */
 export const issueKey = (n: string | number): string => String(n);
+
+/**
+ * One row identity, so a section remembered on one pulse is found again on the
+ * next.
+ *
+ * `repo/branch/plan`, and the PLAN is the load-bearing third part. `repo/branch`
+ * was the key until a board FLASHED: two rows for one double-claimed branch
+ * shared it, so each pulse one overwrote the other's remembered `wave`, saw a
+ * difference, and lit the change mark — for hours, on a branch nobody had
+ * touched. A carried-forward section keyed the same way would inherit that bug
+ * whole, handing one row the other's section.
+ *
+ * THE CLIENT'S `rowKey` IS THIS FUNCTION. `app/lib/agent-rows/row-identity.ts`
+ * lives in the client tree, which the server may not import — so the shared
+ * identity lives here, in the contract both sides already read, rather than as
+ * a second copy that would drift the first time either changed.
+ *
+ * @param row - anything carrying the three identity fields.
+ * @returns the row's identity, stable across pulses.
+ */
+export const sectionKey = (
+  row: { repo: string; branch: string; plan?: string | null },
+): string => `${row.repo}/${row.branch}/${row.plan ?? ''}`;
 
 export const IssueRowSchema = z.object({
   /**

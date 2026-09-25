@@ -162,6 +162,13 @@ export function rowsBySection(rows: AgentRow[]): AgentRow[] {
   }
   return rows.map((r) => {
     if (r.wave === '') return r;
+    // AN UNPLACED ROW STAYS UNPLACED, and its slice may not place it. `null`
+    // means the scan failed and the last good one never saw this row, so there
+    // is no remembered answer — and taking its siblings' section would be a
+    // DERIVATION from the pulse the banner has called stale, which is the one
+    // thing the rule forbids. A slice-mate that WAS seen says nothing about a
+    // row that was not.
+    if (r.group === null) return r;
     const section = sectionOf.get(sliceKeyOf(r.plan, r.wave));
     return section === undefined || section === r.group ? r : { ...r, group: section };
   });
