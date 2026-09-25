@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
+- **Sprint:** a-refusal-names-what-it-cannot-see
 - **Issue:** #967
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)

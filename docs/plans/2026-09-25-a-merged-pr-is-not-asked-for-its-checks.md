@@ -8,7 +8,7 @@
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
-- **Sprint:** plot-works-in-the-repos-that-adopt-it
+- **Sprint:** a-refusal-names-what-it-cannot-see
 - **Rounds:** 1
 
 ## Changelog
