@@ -15,7 +15,7 @@ The board has no current-user concept. Nothing in `packages/board/src` or `packa
 
 This branch adds the reading, and no filtering and no control:
 
-1. **One new op on `skills/plot/scripts/plot-host.sh`** that exposes what `budget_account()` (`:2568`) already computes. The plan does not name the op. `account` matches the function and the budget vocabulary.
+1. **One new op on `skills/plot/scripts/plot-host.sh`** that exposes what `budget_account()` (`:2573`) already computes. The plan does not name the op. `account` matches the function and the budget vocabulary.
 2. **The answer in the board payload, with git's `user.email` beside it.** Both identities travel, because they spell one person two ways (`jwloka` from the host, `jan.wloka@quatico.com` from git) and the plan leaves open which one a row matches.
 3. **Tests that prove the reading** before anything depends on it.
 
@@ -23,7 +23,7 @@ The plan is canonical; this is orientation.
 
 ### Settled decisions — do not re-derive them
 
-**Expose `budget_account`. Do not write a second identity reading.** The function reads `gh`'s `hosts.yml` (a file read, no request) and caches through `PLOT_BUDGET_ACCOUNT`. Its comment gives the reason `gh api user` is wrong: it *"would answer authoritatively and cost one request against the very bucket this is counting."* The board asks on its timer, so a request per ask is the same cost multiplied. No CLI op reaches the function today. Its four callers are all internal to the budget machinery (`:1621`, `:2701`, `:2908`, `:4610`; the plan lists three, and the fourth, `spend-rate`, is also internal).
+**Expose `budget_account`. Do not write a second identity reading.** The function reads `gh`'s `hosts.yml` (a file read, no request) and caches through `PLOT_BUDGET_ACCOUNT`. Its comment gives the reason `gh api user` is wrong: it *"would answer authoritatively and cost one request against the very bucket this is counting."* The board asks on its timer, so a request per ask is the same cost multiplied. No CLI op reaches the function today. Its four callers are all internal to the budget machinery (`:1626`, `:2706`, `:2913`, `:4646`; the plan lists three, and the fourth, `spend-rate`, is also internal).
 
 **Identity is a reading, so an adapter supplies it. It is not a `## Plot Config` key.** A config key is a second copy of a fact the host already holds, and it goes stale silently. The route follows the layering rule: `plot-host.sh` op → a new method on the `Host` port (`packages/domain/src/ports/host.ts`) → `host-shell.ts` implements it with the same `ask([...])` shape as `backend` (`:280`) and `prList` (`:352`) → `host-fixture.ts` gains the method too, or every fixture-backed test fails to typecheck.
 
@@ -39,7 +39,7 @@ The plan is canonical; this is orientation.
 
 ### A finding the plan did not anticipate — resolve it on this branch
 
-**On Bitbucket, `budget_account` does not answer the user.** Its Bitbucket arm takes the owner segment of `remote.origin.url`, which is the WORKSPACE. On a team workspace such as #967's, every contributor gets the same answer, and that answer matches no PR author. The function's own comment says so: it is *"the free approximation and is the half of the key that groups correctly"*, which is right for a budget key and wrong for an identity. `bb_identify` (`:1918`) does not help. It identifies which `bb` binary is installed (`craftamap/…` or `quatico/…`), not who is signed in.
+**On Bitbucket, `budget_account` does not answer the user.** Its Bitbucket arm takes the owner segment of `remote.origin.url`, which is the WORKSPACE. On a team workspace such as #967's, every contributor gets the same answer, and that answer matches no PR author. The function's own comment says so: it is *"the free approximation and is the half of the key that groups correctly"*, which is right for a budget key and wrong for an identity. `bb_identify` (`:1923`) does not help. It identifies which `bb` binary is installed (`craftamap/…` or `quatico/…`), not who is signed in.
 
 Resolve it inside the new op without changing what `budget_account` returns to its budget callers:
 
@@ -93,5 +93,7 @@ This branch owns:
 - tests for the above, the rebuilt board artifact, one changeset
 
 Other branches in flight, checked 2026-09-24 against every remote ref: only `feature/one-monitor-watches-the-slice` touches one of these files. It edits `schema.ts` at `:3035` (`ProcessGroupSchema`), far from `ServerInfoSchema` at `:984`, and it has no PR. No other branch touches `plot-host.sh`, the host port or adapter, or `server-info.ts`.
+
+Re-checked 2026-09-25 on resume: `bug/the-readers-agree-about-an-item` also edits `schema.ts`, at `:702` (`ColumnSchema`), far from `ServerInfoSchema`. `main` gained `cb0be55c4` in `plot-host.sh` (the `default-branch` op) since approval, so rebase the claim branch onto current `main` before the first commit. No other branch touches `plot-host.sh`, the host port or adapter, or `server-info.ts`.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
