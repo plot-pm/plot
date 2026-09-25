@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { rmTree } from '../helpers.mjs';
 import { refreshPrs, freshCacheEntry, type CacheEntry, type PrRecord } from '../../src/server/fleet.js';
-import { decodePrIndex, type PrIndex } from '@plot-pm/domain';
+import { decodePrIndex, PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain';
 
 // THE SUBJECT: `refreshPrs` reads a durable store before its host call and
 // writes it after. The call's filter is unchanged — still
@@ -185,6 +185,30 @@ describe('a whole answer is written to the store', () => {
   });
 });
 
+describe('whose a PR is survives the store', () => {
+  it('reads the author into the map and writes it to the store', async () => {
+    const home = storeHome();
+    const entry = await refresh(host([line({ author: 'jwloka' })]), home);
+    expect(entry.prsByNumber?.get(1)?.author).toBe('jwloka');
+    expect(onDisk(home)?.rows[0]?.author).toBe('jwloka');
+  });
+
+  it('reads an unanswered author as \'\' in the map and stores no key for it', async () => {
+    const home = storeHome();
+    const entry = await refresh(host([line(), line({ number: 2, head: 'feature/two', author: '' })]), home);
+    expect(entry.prsByNumber?.get(1)?.author).toBe('');
+    expect(entry.prsByNumber?.get(2)?.author).toBe('');
+    for (const row of onDisk(home)?.rows ?? []) expect(row).not.toHaveProperty('author');
+  });
+
+  it('seeds a restarted process with the stored author', async () => {
+    const home = storeHome();
+    await refresh(host([line({ author: 'jwloka' })]), home);
+    const restarted = await refresh(host([], 3, 'the host is unreachable'), home, freshCacheEntry());
+    expect(restarted.prsByNumber?.get(1)?.author).toBe('jwloka');
+  });
+});
+
 describe('a partial answer merges rather than replaces', () => {
   // THE DONE-WHEN: catches a whole-store write that deletes every PR belonging
   // to a state that did not answer. Bitbucket has no `all` state, so its arm
@@ -333,7 +357,7 @@ describe('a cold store costs time and never answers', () => {
     expect(entry.prsByNumber?.get(1)).toBeDefined();
     // And the next whole answer replaces the unreadable file rather than
     // leaving the board stuck with it forever.
-    expect(onDisk(home)?.v).toBe(1);
+    expect(onDisk(home)?.v).toBe(PR_INDEX_VERSION);
   });
 });
 

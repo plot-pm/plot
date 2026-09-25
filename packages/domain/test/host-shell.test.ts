@@ -312,6 +312,7 @@ describe('the host’s words are read against what the entity allows', () => {
     checks: 'failing',
     failing_checks: ['build'],
     url: 'https://github.com/plot-pm/plot/pull/42',
+    author: 'jwloka',
   };
 
   it('reads every field a host states', async () => {
@@ -334,6 +335,7 @@ describe('the host’s words are read against what the entity allows', () => {
           checks: 'failing',
           failingChecks: ['build'],
           url: 'https://github.com/plot-pm/plot/pull/42',
+          author: 'jwloka',
         },
       ],
     });
@@ -381,6 +383,7 @@ describe('the host’s words are read against what the entity allows', () => {
         checks: 'unknown',
         failingChecks: [],
         url: '',
+        author: '',
       },
     });
   });

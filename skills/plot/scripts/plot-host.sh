@@ -3624,7 +3624,7 @@ case "$op" in
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt)" || exit $?
+            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
@@ -3645,6 +3645,7 @@ case "$op" in
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),
+                author:(.author.login // ""),
                 failing_checks:(
                   if $jentry != null and $jentry.checks == "failing"
                   then [$jentry.job]
@@ -3654,7 +3655,7 @@ case "$op" in
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt)" || exit $?
+            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
@@ -3677,6 +3678,7 @@ case "$op" in
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),
+                author:(.author.login // ""),
                 failing_checks:[
                   .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                     | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
@@ -3686,13 +3688,19 @@ case "$op" in
         fi
       else
         _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
-          --json number,title,state,headRefName)" || exit $?
+          --json number,title,state,headRefName,author)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
         printf '%s' "$_gh_raw" \
-          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
+          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,author:(.author.login // "")}'
       fi
     else
+      # `author` IS THE `nickname`, the one handle field a Bitbucket user
+      # object carries. Measured 2026-09-25 against bb 1.9.0: `author` holds
+      # `display_name`, `nickname`, `account_id` and `uuid` and no username,
+      # and on a Quatico workspace `nickname` equals the display name. GitHub's
+      # arm reads `.author.login`. Both answer `""` where the host omits it.
+      #
       # Bitbucket carries no check rollup through `bb pr list`, and no
       # mergeability verdict either. Rather than guess, --rich reports
       # checks:"unknown" and mergeable:"unknown" — a consumer must render those
@@ -3779,6 +3787,7 @@ case "$op" in
                   review:"",
                   url:(.links.html.href // ""),
                   updatedAt:(.updated_on // ""),
+                  author:(.author.nickname // ""),
                   failing_checks:(
                     if $jentry != null and $jentry.checks == "failing"
                     then [$jentry.job]
@@ -3789,13 +3798,13 @@ case "$op" in
           # Bitbucket without Jenkins: checks remain unknown
           PR_LIST_JQ_ARGS=()
           pr_list_states bitbucket "$limit" "$bb_states" \
-            '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),failing_checks:[]}' \
+            '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),author:(.author.nickname // ""),failing_checks:[]}' \
             "${bb_cmd[@]}" || exit $?
         fi
       else
         PR_LIST_JQ_ARGS=()
         pr_list_states bitbucket "$limit" "$bb_states" \
-          '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}' \
+          '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,author:(.author.nickname // "")}' \
           "${bb_cmd[@]}" || exit $?
       fi
     fi
