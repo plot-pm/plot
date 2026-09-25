@@ -1,0 +1,1 @@
+../2026-09-24-the-parser-reads-an-assignee-wherever-it-is.md
