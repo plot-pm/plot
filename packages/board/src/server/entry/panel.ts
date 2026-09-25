@@ -109,6 +109,66 @@ export const reconcile = (text: string): string => {
 };
 
 /**
+ * Why the caller's positions argument cannot be a vocabulary, if it cannot.
+ *
+ * THE SEPARATOR IS THE COMMA, and it is the only one. A position is
+ * caller-supplied text, so a second separator would make the parse ambiguous to
+ * save one error message — and a position can never contain a comma, while a
+ * `|` inside one parses today. That asymmetry is why the comma is the separator
+ * that cannot collide.
+ *
+ * Each refusal names the repair in the comma form, because the caller's next
+ * action is a one-character edit and the message is where they read it.
+ *
+ * @param positions - the argument as the caller typed it.
+ * @returns the sentence to print, or `undefined` when the vocabulary is usable.
+ */
+export const vocabularyRefusal = (positions: string): string | undefined => {
+  const given = positions.split(',');
+  const repair = given.map((position) => position.trim()).join(',');
+
+  // A PIPE IS THE MEASURED MISTAKE, and the tool taught it: `commitmentLine`
+  // renders `<a|b|c>`, so a caller who copied the tool's own output lands here.
+  //
+  // THE REPAIR RE-SPLITS ON THE PIPE, and that is not accepting it as a second
+  // separator — the argument is still refused. `'a|b|c'.split(',')` is ONE
+  // element, so trimming it returns the caller's broken string unchanged and
+  // the message would name the separator without showing the fix. The pipe is
+  // read here only to recover what the caller meant.
+  if (given.some((position) => position.includes('|'))) {
+    const meant = positions
+      .split(/[,|]/)
+      .map((position) => position.trim())
+      .filter((position) => position !== '')
+      .join(',');
+    return `positions are separated by ',', not '|' — write '${meant}'`;
+  }
+
+  // WHITESPACE IS NEVER MEANINGFUL INSIDE A POSITION, and accepting it silently
+  // is worse than refusing it. `'proceed, amend, reject'` trims only its first
+  // entry, so one juror commits and the next is refused: a divided panel
+  // manufactured by a typo, which a moderator reconciles as a disagreement.
+  if (given.some((position) => position !== position.trim())) {
+    return `a position carries surrounding whitespace — write '${repair}'`;
+  }
+
+  // An empty element is the same class of broken caller — `'a,,b'` or a
+  // trailing comma — and `''` must never become a position a juror could match.
+  if (given.some((position) => position === '')) {
+    return `a position is empty — write every position between the commas`;
+  }
+
+  // ONE OPTION IS NOT A COMMITMENT. This is also what `'proceed|amend|reject'`
+  // yields once the pipe refusal above is removed, so it is the arity floor
+  // rather than a restatement of it.
+  if (given.length < 2) {
+    return `a commitment needs at least two positions — write '<a,b,c>', given '${positions}'`;
+  }
+
+  return undefined;
+};
+
+/**
  * Prints the answer.
  *
  * @param argv - the verb and its arguments.
@@ -134,6 +194,11 @@ export const run = (
         process.stderr.write(
           'plot-panel: usage: plot-panel.mjs check <label> <a,b,c> <lens> < juror.md\n',
         );
+        return EXIT.usage;
+      }
+      const refusal = vocabularyRefusal(positions);
+      if (refusal) {
+        process.stderr.write(`plot-panel: ${refusal}\n`);
         return EXIT.usage;
       }
       const commitment: Commitment = { label, positions: positions.split(',') };
