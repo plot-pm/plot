@@ -229,7 +229,11 @@ action="$(gated_action "$named_script")"
   echo "    which is what the board's own button does, and /plot-$action is the skill that asks it."
   echo ""
   echo "  Or, where the board is not running and you accept the bypass:"
-  echo "      bash skills/plot/scripts/plot-state-receipt.sh --unowned-action $action <slug> \"<reason>\""
+  # The receipt script beside THIS gate, absolute: on a plugin install the gate
+  # runs from the plugin cache and the repository has no `skills/` to resolve a
+  # relative path against. `%q` quotes it so a copied line keeps a path with a
+  # space as one word.
+  printf '      bash %q --unowned-action %s <slug> "<reason>"\n' "$HERE/plot-state-receipt.sh" "$action"
   echo ""
   echo "  The reason is required and it is counted to .plot/state/unowned-action-writes.tsv,"
   echo "  because a gate with no exit is one people route around and an uncounted exit is an"
