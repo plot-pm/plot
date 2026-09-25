@@ -1,0 +1,1 @@
+../2026-09-24-two-readers-disagree-about-a-sprint-item.md

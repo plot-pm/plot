@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
 - **Started:** 2026-09-24, Jan Wloka, `bug/the-readers-agree-about-an-item`
+- **Delivered:** 2026-09-25
 
 ## Changelog
 
