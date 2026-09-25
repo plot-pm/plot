@@ -233,7 +233,7 @@ test('refusal: a node that is not the pinned major, before anything is written',
   const { root, ctl, guardBin } = sandbox('wrongnode', { nvmrc: '99' });
   const r = run(ctl, ['--start'], root, guardBin);
   assert.equal(r.status, 1);
-  assert.match(r.out, /this repository pins 99/);
+  assert.match(r.out, /Plot pins 99/);
   assert.match(r.out, /bakes/);
   assert.match(r.out, /nvm use/);
 });
@@ -242,7 +242,7 @@ test('refusal: the wrong node refuses --dry-run too — a probe is not a preview
   const { root, ctl, guardBin } = sandbox('wrongnode-dry', { nvmrc: '99' });
   const r = run(ctl, ['--start', '--dry-run'], root, guardBin);
   assert.equal(r.status, 1);
-  assert.match(r.out, /this repository pins 99/);
+  assert.match(r.out, /Plot pins 99/);
 });
 
 test('refusal: the wrong node leaves no unit behind', () => {
@@ -264,11 +264,19 @@ test('the pin is .nvmrc — engines says >=24, which is a floor', () => {
   assert.equal(out, '24');
 });
 
-test('no .nvmrc means no pin to compare against, so the node probe does not refuse', () => {
-  const { root, ctl, guardBin } = sandbox('nopin', { nvmrc: '' });
+test('no Plot .nvmrc reads as an empty pin, and --start refuses on it rather than skipping', () => {
+  // THE EMPTY PIN WAS THE BUG. `[ -n "$want" ]` skipped refusal 2 on it, so
+  // every consumer without a `.nvmrc` installed whatever node was on PATH.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('nopin', { nvmrc: '' });
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'; printf '[%s]' "$(pinned_major)"`;
   const out = execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd: root });
   assert.equal(out, '[]');
+
+  const home = fakeHome(box);
+  const r = run(ctl, ['--start', '--dry-run'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /cannot read Plot's node pin/);
+  assert.match(r.out, /broken or partial installation/);
 });
 
 // ── --status starts nothing, and says so by its exit code ─────────────────────
@@ -1149,4 +1157,118 @@ test('--dry-run reports the state it would act on, and writes nothing', () => {
   assert.match(r.out, /^state: (not-installed|interrupted|installed|running)$/m);
   assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-start.done')), false,
     '--dry-run wrote the completion marker');
+});
+
+// ── A consumer repository: Plot installed somewhere else (#969) ───────────────
+//
+// EVERY SANDBOX ABOVE HOLDS PLOT INSIDE THE REPOSITORY, so `$repo_root` and the
+// script's own directory coincide and a path built from either passes. In a
+// repository that consumes Plot as a plugin they do not: the consumer has no
+// `skills/` and no `.nvmrc`, and the bundle and the pin live in the plugin.
+// These cases separate the two roots, which is the only shape in which the
+// defect reproduces.
+
+/**
+ * A consumer checkout and a separate Plot installation, the plugin shape.
+ *
+ * The consumer is a git repository with NO `skills/` directory and NO
+ * `.nvmrc`. Plot is a plain directory elsewhere — the plugin cache is not a
+ * git checkout — holding the scripts, the units, the bundle and Plot's pin.
+ *
+ * @param opts.nvmrc - Plot's pinned major ('' writes no file); defaults to the running node's
+ * @param opts.registryd - whether the plugin carries the supervisor bundle
+ */
+function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], registryd = true } = {}) {
+  const { box, fleetLabel, guardBin } = sandbox(label, { nvmrc: '', registryd: false });
+  const plugin = path.join(box, 'plugin-cache', 'plot', '9.9.9');
+  const dst = path.join(plugin, 'skills', 'plot', 'scripts');
+  fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh']) {
+    const src = path.join(scripts, f);
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
+  }
+  fs.chmodSync(path.join(dst, 'plot-fleetctl.sh'), 0o755);
+  fs.cpSync(units, path.join(plugin, 'skills', 'plot', 'units'), { recursive: true });
+  const bundle = path.join(dst, 'board', 'plot-registryd.mjs');
+  if (registryd) {
+    fs.writeFileSync(bundle, 'console.log("registryd ran:", process.argv.slice(2).join(" "));\n');
+  }
+  if (nvmrc) fs.writeFileSync(path.join(plugin, '.nvmrc'), `${nvmrc}\n`);
+
+  const consumer = path.join(box, 'consumer');
+  fs.mkdirSync(consumer);
+  git(consumer, 'init', '-q', '-b', 'main');
+  git(consumer, 'config', 'user.email', 'test@example.invalid');
+  git(consumer, 'config', 'user.name', 'Plot Test');
+  git(consumer, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(consumer, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n');
+  git(consumer, 'add', '-A');
+  git(consumer, 'commit', '-qm', 'init');
+  assert.equal(fs.existsSync(path.join(consumer, 'skills')), false);
+  assert.equal(fs.existsSync(path.join(consumer, '.nvmrc')), false);
+
+  return { box, consumer, plugin, bundle, fleetLabel, guardBin, ctl: path.join(dst, 'plot-fleetctl.sh') };
+}
+
+test('consumer: --once runs the bundle that ships beside the script', () => {
+  const { consumer, ctl, fleetLabel, guardBin } = consumerSandbox('consumer-once');
+  const r = run(ctl, ['--once'], consumer, guardBin, { PLOT_FLEET_LABEL: fleetLabel });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /registryd ran: --once/);
+  assert.doesNotMatch(r.out, /no supervisor artifact/);
+});
+
+test('consumer: the filled unit names the plugin bundle, never the consumer checkout', () => {
+  // THE PERMANENT HALF. `--once` is re-resolved on every run; the unit is
+  // written once and read by the init system for as long as it stays loaded.
+  const { box, consumer, bundle, ctl, fleetLabel, guardBin } = consumerSandbox('consumer-fill');
+  const home = fakeHome(box);
+  // The stubbed launchctl/systemctl refuse the LOAD, so the run exits after
+  // the fill and before anything reaches the init system or starts an agent.
+  run(ctl, ['--start'], consumer, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+
+  const target = process.platform === 'darwin'
+    ? path.join(home, 'Library', 'LaunchAgents', `${fleetLabel}.plist`)
+    : path.join(home, '.config', 'systemd', 'user', 'plot-registryd.service');
+  assert.ok(fs.existsSync(target), `no unit was filled at ${target}`);
+  const unit = fs.readFileSync(target, 'utf8');
+  assert.ok(unit.includes(bundle), `the unit does not name the plugin bundle ${bundle}:\n${unit}`);
+  assert.equal(unit.includes(path.join(consumer, 'skills')), false,
+    `the unit names a path inside the consumer checkout:\n${unit}`);
+  assert.equal(unit.match(/__[A-Z_]+__/g), null, 'a placeholder survived the fill');
+});
+
+test("consumer: the node refusal fires on Plot's pin where the consumer has none", () => {
+  // THE REGRESSION THE PANEL FOUND. The consumer has no `.nvmrc`, so a pin
+  // read from `$repo_root` was empty and a wrong node went into the unit.
+  const { box, consumer, ctl, fleetLabel, guardBin } = consumerSandbox('consumer-node', { nvmrc: '24' });
+  const stubBin = path.join(box, 'node-bin');
+  fs.mkdirSync(stubBin);
+  fs.writeFileSync(path.join(stubBin, 'node'), '#!/bin/sh\necho v26.7.0\n');
+  fs.chmodSync(path.join(stubBin, 'node'), 0o755);
+  const home = fakeHome(box);
+
+  const r = run(ctl, ['--start'], consumer, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${stubBin}:${guardBin}:${process.env.PATH}`,
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /node on PATH is 26, Plot pins 24/);
+  assert.match(r.out, /nvm install 24 && nvm use 24/);
+  assert.equal(fs.readdirSync(path.join(home, 'Library', 'LaunchAgents')).length, 0,
+    'the refusal wrote a unit');
+});
+
+test('consumer: a missing bundle still refuses, and names the build only for a development checkout', () => {
+  const { consumer, ctl, fleetLabel, guardBin, box } = consumerSandbox('consumer-nobundle', { registryd: false });
+  const home = fakeHome(box);
+  for (const args of [['--once'], ['--start']]) {
+    const r = run(ctl, args, consumer, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /no supervisor artifact at .*plugin-cache/);
+    assert.match(r.out, /broken or partial installation of Plot/);
+    assert.match(r.out, /Reinstall or update the Plot plugin/);
+    for (const line of r.out.split('\n').filter((l) => l.includes('build:board'))) {
+      assert.match(line, /In a development checkout/, `build:board offered to a consumer: ${line}`);
+    }
+  }
 });
