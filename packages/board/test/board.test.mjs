@@ -201,8 +201,12 @@ describe('board: contract fields + frontmatter visibility', () => {
       members: [
         // `sprint-support` is a plan the board found; `ghost-plan` is not, and is
         // flagged rather than dropped. A `- [x]` item is still a member.
-        { slug: 'sprint-support', tier: 'must', checked: false, known: true },
-        { slug: 'ghost-plan', tier: 'must', checked: true, known: false },
+        //
+        // `text` is the line's own wording, carried for every member since
+        // 2026-09-25: an item that names no plan has no slug to render, so
+        // without it a bare member reaches the modal as an empty row.
+        { slug: 'sprint-support', text: 'a real plan, listed', tier: 'must', checked: false, known: true },
+        { slug: 'ghost-plan', text: 'renamed away, still reported', tier: 'must', checked: true, known: false },
       ],
     });
   });
