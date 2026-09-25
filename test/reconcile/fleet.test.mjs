@@ -3509,6 +3509,9 @@ test('fleet: the batched git reads stay constant as branches grow', () => {
   //
   //   diff 12 → 28   rev-list 12 → 28   merge-tree 6 → 14   log 7 → 15
   //
+  // `ls-tree` JOINED that tail on 2026-09-25 at 9 → 17 — see the note above the
+  // invariant for why it cannot be batched back out.
+  //
   // `merge-base` was in this list (6 → 14) until the-scan-walks-history-in-one-call
   // removed it: `branch_state` asked `merge-base --is-ancestor` per `wip` branch
   // to re-derive a fact the `ahead` count already held — a branch `ahead > 0`
@@ -3516,7 +3519,7 @@ test('fleet: the batched git reads stay constant as branches grow', () => {
   // never change a verdict. It is now asserted CONSTANT below alongside the
   // batched reads, because "0 → 0" is the shape a reintroduction would break.
   //
-  // Six spawns per branch remain, linear in the branch count. They are
+  // Seven spawns per branch remain, linear in the branch count. They are
   // individually cheap — removing 251 expensive calls bought 236 s while these
   // on the real repo cost almost seconds — so the tail is survivable, and it is
   // the NEXT ceiling rather than this one. An earlier version of this test
@@ -3531,6 +3534,22 @@ test('fleet: the batched git reads stay constant as branches grow', () => {
   const subs = [...new Set([...s.ops, ...l.ops])].sort();
   const deltas = subs.map((x) => `${x}:${s.count(x)}→${l.count(x)}`).join(' ');
 
+  // `ls-tree` LEFT THIS LIST on 2026-09-25 and the reason is a property of the
+  // question rather than a batching opportunity declined. `PLAN_MODES` batches
+  // one `ls-tree -r` PER REF, and reading each prefixed branch's own plan
+  // directory (#972 — a plan created with `Impl: same branch` lives only on its
+  // work branch) means one ref per branch. There is no cross-ref form of the
+  // call to batch into: the batch is scoped to one ref by construction, and its
+  // `cat-file --batch` materialiser keys a single stream by basename off one
+  // `PLAN_MODES`.
+  //
+  // MEASURED at 6 and 14 branches with this shim: `ls-tree` 9 → 17, exactly one
+  // per added branch, while `cat-file` held at 1 → 1 — so the plan CONTENT reads
+  // did not regress and only the per-ref listing grew. That is the "unrelated
+  // single-call addition" the tail bound below was given a spare for, and the
+  // tail assertion passed unchanged while this list failed. On the plot estate
+  // the whole addition measured +1.98 s CPU (+7.3 %) over 11 prefixed branches.
+  //
   // THE INVARIANT: these reads are asked a FIXED number of times whatever the
   // branch count. Each regressing to per-branch is the specific defect this
   // change removed, and the one a future refactor could reintroduce with every
@@ -3539,7 +3558,7 @@ test('fleet: the batched git reads stay constant as branches grow', () => {
   // DELETED: it must stay constant (0 → 0) the way they stay batched, and a
   // reappearing per-`wip`-branch `merge-base` is exactly the regression the
   // removal guards against.
-  for (const sub of ['for-each-ref', 'show-ref', 'ls-tree', 'show', 'cat-file',
+  for (const sub of ['for-each-ref', 'show-ref', 'show', 'cat-file',
                      'merge-base']) {
     assert.equal(l.count(sub), s.count(sub),
       `\`git ${sub}\` must cost the same at 6 and 14 branches.\n` +
