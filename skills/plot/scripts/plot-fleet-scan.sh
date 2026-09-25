@@ -119,10 +119,18 @@
 #         The plan set also includes plans delivered inside a rolling 24 h
 #         window (see "the last day of finished work"), so work does not
 #         disappear at the moment it becomes finished.
-#         Plans are enumerated from `origin/<main>` (`git ls-tree`/`git show`),
-#         NOT from the working tree — so the list describes one atomic commit
-#         and does not change while rebases and worker commits rewrite the
-#         checkout underneath a running fleet. A consequence worth stating: an
+#         Plans are enumerated from REFS (`git ls-tree`/`git show`), NOT from
+#         the working tree — so the list describes committed state and does not
+#         change while rebases and worker commits rewrite the checkout
+#         underneath a running fleet. `origin/<main>` first, then each prefixed
+#         branch's own tree for the plans the default branch does not carry:
+#         a plan created with `Impl: same branch` lives only on its work branch
+#         until that branch merges, and reading main alone reported its branch as
+#         an anonymous row with `plan: ""` while the Board tab showed the same
+#         plan as a Draft card (#972). A plan path is taken ONCE — the default
+#         branch wins, and among branches the first to carry it — because two
+#         branches cut from one point hold the same file and a row per branch
+#         would report one plan as several. A consequence worth stating: an
 #         UNCOMMITTED plan is invisible, deliberately — the fleet view shows
 #         what is shared, and a plan only this machine has cannot be claimed by
 #         any worker. --json carries `plan_source` (ref | worktree), which
@@ -2625,6 +2633,68 @@ ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
   printf '%s' "$out"
 }
 
+# ---------------------------------------------------------------------------
+# A branch's own plans
+# ---------------------------------------------------------------------------
+#
+# A plan created with `Impl: same branch` lives ONLY on its work branch until
+# that branch merges. The enumeration above reads `origin/$MAIN` and finds
+# nothing, so the branch carrying the plan reached the pulse as an anonymous row
+# with `plan: ""` while `/api/board` showed the same plan as a Draft card.
+# Measured on Plot 2.20.0 (#972): two tabs of one board disagreeing about
+# whether a plan exists, which is worse than either answer alone.
+#
+# `board.ts:802-831` already solved this and the RULE is what transfers, not the
+# call: the scan keeps its own reading (Manifesto Principle 3) and the two stay
+# separate implementations. `readBranchPlans` is the reference.
+#
+# A NARROW READER RATHER THAN A REF ARGUMENT ON THE FOUR HELPERS ABOVE, and the
+# reason is `$REF_TMP`'s namespace. `ref_plan_file` caches by `basename "$p"` in
+# one flat directory, deliberately, so the filename a report prints is the
+# plan's own. Widening that across refs would let `origin/A:docs/plans/x.md` and
+# `origin/B:docs/plans/x.md` overwrite each other SILENTLY — the dedup's concern
+# ("one plan reported as several") inverted into two plans reported as one,
+# carrying whichever content was written last. A per-branch subdirectory makes
+# the collision unrepresentable instead of unlikely. The batch materialiser at
+# `:2543` is also built around one ref by construction: it keys a single
+# `cat-file --batch` stream by basename off one `PLAN_MODES`.
+#
+# REGULAR BLOBS ONLY, never mode 120000. A symlink blob holds its TARGET PATH as
+# content, so parsing one hands plot-plan-meta.sh a line of text where a plan
+# should be, and `$ACTIVE_DIR`'s links would double-count every indexed plan.
+# `$PLAN_DIR` alone is listed, with modes — which is also why the ref-space
+# symlink walk in `ref_plan_file` is deliberately NOT ported here: filtering the
+# links out first means there is no link left to follow.
+branch_plan_paths() { # $1=branch → regular .md blob paths under $PLAN_DIR
+  # An UNREADABLE REF CONTRIBUTES NOTHING, silently — an empty set, exactly as
+  # `planPathsInTree` returns. It never produces a blank or guessed plan, and
+  # this is asked once per branch where a fetch may legitimately have missed one.
+  git ls-tree -z "origin/$1" -- "$PLAN_DIR" </dev/null 2>/dev/null \
+    | tr '\0' '\n' \
+    | awk -F'\t' '$1 ~ /^100644 |^100755 / && $2 ~ /\.md$/ { print $2 }' || true
+}
+
+# One branch plan blob, materialized where plot-plan-meta.sh can parse it.
+#
+# NAMED UNDER A PER-BRANCH DIRECTORY for the collision reason above. The branch
+# name is sanitized because it carries `/` by convention (`bug/…`), which would
+# otherwise name a directory that does not exist.
+branch_plan_file() { # $1=branch, $2=path in that branch → temp file, or ""
+  local branch="$1" p="$2" content dir out
+  [ -n "$REF_TMP" ] || return 1
+  content=$(git show "origin/$branch:$p" </dev/null 2>/dev/null) || return 1
+  # AN EMPTY BLOB IS SKIPPED RATHER THAN PARSED (`board.ts:817-822`): a plan
+  # file with no bytes parses to no phase, and a row with no phase belongs in no
+  # column. The emptiness test sits beside the failure test rather than
+  # replacing it, because the two are different faults.
+  [ -n "$content" ] || return 1
+  dir="$REF_TMP/branch/$(printf '%s' "$branch" | tr '/' '_')"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  out="$dir/$(basename "$p")"
+  printf '%s\n' "$content" > "$out" 2>/dev/null || return 1
+  printf '%s' "$out"
+}
+
 # Resolve which plans to report on.
 #
 # TWO PARALLEL ARRAYS, because a plan now has two paths that must not be
@@ -3013,6 +3083,56 @@ else
       cand_ids+=("$plan_path")
       cand_reads+=("$plan_blob")
     done <<< "$(ref_ls "$PLAN_DIR")"
+
+    # THEN EACH PREFIXED BRANCH'S OWN TREE, for the plans `origin/$MAIN` does
+    # not carry. Appended to the SAME candidate arrays, before the one
+    # `parse_plan_estate` call below: a second call would build a second
+    # `plan_meta_files` index and the lookup at the row loop keys on the file
+    # path, so the branch plans would parse and then be unfindable.
+    #
+    # From here the existing pipeline carries the plan unchanged — it names its
+    # branch in `## Slices`, the wave walk finds it, and the branch stops
+    # reaching the report through the plan-less loop in `fleet.ts`.
+    #
+    # THE DEDUP IS THE BOARD'S, COPIED RATHER THAN RE-DERIVED. `on_default` is
+    # every plan path the default branch carries; `seen_branch_plans` is every
+    # path already taken from an earlier branch. Two branches cut from one point
+    # carry the SAME plan file, and without the second test one plan reports as
+    # several — a regression the board measured and fixed, and the reason its
+    # comment exists.
+    #
+    # WHICH BRANCHES: `REMOTE_REFS`, already read once above, filtered by
+    # `PREFIX_RE` — the same population the board calls a prefixed branch. No
+    # second `for-each-ref`. The narrowing to PR-less branches the slice line
+    # offered was WITHDRAWN by the plan's Design section: it was a fallback
+    # against a cost that does not exist. Measured 2026-09-24, one `ls-tree`
+    # over the plan directory is ~0.00 s and the whole addition 0.24 s, 0.4% of
+    # a scan whose wall time is 95% waiting.
+    on_default=$'\n'"$(ref_ls "$PLAN_DIR")"$'\n'
+    seen_branch_plans=$'\n'
+    while IFS=$'\t' read -r branch_name _branch_sha; do
+      [ -n "$branch_name" ] || continue
+      [ "$branch_name" = "HEAD" ] && continue
+      [ "$branch_name" = "$MAIN" ] && continue
+      printf '%s' "$branch_name" | grep -Eq "^($PREFIX_RE)/" || continue
+      while IFS= read -r bp; do
+        [ -n "$bp" ] || continue
+        case "$on_default" in *$'\n'"$bp"$'\n'*) continue ;; esac
+        case "$seen_branch_plans" in *$'\n'"$bp"$'\n'*) continue ;; esac
+        plan_blob=$(branch_plan_file "$branch_name" "$bp") || continue
+        [ -n "$plan_blob" ] || continue
+        # MARKED SEEN ONLY ONCE IT IS TAKEN, matching `board.ts:823`: a blob
+        # that could not be read has not been reported, so a later branch
+        # carrying a readable copy of the same path must still get its turn.
+        seen_branch_plans="${seen_branch_plans}${bp}"$'\n'
+        # THE IDENTITY STAYS THE RELATIVE PATH. The row loop parses
+        # `plan_reads[i]` and never re-reads by the identity in `plans[i]`, so
+        # the `docs/plans/…md` path is a usable id — and the dedup above is what
+        # guarantees it cannot collide with a default-branch plan's.
+        cand_ids+=("$bp")
+        cand_reads+=("$plan_blob")
+      done <<< "$(branch_plan_paths "$branch_name")"
+    done <<< "$REMOTE_REFS"
   else
     for plan_path in "$PLAN_DIR"*.md; do
       [ -e "$plan_path" ] || continue
