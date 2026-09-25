@@ -552,6 +552,115 @@ test('probe: the job-path reading invokes jen ZERO times', () => {
   assert.match(calls[0], /auth status/);
 });
 
+// --- the slug the auth call is given, which is the #968 defect -------------
+
+/**
+ * A `jen` stub that ANSWERS ONLY ITS OWN SLUG, the way the real CLI does.
+ *
+ * `stubClis` writes a stub that prints `OK` whatever it is handed, and THAT IS
+ * WHY #968 PASSED CI: a probe passing the whole `<slug>/<job/path>` value read
+ * `ok` from a stub that never looked. Measured against the live instance, `jen`
+ * answers for the slug alone and reports `NOT reachable` for the job-path form.
+ *
+ * This stub reproduces that discrimination, so the test can tell a correct
+ * argument from a wrong one, and records every call for the argument assertion.
+ */
+function slugAwareJen(stubDir, expectedSlug, logPath) {
+  fs.writeFileSync(
+    path.join(stubDir, 'jen'),
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(logPath)}
+want=${JSON.stringify(expectedSlug)}
+got=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -I) got="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ "$got" = "$want" ]; then
+  printf '%s\\n' 'Jenkins auth:  OK — jan.wloka@quatico.com'
+else
+  printf '%s\\n' "Jenkins auth:  NOT reachable — no such instance '$got'"
+fi
+exit 0
+`,
+  );
+  fs.chmodSync(path.join(stubDir, 'jen'), 0o755);
+}
+
+/** Probes `instance` against a `jen` that only answers for `expectedSlug`. */
+function authFor(instance, expectedSlug) {
+  const r = repoWith({}, {
+    config: `- **Plan directory:** docs/plans/\n- **Jenkins instance:** ${instance}\n`,
+  });
+  const stub = stubClis({});
+  const log = path.join(stub, 'jen-calls.log');
+  slugAwareJen(stub, expectedSlug, log);
+  const jen = probe(r, { env: isolatedPath(stub) }).jen;
+  const calls = fs.existsSync(log)
+    ? fs.readFileSync(log, 'utf8').split('\n').filter((l) => l !== '')
+    : [];
+  return { jen, calls };
+}
+
+/** What the probe handed `jen -I`, read back from the recorded invocation. */
+function dashI(calls) {
+  const m = / -I (\S+)/.exec(` ${calls[0] ?? ''}`);
+  return m ? m[1] : undefined;
+}
+
+test('probe: a <slug>/<job path> instance authenticates as its SLUG — #968', () => {
+  // THE REPORTED DEFECT. `ewz/kus-portal/continuous-build-multi` is the form
+  // `/plot-board-setup` prescribes and #913 established is REQUIRED for PRs to
+  // resolve. The probe handed the whole value to `jen -I`, so an instance that
+  // authenticates correctly was reported `failed` — a positive claim that the
+  // operator's credentials do not work, which is the direction `:330` forbids.
+  const { jen, calls } = authFor('ewz/kus-portal/continuous-build-multi', 'ewz');
+
+  assert.equal(dashI(calls), 'ewz', 'the auth call was given the unsplit value');
+  assert.equal(jen.auth, 'ok');
+  // ONE COMPUTATION FEEDS BOTH ANSWERS, so the job field comes along unchanged.
+  assert.equal(jen.job, 'kus-portal/continuous-build-multi');
+  assert.equal(jen.job_source, 'instance');
+});
+
+test('probe: a slug-only instance still authenticates — the regression guard', () => {
+  // The form that works TODAY. A fix that splits too eagerly breaks it, and
+  // this is the only test that would notice.
+  const { jen, calls } = authFor('apps', 'apps');
+
+  assert.equal(dashI(calls), 'apps');
+  assert.equal(jen.auth, 'ok');
+  assert.equal(jen.job, '');
+  assert.equal(jen.job_source, 'none');
+});
+
+test('probe: a URL instance authenticates as its BARE HOST, never https:', () => {
+  // `plot-host.sh:1127` records that `jen -I` accepts a bare host, so the host
+  // IS the slug here. A fresh `${value%%/*}` over the raw value would send
+  // `https:` — the defect the file's four-form comment already measured.
+  const { jen, calls } = authFor(
+    'https://jenkins.example.com/quaweb/cb',
+    'jenkins.example.com',
+  );
+
+  assert.equal(dashI(calls), 'jenkins.example.com');
+  assert.notEqual(dashI(calls), 'https:');
+  assert.equal(jen.auth, 'ok');
+  assert.equal(jen.job, 'quaweb/cb');
+});
+
+test('probe: a genuine auth failure still reads failed, not ok', () => {
+  // THE REFUSAL MUST SURVIVE THE FIX. `jen` answers only for `other`, so the
+  // probe's correctly-split slug legitimately does not authenticate. Reporting
+  // `ok` here would make the field worthless.
+  const { jen } = authFor('apps/quaweb/cb', 'other');
+
+  assert.equal(jen.auth, 'failed');
+});
+
+
 test('probe: a job path naming a container with no children is NOT flagged', () => {
   // A fresh multibranch container is legitimate — it NAMES a job path, and the
   // reading stops there. A check that went on to ask about contents would

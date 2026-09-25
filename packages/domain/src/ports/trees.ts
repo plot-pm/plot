@@ -117,6 +117,17 @@ export interface Trees {
   currentBranch(path: string): Promise<PortResult<string>>;
 
   /**
+   * Names the email git commits under in a checkout — its `user.email`.
+   *
+   * Asked by path because git resolves the value per checkout: an
+   * `includeIf` can set it for one directory and not another.
+   *
+   * @param path - the checkout's absolute path.
+   * @returns the email; `failed` where git has none configured.
+   */
+  userEmail(path: string): Promise<PortResult<string>>;
+
+  /**
    * Forgets the worktrees whose directories are gone.
    *
    * The one operation here that WRITES, and it writes only to git's own

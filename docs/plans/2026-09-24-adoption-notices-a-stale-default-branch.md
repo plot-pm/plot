@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
 - **Started:** 2026-09-24, Jan Wloka (claude session), `bug/the-probe-asks-the-host-for-the-default`
+- **Started:** 2026-09-25, Jan Wloka (claude session), `bug/adoption-proposes-the-main-branch-key`
 
 ## Changelog
 
@@ -105,6 +106,8 @@ Silence here would be the worse failure: it reads as confirmation.
 - `bug/adoption-proposes-the-main-branch-key` — `/plot-init` compares the two readings and proposes `- **Main branch:** <host>` where they differ, naming both answers; silent where they agree or where the host could not be asked. **`/plot-board-setup` needs its own reading and the draft did not say so**: it runs `plot-board-probe.sh` (`SKILL.md:83`), not the adoption probe slice 1 changes, so either that probe gains the same field or board setup calls the adoption probe — the slice decides which and names it
 
 ## Notes
+
+- **Wave 2 blocked itself on 2026-09-24 rather than guess, and wave 1 proved it right.** The worker on `bug/adoption-proposes-the-main-branch-key` found wave 1 unmerged, wrote a `PLOT-BLOCKED.md` naming the two facts it could not invent — the host-default field's name, and what that field reports where the host could not be asked — and stopped. It listed four shapes the second answer might take: `null`, `""`, an `"unknown"` string, or a separate status field beside the value. Wave 1 merged as #989 on 2026-09-25 and shipped the fourth: `host_default_branch`, with `host_default_branch_status: ok | unknown` beside it. `plot-detect-repo.sh:94` states the contract a guess would have broken — **the two are reported and never compared**, and the value field means nothing unless the status reads `ok`. A worker that had guessed `""` would have read an unasked host as a disagreement and proposed a config key with no value, which is the failure the brief warned of in both directions. The marker was removed once its dependency landed; this note is its record.
 
 - Reported from a clone whose GitHub default moved from `main` to `develop` after cloning. **Not reproducible here**: this repository's host, `origin/HEAD` and probe all answer `main`, which is why a defect affecting every reading Plot makes went unnoticed.
 - Two slices rather than one, and the order is forced: the proposal cannot compare a reading the probe does not take. The first is a reading with no behaviour change and can land alone.

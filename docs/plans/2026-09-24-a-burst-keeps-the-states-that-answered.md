@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -67,6 +67,8 @@ The reported symptom is real — a Bitbucket estate saw `secondary` with rows di
 - `bug/a-burst-returns-to-its-loop` — read whether the Bitbucket `pr-list` arm reaches `pr_list_states` and record the answer in the plan before changing anything; where it does not, route it through the loop rather than giving it a second copy; tests for burst-after-one-state, burst-on-the-first-state, and the unchanged GitHub single-call path
 
 ## Notes
+
+- **Re-verified 2026-09-25 on `main` at `0b6ddc71f`, at the operator's request before approving.** The jury's withdrawal holds. `988dac2cb` ("The arm reports the states that answered", #951) is an ancestor of main and `git tag --contains` puts it in **v2.19.0**, tagged 2026-09-18 — six days before #970 was filed against 2.20.0. Driving the real `pr_list_states` with a stub `bb` that answers `open` and refuses `merged`/`declined` with a secondary-limit message: **one state answering gives `exit=7`, the row survives, and stderr reads `answered 1 of 3 states; missing: merged, declined`; every state refusing gives `exit=6` with no rows and `no state answered; this is not a partial answer`.** `PR_LIST_PARTIAL_RC=7` is a real exported constant. Both of this plan's Done-when shapes already hold, so it was NOT approved and nothing was dispatched.
 
 - Reported from a Bitbucket repository with 28 branches in one `pr-list`. **Not reproducible here**: this estate is on GitHub, which answers `--state all` in one call, so the loop that leaks has no second iteration to be refused on.
 - **The first draft claimed the fix was control flow, not classification, and that claim is withdrawn.** It rested on `die6`'s `exit 6` killing the process; `die6` is never called, `pr_list_failed` is the real path, `exit` inside `$(...)` kills only the subshell, and `plot-host.sh:610-617` states that property explicitly. A five-line experiment disproved it in one command.
