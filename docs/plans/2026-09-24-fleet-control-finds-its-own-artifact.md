@@ -112,7 +112,7 @@ Done-when 4 asks for a gate counting `$repo_root`-resolved bundle paths. A naive
 
 ## Slices
 
-### Fleet control resolves beside itself (Branch: bug/fleet-control-resolves-beside-itself)
+### Fleet control resolves beside itself (Branch: bug/fleet-control-resolves-beside-itself, PR: #986)
 
 - `bug/fleet-control-resolves-beside-itself` — `plot-fleetctl.sh:89` and the unit fill resolve `plot-registryd.mjs` relative to the script; `:110` reads Plot's `.nvmrc` rather than the consumer's, so the node refusal survives adoption; the missing-artifact message follows `plot-dispatch.sh:1955`'s model; a contract test asserting no shipped bundle is resolved against `$repo_root`, catching the inlined `BASH_SOURCE` form and exempting `plot-board-probe.sh:266` by name
 
