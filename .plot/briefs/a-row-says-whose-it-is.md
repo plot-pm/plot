@@ -7,7 +7,7 @@
 - **Review of the code:** PR review per repo convention
 - **Issue:** #967
 
-**This branch waits on wave 1.** `feature/the-board-knows-who-is-asking` puts the reader's identity in the board payload, and `isMine(row, identity)` takes that identity as its second argument. On 2026-09-24 wave 1 was claimed with no commits and no PR. Do not start until it has merged, then read the identity field's name and shape from the merged `ServerInfoSchema` rather than from wave 1's brief. Wave 3 (`feature/the-board-filters-to-my-work`) waits on this branch: its checkbox renders what `isMine` decides and decides nothing itself.
+**Wave 1 merged on 2026-09-25 as #992 (`ec351da14`).** The identity is `server.hostUser` (the host login, via `plot-host.sh account`) and `server.gitEmail` (git `user.email`) in `ServerInfoSchema` (`packages/board/src/contract/schema.ts:1026`, `:1032`). Both are `z.string().default('')`, and `''` means unreadable. **On Bitbucket `hostUser` is `''` on every run:** `plot-host.sh account` exits 4 there, because the one free reading is the workspace. #967's estate is a Bitbucket estate, so under the like-with-like rule below every PR row on it answers unknown and stays shown. Do not bridge that gap in this slice. Report it in the PR body with the field `bb` returns for the author, because it decides whether the plan's first Open Question needs its own slice. Wave 3 (`feature/the-board-filters-to-my-work`) waits on this branch: its checkbox renders what `isMine` decides and decides nothing itself. An earlier session's local claim and its `PLOT-BLOCKED` marker (`9de277ca6`, never pushed) asked for wave 1 first; that question is answered, and the branch was re-cut from `ec351da14`.
 
 ### What to build
 
@@ -107,6 +107,6 @@ Other branches in flight, checked 2026-09-24 against every remote ref (no PR was
 - `feature/one-monitor-watches-the-slice` edits `schema.ts` at `ProcessGroupSchema` (`:3035`), and its PR #741 merged.
 - `feature/the-board-knows-who-is-asking` (wave 1) will touch `ports/host.ts`, `host-shell.ts`, `host-fixture.ts`, `plot-host.sh` and `schema.ts`. It merges before this branch starts, so rebase onto it rather than working beside it.
 
-No other branch touches `plot-host.sh`, the host port or adapter, `entities/pr.ts`, `entities/pr-index.ts` or `entities/person.ts`. Line numbers are from `main` at `d15481b58`. Re-read them after wave 1 merges.
+No other branch touches `plot-host.sh`, the host port or adapter, `entities/pr.ts`, `entities/pr-index.ts` or `entities/person.ts`. Line numbers are from `main` at `d15481b58`; `CardPrSchema:262`, `PR_INDEX_VERSION` (`pr-index.ts:12`) and `samePerson` (`person.ts:60`) were re-checked at `ec351da14`. The siblings `bug/a-row-with-no-plan-is-not-a-plan` (#974) and `bug/the-board-shows-the-tick-age` (#976) have merged, so their collisions are gone.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
