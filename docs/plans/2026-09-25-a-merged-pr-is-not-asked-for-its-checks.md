@@ -1,6 +1,6 @@
 # A merged PR is not asked for its checks
 
-> One `pr-list` asks GitHub for `statusCheckRollup` on 957 pull requests. 954 of them are merged or closed, and a merged PR's checks cannot change. Measured 2026-09-25: **20.8 s with the rollup, 0.6 s asking only the 3 open ones** — a third of a 54-second scan spent re-fetching CI results that were settled weeks ago.
+> One `pr-list` asks GitHub for `statusCheckRollup` on 957 pull requests. 954 of them are merged or closed, and a merged PR's checks cannot change. Measured 2026-09-25 through `plot-host.sh` as the scan calls it: **~37 s of a ~55 s scan**, against **~9 s** asking only the 3 open ones — most of the scan spent re-fetching CI results that were settled weeks ago.
 
 ## Status
 
@@ -9,13 +9,13 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Sprint:** a-refusal-names-what-it-cannot-see
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
-- The fleet scan asks the host for check state on **open** pull requests only. A merged or closed PR's rollup is not requested, because it cannot change. Measured on this estate: one `pr-list` fell from 20.8 s to 0.6 s, and the whole scan from ~54 s to ~33 s.
+- The fleet scan asks the host for check state on **open** pull requests only. A merged or closed PR's rollup is not requested, because it cannot change. Measured on this estate: the call falls from ~37 s to ~9 s, and the whole scan from ~55 s to ~27 s.
 
-Board impact: **yes, and it is the reason.** The board re-runs this scan on a 4-second fleet cadence against a call that takes 20 s, so polls overlap and queue. Two boards wedged on 2026-09-25 under exactly that backlog — `/` answered in 3 ms while `/api/board` timed out, with 48 children and 20 git subprocesses piled behind one node.
+Board impact: **yes, and it is the reason.** The server refreshes the scan on its own timer against a call measured at ~37 s; the client's 4-second `/api/fleet` poll reads a cache and never runs a scan per request (`packages/board/src/app/App.tsx:26-28`). The overlap is between the server's refreshes, not the client's polls. Two boards wedged on 2026-09-25 under exactly that backlog — `/` answered in 3 ms while `/api/board` timed out, with 48 children and 20 git subprocesses piled behind one node.
 
 ## Motivation
 
@@ -43,15 +43,23 @@ The population explains it:
 
 A sampling profile of one scan, 60 samples at 0.7 s:
 
+Timed **through `plot-host.sh pr-list` with the `--branch` arguments the scan
+passes** (`:747`), not through bare `gh` — the scan does not call `gh` directly,
+and the difference is 16 seconds:
+
 | component | cost | share |
 |---|---|---|
-| `pr-list` with `statusCheckRollup` | **20.8 s** | 38% |
-| plan parsing, 333 files × 44 ms | 13.3 s | 25% |
-| `pr-list` without the rollup | 5.1 s | 9% |
-| git — **81 invocations** × ~30 ms | **2.4 s** | **5%** |
-| unattributed | ~12 s | 22% |
+| `pr-list --state all --rich` | **~37 s** | **~70%** |
+| git — ~63 invocations | ~1.7 s | ~3% |
+| `git fetch` | ~0.6 s | ~1% |
+| plan parsing, **batched** | ~0.5 s | ~1% |
+| unattributed | ~13 s | ~25% |
 
-**Git is 5%, and that is the finding this plan exists to protect.** 23 git subprocesses are visible in `ps` during a scan and the rollup is not, so the obvious optimisation is the wrong one. `plot-fleet-scan.sh` already records the precedent: pruning 70% of worktrees changed nothing, because the cost was never there. Fork overhead here is **5 ms** and the heaviest single git call is **32 ms**.
+Isolated as bare `gh`, to separate the rollup from everything else the call
+does: **20.8 s** with it, **5.1 s** without, **0.6 s** asking only the 3 open
+PRs. Those three are the experiment; the table above is the scan.
+
+**Git is ~3%, and that is the finding this plan exists to protect.** 23 git subprocesses are visible in `ps` during a scan and the rollup is not, so the obvious optimisation is the wrong one. `plot-fleet-scan.sh` already records the precedent: pruning 70% of worktrees changed nothing, because the cost was never there. **No per-call figure is stated here**: the mean moved from 36.9 ms to 27.0 ms between a cold and a warm pass on a machine at load 7.4–8.2, and scheduler delay cannot be separated from a single call's real cost. The total is small under every reading taken, which is the only claim this argument needs.
 
 ## Design
 
@@ -102,9 +110,11 @@ Both are already `plot-host.sh pr-list` invocations with existing flags. **No ne
 
 ## Notes
 
+- **Panelled 2026-09-25 (evidence lens): `amend`, `Evidence: executed`.** Every figure re-taken. Three of five headline numbers reproduced exactly, including the PR population — 957, of which 920 MERGED, 34 CLOSED, **3 OPEN**. The premise verifies larger again when timed through `plot-host.sh` with the `--branch` arguments the scan passes rather than bare `gh`: ~37 s of ~55 s, 70%. Four secondary figures were restated and one was an arithmetic error rather than a stale reading. **The plan-parsing row was refuted outright** — the scan has batched since #486 on 2026-08-27 and the 13.3 s measured a loop nothing runs. Verdict file: `.plot/panels/a-merged-pr-is-not-asked-for-its-checks/evidence.md`.
+- **`plot-fleet-scan.sh:716` states that the rollup is free** — *"the cost is zero on GitHub (same GraphQL call)"*. Three independent measurements now refute it, and that sentence is what let this ship. The slice deletes it.
 - **Panelled 2026-09-25: `amend` (design lens, `Evidence: executed`).** The premise verified LARGER than drafted — the juror measured **31.7 s** for the rich call against the plan's 20.8 s, 6.8 s plain, 2.5 s open-rich — and it traced every reader of `checks` and `draft` to confirm no consumer reads a rollup on a non-open PR. Three amendments, two blocking, all folded in above: the dedup at `:877-917` ranks OPEN-rich and OPEN-plain identically, so `sort` falls back to a whole-line compare and the plain row's `-` wins deterministically in **both** concatenation orders, degrading `--loose` to strict for 100% of open PRs; the contract stubs are state-blind and would pass against exactly that build; and the `exit 7` safeguard guards a Bitbucket-only path on the host the measurement came from. Verdict file: `.plot/panels/a-merged-pr-is-not-asked-for-its-checks/design.md`.
 - **`packages/board/src/server/fleet.ts:2830` is deliberately out of scope.** The board makes its own `pr-list --rich --state all` call and its PR index stores `checks` for every state on purpose (`:2534`, `:2886`) — *"a merged PR is stored exactly as an open one is"*. Narrowing that call would break the store. A later reader optimising "the same call" must not touch it.
 
-- Found while diagnosing two board outages on 2026-09-25. Both were self-starvation rather than crashes: the fleet cadence is 4 s (`App.tsx:30`) and the scan is 54 s, so polls overlap and each forks its own git pile. The board recovered on its own once the machine went quiet, which is the evidence that it was contention rather than a fault.
-- **The operator's first instinct was to reduce git subprocesses, and the measurement refused it.** 81 invocations at 5 ms fork overhead is 2.4 s of 54. The same conversation proposed reading local refs instead of `origin/*` — which saves nothing and breaks correctness, since the scan derives from `origin/<branch>` precisely so an agent's pushed work on another machine is visible.
-- **The plan-parsing finding is real and separate**: 333 plans, of which 296 Released, 13 Rejected, 8 Superseded, 12 Delivered and **3 Approved**. 95% are terminal. It needs its own plan, and the partition is on the `State:` line rather than on a checksum, because a terminal plan needs no change detection at all.
+- Found while diagnosing two board outages on 2026-09-25. Both were self-starvation rather than crashes: the server refreshes the scan on its own timer and the scan is ~55 s, so refreshes overlap and each forks its own git pile. The client's 4 s `/api/fleet` poll reads a cache and is not the loop at fault. The board recovered on its own once the machine went quiet, which is the evidence that it was contention rather than a fault.
+- **The operator's first instinct was to reduce git subprocesses, and the measurement refused it.** ~63 invocations cost ~1.7 s of ~55 — 3%. An earlier draft of this plan wrote *"81 × 5 ms = 2.4 s"*, which is neither: 81 × 5 ms is 0.4 s, and the 2.4 s came from a different per-call figure. Two quantities were presented as one, and the conclusion survived only because git is negligible under every reading. The same conversation proposed reading local refs instead of `origin/*` — which saves nothing and breaks correctness, since the scan derives from `origin/<branch>` precisely so an agent's pushed work on another machine is visible.
+- **The estate is 95% terminal**: 296 Released, 13 Rejected, 8 Superseded, 12 Delivered and **3 Approved**. That is an observation about the estate and **not a finding** — an earlier draft of this plan promoted it into a second plan to batch the parse, and the evidence juror refuted that: `parse_plan_estate()` has batched since **#486, 2026-08-27**, `plot-fleet-scan.sh:2825` is the only invocation, and the 13.3 s that motivated it measured a per-file loop nothing runs. Real cost ~0.5 s.

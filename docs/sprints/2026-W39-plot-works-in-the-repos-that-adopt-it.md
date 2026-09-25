@@ -31,6 +31,22 @@ Three conditions, and all must hold.
 - [ ] [the-fleet-sees-a-plan-on-its-own-branch](../plans/2026-09-24-the-fleet-sees-a-plan-on-its-own-branch.md) — [#972](https://github.com/plot-pm/plot/issues/972). A plan created with `Impl: same branch` is read by the Board tab and invisible to the Fleet tab: `board.ts:810` walks every branch's tree, `plot-fleet-scan.sh:122` enumerates from `origin/<main>` only. **The board already does it right**, dedup included.
 - [ ] [a-plan-less-row-is-not-a-nameless-plan](../plans/2026-09-24-a-plan-less-row-is-not-a-nameless-plan.md) — [#973](https://github.com/plot-pm/plot/issues/973). `groupByPlan` keys on `row.plan`, so every plan-less row folds into one group keyed `''`, renders as a nameless `PLAN` head and is counted as a plan — in a section whose hint promises *approved* work. Visible on this repository's board right now.
 
+- [ ] [the-skills-say-slices](../plans/2026-09-15-the-skills-say-slices.md) — [#914](https://github.com/plot-pm/plot/issues/914). The skills say Slices
+- [ ] [the-supervisor-log-has-a-ceiling](../plans/2026-09-15-the-supervisor-log-has-a-ceiling.md) — [#916](https://github.com/plot-pm/plot/issues/916). The supervisor log has a ceiling
+- [ ] [the-inbox-says-what-it-is-showing](../plans/2026-09-17-the-inbox-says-what-it-is-showing.md) — [#928](https://github.com/plot-pm/plot/issues/928). The inbox says what it is showing
+- [ ] [a-released-plan-tells-its-tracker](../plans/2026-09-24-a-released-plan-tells-its-tracker.md) — [#935](https://github.com/plot-pm/plot/issues/935). A released plan tells its tracker
+- [ ] [a-stop-that-reports-failure-does-not-exit-zero](../plans/2026-09-24-a-stop-that-reports-failure-does-not-exit-zero.md) — A stop that reports failure does not exit zero
+- [ ] [a-supervisor-that-stopped-ticking-is-not-running](../plans/2026-09-24-a-supervisor-that-stopped-ticking-is-not-running.md) — A supervisor that stopped ticking is not running
+- [ ] [adoption-notices-a-stale-default-branch](../plans/2026-09-24-adoption-notices-a-stale-default-branch.md) — [#971](https://github.com/plot-pm/plot/issues/971). Adoption notices a stale default branch
+- [ ] [the-board-shows-me-only-my-work](../plans/2026-09-24-the-board-shows-me-only-my-work.md) — [#967](https://github.com/plot-pm/plot/issues/967). The board shows me only my work
+- [ ] [the-parser-reads-an-assignee-wherever-it-is](../plans/2026-09-24-the-parser-reads-an-assignee-wherever-it-is.md) — The parser reads an assignee wherever it is
+- [ ] [two-readers-disagree-about-a-sprint-item](../plans/2026-09-24-two-readers-disagree-about-a-sprint-item.md) — [#966](https://github.com/plot-pm/plot/issues/966). Two readers disagree about a sprint item
+- [ ] [a-merged-pr-is-not-asked-for-its-checks](../plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md) — A merged PR is not asked for its checks
+- [ ] [a-plugin-install-finds-its-own-scripts](../plans/2026-09-25-a-plugin-install-finds-its-own-scripts.md) — [#980](https://github.com/plot-pm/plot/issues/980). A plugin install finds its own scripts
+- [ ] [a-record-is-written-where-it-can-be-read](../plans/2026-09-25-a-record-is-written-where-it-can-be-read.md) — [#981](https://github.com/plot-pm/plot/issues/981). A record is written where it can be read
+- [ ] [a-throttled-host-is-not-a-missing-pr](../plans/2026-09-25-a-throttled-host-is-not-a-missing-pr.md) — [#985](https://github.com/plot-pm/plot/issues/985). A throttled host is not a missing PR
+- [ ] [one-word-answers-two-questions-about-a-wave](../plans/2026-09-25-one-word-answers-two-questions-about-a-wave.md) — [#994](https://github.com/plot-pm/plot/issues/994). One word answers two questions about a wave
+
 ### Should Have
 
 - [ ] [a-stop-that-reports-failure-does-not-exit-zero](../plans/2026-09-24-a-stop-that-reports-failure-does-not-exit-zero.md) — `/plot-fleet --stop` printed *"supervisor did NOT unload"* and exited 0. Panelled 2026-09-24, unanimous `amend`, amended: the mechanism is recorded as undetermined and the fix is correct under all three candidates.
