@@ -465,6 +465,12 @@ jobs:
       - name: One place talks to the host
         run: ./scripts/check-host-cli-callers.sh
 
+      # A SHIPPED BUNDLE RESOLVES BESIDE ITS SCRIPT. `$repo_root` is the
+      # consumer's checkout, which has no skills/plot/ when Plot is a plugin;
+      # one site against 26 built a bundle path from it and refused there (#969).
+      - name: Bundles resolve beside their script
+        run: ./scripts/check-bundle-resolution.sh
+
       # A SET OF STATES SAYS WHETHER IT IS A LIFECYCLE. `WorktreeState` read
       # `created -> occupied -> finished -> reapable -> gone` and nothing refused
       # `gone -> occupied`. Measured 2026-09-04: 37 `z.enum` occurrences in the

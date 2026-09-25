@@ -35,8 +35,8 @@
 # IT PROBES BEFORE IT ACTS AND REFUSES RATHER THAN REPAIRING — the discipline
 # /plot-board-setup already applies. Four refusals, each a measurement:
 #
-#   no plot-registryd.mjs      nothing to start; point at `pnpm build:board`
-#   node is not the pinned major
+#   no plot-registryd.mjs      nothing to start; a broken Plot installation
+#   node is not Plot's pinned major, or Plot's pin is unreadable
 #                              THE UNIT BAKES $NODE IN PERMANENTLY. Measured
 #                              2026-09-05: `command -v node` on the operator's
 #                              machine answered 26.7.0 against a repo pinned to
@@ -86,7 +86,20 @@ UNIT_DIR="$script_dir/../units"
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }
 repo_root=$(git rev-parse --show-toplevel)
-registryd="$repo_root/skills/plot/scripts/board/plot-registryd.mjs"
+
+# THE SUPERVISOR SHIPS BESIDE THIS SCRIPT, NOT IN THE REPOSITORY IT SUPERVISES.
+# `$repo_root` is the consumer's checkout, and a repository that consumes Plot
+# as a plugin has no `skills/plot/` of its own. Built from `$repo_root`, this
+# path refused `--once` in such a repository while the bundle sat, tracked,
+# beside this file in the plugin (#969). Every other bundle caller in
+# `skills/plot/scripts/` resolves from its own directory; this was the one that
+# did not, and `scripts/check-bundle-resolution.sh` now holds that at zero.
+registryd="$script_dir/board/plot-registryd.mjs"
+
+# PLOT'S OWN ROOT, which is where Plot's `.nvmrc` lives. In this repository it
+# is `$repo_root` too, which is why the two could be confused here.
+plot_root="$(cd "$script_dir/../../.." && pwd)"
+plot_nvmrc="$plot_root/.nvmrc"
 
 # ---------------------------------------------------------------------------
 # Probes
@@ -103,11 +116,16 @@ platform() {
   echo none
 }
 
-# The major the repository pins. `.nvmrc` is the one place that says it; the two
+# The major PLOT pins. `.nvmrc` is the one place that says it; the two
 # `engines` blocks say `>=24`, which is a floor rather than the pin.
+#
+# PLOT'S PIN, NOT THE CONSUMER'S. The unit runs Plot's bundle, so Plot's pin is
+# the one that decides whether the interpreter fits. Read from `$repo_root`,
+# a consumer with no `.nvmrc` got an empty pin and refusal 2 was skipped
+# without a word — the one refusal that keeps a wrong node out of a unit.
 pinned_major() {
   local v
-  v=$(tr -d ' \tv\n' < "$repo_root/.nvmrc" 2>/dev/null)
+  v=$(tr -d ' \tv\n' < "$plot_nvmrc" 2>/dev/null)
   printf '%s' "${v%%.*}"
 }
 
@@ -534,7 +552,8 @@ fi
 if [ "$mode" = "once" ]; then
   [ -f "$registryd" ] || {
     echo "plot-fleetctl: no supervisor artifact at $registryd" >&2
-    echo "  Build it: pnpm build:board" >&2
+    echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
+    echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
     exit 1
   }
   exec node "$registryd" --once
@@ -547,7 +566,9 @@ if [ "$mode" = "start" ]; then
   # REFUSAL 1 — nothing to start.
   [ -f "$registryd" ] || {
     echo "plot-fleetctl: no supervisor artifact at $registryd" >&2
-    echo "  The unit would name a file that does not exist. Build it: pnpm build:board" >&2
+    echo "  The unit would name a file that does not exist." >&2
+    echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
+    echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
     exit 1
   }
 
@@ -556,13 +577,24 @@ if [ "$mode" = "start" ]; then
     echo "plot-fleetctl: no node on PATH — the unit needs an absolute path to it" >&2
     exit 1
   }
+  # AN ABSENT PIN REFUSES. `.nvmrc` is tracked in Plot's repository and ships
+  # in the plugin, so its absence is a broken installation — and reading it as
+  # "no pin" is exactly how this refusal went silent in every consumer.
   want=$(pinned_major)
+  if [ -z "$want" ]; then
+    echo "plot-fleetctl: cannot read Plot's node pin at $plot_nvmrc" >&2
+    echo "  The unit bakes '$node_bin' in permanently, and without the pin nothing checks it." >&2
+    echo "  Plot tracks .nvmrc in git, so this is a broken or partial installation of Plot." >&2
+    echo "  Reinstall or update the Plot plugin, then run this again." >&2
+    exit 1
+  fi
   have=$(running_major) || have=""
-  if [ -n "$want" ] && [ "$have" != "$want" ]; then
-    echo "plot-fleetctl: node on PATH is ${have:-unreadable}, this repository pins $want" >&2
+  if [ "$have" != "$want" ]; then
+    echo "plot-fleetctl: node on PATH is ${have:-unreadable}, Plot pins $want ($plot_nvmrc)" >&2
     echo "  The unit bakes '$node_bin' in permanently, so a wrong one here is a" >&2
     echo "  daemon that keeps failing after you have moved on." >&2
-    echo "  Fix it: nvm use, then run this again." >&2
+    echo "  Fix it: put node $want first on PATH (with nvm: nvm install $want && nvm use $want)," >&2
+    echo "  then run this again." >&2
     exit 1
   fi
 

@@ -12,7 +12,7 @@ metadata:
   version: 1.0.2
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git, bash and Node at the major
-  the repository pins. Installing the unit needs launchd (macOS) or systemd
+  Plot pins in its own `.nvmrc`. Installing the unit needs launchd (macOS) or systemd
   (Linux); every other verb works without either.
 ---
 
@@ -123,8 +123,8 @@ user rather than working around it.
 
 | Refusal | The repair |
 |---------|-----------|
-| no `plot-registryd.mjs` | `pnpm build:board` — the unit would name a file that does not exist |
-| `node` is not the pinned major | `nvm use`, then run it again |
+| no `plot-registryd.mjs` | reinstall or update the Plot plugin — the bundle is tracked, so its absence is a broken installation; `pnpm build:board` only in a development checkout of Plot |
+| `node` is not Plot's pinned major, or Plot's pin is unreadable | put that major first on `PATH` (`nvm install N && nvm use N`), then run it again; an unreadable pin is a broken installation |
 | platform is neither launchd nor systemd | run the daemon by hand; there is no unit to fill |
 | a unit with that label is already loaded | `--stop` it, or give a second checkout its own label |
 
