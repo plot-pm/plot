@@ -1141,11 +1141,17 @@ const SPRINT_TIER_HEADINGS: ReadonlyArray<readonly [RegExp, SprintMember['tier']
 ];
 
 /**
- * A sprint member line: `- [ ] [slug] …` or `- [x] [slug] …`. The first bracket
- * is the checkbox, the second is the plan slug. A `### Deferred` bullet written
- * as prose (`- **Renaming Endgame.** …`) has no `[slug]` and does not match.
+ * A sprint member line: `- [ ] …` or `- [x] …`, with or without a `[slug]`.
+ *
+ * **THE CHECKBOX MAKES THE MEMBER AND THE LINK IS OPTIONAL METADATA** — the
+ * third of three readers of one file format, and the second bracket was
+ * mandatory here too until 2026-09-25. A bare `- [ ] rename the deploy step`
+ * was an item to `plot-sprint-release.sh` and not a member here, so the board
+ * dropped the lightweight form `skills/plot-sprint/SKILL.md:240` documents.
+ * The rest of the line is captured because a member with no slug has no other
+ * name to render.
  */
-const SPRINT_MEMBER_LINE = /^- \[( |x)\] \[([^\]]+)\]/;
+const SPRINT_MEMBER_LINE = /^- \[( |x)\] (?:\[([^\]]+)\]\s*)?(.*)$/;
 
 /**
  * Read a sprint file's members: the `- [ ] [slug]` / `- [x] [slug]` lines, the
@@ -1162,7 +1168,9 @@ function parseSprintMembers(content: string): SprintMember[] {
   const members: SprintMember[] = [];
   const seen = new Set<string>();
   let tier: SprintMember['tier'] | null = null;
+  let index = 0;
   for (const line of content.split('\n')) {
+    index += 1;
     if (line.startsWith('### ') || line.startsWith('## ')) {
       // A new heading resets the cursor: an unrecognised heading is no tier, so
       // its checkboxes are not counted.
@@ -1172,10 +1180,13 @@ function parseSprintMembers(content: string): SprintMember[] {
     if (!tier) continue;
     const m = line.match(SPRINT_MEMBER_LINE);
     if (!m) continue;
-    const slug = m[2].trim();
-    if (seen.has(slug)) continue;
-    seen.add(slug);
-    members.push({ slug, tier, checked: m[1] === 'x', known: true });
+    const slug = (m[2] ?? '').trim();
+    // A BARE MEMBER IS NEVER DEDUPED AGAINST ANOTHER — `itemsFrom` says why at
+    // length, and the two readers must agree or this defect returns on one side.
+    const key = slug === '' ? `line:${index}` : slug;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    members.push({ slug, text: (m[3] ?? '').trim(), tier, checked: m[1] === 'x', known: true });
   }
   return members;
 }
@@ -1367,8 +1378,12 @@ const addSprint = (
   if (!sprint || taken.has(sprint.slug)) return;
   taken.add(sprint.slug);
   if (knownSlugs) {
+    // A MEMBER NAMING NO PLAN IS NOT AN UNKNOWN PLAN. `known: false` means *the
+    // sprint lists a plan the board cannot find*, which is worth a badge; a bare
+    // item never claimed one, so flagging it would report a missing plan that
+    // was never named — the separation `scoreItem` draws with `no-plan-named`.
     sprint.members = sprint.members.map((m) =>
-      knownSlugs.has(m.slug) ? m : { ...m, known: false },
+      m.slug === '' || knownSlugs.has(m.slug) ? m : { ...m, known: false },
     );
   }
   into.push(sprint);

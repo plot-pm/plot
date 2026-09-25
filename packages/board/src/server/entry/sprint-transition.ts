@@ -56,12 +56,22 @@ const TIER_HEADINGS: ReadonlyArray<readonly [RegExp, MoscowTier]> = [
 ];
 
 /**
- * A member line: `- [ ] [slug] …` or `- [x] [slug] …`.
+ * A member line: `- [ ] …` or `- [x] …`, with or without a `[slug]` reference.
  *
- * The first bracket is the checkbox, the second the plan slug. A `### Deferred`
- * bullet written as prose carries no `[slug]` and does not match.
+ * **THE CHECKBOX MAKES THE ITEM AND THE LINK IS OPTIONAL METADATA** — the rule
+ * `plot-sprint-release.sh:234` has always applied, and `skills/plot-sprint/
+ * SKILL.md:240` documents the bare form. The second bracket was mandatory until
+ * 2026-09-25, so `- [ ] rename the deploy step` did not match at all: `itemsFrom`
+ * skipped it, the sprint reached `setSprintState` with no items, and
+ * `commitment-empty` refused a sprint whose Must Haves the release gate counted
+ * as two open items. One file, two readers, opposite answers.
+ *
+ * The slug group is `(?:\[([^\]]+)\]\s*)?` — optional, and still any bracketed
+ * text rather than a slug shape, which is deliberate: `[#966](…)` is a reference
+ * this estate writes and narrowing it here would drop a line the release reader
+ * keeps.
  */
-const MEMBER_LINE = /^- \[( |x)\] \[([^\]]+)\]\s*(.*)$/;
+const MEMBER_LINE = /^- \[( |x)\] (?:\[([^\]]+)\]\s*)?(.*)$/;
 
 /**
  * A `## Status` field: `- **Name:** value`.
@@ -82,6 +92,16 @@ const field = (body: string, name: string): string =>
  * keeps its strongest tier — the same rule `parseSprintMembers` applies, and
  * `commitment-empty` is decided from the answer.
  *
+ * **A BARE ITEM IS NEVER DEDUPED AGAINST ANOTHER.** Dedup exists because a plan
+ * sliced across slices lists its slug once per slice and the sprint contains it
+ * once; a line naming no plan makes no such claim. Keying those on the captured
+ * plan would key them all on `''` — measured by the panel, three lines with two
+ * bare keep 2 of 3, and eight bare Musts keep 1 of 8, so the bracket alone
+ * improves the number without fixing it. The key is the slug where there is one
+ * and the line's own position otherwise. **Never the item text**: two identical
+ * bare lines are two items, and keying on text reproduces this defect in
+ * miniature.
+ *
  * @param content - the whole sprint file.
  * @returns its items, in file order.
  */
@@ -89,7 +109,9 @@ export const itemsFrom = (content: string): SprintItem[] => {
   const items: SprintItem[] = [];
   const seen = new Set<string>();
   let tier: MoscowTier | null = null;
+  let index = 0;
   for (const line of content.split('\n')) {
+    index += 1;
     if (line.startsWith('### ') || line.startsWith('## ')) {
       tier = TIER_HEADINGS.find(([re]) => re.test(line))?.[1] ?? null;
       continue;
@@ -97,9 +119,12 @@ export const itemsFrom = (content: string): SprintItem[] => {
     if (!tier) continue;
     const m = line.match(MEMBER_LINE);
     if (!m) continue;
-    const plan = m[2].trim();
-    if (seen.has(plan)) continue;
-    seen.add(plan);
+    const plan = (m[2] ?? '').trim();
+    // `line:` cannot collide with a slug: a slug carries no colon, and the
+    // prefix is what keeps the two key spaces apart rather than a bare number.
+    const key = plan === '' ? `line:${index}` : plan;
+    if (seen.has(key)) continue;
+    seen.add(key);
     items.push({ tier, checked: m[1] === 'x', plan, text: m[3].trim() });
   }
   return items;

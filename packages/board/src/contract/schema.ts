@@ -702,7 +702,18 @@ export type Column = z.infer<typeof ColumnSchema>;
  * the file alone cannot tell, so it emits `known: true`.
  */
 export const SprintMemberSchema = z.object({
+  /** The plan slug, or `''` for a bare item that names no plan. */
   slug: z.string(),
+  /**
+   * The line's own text, after the checkbox and any `[slug]`.
+   *
+   * **A BARE MEMBER HAS NO SLUG TO RENDER**, so without this it arrives as an
+   * empty row. Carried for every member rather than only the bare ones: a field
+   * present on some members and absent on others is one every reader must test
+   * before using. The client CASTS this payload and never parses it, so a Zod
+   * default would not reach it — the server fills it in.
+   */
+  text: z.string().default(''),
   tier: z.enum(['must', 'should', 'could', 'deferred']),
   /** `- [x]` vs `- [ ]`. A ticked item is still a member. */
   checked: z.boolean(),

@@ -7317,6 +7317,10 @@ export async function sprintMembership(opts: BuildBoardOptions): Promise<Map<str
   for (const sprint of workingTreeSprints(opts.repoRoot, sprintDir)) {
     if (sprint.phase !== 'Active') continue;
     for (const member of sprint.members) {
+      // A BARE MEMBER NAMES NO PLAN, so it has no slug to map. Without this the
+      // first one would claim the key `''` and every later lookup for "which
+      // sprint owns this plan" would answer with that sprint.
+      if (member.slug === '') continue;
       if (!map.has(member.slug)) map.set(member.slug, sprint.slug);
     }
   }
@@ -7373,6 +7377,18 @@ export async function activeSprints(
     const counts = { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 };
     for (const member of sprint.members) {
       if (member.tier === 'deferred') continue;
+      // A BARE MEMBER IS SCORED ON ITS CHECKBOX, which is what the release gate
+      // does: `scoreItem` returns `done` or `open` for `no-plan-named`, and
+      // calls that a stated limit rather than a failed lookup. Falling through
+      // to the `default` below would drop it from the total as if it were a
+      // plan that could not be found — the distinction `known` draws on the
+      // member itself.
+      if (member.slug === '') {
+        if (member.checked) counts.done += 1;
+        else counts.open += 1;
+        counts.total += 1;
+        continue;
+      }
       const status = statusBySlug.get(member.slug);
       switch (status) {
         // Open: committed, not started

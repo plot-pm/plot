@@ -28,7 +28,10 @@ export function sprintMembershipLookup(
   for (const sprint of sprints) {
     const memberSlugs = new Set(
       sprint.members
-        .filter((m) => m.tier !== 'deferred')
+        // A BARE MEMBER NAMES NO PLAN, so it belongs to no card. Without the
+        // second filter the set holds `''`, and any card whose own slug were
+        // ever empty would read as a member of this sprint.
+        .filter((m) => m.tier !== 'deferred' && m.slug !== '')
         .map((m) => m.slug),
     );
     lookup.set(sprint.slug, memberSlugs);
