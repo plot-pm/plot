@@ -3,17 +3,17 @@
 - **Plan (canonical):** `docs/plans/2026-09-24-the-fleet-sees-a-plan-on-its-own-branch.md` on `main`
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
 - **Issue:** #972
-- **Branch:** `bug/the-scan-reads-a-branch-s-own-plans` (base: `main`) — claimed 2026-09-24 by ref push at `origin/main`
+- **Branch:** `bug/the-scan-reads-a-branch-s-own-plans` (base: `main`) — no remote ref yet on 2026-09-25; the agent that takes the slice creates it
 - **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
 - **Review of the code:** per repo convention (PR review, CI green)
 
-The plan has one slice. Nothing waits on it and it waits on nothing. `bug/a-row-with-no-plan-is-not-a-plan` (#973) is in flight beside it and owns the rendering of the rows this slice does not fix.
+The plan has one slice. Nothing waits on it and it waits on nothing. #973's slice merged as #974 on 2026-09-25 and owns the rendering of the rows this slice does not fix.
 
 ### What to build
 
 A plan created with `Impl: same branch` lives only on its work branch until that branch merges. `/api/board` shows it as a Draft card; `/api/fleet` shows the same branch as `{"plan": "", "planFile": "", "phase": null}` under NOT STARTED. The cause is one sentence in `plot-fleet-scan.sh:122`: *"Plans are enumerated from `origin/<main>`."*
 
-The fix is in the shell scan, not the board. After the scan lists plans from `origin/$MAIN` (the `cand_ids`/`cand_reads` loop at `plot-fleet-scan.sh:3007-3016`), it also lists plan files from each prefixed remote branch's tree, keeps only those the default branch does not carry, and appends them to the same candidate arrays **before** the one `parse_plan_estate` call at `:3025`. From there the existing pipeline carries the plan: the plan names its branch in `## Slices`, the pulse emits it, and `fleet.ts` no longer reaches that branch through the plan-less loop at `packages/board/src/server/fleet.ts:7153`.
+The fix is in the shell scan, not the board. After the scan lists plans from `origin/$MAIN` (the `cand_ids`/`cand_reads` loop at `plot-fleet-scan.sh:3007-3016`), it also lists plan files from each prefixed remote branch's tree, keeps only those the default branch does not carry, and appends them to the same candidate arrays **before** the one `parse_plan_estate` call at `:3025`. From there the existing pipeline carries the plan: the plan names its branch in `## Slices`, the pulse emits it, and `fleet.ts` no longer reaches that branch through the plan-less loop at `packages/board/src/server/fleet.ts:7069-7169` (moved by #974; the row it builds carries `plan: ''` at `:7169`).
 
 The plan is canonical. This brief is orientation.
 
@@ -72,10 +72,10 @@ pnpm run typecheck
 
 This branch owns `skills/plot/scripts/plot-fleet-scan.sh`, a new or extended test under `packages/board/test/`, and one changeset.
 
-In flight at dispatch (2026-09-24), verified by diffing each remote branch against its merge base:
+In flight on 2026-09-25, verified by diffing each remote branch against its merge base:
 
-- **No other branch touches `plot-fleet-scan.sh`.**
-- `bug/a-row-with-no-plan-is-not-a-plan` (#973), `bug/the-board-shows-the-tick-age`, `feature/a-finished-plan-writes-its-issue-status` and `feature/one-monitor-watches-the-slice` touch the built bundles under `skills/plot/scripts/board/`. If this branch leaves `packages/board/src` alone, it does not collide with them.
+- **No other remote branch touches `plot-fleet-scan.sh`.** The cited scan line numbers were re-checked against `main` at `73f6ad790` and still hold.
+- `bug/the-board-shows-the-tick-age` and `feature/one-monitor-watches-the-slice` touch the built bundles under `skills/plot/scripts/board/`. If this branch leaves `packages/board/src` alone, it does not collide with them. #974 and #975 have merged.
 
 Not this slice:
 
