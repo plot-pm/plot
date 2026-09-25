@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
