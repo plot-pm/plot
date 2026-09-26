@@ -53,8 +53,8 @@ describe('each of the eight states is produced from readings', () => {
     );
   });
 
-  it('merged — a ref behind main, carrying nothing of its own', () => {
-    expect(branchState(reading({ refTip: 'bbb', mainTip: 'aaa' }))).toBe('merged');
+  it('merged — a ref behind main, carrying nothing of its own, whose pull request merged', () => {
+    expect(branchState(reading({ refTip: 'bbb', mainTip: 'aaa', pr: 'MERGED' }))).toBe('merged');
   });
 
   it('deferred — the plan gave the branch up', () => {
@@ -166,9 +166,22 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
   it('leaves merged alone — overriding it would stop the wave settling forever', () => {
     expect(
       branchState(
-        reading({ refTip: 'bbb', mainTip: 'aaa', waits: { branch: 'feature/first', pr: 'OPEN' } }),
+        reading({
+          refTip: 'bbb',
+          mainTip: 'aaa',
+          pr: 'MERGED',
+          waits: { branch: 'feature/first', pr: 'OPEN' },
+        }),
       ),
     ).toBe('merged');
+  });
+
+  it('replaces the unknown of a behind-main ref with the prerequisite verdict', () => {
+    expect(
+      branchState(
+        reading({ refTip: 'bbb', mainTip: 'aaa', waits: { branch: 'feature/first', pr: 'OPEN' } }),
+      ),
+    ).toBe('waiting');
   });
 
   it('clears when the prerequisite merged', () => {
@@ -276,13 +289,60 @@ describe('a branch reset to main holds nothing', () => {
     expect(branchState(reading({ refTip: 'aaa', mainTip: 'aaa' }))).toBe('open');
   });
 
-  it('answers merged when its tip is behind main', () => {
-    expect(branchState(reading({ refTip: 'bbb', mainTip: 'aaa' }))).toBe('merged');
+  it('answers unknown when its tip is behind main and no pull request merged', () => {
+    expect(branchState(reading({ refTip: 'bbb', mainTip: 'aaa' }))).toBe('unknown');
   });
 
-  it('answers merged where main cannot be read and the tip differs', () => {
-    // The tips are compared, not resolved: an unreadable main is not equality.
-    expect(branchState(reading({ refTip: 'bbb', mainTip: null }))).toBe('merged');
+  it('answers unknown where main cannot be read and the tip differs', () => {
+    // The tips are compared, not resolved: an unreadable main is not equality,
+    // so the branch is not `open` either.
+    expect(branchState(reading({ refTip: 'bbb', mainTip: null }))).toBe('unknown');
+  });
+});
+
+describe('a ref behind main holds nothing unless the host says it merged', () => {
+  // The third zero-ahead shape: a ref cut from an older main and never
+  // committed to, or a claim whose commit was lost. On both it and landed work
+  // the ref is a strict ancestor of main, so tip equality cannot separate them.
+  const behind = { refTip: 'bbb', mainTip: 'aaa', commitsAhead: 0, realCommitsAhead: 0 };
+
+  it('answers unknown for a ref cut from an older main or whose claim commit was lost', () => {
+    expect(branchState(reading(behind))).toBe('unknown');
+  });
+
+  it('answers merged where the pull request merged', () => {
+    expect(branchState(reading({ ...behind, pr: 'MERGED' }))).toBe('merged');
+  });
+
+  it.each(['OPEN', 'CLOSED', 'unreadable'] as const)(
+    'answers unknown on a %s pull request',
+    (pr) => {
+      // Only MERGED may promote, as in the resurrected-ref arm.
+      expect(branchState(reading({ ...behind, pr }))).toBe('unknown');
+    },
+  );
+});
+
+describe('the four probe rows: host ok, no pull request, no wait', () => {
+  // The probe of 2026-09-26 that measured the defect, kept as cases. Row 2 read
+  // `merged` and withheld three approved slices from dispatch.
+  const probe = (over: Partial<BranchReadings>): BranchReadings =>
+    reading({ hostReach: 'ok', pr: 'none', waits: null, mainTip: 'aaa', ...over });
+
+  it('a claim ref with its claim commit pushed is claimed', () => {
+    expect(branchState(probe({ refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('claimed');
+  });
+
+  it('a claim ref with no commit, behind main, is unknown', () => {
+    expect(branchState(probe({ refTip: 'bbb', commitsAhead: 0, realCommitsAhead: 0 }))).toBe('unknown');
+  });
+
+  it('a ref pointing at main is open', () => {
+    expect(branchState(probe({ refTip: 'aaa', commitsAhead: 0, realCommitsAhead: 0 }))).toBe('open');
+  });
+
+  it('no ref at all is open', () => {
+    expect(branchState(probe({ refTip: null }))).toBe('open');
   });
 });
 
