@@ -157,7 +157,7 @@ The population is bounded by `plot-release-refs.sh`, which deletes a delivered p
 
 ## Slices
 
-### A branch behind main holds nothing (Branch: `bug/a-branch-behind-main-holds-nothing`)
+### A branch behind main holds nothing (Branch: bug/a-branch-behind-main-holds-nothing)
 
 Change the `:264` return, extend the table comment to three shapes, and cover the four rows of the probe above as cases.
 
