@@ -1,0 +1,1 @@
+../2026-09-24-the-board-shows-me-only-my-work.md

@@ -38,7 +38,7 @@ Three conditions, and all must hold.
 - [ ] [a-stop-that-reports-failure-does-not-exit-zero](../plans/2026-09-24-a-stop-that-reports-failure-does-not-exit-zero.md) — A stop that reports failure does not exit zero
 - [ ] [a-supervisor-that-stopped-ticking-is-not-running](../plans/2026-09-24-a-supervisor-that-stopped-ticking-is-not-running.md) — A supervisor that stopped ticking is not running
 - [ ] [adoption-notices-a-stale-default-branch](../plans/2026-09-24-adoption-notices-a-stale-default-branch.md) — [#971](https://github.com/plot-pm/plot/issues/971). Adoption notices a stale default branch
-- [ ] [the-board-shows-me-only-my-work](../plans/2026-09-24-the-board-shows-me-only-my-work.md) — [#967](https://github.com/plot-pm/plot/issues/967). The board shows me only my work
+- [x] [the-board-shows-me-only-my-work](../plans/2026-09-24-the-board-shows-me-only-my-work.md) — [#967](https://github.com/plot-pm/plot/issues/967). The board shows me only my work
 - [ ] [the-parser-reads-an-assignee-wherever-it-is](../plans/2026-09-24-the-parser-reads-an-assignee-wherever-it-is.md) — The parser reads an assignee wherever it is
 - [x] [two-readers-disagree-about-a-sprint-item](../plans/2026-09-24-two-readers-disagree-about-a-sprint-item.md) — [#966](https://github.com/plot-pm/plot/issues/966). Two readers disagree about a sprint item
 - [x] [a-merged-pr-is-not-asked-for-its-checks](../plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md) — A merged PR is not asked for its checks

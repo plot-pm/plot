@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-24, Jan Wloka (claude session), `feature/the-board-knows-who-is-asking`
 - **Started:** 2026-09-25, Jan Wloka, `feature/a-row-says-whose-it-is`
 - **Started:** 2026-09-26, Jan Wloka (claude session), `feature/the-board-filters-to-my-work`
+- **Delivered:** 2026-09-26
 
 ## Changelog
 
