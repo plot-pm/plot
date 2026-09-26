@@ -85,12 +85,13 @@ The stop is a **refusal, not a pass**: approving a plan whose PR state is unknow
 
 ## Slices
 
-### The approval reads why the host said nothing (Branch: bug/the-approval-reads-why-the-host-said-nothing)
+### The approval reads why the host said nothing (Branch: bug/the-approval-reads-why-the-host-said-nothing, PR: #1004)
 
 - `bug/the-approval-reads-why-the-host-said-nothing` — `plot-approve.sh:230` captures the exit code and stderr rather than discarding both; exits 5 and 4 stop with the host's own reason and no push prescription; a genuine absence is unchanged; a stub-driven test for each of the four arms, and one asserting the phase is untouched on every stop
 
 ## Notes
 
+- **Built 2026-09-26 (#1004).** A rate-refused `gh` on both transports reaches `plot-approve.sh` as `pr-state` exit **3**, asserted end to end through the real adapter rather than assumed. Exits 3 and 5 share one stop that prints the host's stderr; exit 4 has its own sentence. All three stops leave the plan Draft, the PR unmerged and main unpushed. The slice line above still says *"exits 5 and 4 stop"*; the Design section's zero-versus-non-zero reading is what was built.
 - **Panelled 2026-09-25: `amend`, `Evidence: executed`.** The diagnosis and the incident are right; **the mechanism was not**. The juror stubbed both backends and measured `pr-state` exiting **3** on a rate limit, never 5 — exit 5 belongs to `pr-list` (`pr_list_failed`, `:528`), while `pr-state` is classified by `host_miss_or_fail` (`:1560`). An earlier draft keyed its whole design table on exits 5 and 4 reaching this caller. Re-verified independently before amending: `pr-state` under a rate-limited `gh` exits 3. The correction makes the fix **smaller** — zero versus non-zero, one branch. Verdict file: `.plot/panels/a-throttled-host-is-not-a-missing-pr/juror.md`.
 - **This is the fault the estate keeps catching in its own tickets**: reading the documented exit code and assuming the op in question produces it. The same shape rejected `the-reaper-sees-the-desks-the-fleet-leaves` and corrected the first draft of `a-burst-keeps-the-states-that-answered`.
 
