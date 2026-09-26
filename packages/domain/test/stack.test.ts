@@ -38,6 +38,12 @@ const readings = (over: Partial<StackReadings> = {}): StackReadings => ({
   ciSignals: null,
   ciHost: '',
   instanceKeyedCi: '',
+  // UNVERIFIED BY DEFAULT, because that is what a probe reporting nothing maps
+  // to. Defaulting to an agreeing pair would have every unrelated case assert a
+  // match nobody measured, and the three states are asserted deliberately below.
+  localDefaultBranch: 'main',
+  hostDefaultBranch: '',
+  hostDefaultBranchAsked: false,
   ...over,
 });
 

@@ -25,6 +25,10 @@ const answers = (over: Partial<AdoptionAnswers> = {}): AdoptionAnswers => ({
   ticketPrefixes: [],
   ci: '',
   worktreeRoot: '',
+  // NOBODY CONFIRMED ONE, which is the decline. Every fixture below therefore
+  // writes no `Main branch` key, and the two that are about this question say so
+  // explicitly rather than relying on the default.
+  mainBranch: '',
   ...over,
 });
 
@@ -42,6 +46,12 @@ const bare = (): StackProposal =>
     ciSignals: CI_SIGNALS.map((signal) => ({ ...signal, present: false })),
     ciHost: '',
     instanceKeyedCi: '',
+    // AGREEING, which is every healthy repository and what these fixtures
+    // model. It writes no `Main branch` key and no gap line, so the key lists
+    // below are byte-identical to what they were before the question existed.
+    localDefaultBranch: 'main',
+    hostDefaultBranch: 'main',
+    hostDefaultBranchAsked: true,
   });
 
 /**
@@ -84,6 +94,12 @@ const measuring = (prefix: string, count = 38): StackProposal =>
     ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
     ciHost: '',
     instanceKeyedCi: '',
+    // AGREEING, which is every healthy repository and what these fixtures
+    // model. It writes no `Main branch` key and no gap line, so the key lists
+    // below are byte-identical to what they were before the question existed.
+    localDefaultBranch: 'main',
+    hostDefaultBranch: 'main',
+    hostDefaultBranchAsked: true,
   });
 
 const input = (over: Partial<AdoptionInput> = {}): AdoptionInput => ({
@@ -235,6 +251,12 @@ describe('composeAdoption — the keys', () => {
           ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
           ciHost: '',
           instanceKeyedCi: '',
+          // AGREEING, which is every healthy repository and what these fixtures
+          // model. It writes no `Main branch` key and no gap line, so the key lists
+          // below are byte-identical to what they were before the question existed.
+          localDefaultBranch: 'main',
+          hostDefaultBranch: 'main',
+          hostDefaultBranchAsked: true,
         }),
         answers: answers({ tracker: 'jira', trackerUrl: 'https://acme.atlassian.net' }),
       }),
@@ -456,6 +478,12 @@ describe('composeAdoption — the commit style', () => {
                   ciSignals: null,
                   ciHost: '',
                   instanceKeyedCi: '',
+                  // AGREEING, which is every healthy repository and what these fixtures
+                  // model. It writes no `Main branch` key and no gap line, so the key lists
+                  // below are byte-identical to what they were before the question existed.
+                  localDefaultBranch: 'main',
+                  hostDefaultBranch: 'main',
+                  hostDefaultBranchAsked: true,
         }),
       }),
     );

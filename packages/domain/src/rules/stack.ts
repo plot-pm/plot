@@ -117,6 +117,36 @@ export interface StackReadings {
    * CI question.
    */
   instanceKeyedCi: string;
+  /**
+   * What this clone calls the default branch — `origin/HEAD`, else the branch
+   * checked out.
+   *
+   * A CACHE WRITTEN AT CLONE TIME, and that is the whole reason the question
+   * exists. A default branch moved afterwards does not update it and nothing in
+   * git notices. Reported 2026-09-24: a clone whose GitHub default had moved to
+   * `develop` kept `origin/HEAD → main`, adoption wrote no key, and the board
+   * read plans from `origin/main` — one untitled group, `develop` listed as a
+   * branch, two of three plans missing.
+   */
+  localDefaultBranch: string;
+  /**
+   * What the HOST calls its default branch, or `''` where it was not asked.
+   *
+   * ONLY MEANINGFUL WHERE {@link StackReadings.hostDefaultBranchAsked} is true.
+   * An empty string here is not a branch named `''` and must never compare as
+   * *differs from `main`* — that would propose a key with no value.
+   */
+  hostDefaultBranch: string;
+  /**
+   * Whether the host actually answered.
+   *
+   * THE STATUS DECIDES, NOT THE EMPTINESS OF THE STRING BESIDE IT. The probe
+   * reports `unknown` for no git host, no adapter, a non-zero exit and an empty
+   * answer alike, and a reader testing the value alone reads the last as an
+   * answer. `false` is *nobody asked*, which is a third state and not a quiet
+   * form of agreement.
+   */
+  hostDefaultBranchAsked: boolean;
 }
 
 /** What the readings propose about the Node on this machine. */
@@ -163,6 +193,27 @@ export interface LanguageProposal {
   /** How many German words the sample carried. */
   germanWords: number;
 }
+
+/**
+ * What the two default-branch readings propose.
+ *
+ * THREE STATES, AND THE THIRD IS WHY THIS IS NOT A NULLABLE STRING. *They
+ * agree* and *nobody could ask* both write no key, so a shape carrying only the
+ * proposed value collapses them — and the second must be REPORTED, because
+ * silence where the host went unasked reads as confirmation and nobody
+ * investigates a green light. `plot-board-probe.sh` draws the same line for
+ * auth: *"Report that we cannot tell, never that it is fine."*
+ *
+ * - `agree` — the host and this clone name the same branch. Every healthy
+ *   repository, this one included. Nothing to propose and nothing to say.
+ * - `differs` — the host moved and `origin/HEAD` did not. The key is proposed,
+ *   carrying BOTH values, because the operator has to see what disagreed.
+ * - `unverified` — the host was not asked. No key, and a stated reason.
+ */
+export type DefaultBranchProposal =
+  | { readonly state: 'agree'; readonly branch: string }
+  | { readonly state: 'differs'; readonly host: string; readonly local: string }
+  | { readonly state: 'unverified'; readonly local: string };
 
 /**
  * What must be asked before a `Jenkins instance` key can be written.
@@ -224,6 +275,14 @@ export interface StackProposal {
   ci: SignalAnswer<string> | null;
   /** Which Jenkins builds it, where Jenkins does. */
   ciInstance: CiInstanceProposal;
+  /**
+   * Whether this clone's idea of the default branch still matches the host's.
+   *
+   * ASKED ONCE, AT ADOPTION. The board's resolution chain does not ask — a host
+   * call on its hot path is what `board.ts:738` avoids deliberately — so this is
+   * the one place the question is put.
+   */
+  defaultBranch: DefaultBranchProposal;
 }
 
 /**
@@ -364,6 +423,43 @@ export const proposeLanguage = (
 ): LanguageProposal => {
   if (!hasHubDoc) return { language: null, germanWords: 0 };
   return { language: germanWords >= GERMAN_WORDS ? 'de' : 'en', germanWords };
+};
+
+/**
+ * Whether the `Main branch` key is owed, by comparing the host's answer with
+ * this clone's cache.
+ *
+ * THE HOST WINS, BECAUSE IT OWNS THE FACT. `origin/HEAD` is a clone-time cache
+ * of the host's default; where they disagree the cache is the stale one. The
+ * proposal carries both values rather than the winner alone — an operator told
+ * only *"use `develop`"* cannot tell a moved default from a tool that
+ * misread their repository, and the repair for the clone
+ * (`git remote set-head origin -a`) is theirs to run.
+ *
+ * ASKED DECIDES, NOT THE STRING. An unasked host arrives as `''`, which would
+ * compare as *differs from `main`* and propose a key with no value — the exact
+ * shape "absent is not false" forbids. So the status is tested first and an
+ * empty answer with `asked` true is also `unverified`: a host that answered
+ * nothing answered nothing.
+ *
+ * AGREEMENT PROPOSES NOTHING. That is every repository including this one, so a
+ * rule that erred toward proposing would put a new key into every adoption.
+ *
+ * @param local what this clone calls the default branch.
+ * @param host what the host calls it, meaningful only where `asked`.
+ * @param asked whether the host answered at all.
+ * @returns which of the three states holds, carrying the values behind it.
+ */
+export const proposeDefaultBranch = (
+  local: string,
+  host: string,
+  asked: boolean,
+): DefaultBranchProposal => {
+  const theirs = host.trim();
+  const ours = local.trim();
+  if (!asked || theirs === '') return { state: 'unverified', local: ours };
+  if (theirs === ours) return { state: 'agree', branch: theirs };
+  return { state: 'differs', host: theirs, local: ours };
 };
 
 /**
@@ -605,5 +701,10 @@ export const proposeStack = (readings: StackReadings): StackProposal => ({
   ciInstance: proposeCiInstance(
     readings.ciHost,
     proposesInstanceKey(readings.ciSignals, readings.instanceKeyedCi),
+  ),
+  defaultBranch: proposeDefaultBranch(
+    readings.localDefaultBranch,
+    readings.hostDefaultBranch,
+    readings.hostDefaultBranchAsked,
   ),
 });
