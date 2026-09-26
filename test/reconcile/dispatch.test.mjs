@@ -15,6 +15,33 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dispatch = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-dispatch.sh');
 
+// PLOT_REPO_ROOT IS SCRUBBED FOR THE WHOLE FILE, AND THE SANDBOX IS THE POINT.
+//
+// `plot-config.sh` prefers an exported `PLOT_REPO_ROOT` over `git rev-parse`,
+// so a run inheriting one from a dispatched worker reads the HOST repo's
+// `## Plot Config` rather than the fixture's. This estate declares an ABSOLUTE
+// `Agent registry`, so `plot-dispatch.sh:1123-1125` never reaches its
+// relative-path arm and the manifest lands in the host's `.plot/agents/`.
+// Measured 2026-09-25: 19 of 20 manifests there were fixtures, and the board
+// rendered each one as an agent row.
+//
+// THE SCRUB IS ON `process.env` ITSELF, not on each spawn, and that is the
+// measurement rather than a convenience. Scrubbing the two helpers that build
+// an env left TWELVE manifests in the host registry on the next full run —
+// every one of them from `staff()` and the bare `execFileSync` calls below,
+// which pass no `env` at all and so inherit the variable wholesale. This file
+// spawns the dispatcher from more than twenty sites; a per-site delete is a
+// rule every future site must remember, and the count above is what that kind
+// of rule is worth here.
+//
+// The helpers below still delete it from the objects they build. That is not
+// redundant: each states the contract at the point a reader of that helper
+// looks, and either alone would be a silent single point of failure.
+//
+// Nothing in this file may point a Plot script at another checkout, so there
+// is no case this removes.
+delete process.env.PLOT_REPO_ROOT;
+
 let tmp, repo;
 
 function git(cwd, ...args) {

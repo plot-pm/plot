@@ -33,6 +33,19 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const dispatch = path.join(scripts, 'plot-dispatch.sh');
 
+// PLOT_REPO_ROOT IS SCRUBBED FOR THE WHOLE FILE — `dispatch.test.mjs` carries
+// the full reasoning. In short: `plot-config.sh` prefers an exported
+// `PLOT_REPO_ROOT` over `git rev-parse`, so a suite running inside a
+// dispatched worker's desk reads the HOST repo's `## Plot Config` and writes
+// its fixtures' manifests into the host's registry. Two of the 19 leaked
+// manifests measured 2026-09-25 named `plot-restart-*` desks written here.
+//
+// On `process.env` rather than per spawn, because `run()` is not the only
+// caller: `status()` below spawns the dispatcher with no `env` at all, and a
+// rule that each new spawn must remember is what let twelve manifests through
+// on the run that proved this.
+delete process.env.PLOT_REPO_ROOT;
+
 function git(cwd, ...args) {
   return execFileSync('git', args, { encoding: 'utf8', cwd });
 }
