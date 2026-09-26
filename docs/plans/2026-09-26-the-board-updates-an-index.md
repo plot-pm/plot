@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- The board accumulates what it receives into an index and renders the index. A row the latest answer did not mention keeps what was last known about it, instead of disappearing until a later pass happens to include it.
+- The board accumulates what it receives into an index and renders the index — from the heartbeat and from every action's own answer. A row the latest answer did not mention keeps what was last known about it, instead of disappearing until a later pass happens to include it, and a dispatched row moves when the dispatch returns rather than when a scan rediscovers it.
 
 Board impact: **entirely board, and entirely client-side.** No scan change, no domain rule, no new server field — the payload already carries everything this needs.
 
@@ -75,6 +75,22 @@ A payload is an *update*, not a *replacement*. Each arriving row is merged into 
 
 `branch` is the key — present on every row, stable across passes, and how the estate identifies a slice everywhere else.
 
+### Every tool call updates the index
+
+**An action's own answer is a reading, and it is the freshest one there is.** A dispatch that returned 202 for a slug knows something no poll has yet observed; a deliver that succeeded knows the plan moved. Today each of those answers is discarded and the board waits for a scan to rediscover it.
+
+`StartWorkButton.tsx:282` states the current behaviour exactly:
+
+> Stay `starting` on success — the spinner runs until the pulse confirms the row moved (idle) or the wait elapses (dispatched). **Nothing to store.**
+
+There is nowhere to store it. Without an index there is no *what we know* — only *what the last poll said* — so an action result has no home, and the row spins for up to a full scan while the board re-learns a fact it was handed.
+
+**So every tool call writes its outcome into the index**, and the poll afterwards confirms rather than reveals. **Twelve POST sites across ten endpoints** reach the client today — `approve`, `commission`, `continue`, `deliver`, `dispatch`, `fleet-controls`, `idea`, `implement`, `reslice`, `story` — and each learns something about a row it currently throws away.
+
+**This is the same defect as the partial payload, from the other side.** Both are a fact arriving with nowhere to be kept. That is why they belong in one plan: the index is the missing place, and adding it for one and not the other would leave half the board still guessing from polls.
+
+**An action writes what it was told and never what it assumes.** A 202 from `dispatch` says the dispatch was accepted, not that a worker is running — so the index records acceptance, and the state a worker reaches is still the scan's to report. An action that refuses writes nothing: the refusal is already rendered beside the button, and a refusal is not a reading about the row.
+
 ### When absence means removal
 
 **A row's absence is evidence only when the answer claims to be whole.** `complete: true` means the scan reached its terminal line, so a branch the index holds and the payload omits is genuinely gone — reap it from the index. `complete: false` means the rest has not arrived, and absence says nothing at all.
@@ -101,13 +117,21 @@ A row carried from an earlier pass is not the same claim as a row just measured,
 - A payload with `complete: true` that omits a known row removes it.
 - A held row is distinguishable from a freshly measured one, by its own age.
 - The failure path still keeps the last good fleet, unchanged.
+- A successful action writes its outcome to the index and the row moves without waiting for a poll.
+- A refused action writes nothing to the index.
 - A test drives two successive payloads — a complete one, then a partial one omitting half its rows — and asserts nothing vanished.
 
 ## Slices
 
+Two slices, and the first is the structure the second writes into.
+
 ### The board updates an index (Branch: `bug/the-board-updates-an-index`)
 
-The index, the merge keyed by branch, the `complete`-gated removal, and the two-payload test above.
+The index, the merge keyed by branch, the `complete`-gated removal, the held-row age, and the two-payload test above. No action endpoint changes here, so the accumulation can be proved before anything writes to it.
+
+### Every tool call updates the index (Branch: `bug/every-tool-call-updates-the-index`)
+
+The twelve POST sites write their outcomes into the index on success. Each writes what the endpoint reported and nothing it did not; a refusal writes nothing. A test asserts a dispatched row moves on the action's own answer, with no poll in between.
 
 ## Notes
 
