@@ -80,6 +80,13 @@
 #                       here can invoke a skill. Absent (or `none`) = the button
 #                       refuses and names this key as the fix, rather than
 #                       accepting the click and doing nothing.
+#   Interrogate command how the board runs `/plot-panel <plan path>` on a Draft
+#                       plan (the card's `Interrogate` button); the prompt is
+#                       appended as one argument and names a FILE the board
+#                       wrote. REQUIRED for the same reason as `Idea command`:
+#                       a panel fans out N agents reading a plan, and no script
+#                       can do that. Absent (or `none`) = the button renders
+#                       disabled and names this key as the fix.
 #   Brief command       how /plot-dispatch runs an agent headless to WRITE a
 #                       missing hand-off brief. The prompt is appended as one
 #                       argument and asks for `/plot-implement <slug>`, whose

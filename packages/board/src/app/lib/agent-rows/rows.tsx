@@ -20,7 +20,8 @@ import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummaryFor } from './sections.js';
-import { roundsBadgeText } from '../../components/PlanCard.js';
+import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../components/PlanCard.js';
+import { cn } from '../utils.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
 import { briefAsked, briefAskedNote, briefGapNote, needsBrief, waitingTone } from './row-identity.js';
 // THE DOMAIN'S OWN DISCRIMINATOR, not a re-read of the field. `identity ===
@@ -754,11 +755,19 @@ export function PlanRow({
             Discovery with an eligible slice should say both. Styled as `draft`
             is, because it is the same kind of fact: a small standing property
             of the row, not a state that changes under you. */}
-        {rounds && (
+        {rounds && card && (
           <span
             data-plan-rounds
-            className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            title={`Interrogated: ${rounds} of /challenge-the-plan`}
+            data-rounds={roundsRecorded(card) ? 'recorded' : 'absent'}
+            className={cn(
+              'shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+              roundsBadgeClass(card),
+            )}
+            title={
+              roundsRecorded(card)
+                ? `Interrogated: ${rounds} of /challenge-the-plan`
+                : 'No Rounds: field — nobody has interrogated this plan'
+            }
           >
             {rounds}
           </span>

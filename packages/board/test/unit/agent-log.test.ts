@@ -325,10 +325,10 @@ describe('migrateAgentLogs', () => {
     // Built from `KINDS`, not from a second list. A hand-written glob beside a
     // hand-written union is how the two drift into a file nothing removes.
     for (const kind of ['approve', 'commission', 'deliver', 'dispatch', 'idea-issue',
-      'implement', 'reslice', 'resolve', 'story-issue']) {
+      'implement', 'interrogate', 'reslice', 'resolve', 'story-issue']) {
       write(parent, `plot-${kind}-x.log`);
     }
-    expect(migrateAgentLogs(repo)).toBe(9);
+    expect(migrateAgentLogs(repo)).toBe(10);
   });
 
   it('moves nothing on a second run', () => {

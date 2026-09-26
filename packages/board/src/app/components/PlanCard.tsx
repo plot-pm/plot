@@ -6,6 +6,7 @@ import { planHref, storyHref } from '../lib/plan.js';
 import { checksVerdict } from '@plot-pm/domain';
 import { StartWorkButton } from './StartWorkButton.js';
 import { ApproveButton } from './ApproveButton.js';
+import { InterrogateButton } from './InterrogateButton.js';
 
 // Colour only ever REPEATS what the column header already says in symbol and
 // word — it must not be the sole carrier of the human/agent distinction.
@@ -117,29 +118,6 @@ export function sliceBadgeText(s: NonNullable<Card['sliceSummary']>): string {
 }
 
 /**
- * The interrogation badge's text, or "" when there is nothing honest to say.
- *
- * Two conditions, and neither is decoration:
- *
- * **Draft only.** Past Discovery the count is history — the design question it
- * answers has been settled by approval, and a number nobody acts on is exactly
- * the crowding this board keeps removing. `isDraft` is reused rather than
- * re-tested so the badge and the Approve button cannot drift about what Draft
- * means.
- *
- * **Absent shows nothing.** `undefined` means no interrogation is recorded, and
- * it must never render as `0 rounds` — that would read as *interrogated and
- * found nothing*, the opposite claim. `?? 0` would erase precisely the
- * distinction the contract carries the field as optional to preserve, so the
- * check is on `undefined` itself.
- *
- * A recorded 0 still renders, and that is the same rule from the other side: the
- * block exists, so the plan HAS been through the skill, and saying so is true.
- *
- * Exported for test — "only Draft cards, and no badge where nothing is known"
- * are the two assertions the plan names, and both are this one expression.
- */
-/**
  * What a plan's cost badge SAYS, or "" when there is nothing honest to say.
  *
  * **COVERAGE, NOT COUNTERS, AND THE REASON IS THE EYE RATHER THAN THE
@@ -223,11 +201,37 @@ export function costBadgeDetail(card: Card): string {
   );
 }
 
+/**
+ * The interrogation badge's text, or "" when there is nothing to say.
+ *
+ * **Draft only.** Past Discovery the count is history: approval settled the
+ * question it measures. `isDraft` is reused so the badge, the Approve button
+ * and the Interrogate button agree about what Draft means.
+ *
+ * **Absent and 0 are two statements, and both render.** `undefined` means no
+ * interrogation is recorded, and the badge says `not interrogated`; a recorded
+ * 0 says `0 rounds` — the plan went through the skill and it found nothing. The
+ * check is on `undefined` itself: `?? 0` would erase the distinction the
+ * contract keeps the field optional to carry (`schema.ts`, `rounds`).
+ * {@link roundsRecorded} tells the two apart for styling.
+ */
 export function roundsBadgeText(card: Card): string {
   if (!isDraft(card)) return '';
-  if (card.rounds === undefined) return '';
+  if (card.rounds === undefined) return 'not interrogated';
   return card.rounds === 1 ? '1 round' : `${card.rounds} rounds`;
 }
+
+/** Whether the plan records a `Rounds:` value at all, 0 included. */
+export const roundsRecorded = (card: Card): boolean => card.rounds !== undefined;
+
+/**
+ * The badge's classes: a recorded count takes the filled neutral badge, and an
+ * absent one an outlined, italic badge, so the two never read alike.
+ */
+export const roundsBadgeClass = (card: Card): string =>
+  roundsRecorded(card)
+    ? ''
+    : 'border border-dashed border-slate-400 bg-transparent italic text-slate-600 dark:border-slate-500 dark:bg-transparent dark:text-slate-300';
 
 /**
  * What one PR's build says, or nothing at all.
@@ -288,6 +292,11 @@ export interface PlanCardProps {
    * then does not render at all.
    */
   approve?: DispatchInfo;
+  /**
+   * Whether this server will act on Interrogate, and why not. Absent where the
+   * board has not said — the button then does not render.
+   */
+  interrogate?: DispatchInfo;
   /** Bumps once per board refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -316,6 +325,7 @@ export function PlanCard({
   showStory,
   dispatch,
   approve,
+  interrogate,
   pulse = 0,
   onStarting,
   onOpen,
@@ -406,11 +416,23 @@ export function PlanCard({
           <Badge variant="neutral">{sliceBadgeText(card.sliceSummary)}</Badge>
         )}
         {/* How hard this plan has been questioned — a Discovery-column answer to
-            "has anyone pushed on this yet?", which is the one thing a reader of
-            a Draft card cannot see without opening the file. No badge where the
-            plan records no interrogation: silence, not a zero. */}
+            "has anyone pushed on this yet?". A plan recording no round is
+            marked `not interrogated` in an outlined badge; a recorded 0 is the
+            filled `0 rounds`. The two must never look alike. */}
         {roundsBadgeText(card) && (
-          <Badge variant="neutral">{roundsBadgeText(card)}</Badge>
+          <span data-rounds={roundsRecorded(card) ? 'recorded' : 'absent'} className="inline-flex">
+            <Badge
+              variant="neutral"
+              className={roundsBadgeClass(card)}
+              title={
+                roundsRecorded(card)
+                  ? `Interrogated: ${roundsBadgeText(card)} recorded in the plan`
+                  : 'No Rounds: field — nobody has interrogated this plan'
+              }
+            >
+              {roundsBadgeText(card)}
+            </Badge>
+          </span>
         )}
         {/* What this plan's slices cost, as COVERAGE rather than counters: the
             four numbers span five orders of magnitude, so a glance reads the
@@ -511,6 +533,11 @@ export function PlanCard({
             command refuses in its own words instead, and the card shows them. */}
         {approve && isDraft(card) && (
           <ApproveButton card={card} approve={approve} onApproving={onStarting} />
+        )}
+        {/* Beside Approve, on the same `isDraft` rule. Approve stays enabled at
+            every round count: the badge informs, and nothing here gates. */}
+        {interrogate && isDraft(card) && (
+          <InterrogateButton card={card} interrogate={interrogate} pulse={pulse} onActing={onStarting} />
         )}
         {card.assignee && (
           <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
