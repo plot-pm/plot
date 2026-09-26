@@ -144,7 +144,7 @@ The plan's job is no longer to choose a shape. It is to find out whether the sha
 
 Three, and the first is the one that matters.
 
-### The index has its first consumer (Branch: infra/the-index-has-its-first-consumer)
+### The index has its first consumer (Branch: infra/the-index-has-its-first-consumer, PR: #1020)
 
 **One** script moved from asking the host to reading `PrIndexStore` — `plot-impl-status.sh`, chosen because it has the fewest host calls (6) and the narrowest question (*did this plan's PRs merge?*), which the store answers directly.
 
