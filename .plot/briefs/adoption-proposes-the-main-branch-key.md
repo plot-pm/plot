@@ -7,7 +7,7 @@
 - **Review of the code:** PR review per repo convention
 - **Issue:** #971
 
-Wave 1, `bug/the-probe-asks-the-host-for-the-default`, merged as #989 on 2026-09-25. This branch was re-cut from `origin/main` after that merge, on 2026-09-26; a re-cut recorded on 2026-09-25 never reached the remote. An earlier claim of this branch stopped on 2026-09-24 because wave 1 had not landed. The plan's `## Notes` records why, and the old branch is kept locally as `backup/bug/adoption-proposes-the-main-branch-key-blocked-2026-09-24`.
+Wave 1, `bug/the-probe-asks-the-host-for-the-default`, merged as #989 on 2026-09-25. This branch was claimed on the remote on 2026-09-26 at `1268e8ae7` (`origin/main` after that merge), with a worktree at `.worktrees/bug-adoption-proposes-the-main-branch-key`. Two earlier re-cuts, recorded on 2026-09-25 and 2026-09-26, never reached the remote. An earlier claim of this branch stopped on 2026-09-24 because wave 1 had not landed. The plan's `## Notes` records why, and the old branch is kept locally as `backup/bug/adoption-proposes-the-main-branch-key-blocked-2026-09-24`.
 
 **Wave 1's contract, read from the merged probe (`skills/plot/scripts/plot-detect-repo.sh:82-124`):**
 
@@ -90,6 +90,6 @@ This branch owns:
 
 It does not own `skills/plot/scripts/plot-detect-repo.sh` or `plot-host.sh` (wave 1), `plot-board-probe.sh`, or `packages/board/src/server/board.ts` and `idea.ts` (the resolution chain stays as is).
 
-Verified at dispatch (2026-09-26): since approval, the only commit touching any file named above is wave 1's `cb0be55c4` on `plot-detect-repo.sh`. Wave 1 changed `plot-detect-repo.sh` and the Bitbucket arm of `plot-host.sh default-branch`. That arm now asks `bb repo view --json` first and reads `origin/HEAD` only as the fallback, so on Bitbucket the two readings can disagree, as they can on GitHub.
+Verified at dispatch (2026-09-26): since approval, the only commit touching any file named above is wave 1's `cb0be55c4` on `plot-detect-repo.sh`. Re-verified at the claim: #990 (`b9be10c6d`) changed `plot-board-probe.sh`, which is outside this branch's scope, and `plot-board-setup/SKILL.md:83-84` still runs both probes. Wave 1 changed `plot-detect-repo.sh` and the Bitbucket arm of `plot-host.sh default-branch`. That arm now asks `bb repo view --json` first and reads `origin/HEAD` only as the fallback, so on Bitbucket the two readings can disagree, as they can on GitHub.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
