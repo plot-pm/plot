@@ -705,49 +705,11 @@ REMOTE_REFS=$(git for-each-ref --format='%(refname:strip=3)%09%(objectname)' \
 # falls back to the listing there, which is what it has always done.
 TRACKED_BRANCHES=$(printf '%s\n' "$REMOTE_REFS" | cut -f1 | grep -v '^HEAD$' | grep -v '^$' | tr '\n' ' ')
 
-prefill_pr_states() {
-  [ "$HOST_LOOKUP_OK" = 1 ] || return 0
-  [ -n "$HOST_STATE_CACHE" ] || return 0
-  local js br st key rc
-  # Exit code first: non-zero is a transport failure and its stdout is not an
-  # answer. A failed list leaves the cache EMPTY, so every branch falls through
-  # to the unanswerable `-` rather than to a fabricated "no PR".
-  #
-  # `--rich` adds `checks` and `draft` to the response — the fields `--loose`
-  # needs to verify that a prior wave's PR is actually green and ready.
-  # Requested unconditionally because the cost is zero on GitHub (same GraphQL
-  # call) and bounded on Bitbucket (N extra calls only when CI: jenkins is
-  # configured), and the parsing below already skips fields the response does
-  # not contain. The BEHAVIOUR change is in `pr_ready`, which now reads the
-  # check rollup from the cache rather than making a per-branch host call.
-  #
-  # THE CODE IS KEPT, not just tested. This guard was always correct — a failed
-  # list prefills nothing — and until 2026-08-30 it never fired, because
-  # `pr-list` swallowed its own failure and exited 0 with empty stdout. Now
-  # that it can fail, WHICH failure it was is a fact worth carrying: exit 5 is
-  # a rate limit and exit 3 is anything else, and the summary reports the
-  # difference rather than degrading silently.
-  # STDOUT TO A FILE so stderr can be captured separately — see the verdict
-  # below. It lives in `HOST_STATE_CACHE`, which already has an EXIT trap, so
-  # this adds no second cleanup path. When mktemp -d failed the cache is "",
-  # and /dev/null keeps the call working with the text simply unavailable.
-  host_list_out="${HOST_STATE_CACHE:+$HOST_STATE_CACHE/pr-list.json}"
-  host_list_out="${host_list_out:-/dev/null}"
-  # THE BRANCHES THIS SCAN TRACKS, HANDED TO THE HOST (#333). The adapter uses
-  # them only where it can — the Bitbucket arm sweeps its REST endpoint once per
-  # branch per state — and ignores them everywhere else, so the GitHub arm makes
-  # the single call it always made. Passing them unconditionally keeps one call
-  # shape here rather than a backend test this script has no business making.
-  #
-  # AN EMPTY SET PASSES NOTHING and the adapter lists as before. See
-  # `TRACKED_BRANCHES`: a completeness claim over an empty set would license
-  # `NONE` for branches nobody asked about.
-  _branch_args=()
-  for _tb in $TRACKED_BRANCHES; do _branch_args+=(--branch "$_tb"); done
-  host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" --rich \
-         ${_branch_args[@]+"${_branch_args[@]}"} \
-         </dev/null 2>&1 >"$host_list_out"); rc=$?
-  js=$(cat "$host_list_out" 2>/dev/null)
+# ONE `pr-list` CALL'S EXIT, READ AS A VERDICT WORD in `_plv` — a global
+# rather than stdout, so the two calls in `prefill_pr_states` fork nothing to
+# classify themselves. `$1` is the exit code, `$2` the call's stderr.
+pr_list_verdict() {
+  local rc="$1" err="$2"
   # A PARTIAL ANSWER TAKES THE PARSE PATH AND STILL DEGRADES THE VERDICT, which
   # is a control-flow change rather than another `case` arm below: every other
   # non-zero rc sets a verdict and returns BEFORE `$js` is read, because there
@@ -758,9 +720,11 @@ prefill_pr_states() {
   # BOTH HALVES ARE REQUIRED. Falling through without setting the verdict would
   # report `ok` over a page missing a whole state, which is #912; returning
   # early would throw away rows the host did answer with.
-  if [ "$rc" -eq 7 ]; then
-    HOST_VERDICT=partial
-  elif [ "$rc" -ne 0 ]; then
+  if [ "$rc" -eq 0 ]; then
+    _plv=ok
+  elif [ "$rc" -eq 7 ]; then
+    _plv=partial
+  else
     # THREE OUTCOMES, NOT TWO. `unasked` already means "the question was
     # never put" (see HOST_VERDICT above: *not a degradation, the scan was
     # never asking*), and a host that cannot be ASKED AT ALL belongs there
@@ -782,10 +746,10 @@ prefill_pr_states() {
     # always read 1. The branch was startable; the scan had stopped being
     # able to say so.
     case "$rc" in
-      5) HOST_VERDICT=throttled ;;
-      6) HOST_VERDICT=secondary ;;
-      4) HOST_VERDICT=unasked ;;
-      *) case "$host_err" in
+      5) _plv=throttled ;;
+      6) _plv=secondary ;;
+      4) _plv=unasked ;;
+      *) case "$err" in
            # THE WORDING IS MEASURED, NOT GUESSED. An earlier version of this
            # list matched auth/login/credential and MISSED the message CI
            # actually emits:
@@ -802,7 +766,7 @@ prefill_pr_states() {
            # a real failure and stays `failed`, because widening this to a
            # catch-all would turn every host outage into "nobody asked".
            *TOKEN*|*token*|*auth*|*Auth*|*AUTH*|*login*|*Login*|*credential*|*Credential*|*"not logged"*)
-             HOST_VERDICT=unasked ;;
+             _plv=unasked ;;
            # NO REMOTE IS A CONFIGURATION, NOT A FAULT — the same reading as a
            # missing token one line up, reached by the same route: `plot-host.sh`
            # exits 3 for both, because both are "the op cannot proceed", and
@@ -821,19 +785,119 @@ prefill_pr_states() {
            # claimable — the right refusal about the wrong thing. There is no
            # merge state to withhold on where there is no remote to hold it.
            *"no git remotes"*|*"no remote"*)
-             HOST_VERDICT=unasked ;;
-           *) HOST_VERDICT=failed ;;
+             _plv=unasked ;;
+           *) _plv=failed ;;
          esac ;;
     esac
-    return 0
   fi
-  # The list arrived. An empty one arrived too — that is the whole distinction.
+}
+
+# WHICH OF TWO VERDICTS IS WORSE. Every word that returns before a payload is
+# read outranks both words that parse one, so a failed call can never be
+# reported as `ok` or `partial` beside a call that answered.
+# The rank is set in `_plr`, for the same no-fork reason as `_plv`.
+pr_list_verdict_rank() {
+  case "$1" in
+    ok) _plr=0 ;; partial) _plr=1 ;; unasked) _plr=2 ;;
+    secondary) _plr=3 ;; throttled) _plr=4 ;; *) _plr=5 ;;
+  esac
+}
+
+prefill_pr_states() {
+  [ "$HOST_LOOKUP_OK" = 1 ] || return 0
+  [ -n "$HOST_STATE_CACHE" ] || return 0
+  local js br st key rc
+  # Exit code first: non-zero is a transport failure and its stdout is not an
+  # answer. A failed list leaves the cache EMPTY, so every branch falls through
+  # to the unanswerable `-` rather than to a fabricated "no PR".
   #
-  # A PARTIAL VERDICT IS NOT OVERWRITTEN HERE. Exit 7 reaches this line
-  # deliberately, because its rows must be parsed; an unguarded `ok` would
-  # undo the one thing that distinguishes an incomplete page from a whole one
-  # and report #912 as a healthy reading.
-  [ "$HOST_VERDICT" = partial ] || HOST_VERDICT=ok
+  # `--rich` adds `checks` and `draft` to the response — the fields `--loose`
+  # needs to verify that a prior wave's PR is actually green and ready. The
+  # BEHAVIOUR change is in `pr_ready`, which reads the check rollup from the
+  # cache rather than making a per-branch host call.
+  #
+  # THE ROLLUP IS ASKED OF OPEN PRS ONLY. On GitHub it is `statusCheckRollup`,
+  # and its cost scales with the rows it is asked for. Measured 2026-09-25 on
+  # this repo through `plot-host.sh`: 957 PRs (920 merged, 34 closed, 3 open),
+  # and the one `--state all --rich` call took ~37 s of a ~55 s scan. A merged
+  # or closed PR's checks cannot change, and `pr_ready` reads them only for an
+  # open one. So TWO calls: `--state open --rich` for the PRs whose checks can
+  # still move, and `--state all` without `--rich` for every PR's state.
+  #
+  # THE CODE IS KEPT, not just tested. This guard was always correct — a failed
+  # list prefills nothing — and until 2026-08-30 it never fired, because
+  # `pr-list` swallowed its own failure and exited 0 with empty stdout. Now
+  # that it can fail, WHICH failure it was is a fact worth carrying: exit 5 is
+  # a rate limit and exit 3 is anything else, and the summary reports the
+  # difference rather than degrading silently.
+  # STDOUT TO A FILE so stderr can be captured separately — see the verdict
+  # below. It lives in `HOST_STATE_CACHE`, which already has an EXIT trap, so
+  # this adds no second cleanup path. When mktemp -d failed the cache is "",
+  # and /dev/null keeps the call working with the text simply unavailable.
+  local open_list_out host_list_out open_err rc_open
+  open_list_out="${HOST_STATE_CACHE:+$HOST_STATE_CACHE/pr-list-open.json}"
+  open_list_out="${open_list_out:-/dev/null}"
+  host_list_out="${HOST_STATE_CACHE:+$HOST_STATE_CACHE/pr-list.json}"
+  host_list_out="${host_list_out:-/dev/null}"
+  # THE BRANCHES THIS SCAN TRACKS, HANDED TO THE HOST (#333). The adapter uses
+  # them only where it can — the Bitbucket arm sweeps its REST endpoint once per
+  # branch per state — and ignores them everywhere else, so the GitHub arm makes
+  # the single call it always made. Passing them unconditionally keeps one call
+  # shape here rather than a backend test this script has no business making.
+  #
+  # AN EMPTY SET PASSES NOTHING and the adapter lists as before. See
+  # `TRACKED_BRANCHES`: a completeness claim over an empty set would license
+  # `NONE` for branches nobody asked about.
+  _branch_args=()
+  for _tb in $TRACKED_BRANCHES; do _branch_args+=(--branch "$_tb"); done
+  # BOTH CALLS TAKE `--limit` AND THE BRANCHES. Without `--limit` the host
+  # returns 30 (see `PR_LIST_LIMIT`). The branches make the Bitbucket arm sweep
+  # the open state exactly rather than list a fixed 50 of it: an open PR
+  # missing from the rich payload has NO row at all once the plain payload's
+  # OPEN rows are dropped below, and a missing row reads as "no PR".
+  #
+  # OPEN FIRST, THEN ALL. A PR that merges between the two calls then carries
+  # a rich OPEN row and a plain MERGED one, and the rank keeps OPEN — stale by
+  # seconds, and the next scan corrects it.
+  open_err=$("$script_dir/plot-host.sh" pr-list --state open --limit "$PR_LIST_LIMIT" --rich \
+         ${_branch_args[@]+"${_branch_args[@]}"} \
+         </dev/null 2>&1 >"$open_list_out"); rc_open=$?
+  host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" \
+         ${_branch_args[@]+"${_branch_args[@]}"} \
+         </dev/null 2>&1 >"$host_list_out"); rc=$?
+  # THE VERDICT IS THE WORSE OF THE TWO, never the last one. A rich call
+  # throttled while the plain one answers leaves `checks` absent for every open
+  # PR, so `--loose` degrades to strict — and a footer reading `host=ok` would
+  # give no reason for it.
+  #
+  # A FAILED CALL PREFILLS NOTHING, whichever of the two failed. That is the
+  # single call's behaviour carried over: a verdict other than `ok` or
+  # `partial` sets the verdict and returns before any payload is read.
+  pr_list_verdict "$rc_open" "$open_err"; _v_open=$_plv
+  pr_list_verdict "$rc" "$host_err"; _v_all=$_plv
+  pr_list_verdict_rank "$_v_open"; _r_open=$_plr
+  pr_list_verdict_rank "$_v_all"
+  if [ "$_r_open" -gt "$_plr" ]; then HOST_VERDICT=$_v_open; else HOST_VERDICT=$_v_all; fi
+  case "$HOST_VERDICT" in ok|partial) ;; *) return 0 ;; esac
+  # THE MERGE, AND THE TRAP IT AVOIDS. An open PR is in BOTH payloads — rich
+  # from the `open` call, plain from the `all` call — and both rows rank 1 in
+  # the dedup below. With the sort key exhausted, `sort` compares whole lines,
+  # and the plain row's `-` sentinel (0x2D) sorts before any letter: the plain
+  # row wins every time and the rollup is lost for 100% of open PRs.
+  #
+  # So the `all` payload's OPEN rows are dropped before the concatenation, and
+  # each branch contributes one OPEN row at most. Those rows are unused: the
+  # `open` call already answered for every open PR, with its rollup.
+  #
+  # THE COMPLETENESS COUNT IS TAKEN FROM THE `all` PAYLOAD BEFORE THE FILTER.
+  # `.list-complete` compares a row count against `PR_LIST_LIMIT`, and a count
+  # taken after the filter can fall below the limit for a list that reached it
+  # — a truncated list then reads as whole, and a cache miss derives `NONE` for
+  # a branch that has a PR. The `open` payload is counted too, since it is a
+  # page of its own.
+  _pr_rows=$(grep -c '"state":"[A-Z]*","head":"' "$host_list_out" 2>/dev/null) || _pr_rows=0
+  _pr_open_rows=$(grep -c '"state":"[A-Z]*","head":"' "$open_list_out" 2>/dev/null) || _pr_open_rows=0
+  js=$(cat "$open_list_out" 2>/dev/null; grep -v '"state":"OPEN","head":"' "$host_list_out" 2>/dev/null)
   # `pr-list` emits one compact JSON object per line. PARSED IN ONE PASS, and
   # that is a correctness-of-cost property rather than a style preference:
   # measured 2026-08-18 on this repo's 221 PRs, a `sed` per field per row —
@@ -868,12 +932,8 @@ prefill_pr_states() {
   # response, which is now only an error case) reads as empty and `pr_ready`
   # treats it as `unknown`, which degrades to strict — the safer direction.
   local last="" chk dft
-  # Rows parsed, for the completeness test below. Counted here because this is
-  # the one place every row passes through.
-  _pr_rows=0
   while IFS="	" read -r st chk dft br; do
     [ -n "$br" ] && [ -n "$st" ] || continue
-    _pr_rows=$((_pr_rows + 1))
     [ "$br" = "$last" ] && continue
     last="$br"
     # A PLAIN row (no `--rich` fields) carries `-` in the checks/draft slots so
@@ -938,10 +998,12 @@ EOF
   # records on Bitbucket, where `bb pr list` is silently partial past 50 PRs per
   # state.
   #
-  # Counted from the rows actually parsed rather than from the raw payload, so a
-  # malformed line that the `sed` skipped cannot inflate the count into a false
+  # Counted from the rows carrying the fields the `sed` anchors on, so a
+  # malformed line that the parse skips cannot inflate the count into a false
   # claim of completeness. Fewer rows than the limit means the host had no more
-  # to give; equal to it means it may have.
+  # to give; equal to it means it may have. BOTH PAGES must be short: the
+  # `open` page is a listing of its own, and a truncated one drops open PRs
+  # the filtered `all` page no longer carries.
   #
   # AN EMPTY LIST IS NOT A COMPLETE ONE, and the test that caught this is the
   # reason it is written down. A host that exits 0 while printing nothing —
@@ -979,11 +1041,21 @@ EOF
   # unjoined branch and still answers correctly — the per-branch N+1 that #216
   # removed. That is why withholding the marker is always the safe direction and
   # is what every failure path here does.
+  #
+  # THE `open` CALL MUST BE WHOLE FOR EITHER CLAIM. The `all` call's OPEN rows
+  # were dropped above, so an `open` answer that is short — exit 7, or a sweep
+  # that did not state its completeness — leaves open PRs with no row at all,
+  # and completeness would turn those misses into `NONE`.
+  [ "$_v_open" = ok ] || return 0
   case "$host_err" in
     *"pr-list sweep complete"*)
-      printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true ;;
+      case "$open_err" in
+        *"pr-list sweep complete"*)
+          printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true ;;
+      esac ;;
     *)
-      if [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
+      if [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] \
+         && [ "$_pr_open_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
         printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
       fi ;;
   esac
