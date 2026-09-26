@@ -94,6 +94,24 @@ That principle is right and it is already implemented — `coldState(fleet.ready
 
 The cold fix was made after a measured incident — *"the truth for ten seconds, then indistinguishable from a working board, forever. Two readers concluded the release was broken; it was not."* This is the same failure one state later, and worse in one respect: an empty board looks broken, while a board showing live work as DONE looks **finished**.
 
+### It withholds work from the fleet, not only from the eye — measured 2026-09-26
+
+**The defect is not confined to what a reader sees.** `branch-state.ts:264` answers one question for the whole estate, and `plot-dispatch.sh` takes that answer as a reading rather than deriving its own (`:3475`, `:3523`, both reading `plot-fleet-scan.sh --list-eligible`). A slice the rule calls `merged` is absent from the eligible list, so **dispatch offers it to nobody and reports `dispatched=0 skipped=0`** — the same output as a plan with nothing left to do.
+
+Measured 2026-09-26, three approved slices of three separate plans:
+
+```
+bug/the-rollup-is-asked-of-open-prs-only          commits=0  prs=0  desks=0  scan says: merged
+bug/the-approval-reads-why-the-host-said-nothing  commits=0  prs=0  desks=0  scan says: merged
+bug/a-wave-says-which-question-it-answered        commits=0  prs=0  desks=0  scan says: merged
+```
+
+None had ever carried a PR. Each held a claim ref and nothing else — exactly the `commitsAhead === 0` shape `:264` returns `merged` for. Deleting the three empty claim refs made all three dispatchable, and all three were taken by agents within two minutes.
+
+**This raises the severity and it changes who notices.** A mis-sectioned row is visible to a person reading the board. A slice withheld from dispatch is visible to nobody: the plan stays Approved, the fleet reports no work available, and the branch waits indefinitely. One of the three withheld slices is the fix for the board's own scan timeout.
+
+**It also makes `dispatched=0` unreadable**, which is the operational cost. That output means *nothing to do* and *everything is wrongly believed done* identically, so an operator cannot tell a finished plan from a hidden one without checking each branch by hand.
+
 ## Design
 
 ### The rule
@@ -112,7 +130,7 @@ The classification already happens in one place per row, and the last successful
 
 ### What this does NOT do
 
-- **It does not change `plot-fleet-scan.sh`.** The `ahead = 0` reading is discussed above because it is the mechanism, but it is correct on a fresh pulse and this plan leaves it alone. Whether the scan should ask the host to separate *finished* from *not started* is a separate question with its own cost.
+- **It does not change `plot-fleet-scan.sh`, and that boundary now has a measured cost.** The `ahead = 0` reading is discussed above because it is the mechanism, but it is correct on a fresh pulse and this plan leaves it alone. Whether the scan should ask the host to separate *finished* from *not started* is a separate question with its own cost. **What was not known when that was written**: the same rule is read by `plot-dispatch.sh`, so this plan's render-layer fix corrects what a person sees and leaves work withheld from the fleet — measured 2026-09-26 and recorded above. That is a second plan against `branch-state.ts:264`, not a widening of this one.
 - It does not change the banner, which is already honest.
 - It does not suppress sections wholesale on a warm failure. That was the cold answer and it is wrong here: the board has real data, it is merely old, and hiding it would discard a working view over one failed poll.
 - It does not touch `auto-deliver`. That it acts on this reading is the reason this matters, not a thing to fix here.
