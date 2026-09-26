@@ -58,7 +58,8 @@ Plus the repo gates: `nvm use` (Node 24), `pnpm test`, `pnpm run test:contracts`
 
 ### Bookkeeping
 
-- Push the first real commit as soon as it exists. The branch is already claimed on `origin`.
+- The branch is not yet on `origin` (checked 2026-09-26). Claim it before any work: `git push -u origin infra/the-index-has-its-first-consumer`. A rejected push means another session holds it.
+- Push the first real commit as soon as it exists.
 - Open the PR with `skills/plot/scripts/plot-open-pr.sh` (or `--draft`). Do not run `gh pr create`.
 - When the PR exists, change this branch's heading in the plan's `## Slices` to `(Branch: infra/the-index-has-its-first-consumer, PR: #N)`. That is the heading form `plot-plan-meta.sh` parses. A trailing `→ #N` parses as `prs=[]` for heading-form plans.
 
