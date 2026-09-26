@@ -109,5 +109,14 @@ export const readingsFrom = (report: Record<string, unknown>): StackReadings => 
     // to carry before the host is worth asking about. The domain names no
     // vendor, and takes the word as a value instead.
     instanceKeyedCi: report.jenkins_host === undefined ? '' : 'jenkins',
+    localDefaultBranch: stringOr(report.default_branch),
+    hostDefaultBranch: stringOr(report.host_default_branch),
+    // `ok` AND NOTHING ELSE. The probe's field is a two-state enum whose
+    // companion value means nothing unless it reads `ok`, so every other word —
+    // `unknown`, a typo, and an ABSENT field from a probe that predates wave 1 —
+    // maps to *nobody asked*. An older report must not read as agreement: the
+    // two branch fields would both be `''`, compare equal, and report a verified
+    // match that was never measured.
+    hostDefaultBranchAsked: report.host_default_branch_status === 'ok',
   };
 };

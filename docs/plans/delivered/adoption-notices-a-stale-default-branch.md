@@ -1,0 +1,1 @@
+../2026-09-24-adoption-notices-a-stale-default-branch.md

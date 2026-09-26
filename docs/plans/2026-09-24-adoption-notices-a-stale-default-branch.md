@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
 - **Started:** 2026-09-24, Jan Wloka (claude session), `bug/the-probe-asks-the-host-for-the-default`
 - **Started:** 2026-09-25, Jan Wloka (claude session), `bug/adoption-proposes-the-main-branch-key`
+- **Delivered:** 2026-09-26
 
 ## Changelog
 
@@ -102,7 +103,7 @@ Silence here would be the worse failure: it reads as confirmation.
 
 - `bug/the-probe-asks-the-host-for-the-default` — the adoption probe reports the host's default branch as its own field beside the local reading, with an explicit *unknown* where the host cannot be asked; it decides nothing
 
-### Adoption proposes the key when the two disagree (Branch: bug/adoption-proposes-the-main-branch-key)
+### Adoption proposes the key when the two disagree (Branch: bug/adoption-proposes-the-main-branch-key, PR: #1010)
 
 - `bug/adoption-proposes-the-main-branch-key` — `/plot-init` compares the two readings and proposes `- **Main branch:** <host>` where they differ, naming both answers; silent where they agree or where the host could not be asked. **`/plot-board-setup` needs its own reading and the draft did not say so**: it runs `plot-board-probe.sh` (`SKILL.md:83`), not the adoption probe slice 1 changes, so either that probe gains the same field or board setup calls the adoption probe — the slice decides which and names it
 
