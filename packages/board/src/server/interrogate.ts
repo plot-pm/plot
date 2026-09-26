@@ -104,8 +104,10 @@ const resolvePlanBySlug = (opts: BuildBoardOptions, slug: string): string | null
 };
 
 /**
- * The prompt handed to the runner. It names the plan and chooses no lenses:
- * `/plot-panel`'s Draft-caller defaults apply.
+ * The prompt handed to the runner. It names the plan and nothing else: no
+ * lenses, no commitment, no rubric. `/plot-panel` states that those are the
+ * caller's parameters and that an unattended run refuses when one is missing
+ * (its step 1), so this prompt defers to the skill rather than choosing them.
  *
  * @param planPath the plan file, relative to the repository root
  */
@@ -114,9 +116,10 @@ export const composeInterrogatePrompt = (planPath: string): string =>
     `/plot-panel ${planPath}`,
     '',
     `Run /plot-panel on the Draft plan at ${planPath}, unattended, and follow the skill`,
-    'to its end, including recording the round in the plan. Choose the lenses the',
-    "skill's defaults choose for a Draft. Act on no verdict: approve nothing, reject",
-    'nothing, and change no phase.',
+    'to its end, including recording the round in the plan. This request names the',
+    'subject only: where the skill requires a parameter this request does not name,',
+    'do what the skill says an unattended run does. Act on no verdict: approve',
+    'nothing, reject nothing, and change no phase.',
     '',
   ].join('\n');
 

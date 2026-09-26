@@ -168,11 +168,12 @@ describe('the four refusals', () => {
 });
 
 describe('the prompt', () => {
-  it('asks for /plot-panel on the plan path and chooses no lenses', () => {
+  it('asks for /plot-panel on the plan path and chooses no parameters', () => {
     const prompt = composeInterrogatePrompt('docs/plans/x.md');
     assert.match(prompt, /^\/plot-panel docs\/plans\/x\.md$/m);
     assert.doesNotMatch(prompt, /--lens/);
-    assert.match(prompt, /approve nothing/);
+    assert.match(prompt, /approve\s+nothing/);
+    assert.match(prompt, /names the\s+subject only/);
   });
 
   it('names the real plan file, relative to the repo', async () => {
