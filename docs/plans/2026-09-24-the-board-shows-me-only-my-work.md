@@ -161,9 +161,9 @@ Three slices, and the first is a reading with no UI. The order is deliberate: **
 
 - `feature/a-row-says-whose-it-is` — the PR row gains an author from the host, the agent row reports the machine's own record, and `isMine(row, identity)` decides in the domain with unit tests including the unowned-row-is-shown arm → #993
 
-### The board filters to my work (Branch: feature/the-board-filters-to-my-work)
+### The board filters to my work (Branch: feature/the-board-filters-to-my-work, PR: #1006)
 
-- `feature/the-board-filters-to-my-work` — the checkbox, defaulting off, persisted in `localStorage` beside the collapse key; a browser test that the control shows what `isMine` decided and that unticking restores every row
+- `feature/the-board-filters-to-my-work` — the checkbox, defaulting off, persisted in `localStorage` beside the collapse key; a browser test that the control shows what `isMine` decided and that unticking restores every row → #1006
 
 ## Notes
 
