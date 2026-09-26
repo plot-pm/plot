@@ -65,8 +65,16 @@ export function implementLogPath(repoRoot: string, slug: string): string {
   return agentLogPath(repoRoot, 'implement', slug, 'log');
 }
 
-/** Where the outcome is recorded, so a later GET can read it back. */
-function implementStatePath(repoRoot: string, slug: string): string {
+/**
+ * Where the outcome is recorded, so a later GET can read it back.
+ *
+ * EXPORTED since `a-dispatch-does-not-hold-the-loop`, because `/api/dispatch`
+ * runs the same command into the same log and now reads its outcome back
+ * through {@link implementStatus}. A dispatch that left this file alone would
+ * be read through an earlier `/api/implement`'s exit code — or, with no earlier
+ * run, as `running` forever, since the log exists and no state file does.
+ */
+export function implementStatePath(repoRoot: string, slug: string): string {
   return agentLogPath(repoRoot, 'implement', slug, 'state');
 }
 
@@ -113,6 +121,163 @@ export function implementCommand(opts: BuildBoardOptions): string {
  */
 export function composeImplementPrompt(slug: string): string {
   return `Run /plot-implement ${slug} and follow it.`;
+}
+
+/**
+ * How long a `/plot-implement` child may run before it is killed.
+ *
+ * The bound the synchronous dispatch already carried (`dispatch.ts:375`, *"a
+ * hung implement must not block the board forever"*), kept when the wait moved
+ * off the event loop. The reason changes and the number does not: nothing is
+ * blocked now, but a hung implement still holds a slug's gate closed, so it
+ * must end and say so.
+ */
+export const IMPLEMENT_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** What {@link startImplement} could not do before the child existed. */
+export interface ImplementStartFailure {
+  /** The message to report, already suitable for an operator. */
+  detail: string;
+}
+
+/**
+ * Start `/plot-implement <slug>` detached, and record its outcome where
+ * {@link implementStatus} reads it back.
+ *
+ * ONE SPAWN FOR TWO ROUTES, and that is the point. `/api/implement` and
+ * `/api/dispatch` run the SAME command through the SAME prompt into the SAME
+ * log; until `a-dispatch-does-not-hold-the-loop` they did it through two call
+ * sites, one `spawn` and one `spawnSync`, and only one of them wrote the state
+ * file the status route reads. A second copy of a spawn is also a second place
+ * for `PLOT_UNATTENDED` to be forgotten — and CI's *One place reaches a
+ * process* ratchet counts sites, so sharing this one keeps the number where it
+ * was rather than growing it.
+ *
+ * The log is TRUNCATED and the state file REMOVED before the child starts: both
+ * are read back as the answer, and a stale one reports a previous attempt's
+ * outcome for this one.
+ *
+ * @param opts - the board's options, for `repoRoot`.
+ * @param slug - the plan slug, already `SLUG_RE`-validated by the caller.
+ * @param command - the usable `Implement command` fragment.
+ * @param onExit - called with the child's exit code once it ends, after the
+ *   state file is written. `null` where the child was signalled. Anything it
+ *   throws is caught and recorded, because this runs in a listener where an
+ *   uncaught throw takes the server down.
+ * @returns the log path, or a failure where the child could not be started.
+ */
+export function startImplement(
+  opts: BuildBoardOptions,
+  slug: string,
+  command: string,
+  onExit?: (code: number | null) => void,
+): { log: string } | { failure: ImplementStartFailure } {
+  const log = implementLogPath(opts.repoRoot, slug);
+  const statePath = implementStatePath(opts.repoRoot, slug);
+  let out: number;
+  try {
+    // Truncated, not appended — this log is read back AS the answer, and an
+    // appended one would show a previous attempt's error after a later success.
+    // The same choice `idea.ts` makes, for the same reason.
+    fs.rmSync(statePath, { force: true });
+    out = fs.openSync(log, 'w');
+  } catch (err) {
+    return { failure: { detail: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` } };
+  }
+
+  // Through `sh -c` because `Implement command` is a shell FRAGMENT, the same
+  // interpretation `Idea command` and `Worker command` get. NOTHING from the
+  // request is interpolated into that string: the prompt names the slug, which
+  // is `SLUG_RE`-bounded, and travels as ONE argument via `"$@"`. Already the
+  // shape `idea.ts` and `commission.ts` use.
+  const child = spawn(
+    'sh',
+    ['-c', `${command} "$@"`, 'plot-implement', composeImplementPrompt(slug)],
+    {
+      cwd: opts.repoRoot,
+      detached: true,
+      stdio: ['ignore', out, out],
+      env: {
+        ...process.env,
+        // THE DECLARATION, not a switch — the same one `idea.ts` sets. There is
+        // nobody at this board to answer `AskUserQuestion`, and under `claude -p`
+        // that tool is not even registered — so a skill that improvises here
+        // exits 0 having written nothing. Setting it makes each skipped question
+        // take the shape its author chose and name itself in the log. This is
+        // exactly the case slice 2's SKILL.md change prepared `/plot-implement`
+        // step 2 for: on drift it stops and reports rather than asking.
+        PLOT_UNATTENDED: '1',
+        PLOT_PLAN_SLUG: slug,
+      },
+      // BOUNDED, and a kill reads as `failed` rather than as `running`. The
+      // `exit` listener below fires on a timeout kill with a signal, and
+      // `implementStatus` reports any non-`0` recording as `failed` — so the
+      // timeout arrives as a refusal naming itself, never as a slug stuck
+      // `running` forever. Node >= 15.13 honours these on `spawn`.
+      timeout: IMPLEMENT_TIMEOUT_MS,
+      killSignal: 'SIGTERM',
+    },
+  );
+  child.on('exit', (code, signal) => {
+    try {
+      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+    } catch {
+      /* the state file is a convenience; the log is the record */
+    }
+    // A TIMEOUT KILL MUST NAME ITSELF. `implementStatus` falls back to the
+    // exit-code sentence when the log's tail is empty, and a killed agent's log
+    // often ends mid-sentence rather than empty — so the reason is appended to
+    // the log the status route quotes, not left to be inferred from `SIGTERM`.
+    if (signal) {
+      try {
+        fs.appendFileSync(
+          log,
+          `
+the implement command was killed after ${Math.round(IMPLEMENT_TIMEOUT_MS / 1000)}s (${signal})
+`,
+          'utf8',
+        );
+      } catch {
+        /* the log is gone; the state file still stands */
+      }
+    }
+    // THE LISTENER MUST NOT THROW. An exception here is uncaught in the server
+    // — there is no request on the stack to fail — so a caller's continuation
+    // is wrapped and its failure recorded where the status read-back finds it.
+    // A dispatch that fails after its 202 and says nothing is worse than one
+    // that blocked.
+    if (!onExit) return;
+    try {
+      onExit(signal ? null : code);
+    } catch (err) {
+      console.error('implement exit handler failed:', err);
+      try {
+        fs.appendFileSync(log, `
+${err instanceof Error ? err.message : String(err)}
+`, 'utf8');
+        fs.writeFileSync(statePath, '1', 'utf8');
+      } catch {
+        /* nothing further to do */
+      }
+    }
+  });
+  child.on('error', (err) => {
+    console.error('implement failed to spawn:', err);
+    try {
+      fs.appendFileSync(log, `
+${err.message}
+`, 'utf8');
+      fs.writeFileSync(statePath, '1', 'utf8');
+    } catch {
+      /* nothing further to do */
+    }
+  });
+  // `detached` WITHOUT `unref`, exactly as `idea.ts` is and for its reason:
+  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
+  // the handle keeps the exit listener above alive — dropping it would make
+  // every implement read as `running` forever.
+  fs.closeSync(out);
+  return { log };
 }
 
 /**
@@ -238,67 +403,16 @@ export async function handleImplement(
     return;
   }
 
-  const log = implementLogPath(opts.repoRoot, slug);
-  const statePath = implementStatePath(opts.repoRoot, slug);
-  let out: number;
-  try {
-    // Truncated, not appended — this log is read back AS the answer, and an
-    // appended one would show a previous attempt's error after a later success.
-    // The same choice `idea.ts` makes, for the same reason.
-    fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
-  } catch (err) {
-    json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
+  // ONE SPAWN, SHARED WITH `/api/dispatch`. This route used to hold its own
+  // copy; the two drifted in the one way that mattered — only this one wrote
+  // the state file the status route reads — so the child belongs to
+  // `startImplement` and both callers get the same log, bound and recording.
+  const started = startImplement(opts, slug, usable);
+  if ('failure' in started) {
+    json(500, { error: started.failure.detail });
     return;
   }
-
-  // Through `sh -c` because `Implement command` is a shell FRAGMENT, the same
-  // interpretation `Idea command` and `Worker command` get. NOTHING from the
-  // request is interpolated into that string: the prompt names the slug, which
-  // is `SLUG_RE`-bounded, and travels as ONE argument via `"$@"`. Already the
-  // shape `idea.ts` and `commission.ts` use.
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-implement', composeImplementPrompt(slug)],
-    {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch — the same one `idea.ts` sets. There is
-        // nobody at this board to answer `AskUserQuestion`, and under `claude -p`
-        // that tool is not even registered — so a skill that improvises here
-        // exits 0 having written nothing. Setting it makes each skipped question
-        // take the shape its author chose and name itself in the log. This is
-        // exactly the case slice 2's SKILL.md change prepared `/plot-implement`
-        // step 2 for: on drift it stops and reports rather than asking.
-        PLOT_UNATTENDED: '1',
-        PLOT_PLAN_SLUG: slug,
-      },
-    },
-  );
-  child.on('exit', (code, signal) => {
-    try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
-  });
-  child.on('error', (err) => {
-    console.error('implement failed to spawn:', err);
-    try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  });
-  // `detached` WITHOUT `unref`, exactly as `idea.ts` is and for its reason:
-  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
-  // the handle keeps the exit listener above alive — dropping it would make
-  // every implement read as `running` forever.
-  fs.closeSync(out);
+  const { log } = started;
 
   json(202, { ok: true, slug, log });
 }
