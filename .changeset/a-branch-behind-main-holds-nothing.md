@@ -6,4 +6,7 @@ A branch whose ref is behind the default branch and carries no commit of its own
 
 <!--
 plan: docs/plans/2026-09-26-a-branch-behind-main-holds-nothing.md
+bumps:
+  skills:
+    plot: patch
 -->
