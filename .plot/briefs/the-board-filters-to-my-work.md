@@ -7,7 +7,23 @@
 - **Review of the code:** PR review per repo convention
 - **Issue:** #967
 
-**THIS BRANCH WAITS ON WAVE 2, `feature/a-row-says-whose-it-is`.** It renders what `isMine` decides, and `isMine` is wave 2's export. Do not start until wave 2's PR is merged, and cut this branch from `origin/main` after that merge. **Read `isMine`'s real signature and the row field it reads from the merged code — do not guess either from this brief.** Measured 2026-09-25: `isMine` appears 0 times in `packages/domain/src/index.ts` on main.
+Waves 1 and 2 are merged: #992 (identity on `server`) and #993 (`isMine`). This branch is the last slice, and nothing waits on it.
+
+### `isMine` as merged — the contract this branch calls
+
+`packages/domain/src/rules/ownership.ts:98`, exported from `@plot-pm/domain` (`index.ts:75`):
+
+```ts
+export const isMine = (row: OwnedRow, reader: Reader): boolean
+// OwnedRow = { kind: 'pr'; author?: string }
+//          | { kind: 'agent'; identity?: string; state?: string }
+//          | { kind: 'other' }
+// Reader   = { hostUser?: string; gitEmail?: string }
+```
+
+- **It returns false only for `theirs`.** `unknown` stays shown, so a plan card, an issue, a branch with no PR, an older server and an empty identity all keep their rows. Do not add a second emptiness check in the component — the rule already answers it.
+- **The row fields exist:** `PrSchema.author` (`schema.ts:310`, `''` where the host did not answer) and the agent row's `identity` (`schema.ts:3476`, `manifest` | `synthesized`) and `state`. The component's job is to map each rendered row to an `OwnedRow` and pass `board.server` as the `Reader`.
+- **The client casts the fleet and never parses it**, so Zod defaults do not apply client-side: `author` and `identity` may be `undefined` on a row from an older server. `OwnedRow` makes both optional for that reason.
 
 ### What to build
 
@@ -52,8 +68,20 @@ The same is true of a filter: a link that silently hides rows belonging to the p
 - **Do not run `pnpm run test:e2e`** — that is CI's gate, not a local one.
 - A changeset naming `@plot-pm/board`, description first and the `bumps:` block last.
 
+### Bookkeeping
+
+- Push the first real commit as soon as it exists.
+- Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work moves). Never `gh pr create`.
+- When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section on `main`.
+
+### Scope guard
+
+This branch owns the agents view's control and its persistence: `packages/board/src/app/components/AgentList.tsx`, `packages/board/src/app/lib/agent-rows/` (a new module beside `collapse.ts`), and a browser test. **#999 (`A failed scan keeps the last sections`, merged 2026-09-25) touched `AgentList.tsx` and `agent-rows/sections.ts`** — cut from current `origin/main` so its section-under-failure code is in the base. No other PR is open against the board at dispatch (checked 2026-09-26; only the release PR #978 is open).
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope.
+
 ### Out of scope
 
-- `isMine` itself, and which row field it matches — wave 2's.
+- `isMine` itself, and which row field it matches — wave 2's, merged in #993.
 - The identity fields — wave 1's, already merged.
 - Any second filter, any server-side filtering, any URL parameter.

@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
 - **Started:** 2026-09-24, Jan Wloka (claude session), `feature/the-board-knows-who-is-asking`
 - **Started:** 2026-09-25, Jan Wloka, `feature/a-row-says-whose-it-is`
+- **Started:** 2026-09-26, Jan Wloka (claude session), `feature/the-board-filters-to-my-work`
 
 ## Changelog
 
@@ -151,9 +152,9 @@ That is precisely slice 2's scope, independently measured. **The recommendation 
 
 Three slices, and the first is a reading with no UI. The order is deliberate: **nothing can be filtered before the board can name one owner.**
 
-### The board knows who is asking (Branch: feature/the-board-knows-who-is-asking)
+### The board knows who is asking (Branch: feature/the-board-knows-who-is-asking, PR: #992)
 
-- `feature/the-board-knows-who-is-asking` — **expose `budget_account()`, which already answers this.** `plot-host.sh:2568` computes the current account per backend — the GitHub arm from `gh`'s `hosts.yml`, the Bitbucket arm from `remote.origin.url` — and **no CLI op reaches it**: every caller is internal to the budget machinery (`:1621`, `:2701`, `:2908`). The slice adds the op, carries the answer in the board payload with git's `user.email` beside it, and adds no filtering and no control, so the reading can be proved before anything depends on it
+- `feature/the-board-knows-who-is-asking` — **expose `budget_account()`, which already answers this.** `plot-host.sh:2568` computes the current account per backend — the GitHub arm from `gh`'s `hosts.yml`, the Bitbucket arm from `remote.origin.url` — and **no CLI op reaches it**: every caller is internal to the budget machinery (`:1621`, `:2701`, `:2908`). The slice adds the op, carries the answer in the board payload with git's `user.email` beside it, and adds no filtering and no control, so the reading can be proved before anything depends on it → #992
 
 ### A row says whose it is (Branch: feature/a-row-says-whose-it-is, PR: #993)
 
