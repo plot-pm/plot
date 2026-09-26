@@ -42,7 +42,8 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => buildRow({
  *
  *   `interrogated`  PLAN-GROUP (NOT STARTED), 2 rounds  → badge reads `2 rounds`
  *   `reviewed`      planHeads  (WAITING ON YOU), 1 round → badge reads `1 round`
- *   `untouched`     PLAN-GROUP, no metadata block        → NO badge at all
+ *   `untouched`     PLAN-GROUP, no metadata block        → `not interrogated`, outlined
+ *   `zeroed`        PLAN-GROUP, `Rounds: 0`              → `0 rounds`, filled
  */
 function fleet() {
   const rows: AgentRow[] = [
@@ -52,6 +53,8 @@ function fleet() {
           branch: 'feature/i-two', wave: 'Two', group: 'not-started' }),
     row({ plan: 'untouched', planFile: '2026-08-16-untouched.md',
           branch: 'feature/u-one', wave: 'One', group: 'not-started' }),
+    row({ plan: 'zeroed', planFile: '2026-08-16-zeroed.md',
+          branch: 'feature/z-one', wave: 'One', group: 'not-started' }),
     // `waitingOn: 'you'` — the enum admits you|click|time|null, and this row
     // was written `'review'`, which is not one of them. The raw `page.route`
     // stub accepted it silently; the parsing builder does not. The INTENT is
@@ -78,6 +81,7 @@ const CARDS: { slug: string; planFile: string; rounds?: number; phase?: string }
   { slug: 'interrogated', planFile: '2026-08-16-interrogated.md', rounds: 2 },
   { slug: 'reviewed', planFile: '2026-08-16-reviewed.md', rounds: 1 },
   { slug: 'untouched', planFile: '2026-08-16-untouched.md', rounds: undefined },
+  { slug: 'zeroed', planFile: '2026-08-16-zeroed.md', rounds: 0 },
   // Carries rounds AND is past Discovery — the pair the phase gate is about.
   { slug: 'shipped', planFile: '2026-08-16-shipped.md', rounds: 3, phase: 'Testing' },
 ];
@@ -147,14 +151,26 @@ describe('the rounds ride beside the phase', () => {
     } finally { await page.close(); }
   });
 
-  it('a plan that was never interrogated wears NO badge', async () => {
+  it('a plan never interrogated is MARKED, and unlike a recorded zero', async () => {
     const page = await open();
     try {
-      await expect.poll(() => planRow(page, 'untouched').count(), { timeout: 10_000 })
-        .toBeGreaterThan(0);
-      // Absent, not `0 rounds` — which would read as *interrogated and found
-      // nothing*, the rule `roundsBadgeText` owns.
-      expect(await badge(page, 'untouched').count()).toBe(0);
+      await expect.poll(() => badge(page, 'untouched').count(), { timeout: 10_000 }).toBe(1);
+      await expect.poll(() => badge(page, 'zeroed').count(), { timeout: 10_000 }).toBe(1);
+      // Absent is marked, never as `0 rounds` — which would read as
+      // *interrogated and found nothing*, the rule `roundsBadgeText` owns.
+      const absent = badge(page, 'untouched');
+      const zero = badge(page, 'zeroed');
+      expect(await absent.textContent()).toContain('not interrogated');
+      expect(await absent.textContent()).not.toContain('0 rounds');
+      expect(await zero.textContent()).toContain('0 rounds');
+      expect(await absent.getAttribute('data-rounds')).toBe('absent');
+      expect(await zero.getAttribute('data-rounds')).toBe('recorded');
+      // They LOOK different, not only read different: the outline.
+      const style = (l: typeof absent) => l.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return `${cs.borderStyle}|${cs.backgroundColor}|${cs.fontStyle}`;
+      });
+      expect(await style(absent)).not.toBe(await style(zero));
     } finally { await page.close(); }
   });
 
