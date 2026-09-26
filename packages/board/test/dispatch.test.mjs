@@ -34,6 +34,26 @@ async function settle(ms = 400) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Wait until `read()` returns a truthy value, or give up.
+ *
+ * THE RESPONSE NO LONGER MEANS THE WORK HAPPENED. Since
+ * `a-dispatch-does-not-hold-the-loop` the 202 says the implement STARTED: the
+ * implement runs detached and the dispatch is started from its `exit` listener,
+ * so both stubs run after the response is written. Polling for the marker is
+ * what replaces the old synchronous ordering — raising `settle`'s sleep instead
+ * would trade a race for a slower race.
+ */
+async function until(read, what, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await read();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () => {
   let tmp, server, stub;
 
@@ -71,17 +91,22 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
       fs.realpathSync(path.resolve(tmp, '..')),
     );
     assert.equal(path.basename(body.log), 'plot-dispatch-ship-the-widget.log');
-    // The implementLog should also be present — from the implement step.
+    // The implementLog should also be present — from the implement step. It
+    // names where the run is being written, not where it finished: the child is
+    // still running when this is read.
     assert.ok(body.implementLog, 'implementLog should be present in response');
   });
 
   it('calls the implement stub first, then plot-dispatch.sh', async () => {
-    await settle();
-    // The implement stub should have been called with the /plot-implement prompt.
-    assert.equal(stub.implementRuns().length, 1, 'implement should run once');
+    // WAITED FOR, NOT SLEPT THROUGH. Both stubs now run after the response —
+    // the implement detached, the dispatch from its exit listener — so the
+    // ordering is asserted once the second marker exists rather than at a
+    // moment chosen by a timer.
+    await until(() => stub.implementRuns().length === 1, 'the implement stub to run');
     assert.match(stub.implementRuns()[0], /plot-implement.*ship-the-widget/);
     // `--max 1` because a button is one decision. Fanning out a whole wave
     // stays with /plot-dispatch, where the human sees the count first.
+    await until(() => stub.runs().length === 1, 'the dispatch stub to run');
     assert.deepEqual(stub.runs(), ['--max 1 ship-the-widget']);
   });
 
@@ -297,21 +322,45 @@ describe('POST /api/dispatch: implement failure stops dispatch', () => {
     if (tmp) rmTree(tmp);
   });
 
-  it('refuses with 409 and surfaces the implement command output', async () => {
+  // THE REFUSAL MOVED, AND THIS TEST MOVED WITH IT. It asserted a 409 in the
+  // POST's own response, which `a-dispatch-does-not-hold-the-loop` made
+  // impossible: the implement now runs detached and the response is written
+  // before it exits. The refusal is not weaker for that — it never reached the
+  // operator through the response either, because the client aborts actions at
+  // 15 s (`bounded-fetch.ts:45`) and a real `/plot-implement` takes minutes.
+  // What is asserted now is the route it does arrive by.
+  it('accepts the POST before the implement has decided', async () => {
     const res = await request(server.port, {
       method: 'POST',
       path: '/api/dispatch',
       headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ slug: 'ship-the-widget' }),
     });
-    assert.equal(res.status, 409);
+    assert.equal(res.status, 202);
     const body = JSON.parse(res.body);
-    assert.equal(body.ok, false);
-    assert.equal(body.reason, 'implement-failed');
-    assert.match(body.detail, /drift detected|stale|exited/i);
+    assert.ok(body.implementLog, 'the 202 names where the implement is being written');
+  });
+
+  it('reports the failure through the implement status, naming the log', async () => {
+    const status = await until(async () => {
+      const res = await request(server.port, {
+        method: 'GET',
+        path: '/api/implement/ship-the-widget',
+      });
+      const parsed = JSON.parse(res.body);
+      return parsed.state === 'failed' ? parsed : null;
+    }, 'the implement status to report failure');
+    // The command's own last words, which is what an operator needs: `exited 1`
+    // alone would name the fact and not the cause.
+    assert.match(status.message, /drift detected|stale|exited/i);
+    assert.ok(status.log, 'the status names the log');
   });
 
   it('and started no dispatch', async () => {
+    // ASSERTED AFTER THE CHILD EXITED, not on a timer: the status above is only
+    // `failed` once the exit listener has run, which is the same listener that
+    // would have started the dispatch. So by here the decision is made, and an
+    // empty run list is evidence rather than a race won.
     await settle();
     assert.deepEqual(stub.runs(), []);
   });

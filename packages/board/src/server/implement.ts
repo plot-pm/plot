@@ -134,6 +134,35 @@ export function composeImplementPrompt(slug: string): string {
  */
 export const IMPLEMENT_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * The slugs whose implement child is alive in THIS server, and the lock the
+ * dispatch route takes.
+ *
+ * NOT `implementStatus`, and the difference is a defect this nearly shipped.
+ * That function answers *what happened to the implement I started?*, where
+ * `running` means *a log exists and no outcome was recorded* — the honest
+ * answer for a read-back, and wrong as a lock. Measured while building
+ * `a-dispatch-does-not-hold-the-loop`: a log left behind by an earlier run,
+ * with no state file and no process, read as `running` forever and refused
+ * every later dispatch of that slug. A file cannot tell a live child from an
+ * abandoned one; a handle can.
+ *
+ * Process-local, and that is the honest scope. Two boards on one repository
+ * would not see each other's children — but two boards on one repository is a
+ * shape `plot-boardctl.sh` already refuses, and the case this guards is a
+ * second click on the ONE board, which the client's in-flight ref does not
+ * cover because it lives in one tab and one render.
+ *
+ * Entries are deleted in the `exit` listener, so a crashed child frees its slug
+ * and a restarted server starts empty rather than inheriting a lie.
+ */
+const running = new Set<string>();
+
+/** Whether an implement child started by this server is still alive for `slug`. */
+export function implementRunning(slug: string): boolean {
+  return running.has(slug);
+}
+
 /** What {@link startImplement} could not do before the child existed. */
 export interface ImplementStartFailure {
   /** The message to report, already suitable for an operator. */
@@ -190,6 +219,7 @@ export function startImplement(
   // request is interpolated into that string: the prompt names the slug, which
   // is `SLUG_RE`-bounded, and travels as ONE argument via `"$@"`. Already the
   // shape `idea.ts` and `commission.ts` use.
+  running.add(slug);
   const child = spawn(
     'sh',
     ['-c', `${command} "$@"`, 'plot-implement', composeImplementPrompt(slug)],
@@ -219,6 +249,9 @@ export function startImplement(
     },
   );
   child.on('exit', (code, signal) => {
+    // RELEASED FIRST, before anything that can throw. A slug held by a child
+    // that has exited is a slug nothing can dispatch again.
+    running.delete(slug);
     try {
       fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
     } catch {
@@ -262,6 +295,9 @@ ${err instanceof Error ? err.message : String(err)}
     }
   });
   child.on('error', (err) => {
+    // `error` can fire without `exit` — the child never started — so the lock
+    // is released here too rather than only above.
+    running.delete(slug);
     console.error('implement failed to spawn:', err);
     try {
       fs.appendFileSync(log, `

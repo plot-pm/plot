@@ -1278,9 +1278,22 @@ export function DispatchAllButton({
         body: JSON.stringify({ slug: card.slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
-      const body = (await res.json()) as { slug?: string; error?: string };
+      const body = (await res.json()) as {
+        slug?: string; error?: string; detail?: string; reason?: string;
+      };
       if (!res.ok) {
-        setState({ kind: 'failed', message: body.error ?? `HTTP ${res.status}` });
+        // `detail` FIRST, because it is the field this endpoint actually sends.
+        // `/api/dispatch` answers a refusal with `{ok, slug, reason, detail}` —
+        // never `error` — so reading `error` alone threw the sentence away and
+        // rendered a bare `HTTP 409` in the menu. `StartWorkButton.tsx:271` fixed
+        // exactly this on 2026-09-02 and this second caller did not get the fix;
+        // both entrances refuse through the same body and must read it the same
+        // way. `error` stays as the second choice: `readJsonBody` and the
+        // cross-origin guard use it, and both can still refuse this POST.
+        setState({
+          kind: 'failed',
+          message: body.detail ?? body.error ?? `HTTP ${res.status}`,
+        });
       }
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });

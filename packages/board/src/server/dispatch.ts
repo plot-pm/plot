@@ -7,7 +7,7 @@ import { readTail, type LogMissReason } from './worker-log.js';
 import {
   IMPLEMENT_COMMAND_KEY,
   implementLogPath,
-  implementStatus,
+  implementRunning,
   startImplement,
 } from './implement.js';
 import { usableCommand } from './idea.js';
@@ -369,19 +369,23 @@ export async function handleDispatch(
   // A SECOND CLICK IS REFUSED, NOT QUEUED. The synchronous route serialised two
   // POSTs for one slug by blocking everything; an async one would run two
   // implements at once, both truncating one log and both able to start a
-  // dispatch. `implementStatus` is the same read-back the status route serves,
-  // so the refusal agrees with what the row shows.
+  // dispatch. The client's in-flight ref does not cover this: it lives in one
+  // tab and one render, and a reload or a second tab walks past it.
   //
-  // ASKED BEFORE THE LOG IS TOUCHED: `startImplement` truncates, which would
-  // destroy the evidence of the run being reported as already going.
-  const running = implementStatus(opts, slug);
-  if (running.state === 'running') {
+  // THE LOCK IS THE LIVE CHILD, NOT THE LOG. `implementStatus` reports
+  // `running` whenever a log exists with no recorded outcome, which is right
+  // for a read-back and wrong for a lock — measured here, a log left by an
+  // earlier run with no state file and no process refused every later dispatch
+  // of that slug, permanently. `implementRunning` asks about a handle this
+  // server holds, so it can only be true while a child is alive.
+  if (implementRunning(slug)) {
+    const log = implementLogPath(opts.repoRoot, slug);
     json(409, {
       ok: false,
       slug,
       reason: 'implement-running',
-      detail: `an implement for \`${slug}\` is already running — watch it at ${running.log}, or wait for it to finish before dispatching again`,
-      log: running.log,
+      detail: `an implement for \`${slug}\` is already running — watch it at ${log}, or wait for it to finish before dispatching again`,
+      log,
     });
     return;
   }
