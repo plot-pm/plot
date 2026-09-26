@@ -74,7 +74,8 @@ import { SLICE_LINKING_KINDS, groupBySlice, sliceLabel } from '../lib/agent-rows
 // their marks and their menus are declared next door.
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
-import { workingAgentRows, brokenAgentRows } from '../lib/agent-rows/working-agents.js';
+import { workingAgentRows, brokenAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
+import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
 import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
@@ -426,6 +427,11 @@ export function AgentList({
   // branch rows by the same rule as `workingRows`, so the row's plan and PR
   // travel with it where one exists.
   const brokenRows = brokenAgentRows(fleet?.agents ?? [], rowByBranch);
+  // THE DRAFT PLANS NO BRANCH ROW CARRIES — for WAITING ON YOU. Tested against
+  // the unfiltered `fleet.rows`, like the joins above: a row the sprint filter
+  // hides still means the plan has one. `?? []` because the client casts the
+  // fleet, and an older server sends no `draftPlans` at all.
+  const draftRows = draftPlanRows(fleet?.draftPlans ?? [], fleet?.rows ?? []);
 
   const [openSlices, setOpenSlices] = useState<Set<string>>(() => new Set());
   const sliceKey = sliceKeyOf;
@@ -976,7 +982,7 @@ export function AgentList({
         const countOf = workingSection
           ? workingRows.length
           : waitingOnYouSection
-            ? rows.length + brokenRows.length
+            ? rows.length + brokenRows.length + draftRows.length
             : rows.length;
         // The plan scope the blocked-by jump needs ABOVE the row. WORKING orders
         // by agent, so there is no per-plan `<ul>` to tag the way the grouped
@@ -1006,6 +1012,10 @@ export function AgentList({
         // work outranks problem reports — a PR a person can merge is more urgent
         // than a worker a person can go check.
         const broken = key === 'waiting-on-you' ? brokenRows : [];
+        // THE DRAFT PLANS, for WAITING ON YOU only: a decision owed on a plan
+        // with no branch. Rendered after the issues and before the broken
+        // agents — a decision outranks a problem report.
+        const drafts = key === 'waiting-on-you' ? draftRows : [];
         // Every waiting-group is grouped the same way, `done` included: it is
         // the group that grows fastest over a working day, so it is the first to
         // become a list one scrolls past. A rule with an exception for the group
@@ -1095,7 +1105,7 @@ export function AgentList({
         // no plan grouping to fold, so it keeps the single figure.
         const tallyOf = workingSection
           ? { plans: countOf, slices: countOf, differ: false }
-          : sectionTally(rows, key, slices, issues.length);
+          : sectionTally(rows, key, slices, issues.length + drafts.length);
         // WHERE THE TWO AGREE, ONE NUMBER — an ungrouped or empty section gains
         // no redundant clause, so QUIET at 0/0 stays `(0)` and never
         // `(0 plans · 0 slices)` (Done when #3). Where they differ, both, named.
@@ -2200,7 +2210,7 @@ export function AgentList({
                 // section holding issue rows or broken agent rows and no branches
                 // is not empty, and the word would sit above the rows contradicting
                 // them.
-                issues.length === 0 && broken.length === 0 && (
+                issues.length === 0 && broken.length === 0 && drafts.length === 0 && (
                 <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
                   <span role="gridcell">
                     {key === 'waiting-on-machine' && answer !== 'answered'
@@ -2221,6 +2231,9 @@ export function AgentList({
                   story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
                   issueAnswer={fleet.issueAnswer}
                 />
+              ))}
+              {drafts.map((draft) => (
+                <DraftPlanRowView key={`draft-${draft.plan}`} draft={draft} onOpenPlan={onOpenPlan} />
               ))}
               {/* THE BROKEN AGENTS — `stalled` and `unknown` — as problem reports.
                   Rendered AFTER branches and issues: actionable work outranks
