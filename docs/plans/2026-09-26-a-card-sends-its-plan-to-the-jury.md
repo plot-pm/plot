@@ -71,12 +71,29 @@ CLAUDE.md records the estate's rule for exactly this: `/plot-panel` is named `pa
 
 The button reports what every spawn action reports: running, then the log path. **The moderation is the result and it is a file** — the card's rounds chip moving from `0` to `1` is the visible outcome, and the operator opens `panel.md` to read why.
 
+### The chip informs; Approve is never disabled
+
+**Asked 2026-09-26 whether `Approve` should be disabled at `Rounds: 0`. It should not, and the estate has already voted.**
+
+**195 plans reached Delivered or Released carrying no `Rounds:` field at all**, against 144 plans with one, out of 346. A gate refusing approval on an uninterrogated plan would have blocked the majority of everything this estate has shipped.
+
+The rule behind the measurement: `/plot-panel` is *"a mechanism, not a lifecycle step"* and *"moves no phase and decides nothing."* A gate requiring it would make an optional mechanism into a phase transition by the back door — and it is the shape people route around, since a one-juror panel would tick the box and produce a recorded round that means nothing.
+
+**What the card should do instead is distinguish the two states it currently renders identically.** `schema.ts:163` already draws the line:
+
+> `0 rounds` reads as *interrogated and found nothing*; a missing block means nobody asked.
+
+Those are different claims and the chip shows them the same way — the same grey as `no story`. A plan nobody has questioned is worth marking; a plan questioned and found sound is not the same thing and must not be marked as if it were.
+
+**Informing, never forbidding.** The operator decides whether a plan is questioned enough, and this makes the fact legible rather than making the decision.
+
 ### What this does NOT do
 
 - **It does not implement a panel.** The skill owns the fan-out, the gate and the reconciliation.
 - **It does not choose the lenses.** `/plot-panel` states that lens choice is the caller's judgement about the subject; the prompt names the plan and lets the skill's Draft-caller defaults apply.
 - **It does not act on the verdict.** No auto-approve on `unanimous: proceed`, and no auto-reject. The panel is evidence and the person decides.
 - **It does not change `/plot-panel`.** If the skill needs a change to run from a button, that is a finding rather than a thing to work around here.
+- **It does not disable `Approve`.** See above: 195 shipped plans carry no round, and a gate on the count would refuse the estate's own history.
 - **It adds no round counter.** The skill records the round; a board that also wrote one would double it.
 
 ## Done when
@@ -86,6 +103,8 @@ The button reports what every spawn action reports: running, then the log path. 
 - With the config key absent, the button refuses and names the key as the fix.
 - An Approved, Delivered or Released card does not offer it.
 - A card whose panel is in flight does not offer a second.
+- A plan with no `Rounds:` field renders differently from one recording `Rounds: 0`.
+- `Approve` is enabled at every round count, including none.
 - The new route is registered in the write-gate test, as every `POST /api/*` must be.
 
 ## Slices
