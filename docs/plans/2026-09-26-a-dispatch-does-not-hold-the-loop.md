@@ -111,7 +111,7 @@ Six are bounded git commands — `symbolic-ref`, `rev-parse`, `worktree prune`, 
 
 ## Slices
 
-### A dispatch does not hold the loop (Branch: `bug/a-dispatch-does-not-hold-the-loop`)
+### A dispatch does not hold the loop (Branch: bug/a-dispatch-does-not-hold-the-loop)
 
 Choose A or B with the argument written down, move the wait off the loop, keep the refusal reachable, and add the concurrency test on the existing harness.
 
