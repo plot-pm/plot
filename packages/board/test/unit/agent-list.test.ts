@@ -17,6 +17,7 @@ import {
   coldState,
 } from '../../src/app/components/AgentList.js';
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
+import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, type PlanGroup, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
@@ -3988,5 +3989,109 @@ describe('a board that never scanned says so', () => {
     const c = coldState(true, 'bash exited 127');
     expect(a?.headline).not.toBe(b?.headline);
     expect(c).toBeNull();
+  });
+});
+
+describe('readMineOnly / writeMineOnly — the filter that is off until asked', () => {
+  /** A localStorage stand-in, so the test states the storage rather than the DOM. */
+  const store = (initial: Record<string, string> = {}) => {
+    const map = new Map(Object.entries(initial));
+    return {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => { map.set(k, v); },
+      read: () => [...map.entries()],
+    };
+  };
+
+  it('is OFF when nothing is stored', () => {
+    // THE ASYMMETRY WITH THE FOLD, and the half a copied mechanism gets wrong.
+    // `readCollapsed` defaults to collapsed because a first visit should not
+    // ship the crowded view; this hides ROWS, and a reader who never asked
+    // cannot tell a filtered board from a quiet estate.
+    expect(readMineOnly(store())).toBe(false);
+    expect(MINE_ONLY_BY_DEFAULT).toBe(false);
+  });
+
+  it('survives a reload — what was written comes back', () => {
+    const s = store();
+    writeMineOnly(true, s);
+    expect(readMineOnly(s)).toBe(true);
+    writeMineOnly(false, s);
+    expect(readMineOnly(s)).toBe(false);
+  });
+
+  it('falls back to OFF on stored junk rather than throwing', () => {
+    // The default is *show everything*, so a storage failure costs the reader
+    // nothing at all — which is why every unreadable value reads as off rather
+    // than as a filter nobody asked for.
+    for (const raw of ['not json', 'true', 'yes', '["1"]', '', '17']) {
+      expect(readMineOnly(store({ 'plot-board:agents:mine-only': raw }))).toBe(false);
+    }
+  });
+
+  it('yields the default when localStorage throws outright', () => {
+    // A blocked-cookie context throws on ACCESS, not on read. A board that
+    // rendered nothing because it could not remember a checkbox is the worse
+    // answer — and here the fallback shows every row.
+    const hostile = { getItem: () => { throw new Error('blocked'); } };
+    expect(readMineOnly(hostile)).toBe(false);
+    // And the write must not propagate either: a reader who cannot persist
+    // still gets a working checkbox this session.
+    expect(() => writeMineOnly(true, { setItem: () => { throw new Error('blocked'); } }))
+      .not.toThrow();
+  });
+
+  it('never touches the query string', () => {
+    // A link carrying ?mine=1 would hide rows belonging to whoever opened it —
+    // their own work vanishing as a side effect of "have a look at this".
+    const s = store();
+    writeMineOnly(true, s);
+    expect(s.read().map(([k]) => k)).toEqual(['plot-board:agents:mine-only']);
+  });
+});
+
+describe('rowsForReader — what the filter hides, and what it must not', () => {
+  const me = { hostUser: 'gardener', gitEmail: 'gardener@example.com' };
+  const mine = row({ branch: 'feature/mine', pr: { number: 1, url: 'u', draft: false, state: 'green', author: 'gardener' } as never });
+  const theirs = row({ branch: 'feature/theirs', pr: { number: 2, url: 'u', draft: false, state: 'green', author: 'somebody-else' } as never });
+  const unowned = row({ branch: 'feature/unowned', pr: null });
+  const unattributed = row({ branch: 'feature/unattributed', pr: { number: 3, url: 'u', draft: false, state: 'green', author: '' } as never });
+
+  it('returns the array untouched when off', () => {
+    // IDENTITY, not a copy admitting everything: an unfiltered view must cost
+    // nothing, and the caller's sectioning reads this array.
+    const rows = [mine, theirs, unowned];
+    expect(rowsForReader(rows, me, false)).toBe(rows);
+  });
+
+  it('hides only the rows somebody else owns', () => {
+    const kept = rowsForReader([mine, theirs, unowned], me, true).map((r) => r.branch);
+    expect(kept).toEqual(['feature/mine', 'feature/unowned']);
+  });
+
+  it('keeps a row whose PR names no author', () => {
+    // `''` is the host declining to answer, not a claim that nobody owns it.
+    // Hiding it would withhold a row on the strength of a missing reading.
+    expect(rowsForReader([unattributed], me, true)).toHaveLength(1);
+  });
+
+  it('hides NOTHING when the reader has no identity', () => {
+    // THE WHOLE-BOARD FAILURE. `''` is the honest "not configured" value for
+    // either field, and a filter that treated it as matching nothing would
+    // empty the view for every reader whose host CLI names nobody.
+    const all = [mine, theirs, unowned, unattributed];
+    expect(rowsForReader(all, { hostUser: '', gitEmail: '' }, true)).toHaveLength(4);
+    expect(rowsForReader(all, {}, true)).toHaveLength(4);
+  });
+
+  it('never reads the branch name for ownership', () => {
+    // `feature/gardener-tidy-up` looks like a claim and is not one. Only the
+    // PR's author says whose a row is, so a row named after the reader with
+    // somebody else's PR is still hidden.
+    const named = row({
+      branch: 'feature/gardener-tidy-up',
+      pr: { number: 4, url: 'u', draft: false, state: 'green', author: 'somebody-else' } as never,
+    });
+    expect(rowsForReader([named], me, true)).toHaveLength(0);
   });
 });

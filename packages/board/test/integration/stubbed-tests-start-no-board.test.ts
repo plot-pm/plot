@@ -398,7 +398,20 @@ describe('a browser test that stubs its own state starts no board', () => {
 // names, and that its header counts the lines it shows. The tally is pinned in
 // `test/unit/agent-list.test.ts`; this asserts the render. It serves its own
 // state through the catalogue and starts no board.
-const EXPECTED_FILES = 50;
+// 50 → 51 on 2026-09-26: `mine-filter.browser.test.ts`, six `it(`, for the
+// "only my work" checkbox the board had no control for.
+//
+// A PLAIN ADDITION: nothing moved and no file lost an `it(`. Raised in the
+// commit that adds it, which is the mechanism this gate describes — it fails on
+// a migration that silently drops coverage, and a feature adding coverage says
+// so here. It serves its own state through the catalogue and starts no board,
+// so it satisfies this gate's rule rather than being admitted past it.
+//
+// What only a rendered page can settle is that the control hides the rows
+// `isMine` answered false for and restores every one of them when unticked —
+// both arms over a MIXED-ownership fixture, since a filter that hides nothing
+// looks identical to one that works on a single-contributor estate.
+const EXPECTED_FILES = 51;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -546,7 +559,12 @@ const EXPECTED_FILES = 50;
 // Added, not moved: `EXPECTED_FILES` counts the new file and nothing lost an
 // `it(`. THE SUM IS THE RESOLUTION — each side read 502 and 500 against a base
 // of 499, so taking either would drop the other's tests and fail this gate.
-const EXPECTED_TESTS = 503;
+// 503 → 509 on 2026-09-26: the six `it(` in `mine-filter.browser.test.ts`.
+// Added, not moved — `EXPECTED_FILES` counts the new file and nothing lost an
+// `it(`. Re-derived against the main this branch sits on rather than by
+// arithmetic on a stale one, which is the lesson the 454 round trip above
+// records.
+const EXPECTED_TESTS = 509;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
