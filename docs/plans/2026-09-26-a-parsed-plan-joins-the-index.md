@@ -4,13 +4,29 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** infra
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1017
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
-- **Rounds:** 0
+- **Rounds:** 1
+
+## Why this was rejected
+
+**Rejected 2026-09-26 after round 1. The premise is false: the scan already batches the parse.**
+
+`plot-fleet-scan.sh:2916` passes `"$@"` — every plan file in ONE invocation of `plot-plan-meta.sh`. Measured by the moderator:
+
+```
+ALL 350 plans in one invocation:  481 ms
+```
+
+Not 32 seconds. **The plan's own measurement was honest and its inference was wrong**: 30 *separate* invocations at 93 ms each is a real number for a call pattern the scan does not use. The 93 ms is almost entirely per-process startup, and a batch pays it once.
+
+So the optimisation this plan proposes is already built. It cites `plot-fleet-scan.sh:3118` while the batching sits at `:2916` in the same file.
+
+**#1017 stays open.** The 90 s scan timeout is real and now has one fewer explanation — not the parse, not machine load, not the host, not the board's deleted path. What remains unmeasured is where the scan's time actually goes, and a replacement plan starts by profiling that rather than by proposing a fix.
 
 ## Changelog
 
