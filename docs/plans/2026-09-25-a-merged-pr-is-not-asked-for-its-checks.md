@@ -106,7 +106,7 @@ Both are already `plot-host.sh pr-list` invocations with existing flags. **No ne
 
 ## Slices
 
-### The rollup is asked of open PRs only (Branch: bug/the-rollup-is-asked-of-open-prs-only)
+### The rollup is asked of open PRs only (Branch: bug/the-rollup-is-asked-of-open-prs-only, PR: #1005)
 
 - `bug/the-rollup-is-asked-of-open-prs-only` — split `plot-fleet-scan.sh:747` into a `--state open --rich` call and a `--state all` call without `--rich`. **Exclude OPEN rows from the plain payload before concatenating**, so each branch contributes exactly one row and the rank-and-dedup at `:877-917` is a no-op rather than a coin flip — the plain row's `-` sentinel otherwise wins at equal rank and deletes every rollup. Keep `--limit` and the `--branch` arguments on the `all` call. `HOST_VERDICT` is **the worse of the two** results, not the last one. Contract tests driven by a **state-aware** stub: rich rows for `--state open`, plain rows for `--state all`, as GitHub answers
 
