@@ -112,7 +112,7 @@ Those are different claims and the chip shows them the same way — the same gre
 
 ## Slices
 
-### A card sends its plan to the jury (Branch: `feature/a-card-sends-its-plan-to-the-jury`)
+### A card sends its plan to the jury (Branch: feature/a-card-sends-its-plan-to-the-jury)
 
 The `Interrogate command` config key, the endpoint, the button, its four refusals, and the write-gate registration.
 
