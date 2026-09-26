@@ -237,12 +237,14 @@ const ownState = (readings: BranchReadings): BranchState => {
   // Nothing of its own. NOT a claim: that shape is indistinguishable from
   // merged work, which is why claims carry a commit.
   //
-  // ZERO AHEAD CARRIES TWO SHAPES, and only one of them is landed work:
+  // ZERO AHEAD CARRIES THREE SHAPES, and only one of them is landed work:
   //
-  //   | shape         | ancestry says           | truth         |
-  //   |---------------|-------------------------|---------------|
-  //   | behind main   | is an ancestor → merged | merged        |
-  //   | reset to main | is an ancestor → merged | holds nothing |
+  //   | shape                        | ancestry says           | truth         |
+  //   |------------------------------|-------------------------|---------------|
+  //   | behind main via landed work  | is an ancestor → merged | merged        |
+  //   | reset to main                | is an ancestor → merged | holds nothing |
+  //   | cut from an older main, or   | is an ancestor → merged | holds nothing |
+  //   | its claim commit was lost    |                         |               |
   //
   // Measured 2026-08-29: `feature/one-deliver-rule-decides-in-the-domain` was
   // reset to `origin/main` so a worker could rebuild it, its pull request
@@ -251,17 +253,23 @@ const ownState = (readings: BranchReadings): BranchState => {
   // does not exist. `merged` SETTLES a wave, so this error does not stall the
   // fleet — it advances it onto a seam nobody wrote.
   //
-  // The discriminator is equality of the two tips, because a branch with zero
-  // commits ahead is either equal to the default branch or a strict ancestor of
-  // it. No host call is added: `plot-pr-merged.sh` was measured answering *not
-  // merged* for three genuinely merged branches while throttled, and this
-  // reading must not inherit that failure mode.
+  // Equality of the two tips separates *reset to main* from the other two. It
+  // cannot separate those two from each other: on both, the ref is a strict
+  // ancestor of the default branch and the tips differ. No host call is added:
+  // `plot-pr-merged.sh` was measured answering *not merged* for three
+  // genuinely merged branches while throttled, and this reading must not
+  // inherit that failure mode.
   if (readings.refTip !== null && readings.refTip === readings.mainTip) {
     // It points AT the default branch: no work of its own, and none of its own
     // landed. `open` is what the scan already says for work not yet done.
     return 'open';
   }
-  return 'merged';
+  // Behind the default branch, or the default branch unreadable. Only the host
+  // reading already in hand may promote this to `merged`; without it, the
+  // readings do not determine the answer, which is what `unknown` states. An
+  // `unknown` branch holds its wave, where `merged` would settle it.
+  if (readings.pr === 'MERGED') return 'merged';
+  return 'unknown';
 };
 
 /**
