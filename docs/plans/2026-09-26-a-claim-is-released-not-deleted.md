@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1003
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 1
+- **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 
 ## Changelog
 
@@ -20,7 +21,17 @@ Board impact: none directly. The board renders whatever the scan reports, and a 
 
 ## Motivation
 
-**A claim ref serves two purposes and clearing it necessarily clears both.**
+### Round 1 refuted this plan's premise, and the design below is corrected
+
+An earlier draft said *"the assignment's only durable record is the claim ref"* and *"there is no way to clear one without the other."* **Both are false.** The **agent manifest** carries the assignment, and `clear_manifest_branch` (`plot-worker-loop.sh:350`) is a separate writer for it.
+
+So deleting the ref clears the **scan's reading of branch state**; the registry's record of the assignment lives in the manifest and is cleared elsewhere. Two facts, and the earlier design rested on their supposed inseparability.
+
+**What the verb must therefore clear is both** — the ref and the manifest's `branch` field — or it half-releases, which is the failure this plan exists to prevent rather than reproduce.
+
+### The two records, and why the ref alone is not enough
+
+**A claim ref and an agent manifest each hold part of the assignment.**
 
 It is the **lock** — git rejects a diverged claim push, which is what stops two agents committing to one branch. It is also the **assignment record** — what tells a later pass the slice is taken. There is no way to clear one without the other.
 
@@ -70,9 +81,9 @@ Any ref deletion between a hand-over and the agent's claim push does it. `plot-r
 
 ### The command
 
-**`plot-dispatch.sh --release <branch>` clears a claim and the assignment together.**
+**`--release <branch>` clears BOTH records in one act** — the remote claim ref and the assignment in the agent's manifest, through `clear_manifest_branch`'s existing writer rather than a second one.
 
-It deletes the remote claim ref and removes the registry's record of the hand-over in one act, so no later pass can read the slice as claimable while an agent still believes it holds it.
+Clearing only the ref is what an operator does by hand today, and it is what produced the measured lock violation: the scan then reads the branch as unclaimed while the manifest still names it, so a later pass hands it out again.
 
 **It refuses on a live worker.** That is the one case where the claim is not abandoned, and the refusal is the same measurement `--restart` already makes: a live pid means somebody is working. A dead agent is the population this serves.
 
