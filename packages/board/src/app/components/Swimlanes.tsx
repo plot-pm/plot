@@ -231,6 +231,7 @@ export function Swimlanes({
                         showStory={false}
                         dispatch={board.dispatch}
                         approve={board.approve}
+                        interrogate={board.interrogate}
                         pulse={pulse}
                         onStarting={onStarting}
                         onOpen={onOpenPlan}

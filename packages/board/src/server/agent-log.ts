@@ -192,6 +192,7 @@ export const KINDS = [
   'dispatch',
   'idea-issue',
   'implement',
+  'interrogate',
   'reslice',
   'resolve',
   'story-issue',

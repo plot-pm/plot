@@ -2178,6 +2178,9 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // same hand overwriting it in index.ts. Unavailable here means *this walker
     // cannot say*, never *the answer is no*, exactly as the four above.
     commission: { available: false, reason: '' },
+    // And for interrogating a Draft plan — the same placeholder, overwritten in
+    // index.ts, where the binding and the `Interrogate command` key are read.
+    interrogate: { available: false, reason: '' },
     // And once more for reslicing a tangled slice — the same socket question,
     // the same hand overwriting it in index.ts. Unavailable here means *this
     // walker cannot say*, never *the answer is no*, exactly as the five above.

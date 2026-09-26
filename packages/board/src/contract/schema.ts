@@ -1152,6 +1152,17 @@ export const BoardSchema = z.object({
    */
   commission: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Interrogate" will act: it spawns a plot agent (`/plot-panel`) on a
+   * Draft plan. Unlike its siblings this flag answers the config key as well as
+   * the localhost binding — an absent or `none` `Interrogate command` reads
+   * unavailable, with a reason naming the key. Whether a panel is already
+   * running for a given plan is read per plan from `/api/interrogate/<slug>`.
+   *
+   * Same default as its siblings: an older server sends nothing and a newer
+   * client hides the control.
+   */
+  interrogate: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Whether "Slice this plan" will act — the sixth capability, twin of `idea`
    * and `commission`: it spawns a plot agent (`/plot-reslice`) that rewrites a
    * plan's `## Branches` on this disk, so it answers the same localhost binding

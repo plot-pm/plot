@@ -27,6 +27,7 @@ import {
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { handleStory, storyAvailability, storyStatus } from './story.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
+import { handleInterrogate, interrogateAvailability, interrogateStatus } from './interrogate.js';
 import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
 import { handleImplement, implementAvailability, implementStatus } from './implement.js';
@@ -209,6 +210,13 @@ async function handleRequest(
     // Draft exactly as Approve is. It ships the `Design` phase minimally rather
     // than as a refusal: #259 landed the phase and nothing filled it.
     { path: '/api/commission', verb: 'commissioning design', handle: handleCommission },
+    // POST /api/interrogate — a Draft plan is sent to /plot-panel.
+    //
+    // The same class of route as /api/commission and the same binding: it spawns
+    // a plot agent. SLUG-scoped and Draft-only, and it refuses while a panel for
+    // the same plan is still running. It writes nothing to the plan: the skill
+    // records the verdicts, `panel.md` and the `Rounds:` increment.
+    { path: '/api/interrogate', verb: 'interrogating a plan', handle: handleInterrogate },
     // POST /api/reslice — a plan's tangled slice is sliced into one slice per branch.
     //
     // The same class of route as /api/commission, and the same binding: it
@@ -365,6 +373,7 @@ async function handleRequest(
         continue: continueAvailability(HOST),
         idea: ideaAvailability(HOST),
         commission: commissionAvailability(HOST),
+        interrogate: interrogateAvailability(HOST, opts),
         reslice: resliceAvailability(HOST),
         deliver: deliverAvailability(HOST),
         implement: implementAvailability(HOST),
@@ -635,6 +644,20 @@ async function handleRequest(
     res.end(
       SLUG_RE.test(slug)
         ? JSON.stringify(commissionStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to an interrogation somebody asked for — slug-keyed, like
+  // `/api/commission/<slug>`. The Interrogate button reads it to know whether a
+  // panel is already running for its plan, and to surface a failure.
+  if (url.pathname.startsWith('/api/interrogate/')) {
+    const slug = url.pathname.slice('/api/interrogate/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(interrogateStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
     return;
