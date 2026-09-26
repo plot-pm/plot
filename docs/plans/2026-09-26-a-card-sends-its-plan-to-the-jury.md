@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
 - **Sprint:** a-refusal-names-what-it-cannot-see
 - **Rounds:** 1
+- **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 
 ## Changelog
 
@@ -65,7 +66,9 @@ CLAUDE.md records the estate's rule for exactly this: `/plot-panel` is named `pa
 
 **A plan at `Draft`.** Interrogating an Approved plan is a question whose answer changes nothing the lifecycle reads, and `/plot-deliver` runs its own delivery panel with a different commitment vocabulary.
 
-**A card already running a panel offers no second one.** Two panels writing one subject directory would interleave verdict files and the moderator would read a mixture. The existing action-receipt mechanism (`action-receipt.ts`) already answers *is this action in flight*.
+**A card already running a panel offers no second one.** Two panels writing one subject directory would interleave verdict files and the moderator would read a mixture.
+
+**The mechanism is `ideaStatus`'s, not `action-receipt`'s.** An earlier draft of this plan cited `action-receipt.ts`, and a juror refuted it: that file is three words — `export type ControllerAction = 'dispatch' | 'approve' | 'deliver'` — and answers nothing about what is running. `idea.ts:369` is the shape this needs: *"Read back what an earlier POST started. Never spawns, never blocks."* It reads a log path and a state file keyed by the subject, which is exactly what a per-plan panel wants.
 
 ### Reporting
 
