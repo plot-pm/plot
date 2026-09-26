@@ -2,7 +2,7 @@
 
 - **Plan (canonical):** `docs/plans/2026-09-26-a-branch-behind-main-holds-nothing.md` on `main`
 - **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
-- **Branch:** `bug/a-branch-behind-main-holds-nothing` (base: `main`), claimed 2026-09-26 by a pushed empty claim commit
+- **Branch:** `bug/a-branch-behind-main-holds-nothing` (base: `main`). Unclaimed on `origin` at 2026-09-26: a local claim commit `02cac44a8` was never pushed, so the dispatcher's ref push is the claim
 - **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
 - **Review of the code:** per repo convention (PR review, CI `validate`)
 
@@ -30,12 +30,13 @@ The change: in that arm, return `merged` only when `readings.pr === 'MERGED'`; o
 
 **Round 1 correction — the producer.** The plan's later section *"`plot-dispatch.sh --start` creates this shape as a matter of course"* was REFUTED in round 1 (see *Round 1 refuted the producer*): `--start` cuts detached and pushes no ref. The real source is a claim whose `--allow-empty` commit was lost or squashed away. Do NOT repeat the `--start` claim in the new code comment; name the lost claim commit and the old-main cut instead.
 
-**The two existing tests must be argued against, not just flipped.** `packages/domain/test/branch-state.test.ts`, describe `a branch reset to main holds nothing`:
+**The three existing tests must be argued against, not just flipped.** `packages/domain/test/branch-state.test.ts` — the plan names two, and a third at `:56` asserts the same shape:
 
+- `it('merged — a ref behind main, carrying nothing of its own')` (`:56`)
 - `it('answers merged when its tip is behind main')`
 - `it('answers merged where main cannot be read and the tip differs')` — defends itself with *"an unreadable main is not equality"*
 
-Both become `unknown` cases (the second keeps its point: an unreadable main is not equality, so it does not answer `open` either — it answers `unknown`). Rename each test to say what it now asserts and state in the commit message why the old assertion was wrong. A juror measured the blast radius: 4 failed / 38 passed, all in this file, no collateral.
+All three become `unknown` cases (the second keeps its point: an unreadable main is not equality, so it does not answer `open` either — it answers `unknown`). Rename each test to say what it now asserts and state in the commit message why the old assertion was wrong. A juror measured the blast radius: 4 failed / 38 passed, all in this file, no collateral.
 
 ### Done when
 
