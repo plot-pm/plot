@@ -86,6 +86,20 @@ CLAUDE.md names the row's section as the first example of what may not be decide
 
 **That is why the fix takes no new reading.** Measured on the live fleet 2026-09-26: **24 rows read `merged`, 23 carry a PR, exactly one does not — and that one is the only wrong row.** The contradiction is already inside `BranchReadings`. The rule is handed inputs that do not determine an answer and returns one anyway; resolving that needs nothing the rule cannot already see, and nothing that depends on a host being reachable.
 
+### Three ways it breaks, measured in one session
+
+Section membership failed three distinct ways on 2026-09-26, and the principle above is the one statement that covers all three:
+
+| | what happened | visible to a reader? |
+|---|---|---|
+| **wrong** | `adoption-proposes-the-main-branch-key` in DONE as `merged` — 0 commits, 0 PRs ever, a live worker on it | yes, and arguable |
+| **missing** | during a *"Not reaching the board server"* outage, the slices for two live agents vanished — WAITING ON A MACHINE held one row and NOT STARTED read `none`, while WORKING showed both agents | **no** |
+| **stale** | the rollup slice read `waiting-on-machine · PR #1005, CI running` minutes after #1005 merged | plausible, so unquestioned |
+
+**The missing case is the worst of the three**, and it is the one an operator cannot argue with: a wrong section is visible, an absent row is not. The banner had already said the board could not see, and a section membership was emitted anyway that silently dropped work in flight.
+
+This plan fixes the first. The second and third are the same principle failing at other moments, and they belong to whatever holds the rule to *at any time* rather than *when the readings are fresh*.
+
 ### What promotes it to `merged`
 
 The host, and only the host. `readings.pr === 'MERGED'` already overrides at `:231` for the `commitsAhead > 0` arm, for the resurrected-ref case; the same override applies here. A branch whose pull request the host reports merged is merged whatever its tips say.
