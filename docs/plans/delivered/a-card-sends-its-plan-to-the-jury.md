@@ -1,0 +1,1 @@
+../2026-09-26-a-card-sends-its-plan-to-the-jury.md

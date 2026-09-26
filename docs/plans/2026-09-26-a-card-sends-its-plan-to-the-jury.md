@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 - **Started:** 2026-09-26, Jan Wloka, `feature/a-card-sends-its-plan-to-the-jury`
+- **Delivered:** 2026-09-26
 
 ## Changelog
 
