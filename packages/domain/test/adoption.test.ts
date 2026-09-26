@@ -237,6 +237,21 @@ describe('composeAdoption — the Main branch key is a proposal, never a write',
     expect(gap).toContain('main');
   });
 
+  it('names the missing local reading rather than trailing off', () => {
+    // A repository with no `origin/HEAD` and a detached HEAD reads as `''`, and
+    // the gap line still has to say something: *origin/HEAD says* followed by
+    // nothing is a sentence that stops mid-claim. Reachable in practice —
+    // `plot-detect-repo.sh` falls back to the current branch, which a detached
+    // HEAD does not supply.
+    const result = composeAdoption(input({
+      proposal: { ...bare(), defaultBranch: { state: 'unverified', local: '' } },
+    }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    const gap = result.gaps.find((g) => g.includes('Main branch'));
+    expect(gap).toContain('(nothing)');
+    expect(gap).not.toMatch(/says\s*$/);
+  });
+
   it('writes a confirmed answer even where the host could not be asked', () => {
     // An operator who knows their default branch may say so regardless of
     // whether the host answered. The answer is the authority, not the probe.
