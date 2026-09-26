@@ -8,9 +8,15 @@
 - **Type:** bug
 - **Review:** pr
 - **Impl:** own branches
-- **Issue:** #1008
+- **Issue:** #1008 (carried by `a-decision-reads-the-index`)
 - **Sprint:** a-refusal-names-what-it-cannot-see
 - **Rounds:** 1
+
+## Superseded
+
+**Closed 2026-09-26. `a-decision-reads-the-index` carries #1008 forward** — same principle, correct mechanism. This file stays as the record of a refuted explanation, so nobody re-derives it.
+
+**The symptom is still open.** Two live agents' slices were absent from the board while WORKING showed both agents. That measurement stands and no juror explained it.
 
 ## Why this was rejected
 

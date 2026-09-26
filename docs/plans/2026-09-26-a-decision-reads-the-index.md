@@ -1,6 +1,6 @@
 # A decision reads the index
 
-> Retrieval and decision are interleaved: every controller calls its own tools and judges in the same breath. **35 spawn sites across three deciders** — `dispatch.ts` 10, `deliver.ts` 15, `approve.ts` 10. A tool call should write the index and nothing else; a decision should read the index, or run because the index changed.
+> **`PrIndexStore` shipped on 2026-09-25 and has no consumer.** Port, file adapter, fold rule, versioned entity, and a live 967-row store on this machine — and all five references to it are its own implementation. Meanwhile the fleet scan, the reconcile sweep and `impl-status` still ask the host directly. A tool call should write the index and nothing else; a decision should read it, or run because it changed.
 
 ## Status
 
@@ -29,15 +29,46 @@ tool call ──writes──► index ──read by──► decision
 
 A decision never calls a tool. It reads the index, or it fires because the index changed. Nothing else is permitted to be a decision's data source.
 
-### What happens instead, measured 2026-09-26
+### The index exists and nothing reads it
 
-| decider | spawn sites |
-|---|---|
-| `deliver.ts` | 15 |
-| `dispatch.ts` | 10 |
-| `approve.ts` | 10 |
+`PrIndexStore` is a port (`ports/pr-index.ts:37`) with a file adapter (`adapters/pr-index/pr-index-file.ts:69`), a fold rule (`rules/pr-index.ts:82`) and a versioned entity. On this machine:
 
-Each retrieves and judges in one pass. The answers are not shared, not kept, and not reusable: the next decider asks again.
+```
+.git/.plot/state/index/github.json   351082 bytes
+v: 2 | connector: github | rows: 967 | watermark: 2026-09-26T12:50:20Z
+```
+
+It was delivered by `a-merged-pr-is-not-asked-for-its-checks` (#1005).
+
+**Measured 2026-09-26 — every reference to it, across both packages:**
+
+```
+packages/domain/src/ports/pr-index.ts          the port
+packages/domain/src/adapters/pr-index/…        the adapter
+packages/domain/src/rules/pr-index.ts          the rule
+packages/domain/src/index.ts                   a barrel export
+packages/domain/src/adapters/index.ts          a barrel export
+```
+
+**Five references, five of them its own implementation. Zero consumers.**
+
+And the scripts that need exactly what it holds still ask the host: `plot-fleet-scan.sh` (28 mentions of `pr-list`/`pr-state`), `plot-reconcile-scan.sh` (6), `plot-impl-status.sh` (6).
+
+**This is the estate's own named defect class.** CLAUDE.md: *"Where a rule exists and nothing calls it, that is a defect to report."* It records `setSprintState` as the precedent — nine refusals, zero callers, an hour lost to a hand-written sprint the rule would have refused.
+
+### An earlier draft got this wrong in both directions
+
+It proposed **building** an index that had shipped the day before, and led with **"35 spawn sites across three deciders."** Measured:
+
+```
+dispatch.ts:356   spawnSync(
+deliver.ts:529    spawn(
+approve.ts:295    spawn(
+```
+
+**Three, not thirty-five** — the rest were the import line and prose, the same `grep`-matches-as-call-sites error that had already sunk this plan's predecessor.
+
+Worse, those three are **performances, not retrievals**: `deliver.ts:529` spawns the delivery agent. A spawn that performs an action has no answer to write to an index, so the rule this plan states does not describe them.
 
 ### The estate is already ratcheting toward this and is stuck
 
@@ -85,15 +116,11 @@ A verdict is re-derivable from git for free and stale the moment a ref moves. An
 - every entry carries what it was read against, and is revalidated on read;
 - an answer that could not be obtained is **not an entry** — absence stays absence, and an unreachable host never becomes a recorded fact.
 
-### Where it lives
+### Where it lives — settled, because it shipped
 
-**Open, and deliberately so.** The candidates differ in what they claim:
+An earlier draft left this open with three candidates. **It is answered**: a port with a file adapter, writing plain JSON under the git common dir. `PrIndexStore` made that choice and the store exists.
 
-- **In the domain as readings** — matches `reap(readings, input)`, keeps the core synchronous, and makes the index the caller's to supply. The estate's existing shape.
-- **Behind a port** — an adapter writes, the domain reads. Fits the layering rule directly but adds async to a core that has none.
-- **A file under `.plot/state/`** — reachable by shell consumers with no running board, which `plot-ask.mjs` exists to preserve. Also the shape most able to go stale unnoticed.
-
-**A slice decides this with the three named and argued**, not by picking one here. The wrong choice is recoverable in code and not in a plan that asserted it.
+The plan's job is no longer to choose a shape. It is to find out whether the shape chosen serves the consumers that need it — which is what a first consumer measures.
 
 ### What this does NOT do
 
@@ -113,19 +140,23 @@ A verdict is re-derivable from git for free and stale the moment a ref moves. An
 
 ## Slices
 
-Three, and the first decides the shape the other two build on.
+Three, and the first is the one that matters.
 
-### The index has a home (Branch: `infra/the-index-has-a-home`)
+### The index has its first consumer (Branch: `infra/the-index-has-its-first-consumer`)
 
-Decide among the three candidates above with the argument written down, then build the store and its two properties — revalidate on read, never record an unobtainable answer. No decider changes; the store is proved alone.
+**One** script moved from asking the host to reading `PrIndexStore` — `plot-impl-status.sh`, chosen because it has the fewest host calls (6) and the narrowest question (*did this plan's PRs merge?*), which the store answers directly.
 
-### A decider reads the index (Branch: `infra/a-decider-reads-the-index`)
+It proves the store serves a real consumer before anything larger depends on it, and it answers the question the shipped store has never been asked: **can a shell script read it without a running board?** The file is plain JSON under `--git-common-dir`, so the answer is probably yes, and *probably* is what this slice replaces.
 
-**One** decider, chosen for having the fewest spawn sites, moved to read the index. Its spawns go; the CI ratchet falls by that count. One is the slice, because the second is a repetition and the first is the design.
+### A decision reads rather than asks (Branch: `infra/a-decision-reads-rather-than-asks`)
 
-### The index serves the shell consumers (Branch: `infra/the-index-serves-the-shell`)
+The second consumer, chosen after the first has shipped. `plot-reconcile-scan.sh` (6 calls) or `plot-fleet-scan.sh` (28) — the slice names which and why, with the first slice's experience in hand.
 
-**The open slice.** The fleet scan, the reconcile sweep and `impl-status` are shell, and they must reach the index without a running board. `plot-ask.mjs` is the precedent — the controller reached without HTTP — and its answer may not transfer, because that artifact answers questions and an index is state. Not specified here.
+### The rule is written down (Branch: `docs/the-rule-is-written-down`)
+
+**Only after two consumers exist.** The rule — *a tool call writes the index; a decision reads it or is triggered by it* — goes into CLAUDE.md beside the layering rule, with the consumers as its evidence.
+
+**Written last deliberately.** A rule stated before anything follows it is the shape this estate has measured repeatedly: `setSprintState` had nine refusals and zero callers, and the rule in prose did not stop a master agent writing the field by hand.
 
 ## Notes
 
