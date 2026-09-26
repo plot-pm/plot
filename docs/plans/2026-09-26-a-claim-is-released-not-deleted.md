@@ -116,7 +116,7 @@ The backstop already detects it, and detection is not the gap: the log line says
 
 ## Slices
 
-### A claim is released, not deleted (Branch: `bug/a-claim-is-released-not-deleted`)
+### A claim is released, not deleted (Branch: bug/a-claim-is-released-not-deleted)
 
 Add the verb, its two refusals, and the test that reproduces the measured sequence.
 
