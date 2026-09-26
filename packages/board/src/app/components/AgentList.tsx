@@ -57,6 +57,12 @@ import { splitBranch } from '../lib/tuple-row.js';
 // from here, and a second definition is exactly the drift this slice removed.
 export { splitBranch };
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
+import {
+  readMineOnly,
+  readerFrom,
+  rowsForReader,
+  writeMineOnly,
+} from '../lib/agent-rows/mine-filter.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, showPlanHeading, showsSliceFold, sortByWaiting, ungroupedRows, sliceGroupsFor, slicesElsewhere, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
@@ -277,6 +283,7 @@ export function AgentList({
   onStarting,
   onRevealBranch,
   highlightBranch = '',
+  server,
 }: AgentListProps) {
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
@@ -332,6 +339,25 @@ export function AgentList({
       const next = new Set(prev);
       next.delete(key);
       writeCollapsed(next);
+      return next;
+    });
+  };
+
+  // Whether the reader asked to see only their own work.
+  //
+  // Seeded from `localStorage` in the initializer rather than in an effect, for
+  // the reason the fold above is: an effect paints the unfiltered view and then
+  // removes rows from under the cursor, on a board reloaded several times an
+  // hour.
+  //
+  // OFF unless the reader turned it on — see `MINE_ONLY_BY_DEFAULT`. The
+  // identity it filters against is the BOARD's, which arrives on a separate
+  // fetch, so an unknown reader hides nothing rather than emptying the view.
+  const [mineOnly, setMineOnly] = useState<boolean>(() => readMineOnly());
+  const toggleMineOnly = () => {
+    setMineOnly((prev) => {
+      const next = !prev;
+      writeMineOnly(next);
       return next;
     });
   };
@@ -503,8 +529,34 @@ export function AgentList({
       return slugPassesSprintFilter(r.plan, selectedSprints, membership);
     });
 
+  // WHO IS READING, for the "only my work" filter. Derived from the board's two
+  // identity fields and nothing else — the row's branch name is never consulted.
+  const reader = useMemo(() => readerFrom(server), [server]);
+
+  // THE ROWS THIS READER ASKED FOR. Applied AFTER the sprint filter and BEFORE
+  // `rowsBySection`, for the reason the sprint filter states about itself: both
+  // answer *which rows does this reader want*, and the sections answer *where do
+  // those rows belong*.
+  //
+  // COMPOSED RATHER THAN MERGED. The sprint filter reports what it withheld per
+  // section, counted against `fleet.rows`; folding ownership into that count
+  // would make one number the answer to two different questions, and a reader
+  // told `3 hidden` could not tell which filter hid them. So this narrows the
+  // rows and contributes nothing to that accounting.
+  //
+  // A row somebody else owns is the only row hidden — an unowned row, and a row
+  // whose owner cannot be determined, both stay. Off, the array is returned
+  // untouched.
+  const visibleRows = rowsForReader(filteredRows, reader, mineOnly);
+
   // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
   // Issue rows have no sprint field, so they always pass.
+  //
+  // UNTOUCHED BY THE OWNERSHIP FILTER, and that is the rule rather than an
+  // omission: an unplanned issue carries no owner at all — `OwnedRow`'s `other`
+  // arm — so every issue reads as unknown and hiding none of them is what the
+  // rule already decides. Filtering them would need a second rule this branch
+  // does not own.
   const filteredIssues = fleet.issues;
 
   // HOW MANY WORKERS THE FILTER HIDES — `the-filter-does-not-hide-a-worker`,
@@ -730,6 +782,70 @@ export function AgentList({
         estateTotals={fleet.estateTotals}
       />
 
+      {/* ONLY MY WORK — the filter that hides rows somebody else owns.
+
+          BESIDE THE SPRINT FILTER, because the two answer the same kind of
+          question (*which rows do I want*) and a reader looking for one will
+          look here for the other. It is a separate control rather than a third
+          sprint row: a sprint is a thing a plan belongs to, and ownership is a
+          fact about whoever is reading.
+
+          OFF ON A FIRST VISIT, and it says what it hides once on. A board that
+          withheld rows silently could not be told apart from a quiet estate —
+          #967's own finding, and the reason the count is stated rather than
+          implied.
+
+          The identity is the BOARD's, which arrives on a separate fetch from the
+          rows. Where it is empty — a host CLI that names nobody, a server from
+          before the fields — every row reads as an unknown owner and NOTHING is
+          hidden, so the control is shown with the reason it can do nothing
+          rather than hidden itself: a control that vanishes teaches a reader it
+          does not exist, the rule `SprintFilter` states for its disabled arm. */}
+      {(() => {
+        // WHETHER THE BOARD KNOWS WHO IS READING. Both fields empty is the
+        // honest "not configured" answer, and the filter cannot act on it.
+        const known = (reader.hostUser ?? '') !== '' || (reader.gitEmail ?? '') !== '';
+        const hidden = mineOnly ? filteredRows.length - visibleRows.length : 0;
+        return (
+          <label
+            data-mine-filter
+            data-mine-known={known ? '1' : '0'}
+            className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+              mineOnly
+                ? 'border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950/30'
+                : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800'
+            }`}
+          >
+            <input
+              type="checkbox"
+              data-mine-toggle
+              checked={mineOnly}
+              onChange={toggleMineOnly}
+              className="h-3.5 w-3.5 accent-green-600"
+            />
+            <span className="font-medium text-slate-700 dark:text-slate-200">
+              Only my work
+            </span>
+            {/* WHAT IT DID, once it is on. `0 hidden` is a real and useful
+                answer — it says the filter ran and this estate is all yours —
+                so it is printed rather than suppressed. */}
+            {mineOnly && (
+              <span data-mine-hidden={hidden} className="text-xs text-slate-500 dark:text-slate-400">
+                {hidden === 1 ? '1 row hidden' : `${hidden} rows hidden`}
+              </span>
+            )}
+            {/* WHY IT CAN DO NOTHING, where the board named nobody. Stated on
+                the control itself: a checkbox that ticks and changes nothing is
+                read as a broken filter. */}
+            {!known && (
+              <span className="text-xs italic text-slate-400 dark:text-slate-500">
+                no identity configured — nothing to match
+              </span>
+            )}
+          </label>
+        );
+      })()}
+
       {/* THE MASTER AGENT ROW — the branch the main checkout is on.
 
           Placed above the sections because it answers "where am I", which is
@@ -785,7 +901,7 @@ export function AgentList({
           banners as well; a section break has to read as a bigger break than a
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
-      {(() => { const sectionedRows = rowsBySection(filteredRows);
+      {(() => { const sectionedRows = rowsBySection(visibleRows);
         // THE UNFILTERED ROWS, for computing how many each section hides. A
         // section that says `(3)` while hiding 5 looks complete when it is
         // not — the spec says a filtered section must say what it withheld.

@@ -291,6 +291,18 @@ export interface AgentListProps {
    * selection, so the page clears it on the next interaction.
    */
   highlightBranch?: string;
+  /**
+   * Who is reading — the two identity fields `/api/board`'s `server` carries,
+   * for the "only my work" filter to compare each row against.
+   *
+   * A PROP rather than a field on `Fleet`, because the identity travels on the
+   * BOARD payload and the two are fetched separately. Absent where the board
+   * has not answered yet, and absent from an older server that never sent the
+   * fields — both of which the ownership rule reads as an unknown reader, which
+   * hides nothing. A filter that emptied the board because it did not yet know
+   * who was looking would be the worse failure by far.
+   */
+  server?: { hostUser?: string; gitEmail?: string };
 }
 
 /**

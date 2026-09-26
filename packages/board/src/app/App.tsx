@@ -1153,6 +1153,13 @@ export function App() {
               // branch half, and the row it reveals wears the ring below.
               onRevealBranch={revealBranch}
               highlightBranch={highlightBranch}
+              // WHO IS READING, for the "only my work" filter. It rides on the
+              // BOARD payload while the rows ride on the fleet, and the two are
+              // fetched separately — so this is `undefined` until the first board
+              // lands, which the filter reads as an unknown reader and hides
+              // nothing. A filter that emptied the view for one poll interval
+              // while the identity caught up would be the worse failure.
+              server={board?.server}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
