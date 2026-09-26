@@ -6,7 +6,7 @@
 
 - **State:** Draft
 - **Type:** bug
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1003
 - **Sprint:** a-refusal-names-what-it-cannot-see
