@@ -1,6 +1,12 @@
 # Panel — a parsed plan joins the index
 
-**Reject.** One lens reported; it executed against a read-only brief, which is how it found this.
+**Reject.** One lens of two reported.
+
+**The evidence juror wrote no verdict.** It was briefed to re-measure every number and to test whether the parse is a pure function of the file's bytes; it is absent from the agent list and left no file. Its questions are unanswered, and the panel is recorded as one lens rather than two.
+
+**That does not weaken the reject.** The architecture juror executed against a read-only brief and produced a measurement the moderator reproduced independently — 481 ms for all 350 plans in one invocation. A second juror could not un-measure it.
+
+**It does leave one question open**: whether `plot-plan-meta.sh`'s output depends on anything but the file's bytes. That mattered only to the rejected design, so it dies with it — but any future plan keyed on content must ask it.
 
 ## The premise is false: the scan already batches
 
