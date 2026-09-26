@@ -290,10 +290,11 @@ export const handleInterrogate = async (
     return;
   }
 
+  const prompt = composeInterrogatePrompt(path.relative(opts.repoRoot, planFile));
   const promptPath = interrogatePromptPath(opts.repoRoot, slug);
   try {
     fs.mkdirSync(path.dirname(promptPath), { recursive: true });
-    fs.writeFileSync(promptPath, composeInterrogatePrompt(path.relative(opts.repoRoot, planFile)), 'utf8');
+    fs.writeFileSync(promptPath, prompt, 'utf8');
   } catch (err) {
     json(500, {
       error: `cannot write ${promptPath}: ${err instanceof Error ? err.message : String(err)}`,
