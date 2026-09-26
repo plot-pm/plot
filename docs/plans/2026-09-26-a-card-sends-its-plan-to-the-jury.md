@@ -9,7 +9,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Sprint:** a-refusal-names-what-it-cannot-see
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 

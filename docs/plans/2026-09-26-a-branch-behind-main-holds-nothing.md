@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Sprint:** a-refusal-names-what-it-cannot-see
 - **Issue:** #1002
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
