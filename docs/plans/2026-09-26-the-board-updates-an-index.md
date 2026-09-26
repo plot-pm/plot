@@ -4,13 +4,29 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Review:** pr
 - **Impl:** own branches
 - **Issue:** #1008
 - **Sprint:** a-refusal-names-what-it-cannot-see
-- **Rounds:** 0
+- **Rounds:** 1
+
+## Why this was rejected
+
+**Rejected 2026-09-26 after a five-lens panel: 1 reject, 4 amend, and three of the four amends found what the reject found.**
+
+**The premise is false.** `fleet.ts:3242`'s `publishPartial` already composes a partial scan over the previous answer, shipped in PR #242 four months before this plan was written — *"Plans this scan has spoken about win; plans it has not reached yet stay as they were."* `setFleet` does replace the fleet, but what it replaces with is already accumulated. A client-side index would be a second accumulator over an already-accumulated stream.
+
+**Two supporting claims are also false.** `complete` has a client reader at `AgentList.tsx:2206`, contradicting this plan's flat statement that it has none. And the cost table counted `grep -c plot-host.sh` matches rather than call sites: 15 against 6 measured for the fleet scan, 15 against 2 for reconcile, 7 against 4 for impl-status — most matches are comments and operator-advice strings, and the surviving calls are already bundled.
+
+**The justification was obsolete when it was written.** The ~37 s rollup figure is the pre-fix number from #1005's own commit message. #1005 merged 2026-09-26 12:08, about four hours before this plan cited it as live evidence.
+
+**The symptom remains unexplained.** Two live agents' slices were absent from the board while WORKING showed both agents. That measurement stands; this plan's explanation of it does not, and no juror supplied another. Reproducing it against a board that already accumulates is where a replacement starts.
+
+**Four findings survive any redesign**, recorded in `.plot/panels/2026-09-26-the-board-updates-an-index/panel.md`: `branch` is not a unique key across plans; git cannot invalidate a `localDirty` entry; an action's 202 is narrower than this plan assumed; and slices 1 and 2 could not have landed independently.
+
+**The panel's own blind spot is worth keeping too.** Four of five jurors read and did not run. The one that executed is the one that overturned the justification.
 
 ## Changelog
 
