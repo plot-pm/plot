@@ -862,9 +862,6 @@ prefill_pr_states() {
   open_err=$("$script_dir/plot-host.sh" pr-list --state open --limit "$PR_LIST_LIMIT" --rich \
          ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$open_list_out"); rc_open=$?
-  host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" \
-         ${_branch_args[@]+"${_branch_args[@]}"} \
-         </dev/null 2>&1 >"$host_list_out"); rc=$?
   # THE VERDICT IS THE WORSE OF THE TWO, never the last one. A rich call
   # throttled while the plain one answers leaves `checks` absent for every open
   # PR, so `--loose` degrades to strict — and a footer reading `host=ok` would
@@ -872,8 +869,15 @@ prefill_pr_states() {
   #
   # A FAILED CALL PREFILLS NOTHING, whichever of the two failed. That is the
   # single call's behaviour carried over: a verdict other than `ok` or
-  # `partial` sets the verdict and returns before any payload is read.
+  # `partial` sets the verdict and returns before any payload is read. A
+  # failed `open` call therefore decides the outcome alone, and the `all` call
+  # is not made: its answer could not change the verdict's direction, and on a
+  # throttled host it would spend quota on a payload nothing reads.
   pr_list_verdict "$rc_open" "$open_err"; _v_open=$_plv
+  case "$_v_open" in ok|partial) ;; *) HOST_VERDICT=$_v_open; return 0 ;; esac
+  host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" \
+         ${_branch_args[@]+"${_branch_args[@]}"} \
+         </dev/null 2>&1 >"$host_list_out"); rc=$?
   pr_list_verdict "$rc" "$host_err"; _v_all=$_plv
   pr_list_verdict_rank "$_v_open"; _r_open=$_plr
   pr_list_verdict_rank "$_v_all"
