@@ -91,6 +91,43 @@ There is nowhere to store it. Without an index there is no *what we know* — on
 
 **An action writes what it was told and never what it assumes.** A 202 from `dispatch` says the dispatch was accepted, not that a worker is running — so the index records acceptance, and the state a worker reaches is still the scan's to report. An action that refuses writes nothing: the refusal is already rendered beside the button, and a refusal is not a reading about the row.
 
+### The index serves every consumer, not only the render
+
+**A tool call is expensive whether the data is remote or local, so its result must be available to everything that needs it.** Four consumers ask the host the same questions independently today:
+
+| consumer | asks for | call sites |
+|---|---|---|
+| `plot-fleet-scan.sh` | `pr-state`, `pr-list` | 15 |
+| `plot-reconcile-scan.sh` | `pr-state`, `issue-list` | 15 |
+| `plot-impl-status.sh` | `pr-state`, `pr-list` | 7 |
+| the supervisor's queue rule | `landed` — *"the host's `mergedAt`"* (`queue.ts:51`) | via readings |
+
+The rollup alone was measured at ~37 s of a ~55 s scan, and that is **one** consumer's share of one question. Nothing shares an answer with anything else.
+
+**So the index is not a render cache.** It is where a paid-for answer lands so that the fleet, the registry, the supervisor and the board all read one copy. A render-only index would fix the vanishing rows and leave the cost exactly where it is.
+
+### This must not become the record the estate already refused
+
+`fleet.ts:2173` states the rule this plan has to satisfy rather than talk past:
+
+> **A DERIVATION, NEVER A RECORD.** Every input is this pass's own … A persisted verdict would be a cache git cannot reach, which is precisely what the plan rejects.
+
+**The distinction that makes this admissible is between a verdict and an answer.** A verdict is derived — re-derivable from git for free, and stale the moment a ref moves. A host answer is *bought* — it cannot be re-derived at any price, and no git operation can reproduce it.
+
+**The estate already caches host answers on exactly these terms.** `PLOT_TERMINAL_CACHE` holds terminal PR states across passes, and `plot-fleet-scan.sh:1234` says why it is safe:
+
+> **THE VALIDATION IS THE FEATURE.** Every arm here is a question to git, asked on every pass, and any disagreement discards the entry rather than repairing it.
+
+Each entry is keyed by the plan's blob hash and the default branch's tip; either having moved makes it *"a fact about a repo that no longer exists"* and the entry is dropped. And *"only a decided answer is terminal"* — an unanswerable question is never stored, so one unreachable afternoon cannot freeze into every later pass.
+
+**This index adopts those three properties and stores nothing else:**
+
+- an entry records **what the host said**, never what a rule concluded from it;
+- every entry carries what it was read against, and is revalidated against git on every pass;
+- an answer that could not be obtained is not an entry — absence stays absence.
+
+A cache revalidated against git on every read is still a derivation. Only an unvalidated one is a record.
+
 ### When absence means removal
 
 **A row's absence is evidence only when the answer claims to be whole.** `complete: true` means the scan reached its terminal line, so a branch the index holds and the payload omits is genuinely gone — reap it from the index. `complete: false` means the rest has not arrived, and absence says nothing at all.
@@ -109,6 +146,7 @@ A row carried from an earlier pass is not the same claim as a row just measured,
 - **It does not change the failure path.** Keeping the last good fleet on an unreachable server is correct and stays exactly as it is.
 - **It does not re-derive a section client-side.** The index stores what the server decided; it never recomputes it. A component deciding a row's section is what CLAUDE.md forbids.
 - **It does not touch `/api/board`.** That endpoint polls at 30 s and carries artifacts, which move in days. The partial-answer problem is the fleet's.
+- **It does not put the shared index behind HTTP.** A script asking a running board would gain a dependency on the board being up — the failure `plot-ask.mjs` exists to avoid, and seven skills would fail on a machine with no board. How a shell consumer reaches the index is the third slice's question and it is open.
 - **It does not make the index survive a reload.** Nothing is persisted; the index is in memory and a reload starts cold, which is honest — a cold board already renders nothing rather than guessing.
 
 ## Done when
@@ -123,7 +161,7 @@ A row carried from an earlier pass is not the same claim as a row just measured,
 
 ## Slices
 
-Two slices, and the first is the structure the second writes into.
+Three slices. The first is the structure, the second writes into it, and the third — deliberately unspecified — opens it to the consumers that are paying for the same answers today.
 
 ### The board updates an index (Branch: `bug/the-board-updates-an-index`)
 
@@ -132,6 +170,14 @@ The index, the merge keyed by branch, the `complete`-gated removal, the held-row
 ### Every tool call updates the index (Branch: `bug/every-tool-call-updates-the-index`)
 
 The twelve POST sites write their outcomes into the index on success. Each writes what the endpoint reported and nothing it did not; a refusal writes nothing. A test asserts a dispatched row moves on the action's own answer, with no poll in between.
+
+### The index serves the other consumers (Branch: `bug/the-index-serves-its-consumers`)
+
+**The open slice, and it is deliberately last.** The two above are client-side and self-contained; this one crosses into the scan, the reconcile sweep and the supervisor, and it has a question neither of them has: **how does a shell script read the index without depending on a running board?**
+
+`plot-ask.mjs` is the precedent — the controller reached without HTTP, built because *"a board is optional and none was running when the choice was measured; seven skills would have gained a dependency whose failure arrives as a skill that works on the operator's machine and not in a worker's."* The same argument applies here and the same answer may not: an index is state, and `plot-ask.mjs` answers questions.
+
+**This slice is not specified.** It states the problem and the constraint; the shape is for whoever takes it, after the first two have proved the index itself.
 
 ## Notes
 
