@@ -9,7 +9,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1013
-- **Sprint:** a-refusal-names-what-it-cannot-see
+- **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 1
 
 ## Changelog
