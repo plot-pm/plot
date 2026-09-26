@@ -87,7 +87,7 @@ The rule is naming, not logic: both answers are already computed correctly. The 
 
 ## Slices
 
-### A wave says which question it answered (Branch: bug/a-wave-says-which-question-it-answered)
+### A wave says which question it answered (Branch: bug/a-wave-says-which-question-it-answered, PR: #1007)
 
 - `bug/a-wave-says-which-question-it-answered` — rename the footer's branch-counting key to `claimable=`, keeping `eligible=` beside it; the body's wave line agrees with its branch lines using `StartabilityVerdictSchema`'s words as a prose suffix, with claimed and in-progress counting as taken and `unknown` excluded; `--list-eligible` names a claimed-out candidate set on **stderr** so stdout stays a bare branch list; `--next` untouched; tests for a claimed-out wave, an empty estate, and a wave with one free branch
 
