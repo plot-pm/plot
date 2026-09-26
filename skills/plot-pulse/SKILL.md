@@ -160,11 +160,18 @@ The scan prints a per-plan wave report and ends with one machine-countable
 line. **Read the counts from that footer — never re-count the body:**
 
 ```
-summary: plans=1 waves=4 branches=6 claimed=0 eligible=1 blocked=3 deferred=0 merge_detect=pr-merge main=main
+summary: plans=1 waves=4 branches=6 claimed=0 claimable=1 eligible=1 blocked=3 deferred=0 merge_detect=pr-merge main=main
 ```
 
-`eligible` counts branches a worker could pick up *right now*: in an eligible
-wave, not already claimed, not deferred, not merged.
+`claimable` counts branches a worker could pick up *right now*: in an eligible
+wave, not already claimed, not deferred, not merged. `eligible` carries the same
+number beside it and is kept for consumers that read it — it was this count's
+only name until 2026-09-25, which meant a wave could print `eligible` in the
+body while the footer read `eligible=0` and both were right about different
+questions (#994). The body's word answers *are this wave's prerequisites met?*;
+this key answers *can a branch here be claimed now?*, and a wave being worked on
+satisfies the first and not the second. No footer key reports the wave answer —
+count the body's verdicts for that.
 
 `merge_detect` says how a branch whose ref was deleted at merge was recognised,
 so an `open` can be weighed rather than trusted blindly:
