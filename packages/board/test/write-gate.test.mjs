@@ -55,6 +55,9 @@ const WRITE_ROUTES = [
   // Commission design spawns a plot agent that writes a plan to this disk — the
   // same class of write as /api/idea, and gated by the same loopback boundary.
   { path: '/api/commission', body: { slug: 'ship-the-widget' } },
+  // Interrogate spawns a plot agent (/plot-panel) on a Draft plan — the same
+  // class of write as /api/commission, and gated by the same loopback boundary.
+  { path: '/api/interrogate', body: { slug: 'ship-the-widget' } },
   // Reslice spawns a plot agent that slices a plan's tangled wave into one wave
   // per branch — the same class of write as /api/commission, and gated by the
   // same loopback boundary. Added here because the router dispatches from a

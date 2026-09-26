@@ -96,7 +96,7 @@ describe('the controller answers without a server', () => {
       // refusals carry no reason because the walker has nothing to say about a
       // socket it never saw.
       for (const flag of ['dispatch', 'approve', 'continue', 'idea', 'commission',
-        'reslice', 'deliver', 'implement', 'drop', 'story'] as const) {
+        'interrogate', 'reslice', 'deliver', 'implement', 'drop', 'story'] as const) {
         assert.deepEqual(
           answer[flag], { available: false, reason: '' },
           `${flag} is the caller's to answer, not the controller's to know`,

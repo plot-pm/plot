@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { roundsBadgeText } from '../../src/app/components/PlanCard.js';
+import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../src/app/components/PlanCard.js';
 import { AgentRowSchema, CardSchema, type Card } from '../../src/contract/schema.js';
 
 // What a card SAYS about how hard its plan has been questioned. The interesting
@@ -16,12 +16,26 @@ describe('roundsBadgeText', () => {
     expect(roundsBadgeText(card({ rounds: 2 }))).toBe('2 rounds');
   });
 
-  it('says nothing at all when no interrogation is recorded', () => {
+  it('marks a plan that records no interrogation, and never as zero', () => {
     // ABSENT, not zero. "0 rounds" would read as interrogated-and-found-nothing;
-    // the truth is that nobody has looked, and those want opposite reactions
-    // from a reader. The badge must not appear — not appear saying zero.
-    expect(roundsBadgeText(card())).toBe('');
-    expect(roundsBadgeText(card({ rounds: undefined }))).toBe('');
+    // the truth is that nobody has looked. Since the Interrogate button, the
+    // absence is MARKED rather than silent — a plan nobody questioned is worth
+    // noticing.
+    expect(roundsBadgeText(card())).toBe('not interrogated');
+    expect(roundsBadgeText(card({ rounds: undefined }))).toBe('not interrogated');
+  });
+
+  it('renders absent and a recorded zero differently, in text and in style', () => {
+    // Both render something, and the two differ. A check that only asserts
+    // "absent does not say 0 rounds" passed while absent rendered nothing.
+    const absent = card();
+    const zero = card({ rounds: 0 });
+    expect(roundsBadgeText(absent)).not.toBe('');
+    expect(roundsBadgeText(zero)).not.toBe('');
+    expect(roundsBadgeText(absent)).not.toBe(roundsBadgeText(zero));
+    expect(roundsRecorded(absent)).toBe(false);
+    expect(roundsRecorded(zero)).toBe(true);
+    expect(roundsBadgeClass(absent)).not.toBe(roundsBadgeClass(zero));
   });
 
   it('renders a RECORDED zero, which is a different statement', () => {
@@ -36,6 +50,7 @@ describe('roundsBadgeText', () => {
     // board keeps removing.
     for (const phase of ['Design', 'Development', 'Testing', 'Released'] as const) {
       expect(roundsBadgeText(card({ phase, rounds: 3 }))).toBe('');
+      expect(roundsBadgeText(card({ phase }))).toBe('');
     }
     // …and every Draft card with a count does carry it.
     expect(roundsBadgeText(card({ phase: 'Discovery', rounds: 3 }))).toBe('3 rounds');
