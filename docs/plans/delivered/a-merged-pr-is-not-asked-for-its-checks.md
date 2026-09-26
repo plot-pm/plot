@@ -1,0 +1,1 @@
+../2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md

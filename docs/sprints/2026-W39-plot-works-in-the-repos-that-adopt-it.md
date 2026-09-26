@@ -41,7 +41,7 @@ Three conditions, and all must hold.
 - [ ] [the-board-shows-me-only-my-work](../plans/2026-09-24-the-board-shows-me-only-my-work.md) — [#967](https://github.com/plot-pm/plot/issues/967). The board shows me only my work
 - [ ] [the-parser-reads-an-assignee-wherever-it-is](../plans/2026-09-24-the-parser-reads-an-assignee-wherever-it-is.md) — The parser reads an assignee wherever it is
 - [x] [two-readers-disagree-about-a-sprint-item](../plans/2026-09-24-two-readers-disagree-about-a-sprint-item.md) — [#966](https://github.com/plot-pm/plot/issues/966). Two readers disagree about a sprint item
-- [ ] [a-merged-pr-is-not-asked-for-its-checks](../plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md) — A merged PR is not asked for its checks
+- [x] [a-merged-pr-is-not-asked-for-its-checks](../plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md) — A merged PR is not asked for its checks
 - [x] [a-plugin-install-finds-its-own-scripts](../plans/2026-09-25-a-plugin-install-finds-its-own-scripts.md) — [#980](https://github.com/plot-pm/plot/issues/980). A plugin install finds its own scripts
 - [x] [a-record-is-written-where-it-can-be-read](../plans/2026-09-25-a-record-is-written-where-it-can-be-read.md) — [#981](https://github.com/plot-pm/plot/issues/981). A record is written where it can be read
 - [x] [a-throttled-host-is-not-a-missing-pr](../plans/2026-09-25-a-throttled-host-is-not-a-missing-pr.md) — [#985](https://github.com/plot-pm/plot/issues/985). A throttled host is not a missing PR
