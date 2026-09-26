@@ -941,7 +941,14 @@ test('fleet: a backward merge is not evidence that the branch merged', () => {
   // The ref still exists here, so this branch reads wip — the point is that it
   // is NOT merged, however its backward-merge subject names it.
   assert.doesNotMatch(branchLine(out, 'feature/pulling'), / — merged$/);
-  assert.match(waveLine(out, 'One'), / — eligible$/,
+  // THE SUBJECT IS THE VERDICT, and the anchor moved to it. This test is about
+  // whether a backward merge settles a wave, and the answer is the word
+  // `eligible` — which it still is. Since `one-word-answers-two-questions-about-a-wave`
+  // an eligible wave whose every branch is taken also names WHO has it, and
+  // `feature/pulling` is `wip`, so the line reads `eligible — someone-is-on-it`.
+  // A `$` after the verdict asserted that nothing follows it, which was free
+  // before a suffix existed and is a second claim this test never meant to make.
+  assert.match(waveLine(out, 'One'), / — eligible(\s—\s\S+)?$/,
     'a branch that only pulled main in has not settled its wave');
 
   // And with the ref deleted — the arm the merge lookup lives in — the backward
@@ -1059,7 +1066,11 @@ test('fleet: a reused branch name does not inherit the old merge verdict', () =>
   const out = f.run();
   assert.match(branchLine(out, 'bug/flaky'), / — in progress$/,
     'the ref check must precede the merge lookup');
-  assert.match(waveLine(out, 'One'), / — eligible$/,
+  // The verdict is the subject here too — `eligible` rather than `complete` is
+  // what says the recreated branch did not inherit the old merge. The second
+  // attempt is `in progress`, so the line also names who has it; see the
+  // matching note in the backward-merge test above.
+  assert.match(waveLine(out, 'One'), / — eligible(\s—\s\S+)?$/,
     'and the wave must stay open on the new attempt');
   f.cleanup();
 });

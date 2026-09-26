@@ -16,6 +16,14 @@
 #   --list-eligible  print EVERY claimable branch, one per line (exit 1 if none).
 #               For callers that need the count rather than one item — a dry
 #               run changes nothing, so its answer cannot go stale.
+#               WHEN THERE ARE NONE IT SAYS WHY, ON STDERR: whether every
+#               candidate in an eligible wave is taken, or no eligible wave held
+#               a startable branch at all. Two silences a reader cannot
+#               otherwise tell apart (#994). Stdout stays a bare branch list
+#               because `plot-dispatch.sh` pipes it through `sort -u` and
+#               dispatches every line, and the exit code stays 1 either way, so
+#               no caller's gate moves. An estate with NO plans exits earlier
+#               and says nothing — there is no candidate set to describe.
 #   --loose     a prior wave counts as satisfied when its branches carry PUSHED
 #               work, not only merged work. Buys throughput, pays in rebase
 #               risk — the plan requires a stated reason for using it. Default
@@ -88,12 +96,21 @@
 # evidence of a typo either.
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
-#             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 waiting=1 prereq_missing=0 merge_detect=pr-merge host=ok main=main
+#             summary: plans=1 waves=3 branches=5 claimed=1 claimable=2 eligible=2 blocked=1 deferred=1 waiting=1 prereq_missing=0 merge_detect=pr-merge host=ok main=main
 #         `host` is one of ok, partial, throttled, secondary, failed, unasked —
 #         `partial` means some of the host's states answered and some did not,
 #         so the PR readings below are incomplete rather than absent.
 #         `blocked` counts WAVES an earlier wave holds; `waiting` and
 #         `prereq_missing` count BRANCHES their `waits:` annotation holds.
+#         `claimable` counts BRANCHES a worker may take now, and it is the key
+#         the offer paths agree with — `--next` names one of them and
+#         `--list-eligible` names all of them. `eligible=` carries the SAME
+#         number beside it and is kept for consumers that read it; it was the
+#         only name this count had until 2026-09-25, sitting between two wave
+#         counts while counting branches, so a wave printed `eligible` in the
+#         body while the footer read `eligible=0` and both were right about
+#         different questions (#994). A reader wanting the WAVE answer counts
+#         the body's verdicts; no footer key reports it.
 #         merge_detect names how merged-and-deleted branches were detected:
 #         pr-merge (exhaustive), truncated (capped walk), none (no conforming
 #         merge commits — a squash/rebase repo, where `open` says nothing about
@@ -3262,7 +3279,7 @@ if [ ${#plans[@]} -eq 0 ]; then
     # the scan globbed it; pointing a reader at the index would now send them to
     # look for the cause of an empty list in a directory nothing consults.
     echo "No plans found in ${PLAN_DIR}."
-    echo "summary: plans=0 waves=0 branches=0 claimed=0 eligible=0 blocked=0 deferred=0 waiting=0 prereq_missing=0 main=$MAIN"
+    echo "summary: plans=0 waves=0 branches=0 claimed=0 claimable=0 eligible=0 blocked=0 deferred=0 waiting=0 prereq_missing=0 main=$MAIN"
     exit 0
   fi
 fi
@@ -3690,6 +3707,12 @@ n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred
 # the footer keeps the two words apart for that reason.
 n_waiting=0 n_prereq_missing=0
 claimable=()
+# HOW MANY BRANCHES AN ELIGIBLE WAVE HOLDS THAT SOMEBODY IS ON — the fact that
+# separates "this estate has no work" from "every candidate here is taken", and
+# the only reason `--list-eligible` can say which of the two its silence means.
+# Counted across eligible waves only: a taken branch in a blocked wave was never
+# a candidate, so reporting it would name work the offer path never considered.
+n_taken_in_eligible=0
 plan_files=()
 # `--why-nothing`'s input: one `verdict<TAB>name:state|...` line per slice, in
 # plan order. Accumulated in the SAME loop that renders the branches, so the
@@ -4003,16 +4026,36 @@ for plan in "${plans[@]}"; do
     wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $7; exit}')
     [ "$wname" = "-" ] && wname=""
 
-    [ "$quiet" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
+    # THE HEADER IS HELD, NOT PRINTED — it carries a suffix that only the
+    # branch loop below can decide. `eligible` answers *are this wave's
+    # prerequisites met?* while every offer path answers *can a branch here be
+    # claimed now?*, and a wave whose branches are all taken satisfies the first
+    # and not the second. Reported 2026-09-25 (#994) from a Bitbucket estate:
+    # one wave `eligible`, eleven branches, both offer paths silent. The two
+    # computations are correct and the word was carrying both answers.
+    #
+    # The line still prints BEFORE its branches — only the decision is delayed,
+    # not the reading order — so the branch lines are buffered and flushed with
+    # it. There is exactly one `echo` in that loop, which is why buffering it
+    # costs less than threading the wave header past the six counters,
+    # `json_branches` and `outlook_branches` the loop also builds.
+    wave_header="  ${wname:-(unnamed)} — $verdict"
     # A degradation that says nothing is indistinguishable from a bug.
     # When --loose falls back to strict because the rollup cannot be had,
     # say so — an operator who passed the flag and sees strict behaviour
     # has no way to tell "the rollup said not-green" from "the rollup
     # could not be had". Both are correct refusals; only one is about
     # their PR.
+    wave_body=""
     if [ "$quiet" != 1 ] && [ "$loose" = 1 ] && [ -n "$_loose_degraded_branches" ]; then
-      echo "      (--loose degraded to strict: checks unavailable for ${_loose_degraded_branches})"
+      wave_body+="      (--loose degraded to strict: checks unavailable for ${_loose_degraded_branches})"$'\n'
     fi
+    # HOW MANY BRANCHES OF THIS WAVE ARE TAKEN, and how many claimable. Counted
+    # here rather than derived from the estate-wide `n_eligible`, which spans
+    # plans. `unknown` is in neither: the host could not be asked, so the branch
+    # is not taken and not free, and a wave holding one must never be reported
+    # as somebody else's work.
+    wave_taken=0 wave_free=0
     json_branches=""
     # The outlook's reading of this slice, built alongside the render. EVERY
     # branch including the deferred ones, in the plan's order — the rule needs
@@ -4063,8 +4106,17 @@ for plan in "${plans[@]}"; do
       if [ "${wave_claimable:$((branch_i - 1)):1}" = "1" ]; then
         n_eligible=$((n_eligible + 1))
         claimable+=("$br")
+        wave_free=$((wave_free + 1))
       fi
-      [ "$quiet" = 1 ] || echo "      $br — $note"
+      # TAKEN MEANS SOMEBODY HAS IT — claimed, or carrying pushed work. Read
+      # from the branch's own state rather than from the claimable flag above,
+      # because that flag is 0 for six different reasons and only these two mean
+      # a person is on it. `unknown` is excluded by naming the two states rather
+      # than by negating the flag.
+      case "$st" in
+        claimed|wip) wave_taken=$((wave_taken + 1)) ;;
+      esac
+      wave_body+="      $br — $note"$'\n'
       if [ "$build_doc" = 1 ]; then
         # The INTERNAL state ($st), never the prose label ($note): the board
         # must not parse a string that exists for humans to read.
@@ -4263,6 +4315,45 @@ for plan in "${plans[@]}"; do
       fi
     done <<< "$states"
 
+    # WHICH QUESTION THE WORD ANSWERED, said in the estate's existing
+    # vocabulary. `someone-is-on-it` is `StartabilityVerdictSchema`'s word
+    # (`packages/board/src/contract/schema.ts`) for exactly these two branch
+    # states, so the wave line and its branch lines now agree rather than
+    # offering a reader two answers to compare.
+    #
+    # A PROSE SUFFIX, NOT A SIXTH VERDICT. `$verdict` is untouched and reaches
+    # `--json`, `--stream` and the outlook byte-identical: `FleetWaveSchema`'s
+    # verdict is a strict enum, so a parsed pulse cannot carry a new word and
+    # widening it is a separate change with its own consumers.
+    #
+    # THE RULE, STATED: a wave line carries BOTH answers — the verdict, then who
+    # has it — and the suffix appears exactly when the wave is `eligible`, holds
+    # no free branch, and holds at least one branch that is `claimed` or `wip`.
+    # A wave with a free branch keeps bare `eligible`, which is what the offer
+    # paths will confirm; a wave whose only non-free branches are `unknown`
+    # keeps it too, because the host could not be asked and nobody has claimed
+    # anything.
+    #
+    # `wip` COUNTS AS TAKEN, which the plan settles three times: *"a branch
+    # counts as taken when it is claimed or in progress"*. A one-branch wave
+    # whose branch is `wip` therefore reads `eligible — someone-is-on-it`, and
+    # two tests in `fleet.test.mjs` asserted `/ — eligible$/` on exactly that
+    # shape. Their subject is the VERDICT — *"has not settled its wave"*,
+    # *"the wave must stay open"* — so the anchor moved to the verdict rather
+    # than the suffix being suppressed; the `$` was free before a suffix existed
+    # and asserted a second thing neither test meant. The other five sites
+    # carrying that anchor hold a free branch and are untouched.
+    if [ "$verdict" = "eligible" ] && [ "$wave_free" -eq 0 ] && [ "$wave_taken" -gt 0 ]; then
+      wave_header+=" — someone-is-on-it"
+    fi
+    if [ "$verdict" = "eligible" ]; then
+      n_taken_in_eligible=$((n_taken_in_eligible + wave_taken))
+    fi
+    if [ "$quiet" != 1 ]; then
+      echo "$wave_header"
+      [ -n "$wave_body" ] && printf '%s' "$wave_body"
+    fi
+
     if [ "$build_doc" = 1 ]; then
       json_waves+="${json_waves:+,}{\"name\":\"$(json_str "$wname")\""
       json_waves+=",\"verdict\":\"$verdict\",\"branches\":[$json_branches]}"
@@ -4344,6 +4435,27 @@ fi
 # "Nothing to start" is a normal state, not a failure — the exit code is what
 # distinguishes it from a name, so callers can branch on it without parsing.
 if [ "$next_only" = 1 ]; then
+  # WHY THE LIST IS EMPTY, for `--list-eligible` only, and ON STDERR. An
+  # operator reading the body's `eligible` and then getting silence here cannot
+  # tell a claimed-out estate from an empty one, and #994 is that reading: one
+  # wave eligible, eleven branches, nothing offered. The exit code still carries
+  # the answer — 1 either way — so no caller's gate moves.
+  #
+  # STDERR BECAUSE STDOUT IS A TARGET LIST. `plot-dispatch.sh:3475` pipes this
+  # stdout through `sort -u` and dispatches every line, so a sentence there
+  # becomes a branch name it tries to claim. That caller already discards
+  # stderr (`2>/dev/null`), so the sentence reaches a person and no machine.
+  #
+  # `--next` IS UNTOUCHED: its exit-1 contract is shipped, documented and
+  # tested twice, and it names ONE branch for a worker that has nothing to read
+  # a sentence with.
+  if [ ${#claimable[@]} -eq 0 ] && [ "$list_all" = 1 ]; then
+    if [ "$n_taken_in_eligible" -gt 0 ]; then
+      echo "nothing claimable: $n_taken_in_eligible branch(es) in eligible waves are taken." >&2
+    else
+      echo "nothing claimable: no eligible wave holds a startable branch." >&2
+    fi
+  fi
   [ ${#claimable[@]} -gt 0 ] || exit 1
   if [ "$list_all" = 1 ]; then
     printf '%s\n' "${claimable[@]}"
@@ -4651,4 +4763,4 @@ if [ "$build_doc" = 1 ] && [ "$record" = 1 ] && [ -n "$reading_doc" ]; then
 fi
 write_bridge
 echo "Pulse complete. This report is derived — nothing was changed."
-echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
+echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed claimable=$n_eligible eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
