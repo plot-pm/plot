@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Issue:** #1002
 - **Rounds:** 1
+- **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 
 ## Changelog
 
@@ -30,6 +31,31 @@ open      no ref at all                       refTip == null
 ```
 
 Row 2 is the defect. **No staleness is involved** — this is what the rule returns for a current reading of a ref that is behind the default branch and holds nothing.
+
+### Round 1 refuted the producer this plan named
+
+An earlier draft said `--start` creates the shape *"as a matter of course"*, its branch ref sitting at whatever main was at cut time. **It creates no ref at all.** `plot-dispatch.sh:2057` is `git worktree add -q --detach`, and `:2080` states *"THE EMPTY BRANCH IS THE WHOLE POINT … `write_agent_manifest` writes `"branch": ""`"*. A detached checkout pushes nothing.
+
+**The real source is a claim commit that was lost or squashed away.** A claim always carries `commit --allow-empty` (`plot-worker-loop.sh:2307`), so a *successful* claim reads `claimed`. The behind-main-empty shape is what remains when that commit is gone — `a-claim-is-released-not-deleted`'s territory, and the two plans meet here.
+
+### Two shipped tests assert this behaviour, and the plan must argue against them
+
+`packages/domain/test/branch-state.test.ts:279` and `:283`:
+
+```
+it('answers merged when its tip is behind main')
+it('answers merged where main cannot be read and the tip differs')
+```
+
+The second defends itself: *"The tips are compared, not resolved: an unreadable main is not equality."*
+
+**A juror applied the fix and measured the blast radius: 4 failed / 38 passed**, all four in this file, all asserting `merged` for a zero-ahead behind-main branch. No collateral breakage.
+
+**So the slice must argue against those two tests by name**, or accept that the behaviour is intended and the defect lies elsewhere. It may not simply change them to pass.
+
+### The arm is reached by no branch on this estate
+
+Measured 2026-09-26: 4 branches reach `:183`, 20 reach `:187`, 2 the has-ref arm, and **0 reach `:264`**. The fix is therefore safe to make and **cannot be verified against this estate's corpus** — see `a-corpus-test-says-what-it-verifies`, whose round 1 measured exactly this while testing the same line.
 
 ### The comment at `:239-250` names two shapes and there are three
 
