@@ -86,6 +86,12 @@ exec node "${stubDir}/gh.mjs" "$@"
 import fs from 'node:fs';
 const argv = process.argv.slice(2);
 const state = JSON.parse(fs.readFileSync(${JSON.stringify(statePath)}, 'utf8'));
+if (state.refuse) {
+  // A HOST THAT REFUSES EVERY CALL, on both transports — the measured incident
+  // was a rate limit, and a refusal on one path must not be answered by another.
+  process.stderr.write(state.refuse);
+  process.exit(1);
+}
 if (argv[0] === 'pr' && argv[1] === 'view') {
   process.stdout.write(JSON.stringify({
     number: state.number, state: state.state, isDraft: state.draft,
@@ -550,4 +556,117 @@ test('approve: nothing is written when the merge fails', () => {
   refreshMain();
   assert.equal(git(repo, 'rev-parse', 'origin/main').trim(), shaBefore);
   assert.match(planOnMain(), /- \*\*Phase:\*\* Draft/);
+});
+
+// --- a host that could not be asked -----------------------------------------
+//
+// `pr-state` exits 0 with `state: NONE` when the host answered that the branch
+// has no PR, and non-zero when it could not be asked. The approval read both as
+// NONE until 2026-09-26 and prescribed pushing a branch the operator had
+// already pushed — measured on Bitbucket, a PR that was OPEN while `bb pr list`
+// answered HTTP 429.
+
+/** A copy of the scripts whose `plot-host.sh` answers `pr-state` with a fixed exit. */
+function scriptsWithHostExit(code, stderr) {
+  const dir = fs.mkdtempSync(path.join(tmp, 'scripts-'));
+  fs.cpSync(SCRIPTS, dir, { recursive: true });
+  fs.renameSync(path.join(dir, 'plot-host.sh'), path.join(dir, 'plot-host-real.sh'));
+  fs.writeFileSync(path.join(dir, 'plot-host.sh'), `#!/usr/bin/env bash
+if [ "$1" = pr-state ]; then printf '%s\\n' ${JSON.stringify(stderr)} >&2; exit ${code}; fi
+exec bash "$(dirname "$0")/plot-host-real.sh" "$@"
+`);
+  return path.join(dir, 'plot-approve.sh');
+}
+
+function runScript(script, args) {
+  try {
+    const out = execFileSync('bash', [script, ...args], {
+      encoding: 'utf8', cwd: repo,
+      env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { code: 0, out, err: '' };
+  } catch (e) {
+    return { code: e.status, out: e.stdout || '', err: e.stderr || '' };
+  }
+}
+
+/** Nothing reached the host's merge and nothing reached main: the phase is untouched. */
+function assertNothingWritten(shaBefore) {
+  refreshMain();
+  assert.equal(git(repo, 'rev-parse', 'origin/main').trim(), shaBefore, 'nothing may be pushed to main');
+  assert.match(planOnMain(), /- \*\*Phase:\*\* Draft/, 'the phase must not be flipped');
+  assert.doesNotMatch(planOnMain(), /- \*\*Approved:\*\* \d/, 'no approval may be recorded');
+  assert.equal(hostState().state, 'OPEN', 'the PR must not be merged');
+}
+
+test('approve: a rate-limited host stops the approval with its own reason, and prescribes no push', () => {
+  // End to end through the real adapter: the code the incident produced is
+  // whatever `pr-state` exits on a refusal, and it is asserted rather than assumed.
+  makeRepo();
+  setHostState({ number: 42, state: 'OPEN', draft: false,
+    refuse: 'HTTP 429: API rate limit exceeded for user (https://api.github.com/graphql)' });
+  const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+  const { code, err } = run(['approve-me'], { expectFail: true });
+  assert.equal(code, 1);
+  assert.match(err, /pr-state exited 3\b/, `the incident's exit code is 3:\n${err}`);
+  assert.match(err, /HTTP 429: API rate limit exceeded/, 'the host\'s own words must reach the operator');
+  assert.doesNotMatch(err, /no PR found/i);
+  assert.doesNotMatch(err, /push/i, `a throttled read must prescribe no push:\n${err}`);
+  setHostState({ number: 42, state: 'OPEN', draft: false });
+  assertNothingWritten(shaBefore);
+});
+
+for (const [code, reason] of [
+  [3, 'plot-host: HTTP 429 — rate limit for this resource has been exceeded'],
+  [5, 'plot-host: host throttled — the window\'s quota is spent'],
+]) {
+  test(`approve: pr-state exit ${code} stops the approval as unasked, not as absent`, () => {
+    makeRepo();
+    const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+    const { code: rc, err } = runScript(scriptsWithHostExit(code, reason), ['approve-me']);
+    assert.equal(rc, 1);
+    assert.match(err, /could not be asked/);
+    assert.ok(err.includes(reason), `the host's reason must be printed verbatim:\n${err}`);
+    assert.doesNotMatch(err, /no PR found/i);
+    assert.doesNotMatch(err, /push/i);
+    assertNothingWritten(shaBefore);
+  });
+}
+
+test('approve: pr-state exit 4 stops with its own sentence, not the absence one', () => {
+  makeRepo();
+  const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+  const reason = 'plot-host.sh: pr-state: this backend has no PR state';
+  const { code, err } = runScript(scriptsWithHostExit(4, reason), ['approve-me']);
+  assert.equal(code, 1);
+  assert.match(err, /has no answer for the PR state/);
+  assert.doesNotMatch(err, /could not be asked/, 'exit 4 is not a refused call');
+  assert.ok(err.includes(reason));
+  assert.doesNotMatch(err, /no PR found/i);
+  assert.doesNotMatch(err, /push/i);
+  assertNothingWritten(shaBefore);
+});
+
+test('approve: a genuine absence keeps the push prescription exactly', () => {
+  makeRepo();
+  setHostState({ number: 0, state: 'NONE', draft: false });
+  const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+  const { err } = run(['approve-me'], { expectFail: true });
+  assert.equal(err, `plot-approve: no PR found for branch 'idea/approve-me'.
+  Push the branch: git push -u origin idea/approve-me
+  Then open its PR — or run /plot-idea, which does both.
+`);
+  setHostState({ number: 42, state: 'OPEN', draft: false });
+  assertNothingWritten(shaBefore);
+});
+
+test('approve: exit 0 with a PR proceeds through the same capture', () => {
+  // The control for the arms above: the stubbed adapter passes every other op
+  // through, so an OPEN PR still approves when pr-state answers 0.
+  makeRepo();
+  const { code, out } = run(['approve-me']);
+  assert.equal(code, 0);
+  assert.match(out, /pr=#42\(OPEN\)/);
+  assert.equal(hostState().state, 'MERGED');
 });
