@@ -1,4 +1,4 @@
-import { isLiveState, isBrokenState, type AgentEntry, type AgentRow } from '../../../contract/schema.js';
+import { isLiveState, isBrokenState, type AgentEntry, type AgentRow, type DraftPlan } from '../../../contract/schema.js';
 
 /**
  * One WORKING row per LIVE registry entry, joined to a branch row where one
@@ -88,3 +88,35 @@ export function brokenAgentRows(
       row: agent.branch ? rowByBranch.get(agent.branch) ?? null : null,
     }));
 }
+
+/**
+ * One WAITING ON YOU row per Draft plan that no branch row belongs to — a plan
+ * awaiting a person's decision, with no branch to carry it.
+ *
+ * THE SECOND NON-BRANCH SOURCE, beside {@link brokenAgentRows}. A plan is cut
+ * into branches at dispatch, after approval, so a Draft plan normally has no
+ * branch and the per-branch classifier cannot reach it.
+ *
+ * THE TEST IS THE ROW SET, NOT THE PHASE. A Draft plan under `Impl: same branch`
+ * already has a branch row, which the classifier's `draft` arm places in WAITING
+ * ON YOU; emitting a plan row too would name it twice. So a plan qualifies only
+ * where no row in `rows` carries its slug. Pass the UNFILTERED `fleet.rows`: the
+ * sprint filter hides rows, and a hidden row still means the plan has one.
+ *
+ * `draftPlans` holds Draft plans only — the server decides the phase. The
+ * returned entries keep `rounds` exactly as sent, absent included.
+ */
+export const draftPlanRows = (draftPlans: DraftPlan[], rows: AgentRow[]): DraftPlan[] => {
+  const withRow = new Set(rows.map((row) => row.plan).filter((plan) => plan !== ''));
+  return draftPlans.filter((draft) => !withRow.has(draft.plan));
+};
+
+/**
+ * What a Draft plan row says about its interrogation rounds.
+ *
+ * Absent and 0 are two statements: `undefined` means no `Rounds:` field and
+ * reads `not interrogated`, while a recorded 0 reads `0 rounds`. The count is
+ * reported and never judged.
+ */
+export const draftRoundsText = (rounds: number | undefined): string =>
+  rounds === undefined ? 'not interrogated' : rounds === 1 ? '1 round' : `${rounds} rounds`;

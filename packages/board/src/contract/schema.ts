@@ -3785,7 +3785,7 @@ export type FleetSprint = z.infer<typeof FleetSprintSchema>;
 export const DraftPlanSchema = z.object({
   /** The plan's slug — the same key `AgentRow.plan` carries. */
   plan: z.string(),
-  /** The plan file, relative to the repository root. */
+  /** The plan's filename — the same value `AgentRow.planFile` carries. */
   planFile: z.string(),
   title: z.string().default(''),
   rounds: z.number().optional(),

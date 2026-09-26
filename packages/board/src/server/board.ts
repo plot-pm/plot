@@ -2257,6 +2257,26 @@ export async function planStatusBySlug(
 }
 
 /**
+ * The Draft plan entry for one parsed plan, or null where the plan is past Draft.
+ *
+ * Only the phase `draft` qualifies: `approved`, `delivered`, `released` and every
+ * other phase answer null. `rounds` is copied only where the parser sent it,
+ * because an absent key means no `Rounds:` field and `0` means a recorded 0.
+ *
+ * @param meta - the plan as `plot-plan-meta.sh` parsed it.
+ * @param relPath - the plan's canonical path; its basename is the plan file.
+ */
+export const draftPlanOf = (meta: PlanMeta, relPath: string): DraftPlan | null =>
+  meta.phase === 'draft'
+    ? {
+      plan: planSlug(relPath),
+      planFile: path.basename(relPath),
+      title: meta.title,
+      ...(meta.rounds === undefined ? {} : { rounds: meta.rounds }),
+    }
+    : null;
+
+/**
  * The working-tree plan estate, parsed once: every plan's status keyed by slug,
  * and every plan at `Draft` with its `rounds`.
  *
@@ -2307,16 +2327,8 @@ export async function planEstate(
       const canonical = canonicalPath.get(meta.file);
       const relPath = canonical ?? path.relative(repoRoot, meta.file);
       bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));
-      // `rounds` is copied only where the parser sent it: an absent key is the
-      // parser's answer that no `Rounds:` field exists, which is not 0.
-      if (meta.phase === 'draft') {
-        draftPlans.push({
-          plan: planSlug(relPath),
-          planFile: relPath,
-          title: meta.title,
-          ...(meta.rounds === undefined ? {} : { rounds: meta.rounds }),
-        });
-      }
+      const draft = draftPlanOf(meta, relPath);
+      if (draft) draftPlans.push(draft);
     }
   } finally {
     // Same removal, same reading — see the longer note on the other stage-dir
