@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-24, in-session review after panel (round 1)
 - **Started:** 2026-09-24, Jan Wloka (claude session), `bug/the-probe-asks-the-host-for-the-default`
 - **Started:** 2026-09-25, Jan Wloka (claude session), `bug/adoption-proposes-the-main-branch-key`
+- **Delivered:** 2026-09-26
 
 ## Changelog
 
