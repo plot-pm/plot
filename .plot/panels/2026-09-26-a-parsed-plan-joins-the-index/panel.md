@@ -1,12 +1,8 @@
 # Panel — a parsed plan joins the index
 
-**Reject.** One lens of two reported.
+**Reject.** Two lenses, both executed: architecture (reject), evidence (amend).
 
-**The evidence juror wrote no verdict.** It was briefed to re-measure every number and to test whether the parse is a pure function of the file's bytes; it is absent from the agent list and left no file. Its questions are unanswered, and the panel is recorded as one lens rather than two.
-
-**That does not weaken the reject.** The architecture juror executed against a read-only brief and produced a measurement the moderator reproduced independently — 481 ms for all 350 plans in one invocation. A second juror could not un-measure it.
-
-**It does leave one question open**: whether `plot-plan-meta.sh`'s output depends on anything but the file's bytes. That mattered only to the rejected design, so it dies with it — but any future plan keyed on content must ask it.
+**The evidence juror reported late** — after this moderation was first written, and after a wait loop wrongly counted `panel.md` as a second verdict. Its findings are folded in below and they strengthen the reject rather than soften it.
 
 ## The premise is false: the scan already batches
 
@@ -21,9 +17,37 @@ ALL 350 plans, one invocation:  481 ms      (verified by the moderator)
 
 So the optimisation is already built — and the plan cites `plot-fleet-scan.sh:3118` while the batching sits at `:2916` in the same file.
 
+## The evidence lens found where the time actually goes
+
+Every interpreter in one scan, wrapped and counted:
+
+```
+parser spawns  1  0.40 s     awk    377  (~1.2 s)
+python3        1  0.36 s     grep    63
+git           79             sed     10
+                             node     1
+total spawns 529  ≈ 2 s of startup
+```
+
+Three `--offline` runs: **21.01 s, 23.78 s, 28.19 s**. The moderator's own: **37 s**.
+
+**~19 s of ~24 s is interpreted bash in `plot-fleet-scan.sh` itself** — no subprocess accounts for it, and `--offline` makes no host calls at all.
+
+**The plan targeted ~1.7 % of the runtime while promising the 90 s bound.**
+
+And the scan reports **`plans=27`, not 349**: `delivered_in_window` already discards the archive, so the frozen-plan filter recorded at `:3118` is working as designed.
+
+## Two more findings the plan got wrong
+
+**The purity risk is real and understated.** The plan named it as slice 1's question; the juror says it is worse than stated. Recorded for any future content-keyed design.
+
+**`PrIndexStore` is not reusable for this subject.** The plan proposed it as the precedent and asked the slice to decide one mechanism or two. The juror's answer is two — the store is specific to PR rows.
+
 ## What survives
 
 Nothing of the design. The blob-SHA key is sound in the abstract and solves a problem that does not exist here.
+
+**What survives is the profiling**, now on #1017: the subject is the scan's own control flow, not its callees.
 
 **#1017 stays open and now has one fewer explanation.** Ruled out tonight, in order: machine load (52 → 12, timeout persisted), the board's deleted marketplace path (real, separately fixed, `exit 127`), host latency (`backend` 1 s, `pr-list` 3–4 s), and now the plan parse (481 ms).
 
