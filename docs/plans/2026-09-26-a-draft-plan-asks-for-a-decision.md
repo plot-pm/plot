@@ -4,19 +4,20 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1009
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 1
+- **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 
 ## Changelog
 
 - A Draft plan awaiting approval gets a WAITING ON YOU row naming how many rounds it has been through. The board stops going silent during the phase when a plan most needs a person.
 
-Board impact: **entirely board.** One new row source, no scan change, no domain rule, no new payload field.
+Board impact: **entirely board.** One new row source and one new field on the fleet payload; no scan change, no domain rule.
 
 ## Motivation
 
@@ -85,7 +86,7 @@ The row names the count and draws no conclusion from it. `Rounds: 0` is a record
 
 ### What this does NOT do
 
-- **It adds no payload field.** `rounds`, the phase and the plan's identity are already served.
+- **It DOES add a payload field, and an earlier draft said otherwise.** That draft cited `rounds` as already served at `schema.ts:172` and `:410`. Both lines are real and **both are the wrong payload**: `:172` is `PlanMetaSchema` (the parser) and `:410` is `CardSchema` (`/api/board`, the Plans tab). The Agents tab renders `AgentRow` from `/api/fleet`, which carries neither the phase nor the rounds — confirmed live against the running board. The field is added to the fleet payload, and the slice is sized for a contract change both sides read rather than a row source alone.
 - **It changes no scan and no domain rule.** The plan's phase is read where it already is.
 - **It does not move the Plans tab's rows.** A Draft plan stays there too; the tabs answer different questions and both answers are true.
 - **It does not decide anything about the plan.** No approve action, no phase write. The row says a decision is owed and a person makes it.
