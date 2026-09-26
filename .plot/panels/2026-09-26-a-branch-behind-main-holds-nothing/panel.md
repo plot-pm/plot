@@ -1,6 +1,6 @@
 # Panel — a branch behind main holds nothing
 
-**Two lenses, both amend.** evidence (executed), estate (read).
+**Two lenses, both amend.** evidence (**executed** — built the fix and ran the suites), estate (read).
 
 ## The producer named cannot produce the shape
 
@@ -22,6 +22,20 @@ it('answers merged where main cannot be read and the tip differs')
 The second carries a comment defending it: *"The tips are compared, not resolved: an unreadable main is not equality."*
 
 **The plan mentions neither.** A test asserting the opposite of a plan means either the plan is wrong or the test encodes a decision the plan must argue against. This plan does neither.
+
+## The evidence juror built the fix, and bounded it
+
+It applied the change and measured: **4 failed / 38 passed** in `test/branch-state.test.ts`, all four in the file the slice already edits, all asserting `merged` for a zero-ahead behind-main branch. No collateral breakage — the other failures baselined green on unmutated main (5 s timeouts on shell-spawning tests under load).
+
+So the blast radius is bounded and known, which the estate lens could only infer.
+
+## The corpus test passes with the mutant, and that pass is worthless
+
+`packages/domain/corpus/branch-state.corpus.test.ts` went green **with the fix applied**. The juror names why: the corpus compares `branchState` against `plot-fleet-scan.sh --json`, and the scan asks `board/plot-branch-state.mjs` (`plot-fleet-scan.sh:3620`) — a bundle built from the same rule. Both sides moved together.
+
+Verified by the moderator: the corpus imports `branchState` and `readFleetScan`, and the scan's only branch-state answer comes from that artifact.
+
+**This outlives the plan.** CLAUDE.md presents the corpus tier as what catches drift between a rule and its shell duplicate. Where the shell side is a bundle OF the rule, the comparison is the rule against itself, and a reader seeing green has confirmed nothing. Filed separately.
 
 ## What survives
 
