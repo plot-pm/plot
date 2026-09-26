@@ -61,7 +61,7 @@ a start: it proves the board serves and leaves nothing running. `/plot-board
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1. Probe | Small | Three script calls, JSON out; merge without transforming, then ask the rule what it proposes |
-| 2. Propose and confirm | Mid | Wording the proposals and reading a one-directional signal (prefix proposes, silence asks) is judgment; the thresholds behind them are not — `proposeStack` answers those |
+| 2. Propose and confirm | Mid | Wording the proposals and reading a one-directional signal (prefix proposes, silence asks) is judgment; the thresholds behind them, and the default-branch comparison, are not — `proposeStack` answers those |
 | 3. Write config | Small | Append known keys to a known section |
 | 4. Verify | Small | Run commands, compare to documented output shapes; 4d states a fixed reading and decides nothing |
 | 5. Diagnose an empty board | Mid | Mapping a parse failure to a human cause |
@@ -147,6 +147,31 @@ Present one block the user corrects rather than composes:
 > Proposed: start via the plugin artifact with a `plot-board` alias. Add
 > `Git host: bitbucket`, `CI: jenkins`, `Tracker: jira` and
 > `Jenkins instance: apps` to Plot Config.
+
+**Where the two default-branch readings disagree, propose `Main branch`.** Read
+`defaultBranch` from the proposal — `proposeDefaultBranch` owns the comparison
+and it must not be repeated here. Three states, and only one of them speaks:
+
+| `defaultBranch.state` | What it means | What setup does |
+|---|---|---|
+| `agree` | the host and this clone name the same branch | print nothing; it is every healthy repository |
+| `differs` | the host moved and `origin/HEAD` did not | propose `Main branch: <host>`, naming BOTH values and `git remote set-head origin -a` as the clone's repair |
+| `unverified` | the host was not asked | propose no key, and say the host's default went unverified beside the local reading |
+
+**This is the one proposal that explains a board you have already verified.** The
+board resolves plans through `origin/<main branch>`, so a clone whose
+`origin/HEAD` is stale reads plans from the wrong ref and still passes every
+check this command makes — reported 2026-09-24 as one untitled group with
+`develop` listed as a branch and two of three plans missing. Verifying the board
+does not catch it, which is why the question is asked here.
+
+**Silence on `unverified` would read as confirmation**, the direction this
+command already refuses for `auth`.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** propose nothing and append no key. The
+> default branch is a fact about a shared repository and the key changes where
+> every later command looks for plans:
+> `PLOT-UNASKED: Which branch is the default — the host and this clone disagree? — refused — no Main branch key appended; run 'git remote set-head origin -a' to refresh the clone, or add the key`
 
 **One signal proposes, two signals ask, and `proposeCi` answers it.** Every
 inferred field is a *proposal* built from a single structural signal. Where two
@@ -372,6 +397,7 @@ replacing existing content:
 - **Jenkins instance:** apps
 - **Tracker:** jira
 - **Ticket prefixes:** QUACDS, QUAWEB
+- **Main branch:** develop
 ```
 
 Write only the keys the user **confirmed** or a structural signal
@@ -390,6 +416,12 @@ failure this whole command is built to avoid.
 proposed prefix or answered outright. Write it only when confirmed or proposed
 from a `ticket.prefix` — **never `Tracker: none` from an unanswered question**,
 because absence of a prefix is not absence of a tracker.
+
+`Main branch` is written **only from a confirmed disagreement** — never from
+`agree` (there is nothing to write) and never from `unverified` (nothing was
+measured). A repository that already carries the key keeps it: an existing value
+is the operator's decision. Where the disagreement is confirmed, say that the
+board will now resolve plans through the new ref.
 
 `Ticket prefixes` scopes the Jira inbox to this repository's projects. Write it
 only from a confirmed list or from a measured prefix, and **never empty** — the

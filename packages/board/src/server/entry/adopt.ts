@@ -113,6 +113,10 @@ export const answersFrom = (value: unknown): AdoptionAnswers => {
     ticketPrefixes: stringsOr(given.ticketPrefixes),
     ci: stringOr(given.ci),
     worktreeRoot: stringOr(given.worktreeRoot),
+    // ABSENT IS A DECLINE, the rule every field here follows. A client that
+    // never put the question sends nothing, which writes no key — never the
+    // proposal's own value, because that would make a proposal a write.
+    mainBranch: stringOr(given.mainBranch),
   };
 };
 

@@ -37,7 +37,7 @@ and changes nothing.
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1. Probe | Small | One script call, JSON out |
-| 2. Propose and confirm | Mid | Turning signals into a proposal is judgment |
+| 2. Propose and confirm | Mid | Turning signals into a proposal is judgment. The thresholds and the default-branch comparison are `proposeStack`'s, and reading its answers is transcription |
 | 3. Write config and skeleton | Small | Two script calls: `plot-write-config.sh` owns the config section and the `.gitignore` line, `plot-install-prompt.sh` owns the worker prompt. Composing the answers file from step 2 is transcription; every decision inside the write is `composeAdoption`'s |
 | 4. Offer extensions | Mid | Deciding what the repo actually needs |
 | 5. Verify and summarise | Small | Read back what landed |
@@ -239,6 +239,58 @@ project keys and shapes one query.
 > stays empty and no key is written — the inbox is instance-wide, which is
 > today's behaviour and needs no disclosure.
 
+#### The default branch
+
+**Where the host and this clone disagree about the default branch, propose
+`Main branch` — and where they agree, say nothing.** Agreement is every healthy
+repository, so a line here on every adoption would be noise; a *disagreement* is
+the failure this proposal exists for.
+
+Read `defaultBranch` from the proposal, which answers one of three states. **Do
+not compare the probe's two fields here** — `proposeDefaultBranch` in
+`packages/domain/src/rules/stack.ts` owns that comparison, and a string
+comparison written into this file is a second answer to a question the rule
+already settles.
+
+- `differs` — say both values and propose the key:
+
+  > The host's default branch is `develop`; this clone's `origin/HEAD` says
+  > `main` → propose `Main branch: develop`. Your clone's cache is stale:
+  > `git remote set-head origin -a` refreshes it.
+
+  **Both values, never the winner alone.** The host owns the fact and
+  `origin/HEAD` is a clone-time cache of it, so the host's answer is the one to
+  write — but an operator told only *use `develop`* cannot tell a moved default
+  from a tool that misread their repository.
+
+  **Name the repair and do not run it.** `git remote set-head` rewrites the
+  operator's own clone, which is theirs to do.
+
+  Why it matters, and it is the reported failure: with no key the board reads
+  plans from `origin/main`, which on such a clone showed one untitled group,
+  `develop` listed as a branch, and two of three plans missing.
+
+- `agree` — print nothing. There is no question and no gap.
+
+- `unverified` — the host was **not asked**: no `git_host`, no adapter, or a
+  lookup that failed. Propose no key, and say so once:
+
+  > The host's default branch went unverified; this clone's `origin/HEAD` says
+  > `main`, which is what the board will read.
+
+  **Silence here would read as confirmation**, which is the direction
+  `plot-board-probe.sh` already refuses for auth: *report that we cannot tell,
+  never that it is fine.*
+
+**A repository that already carries `Main branch` gets no proposal.** An
+existing key is the operator's decision, and adoption refuses an adopted
+repository outright.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** propose nothing and write no key. A
+> default branch is a fact about a shared repository, and a `Main branch` key
+> written with nobody present changes where every later command looks for plans:
+> `PLOT-UNASKED: Which branch is the default — the host says develop, this clone says main? — refused — no Main branch key written; run 'git remote set-head origin -a' to refresh the clone, or add the key`
+
 #### The CI system
 
 **`ci_signals` proposes `CI:`, with its evidence — and `proposeCi` decides
@@ -378,7 +430,8 @@ cat > /tmp/plot-answers.json <<'JSON'
   "trackerUrl": "https://acme.atlassian.net",
   "ticketPrefixes": ["QUACDS", "QUAWEB"],
   "ci": "",
-  "worktreeRoot": ""
+  "worktreeRoot": "",
+  "mainBranch": ""
 }
 JSON
 
@@ -392,6 +445,13 @@ with the matching `.gitignore` line. An empty `definitionOfDone` is **not** an
 empty Definition: it is the unanswered question, and the command refuses. An
 empty `ticketPrefixes` is a **declined** proposal and refuses nothing: no
 `Ticket prefixes` key is written and the inbox stays instance-wide.
+
+**An empty `mainBranch` is a declined proposal too, and it is the normal case.**
+The key is written only from a confirmed answer: where the two readings agree
+there was nothing to confirm, and where they disagree the operator may
+legitimately refresh their clone instead. `composeAdoption` reports the
+disagreement it did not write rather than writing it — adoption is the one
+command that writes into a repository Plot does not own.
 
 **IT ASKS `composeAdoption` AND STOPS ON ITS ANSWER.** The keys, their order,
 their values and whether the write may happen at all are the rule's

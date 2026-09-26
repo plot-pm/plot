@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readingsFrom } from '../../src/server/entry/stack-readings.js';
-import { proposeCi } from '@plot-pm/domain/rules/stack';
+import { proposeCi, proposeDefaultBranch } from '@plot-pm/domain/rules/stack';
 
 /**
  * THE ENTRY IS AN ADAPTER AND THESE TEST THE ADAPTATION.
@@ -43,5 +43,55 @@ describe('readingsFrom — the CI signals', () => {
   it('reads a missing signal within the object as absent', () => {
     const signals = readingsFrom({ ci_signals: { jenkinsfile: true } }).ciSignals;
     expect(signals?.find((s) => s.proposes === 'github-actions')?.present).toBe(false);
+  });
+});
+
+describe('readingsFrom — wave 1\'s default-branch pair', () => {
+  it('maps both readings and the `ok` status', () => {
+    const r = readingsFrom({
+      default_branch: 'main',
+      host_default_branch: 'develop',
+      host_default_branch_status: 'ok',
+    });
+    expect(r.localDefaultBranch).toBe('main');
+    expect(r.hostDefaultBranch).toBe('develop');
+    expect(r.hostDefaultBranchAsked).toBe(true);
+  });
+
+  it('maps a report with NO status field to *nobody asked*, never agreement', () => {
+    // AN OLDER PROBE, and the case the brief singles out. Without the field both
+    // branch readings are `''`, which compare equal — so a mapper defaulting the
+    // status to true would report a verified match that was never measured.
+    const r = readingsFrom({});
+    expect(r.hostDefaultBranchAsked).toBe(false);
+    expect(proposeDefaultBranch(r.localDefaultBranch, r.hostDefaultBranch, r.hostDefaultBranchAsked).state)
+      .toBe('unverified');
+  });
+
+  it('maps `unknown` — and any other word — to *nobody asked*', () => {
+    // The probe writes `unknown` for no git host, no adapter, a non-zero exit
+    // and an empty answer alike. Only `ok` licenses reading the value beside it.
+    for (const status of ['unknown', '', 'OK', 'true', 'yes']) {
+      expect(readingsFrom({ host_default_branch_status: status }).hostDefaultBranchAsked)
+        .toBe(false);
+    }
+  });
+
+  it('keeps a host answer that is present but empty out of the comparison', () => {
+    // `status: ok` with an empty value is the adapter answering nothing. The rule
+    // reads it as unverified rather than as a branch named `''`.
+    const r = readingsFrom({
+      default_branch: 'main',
+      host_default_branch: '',
+      host_default_branch_status: 'ok',
+    });
+    expect(proposeDefaultBranch(r.localDefaultBranch, r.hostDefaultBranch, r.hostDefaultBranchAsked).state)
+      .toBe('unverified');
+  });
+
+  it('reads a non-string branch field as unread rather than coercing it', () => {
+    const r = readingsFrom({ default_branch: 7, host_default_branch: null });
+    expect(r.localDefaultBranch).toBe('');
+    expect(r.hostDefaultBranch).toBe('');
   });
 });

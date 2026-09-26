@@ -17,6 +17,7 @@ import {
   type CommitStyleCounts,
   type Signal,
   type StackReadings,
+  proposeDefaultBranch,
 } from '../src/rules/stack.js';
 
 const counts = (over: Partial<CommitStyleCounts> = {}): CommitStyleCounts => ({
@@ -38,6 +39,12 @@ const readings = (over: Partial<StackReadings> = {}): StackReadings => ({
   ciSignals: null,
   ciHost: '',
   instanceKeyedCi: '',
+  // UNVERIFIED BY DEFAULT, because that is what a probe reporting nothing maps
+  // to. Defaulting to an agreeing pair would have every unrelated case assert a
+  // match nobody measured, and the three states are asserted deliberately below.
+  localDefaultBranch: 'main',
+  hostDefaultBranch: '',
+  hostDefaultBranchAsked: false,
   ...over,
 });
 
@@ -338,7 +345,78 @@ describe('proposeCiInstance', () => {
   });
 });
 
+describe('proposeDefaultBranch — the three states, and the third is the point', () => {
+  it('proposes nothing where the host and the clone agree', () => {
+    // EVERY HEALTHY REPOSITORY, this one included. A rule that erred toward
+    // proposing would put a new key into every adoption there is.
+    expect(proposeDefaultBranch('main', 'main', true)).toEqual({
+      state: 'agree',
+      branch: 'main',
+    });
+  });
+
+  it('proposes the key naming BOTH values where they differ', () => {
+    // THE REPORTED CASE: a GitHub default moved to `develop` while
+    // `origin/HEAD` kept `main`. The host wins because it owns the fact, and
+    // both values travel because an operator told only *use develop* cannot
+    // tell a moved default from a tool that misread the repository.
+    expect(proposeDefaultBranch('main', 'develop', true)).toEqual({
+      state: 'differs',
+      host: 'develop',
+      local: 'main',
+    });
+  });
+
+  it('answers unverified where the host was not asked, rather than agreement', () => {
+    // NO HOST, NO ADAPTER, A NON-ZERO EXIT: the probe reports `unknown` for all
+    // of them. Reading that as agreement is the failure the plan names —
+    // silence reads as confirmation, and nobody investigates a green light.
+    expect(proposeDefaultBranch('main', '', false)).toEqual({
+      state: 'unverified',
+      local: 'main',
+    });
+  });
+
+  it('does NOT read an empty host answer as a disagreement', () => {
+    // THE CASE A VALUE-ONLY READER GETS WRONG. `'' !== 'main'` is true, so a
+    // rule comparing the strings alone answers `differs` and proposes
+    // `Main branch: ` with no value. The status is tested first.
+    expect(proposeDefaultBranch('main', '', true).state).toBe('unverified');
+    // And a host that answered only whitespace answered nothing.
+    expect(proposeDefaultBranch('main', '   ', true).state).toBe('unverified');
+  });
+
+  it('ignores surrounding whitespace on either reading', () => {
+    // A shell capture can carry a trailing newline; two spellings of one branch
+    // are not a disagreement.
+    expect(proposeDefaultBranch(' main ', 'main\n', true).state).toBe('agree');
+  });
+
+  it('carries the host value even where the clone could name no branch', () => {
+    // An empty LOCAL reading is possible — a repository with no `origin/HEAD`
+    // and a detached HEAD — and it still differs from a host that answered.
+    expect(proposeDefaultBranch('', 'develop', true)).toEqual({
+      state: 'differs',
+      host: 'develop',
+      local: '',
+    });
+  });
+});
+
 describe('proposeStack', () => {
+  it('carries the default-branch answer, read from the status and not the string', () => {
+    // THE COMPOSITION, asserted where the other four already are: a reading
+    // pair that disagrees reaches the caller as a proposal rather than being
+    // computed twice by two skills.
+    expect(proposeStack(readings({
+      localDefaultBranch: 'main',
+      hostDefaultBranch: 'develop',
+      hostDefaultBranchAsked: true,
+    })).defaultBranch).toEqual({ state: 'differs', host: 'develop', local: 'main' });
+    // The base readings leave the host unasked, which must not read as a match.
+    expect(proposeStack(readings()).defaultBranch.state).toBe('unverified');
+  });
+
   it('answers all four questions from one set of readings', () => {
     const p = proposeStack(readings({
       nodeVersion: 'v24.20.0',

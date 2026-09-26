@@ -25,6 +25,10 @@ const answers = (over: Partial<AdoptionAnswers> = {}): AdoptionAnswers => ({
   ticketPrefixes: [],
   ci: '',
   worktreeRoot: '',
+  // NOBODY CONFIRMED ONE, which is the decline. Every fixture below therefore
+  // writes no `Main branch` key, and the two that are about this question say so
+  // explicitly rather than relying on the default.
+  mainBranch: '',
   ...over,
 });
 
@@ -42,6 +46,12 @@ const bare = (): StackProposal =>
     ciSignals: CI_SIGNALS.map((signal) => ({ ...signal, present: false })),
     ciHost: '',
     instanceKeyedCi: '',
+    // AGREEING, which is every healthy repository and what these fixtures
+    // model. It writes no `Main branch` key and no gap line, so the key lists
+    // below are byte-identical to what they were before the question existed.
+    localDefaultBranch: 'main',
+    hostDefaultBranch: 'main',
+    hostDefaultBranchAsked: true,
   });
 
 /**
@@ -84,6 +94,12 @@ const measuring = (prefix: string, count = 38): StackProposal =>
     ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
     ciHost: '',
     instanceKeyedCi: '',
+    // AGREEING, which is every healthy repository and what these fixtures
+    // model. It writes no `Main branch` key and no gap line, so the key lists
+    // below are byte-identical to what they were before the question existed.
+    localDefaultBranch: 'main',
+    hostDefaultBranch: 'main',
+    hostDefaultBranchAsked: true,
   });
 
 const input = (over: Partial<AdoptionInput> = {}): AdoptionInput => ({
@@ -162,6 +178,105 @@ describe('composeAdoption — the refusals', () => {
   });
 });
 
+describe('composeAdoption — the Main branch key is a proposal, never a write', () => {
+  /** A proposal whose two readings disagree, as the reported clone's did. */
+  const stale = (): StackProposal => ({
+    ...bare(),
+    defaultBranch: { state: 'differs', host: 'develop', local: 'main' },
+  });
+
+  it('writes NO key from a disagreement nobody confirmed', () => {
+    // THE CASE THAT CATCHES A PROPOSAL THAT BECAME A WRITE. Adoption is the one
+    // command that writes into a repository Plot does not own, and one host call
+    // is not a mandate to name its default branch.
+    const result = composeAdoption(input({ proposal: stale() }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.keys.map((k) => k.key)).not.toContain('Main branch');
+  });
+
+  it('reports the disagreement as a gap, naming both branches and the repair', () => {
+    const result = composeAdoption(input({ proposal: stale() }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    const gap = result.gaps.find((g) => g.includes('Main branch'));
+    expect(gap).toBeDefined();
+    // BOTH VALUES, so the operator sees what disagreed rather than a verdict.
+    expect(gap).toContain('develop');
+    expect(gap).toContain('main');
+    // The repair for their own clone, named and not run.
+    expect(gap).toContain('git remote set-head origin -a');
+  });
+
+  it('writes the key from a confirmed answer', () => {
+    const result = composeAdoption(
+      input({ proposal: stale(), answers: answers({ mainBranch: 'develop' }) }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(valueOf(result, 'Main branch')).toBe('develop');
+    // Confirmed, so nothing is left outstanding to report.
+    expect(result.gaps.some((g) => g.includes('Main branch'))).toBe(false);
+  });
+
+  it('says nothing at all where the two readings agree', () => {
+    // A GAP LINE HERE WOULD ANNOUNCE A NON-EVENT ON EVERY ADOPTION. The base
+    // fixtures agree, so this asserts the silence the whole estate depends on.
+    const result = composeAdoption(input());
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.keys.map((k) => k.key)).not.toContain('Main branch');
+    expect(result.gaps.some((g) => g.includes('Main branch'))).toBe(false);
+  });
+
+  it('reports an unverified host rather than passing it off as agreement', () => {
+    const result = composeAdoption(input({
+      proposal: { ...bare(), defaultBranch: { state: 'unverified', local: 'main' } },
+    }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.keys.map((k) => k.key)).not.toContain('Main branch');
+    const gap = result.gaps.find((g) => g.includes('Main branch'));
+    expect(gap).toContain('unverified');
+    // It names the local reading, so the operator knows what the board will use.
+    expect(gap).toContain('main');
+  });
+
+  it('names the missing local reading rather than trailing off', () => {
+    // A repository with no `origin/HEAD` and a detached HEAD reads as `''`, and
+    // the gap line still has to say something: *origin/HEAD says* followed by
+    // nothing is a sentence that stops mid-claim. Reachable in practice —
+    // `plot-detect-repo.sh` falls back to the current branch, which a detached
+    // HEAD does not supply.
+    const result = composeAdoption(input({
+      proposal: { ...bare(), defaultBranch: { state: 'unverified', local: '' } },
+    }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    const gap = result.gaps.find((g) => g.includes('Main branch'));
+    expect(gap).toContain('(nothing)');
+    expect(gap).not.toMatch(/says\s*$/);
+  });
+
+  it('writes a confirmed answer even where the host could not be asked', () => {
+    // An operator who knows their default branch may say so regardless of
+    // whether the host answered. The answer is the authority, not the probe.
+    const result = composeAdoption(input({
+      proposal: { ...bare(), defaultBranch: { state: 'unverified', local: 'main' } },
+      answers: answers({ mainBranch: 'trunk' }),
+    }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(valueOf(result, 'Main branch')).toBe('trunk');
+  });
+
+  it('treats a proposal with no defaultBranch field as nobody having looked', () => {
+    // `/plot-adopt` takes a proposal off the wire, and a client that predates
+    // this field sends an object without it. Absent must not read as agreement
+    // and must not crash the composition.
+    const { defaultBranch: _omitted, ...withoutField } = bare();
+    const result = composeAdoption(
+      input({ proposal: withoutField as unknown as StackProposal }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.keys.map((k) => k.key)).not.toContain('Main branch');
+    expect(result.gaps.some((g) => g.includes('Main branch'))).toBe(false);
+  });
+});
+
 describe('composeAdoption — the keys', () => {
   it('writes the structural keys, the confirmed gates and the host', () => {
     const result = composeAdoption(input());
@@ -235,6 +350,12 @@ describe('composeAdoption — the keys', () => {
           ciSignals: [{ proposes: 'jenkins', evidence: 'a `Jenkinsfile`', present: true }],
           ciHost: '',
           instanceKeyedCi: '',
+          // AGREEING, which is every healthy repository and what these fixtures
+          // model. It writes no `Main branch` key and no gap line, so the key lists
+          // below are byte-identical to what they were before the question existed.
+          localDefaultBranch: 'main',
+          hostDefaultBranch: 'main',
+          hostDefaultBranchAsked: true,
         }),
         answers: answers({ tracker: 'jira', trackerUrl: 'https://acme.atlassian.net' }),
       }),
@@ -456,6 +577,12 @@ describe('composeAdoption — the commit style', () => {
                   ciSignals: null,
                   ciHost: '',
                   instanceKeyedCi: '',
+                  // AGREEING, which is every healthy repository and what these fixtures
+                  // model. It writes no `Main branch` key and no gap line, so the key lists
+                  // below are byte-identical to what they were before the question existed.
+                  localDefaultBranch: 'main',
+                  hostDefaultBranch: 'main',
+                  hostDefaultBranchAsked: true,
         }),
       }),
     );

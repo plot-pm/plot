@@ -174,6 +174,23 @@ export interface AdoptionAnswers {
   readonly ci: string;
   /** Where dispatched desks go, or `''` to take the proposal. */
   readonly worktreeRoot: string;
+  /**
+   * The default branch confirmed, or `''` where nobody confirmed one.
+   *
+   * A PROPOSAL IS NOT A WRITE, and this field is the whole distance between
+   * them. Where the host and this clone disagree, adoption PROPOSES the key and
+   * the operator accepts it; writing it from the proposal alone would have
+   * adoption decide a repository's default branch on the strength of one host
+   * call, and adoption is the one command that writes into a repository Plot
+   * does not own.
+   *
+   * EMPTY IS A DECLINE AND NOT A GAP, the rule {@link
+   * AdoptionAnswers.ticketPrefixes} already states. A person who declines
+   * leaves the key unwritten, which is what every repository had before — and
+   * the board's three-step resolution still works, because `origin/main` is
+   * what it was reading anyway.
+   */
+  readonly mainBranch: string;
 }
 
 /** Everything adoption decides by. */
@@ -323,6 +340,51 @@ const ticketPrefixesKey = (input: AdoptionInput): { key: ConfigKey | null; gap: 
  * probe never reporting `ci_signals` at all, which is *not read* and not the
  * `silent` a tree showing neither signal gives.
  */
+/**
+ * The `Main branch` key, and what is said where it is not written.
+ *
+ * **THE CONFIRMED ANSWER IS THE ONLY THING THAT WRITES.** The proposal decides
+ * whether the question is worth putting; it never decides the key. So this reads
+ * the answer first and consults the proposal only to explain a silence.
+ *
+ * Three silences, and they do not say the same thing:
+ *
+ * - `agree` — nothing to report. The host and the clone match, which is every
+ *   healthy repository, and a gap line here would announce a non-event on every
+ *   adoption.
+ * - `differs` with no answer — the question was put and declined. Reported,
+ *   because the operator has seen a real disagreement and chosen to leave it.
+ * - `unverified` — the host was not asked. Reported, and this is the one that
+ *   MUST be: silence would read as confirmation of a reading nobody took.
+ *
+ * @param input everything adoption decides by.
+ * @returns the key where one was confirmed, and the gap where none was.
+ */
+const mainBranchKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => {
+  const confirmed = input.answers.mainBranch.trim();
+  if (confirmed !== '') {
+    return {
+      key: { key: 'Main branch', value: confirmed, evidence: 'confirmed' },
+      gap: '',
+    };
+  }
+  // `?? null` FOR `ciKey`'s REASON: `/plot-adopt` takes a proposal off the wire,
+  // and a client that predates this field sends an object with no
+  // `defaultBranch` at all. Absent is *nobody looked*, never agreement.
+  const read = input.proposal.defaultBranch ?? null;
+  if (read === null || read.state === 'agree') return { key: null, gap: '' };
+  if (read.state === 'unverified') {
+    return {
+      key: null,
+      gap: `no Main branch key written — the host's default branch went unverified; this clone's origin/HEAD says ${read.local === '' ? '(nothing)' : read.local}`,
+    };
+  }
+  return {
+    key: null,
+    gap: `no Main branch key written — the host's default branch is ${read.host} and this clone's origin/HEAD says ${read.local}; run 'git remote set-head origin -a' to refresh the clone, or set the key`,
+  };
+};
+
 const ciKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => {
   const confirmed = input.answers.ci;
   if (confirmed !== '') {
@@ -420,6 +482,7 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
   const tracker = trackerKey(input);
   const prefixes = ticketPrefixesKey(input);
   const ci = ciKey(input);
+  const mainBranch = mainBranchKey(input);
   const root = input.answers.worktreeRoot.trim() === ''
     ? DEFAULT_WORKTREE_ROOT
     : input.answers.worktreeRoot.trim();
@@ -442,6 +505,11 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
   // the two adjacent would make a reader's eye do the work the docstring does.
   if (prefixes.key !== null) keys.push(prefixes.key);
   if (ci.key !== null) keys.push(ci.key);
+  // AFTER `CI:` AND BEFORE `Worktree root`, with the keys the probe measured
+  // rather than the structural ones. It is written only where a person
+  // confirmed a disagreement, so on every repository whose readings agree this
+  // list is byte-identical to what it was.
+  if (mainBranch.key !== null) keys.push(mainBranch.key);
   keys.push({ key: 'Worktree root', value: root, evidence: '' });
 
   const commit = input.proposal.commitStyle;
@@ -459,6 +527,6 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
     creates: hub.creates,
     keys,
     ignoreLine: ignoreLineFor(root),
-    gaps: [tracker.gap, prefixes.gap, ci.gap].filter((g) => g !== ''),
+    gaps: [tracker.gap, prefixes.gap, ci.gap, mainBranch.gap].filter((g) => g !== ''),
   };
 };
