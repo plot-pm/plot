@@ -1,0 +1,1 @@
+../2026-09-25-one-word-answers-two-questions-about-a-wave.md
