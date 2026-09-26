@@ -1,6 +1,6 @@
 # A corpus test says what it verifies
 
-> `branch-state.corpus.test.ts` promises the rule is *"VERIFIED rather than reviewed"* and cannot verify it: both sides compute state with the same code, so a juror's deliberate change to `branch-state.ts:264` left it green while the unit tests caught it 4-of-42. **It does verify something real** — that the scan gathers the right readings — and the gap is between what it checks and what it says.
+> `branch-state.corpus.test.ts` promises the rule is *"VERIFIED rather than reviewed"* and cannot verify it: both sides compute state with the same code, so a broken rule goes green once the bundle is rebuilt. **It does verify something real** — that the scan gathers the right readings — and the gap is between what it checks and what it says.
 
 ## Status
 
@@ -10,97 +10,118 @@
 - **Impl:** own branches
 - **Issue:** #1011
 - **Sprint:** a-refusal-names-what-it-cannot-see
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
-- The branch-state corpus test says which half of its comparison is independent. A reader stops taking its green as evidence the rule is right, and keeps taking it as evidence the scan reads the right inputs.
+- The branch-state corpus test says which half of its comparison is independent, and records that CI catches the careless edit while the tautology bites the careful one. A reader stops taking its green as evidence the rule is right.
 
-Board impact: none. Test documentation and, if the slice decides so, one assertion.
+Board impact: none. Test documentation only — round 1 closed the two questions that might have added an assertion.
 
 ## Motivation
 
-### Measured 2026-09-26
+### The measurement that isolates the defect
 
-A juror applied a deliberate change to `branchState` and ran both suites:
+**Mutant B — `branch-state.ts:187`, `'merged'` → `'wip'`, an arm 20 of 26 branches reach:**
 
-```
-test/branch-state.test.ts            4 failed / 38 passed   caught it
-corpus/branch-state.corpus.test.ts   5 passed, 72 s         did not
-```
+| | corpus result |
+|---|---|
+| mutant applied, **bundle stale** | **fails**, naming twenty branches |
+| mutant applied, **bundle rebuilt** | **passes** |
 
-The corpus passed **with the mutant applied**, because it compares `branchState` against `plot-fleet-scan.sh --json`, and the scan's only branch-state answer comes from `node board/plot-branch-state.mjs` (`plot-fleet-scan.sh:3620`) — a bundle built from that same rule. Rebuild the bundle, both sides move together.
+Same broken rule, opposite verdicts, and the only variable is whether the artifact was rebuilt. That is the tautology, demonstrated on an arm that matters.
+
+The corpus compares `branchState` against `plot-fleet-scan.sh --json`, and the scan's only branch-state answer comes from `node board/plot-branch-state.mjs` (`plot-fleet-scan.sh:3620`) — a bundle built from that same rule.
+
+### An earlier draft used the wrong exhibit
+
+That draft rested on a mutant at `:264`. **Line 264 is reached by 0 of 26 branches on this estate**, so the corpus passed because the arm was never executed — not because both sides agreed. Right about the green, wrong about the cause.
+
+**The file already documents that category.** Its docstring at `:390` records a 2026-09-06 four-mutant survey with two marked *"PASSES — never reached"*, attributed to estate coverage. The earlier draft presented a fifth instance of a documented category as a discovery of a different one.
+
+**Arm coverage, measured 2026-09-26:** 4 branches reach `:183`, **20 reach `:187`**, 2 the has-ref arm, **0 reach `:264`**. That last number is a fact `a-branch-behind-main-holds-nothing` needs about its own blast radius, and this plan is what measured it.
 
 ### What it does verify, and this is not nothing
-
-The file's own table:
 
 > | | reads | answers with |
 > | **production** | `plot-fleet-scan.sh --json` | the `state` on every branch |
 > | **the rule** | git refs, the merge walk, one `pr-list`, the plan's own annotations | `branchState(readings)` |
->
-> The readings are taken HERE, from the same sources the scan reads
 
-**The readings path is genuinely independent.** The corpus gathers refs, the merge walk and a `pr-list` itself. If the scan collects a reading wrongly — a wrong ref, a missed merge subject, a PR row it failed to join — the two sides disagree and the test fails.
+**The readings path is genuinely independent.** The corpus gathers refs, the merge walk and a `pr-list` itself. A reading the scan collects wrongly — a wrong ref, a missed merge subject, an unjoined PR row — makes the two sides disagree.
 
-So it is a real comparison of **input gathering**, and a tautology about **the decision**.
+So it is a real comparison of **input gathering** and a tautology about **the decision**.
 
-### The gap is between that and what it promises
+### The CI asymmetry, which inverts the intuition
 
-> `branch_state()` is 183 lines with ten call sites in a 4,194-line script … So the move is **VERIFIED rather than reviewed**: a disagreement here is either a bug in the new rule or a defect in the old one.
+The `corpus` job does **not** build the board, so it runs against the committed bundle. **CI's corpus tier therefore does catch rule drift** — from a contributor who edits the rule and forgets to rebuild.
 
-A disagreement cannot be a bug in the rule, because the rule appears on both sides. That sentence describes a comparison of two implementations; the file compares one implementation against itself over independently-gathered inputs.
+`ci.yml:873` is a separate job that rebuilds and fails on any diff under `skills/plot/scripts/board/`.
 
-**An earlier reading of this, filed on #1011, said it "cannot catch drift" — too broad.** It catches reading drift and not rule drift, and that distinction is the whole plan.
+**So the tautology bites precisely the contributor who follows the Definition of Done and rebuilds.** The careless edit is caught; the careful one is not. That is the non-obvious half and it is what the docstring most needs to say.
 
 ### Why it matters now
 
-`a-branch-behind-main-holds-nothing` proposes changing `branch-state.ts:264`. Anyone making that change will run this test, see green, and — reading the docstring — conclude the rule was verified against production. The juror who found this was running a mutant deliberately; a person shipping the change would not be.
+`a-branch-behind-main-holds-nothing` proposes changing `branch-state.ts:264`. Anyone making that change will run this test, see green, and — reading the docstring — conclude the rule was verified against production.
 
 ### The estate converted a real pair into this shape on purpose
 
-`sprint-score.corpus.test.ts` records it: it compared two implementations *"until 2026-09-08, when `a-sprint-item-has-one-scorer` deleted the second and made the script ASK for the answer."*
+`sprint-score.corpus.test.ts` records it: two implementations *"until 2026-09-08, when `a-sprint-item-has-one-scorer` deleted the second and made the script ASK for the answer."*
 
-**So a script asking the rule is a deliberate direction**, not an oversight, and this plan does not argue against it. One rule with one implementation is the goal; what changes is that a test comparing against a bundle of that rule must not claim to verify the rule.
+**A script asking the rule is a deliberate direction** and this plan does not argue against it. One rule with one implementation is the goal; what changes is that a test comparing against a bundle of that rule must not claim to verify the rule.
 
 ## Design
 
 ### The change
 
-**The docstring states which half is independent.** The comparison verifies that the scan gathers the readings the rule needs and passes them correctly; it does not verify what the rule decides, because the scan asks the rule.
+**The docstring states which half is independent, and names the CI asymmetry.** The comparison verifies that the scan gathers the readings the rule needs and passes them correctly; it does not verify what the rule decides. CI catches an unrebuilt edit; a rebuilt one goes green.
 
-One paragraph, where the *"VERIFIED rather than reviewed"* claim currently sits.
+One paragraph, where the *"VERIFIED rather than reviewed"* claim sits.
 
-### Open: whether the name should change too
+### The wording already exists next door
 
-`branch-state.corpus.test.ts` sits beside `sprint-score.corpus.test.ts`, which compares an adapter against production — a different question with the same suffix. Whether this file should be renamed for what it checks, or keep its name with a corrected docstring, is the slice's call.
+`sprint-score.corpus.test.ts:23` says what this plan proposes to say:
 
-**Against renaming:** the corpus tier is a named concept in CLAUDE.md and a file leaving it is a signal in itself.
-**For renaming:** the reader who needs this is the one who did not open the file.
+> **SO WHAT THIS NOW HOLDS IS THE WIRE** … A field dropped or transposed on that wire shows up as a disagreement … the two can still part, just at the seam rather than in the rule.
 
-### Open: whether an assertion should carry it
+**Adopt it rather than inventing a second phrasing.** An earlier draft left the naming as an open question for the slice; the estate had already settled it.
 
-A comment can be skipped. **A test that fails when the bundle is stale would make the build-freshness half explicit** — the one thing this comparison genuinely cannot get wrong. Whether that is worth a second assertion, or is already covered by CI's build check, is measurable and the slice measures it.
+### No second assertion, and no rename
+
+**Freshness is already gated.** `ci.yml:873` runs `pnpm run build:board` and fails on a diff under `skills/plot/scripts/board/`, naming the stale files. A second assertion inside the corpus test would duplicate a shipped gate.
+
+**No rename.** The corpus tier is a named concept and `sprint-score.corpus.test.ts` holds the same shape with honest wording, so the fix is the wording rather than the filename.
+
+Both were open questions in an earlier draft and both are closed here, on evidence, rather than deferred to a slice.
+
+### One file of nine, and the survey is done
+
+- `branch-state.corpus.test.ts` — this shape, undocumented. **The subject.**
+- `sprint-score.corpus.test.ts` — this shape, **already documented**. The model.
+- `deliverable.corpus.test.ts` — **not** this shape: it calls `plot-ask.mjs deliverable`, which its docstring names as carrying *"its own arithmetic"* — a genuine second implementation.
+- The remaining six — checked, none shares the shape.
+
+An earlier draft said the survey was out of scope while its own `Done when` required it. It is done.
 
 ### What this does NOT do
 
-- **It does not delete the test.** A stale bundle is a real failure mode this repo has hit, and the readings comparison is a real check.
+- **It does not delete the test.** The readings comparison is a real check and the stale-bundle case is real.
 - **It does not add a second implementation of `branchState`.** That is the duplication `a-sprint-item-has-one-scorer` deliberately removed.
 - **It does not change `branch-state.ts`.** The rule's correctness is `a-branch-behind-main-holds-nothing`'s question.
-- **It does not touch the other corpus files.** Whether they share this shape is worth asking and is not asked here.
+- **It does not add a freshness assertion.** Already gated at `ci.yml:873`.
 
 ## Done when
 
-- The docstring names the independent half and the dependent half, and no longer claims the rule is verified.
-- A reader who changes `branch-state.ts` and runs this test learns from the file what its green means.
-- The other corpus files are checked for the same shape and the finding is recorded, whether or not it is acted on.
+- The docstring names the independent half, the dependent half, and the CI asymmetry.
+- It adopts `sprint-score.corpus.test.ts:23`'s wording rather than a second phrasing.
+- The arm coverage — 4 / 20 / 2 / **0 at `:264`** — is recorded where the next reader of `branch-state.ts` will find it.
+- No rename, no new assertion, no other corpus file touched.
 
 ## Slices
 
 ### A corpus test says what it verifies (Branch: `infra/a-corpus-test-says-what-it-verifies`)
 
-The docstring correction, the name decision with its argument, and the survey of the sibling corpus files.
+The docstring correction, adopting the existing wording, plus the arm-coverage note.
 
 ## Notes
 
-Found by the juror on `a-branch-behind-main-holds-nothing`, which is the plan that would change the rule this test claims to verify. It reported the finding unprompted while measuring the blast radius of the fix — the value of a juror that executes rather than reads.
+Round 1 replaced this plan's central evidence. The first draft's mutant sat on an arm **no branch reaches**, so it proved non-coverage rather than the tautology — a fifth instance of a category the file's own docstring already documents. The juror built a mutant on the arm 20 branches reach and ran it stale and rebuilt, which is the pair that isolates the defect. It also closed both of this plan's open questions from evidence already on disk.
