@@ -3419,7 +3419,9 @@ test('fleet: an arrived list answers for the branches it omits', () => {
   assert.equal(asked, 0,
     `a complete list answers for every branch it omits; got ${asked} ` +
     `pr-state calls (${ops.join(',')})`);
-  assert.equal(listed, 1, `exactly one pr-list per scan; got ${listed}`);
+  // Two lists, and still constant: one `--state open --rich`, one
+  // `--state all` without the rollup.
+  assert.equal(listed, 2, `exactly two pr-list calls per scan; got ${listed}`);
 
   f.cleanup();
 });
@@ -3662,8 +3664,8 @@ test('fleet: the no-ref lookup is bounded by absent branches, not by all', () =>
   const asked = ops.filter((o) => o === 'pr-state').length;
   assert.equal(asked, 2,
     `only the 2 branches with no ref may be asked about individually, saw ${asked}`);
-  assert.equal(ops.filter((o) => o === 'pr-list').length, 1,
-    'the other 6 are answered by exactly one list');
+  assert.equal(ops.filter((o) => o === 'pr-list').length, 2,
+    'the other 6 are answered by the two lists (open, then all)');
   f.cleanup();
 });
 
@@ -3728,8 +3730,8 @@ esac
 `);
   assert.equal(ops.filter((o) => o === 'pr-state').length, 0,
     'a no-ref branch the list already names must not be asked about again');
-  assert.equal(ops.filter((o) => o === 'pr-list').length, 1,
-    'one list answers it');
+  assert.equal(ops.filter((o) => o === 'pr-list').length, 2,
+    'the two lists answer it');
   // The saving must not have cost the answer. A count that fell to zero because
   // the branch stopped reading `merged` would settle nothing and block its
   // successor wave forever — the defect the no-ref arm exists to fix.
@@ -4633,6 +4635,182 @@ esac
 
   fs.rmSync(shim, { recursive: true, force: true });
   fs.rmSync(t, { recursive: true, force: true });
+});
+
+// --- the rollup is asked of open PRs only ------------------------------------
+//
+// The scan makes TWO `pr-list` calls: `--state open --rich` for the PRs whose
+// checks can still move, and `--state all` without `--rich` for every PR's
+// state. The stub below answers the way GitHub does — rich rows only where
+// `--rich` was asked, and only the states `--state` names. A stub that ignores
+// `--state` returns the rich rows to both calls and certifies a build that has
+// lost every rollup.
+//
+// The assertions read the PARSED CACHE, not the call shape. An open PR sits in
+// both payloads, both rows rank 1 in the dedup, and a whole-line `sort` keeps
+// the plain row: the rollup is lost for every open PR while every call looks
+// right. The shim copy of the scan copies its cache out on exit instead of
+// only deleting it, so the test can read the line `pr_ready` reads.
+const RICH_OPEN_ROW = (n, head, checks) =>
+  `{"number":${n},"title":"t","state":"OPEN","head":"${head}","draft":false,"checks":"${checks}","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}`;
+const PLAIN_ROW = (n, state, head) =>
+  `{"number":${n},"title":"t","state":"${state}","head":"${head}","author":"a"}`;
+
+const stateAwareHost = ({ open = [], all = [], openExit = 0, allExit = 0, openErr = '', allErr = '' }) => `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  pr-list)
+    case " $* " in
+      *" --state open "*)
+        case " $* " in *" --rich "*) ;; *) echo 'stub: open asked without --rich' >&2; exit 9 ;; esac
+${open.map((l) => `        echo '${l}'`).join('\n')}
+        ${openErr ? `echo '${openErr}' >&2` : ':'}
+        exit ${openExit} ;;
+      *" --state all "*)
+        case " $* " in *" --rich "*) echo 'stub: all asked with --rich' >&2; exit 9 ;; esac
+${all.map((l) => `        echo '${l}'`).join('\n')}
+        ${allErr ? `echo '${allErr}' >&2` : ':'}
+        exit ${allExit} ;;
+      *) echo 'stub: pr-list without a known --state' >&2; exit 9 ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`;
+
+// The call that fills the cache, as the scan's top level makes it. The shim
+// copy copies the cache out immediately after it: the cache's own EXIT trap
+// is not a reliable hook, since a later `trap … EXIT` in the scan replaces it.
+const PREFILL_CALL = '\nprefill_pr_states\n';
+
+// Run the scan against a state-aware host, and return its output, the host
+// calls it made, and the cache it parsed (file name -> contents).
+const scanWithHostCache = (f, host, args = ['p'], extraEnv = {}) => {
+  const h = hostShim(host);
+  const src = fs.readFileSync(h.scan, 'utf8');
+  assert.equal(src.split(PREFILL_CALL).length, 2,
+    'the prefill call site changed; this helper can no longer read the cache');
+  const copy = path.join(h.dir, 'cache-copy');
+  fs.mkdirSync(copy);
+  fs.writeFileSync(h.scan, src.replace(PREFILL_CALL,
+    '\nprefill_pr_states\n[ -n "$HOST_STATE_CACHE" ] && cp -R "$HOST_STATE_CACHE"/. "$PLOT_TEST_CACHE_COPY"/\n'));
+  const calls = path.join(h.dir, 'calls.txt');
+  const out = execFileSync('bash', [h.scan, ...args], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_TEST_CACHE_COPY: copy, ...extraEnv },
+  });
+  const calls_ = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  const cache = Object.fromEntries(fs.readdirSync(copy)
+    .map((n) => [n, fs.readFileSync(path.join(copy, n), 'utf8')]));
+  h.cleanup();
+  return { out, calls: calls_, cache };
+};
+
+const TWO_WAVES_OPEN_AND_LANDED =
+  '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+  '- `feature/open` — in review\n- `feature/landed` — merged\n\n' +
+  '### Two\n- `feature/next` — waits on wave one\n';
+
+const makeOpenAndLandedRepo = (prefix) => {
+  const f = makeRepo(prefix, TWO_WAVES_OPEN_AND_LANDED);
+  f.work('feature/open', 'open.txt');
+  f.push('-u', 'origin', 'feature/open');
+  f.work('feature/landed', 'landed.txt');
+  f.push('-u', 'origin', 'feature/landed');
+  git(f.dir, 'checkout', '-q', 'main');
+  return f;
+};
+
+test('fleet: an open PR keeps its rollup through the merge of the two lists', () => {
+  const f = makeOpenAndLandedRepo('plot-fleet-rollup-open-');
+  const { out, cache } = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open'), PLAIN_ROW(2, 'MERGED', 'feature/landed'),
+      PLAIN_ROW(3, 'CLOSED', 'feature/landed')],
+  }), ['--loose', 'p']);
+
+  assert.equal(cache.feature_open, 'OPEN\tgreen\tfalse',
+    'the plain OPEN row won the dedup and the rollup was lost');
+  assert.equal(cache.feature_landed, 'MERGED\t\t',
+    'a merged PR still reads MERGED, from the call that carries no rollup');
+  assert.ok('.list-complete' in cache, 'two short pages are a whole list');
+  // The behaviour the rollup exists for: a green open PR licenses --loose.
+  assert.match(out, /Two — eligible/,
+    `--loose degraded to strict, which is what a lost rollup looks like: ${out}`);
+  assert.match(footerOf(out), /\bhost=ok\b/);
+  f.cleanup();
+});
+
+test('fleet: the rollup is requested of the open call and not of the all call', () => {
+  const f = makeOpenAndLandedRepo('plot-fleet-rollup-calls-');
+  const { calls } = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open'), PLAIN_ROW(2, 'MERGED', 'feature/landed')],
+  }));
+  const lists = calls.filter((c) => c.startsWith('pr-list '));
+  assert.equal(lists.length, 2, `two pr-list calls; got ${lists.join(' | ')}`);
+  const open = lists.filter((c) => / --state open /.test(`${c} `));
+  const all = lists.filter((c) => / --state all /.test(`${c} `));
+  assert.equal(open.length, 1, `one open call; got ${lists.join(' | ')}`);
+  assert.equal(all.length, 1, `one all call; got ${lists.join(' | ')}`);
+  assert.match(`${open[0]} `, / --rich /, 'the open call must ask for the rollup');
+  assert.doesNotMatch(`${all[0]} `, / --rich /, 'the all call must not ask for the rollup');
+  // Without --limit the host returns 30, and a truncated list reads as "no PR".
+  for (const c of lists) assert.match(c, / --limit \d+/, `no --limit on: ${c}`);
+  // The tracked branches reach both calls.
+  for (const c of lists) assert.match(c, / --branch feature\/open\b/, `no --branch on: ${c}`);
+  f.cleanup();
+});
+
+test('fleet: a throttled open call degrades the verdict while the all call would answer', () => {
+  const f = makeOpenAndLandedRepo('plot-fleet-rollup-openfail-');
+  const { out, calls, cache } = scanWithHostCache(f, stateAwareHost({
+    open: [], openExit: 5, openErr: 'plot-host: pr-list: host throttled — API rate limit exceeded',
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open'), PLAIN_ROW(2, 'MERGED', 'feature/landed')],
+  }));
+  assert.match(footerOf(out), /\bhost=throttled\b/,
+    'a throttled rich call reported ok, and --loose would degrade with no reason given');
+  assert.ok(!('.list-arrived' in cache), 'a failed call must prefill nothing');
+  assert.equal(calls.filter((c) => / --state all /.test(`${c} `)).length, 0,
+    'the all call spends quota on a payload nothing reads');
+  f.cleanup();
+});
+
+test('fleet: a failed all call degrades the verdict while the open call answered', () => {
+  const f = makeOpenAndLandedRepo('plot-fleet-rollup-allfail-');
+  const { out, cache } = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    all: [], allExit: 3, allErr: 'plot-host: pr-list: 503 Service Unavailable',
+  }));
+  assert.match(footerOf(out), /\bhost=failed\b/,
+    'the verdict took the last call only, or the open call only');
+  assert.ok(!('.list-arrived' in cache), 'a failed call must prefill nothing');
+  f.cleanup();
+});
+
+test('fleet: completeness is counted on the all payload before its OPEN rows are dropped', () => {
+  // The `all` page returns exactly the limit, so it may be truncated. Counted
+  // after the filter it would hold one row — under the limit — and a cache miss
+  // would then derive `NONE` for a branch that has a PR.
+  const f = makeOpenAndLandedRepo('plot-fleet-rollup-limit-');
+  const full = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open'), PLAIN_ROW(2, 'MERGED', 'feature/landed')],
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '2' });
+  assert.ok('.list-arrived' in full.cache);
+  assert.ok(!('.list-complete' in full.cache),
+    'an all page at the limit was read as whole because its OPEN rows were filtered first');
+  assert.equal(full.cache.feature_open, 'OPEN\tgreen\tfalse');
+
+  const short = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open'), PLAIN_ROW(2, 'MERGED', 'feature/landed')],
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '3' });
+  assert.ok('.list-complete' in short.cache, 'two pages under the limit are whole');
+  f.cleanup();
 });
 
 // --- ref_held: whether a ref on the remote holds the branch ----------------
