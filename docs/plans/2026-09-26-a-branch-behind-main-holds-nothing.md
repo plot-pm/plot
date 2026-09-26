@@ -78,6 +78,14 @@ A branch of this shape is the same category read from git rather than from the h
 
 **Downstream behaviour is already defined, and it is the behaviour this wants.** `queue.ts:56` — *"`unknown` is a host that could not be asked, and it HOLDS the slice"* — and `:207` returns the `merge-unknown` hold. `plot-fleet-scan.sh:3380` — *"`unknown` IS OUTSTANDING, exactly as `open` is."* So the change converts a silent skip into a visible hold with an existing reason code.
 
+### The section must hold under every condition
+
+**Section selection is a domain property, and it holds at any time** — regardless of board status, connection problems or machine overload. A rule that returns a wrong section under load, a failed fetch or a stale pulse is not a correct rule with bad luck; it is an incomplete rule.
+
+CLAUDE.md names the row's section as the first example of what may not be decided in a component, so a board-side check that noticed `merged` beside an absent PR and refused to place the row would be the forbidden shape — and untestable without rendering.
+
+**That is why the fix takes no new reading.** Measured on the live fleet 2026-09-26: **24 rows read `merged`, 23 carry a PR, exactly one does not — and that one is the only wrong row.** The contradiction is already inside `BranchReadings`. The rule is handed inputs that do not determine an answer and returns one anyway; resolving that needs nothing the rule cannot already see, and nothing that depends on a host being reachable.
+
 ### What promotes it to `merged`
 
 The host, and only the host. `readings.pr === 'MERGED'` already overrides at `:231` for the `commitsAhead > 0` arm, for the resurrected-ref case; the same override applies here. A branch whose pull request the host reports merged is merged whatever its tips say.
@@ -94,6 +102,7 @@ The population is bounded by `plot-release-refs.sh`, which deletes a delivered p
 
 - **It does not add a host call.** `:258` refuses one for a measured reason — `plot-pr-merged.sh` answered *not merged* for three genuinely merged branches while throttled — and this rule must not inherit that failure mode. The host reading it consults is the one already in `BranchReadings`.
 - **It does not add a staleness field.** `BranchReadings` has no concept of when a value was read, and this defect does not need one. A field the rule cannot use from evidence it does not have would be the wrong fix for the right symptom.
+- **It changes nothing in the board.** The section follows the state, and that is correct: a component comparing two payload fields to decide a row's section is the shape CLAUDE.md forbids, and it would mask a wrong state rather than fix one.
 - **It does not change `plot-dispatch.sh`.** Taking the scan's verdict as a reading is correct — one derivation in one place — and a second opinion downstream would be the duplication the estate removes.
 - **It does not change the detached cut in `--start`.** That shape is deliberate and documented; the rule is what misreads it.
 
