@@ -9,6 +9,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Sprint:** a-refusal-names-what-it-cannot-see
+- **Issue:** #1002
 - **Rounds:** 0
 
 ## Changelog
