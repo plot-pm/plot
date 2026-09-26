@@ -44,7 +44,7 @@ Three conditions, and all must hold.
 - [ ] [a-merged-pr-is-not-asked-for-its-checks](../plans/2026-09-25-a-merged-pr-is-not-asked-for-its-checks.md) — A merged PR is not asked for its checks
 - [x] [a-plugin-install-finds-its-own-scripts](../plans/2026-09-25-a-plugin-install-finds-its-own-scripts.md) — [#980](https://github.com/plot-pm/plot/issues/980). A plugin install finds its own scripts
 - [x] [a-record-is-written-where-it-can-be-read](../plans/2026-09-25-a-record-is-written-where-it-can-be-read.md) — [#981](https://github.com/plot-pm/plot/issues/981). A record is written where it can be read
-- [ ] [a-throttled-host-is-not-a-missing-pr](../plans/2026-09-25-a-throttled-host-is-not-a-missing-pr.md) — [#985](https://github.com/plot-pm/plot/issues/985). A throttled host is not a missing PR
+- [x] [a-throttled-host-is-not-a-missing-pr](../plans/2026-09-25-a-throttled-host-is-not-a-missing-pr.md) — [#985](https://github.com/plot-pm/plot/issues/985). A throttled host is not a missing PR
 - [ ] [one-word-answers-two-questions-about-a-wave](../plans/2026-09-25-one-word-answers-two-questions-about-a-wave.md) — [#994](https://github.com/plot-pm/plot/issues/994). One word answers two questions about a wave
 
 ### Should Have
