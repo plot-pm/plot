@@ -86,7 +86,19 @@ describe('answersFrom', () => {
       ticketPrefixes: [],
       ci: '',
       worktreeRoot: '',
+      // A DECLINED PROPOSAL, which is what an absent answer means for this one
+      // too: no `Main branch` key is written and the disagreement is reported
+      // rather than decided. The assertion stays EXHAUSTIVE on purpose — a new
+      // answer field must cost a line here, because a field silently defaulting
+      // to something other than *not answered* is how a proposal becomes a write.
+      mainBranch: '',
     });
+  });
+
+  it('reads a confirmed default branch', () => {
+    expect(answersFrom({ mainBranch: 'develop' }).mainBranch).toBe('develop');
+    // A non-string is not an answer.
+    expect(answersFrom({ mainBranch: 7 }).mainBranch).toBe('');
   });
 
   it('survives a request whose `answers` is not an object', () => {
