@@ -103,7 +103,7 @@ The row names the count and draws no conclusion from it. `Rounds: 0` is a record
 
 ## Slices
 
-### A draft plan asks for a decision (Branch: bug/a-draft-plan-asks-for-a-decision)
+### A draft plan asks for a decision (Branch: bug/a-draft-plan-asks-for-a-decision, PR: #1016)
 
 The row source beside `brokenAgentRows`, the four cases above as unit tests, and one browser test.
 
