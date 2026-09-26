@@ -227,7 +227,25 @@ else
   pr_branch="idea/$slug"
 fi
 
-pr_json=$(bash "$script_dir/plot-host.sh" pr-state "$pr_branch" 2>/dev/null) || pr_json=""
+# THE EXIT CODE IS THE READING, not the emptiness of stdout. `pr-state` exits 0
+# with `state: NONE` when the host answered that the branch has no PR, and
+# non-zero when the host could not be asked: 3 for a refused or failed call
+# (a rate limit included), 4 for a backend with no answer at all. Only the
+# first is an absence. The other two stop here with the host's own words and
+# name no repair to the branch, because nothing about the branch was read.
+pr_err_file=$(mktemp "${TMPDIR:-/tmp}/plot-approve-pr.XXXXXX")
+pr_rc=0
+pr_json=$(bash "$script_dir/plot-host.sh" pr-state "$pr_branch" 2>"$pr_err_file") || pr_rc=$?
+pr_err=$(cat "$pr_err_file" 2>/dev/null); rm -f "$pr_err_file"
+if [ "$pr_rc" = 4 ]; then
+  die "the host backend has no answer for the PR state of '$pr_branch' (plot-host.sh pr-state exited 4).
+  ${pr_err:-The host adapter gave no reason.}
+  This backend cannot report a PR's state, so the approval cannot read its gate. The plan was not approved and its phase is unchanged."
+elif [ "$pr_rc" != 0 ]; then
+  die "the host could not be asked for the PR of '$pr_branch' (plot-host.sh pr-state exited $pr_rc).
+  ${pr_err:-The host adapter gave no reason.}
+  The plan was not approved and its phase is unchanged. Wait for the host to answer again, then re-run the approval."
+fi
 [ -n "$pr_json" ] || pr_json='{"number":0,"state":"NONE","draft":false,"url":""}'
 pr_number=$(printf '%s' "$pr_json" | jq -r '.number // 0' 2>/dev/null)
 pr_state=$(printf '%s' "$pr_json" | jq -r '.state // "NONE"' 2>/dev/null)
