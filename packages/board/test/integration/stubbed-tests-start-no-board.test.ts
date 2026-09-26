@@ -411,7 +411,13 @@ describe('a browser test that stubs its own state starts no board', () => {
 // `isMine` answered false for and restores every one of them when unticked —
 // both arms over a MIXED-ownership fixture, since a filter that hides nothing
 // looks identical to one that works on a single-contributor estate.
-const EXPECTED_FILES = 51;
+// 51 → 52 on 2026-09-26: `interrogate-card.browser.test.ts`, six `it(`, for the
+// Draft card's Interrogate button. A PLAIN ADDITION: nothing moved. What only a
+// rendered page settles is that the button sits on Draft cards and on no
+// approved one, that a running panel removes it, and that Approve stays enabled
+// at every round count. It serves its own state through the catalogue and
+// starts no board.
+const EXPECTED_FILES = 52;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -564,7 +570,10 @@ const EXPECTED_FILES = 51;
 // `it(`. Re-derived against the main this branch sits on rather than by
 // arithmetic on a stale one, which is the lesson the 454 round trip above
 // records.
-const EXPECTED_TESTS = 509;
+// 509 → 515 on 2026-09-26: the six `it(` in `interrogate-card.browser.test.ts`.
+// Added, not moved. `plan-rounds-badge.browser.test.ts` rewrote one `it(` in
+// place (absent rounds now render), so its count is unchanged.
+const EXPECTED_TESTS = 515;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
