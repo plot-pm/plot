@@ -16,6 +16,7 @@ import {
   type CardPr,
   type Phase,
   type PlanStatus,
+  type DraftPlan,
   type SprintCard,
   type SprintMember,
   type StoryCard,
@@ -2252,6 +2253,21 @@ export async function planStatusBySlug(
   pulse: FleetReading | null,
   complete: boolean,
 ): Promise<Map<string, PlanStatus>> {
+  return (await planEstate(opts, pulse, complete)).statusBySlug;
+}
+
+/**
+ * The working-tree plan estate, parsed once: every plan's status keyed by slug,
+ * and every plan at `Draft` with its `rounds`.
+ *
+ * Both answers come from one `plot-plan-meta.sh` parse, so the fleet's sprint
+ * counts and its Draft plan list cannot read two versions of one plan.
+ */
+export async function planEstate(
+  opts: BuildBoardOptions,
+  pulse: FleetReading | null,
+  complete: boolean,
+): Promise<{ statusBySlug: Map<string, PlanStatus>; draftPlans: DraftPlan[] }> {
   const refs = refsFor(opts);
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
@@ -2264,6 +2280,7 @@ export async function planStatusBySlug(
     refs, repoRoot, planDir, `origin/${await defaultBranchOf(opts, refs)}`,
   );
   const bySlug = new Map<string, PlanStatus>();
+  const draftPlans: DraftPlan[] = [];
   // Ref-read plans have no file, so the parse needs a scratch copy — the same
   // staging `buildBoard` does, and removed in the same `finally` for the same
   // reason. `slug` is cut from the CANONICAL path, never the staged one.
@@ -2290,6 +2307,16 @@ export async function planStatusBySlug(
       const canonical = canonicalPath.get(meta.file);
       const relPath = canonical ?? path.relative(repoRoot, meta.file);
       bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));
+      // `rounds` is copied only where the parser sent it: an absent key is the
+      // parser's answer that no `Rounds:` field exists, which is not 0.
+      if (meta.phase === 'draft') {
+        draftPlans.push({
+          plan: planSlug(relPath),
+          planFile: relPath,
+          title: meta.title,
+          ...(meta.rounds === undefined ? {} : { rounds: meta.rounds }),
+        });
+      }
     }
   } finally {
     // Same removal, same reading — see the longer note on the other stage-dir
@@ -2297,7 +2324,7 @@ export async function planStatusBySlug(
     // and it also awaits the parser before reaching this line.
     if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
   }
-  return bySlug;
+  return { statusBySlug: bySlug, draftPlans };
 }
 
 // ─── Plan viewer: render a single plan file to HTML ──────────────────────────

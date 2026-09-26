@@ -21,6 +21,7 @@ import {
   type IssueAnswer,
   type IssueRow,
   type MachineProcess,
+  type PlanStatus,
   type PulseShrink,
   type RowKind,
   type StuckRun,
@@ -33,7 +34,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, readConfigAsync, scriptsFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -7464,11 +7465,13 @@ export async function activeSprints(
   opts: BuildBoardOptions,
   pulse: FleetReading | null,
   complete: boolean,
+  // The estate already read by the caller. Absent, this reads it.
+  estate?: Map<string, PlanStatus>,
 ): Promise<FleetSprint[]> {
   const sprintDir = await readConfigAsync(opts, 'Sprint directory', 'docs/sprints/');
   const active = workingTreeSprints(opts.repoRoot, sprintDir).filter((s) => s.phase === 'Active');
   if (active.length === 0) return [];
-  const statusBySlug = await planStatusBySlug(opts, pulse, complete);
+  const statusBySlug = estate ?? await planStatusBySlug(opts, pulse, complete);
   const today = new Date().toISOString().slice(0, 10);
   return active.map((sprint) => {
     const counts = { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 };
@@ -7557,8 +7560,10 @@ export async function estateTotals(
   opts: BuildBoardOptions,
   pulse: FleetReading | null,
   complete: boolean,
+  // The estate already read by the caller. Absent, this reads it.
+  estate?: Map<string, PlanStatus>,
 ): Promise<SprintCounts> {
-  const statusBySlug = await planStatusBySlug(opts, pulse, complete);
+  const statusBySlug = estate ?? await planStatusBySlug(opts, pulse, complete);
   const counts: SprintCounts = { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 };
   for (const status of statusBySlug.values()) {
     switch (status) {
@@ -7619,12 +7624,17 @@ export async function buildFleet(
   // its defaults from three `## Plot Config` keys, unconditionally, so the pulse
   // paid three synchronous forks per render whether or not a state file existed
   // to override them.
-  const [sprints, totals, masterAgentBranch, membership, settings] = await Promise.all([
-    activeSprints(opts, entry.pulse, entry.pulseComplete),
-    estateTotals(opts, entry.pulse, entry.pulseComplete),
+  //
+  // THE PLAN ESTATE IS PARSED ONCE, and three answers read it: the sprint
+  // counts, the estate totals and the Draft plans WAITING ON YOU names.
+  const estate = planEstate(opts, entry.pulse, entry.pulseComplete);
+  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans }] = await Promise.all([
+    estate.then((e) => activeSprints(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
+    estate.then((e) => estateTotals(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
     readMasterAgentBranch(opts),
     sprintMembership(opts),
     readFleetSettings(opts),
+    estate,
   ]);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
@@ -7829,6 +7839,7 @@ export async function buildFleet(
     // Computed on the render clock for the same reason as `sprints`: a plan
     // whose status just moved shows on the next poll.
     estateTotals: totals,
+    draftPlans,
     // The MAIN CHECKOUT's branch, read on the render clock with a TTL cache.
     // Not `server.branch`, which is the worktree the board server started in.
     // This is where the operator works — the first entry of `git worktree list`.

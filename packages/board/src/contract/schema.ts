@@ -3774,6 +3774,24 @@ export type FleetSprint = z.infer<typeof FleetSprintSchema>;
  * want the INPUT type read this; consumers that PARSE read `FleetSchema`, which
  * is the only one that accepts the old `waves` spelling.
  */
+/**
+ * A plan at `Draft`, as the Agents tab needs it — the source of the WAITING ON
+ * YOU row that says a decision is owed on a plan with no branch.
+ *
+ * `rounds` is OPTIONAL and never defaulted, for the reason `PlanMetaSchema`
+ * gives: `undefined` means no `Rounds:` field (nobody has interrogated the
+ * plan), and `0` means interrogated and found nothing.
+ */
+export const DraftPlanSchema = z.object({
+  /** The plan's slug — the same key `AgentRow.plan` carries. */
+  plan: z.string(),
+  /** The plan file, relative to the repository root. */
+  planFile: z.string(),
+  title: z.string().default(''),
+  rounds: z.number().optional(),
+});
+export type DraftPlan = z.infer<typeof DraftPlanSchema>;
+
 export const FleetShape = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -4028,6 +4046,17 @@ export const FleetShape = z.object({
    * a failure to obtain one.
    */
   agents: z.array(AgentEntrySchema).default([]),
+  /**
+   * Every plan at `Draft` in the working tree, whether or not a branch row
+   * names it. The client decides which of them get a WAITING ON YOU row: only
+   * a plan no row in `rows` belongs to, because a Draft plan with a branch
+   * already reaches that section through the per-branch classifier.
+   *
+   * Defaults to [] so a client talking to an older server validates, the
+   * `agents` precedent. The client casts the fleet rather than parsing it, so
+   * a reader must still write `fleet.draftPlans ?? []`.
+   */
+  draftPlans: z.array(DraftPlanSchema).default([]),
   /**
    * Metadata about the registry the board read — directory, manifest count, and
    * how many entries were synthesized. Makes a synthesized fleet legible: a
