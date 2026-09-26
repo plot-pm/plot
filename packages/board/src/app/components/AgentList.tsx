@@ -775,12 +775,22 @@ export function AgentList({
           ON. This is the "Compared" slice of the-sprint-filter-says-what-it-
           filters plan: a reader sees the effect of turning the filter on
           before touching it. */}
-      <SprintFilter
-        sprints={activeSprints}
-        selected={sprintFilter}
-        onToggle={toggleSprintFilter}
-        estateTotals={fleet.estateTotals}
-      />
+      {/* THE TWO FILTERS SHARE ONE ROW, and the reason is a measurement rather
+          than taste. `agents-tab`'s footer assertion leaves ~79 px between the
+          collapsed board and a 1100 px viewport, and a second full-width block
+          above the sections spent it: the footer — which reports when the last
+          scan ran — ended 14.7 px below the fold, the very defect
+          `COLLAPSED_BY_DEFAULT` exists to prevent. Side by side, the sprint
+          block's own height already covers both. */}
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <SprintFilter
+            sprints={activeSprints}
+            selected={sprintFilter}
+            onToggle={toggleSprintFilter}
+            estateTotals={fleet.estateTotals}
+          />
+        </div>
 
       {/* ONLY MY WORK — the filter that hides rows somebody else owns.
 
@@ -789,6 +799,12 @@ export function AgentList({
           look here for the other. It is a separate control rather than a third
           sprint row: a sprint is a thing a plan belongs to, and ownership is a
           fact about whoever is reading.
+
+          IT SHRINKS RATHER THAN HOLDING ITS WIDTH. `CARD_BELOW_PX` records
+          that a 375 px phone is a real reader here — the server is reachable
+          over Tailscale — and a `shrink-0` chip put 26 px of horizontal
+          overflow on the document at that width, which scrolls the whole board
+          sideways to reveal a checkbox.
 
           OFF ON A FIRST VISIT, and it says what it hides once on. A board that
           withheld rows silently could not be told apart from a quiet estate —
@@ -810,7 +826,7 @@ export function AgentList({
           <label
             data-mine-filter
             data-mine-known={known ? '1' : '0'}
-            className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+            className={`flex min-w-0 cursor-pointer flex-wrap items-center gap-2 self-start rounded-md border px-3 py-2 text-sm transition-colors ${
               mineOnly
                 ? 'border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950/30'
                 : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800'
@@ -845,6 +861,7 @@ export function AgentList({
           </label>
         );
       })()}
+      </div>
 
       {/* THE MASTER AGENT ROW — the branch the main checkout is on.
 
