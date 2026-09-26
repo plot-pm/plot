@@ -4250,11 +4250,23 @@ for plan in "${plans[@]}"; do
     # verdict is a strict enum, so a parsed pulse cannot carry a new word and
     # widening it is a separate change with its own consumers.
     #
-    # THE SUFFIX FIRES ONLY WHERE IT IS TRUE — an eligible wave with at least
-    # one taken branch and no free one. A wave with a free branch keeps bare
-    # `eligible`, which is what the offer paths will confirm; a wave whose only
-    # non-free branches are `unknown` keeps it too, because the host could not
-    # be asked and nobody has claimed anything.
+    # THE RULE, STATED: a wave line carries BOTH answers — the verdict, then who
+    # has it — and the suffix appears exactly when the wave is `eligible`, holds
+    # no free branch, and holds at least one branch that is `claimed` or `wip`.
+    # A wave with a free branch keeps bare `eligible`, which is what the offer
+    # paths will confirm; a wave whose only non-free branches are `unknown`
+    # keeps it too, because the host could not be asked and nobody has claimed
+    # anything.
+    #
+    # `wip` COUNTS AS TAKEN, which the plan settles three times: *"a branch
+    # counts as taken when it is claimed or in progress"*. A one-branch wave
+    # whose branch is `wip` therefore reads `eligible — someone-is-on-it`, and
+    # two tests in `fleet.test.mjs` asserted `/ — eligible$/` on exactly that
+    # shape. Their subject is the VERDICT — *"has not settled its wave"*,
+    # *"the wave must stay open"* — so the anchor moved to the verdict rather
+    # than the suffix being suppressed; the `$` was free before a suffix existed
+    # and asserted a second thing neither test meant. The other five sites
+    # carrying that anchor hold a free branch and are untouched.
     if [ "$verdict" = "eligible" ] && [ "$wave_free" -eq 0 ] && [ "$wave_taken" -gt 0 ]; then
       wave_header+=" — someone-is-on-it"
     fi
