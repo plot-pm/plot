@@ -620,6 +620,12 @@ plan_branches() { # $1=plan file path
 # adds findings and never changes one. The truncation note still counts the
 # host page alone, because that is the page that was cut.
 #
+# A STALE INDEX ROW CANNOT SHADOW A FRESHER HOST ANSWER. Only MERGED rows enter
+# the union, and a merged PR cannot revert, so no later host answer contradicts
+# one. The host page lists merged PRs only: a head missing from it says nothing
+# about that head, so it has no answer an index row could hide. Where both name
+# a head, the host's line is first and `merged_pr_for_branch` prints its number.
+#
 # IT READS AND NEVER WRITES. What the host answered here is not folded back into
 # the store: a second writer beside the board races, since `rename` makes each
 # write atomic and not the read-fold-write sequence around it.
