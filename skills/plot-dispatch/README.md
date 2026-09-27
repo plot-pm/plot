@@ -16,10 +16,27 @@ Everything it writes is therefore either **idempotent or refused**:
 | Claim ref push | Rejected if the branch exists — that rejection *is* the lock |
 | Worktree creation | Existing worktrees are adopted, never duplicated |
 | Worker start | Only with an explicit `Worker command` in Plot Config |
-| Deletion | Never. Cleanup belongs to `/plot-reconcile` |
+| Deletion | Never in a fan-out. Cleanup belongs to `/plot-reconcile` |
+| `--release <branch>` | The one deletion: a person runs it for an abandoned claim. Refused on a PR, an unaskable host, a live worker, real work and a `PLOT-BLOCKED` marker |
 
 A dispatcher that dies halfway through a fan-out is safe to re-run. The
 idempotence test holds that line.
+
+## `--release` clears two records, in one order
+
+A claim ref and an agent manifest each record an assignment: the queue reads
+the ref, and the registry wrote the manifest's `branch` at the hand-over.
+Deleting only the ref, the hand repair for *"still claimed, no commits → needs
+judgment"*, left the manifest naming a slice the queue offered again. So
+`--release` clears the manifests first, through `clear_manifest_branch`, and
+deletes the ref second. A failed ref deletion leaves the ref locking the slice,
+which is the safe half-state.
+
+`clear_manifest_branch` lives in `plot/scripts/plot-agent-manifest.sh`, sourced
+by both `plot-worker-loop.sh` and this script. One writer of the field, not
+two. The refusals mirror `--restart`'s order: the PR is asked first.
+`test/reconcile/release.test.mjs` reproduces the sequence (assign, kill,
+release, re-assign) and carries a negative control that deletes only the ref.
 
 ## The brief is written by the SKILL, never by the script
 

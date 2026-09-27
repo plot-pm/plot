@@ -37,7 +37,8 @@ parallel work is a decision. This command therefore never runs itself, and
 [--allow-waiting] <slug>`,
 or `--start [N]` to bring free agents into existence,
 or `--status` / `--stop <branch>` / `--restart <branch>` to inspect, stop or
-replace a worker, or `--migrate [--yes]` to move idle legacy worktrees into the
+replace a worker, or `--release <branch>` to return an abandoned claim to the
+queue, or `--migrate [--yes]` to move idle legacy worktrees into the
 configured `Worktree root:`.
 
 ## Model Guidance
@@ -467,7 +468,7 @@ eight hours and an agent handed nothing lives under the same number. There is no
 idle-specific bound, because *how long is too long to wait* has no measurement
 behind it yet.
 
-## Inspecting, stopping and restarting workers
+## Inspecting, stopping, restarting and releasing
 
 Detached workers would otherwise be invisible:
 
@@ -475,15 +476,51 @@ Detached workers would otherwise be invisible:
 ../plot/scripts/plot-dispatch.sh --status              # every worktree: pid, alive?, last log line
 ../plot/scripts/plot-dispatch.sh --stop feature/x      # stop one worker
 ../plot/scripts/plot-dispatch.sh --restart feature/x   # hand a stopped branch to a new worker
+../plot/scripts/plot-dispatch.sh --release feature/x   # give an abandoned claim back to the queue
 ```
 
 These and `--start` all work **regardless of the plan's phase** — work already running must
-stay inspectable even if the plan was since delivered. `--stop` and `--restart`
-each require an explicit branch name (containing `/`); there is deliberately no
-"stop everything", and no "restart whatever looks stuck".
+stay inspectable even if the plan was since delivered. `--stop`, `--restart`
+and `--release` each require an explicit branch name (containing `/`); there is
+deliberately no "stop everything", no "restart whatever looks stuck", and no
+"release every stale claim".
 
-Stopping leaves the worktree and the claim in place: the branch stays taken
-until you release it. Releasing is `/plot-reconcile`'s job.
+**`--stop` keeps the claim; `--release` gives it up.** Stopping leaves the
+worktree, the claim ref and the agent's manifest in place: the branch stays
+taken, because stopping is not abandoning. `--release <branch>` is the act that
+returns the slice to the queue.
+
+### Releasing an abandoned claim
+
+An assignment has **two records**: the claim ref `origin/<branch>`, which the
+scan and the registry's queue read, and the `branch` field of the agent
+manifest in the `Agent registry` directory, which the registry wrote at the
+hand-over. `--release` clears both, the manifests first and the ref second. If
+the ref deletion fails, the ref still locks the slice and nothing hands it out
+twice.
+
+**Do not delete the ref by hand.** That clears the first record and leaves the
+second: the queue offers the slice again while a manifest still names it.
+Measured 2026-09-26, `feature/the-board-filters-to-my-work` was handed out
+twice after that repair. `plot-reap.sh` and `/plot-reconcile` report
+*"still claimed, no commits → needs judgment"*; `--release` is how a person acts
+on that judgment.
+
+| measurement | answer |
+|---|---|
+| an open or merged PR exists | **refuse** — review it, or let `plot-release-refs.sh` release a merged ref |
+| the host cannot be asked, or `--offline` | **refuse** — a deleted ref cannot be re-created |
+| a live process (`running`) | **refuse** — names the pid; `--stop` it first if you mean to |
+| a commit on `origin/<branch>` that changes files | **refuse** — that is work, not a claim |
+| the desk holds unpushed commits or uncommitted changes | **refuse** — names the desk and the files |
+| a `PLOT-BLOCKED*` marker on the desk | **refuse** — the agent waits on a person |
+| none of the above | **release** — clear every manifest naming the branch, then delete the ref |
+
+A claim is an empty commit, so a claim-only ref changes no file and releases.
+No manifest naming the branch is not a failure: the ref is released and the
+output says so. A ref already deleted by hand with a manifest still naming the
+branch is released too — the manifest is the half that was missed. A refusal
+writes nothing, and the desk is never touched.
 
 ### Why restart is a separate verb
 
