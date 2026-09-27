@@ -404,9 +404,22 @@ describe('the arms have a population in the real suite', () => {
     const INTEGRATION = path.resolve(here, '../integration');
     const sourceOf = (f: string) => fs.readFileSync(path.join(INTEGRATION, f), 'utf8');
 
-    it('finds the write-reaches-a-script file, and only that one', () => {
+    it('finds the write-reaches-a-script files, and only those', () => {
       // approve.browser.test.ts, per the Survey's table: the one file in the
       // suite where a POST leaves the browser and lands in `Approve command`.
+      //
+      // serves-while-it-dispatches.test.ts joined it on 2026-09-26. It POSTs
+      // `/api/dispatch` against a real server with a real `Implement command`
+      // and intercepts nothing, which is the entitlement exactly: the subject is
+      // whether the EVENT LOOP stays free while that child runs, and a mock has
+      // no loop to block. The dispatch it triggers reaches a stub implement in a
+      // temp repo and `plot-dispatch.sh` is never configured, so nothing is
+      // pushed — the entitlement is about the transport, not the blast radius.
+      //
+      // THE LIST STAYS EXACT. It is `toEqual` because an arm that quietly
+      // widened is the failure this mechanism exists to prevent, so a new
+      // holder is added deliberately with its reason, never absorbed by a
+      // `toContain`.
       const holders = fs
         .readdirSync(INTEGRATION)
         .filter((f) => f.endsWith('.test.ts'))
@@ -414,7 +427,10 @@ describe('the arms have a population in the real suite', () => {
           entitlementsHeld(sourceOf(f)).includes(
             'a write reaches a script — an endpoint referenced and never intercepted',
           ));
-      expect(holders).toEqual(['approve.browser.test.ts']);
+      expect(holders.sort()).toEqual([
+        'approve.browser.test.ts',
+        'serves-while-it-dispatches.test.ts',
+      ]);
     });
 
     it('finds the abandoned-transport file', () => {

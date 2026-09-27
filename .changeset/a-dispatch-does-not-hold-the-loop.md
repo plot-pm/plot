@@ -1,0 +1,9 @@
+---
+'@plot-pm/board': patch
+---
+
+A dispatch starts the implement rather than waiting for it. `POST /api/dispatch` ran the `Implement command` through `spawnSync` under a five-minute bound, on the request's stack of a single-threaded server: measured 2026-09-26, the port holder sat at 0.0% CPU while `/api/board` timed out and the page told the operator to restart a live server. **The route's contract changes.** Its docblock read *"the implement step is SYNCHRONOUS: the 202 is written only after it completes successfully"*; the 202 now means the implement was STARTED, and carries both log paths. The brief gate decides exactly what it decided before — `plot-dispatch.sh` runs only after the implement exits 0 — and decides it in the child's `exit` listener, with the outcome recorded for `GET /api/implement/<slug>`. The refusal is not weaker for moving: it never reached the operator through the response either, because the client aborts actions at 15 s and a real `/plot-implement` takes minutes, so the button got `Fetch is aborted` and never the `409 implement-failed`. The child is `implement.ts`'s existing detached spawn, now shared by both routes rather than copied — CI's *One place reaches a process* ratchet falls from 21 sites to 20. A second dispatch of a slug whose implement is still running is refused rather than queued, tracked by the live child instead of by the log's existence: a log left behind with no state file and no process read as `running` forever and would have locked that slug out permanently. Measured on one machine with a 6 s implement stub, worst `/` latency during a dispatch fell from 7060 ms to 358 ms. The row menu's Dispatch entry now reads the refusal's `detail` before `error`, the fix `StartWorkButton` received on 2026-09-02 and the second caller did not.
+
+<!--
+plan: docs/plans/2026-09-26-a-dispatch-does-not-hold-the-loop.md
+-->
