@@ -117,7 +117,7 @@ The estate has hit this once already: the merge that shipped #1018 carries *"boa
 
 ## Slices
 
-### A correction is not unlanded work (Branch: bug/a-correction-is-not-unlanded-work)
+### A correction is not unlanded work (Branch: bug/a-correction-is-not-unlanded-work, PR: #1032)
 
 The named exclusion, the `.gitignore` decision for tooling state, and tests for all four cases above.
 
