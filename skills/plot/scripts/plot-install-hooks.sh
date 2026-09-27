@@ -306,6 +306,19 @@ if [ "$verify_only" = 1 ]; then
     return 1
   }
 
+  probe_brief_name_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable
+    local d
+    d="$(new_scratch_repo)" || return 2
+    # A staged add under the flattened name no reader computes. No remote and
+    # no branch is needed: the gate reads the name's shape, not membership.
+    mkdir -p "$d/.plot/briefs" || return 2
+    printf '# Brief\n' > "$d/.plot/briefs/feature-verify.md" || return 2
+    git -C "$d" add -A >/dev/null 2>&1 || return 2
+    drive_gate "$1" "$d" "git commit -m x"
+    [ "$?" = 2 ] && return 0
+    return 1
+  }
+
   # PROBER OR NONE, AND A MISSING ONE IS REPORTED RATHER THAN GUESSED AT.
   # plot-phase-gate.sh reads the plan from origin/<main> — an approval nobody
   # else can see is not one — so proving it needs a remote a scratch repo does
@@ -316,6 +329,7 @@ if [ "$verify_only" = 1 ]; then
     case "$1" in
       plot-state-gate.sh) printf 'probe_state_gate\n' ;;
       plot-controller-gate.sh) printf 'probe_controller_gate\n' ;;
+      plot-brief-name-gate.sh) printf 'probe_brief_name_gate\n' ;;
     esac
   }
 

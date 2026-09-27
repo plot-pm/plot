@@ -179,8 +179,9 @@ ceremony questions now and record the answers first.
 Produce the brief that lets the implementing session start without
 re-asking mechanics the plan already answers — and without plot.
 
-**Write it to `.plot/briefs/<branch-suffix>.md`** (the branch name with
-`/` flattened to `-`, or the plan slug for a `same-branch` plan) and commit
+**Write it to `.plot/briefs/<branch-suffix>.md`** (the branch name after
+its last `/` — `feature/x` gives `.plot/briefs/x.md`, never `feature-x.md` —
+or the plan slug for a `same-branch` plan) and commit
 it where the plan lives. A brief that exists only in the dispatching
 session's scrollback dies with that session; an agent that is resumed,
 replaced or restarted reads the file instead of asking a human to

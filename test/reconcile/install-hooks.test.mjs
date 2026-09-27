@@ -272,6 +272,7 @@ test('the registered command resolves from the project root', () => {
 const gateScripts = [
   'plot-state-gate.sh',
   'plot-controller-gate.sh',
+  'plot-brief-name-gate.sh',
   'plot-phase-gate.sh',
   'plot-state-receipt.sh',
   'plot-config.sh',
@@ -314,6 +315,8 @@ test('--verify proves a gate by its refusal, not by the file being written', () 
   // the gate that had never fired on any machine. Exit 2 is the contract; the
   // word here is this script's own report of it.
   assert.match(out, /verified\s+plot-state-gate\.sh/);
+  // Needs no remote: a staged misnamed brief is a self-contained condition.
+  assert.match(out, /verified\s+plot-brief-name-gate\.sh/);
 });
 
 test('--verify distinguishes a gate that cannot be proved from one that failed', () => {

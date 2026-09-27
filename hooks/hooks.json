@@ -15,6 +15,10 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-controller-gate.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-brief-name-gate.sh\""
           }
         ]
       }
