@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Issue:** #1002
-- **Rounds:** 2
+- **Rounds:** 3
 - **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 - **Started:** 2026-09-26, Claude (plot-implement), `bug/a-branch-behind-main-holds-nothing`
 
@@ -121,11 +121,46 @@ That removes `hostReach` from this arm entirely. The rule reads what the index h
 
 **Measured: 0 of 26 branches on this estate reach this arm**, and the corpus test cannot verify it (`a-corpus-test-says-what-it-verifies`). The fixture is the only place the behaviour is observable, so it is the evidence rather than an obstacle — and it says the rule captured a branch outside its target.
 
+### Round 3: the two shapes are indistinguishable live, and the index tells them apart
+
+**The blocked agent found the test that settles this** — `fleet: a branch behind main still reads merged — the regression that matters` (`fleet.test.mjs:1548`), which locks the opposite direction and whose comment predicted this change:
+
+> The crude rule *"zero commits ahead means open"* is correct for the reset case and **WRONG here**: a branch merged with a fast-forward or left behind by a moving main also counts zero ahead, and **its work IS on main**. Testing only the reset case passes with that crude rule and proves nothing. **Both directions, or neither is proven.**
+
+Its fixture merges `feature/landed` with a merge commit, keeps the ref, and runs `--offline`. So the rule sees **ref exists, 0 ahead, tips differ, no PR reading** — byte-identical to `feature/unclaimed`, opposite truths.
+
+**Neither `open` nor `merged` nor `unknown` is right**, because no live reading separates them.
+
+#### `mergeSubjectFound` is not the answer, and that is measured
+
+It would tell them apart, and the scan **deliberately withholds it** from ref-carrying branches (`plot-fleet-scan.sh:3426`):
+
+> Moving the lookup out of this `if` reads like a cheap early answer and would **silently report in-flight work as `merged`**, opening the next wave on it.
+
+A resurrected ref carries a stale merge subject while doing new work — the `bug/done-holds-finished-plans-only` incident. Using it here reopens a defect the estate already fixed.
+
+#### The index separates them, and it is already on disk
+
+`.git/.plot/state/index/github.json` holds **972 rows keyed by `head`**, carrying `state: MERGED | OPEN | CLOSED`:
+
+| branch | index record |
+|---|---|
+| `feature/landed` | a PR, `state: MERGED` |
+| `feature/unclaimed` | none |
+
+**The index is a record of what the host has ever said, not a live call.** So `--offline` stops meaning *blind* and means *do not ask the host now* — the last received answer still stands.
+
+This is the same mechanism as the throttle answer below: an unreachable host leaves the index's state standing rather than erasing it. Offline is that case taken to its limit.
+
+**It does not reopen the resurrection defect.** A resurrected ref doing new work carries an old MERGED record — but so does a genuinely merged branch, and what separates *those* is commits ahead, which is non-zero for real work. This arm runs only at zero ahead.
+
 ### The rule
 
-**A ref that is behind the default branch and carries nothing of its own answers `open` — unless the host says its pull request merged.**
+**A ref that is behind the default branch and carries nothing of its own answers `merged` where the index holds a MERGED pull request for it, and `open` otherwise.**
 
-`open` means *work not yet done*, which is exactly what such a branch is. A worker may pick it up; nothing is settled on its behalf; no wave completes on work that does not exist.
+`open` means *work not yet done*, which is what such a branch is when nothing was ever merged from it. A worker may pick it up; nothing is settled on its behalf.
+
+**The reading is the index, never a live host call.** `:258` refuses a live call on measured grounds and that refusal stands — the index is consulted, and it answers the same offline as online.
 
 `open` is not a new state and needs no new plumbing. It is what the scan already says for work not yet done, `--list-eligible` offers it, and a worker can act on it.
 
@@ -185,7 +220,9 @@ The population is bounded by `plot-release-refs.sh`, which deletes a delivered p
 
 ## Done when
 
-- A branch with a ref behind the default branch, no commits of its own, and no merged pull request answers `open`.
+- A branch with a ref behind the default branch, no commits of its own, and **no MERGED record in the index** answers `open`.
+- The same shape **with** a MERGED record in the index answers `merged`, offline.
+- `fleet.test.mjs:1548` (`the regression that matters`) passes unchanged.
 - `fleet.test.mjs` passes unchanged: `feature/unclaimed` stays eligible and the footer still reads `eligible=2`.
 - The same branch with `pr: 'MERGED'` answers `merged`.
 - A branch whose ref equals the default branch still answers `open`.
