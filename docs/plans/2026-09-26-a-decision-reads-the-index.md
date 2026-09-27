@@ -150,7 +150,7 @@ Three, and the first is the one that matters.
 
 It proves the store serves a real consumer before anything larger depends on it, and it answers the question the shipped store has never been asked: **can a shell script read it without a running board?** The file is plain JSON under `--git-common-dir`, so the answer is probably yes, and *probably* is what this slice replaces.
 
-### A decision reads rather than asks (Branch: infra/a-decision-reads-rather-than-asks)
+### A decision reads rather than asks (Branch: infra/a-decision-reads-rather-than-asks, PR: #1022)
 
 The second consumer, chosen after the first has shipped. `plot-reconcile-scan.sh` (6 calls) or `plot-fleet-scan.sh` (28) — the slice names which and why, with the first slice's experience in hand.
 
