@@ -11,6 +11,7 @@ import {
   treesGit,
   machineSystem,
   planStoreShell,
+  supervisionReportFile,
 } from '@plot-pm/domain/adapters';
 import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
@@ -36,6 +37,11 @@ import {
   type TickReport,
 } from './registryd.js';
 import { QUEUE_HOLDS, type QueueHold } from '@plot-pm/domain/rules/queue';
+import {
+  SUPERVISION_REPORT_VERSION,
+  type SupervisionReport,
+} from '@plot-pm/domain/entities/supervision-report';
+import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
 
 /**
  * `plot-registryd` — the supervisor, one per repository.
@@ -776,6 +782,78 @@ export const startAgents = async (
  * @param warn - where an incomplete tick and an unparsable manifest are reported.
  * @returns the process exit code.
  */
+/**
+ * This tick's judgement of every desk, as the report holds it.
+ *
+ * **A PROJECTION, NEVER A SECOND COMPUTATION.** Every field is read off the
+ * report the tick already produced — no gate is re-run and `supervise()` is not
+ * called again. That is the whole constraint of the plan this implements: the
+ * cause exists and carrying it is the work.
+ *
+ * **EVERY JUDGED DESK, INCLUDING THE LIVE ONES.** `reportTick` drops
+ * `verdict === 'leave'` before printing, because a log of a quiet estate should
+ * be quiet. A reader asking *what does this desk owe* needs the opposite: an
+ * absent row must mean only *the tick did not judge this desk*, and filtering
+ * the live ones out here would give that absence a second meaning.
+ *
+ * **AN INCOMPLETE TICK JUDGED NOTHING, AND THE ROWS SAY SO.** Such a tick
+ * carries an empty decision by contract, so this writes an empty `rows` with a
+ * current `at` — which reads as *the supervisor ran and placed no desk*, not as
+ * a stale report. The alternative, leaving the previous tick's file in place,
+ * would let a report the estate has moved past keep answering.
+ *
+ * @param report - what the tick decided.
+ * @returns the report to write.
+ */
+const reportFor = (report: TickReport): SupervisionReport => ({
+  v: SUPERVISION_REPORT_VERSION,
+  at: report.startedAt,
+  rows: report.decision.detail.agents.map((row) => ({
+    branch: row.branch,
+    worktree: row.worktree,
+    verdict: row.supervision.verdict,
+    cause: row.supervision.cause,
+  })),
+});
+
+/**
+ * Writes this tick's report, and says nothing when it cannot.
+ *
+ * **IT IS NOT GUARDED BY `--dry-run`, AND THAT IS THE POINT.** `--dry-run`
+ * suppresses the writes that change what an agent DOES — corrections, markers,
+ * reaps. This changes no desk: it is the tick's observation, the same kind of
+ * output as the stdout line a dry run already prints. Suppressing it would leave
+ * the board showing a cause the estate has moved past, which is the failure this
+ * whole channel removes.
+ *
+ * **A FAILED WRITE COSTS A FIELD, NEVER A TICK.** The daemon's job is to
+ * supervise. A read-only filesystem, a full disk or a missing git dir leaves the
+ * board with no cause — which it already renders as *the tick did not judge this
+ * desk* — and the warning goes to stderr, where an incomplete tick's line goes,
+ * because it is the stream a person reads when the supervisor is misbehaving.
+ *
+ * @param report - what the tick decided.
+ * @param store - where the report goes.
+ * @param warn - where a failed write is named.
+ */
+export const writeSupervisionReport = async (
+  report: TickReport,
+  store: SupervisionReportStore,
+  warn: (s: string) => void,
+): Promise<void> => {
+  try {
+    const written = await store.write(reportFor(report));
+    if (!written.ok) warn('plot-registryd: could not write the supervision report\n');
+  } catch (err) {
+    // A THROWN WRITE IS THE SAME FACT AS A FAILED ONE: the board gets no cause.
+    // Caught here rather than at the loop, so a filesystem that rejects cannot
+    // take the tick's own recovery path with it.
+    warn(
+      `plot-registryd: could not write the supervision report: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+};
+
 export const run = async (
   argv: readonly string[],
   here: string,
@@ -801,6 +879,14 @@ export const run = async (
   // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
   // adapter is a closure over two paths and spawns only when it is called.
   const performer = performerShell({ repoRoot, scriptDir: scriptsDir });
+  // ONE STORE FOR THE DAEMON'S WHOLE LIFE, so the `--git-common-dir` lookup is
+  // forked once rather than every tick — the adapter caches it per instance, and
+  // a store rebuilt per tick would throw that away 1,440 times a day.
+  //
+  // THE DAEMON IS THE ONLY WRITER. The board reads this file and never writes
+  // it; the `rename` is atomic but the decide-then-write sequence around it is
+  // not, so a second writer would race.
+  const reportStore = supervisionReportFile({ cwd: repoRoot });
 
   write(`plot-registryd: supervising ${registryDir}\n`);
 
@@ -869,6 +955,14 @@ export const run = async (
     // line both paths run here and the distinction is passed rather than
     // inferred downstream.
     const code = reportTick(report, write, warn, !args.once);
+    // THE ONE CHANNEL TO THE BOARD, written beside the log and for the same
+    // reason: the tick's judgement is worth nothing to an operator that cannot
+    // read it. Until this, the cause reached stdout and stopped there, and a
+    // board asking for it would have had to run `supervise()` itself — doubling
+    // the per-agent host call this tick already made.
+    //
+    // AFTER `reportTick`, so a tick whose report cannot be written still logs.
+    await writeSupervisionReport(report, reportStore, warn);
     if (args.startAgents) await startAgents(report, performer, write, warn);
 
     // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.

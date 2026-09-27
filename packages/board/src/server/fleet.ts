@@ -76,6 +76,11 @@ import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
 import { readMachine } from './machine-reading.js';
 import { readSupervisor } from './supervisor-reading.js';
+import {
+  readSupervisionReport,
+  NO_SUPERVISION_REPORT,
+  type SupervisionReportReadings,
+} from './supervision-report-reading.js';
 import { maybeAutoDeliver } from './auto-deliver.js';
 import { readAgentRegistryWithInfo, bashCleanliness } from './registry.js';
 import type { RegistryInfo } from './registry.js';
@@ -3948,6 +3953,7 @@ import {
   doubleClaimedBranches,
   quietKind,
   quietNeedsPerson,
+  reportedCause,
   quietNote,
   readingLoss,
   rowPhase,
@@ -6267,6 +6273,27 @@ export function rowsFromPulse(
    * than a claim that nothing is unmerged.
    */
   unmerged?: Set<string> | null,
+  /**
+   * What the supervisor's last tick decided about each desk, and when it ran —
+   * see `readSupervisionReport`.
+   *
+   * A READING, NEVER A COMPUTATION. The daemon computed these causes and wrote
+   * them; this function neither calls `supervise()` nor could — it is the
+   * synchronous render path, and the tick's own readings include a host call per
+   * agent. A board re-deriving the cause is the defect this field exists to fix,
+   * reproduced: 180 host calls an hour at three agents, doubled to answer a
+   * question already answered.
+   *
+   * THE CLOCK TRAVELS WITH THE CAUSES because staleness is decided per report,
+   * not per row — one tick wrote them all. `reportedCause` applies the bound, so
+   * a report nobody has refreshed reads as *not judged* rather than as current.
+   *
+   * Last in the parameter list because it is the newest, so every existing caller
+   * is unchanged. A caller passing nothing has not looked, and every row reads
+   * `supervisionCause: null` — the board that predates the field, rather than a
+   * claim that every desk is fine.
+   */
+  supervision: SupervisionReportReadings = NO_SUPERVISION_REPORT,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
@@ -6867,6 +6894,20 @@ export function rowsFromPulse(
           // `rowQuietKind`. Null on every other row, and null is the question
           // not being asked rather than an answer of "none".
           quietKind: kind,
+          // WHY THE SUPERVISOR LEFT THIS DESK WITHOUT A LIVE WORKER, forwarded
+          // from the tick's report exactly as `worker` and `quietKind` are.
+          //
+          // THE ONLY LOOP THAT CAN ANSWER IT. The two loops below build rows
+          // from the PR map and the ref list, where no desk was read and no
+          // agent is registered — so the tick cannot have judged them and they
+          // emit null explicitly.
+          //
+          // `reportedCause` APPLIES THE STALENESS BOUND, so a report nobody has
+          // refreshed reads as *not judged* rather than as current.
+          supervisionCause: reportedCause(
+            { at: supervision.at, cause: supervision.causes.get(b.branch) ?? null },
+            now,
+          ),
         });
       }
     }
@@ -7102,6 +7143,10 @@ export function rowsFromPulse(
       // else's — which is the one case `quietKind` itself declines to call
       // abandoned. Null is the question not being asked.
       quietKind: null,
+      // NO DESK WAS READ, so the tick cannot have judged one. This row is built
+      // from the PR map; no worktree was inspected and no agent holds it, so
+      // null is *the question was never put* — never `worker-alive`.
+      supervisionCause: null,
     });
   }
 
@@ -7356,6 +7401,12 @@ export function rowsFromPulse(
       // rule calls `abandoned`. Null while the commit is recent, because the
       // row is in NOT STARTED then and nobody has given up on anything.
       quietKind: kind,
+      // NO DESK WAS READ — see the row above. This branch reached the board from
+      // the ref list, so nothing registered it and the tick judged nothing about
+      // it. Emitted explicitly because the client CASTS the fleet rather than
+      // parsing it: a Zod default never runs there, so a field the server omits
+      // is `undefined` in the renderer.
+      supervisionCause: null,
     });
     // Guards the ONE-ROW-PER-BRANCH rule against the set itself: a duplicate ref
     // name cannot produce a second row. `unmerged` is a Set so this cannot fire
@@ -7628,14 +7679,31 @@ export async function buildFleet(
   // THE PLAN ESTATE IS PARSED ONCE, and three answers read it: the sprint
   // counts, the estate totals and the Draft plans WAITING ON YOU names.
   const estate = planEstate(opts, entry.pulse, entry.pulseComplete);
-  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans }] = await Promise.all([
-    estate.then((e) => activeSprints(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
-    estate.then((e) => estateTotals(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
-    readMasterAgentBranch(opts),
-    sprintMembership(opts),
-    readFleetSettings(opts),
-    estate,
-  ]);
+  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans }, supervision] =
+    await Promise.all([
+      estate.then((e) => activeSprints(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
+      estate.then((e) => estateTotals(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
+      readMasterAgentBranch(opts),
+      sprintMembership(opts),
+      readFleetSettings(opts),
+      estate,
+      // WHAT THE SUPERVISOR'S LAST TICK DECIDED, joined to this group because it
+      // is one file read and belongs on the RENDER clock rather than the
+      // refresh's — the choice `briefState` and the sprint map already make, for
+      // the reason they state: an answer taken at scan time is as stale as the
+      // scan.
+      //
+      // IT MATTERS MORE HERE THAN THERE. The scan is 18.3 s and the tick is 60 s,
+      // so a cause cached at refresh could be two cadences behind before anyone
+      // read it — and a stale cause presented as current is exactly what
+      // `branchIsWatched`'s persisted-verdict rule forbids. Reading here keeps
+      // the cause as fresh as the row that carries it.
+      //
+      // `readSupervisor` STAYS ON THE REFRESH CLOCK and is a different cost: it
+      // forks a script that walks every desk, 0.46-1.42 s measured. This is one
+      // `readFile` over a cached path, in `existsSync`'s class.
+      readSupervisionReport(opts),
+    ]);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
@@ -7654,7 +7722,11 @@ export async function buildFleet(
       // WHICH BRANCHES STILL CARRY WORK. From the cache rather than read here:
       // this is a git question and the render path is synchronous, the same rule
       // the ages and versions above follow.
-      entry.unmerged)
+      entry.unmerged,
+      // WHY EACH DESK HAS NO LIVE WORKER, from the daemon's per-tick report.
+      // Awaited above rather than read here, because this function is synchronous
+      // — the rule the sprint map above follows.
+      supervision)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
