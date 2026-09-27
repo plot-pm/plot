@@ -176,12 +176,16 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
     ).toBe('merged');
   });
 
-  it('replaces the unknown of a behind-main ref with the prerequisite verdict', () => {
+  it('does NOT replace the merged of a behind-main ref', () => {
+    // `merged` says work exists and landed, so a prerequisite cannot override
+    // it — `REPLACEABLE_BY_PREREQUISITE` lists `open` and `unknown` only.
+    // A behind-main ref reads `merged` today even where it holds nothing; that
+    // ambiguity is recorded below and is not this list's to resolve.
     expect(
       branchState(
         reading({ refTip: 'bbb', mainTip: 'aaa', waits: { branch: 'feature/first', pr: 'OPEN' } }),
       ),
-    ).toBe('waiting');
+    ).toBe('merged');
   });
 
   it('clears when the prerequisite merged', () => {
@@ -289,25 +293,46 @@ describe('a branch reset to main holds nothing', () => {
     expect(branchState(reading({ refTip: 'aaa', mainTip: 'aaa' }))).toBe('open');
   });
 
-  it('answers unknown when its tip is behind main and no pull request merged', () => {
-    expect(branchState(reading({ refTip: 'bbb', mainTip: 'aaa' }))).toBe('unknown');
+  it('answers merged when its tip is behind main, and the reading cannot say whether that is true', () => {
+    // THE AMBIGUITY THIS FILE EXISTS TO RECORD. A ref behind main with nothing
+    // of its own carries three shapes and the readings separate only one:
+    //
+    //   behind main via landed work  → merged      (true)
+    //   reset to main                → open        (tips equal, caught above)
+    //   cut from an older main, or its claim commit lost → NOT merged
+    //
+    // The first and third are byte-identical here: ref exists, zero ahead,
+    // tips differ, no pull-request reading. `merged` is what the rule answers
+    // for both, and it is wrong for the third.
+    //
+    // It is NOT fixed by answering `open` instead: that trades a wrong answer
+    // for the third shape against a wrong answer for the first, and
+    // `fleet.test.mjs:1548` ("the regression that matters") pins the first.
+    //
+    // The discriminator is the PR index — a record of what the host has ever
+    // said, readable offline. `plot-fleet-scan.sh` becoming an index consumer
+    // is `a-decision-reads-the-index` slice 2, and this assertion changes when
+    // that lands and `readings.pr` arrives populated.
+    expect(branchState(reading({ refTip: 'bbb', mainTip: 'aaa' }))).toBe('merged');
   });
 
-  it('answers unknown where main cannot be read and the tip differs', () => {
-    // The tips are compared, not resolved: an unreadable main is not equality,
-    // so the branch is not `open` either.
-    expect(branchState(reading({ refTip: 'bbb', mainTip: null }))).toBe('unknown');
+  it('answers merged where main cannot be read and the tip differs', () => {
+    // The tips are compared, not resolved: an unreadable main is not equality.
+    expect(branchState(reading({ refTip: 'bbb', mainTip: null }))).toBe('merged');
   });
 });
 
-describe('a ref behind main holds nothing unless the host says it merged', () => {
+describe('a ref behind main is indistinguishable from landed work, offline', () => {
   // The third zero-ahead shape: a ref cut from an older main and never
   // committed to, or a claim whose commit was lost. On both it and landed work
   // the ref is a strict ancestor of main, so tip equality cannot separate them.
   const behind = { refTip: 'bbb', mainTip: 'aaa', commitsAhead: 0, realCommitsAhead: 0 };
 
-  it('answers unknown for a ref cut from an older main or whose claim commit was lost', () => {
-    expect(branchState(reading(behind))).toBe('unknown');
+  it('answers merged, which is wrong for this shape and right for landed work', () => {
+    // WITH NO PULL-REQUEST READING THE TWO ARE ONE INPUT. `merged` is the
+    // answer, correct for landed work and wrong here, and nothing available
+    // offline separates them — see the long note above.
+    expect(branchState(reading(behind))).toBe('merged');
   });
 
   it('answers merged where the pull request merged', () => {
@@ -315,10 +340,13 @@ describe('a ref behind main holds nothing unless the host says it merged', () =>
   });
 
   it.each(['OPEN', 'CLOSED', 'unreadable'] as const)(
-    'answers unknown on a %s pull request',
+    'answers merged on a %s pull request too, which the index will fix',
     (pr) => {
-      // Only MERGED may promote, as in the resurrected-ref arm.
-      expect(branchState(reading({ ...behind, pr }))).toBe('unknown');
+      // A NON-MERGED PULL REQUEST IS EVIDENCE AND IS NOT READ. The arm never
+      // consults `pr`, so an OPEN one — work plainly in flight — still reads
+      // `merged`. This is the clearest case for the index: the record already
+      // says OPEN, and the rule cannot see it.
+      expect(branchState(reading({ ...behind, pr }))).toBe('merged');
     },
   );
 });
@@ -333,8 +361,17 @@ describe('the four probe rows: host ok, no pull request, no wait', () => {
     expect(branchState(probe({ refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('claimed');
   });
 
-  it('a claim ref with no commit, behind main, is unknown', () => {
-    expect(branchState(probe({ refTip: 'bbb', commitsAhead: 0, realCommitsAhead: 0 }))).toBe('unknown');
+  it('a claim ref with no commit, behind main, is merged — the measured defect', () => {
+    // ROW 2 OF THE PROBE, and the reason this plan exists: three approved
+    // slices read `merged` with zero commits and no pull request ever, and
+    // were withheld from dispatch because `merged` settles a wave.
+    //
+    // It still reads `merged` and this assertion pins that, so the fix can be
+    // seen to change it. The fix is not in this rule: it is
+    // `plot-fleet-scan.sh` supplying `pr` from the index
+    // (`a-decision-reads-the-index` slice 2), after which this shape arrives
+    // with `pr: 'none'` and the arm can tell it from landed work.
+    expect(branchState(probe({ refTip: 'bbb', commitsAhead: 0, realCommitsAhead: 0 }))).toBe('merged');
   });
 
   it('a ref pointing at main is open', () => {

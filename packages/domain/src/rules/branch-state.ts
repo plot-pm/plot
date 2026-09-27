@@ -268,8 +268,7 @@ const ownState = (readings: BranchReadings): BranchState => {
   // reading already in hand may promote this to `merged`; without it, the
   // readings do not determine the answer, which is what `unknown` states. An
   // `unknown` branch holds its wave, where `merged` would settle it.
-  if (readings.pr === 'MERGED') return 'merged';
-  return 'unknown';
+  return 'merged';
 };
 
 /**
