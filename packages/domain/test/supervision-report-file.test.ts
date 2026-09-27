@@ -67,15 +67,16 @@ describe('supervisionReportFile — one file per repository, under the common gi
     expect((await store.write(report())).ok).toBe(true);
     const read = await store.read();
     expect(read.ok).toBe(true);
-    expect(read.value).toEqual(report());
+    expect(read.ok && read.value).toEqual(report());
   });
 
   it('resolves under .plot/state and not into the working tree', async () => {
     const store = supervisionReportFile({ cwd: main, env: {} });
     const located = await store.location();
     expect(located.ok).toBe(true);
+    if (!located.ok) throw new Error('no location resolved');
     expect(located.value).toContain(join('.plot', 'state'));
-    expect(located.value?.endsWith('supervision.json')).toBe(true);
+    expect(located.value.endsWith('supervision.json')).toBe(true);
   });
 
   /**
@@ -91,13 +92,14 @@ describe('supervisionReportFile — one file per repository, under the common gi
   it('gives a dispatch desk the same file as the main checkout', async () => {
     const fromMain = await supervisionReportFile({ cwd: main, env: {} }).location();
     const fromDesk = await supervisionReportFile({ cwd: desk, env: {} }).location();
-    expect(fromDesk.value).toBe(fromMain.value);
+    expect(fromMain.ok && fromDesk.ok && fromDesk.value === fromMain.value).toBe(true);
   });
 
   it('lets a desk read what the main checkout wrote', async () => {
     await supervisionReportFile({ cwd: main, env: {} }).write(report());
     const read = await supervisionReportFile({ cwd: desk, env: {} }).read();
-    expect(read.value?.rows.map((r) => r.branch)).toEqual(['bug/a', 'bug/b']);
+    if (!read.ok || read.value === null) throw new Error('the desk read no report');
+    expect(read.value.rows.map((r) => r.branch)).toEqual(['bug/a', 'bug/b']);
   });
 
   it('replaces the whole report rather than merging into it', async () => {
@@ -107,7 +109,7 @@ describe('supervisionReportFile — one file per repository, under the common gi
     const read = await store.read();
     // A TICK'S REPORT IS THE WHOLE ANSWER. A tick that judged nothing must not
     // leave the previous tick's desks answering, which merging would do.
-    expect(read.value).toEqual({ v: SUPERVISION_REPORT_VERSION, at: 2, rows: [] });
+    expect(read.ok && read.value).toEqual({ v: SUPERVISION_REPORT_VERSION, at: 2, rows: [] });
   });
 
   it('leaves no temp file behind', async () => {
@@ -127,7 +129,7 @@ describe('supervisionReportFile — absent is not false', () => {
     // supervisor has never run. A caller must never read it as *the desks are
     // fine*, which is what a thrown or failed read would invite.
     expect(read.ok).toBe(true);
-    expect(read.value).toBeNull();
+    expect(read.ok && read.value).toBeNull();
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -136,7 +138,7 @@ describe('supervisionReportFile — absent is not false', () => {
     writeFileSync(join(home, 'supervision.json'), '{"v":1,"at":1,"rows":[{"bran');
     const read = await supervisionReportFile({ home, env: {} }).read();
     expect(read.ok).toBe(true);
-    expect(read.value).toBeNull();
+    expect(read.ok && read.value).toBeNull();
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -146,7 +148,7 @@ describe('supervisionReportFile — absent is not false', () => {
     const read = await supervisionReportFile({ home, env: {} }).read();
     // A LITERAL VERSION makes a future format unparseable by construction, which
     // is the fallback required: carry no cause, rather than misread one.
-    expect(read.value).toBeNull();
+    expect(read.ok && read.value).toBeNull();
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -185,8 +187,9 @@ describe('supervisionReportFile — absent is not false', () => {
       ],
     }));
     const read = await store.read();
-    expect(read.value?.rows).toHaveLength(2);
-    expect(read.value?.rows[1]?.cause).toBe('no-headroom');
+    if (!read.ok || read.value === null) throw new Error('the free-agent report did not parse');
+    expect(read.value.rows).toHaveLength(2);
+    expect(read.value.rows[1]?.cause).toBe('no-headroom');
     rmSync(home, { recursive: true, force: true });
   });
 
