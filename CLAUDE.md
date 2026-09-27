@@ -475,6 +475,36 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **No gate enforces this**, and it is a rule for the reason the domain's arrow-function rule is one: which of two implementations is right is judgement, and a grep cannot tell a declared duplicate from a forgotten one. What is gated is the pair once declared — the corpus test fails when they drift.
 
+## A Decision Reads The Index
+
+**The rule, and it is a direction rather than a description:** a tool call writes the index; a decision reads it, or is triggered by it. A decision made from a freshly-bought answer depends on what a host said at one instant, which no test can reproduce and no second reader can check. A decision that reads an index is a function of recorded state.
+
+**The rule has three parts and they hold to different degrees. Measured 2026-09-27:**
+
+| Part | Status on `main` |
+|---|---|
+| 1. A tool call writes the index and returns nothing a decision consumes | **Not yet.** Both shell consumers call `plot-host.sh` on a miss and use that answer directly. |
+| 2. A decision reads the index and spawns nothing | **Partly.** Two scripts read the store first and fall back to the host; neither is spawn-free. |
+| 3. A decision may be triggered by an index update | **Not built.** No subscription exists. |
+
+**The section exists because two consumers do, and not before.** `setSprintState` is the precedent this estate keeps measuring: nine refusals, zero callers, and a rule in prose that did not stop a master agent writing the field by hand. So the rule is written down after something follows it, and it names what it does not yet describe.
+
+**The two consumers, both shipped, both shell:** `plot-impl-status.sh` (#1020) — a plan whose every slice merged costs zero host calls, proved by `test/reconcile/impl-status-index.test.mjs`'s *"a fully merged plan is answered from the store with no host call"*. `plot-reconcile-scan.sh` (#1022) — the merged-PR list call is skipped only when every asked branch has a MERGED row, and otherwise the store's rows and the host's list form a union with the host's lines first, proved by `test/reconcile/scan-index.test.mjs`'s *"a store answering every asked branch removes the merged-list call"*. Both read through ONE bundle, `board/plot-pr-index-lookup.mjs`, which calls `decodePrIndex` — never `jq` over the file, which would be a second implementation free to drift when `PR_INDEX_VERSION` moves.
+
+**They are the first SHELL consumers and not the first consumers.** The board has read and written the store since `83c4abdc1`; `fleet.ts` folds it. A claim of zero consumers was false before wave 1 and is worth stating, because the plan made it.
+
+**Only a terminal answer is read from the index.** A `MERGED` row cannot revert on the host. `OPEN`, `CLOSED` and draft rows are stale in either direction and the rows record no SHA to revalidate against, so both consumers take MERGED rows and ask the host for everything else — `PLOT_TERMINAL_CACHE`'s licence (`plot-fleet-scan.sh:1234`) adopted whole. Tests: *"a store row that is OPEN gives the host the last word"*, *"a draft row is re-asked rather than answered from"*.
+
+**The index never says no, and this is the invariant a future consumer breaks first: the index can supply `pr: 'MERGED'` but not `pr: 'none'`.** A missing store, a missing row, a wrong-version or unparseable store, and a missing bundle all mean *ask the host*. A missing row in a `complete: false` store is not proof that no PR exists, and even a `complete: true` store knows nothing opened after its `at`. Measured 2026-08-27, an empty result read as *no PRs* refused four fully-merged plans.
+
+**One writer.** `fleet.ts` is the only caller of `foldPrIndex`, and the shell consumers read and never write. A second writer beside the board races: `rename` makes each write atomic and not the read-fold-write sequence around it. Part 1 says a tool call writes the index — it does not license every script to write one.
+
+**Answers, never verdicts.** The index holds bought answers — a host's `mergedAt`, a PR's checks, an issue's state — which cannot be re-derived at any price. A verdict is re-derivable from git for free and stale the moment a ref moves, and `fleet.ts:2173` refuses a persisted one: *"A persisted verdict would be a cache git cannot reach."* Every verdict is still derived fresh from indexed answers.
+
+**Not behind HTTP.** A shell consumer reads the file through a bundle and needs no running board — the reason `plot-ask.mjs` exists, and the reason seven skills do not gain a dependency whose failure arrives on a worker's machine rather than the operator's.
+
+**No gate holds this rule, and the CI spawn ratchet does not count either consumer.** *One place reaches a process* (`ci.yml:333`, `allowed=28`) greps `spawn`/`execFile` in `*.ts` under `packages/`, so a shell script's host call is invisible to it. Neither consumer moved that number, and lowering it to make the rule look earned is the gate driving the design. **The saving is a mechanism with tests and not a measured figure here**: the live store on this machine read `v: 1` against `PR_INDEX_VERSION` 2, so every read fell through to the host.
+
 ## The Master Agent Uses The Controllers
 
 **Settled 2026-09-08. No shortcuts.** A master agent performs a lifecycle action by calling its controller. Not the script the controller calls, not `sed` over the field the script writes, not `git` where the controller would have used it. **And what the controller refuses does not happen** — a refusal is not advice to weigh, it is the end of that action.
