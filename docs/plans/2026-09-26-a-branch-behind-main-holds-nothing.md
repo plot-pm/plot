@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Issue:** #1002
-- **Rounds:** 1
+- **Rounds:** 2
 - **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 - **Started:** 2026-09-26, Claude (plot-implement), `bug/a-branch-behind-main-holds-nothing`
 
@@ -93,17 +93,51 @@ None had ever carried a pull request. Deleting the three refs made all three dis
 
 ## Design
 
+### Round 2 settled the discriminator: there is none, and none is needed
+
+**The answer is `open`, not `unknown`.** Round 1's implementation returned `unknown` unless the host said `MERGED`, and three fixture tests failed because `feature/unclaimed` — a branch the fixture calls **free** — left the eligible set.
+
+**The rule's own reasoning already says why `open` is right.** `branch-state.ts:261`, on the tips-equal case:
+
+> It points AT the default branch: **no work of its own, and none of its own landed.** `open` is what the scan already says for work not yet done.
+
+A ref behind main holding nothing is **the same statement**. No work of its own, none of its own landed. The only difference is where it points, and where it points says nothing about what it holds.
+
+So the existing arm's condition is too narrow rather than its answer being wrong. It tests `refTip === mainTip` when the question is *does this branch hold anything*, which `commitsAhead === 0` — the enclosing block's own condition — already answers.
+
+**`unknown` was the wrong shape of answer.** It is a refusal to answer handed to callers who must decide anyway, and its two consumers read it oppositely: `queue.ts:207` makes it a `merge-unknown` **hold**, while `plot-fleet-scan.sh:3473` counts it as **outstanding, exactly as `open` is**. A rule whose answer means two things is not an answer.
+
+### The throttled host is the index's problem, not this rule's
+
+An earlier draft treated a silent host as a case this rule must handle, because `:258` refuses a host call on measured grounds — `plot-pr-merged.sh` answered *not merged* for three genuinely merged branches while throttled.
+
+**Settled in round 2: the received state is written to the index, and a throttled host simply fails to refresh it.** Clients read the current index — potentially outdated, never invented. So a throttle does not change any branch's answer; it leaves the last known one standing.
+
+That removes `hostReach` from this arm entirely. The rule reads what the index holds and does not care why it holds it.
+
+### The fixture is right and the rule over-reached
+
+`fleet.test.mjs:121` calls `feature/unclaimed` **free**; `:193` defines eligible as *"in an eligible wave, not already claimed, not deferred, not merged."* That is work a worker should pick up, and round 1's change removed it from the eligible set.
+
+**Measured: 0 of 26 branches on this estate reach this arm**, and the corpus test cannot verify it (`a-corpus-test-says-what-it-verifies`). The fixture is the only place the behaviour is observable, so it is the evidence rather than an obstacle — and it says the rule captured a branch outside its target.
+
 ### The rule
 
-**A ref that is behind the default branch and carries nothing of its own answers `unknown`, not `merged` — unless the host says its pull request merged.**
+**A ref that is behind the default branch and carries nothing of its own answers `open` — unless the host says its pull request merged.**
 
-`unknown` is not a new state and needs no new plumbing. The rule already returns it for the analogous case at `:195-206`, and the docstring makes the category explicit:
+`open` means *work not yet done*, which is exactly what such a branch is. A worker may pick it up; nothing is settled on its behalf; no wave completes on work that does not exist.
 
-> `unknown` MARKS AN ABSENT READING, NEVER AN EMPTY ONE. A host that was never asked leaves `open`; a host that was asked and could not answer leaves `unknown`.
+`open` is not a new state and needs no new plumbing. It is what the scan already says for work not yet done, `--list-eligible` offers it, and a worker can act on it.
+
+**The docstring at `:195-206` is what rules `unknown` out here:**
+
+> `unknown` MARKS AN ABSENT READING, NEVER AN EMPTY ONE. **A host that was never asked leaves `open`**; a host that was asked and could not answer leaves `unknown`.
+
+This arm has no absent reading. The readings are present and complete — a ref, zero commits ahead, tips differing — and they say the branch holds nothing. That is an empty answer, not a missing one, and the docstring assigns it `open`.
 
 A branch of this shape is the same category read from git rather than from the host: the readings are present and they do not determine the answer. Two of the three sources mean *holds nothing* and one means *merged*, and nothing in `BranchReadings` separates them.
 
-**Downstream behaviour is already defined, and it is the behaviour this wants.** `queue.ts:56` — *"`unknown` is a host that could not be asked, and it HOLDS the slice"* — and `:207` returns the `merge-unknown` hold. `plot-fleet-scan.sh:3380` — *"`unknown` IS OUTSTANDING, exactly as `open` is."* So the change converts a silent skip into a visible hold with an existing reason code.
+**`open` is what every consumer already handles.** It is the scan's own word for work not yet done, `--list-eligible` offers it, and a worker can act on it. No consumer needs teaching, and no new hold is introduced.
 
 ### The section must hold under every condition
 
@@ -135,7 +169,9 @@ The host, and only the host. `readings.pr === 'MERGED'` already overrides at `:2
 
 ### What this costs, stated
 
-**A genuinely merged branch whose ref outlived the merge now reads `unknown` instead of `merged` when the host cannot confirm it.** That is a real regression in one direction, and it is the trade this plan makes deliberately: `unknown` holds a wave, `merged` settles it. Holding a finished wave wastes an operator's attention; settling an unfinished one withholds work nobody can see. Only the second is silent.
+**A genuinely merged branch whose ref outlived the merge now reads `open` instead of `merged` when the host cannot confirm it.** That is a real regression in one direction and the trade this plan makes deliberately: `open` offers the branch to a worker, `merged` settles its wave. Re-offering finished work wastes an agent's time and is visible the moment it starts; settling unfinished work withholds it silently. Only the second is unrecoverable.
+
+**The index bounds how often this can happen.** The host's answer is written to the index, so a throttled or unreachable host leaves the last received state standing rather than erasing it. A branch reads as unconfirmed only if the host has never answered about it at all.
 
 The population is bounded by `plot-release-refs.sh`, which deletes a delivered plan's merged refs — CLAUDE.md records 3 surviving merged refs on this estate against hundreds of merges.
 
@@ -149,7 +185,8 @@ The population is bounded by `plot-release-refs.sh`, which deletes a delivered p
 
 ## Done when
 
-- A branch with a ref behind the default branch, no commits of its own, and no merged pull request answers `unknown`.
+- A branch with a ref behind the default branch, no commits of its own, and no merged pull request answers `open`.
+- `fleet.test.mjs` passes unchanged: `feature/unclaimed` stays eligible and the footer still reads `eligible=2`.
 - The same branch with `pr: 'MERGED'` answers `merged`.
 - A branch whose ref equals the default branch still answers `open`.
 - A branch with a pushed claim commit still answers `claimed`.
