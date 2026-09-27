@@ -69,6 +69,15 @@ export {
   PR_INDEX_HOME_ENV,
   type PrIndexFileOptions,
 } from './pr-index/pr-index-file.js';
+
+// THE SUPERVISION REPORT'S FILE ADAPTER. One file under the COMMON git dir's
+// `.plot/state/`, written by the daemon each tick and read by the board on
+// refresh — the one channel between two processes that shared none.
+export {
+  supervisionReportFile,
+  SUPERVISION_REPORT_HOME_ENV,
+  type SupervisionReportFileOptions,
+} from './supervision-report/supervision-report-file.js';
 export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 
 export { refsGit } from './refs/refs-git.js';

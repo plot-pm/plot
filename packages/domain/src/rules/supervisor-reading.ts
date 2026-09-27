@@ -13,6 +13,8 @@
  * nobody notices and the whole defect.
  */
 
+import type { SupervisionCause } from './supervision.js';
+
 /**
  * What the board knows about the supervisor.
  *
@@ -436,4 +438,57 @@ export const supervisorVerdict = (readings: SupervisorReadings): SupervisorVerdi
         ? `The fleet is stopped, and ${agents} agent${agents === 1 ? '' : 's'} ${agents === 1 ? 'is' : 'are'} running. No slice will be picked up, and nothing reaps a finished desk or marks a spent one. Start it: /plot-fleet --start`
         : 'The fleet is stopped. No agent is running, so nothing is being neglected, but no slice will be picked up either. Start it: /plot-fleet --start',
   };
+};
+
+/**
+ * What the board read of the daemon's per-tick report.
+ *
+ * ABSENT IS NOT FALSE, AND THE THREE ABSENCES ARE ONE ANSWER. No report file, a
+ * report this Plot cannot parse, and a report naming other desks all mean *the
+ * tick did not judge this desk*. A reader that collapsed any of them into
+ * `worker-alive` or into *fine* would report a healthy desk it never measured.
+ */
+export interface SupervisionReportReading {
+  /**
+   * When the tick that wrote it started, epoch milliseconds, or null where no
+   * report was read.
+   */
+  at: number | null;
+  /** The cause the tick reported for the desk being asked about, or null. */
+  cause: SupervisionCause | null;
+}
+
+/**
+ * The cause a row may carry, once the report's age is taken into account.
+ *
+ * **A STALE REPORT IS DROPPED, NOT AGED DOWN.** `fleet.ts:2175` refuses to
+ * present a recorded answer as a current one, and a cause is a statement about a
+ * desk *now*: a `no-headroom` from four hours ago says nothing about whether the
+ * machine has headroom, because the whole point of that cause is that the next
+ * tick re-asks it. Rendering it with its age would invite a reader to act on it
+ * anyway, so the row reads `null` — the tick did not judge this desk — which is
+ * the honest reading of a report nobody has refreshed.
+ *
+ * The bound is {@link FLEET_TICK_STALE_SECONDS}, the same number that decides
+ * whether the fleet itself is called silent. One number answers both, because
+ * both ask *has the supervisor ticked recently enough for its word to count*.
+ *
+ * A report with no clock is stale by construction: it cannot prove it is fresh.
+ *
+ * @param reading - what was read of the report for one desk.
+ * @param now - the current time, epoch milliseconds.
+ * @returns the cause to carry on the row, or null where none may be.
+ */
+export const reportedCause = (
+  reading: SupervisionReportReading,
+  now: number,
+): SupervisionCause | null => {
+  if (reading.cause === null) return null;
+  if (reading.at === null) return null;
+  const ageSeconds = (now - reading.at) / 1_000;
+  // A REPORT FROM THE FUTURE IS NOT STALE. A clock adjustment between the
+  // daemon's write and the board's read is not the failure this guards, and
+  // discarding a report for being too new would drop a fresh one.
+  if (ageSeconds >= FLEET_TICK_STALE_SECONDS) return null;
+  return reading.cause;
 };
