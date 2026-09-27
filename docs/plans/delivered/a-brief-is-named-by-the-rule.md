@@ -1,0 +1,1 @@
+../2026-09-26-a-brief-is-named-by-the-rule.md
