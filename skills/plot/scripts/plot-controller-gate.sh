@@ -163,8 +163,9 @@ done
 # --- the read/write split INSIDE the named script ----------------------------
 #
 # Only the action a controller owns is gated. `--status` and `--dry-run` report;
-# `--stop`, `--restart`, `--start` and `--migrate` write, and have NO endpoint —
-# refusing them would name no route, which is the exact reason `gh` is left out.
+# `--stop`, `--restart`, `--start`, `--migrate` and `--release` write, and have
+# NO endpoint — refusing them would name no route, which is the exact reason
+# `gh` is left out.
 # `plot-fleetctl.sh --stop` calls `plot-dispatch.sh --stop` per agent, so a gate
 # over that mode would break the fleet's own orchestration.
 # Reads the STRIPPED command, so a heredoc body mentioning a mode cannot exempt
@@ -173,6 +174,7 @@ case " $CMD_SCAN " in
   *" --status "*|*" --status"|*" --dry-run "*|*" --dry-run"*|\
   *" --stop "*|*" --stop"|*" --restart "*|*" --restart"|\
   *" --start "*|*" --start"|*" --migrate "*|*" --migrate"|\
+  *" --release "*|*" --release"|\
   *" --help "*|*" --help"|*" -h "*|*" -h")
     exit 0 ;;
 esac

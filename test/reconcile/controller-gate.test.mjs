@@ -150,13 +150,14 @@ test('controller gate: a read-only script is never gated', () => {
 });
 
 test('controller gate: dispatch modes with no endpoint are not gated', () => {
-  // A refusal must name a route. `--stop`, `--restart`, `--start` and
-  // `--migrate` have no endpoint, and `plot-fleetctl.sh --stop` calls
+  // A refusal must name a route. `--stop`, `--restart`, `--start`,
+  // `--migrate` and `--release` have no endpoint, and `plot-fleetctl.sh --stop` calls
   // `plot-dispatch.sh --stop` per agent — gating it would break the fleet's own
   // orchestration to point at nothing.
   const dir = repo();
   for (const mode of ['--status', '--dry-run some-slug', '--stop feature/x',
-                      '--restart feature/x', '--start 3', '--migrate']) {
+                      '--restart feature/x', '--start 3', '--migrate',
+                      '--release feature/x']) {
     assert.equal(run(dir, `bash skills/plot/scripts/plot-dispatch.sh ${mode}`).status, 0,
       `--${mode} names no endpoint, so it is not gated`);
   }
