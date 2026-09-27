@@ -129,7 +129,7 @@ Twelve files were repaired by hand on 2026-09-26 — seven renamed, five removed
 
 ## Slices
 
-### A brief is named by the rule (Branch: infra/a-brief-is-named-by-the-rule)
+### A brief is named by the rule (Branch: infra/a-brief-is-named-by-the-rule, PR: #1026)
 
 The gate, its refusal text, its registration, and the four cases above.
 
