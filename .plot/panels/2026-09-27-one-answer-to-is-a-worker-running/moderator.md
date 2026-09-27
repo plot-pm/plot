@@ -1,90 +1,120 @@
 # Moderation — one answer to "is a worker running"
 
-Jurors: 1 spawned, 0 verdicts written. The juror reported idle having written
-nothing, so this panel carries NO gated verdict and is recorded as unquestioned
-rather than clean.
+Jurors: 1 (evidence), gated on both labels — Position `amend`, Evidence
+`executed`. **Round 2 in effect**, because the verdict arrived after a first
+moderation had already been written.
 
-The moderator therefore measured the plan directly. **Position: amend.** The
-defect is real and the plan's measurement reproduces, but the mechanism it names
-is wrong, and a builder following it would change the wrong line.
+## A process failure first, and it is mine
 
-## What the plan says the mechanism is
+The juror's verdict landed at 17:33. A moderation declaring it ABSENT was
+written at 17:26, the plan was amended from that moderation, and the amendment
+was committed and pushed. **The panel was still running and I moderated it as
+finished** — the same mistake recorded in memory as
+`a-juror-that-executes-finds-what-readers-miss`'s sibling failure: a wait loop
+that counted its own output.
 
-> `reapable.ts:441` tests whether a **pid file is non-empty** … A file that names
-> a dead pid reads `true`.
+The juror noticed independently: *"the file changed on disk mid-review."* It
+re-measured against the amended text, which is the only reason this round is
+usable at all.
 
-## What it actually is
+**The rule this establishes:** a juror that has not written is not a juror that
+found nothing. Wait for the process, not for a directory listing.
 
-`workerPid` is a READING, and all three producers resolve liveness with `ps`
-before the rule sees it:
+## The finding: the third diagnosis of one transcript, and the first two are both wrong
 
-| producer | the check |
-|---|---|
-| `plot-reap.sh:506-509` (reap loop) | `[ -n "$p" ] && ps -p "$p"` — `pid` stays `""` when gone |
-| `plot-reap.sh:1040-1042` (dirty sweep) | the same three lines, independently |
-| `entities/worktree.ts:132` | `evidence.workerAlive ? 'alive' : null` |
+The juror **reproduced the headline transcript** in a sandbox — `finished <pid>`
+from `plot_worker_state` against `worker alive (pid <pid>)` from the reaper's
+reading, one pid, both components — with **no recycled pid and no exit record**:
 
-`plot-reap.sh:503-504` states the contract: *"an empty pid file is not a live
-process, and which of those two it is is the rule's to say."* So a stale pid file
-never reaches the rule as a live worker, and the string test at `:441` is a
-string test BECAUSE the adapter already did the reading — the layering rule
-working, not a defect.
+```
+LIVE wrapper pid=23768, no 'claude' child, tree CLEAN, branch pushed, no exit record
+plot_worker_state    = [finished|23768|]
+plot-reap.sh reading:  PLOT_PID='23768' -> 'worker alive (pid 23768)'
+```
 
-**Therefore `ps -p 99861` SUCCEEDED** when the reaper printed
-`worker alive (pid 99861)`. The plan's own headline measurement is not a stale
-file being trusted.
+### The mechanism, verified by the moderator
 
-## The real divergence: an exit record outranks the process table
+`plot-worker-state.sh:863-873`:
 
-`plot-worker-state.sh:888` reads `.plot-worker.exit` **before** it reports on the
-process, and `:895` refines exit 0 through `plot_worker_task_state` — a TREE
-reading. Its header says so at `:42`: *"`finished` is refined by the TREE."*
+```
+    if plot_worker_agent_alive "$pid"; then
+      printf 'running\t%s\t' "$pid"; return
+    elif [ "$?" -eq 1 ]; then
+      # The wrapper is alive and the agent is gone. The DESK decides what that
+      # means — `stalled` ... `waiting` ... `finished` for a desk that is clear
+      # ... No exit file exists: the wrapper has not exited.
+      printf '%s\t%s\t' "$(plot_worker_task_state "$wt" "$has_pr")" "$pid"; return
+    fi
+```
 
-So the two components ask genuinely different questions:
+**The code states the mechanism outright.** A live wrapper whose `claude` child
+is gone is refined by the DESK into `finished`/`waiting`/`stalled`, with no exit
+file involved. The reaper takes no such reading: `grep -c
+'plot_worker_agent_alive\|plot-worker.exit' plot-reap.sh` → **0**.
 
-- **`plot-worker-state.sh`** — *did this worker record an exit?* A recorded exit
-  means the worker is done, whatever `ps` says about that number now.
-- **`reapable.ts` via the reap adapter** — *is a process with this pid alive?*
+### Why round 1's mechanism is refuted
 
-Both were right about their own question. One process number, two meanings —
-and the pid in `finished 99861` is the DEAD worker's recorded pid, read from the
-manifest (`plot-worker-state.sh:755`: *"THE PID IS READ FROM THE MANIFEST"*).
+Round 1 (the moderator's own) said the exit record is read first and the case is
+a recycled pid. Both false:
 
-**The defect is that the reaper has no reading of the exit record at all.** A
-desk whose worker wrote `.plot-worker.exit` is finished, and the reaper cannot
-see that fact; it asks `ps` about a number that may since have been recycled onto
-anything. The plan named recycling as a hypothetical — *"a recycled pid is the
-sharper risk here"* — and its opening measurement is that case, not the stale-file
-case it argues.
+- `:888` sits **after** the `kill -0` branch returns, under the header *"The
+  process is gone. What exit code did it leave?"* (`:880-882`). The exit record
+  is read **only when the pid is dead**.
+- With an exit record present **and** the pid alive — round 1's exact case — the
+  juror measured `plot_worker_state = running`. So `--stop` would have printed
+  `stopped ... (pid 99861)` and killed the recycled process, not `is not running
+  (finished 99861)`. **The transcript is unreachable by round 1's mechanism.**
 
-## What the plan must say before someone builds it
+`finished` was the tell throughout: on a live pid it is reachable only through
+`plot_worker_agent_alive`.
 
-1. **Correct the mechanism.** Delete *"a string test on a pid file"* and *"a file
-   that names a dead pid reads `true`"*: both are refuted by the three producers
-   above. State instead that the reap adapter takes a `ps` reading and takes no
-   exit-record reading, so a finished worker whose pid was recycled reads alive.
-2. **Name `.plot-worker.exit` as the missing reading.** The fix is a reading the
-   adapter does not take, not a rule that tests the wrong thing — so the diff is
-   in `plot-reap.sh` (both sites) and the `ReapReadings` shape, not in
-   `reapable.ts:441`'s expression.
-3. **Do not route `reapable.ts` through `plot-worker-state.sh`.** That script
-   answers eight states, two of them tree readings about what an agent OWES, and
-   a pure domain rule must not gain a shell dependency to learn one boolean. The
-   CLAUDE.md quote the plan leans on is about the eight-state classifier having
-   ONE implementation, and the reaper is not asking that question.
-4. **Both sites or neither.** `plot-reap.sh:506` and `:1040` carry the liveness
-   snippet independently; an exit-record reading added to one leaves the dirty
-   sweep still refusing.
-5. **Re-derive the three-desk cost.** #1004, #1007 and #1014 are cited as the
-   same state. Each should be checked against the corrected mechanism — a desk
-   with no exit record is a different case from one whose pid was recycled, and
-   only the second is what this plan now describes.
+## Three findings beyond the mechanism, all verified
+
+**The fix as amended is correct hardening that closes none of the reported
+desks.** The reaper genuinely reads no exit record — true on its own terms — but
+in the measured population there IS no exit record, because the wrapper has not
+exited. The refusal fires anyway.
+
+**§"Why not route through `plot-worker-state.sh`" refutes a design nobody
+offered.** Round 1's objection was *"a pure domain rule must not gain a shell
+dependency."* Nothing proposes that: the reaper is the **adapter**, and it
+already spawns `node`, `git`, `ps` and `plot-pr-merged.sh`. The section declines
+the one component that answers the question, for a reason that does not apply.
+
+**A latent work-loss path.** `plot-reap.sh:596` calls `firstReapRefusal` →
+`reapProblems`, which carries **no `unpushedCommits` refusal** (verified: the
+function's four pushes are `live-worker`, `blocked-marker`,
+`uncommitted-changes`, `on-default-branch`) and the reaper supplies no `ahead`
+reading. Only `finishedWith` has that guard, and the reaper never calls it.
+**So `reapable.ts:441` is not on the reaper's path at all** — round 1 exonerated
+a line the subject does not execute. Any widening of *not live* must not reap a
+desk holding the only copy of unpushed commits; MEMORY records that loss shape
+twice.
+
+**And `plot-worker-state.sh` is not simply "correct".** On a manifest-less desk
+its staleness check has no `startedAt`, and `:788-793` says *"the old behaviour
+applies — `kill -0` is trusted."* If recycling matters anywhere, both readers
+have that window.
 
 ## Verdict
 
-**amend.** The symptom is real, reproduced, and worth fixing; the title still
-holds. What changes is where the fix goes: the reaper needs a reading it never
-takes, and `reapable.ts:441` is correct as written.
+**amend, round 2.** The defect is real, the deadlock is real, and #1004, #1007
+and #1014 are all confirmed MERGED on 2026-09-26. What the plan still lacks is a
+mechanism that produces the estate's own transcript.
 
-Recorded: no juror verdict. This is the moderator's own measurement and carries
-no independent lens.
+Seven amendments are owed and the juror lists them; the load-bearing four:
+
+1. **Correct the `:888` claim** — the exit record is read only when `kill -0`
+   fails.
+2. **Re-diagnose from `plot_worker_agent_alive` (`:580`) and
+   `plot_worker_task_state` (`:714`)** — a live wrapper with a dead agent.
+3. **Do the #1004/#1007/#1014 re-check BEFORE the slice.** It is a precondition
+   of the diagnosis, not a follow-up; the plan is built on the claim it defers.
+4. **Withdraw the domain-purity objection** and reject the eight-state
+   classifier, if at all, on the `waiting`/`stalled` ambiguity alone.
+
+Plus: name the unpushed-commits guard in Done when, say whether the
+manifest-less window is in scope, and stop citing `:441` as the subject's line.
+
+Kept as sound: *both sites or neither*, readings-not-the-rule,
+`reapable.ts` unchanged, and the one-fixture agreement test.
