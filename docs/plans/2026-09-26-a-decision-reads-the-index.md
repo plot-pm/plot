@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Review:** in-session
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 - **Started:** 2026-09-26, Claude (plot-implement), `infra/the-index-has-its-first-consumer`
 - **Started:** 2026-09-27, Claude (plot-implement), `docs/the-rule-is-written-down`
+- **Delivered:** 2026-09-27
 
 ## Changelog
 

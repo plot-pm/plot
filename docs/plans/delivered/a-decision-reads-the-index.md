@@ -1,0 +1,1 @@
+../2026-09-26-a-decision-reads-the-index.md
