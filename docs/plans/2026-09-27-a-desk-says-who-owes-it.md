@@ -169,7 +169,7 @@ Carrying a nine-value field whose measured range is three is correct — the six
 
 ## Slices
 
-### A desk says who owes it (Branch: bug/a-desk-says-who-owes-it)
+### A desk says who owes it (Branch: bug/a-desk-says-who-owes-it, PR: #1034)
 
 Carry `SupervisionCause` to the row, state the mapping, and place the sections by it. One slice: the value exists, the transport is the work, and splitting transport from placement would ship a field nothing reads.
 
