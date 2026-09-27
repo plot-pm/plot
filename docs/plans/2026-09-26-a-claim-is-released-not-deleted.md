@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 - **Started:** 2026-09-26, Jan Wloka, `bug/a-claim-is-released-not-deleted`
+- **Delivered:** 2026-09-27
 
 ## Changelog
 
