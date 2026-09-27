@@ -417,7 +417,19 @@ describe('a browser test that stubs its own state starts no board', () => {
 // approved one, that a running panel removes it, and that Approve stays enabled
 // at every round count. It serves its own state through the catalogue and
 // starts no board.
-const EXPECTED_FILES = 52;
+// 52 → 53 on 2026-09-27: `draft-plan-row.browser.test.ts`, one `it(`, for the
+// WAITING ON YOU row a Draft plan with no branch had no way to produce.
+//
+// A PLAIN ADDITION: nothing moved and no file lost an `it(`. Raised in the
+// commit that adds it, which is the mechanism this gate describes — it fails on
+// a migration that silently drops coverage, and a feature adding coverage says
+// so here. The new test serves its own state through the catalogue and starts
+// no board, so it satisfies this gate's rule rather than being admitted past it.
+//
+// What only a rendered page can settle is that a plan with no branch reaches
+// the section at all — the row is synthesized from the plan rather than joined
+// from a branch, and no unit test can show it arriving in WAITING ON YOU.
+const EXPECTED_FILES = 53;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -573,7 +585,11 @@ const EXPECTED_FILES = 52;
 // 509 → 515 on 2026-09-26: the six `it(` in `interrogate-card.browser.test.ts`.
 // Added, not moved. `plan-rounds-badge.browser.test.ts` rewrote one `it(` in
 // place (absent rounds now render), so its count is unchanged.
-const EXPECTED_TESTS = 515;
+// 515 → 516 on 2026-09-27: the single `it(` in `draft-plan-row.browser.test.ts`.
+// Added, not moved — `EXPECTED_FILES` counts the new file and nothing lost an
+// `it(`. Re-derived against the main this branch sits on rather than by
+// arithmetic on a stale one.
+const EXPECTED_TESTS = 516;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
