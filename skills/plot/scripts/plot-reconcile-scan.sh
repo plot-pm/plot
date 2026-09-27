@@ -496,20 +496,17 @@ load_open_pr_branches() {
   open_pr_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
   open_prs=$(pr_head_branches "$open_pr_heads")
 
-  # Merged counterpart, same call shape. Bundled: ONE call for all plans, so
-  # cost is constant in plan count. A failure here is TOLERATED and always was
-  # — the merged list feeds one advisory check, and section 8 says so in its
-  # own note when the heads are missing.
-  if out=$(PLOT_HOST="$host_env" bash "$host_script" pr-list --state merged --limit "$MERGED_PR_LIMIT" $repo_args </dev/null 2>/dev/null); then
-    merged_pr_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
-  fi
-
-  # Did the page fill exactly? Then older merged PRs exist that we did not see.
-  if [ -n "$merged_pr_heads" ] \
-     && [ "$(printf '%s\n' "$merged_pr_heads" | grep -c .)" -ge "$MERGED_PR_LIMIT" ]; then
-    MERGED_PR_TRUNCATED=1
-  fi
+  # The merged counterpart is NOT fetched here. It is asked after the plans are
+  # parsed, by `load_merged_pr_heads`, because the PR index answers it first and
+  # the index needs to know which branches the sections will ask about. The
+  # host and repository this call resolved travel to it unchanged.
+  MERGED_HOST_SCRIPT="$host_script"
+  MERGED_HOST_ENV="$host_env"
+  MERGED_REPO_ARGS="$repo_args"
 }
+MERGED_HOST_SCRIPT=""
+MERGED_HOST_ENV=""
+MERGED_REPO_ARGS=""
 if [ "$do_pr" = 1 ]; then
   load_open_pr_branches
 else
@@ -587,6 +584,106 @@ fi
 plan_branches() { # $1=plan file path
   printf '%s\n' "$plan_rows" | awk -F"$US" -v f="$1" '$1 == f { print $6; exit }'
 }
+
+# ---------------------------------------------------------------------------
+# The merged-PR list — the PR index first, the host for what it cannot answer.
+#
+# FOUR SECTIONS ASK ONE QUESTION of this list: *did a PR with this head merge?*
+# Section 2 asks it of every branch an Approved plan names, sections 3, 19 and
+# 20 of every remote branch, and section 21 of every worktree's branch. That set
+# is known here, after the plans are parsed, and not before — which is why the
+# list is loaded here rather than beside the open list.
+#
+# THE INDEX IS ASKED FIRST, through `board/plot-pr-index-lookup.mjs`, the bundle
+# `plot-impl-status.sh` already reads it with. Never `jq` over the file:
+# `decodePrIndex` owns the version check, and a second reader drifts the first
+# time `PR_INDEX_VERSION` moves. The bundle resolves the store from
+# `--git-common-dir` and honours `PLOT_PR_INDEX_HOME`, so a desk reads the same
+# file as the main checkout.
+#
+# ONLY A MERGED ROW IS TAKEN, because a merged PR cannot revert on the host —
+# `PLOT_TERMINAL_CACHE`'s licence, adopted whole. The bundle answers `ask` for
+# anything else, and for a branch the store holds no row for: `complete: false`
+# records that a missing row may never have been seen, so absence is a reason to
+# ask and never an answer.
+#
+# THE HOST IS ASKED ONCE, AS BEFORE, UNLESS THE INDEX ANSWERED EVERY BRANCH.
+# One unanswered branch costs the same single bundled call it always cost; a
+# per-branch fallback would cost more than the list it replaces. So the saving
+# is the whole call or nothing, and it is whole only when no asked branch is
+# still in flight.
+#
+# WHERE BOTH ANSWER, THE LIST IS THEIR UNION, the host's lines first. The host
+# page stops at `MERGED_PR_LIMIT`; the store holds every merged PR a board has
+# seen, older ones included, and each of its merged rows is true. Host lines
+# first keeps `merged_pr_for_branch` naming the PR the host named, so a store
+# adds findings and never changes one. The truncation note still counts the
+# host page alone, because that is the page that was cut.
+#
+# A STALE INDEX ROW CANNOT SHADOW A FRESHER HOST ANSWER. Only MERGED rows enter
+# the union, and a merged PR cannot revert, so no later host answer contradicts
+# one. The host page lists merged PRs only: a head missing from it says nothing
+# about that head, so it has no answer an index row could hide. Where both name
+# a head, the host's line is first and `merged_pr_for_branch` prints its number.
+#
+# IT READS AND NEVER WRITES. What the host answered here is not folded back into
+# the store: a second writer beside the board races, since `rename` makes each
+# write atomic and not the read-fold-write sequence around it.
+#
+# NOT ASKED UNDER `--offline`/`--no-pr` OR ON A FAILED OPEN LIST, which is when
+# the host call was never made either. Those runs report exactly what they
+# reported before the index existed, and sections 20 and 21 are gated on
+# `pr_reliable` in both, so a store could not reach them there anyway.
+#
+# A MISSING BUNDLE, A NODE THAT WILL NOT RUN, OR NO STORE all leave the index
+# answer empty, and the host is asked exactly as before.
+merged_asked_branches() { # → the branches the sections ask about, one per line
+  {
+    printf '%s\n' "$all_branches"
+    printf '%s\n' "$plan_rows" | awk -F"$US" '$2 == "approved" { print $6 }' | tr ' ' '\n'
+    git worktree list --porcelain 2>/dev/null | sed -n 's#^branch refs/heads/##p'
+  } | awk -v m="$MAIN" 'NF && $0 != m && $0 !~ /^release\// && !seen[$0]++'
+}
+
+load_merged_pr_heads() {
+  local asked index_heads="" host_heads="" out lookup unanswered
+  [ "$pr_reliable" = 1 ] || return 0
+
+  asked=$(merged_asked_branches)
+  unanswered=$(printf '%s\n' "$asked" | grep -c .)
+  lookup="$script_dir/board/plot-pr-index-lookup.mjs"
+  if [ -n "$asked" ] && [ -f "$lookup" ] && command -v node >/dev/null 2>&1; then
+    # One query per branch, `-<TAB><branch>`: match the branch against merged
+    # heads. An answered line is `<number>\t<state>\t<draft>\t<url>\t<head>`,
+    # an unanswered one `-\task\t...`; only the first carries a number.
+    index_heads=$(printf '%s\n' "$asked" | sed 's/^/-	/' \
+      | node "$lookup" "$MERGED_HOST_ENV" 2>/dev/null \
+      | awk -F'\t' '$1 ~ /^[0-9]+$/ && $2 == "MERGED" { print $1 " " $5 }')
+    if [ -n "$index_heads" ]; then
+      unanswered=$(printf '%s\n' "$asked" \
+        | awk 'NR == FNR { sub(/^[0-9]+ /, ""); have[$0] = 1; next } !have[$0]' \
+            <(printf '%s\n' "$index_heads") - \
+        | grep -c .)
+    fi
+  fi
+
+  if [ "$unanswered" -gt 0 ]; then
+    # Bundled: ONE call for all plans, so cost is constant in plan count. A
+    # failure here is TOLERATED and always was — the merged list feeds advisory
+    # checks, and section 2 says so in its own note when the heads are missing.
+    if out=$(PLOT_HOST="$MERGED_HOST_ENV" bash "$MERGED_HOST_SCRIPT" pr-list --state merged --limit "$MERGED_PR_LIMIT" $MERGED_REPO_ARGS </dev/null 2>/dev/null); then
+      host_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
+    fi
+    # Did the page fill exactly? Then older merged PRs exist that we did not see.
+    if [ -n "$host_heads" ] \
+       && [ "$(printf '%s\n' "$host_heads" | grep -c .)" -ge "$MERGED_PR_LIMIT" ]; then
+      MERGED_PR_TRUNCATED=1
+    fi
+  fi
+
+  merged_pr_heads=$(printf '%s\n%s\n' "$host_heads" "$index_heads" | grep .)
+}
+load_merged_pr_heads
 
 # Is this remote branch an empty CLAIM — a ref pushed to take work atomically,
 # holding no commits of its own? Distinct from "merged" (real work, landed) and
