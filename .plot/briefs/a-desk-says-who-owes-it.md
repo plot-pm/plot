@@ -1,79 +1,53 @@
 ## Implementation brief — a-desk-says-who-owes-it
 
 - **Plan (canonical):** `docs/plans/2026-09-27-a-desk-says-who-owes-it.md` on `main`
-- **Approved:** 2026-09-27, jwloka, in-session (round 1 amended; panel at `.plot/panels/2026-09-27-a-desk-says-who-owes-it/`)
+- **Approved:** 2026-09-27, jwloka, in-session after panel (round 1)
 - **Branch:** `bug/a-desk-says-who-owes-it` (base: `main`)
 - **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
-- **Review of the code:** PR review per repo convention; CI is the authority
+- **Review of the code:** per repo convention — PR review, CI green
 - **Issue:** #1030
 
-One slice, one wave. Nothing waits on it and it waits on nothing. Siblings #1027, #1015 and #1024 share the theme and are out of scope.
+Single-slice plan: nothing waits on this branch and it waits on nothing.
 
 ### What to build
 
-The supervisor judges every desk each tick and computes a `SupervisionCause` (`packages/domain/src/rules/supervision.ts:130`, nine values). The only consumer is one `write()` to stdout at `packages/board/src/server/entry/registryd-main.ts:960`. `/api/fleet` measured 31,240 bytes, 22 rows, three agents, and no `cause` field anywhere. So an operator cannot tell a desk the fleet will serve (deferred on `no-headroom`, restarted after `no-progress`) from one that needs a person (`budget-spent`). On 2026-09-27 an operator intervened on two such desks: the fleet had already restarted one and correctly deferred the other.
+Carry `SupervisionCause` from the supervisor's tick to the fleet payload's rows, so a person can tell a desk the fleet is about to serve from one it has given up on.
 
-Build the transport: tick → board process → fleet payload → row, and add the owes-a-person mapping as a domain rule. The value already exists; carrying it is the work. The plan is canonical, and this brief is orientation.
+Measured 2026-09-27: `no-headroom` occurs in **three lines on the whole estate**, all in `packages/domain/src/rules/supervision.ts` (`:139`, `:202`, `:205`). A grep across `packages/board/src` returns nothing. The one consumer of the field is a `write()` to stdout at `packages/board/src/server/entry/registryd-main.ts:960`. A live `/api/fleet` is 31 KB, 22 rows, three agents, and carries **no `cause` field anywhere**.
+
+The plan is canonical; this brief is orientation.
 
 ### Decisions the plan settles — do not re-derive them
 
-**Shape (2): a sibling field, forwarded like `quietKind`.** The plan names three shapes: a sixth `quietKind` value, a sibling field, or an input to `isBrokenState`. Build (2). `quietKind` (`packages/board/src/contract/schema.ts:3082`) is the precedent: `nullable().default(null)`, and its docstring states the rule to cite: *"FORWARDED, NEVER RE-DERIVED"*. Null means *the tick did not judge this desk*. Null is not a cause. Do not collapse it into `worker-alive` or into "fine".
+**The seam is already cut. Extend it; do not design it.** The plan's first draft read as greenfield and the panel refuted that. Three things ship today and the slice must cite them:
 
-**No placement change.** Shape (3) is the only shape that moves rows, and the plan gates it on a payload reading that does not exist. The evidence lens measured the group distribution `{"waiting-on-you":1,"done":21}`, and the one WAITING ON YOU row is `changeset-release/main`. A `no-headroom` desk cannot reach WAITING ON YOU in today's code: placement reads `AgentState`, and only `stalled` routes there. Leave `isBrokenState` (`schema.ts:3405`) and `brokenAgentRows` / `workingAgentRows` (`app/lib/agent-rows/working-agents.ts`) unchanged, and cite them in the PR, as the Done-when list requires. **The plan's Changelog line promises *"only the third appears in WAITING ON YOU"*. The Design and Done-when lists overrule it.** Write the changeset to describe what ships: the row names its cause. Do not write that a section changed.
+- `isBrokenState` (`contract/schema.ts:3405`) — `stalled || failed || unknown`, an allowlist whose docstring already argues the exclusions.
+- the placement rule (`app/lib/agent-rows/working-agents.ts:69`) — *"WORKING iff `isLiveState`, WAITING ON YOU iff `isBrokenState`"*.
+- `quietKind` (`contract/schema.ts:3082`) — a five-value word carried outward for this plan's exact purpose: *"IT EXISTS SO THE STATUS WORD IS NOT DERIVED IN THE VIEW … FORWARDED, NEVER RE-DERIVED."* **This is the precedent to follow and to cite.**
 
-**The mapping is fixed. Put it in the domain as a rule.** The nine-row table in the plan's *The mapping* section is the specification. Write it as a total record over `SupervisionCause`, as an arrow export in `packages/domain/src/rules/`. A total record makes the compiler refuse a tenth cause with no answer, and `registryd-main.ts:895` uses the same pattern for holds. Keep the type at nine values. Only three have ever fired (`no-progress` 1200, `no-headroom` 1122, `budget-spent` 498), but a narrowed type would refuse a cause the supervisor can legitimately produce. **`no-progress` maps to "no, until the budget is spent"**, and a test names that entry explicitly. It accounts for 60% of all emissions, so this one row decides most rows. If you think the argument is wrong, stop and report. Do not change the entry silently.
+**Take shape (2): a sibling field forwarded like `quietKind`.** The plan names three candidate shapes. Default to carrying the cause as its own field. Do NOT make it an input to `isBrokenState` and do NOT move any row between sections — see the next decision.
 
-**No second computation.** The board must not call `supervise()` or `readTick()` on its own refresh. That is the defect reproduced, and it doubles the per-agent host call the tick already makes (`registryd.ts` TICK comment: 180 host calls an hour at three agents). The daemon produces the cause, and everything downstream forwards it.
+**MOVE NO ROW. The misplacement was never observed.** The plan's first draft asserted a deferred desk renders `group: waiting-on-you, state: wip, worker: none`. Measured, that is false three ways: group distribution is `{"waiting-on-you":1,"done":21}` and the single row is `changeset-release/main` (a Changesets PR, no plan, no desk); two branches the log records as `defer (no-headroom)` both resolve `group=done state=merged worker=elsewhere`; and `worker` is a **string** whose measured values are `{"elsewhere":19,"finished":3}` — `none` appears zero times. A `no-headroom` desk cannot reach WAITING ON YOU by today's code even in principle, because placement reads the registry's `AgentState` and `no-headroom` is not one of the eight. **If you find yourself hunting a placement bug, stop: there isn't one.**
 
-### The one mechanism the plan does not settle: crossing the process boundary
+**The mapping is in the plan, not yours to invent.** Nine causes, and the plan's table says which owe a person. Put that table in the code as the rule. Measured across both registry logs, only **three** causes have ever been emitted — `no-progress` (1200), `no-headroom` (1122), `budget-spent` (498) — and `gates-passed`, `gates-failed`, `declaration-absent`, `declaration-unreadable`, `agent-blocked` have **zero** occurrences. `worker-alive` cannot appear at all: `registryd-main.ts:958` filters `verdict === 'leave'` before printing.
 
-The plan writes *"tick → registry → fleet payload → row"*, but `plot-registryd` and the board are separate processes, and today nothing crosses between them. `readSupervisor` (`server/supervisor-reading.ts`) asks only whether the daemon is loaded. The daemon writes no file per tick (`registryd-main.ts` has no `writeFile`), and CLAUDE.md records a `kill -9` test that shows it holds nothing between ticks. Four constraints apply to any channel:
+**`no-progress` is the contested entry and it is 60% of all emissions.** The plan's table says: not a person's, until the budget is spent, at which point `budget-spent` is the transition. If you disagree, say so in the PR and change the table explicitly — do not quietly re-open it.
 
-- **The agent manifest is not the channel.** A manifest has one writer (`start_worker`), and the tick "decides and performs nothing" apart from `--start-agents`.
-- **`fleet.ts:2175` refuses a persisted verdict**: *"A persisted verdict would be a cache git cannot reach."* A supervision cause is a verdict. A record the daemon writes and the board only reads must therefore carry its tick time, and the board must show the cause's age or drop a stale one. It must never present a stale record as current.
-- **One writer.** Only the daemon writes the record. The board reads it and never writes it.
-- **Machine-local.** Put it under `.plot/state/`, for the reason receipts live there (`plot-boardctl.sh:83`). A record that travels in a commit is wrong on every other checkout.
+**Carry all nine.** The measured range is three; a narrowed type would refuse a cause the supervisor can legitimately produce. Say so rather than reasoning as though all nine are live.
 
-The likely shape is a per-tick report that the daemon replaces atomically (`rename`), keyed by branch or desk, plus a board adapter that reads it on refresh beside `readSupervisor`. **Before you write it, check that this does not contradict the `fleet.ts:2175` rule.** If you conclude that it does, stop and write `PLOT-BLOCKED` with the reading. Do not invent a different channel. Whichever channel you choose, the PR states it and names the four constraints above.
+**No second derivation.** The cause is computed each tick and typed. Carry it: tick → registry → fleet payload → row. A second computation anywhere is the defect this fixes, reproduced.
 
-### Carried-over rules this repo keeps re-learning
+**Out of scope, by the plan's own list:** what the fleet recovers (measured: it restarts a died worker and defers correctly — #1027's original claim was refuted); any controller verb; the reaper (#1015, #1024).
 
-- **Absent is not false.** A missing report, an unparseable one, or a desk the report does not name all produce `null`. None of them produces a cause.
-- **The board client casts the fleet and never parses it.** Zod defaults do not apply on the client, so a new `AgentRow` field is `undefined` in the renderer unless the server emits it on every row. The server must emit `null` explicitly.
-- **Every rendered state is a domain property.** The row's cause text comes from the domain mapping and is asserted in a unit test. A browser test only proves that the text shows.
-- **Domain style:** arrow functions and factual TSDoc in `packages/domain/**`. The reasoning goes in the commit message, not in a 4:1 comment block.
+**Do not use the escape ledger as this plan's cost.** 18 of 24 rows in `.plot/state/unowned-action-writes.tsv` name a blocked `/api/dispatch`, which is #1027's and #1018's territory. The motivation was amended to stop claiming it.
+
+**Rules carried over:** a board capability needs its schema field or the client cast drops it; the client casts the fleet payload rather than parsing it, so a new field is `undefined` in the renderer until the schema carries it.
 
 ### Done when
 
-The plan's `## Done when` list is the specification. These assertions exist because a naive implementation passes without them:
+The plan's `## Done when` list is the specification. Assertions a naive implementation passes without:
 
-- **A test with one producer.** Assert that the cause on a row is the value the tick emitted: use a fake report the board reads, with no `supervise` call on the board side. A test that re-runs `supervise` in the board and compares passes against the defect.
-- **An unjudged desk reads `null`.** A desk on another machine (`worker: elsewhere`), or a missing report, gives `null` and not `worker-alive`. This catches "default to fine".
-- **A stale report is not current.** A report older than its bound is either shown with its age or dropped. This catches the persisted-verdict failure.
-- **`no-progress` has a named test** that asserts it does not owe a person, and that `budget-spent` does.
-- **No section changes.** An existing placement test, or a new one, shows that a `no-headroom` desk lands in the same section as before. This catches shape (3) slipping in.
-
-Plus the repo gates: `nvm use` (Node 24; use `corepack pnpm` if the Homebrew pnpm crashes), `pnpm test`, `pnpm run test:contracts`, `pnpm run test:board` (it rebuilds `skills/plot/scripts/board/*.mjs`, so commit the rebuilt artifacts), and `pnpm run typecheck`. Do not run `test:e2e` locally. Add a changeset with the description first and any `bumps:` block last: `'@plot-pm/board': patch`, plus `'plot'` only if a shipped skill file changes. A new `/api/*` write route is not expected. If you add one, it must join `write-gate.test.mjs`.
-
-### Bookkeeping
-
-- Push the first real commit as soon as it exists.
-- Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work still moves). Do not run `gh pr create`.
-- When the PR exists, change the plan's heading to `### A desk says who owes it (Branch: bug/a-desk-says-who-owes-it, PR: #N)`. This plan uses the waves heading form, so a trailing `→ #N` parses as `prs=[]`. Make that edit on `main` from a detached scratch worktree.
-
-### Scope guard
-
-This branch owns:
-
-- `packages/domain/src/rules/` (the new mapping rule and its test; `supervision.ts` only if the cause export needs a touch)
-- `packages/board/src/server/entry/registryd-main.ts` and `registryd.ts` (emit the report)
-- a new board-side reading beside `server/supervisor-reading.ts`, and its join in `server/fleet.ts`
-- `packages/board/src/contract/schema.ts` (one `AgentRow` field)
-- the row renderer that shows the cause
-- the rebuilt `skills/plot/scripts/board/*.mjs`
-
-It does not touch `isBrokenState`, `working-agents.ts` placement, the reaper, `plot-dispatch.sh`, or any controller verb.
-
-Other branches in flight, verified 2026-09-27 against `origin/main` at `e99fcf0a`: the only open PR is #978 (`changeset-release/main`). The only unmerged remote branch that touches these files is `feature/one-monitor-watches-the-slice` (`schema.ts`, `registry.ts`). Its last commit is from 2026-09-06 and it has no PR, so a collision is unlikely but possible if it is revived.
-
-If you find something the plan did not anticipate, report it. Do not improvise outside scope.
+- **A test asserts ONE producer.** The cause in the row must be the tick's value, not a value recomputed in the board. A test that only checks the field is non-empty passes on a re-derivation.
+- **The mapping table is in code with its argument**, and a test names `no-progress`'s entry explicitly — it decides almost every row.
+- **No row changes section.** Assert that the group distribution is unchanged by this slice against a fixture holding a deferred desk.
+- **A desk deferred on headroom shows its reason** on the row, read from the tick.
