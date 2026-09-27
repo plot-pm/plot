@@ -952,6 +952,13 @@ const vendoredScripts = [
   // the monitors are — the server never spawns it, so no gate derived from the
   // server's own spawns can see it.
   'plot-state-receipt.sh',
+  // Sourced BY plot-dispatch.sh and plot-worker-loop.sh as a `$script_dir`
+  // sibling: it holds `clear_manifest_branch`, the one writer of a manifest's
+  // empty `branch`. Missing, the source prints one line to stderr and
+  // `plot-dispatch.sh --release` then calls an undefined function, so no
+  // abandoned claim can be released in the npm layout. Listed by hand for the
+  // reason every sourced file above is.
+  'plot-agent-manifest.sh',
 ];
 for (const name of vendoredScripts) {
   const src = path.join(here, '../../skills/plot/scripts', name);

@@ -4,6 +4,7 @@
 #                         [--max N] [--allow-local] <slug>
 #        plot-dispatch.sh --start [N] [--dry-run]
 #        plot-dispatch.sh --migrate [--yes] [--max N]
+#        plot-dispatch.sh --release <branch>
 #   --status    list fleet worktrees with worker pid, liveness, and last log
 #               line; then exit. Works regardless of plan phase.
 #   --stop <br> stop the worker on <br> (branch required — never "all").
@@ -23,6 +24,18 @@
 #               word), on a live worker, and on a PLOT-BLOCKED marker. The
 #               worktree is inherited exactly as it stands — uncommitted work
 #               is what a stall leaves behind, and this must not destroy it.
+#   --release <br>
+#               return an ABANDONED slice to the queue: clear the `branch` of
+#               every agent manifest naming <br>, then delete the claim ref
+#               origin/<br>. --stop ends a worker and KEEPS the claim, because
+#               stopping is not abandoning; --release is the act that gives the
+#               slice up. Deleting the ref by hand is not the same act: the
+#               manifest still names the branch. Branch required. Refuses on a
+#               PR (open or merged), a host it cannot ask, a live worker (named
+#               by pid), real work (a file-changing commit on origin/<br>, or
+#               unpushed commits or uncommitted changes on the local desk), and
+#               a PLOT-BLOCKED marker. A refusal writes nothing. The desk is
+#               never touched.
 #   --migrate   move legacy worktrees into the configured `Worktree root:`. An
 #               idle worktree (no live worker, no unlanded work) is moved; a
 #               busy one is skipped with the reason. Requires a `Worktree root:`
@@ -145,8 +158,10 @@
 #     think they won. Git is the lock only when the refs actually diverge.
 #   - Worktrees are adopted, never duplicated. A dispatcher that dies halfway
 #     through a fan-out is safe to re-run.
-#   - Nothing is ever deleted. Cleanup belongs to /plot-reconcile, which can
-#     tell a deliberately abandoned claim from a dead worker.
+#   - A fan-out deletes nothing. Cleanup belongs to /plot-reconcile, which can
+#     tell a deliberately abandoned claim from a dead worker. The one deletion
+#     here is `--release <branch>`, which a person runs after making that call,
+#     and which refuses wherever the claim is not abandoned.
 #   - The `Started:` record is booked on the DEFAULT BRANCH, after the claims,
 #     and only for branches this run newly claimed. A re-run books nothing it
 #     merely re-adopted. If the booking cannot be pushed, the fan-out stands
@@ -190,6 +205,12 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # refusal stays; it now has less to refuse over.
 # shellcheck source=plot-default-branch.sh
 . "$script_dir/plot-default-branch.sh"
+
+# The ONE writer of a manifest's empty `branch` — `clear_manifest_branch`,
+# shared with `plot-worker-loop.sh`. `--release` clears an abandoned slice's
+# assignment with it rather than with a second writer.
+# shellcheck source=plot-agent-manifest.sh
+. "$script_dir/plot-agent-manifest.sh"
 
 # ---------------------------------------------------------------------------
 # WHERE THE WORKTREES LIVE, and by what name
@@ -239,6 +260,7 @@ no_brief=0
 mode=dispatch
 stop_branch=""
 restart_branch=""
+release_branch=""
 # EMPTY MEANS "THE DEFAULT", AND THE DEFAULT IS THE RULE'S. `fleetSize` owns the
 # number and the argument for it; a literal here would be a second copy of a
 # decision that has one home. It is filled from the rule below.
@@ -275,6 +297,9 @@ while [ $# -gt 0 ]; do
     # plan for feature/x", which describes neither what was asked nor what
     # went wrong. The branch is consumed only when it looks like one.
     --restart)  mode=restart; case "${2:-}" in */*) restart_branch="$2"; shift ;; esac ;;
+    # The same rule once more: a bare `--release <slug>` must not delete a ref
+    # named after a plan slug.
+    --release)  mode=release; case "${2:-}" in */*) release_branch="$2"; shift ;; esac ;;
     # `--start [N]` brings FREE agents into existence — registered, waiting, and
     # holding no slice. The count is OPTIONAL and only a bare number is consumed,
     # the same rule `--stop` and `--restart` apply to a branch: a value that does
@@ -312,10 +337,11 @@ while [ $# -gt 0 ]; do
                 shift ;;
     # THE RANGE MOVED WITH THE HEADER IT PRINTS. It ended at `<slug>` and still
     # does; adding `--agent` above pushed that line from 59 to 69, and
-    # documenting the plan-declared kind pushed it from 69 to 78. Two records
+    # documenting the plan-declared kind pushed it from 69 to 78, and
+    # `--release` pushed it from 78 to 91. Two records
     # of one fact, and nothing compares them — a stale number here silently
     # truncates the help rather than failing, so it is checked by a test.
-    -h|--help)  sed -n '2,78p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,91p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -428,6 +454,23 @@ json_escape() {
 #
 # Written to a temp file and moved into place, so a scan reading the directory
 # never sees a half-written manifest. `mv` within one directory is atomic.
+# The directory the `Agent registry` key names, resolved against a repo root.
+#
+# The case split is `resolve_wt_root`'s: absolute taken as given, relative
+# joined onto the repo root, trailing slash trimmed as pure string work because
+# the directory need not exist yet. One resolver, read by `start_worker` when it
+# writes a manifest and by `--release` when it clears one, so the two cannot
+# look in different places.
+agent_registry_dir() { # $1=repo_root → prints the directory
+  local dir
+  dir=$("$script_dir/plot-config.sh" get "Agent registry" ".plot/agents")
+  case "$dir" in
+    /*) ;;
+    *)  dir="$1/$dir" ;;
+  esac
+  printf '%s' "${dir%/}"
+}
+
 write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
   local out="$1" tmp="$1.plot-tmp"
   {
@@ -1119,12 +1162,7 @@ start_worker() {
   # resolving a configured directory is a second way to be wrong.
   local session manifest_dir
   session=$(plot_session_id)
-  manifest_dir=$("$script_dir/plot-config.sh" get "Agent registry" ".plot/agents")
-  case "$manifest_dir" in
-    /*) ;;
-    *)  manifest_dir="$repo_root/$manifest_dir" ;;
-  esac
-  manifest_dir="${manifest_dir%/}"
+  manifest_dir=$(agent_registry_dir "$repo_root")
   mkdir -p "$manifest_dir" 2>/dev/null || true
   # `printf` per field with no interpretation: a command containing quotes,
   # newlines or backslashes must survive into valid JSON, and this is the one
@@ -1171,8 +1209,9 @@ start_worker() {
     echo "    refusing to start $branch — its agent manifest could not be written:"
     echo "      $manifest_dir/$session.json"
     echo "      An unregistered worker cannot be seen, stopped or reaped, and holds"
-    echo "      a claim nobody can release. The worktree and claim are untouched —"
-    echo "      fix the path above (see the 'Agent registry' key) and dispatch again."
+    echo "      a claim only 'plot-dispatch.sh --release $branch' can give up. The worktree"
+    echo "      and claim are untouched — fix the path above (see the 'Agent registry'"
+    echo "      key) and dispatch again."
     return 1
   fi
   # TWO PIDS, TWO NAMES. `.plot-worker.pid` must name the AGENT — the process
@@ -1699,7 +1738,8 @@ if [ "$mode" = "stop" ]; then
              exit 1; }
       # The worktree and its claim are left in place: the branch is still taken,
       # and deleting either would be the kind of write this design avoids.
-      echo "  worktree kept at $wt — the claim stands until you release it"
+      echo "  worktree kept at $wt — the claim stands until you release it:"
+      echo "    plot-dispatch.sh --release $stop_branch"
       ;;
     finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
     *)      echo "$stop_branch has no worker" ;;
@@ -1804,6 +1844,232 @@ if [ "$mode" = "restart" ]; then
     none|NONE|None) worker_cmd_declined=1 ;;
   esac
   start_worker "$restart_branch" "$restart_wt" || exit 1
+  exit 0
+fi
+
+if [ "$mode" = "release" ]; then
+  # THE COUNTERPART TO --stop THAT NOBODY WROTE. `--stop` ends a worker and
+  # keeps the claim, because stopping is not abandoning. This is the act that
+  # gives an abandoned slice back to the queue.
+  #
+  # THE ASSIGNMENT HAS TWO RECORDS, and this clears both. The remote claim ref
+  # is what the scan and the registry's queue read as *somebody took this*; the
+  # agent manifest's `branch` field is what the registry wrote when it handed
+  # the slice over. Deleting only the ref — the repair `plot-reap.sh` and
+  # `plot-reconcile-scan.sh` leave to a person — leaves the manifest naming a
+  # slice the queue now offers to somebody else. Measured 2026-09-26:
+  # `feature/the-board-filters-to-my-work` was handed out twice after exactly
+  # that hand repair, and the second agent abandoned a desk with unpushed work.
+  #
+  # BEFORE THE PHASE GATE, beside --stop and --restart: a claimed branch is
+  # work in flight whatever the plan's phase now says.
+  if [ -z "$release_branch" ]; then
+    echo "plot-dispatch: --release needs a branch name, e.g. --release feature/x" >&2
+    echo "  A slug is not enough: which claim is abandoned is your call, and" >&2
+    echo "  a release deletes a ref that cannot be re-created." >&2
+    exit 1
+  fi
+  br="$release_branch"
+  MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch")
+  [ -n "$MAIN" ] || MAIN=$(default_branch)
+  if [ -z "$MAIN" ]; then
+    echo "plot-dispatch: cannot resolve the default branch — refusing to release $br." >&2
+    echo "  Nothing was written." >&2
+    exit 1
+  fi
+
+  # THE REMOTE IS READ FRESH. A stale remote-tracking ref would hide commits a
+  # worker pushed since the last fetch, and those are the real work this must
+  # refuse on. A fetch that fails is a remote this cannot read.
+  if ! git fetch -q --prune origin </dev/null 2>/dev/null; then
+    echo "plot-dispatch: cannot fetch origin — refusing to release $br." >&2
+    echo "  Without a fresh reading this cannot tell a claim from pushed work." >&2
+    echo "  Nothing was written." >&2
+    exit 1
+  fi
+  ref_present=0
+  git rev-parse -q --verify "refs/remotes/origin/$br" >/dev/null 2>&1 && ref_present=1
+
+  # 1. A PULL REQUEST, ASKED FIRST — `handover_refusal`'s order and for its
+  # reason: a worker's exit state says nothing about whether its work reached
+  # review. A merged branch's ref belongs to `plot-release-refs.sh`; an open
+  # one is work under review.
+  #
+  # UNREACHABLE IS NOT "NO PR". `reached_review` reads a failed call as no PR,
+  # which is right for a rendering and wrong here: a deleted ref cannot be
+  # re-created, so a host that cannot be asked refuses. `--offline` promises no
+  # host call, so it refuses too.
+  if [ -n "$offline" ]; then
+    echo "plot-dispatch: --release asks the host whether $br has a PR, and --offline forbids that — refusing." >&2
+    echo "  Nothing was written." >&2
+    exit 1
+  fi
+  if ! pr_json=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
+    echo "plot-dispatch: the host could not be asked whether $br has a PR — refusing." >&2
+    echo "  A release deletes a ref that cannot be re-created, so silence is not" >&2
+    echo "  permission. Check the host (plot-host.sh pr-state $br) and retry." >&2
+    echo "  Nothing was written." >&2
+    exit 1
+  fi
+  pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+  pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+  # ANY MERGED PR, NOT ONLY THE NEWEST — `pr-merged` reads `mergedAt` over every
+  # PR for the branch, because a newer unmerged PR can mask a merged one.
+  merged_answer=$("$script_dir/plot-host.sh" pr-merged "$br" </dev/null 2>/dev/null) || merged_answer=unknown
+  case "$pr_state:$merged_answer" in
+    OPEN:*|MERGED:*|*:merged)
+      echo "plot-dispatch: $br has a pull request (#${pr_num:-?}, ${pr_state:-MERGED}) — refusing." >&2
+      echo "  An open PR is work under review; a merged branch's ref is released by" >&2
+      echo "  plot-release-refs.sh when its plan is delivered. Nothing was written." >&2
+      exit 1
+      ;;
+    *:unknown|*:)
+      echo "plot-dispatch: the host could not say whether $br ever merged — refusing." >&2
+      echo "  Check it (plot-host.sh pr-merged $br) and retry. Nothing was written." >&2
+      exit 1
+      ;;
+  esac
+
+  # THE DESK, ASKED OF GIT — never rebuilt from the branch name, the rule every
+  # other verb here follows. A manifest naming this branch may name a desk git
+  # does not list (removed by hand), so its `worktree` is the fallback.
+  release_wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$br" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  registry_dir=$(agent_registry_dir "$repo_root_early")
+  named_manifests=()
+  if [ -d "$registry_dir" ]; then
+    for m in "$registry_dir"/*.json; do
+      [ -f "$m" ] || continue
+      m_branch=$(node -e '
+        try {
+          const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+          process.stdout.write(typeof m.branch === "string" ? m.branch : "");
+        } catch { process.stdout.write(""); }
+      ' "$m" 2>/dev/null)
+      [ "$m_branch" = "$br" ] || continue
+      named_manifests+=("$m")
+      if [ -z "$release_wt" ]; then
+        m_wt=$(node -e '
+          try {
+            const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            process.stdout.write(typeof m.worktree === "string" ? m.worktree : "");
+          } catch { process.stdout.write(""); }
+        ' "$m" 2>/dev/null)
+        [ -n "$m_wt" ] && [ -d "$m_wt" ] && release_wt="$m_wt"
+      fi
+    done
+  fi
+  [ -n "$release_wt" ] && [ -d "$release_wt" ] || release_wt=""
+
+  # 2. A LIVE WORKER — the measurement `--restart` makes, through the shared
+  # classifier, never `pgrep` by name. A live pid means somebody is working,
+  # and the one case where a claim is not abandoned.
+  if [ -n "$release_wt" ]; then
+    release_state=$(plot_worker_state "$release_wt" "" | cut -f1,2)
+    case "$release_state" in
+      running*)
+        echo "plot-dispatch: a worker is alive on $br (pid $(printf '%s' "$release_state" | cut -f2)) — refusing." >&2
+        echo "  A live worker has not abandoned its claim. Stop it first if you mean to:" >&2
+        echo "    plot-dispatch.sh --stop $br" >&2
+        echo "  Nothing was written." >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  # 3. REAL WORK. A claim is an EMPTY commit on the default branch's tip, so
+  # it changes no file; `-- .` limits the count to commits that change one,
+  # which is what separates a claim-only ref from pushed work. The local desk
+  # is asked too, because the measured victim held its work in UNPUSHED
+  # commits and uncommitted files that no remote reading can see. A count of
+  # commits, not an ancestry verdict: a count above zero only ever REFUSES.
+  if [ "$ref_present" = 1 ]; then
+    remote_work=$(git rev-list --count "refs/remotes/origin/$MAIN..refs/remotes/origin/$br" -- . </dev/null 2>/dev/null) || remote_work=""
+    if [ -z "$remote_work" ]; then
+      echo "plot-dispatch: cannot count the commits on origin/$br — refusing." >&2
+      echo "  Nothing was written." >&2
+      exit 1
+    fi
+    if [ "$remote_work" -gt 0 ]; then
+      echo "plot-dispatch: origin/$br carries $remote_work commit(s) that change files — refusing." >&2
+      echo "  That is work, not an abandoned claim. Review it, or open its PR:" >&2
+      echo "    plot-open-pr.sh $br" >&2
+      echo "  Nothing was written." >&2
+      exit 1
+    fi
+  fi
+  if [ -n "$release_wt" ]; then
+    desk_dirty=$(plot_worker_dirty "$release_wt")
+    if [ "$ref_present" = 1 ]; then desk_base="refs/remotes/origin/$br"; else desk_base="refs/remotes/origin/$MAIN"; fi
+    # Local commits the remote lacks exist nowhere else, so any refuses.
+    desk_unpushed=$(git -C "$release_wt" rev-list --count "$desk_base..HEAD" -- . </dev/null 2>/dev/null) || desk_unpushed=0
+    if [ -n "$desk_dirty" ] || [ "${desk_unpushed:-0}" -gt 0 ]; then
+      echo "plot-dispatch: the desk at $release_wt holds work for $br — refusing." >&2
+      [ "${desk_unpushed:-0}" -gt 0 ] && echo "  $desk_unpushed unpushed commit(s) that change files" >&2
+      [ -n "$desk_dirty" ] && echo "  uncommitted changes: $(printf '%s' "$desk_dirty" | tr '\n' ' ')" >&2
+      echo "  Releasing would hand the slice to an agent that cannot see this work." >&2
+      echo "  Push it, or hand the branch to a new worker: plot-dispatch.sh --restart $br" >&2
+      echo "  Nothing was written." >&2
+      exit 1
+    fi
+
+    # 4. A PLOT-BLOCKED MARKER: the agent is waiting on a person, and a slice
+    # waiting on an answer is not abandoned. Asked through
+    # `plot_worker_blocked_file`, where the marker's spelling lives.
+    if marker=$(plot_worker_blocked_file "$release_wt") && [ -n "$marker" ]; then
+      echo "plot-dispatch: $br is blocked on a question — refusing." >&2
+      echo "  the question is in $release_wt/$marker" >&2
+      echo "  Answer it and delete the marker; the agent's slice is not abandoned." >&2
+      echo "  Nothing was written." >&2
+      exit 1
+    fi
+  fi
+
+  if [ "$ref_present" = 0 ] && [ "${#named_manifests[@]}" -eq 0 ]; then
+    echo "$br holds no claim: origin/$br does not exist and no manifest names it."
+    echo "  Nothing to release."
+    exit 0
+  fi
+
+  # THE MANIFESTS FIRST, THEN THE REF. If the ref deletion fails, the manifest
+  # is already free and the ref still locks, so the scan still reads the slice
+  # as claimed and nothing hands it out twice. The reverse order would leave the
+  # measured failure on disk: no ref, and a manifest still naming the branch.
+  released_manifests=0
+  if [ "${#named_manifests[@]}" -eq 0 ]; then
+    echo "  no manifest in $registry_dir names $br"
+  fi
+  for m in ${named_manifests[@]+"${named_manifests[@]}"}; do
+    if ! clear_manifest_branch "$m"; then
+      echo "plot-dispatch: could not clear the assignment in $m — refusing to delete the ref." >&2
+      echo "  The claim on origin/$br stands; fix the file and run --release again." >&2
+      exit 1
+    fi
+    released_manifests=$((released_manifests + 1))
+    echo "  cleared the assignment in $m"
+  done
+
+  if [ "$ref_present" = 1 ]; then
+    if ! git push -q origin --delete "$br" </dev/null 2>/dev/null; then
+      # VERIFIED, NOT TRUSTED: the host has returned 503 on a push that landed.
+      git fetch -q --prune origin </dev/null 2>/dev/null || true
+      if git rev-parse -q --verify "refs/remotes/origin/$br" >/dev/null 2>&1; then
+        echo "plot-dispatch: could not delete origin/$br — the claim still locks the slice." >&2
+        echo "  The manifests are already free, so nothing hands it out twice. Retry:" >&2
+        echo "    plot-dispatch.sh --release $br" >&2
+        exit 1
+      fi
+    fi
+    echo "  deleted the claim ref origin/$br"
+  else
+    echo "  origin/$br does not exist — only the assignment needed releasing"
+  fi
+  if [ -n "$release_wt" ]; then
+    echo "  the desk at $release_wt still holds $br and is left as it is"
+  fi
+  echo "released $br — the slice returns to the queue"
+  echo "summary: released=1 manifests=$released_manifests ref=$([ "$ref_present" = 1 ] && echo deleted || echo absent)"
   exit 0
 fi
 
