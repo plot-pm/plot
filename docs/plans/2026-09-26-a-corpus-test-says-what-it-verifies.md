@@ -120,7 +120,7 @@ An earlier draft said the survey was out of scope while its own `Done when` requ
 
 ## Slices
 
-### A corpus test says what it verifies (Branch: infra/a-corpus-test-says-what-it-verifies)
+### A corpus test says what it verifies (Branch: infra/a-corpus-test-says-what-it-verifies, PR: #1023)
 
 The docstring correction, adopting the existing wording, plus the arm-coverage note.
 
