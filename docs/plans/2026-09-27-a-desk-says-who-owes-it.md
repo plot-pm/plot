@@ -12,6 +12,7 @@
 - **Issue:** #1030
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 1
+- **Started:** 2026-09-27, fleet agent free-d1b5cabb, `bug/a-desk-says-who-owes-it`
 
 ## Changelog
 
