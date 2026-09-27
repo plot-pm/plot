@@ -57,6 +57,15 @@ If your commit-count call matches `scripts/check-ancestry-decisions.sh`'s patter
 
 **`plot-worker-state.sh` is not flawless and is still out of scope.** On a manifest-less desk it has no `startedAt` and `:788-793` trusts `kill -0`. Note it in the PR if you touch that area; do not fix it here.
 
+**`running` has three routes, and only one of them means an agent was seen.** `plot-worker-state.sh:859-877` answers `running` when the agent check succeeds, AND when `.plot-worker.wrapper.pid` is absent (`:859-862`), AND when `plot_worker_agent_alive` returns 2 — unaskable (`:874-877`). Return 2 covers a wrapper younger than `PLOT_AGENT_GRACE_SECONDS` (default 30, `:555`, `:588-592`), because it may be starting its agent. All three keep the desk, which is correct: absent is not false. Two consequences for the fixture: it MUST write `.plot-worker.wrapper.pid`, or the state reads `running` and the test proves nothing; and the wrapper must be older than the grace, or set `PLOT_AGENT_GRACE_SECONDS=0` in the test.
+
+**The unpushed guard cannot count against `@{upstream}`, and this is measured.** `gh api repos/plot-pm/plot --jq .delete_branch_on_merge` → `true` (2026-09-27). The host deletes the branch when the PR merges, and the reaper only reaps desks whose PR merged. So after the next `git fetch --prune`, every desk the reaper serves has lost its upstream. `plot-dispatch.sh:2469` counts `@{upstream}..HEAD` and leaves an absent upstream empty, and `reapable.ts:338-342` reads that as `unknown`, which "does not hold the desk". **Copy that reading and the guard is inert on exactly the population it exists for**: every test with a present upstream passes and the guard protects nothing in production. Choose a reading that answers for a desk whose remote branch is gone, and write a test with the upstream deleted. Two candidates, each with a cost to state in the PR:
+
+- `git rev-list --count HEAD --not --remotes` — the commits no remote-tracking ref holds. After a squash merge and a pruned ref, the branch's own commits are on no remote ref, so this counts them and refuses every merged desk unless the merged PR's head sha excludes them.
+- The merged PR's head sha from the host (`headRefOid`) — anything on `HEAD` beyond it was never pushed. This is exact, but it needs a field `plot-pr-merged.sh` does not return today, and that script is the one answer to "did this land", so widening it touches four callers.
+
+Whichever you choose, `unknown` must not delete: in this subject a failure to observe is the case that loses work, and the reset rule's leniency does not carry over.
+
 **Out of scope:** `--stop` (it was right); the correction-file refusal (#1024); the supervision cause (#1030).
 
 ### Done when
@@ -69,3 +78,19 @@ The plan's `## Done when` list is the specification. Assertions a naive implemen
 - **A desk with a live agent is still kept**, and the refusal still names the pid — assert the pid string, not only a non-zero exit.
 - **A test names `waiting` and `stalled` as deliberately discarded**, so a later reader cannot quietly widen the mapping.
 - **The reaper and `--stop` agree on one fixture**, and the test names the agent-descendant fact as the reason.
+
+Plus the repo's gates: `nvm use` (Node 24), `pnpm test`, `pnpm run test:contracts`, and `pnpm run test:board` if `reapable.ts` changes (it rebuilds the bundles the reaper imports). A `.changeset/*.md` with the description first and the `bumps:` block last, and a `plan:` line naming `docs/plans/2026-09-27-one-answer-to-is-a-worker-running.md`. Do not run `test:e2e` locally.
+
+### Bookkeeping
+
+- Push the first real commit as soon as it exists.
+- Open the PR with `skills/plot/scripts/plot-open-pr.sh` and never with `gh pr create`.
+- When the PR exists, append `(PR: #<number>)` inside the slice heading in the plan's `## Slices` section, on `main`, from a detached scratch worktree. The trailing `→ #N` form parses as no PR in a wave heading.
+
+### Scope guard
+
+This branch owns `skills/plot/scripts/plot-reap.sh` (both liveness readings, the new unpushed reading), `packages/domain/src/rules/reapable.ts` (one `unpushed-commits` refusal in `reapProblems` and the `TreeReadings` field it reads — no second liveness rule), and new tests under `test/reconcile/` beside `reaper.test.mjs`. It reads `plot-worker-state.sh` and must not change it.
+
+**A known collision, verified 2026-09-27:** `bug/a-correction-is-not-unlanded-work` (#1024) edits the same two `plot-reap.sh` sites — the dirty filters at `:522` and `:1036`, a few lines below the pid readings at `:506` and `:1040`. Its agent is at a `failed` desk; its branch is claimed on the remote (`11d386f3`) and carries no file change yet. Whichever PR merges second rebases. Keep your edits to the pid readings and leave the `grep -v` lines alone, so the conflict stays mechanical. No other branch on the remote touches `plot-reap.sh`, `plot-worker-state.sh` or `reapable.ts`. `feature/one-monitor-watches-the-slice` touches `plot-dispatch.sh`, which this slice only reads.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope.
