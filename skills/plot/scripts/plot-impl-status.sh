@@ -7,6 +7,14 @@
 # looked up in that repo via plot-host.sh; bare `→ #12` stays local. All host
 # access goes through plot-host.sh (gh or bb — never called directly here).
 # Output: JSON {prs: [{number, state, draft, url, repo}]}
+#
+# THE PR INDEX IS ASKED BEFORE THE HOST, and it answers only MERGED rows — the
+# one state that cannot change. A fully merged plan therefore costs no host call
+# at all, and every other branch falls through to the host exactly as before.
+# The store is read through the domain (board/plot-pr-index-lookup.mjs), never
+# with `jq`; a missing store, a missing bundle or a missing row all mean *ask*.
+# A branch resolved from the index carries no `mergeCommit`: the row holds none,
+# and no reader of this output reads it.
 # Designed for small-model consumption: structured JSON output, no interpretation needed.
 
 set -euo pipefail
@@ -151,6 +159,98 @@ if [ -z "$BRANCH_LINES" ]; then
   exit 0
 fi
 
+# THE INDEX IS ASKED FIRST, AND IT ANSWERS ONLY WHAT CANNOT CHANGE.
+#
+# `PrIndexStore` is a plain JSON file under the COMMON git dir, written by a
+# running board after each host call. This is its first shell consumer and the
+# first outside the process that writes it — which is the question the slice
+# exists to answer: can a script read it with no board running?
+#
+# ONLY A MERGED ROW IS TAKEN. A merged PR cannot revert on the host, so the row
+# stays true however old it is — `PLOT_TERMINAL_CACHE`'s licence
+# (plot-fleet-scan.sh:1234), adopted rather than invented. An OPEN, CLOSED or
+# draft row is stale in either direction, so the host is asked for those exactly
+# as before. The effect is that a fully merged plan — which is the case in which
+# /plot-deliver runs — costs ZERO host calls, and no gate ever rests on a stale
+# non-terminal answer.
+#
+# THE STORE NEVER SAYS "NO". A branch it cannot answer for reads `ask`, and the
+# host is asked. Three situations produce that — no store at all, no row, and a
+# non-terminal row — and none of them is evidence that no PR exists: the store's
+# own `complete` latch records that a missing row may simply never have been
+# seen. Absence stays absence, which is the property this whole helper's history
+# is about.
+#
+# READ THROUGH THE DOMAIN, NOT WITH `jq`. `decodePrIndex` owns the version check
+# and the rule that an unparseable or unrecognised file is `null` rather than a
+# failure. A `jq` read here would be a second implementation of that decoder,
+# free to drift the first time PR_INDEX_VERSION moves — and the store on this
+# machine was already a version behind its own schema when this was written.
+# docs/shell-and-domain.md licenses the call: this runs once per operator
+# command, and a bundle answers in 39 ms.
+#
+# A MISSING BUNDLE IS NOT AN ERROR. An npm install, an unbuilt checkout or a
+# node that will not run leaves INDEX_ANSWERS empty and every branch falls
+# through to the host — today's behaviour exactly, which is the only safe
+# direction for a helper a delivery gate reads.
+INDEX_LOOKUP="$HERE/board/plot-pr-index-lookup.mjs"
+INDEX_ANSWERS=""
+if [ -f "$INDEX_LOOKUP" ] && command -v node >/dev/null 2>&1; then
+  # The connector names the store's file, and it is asked the way the board asks
+  # it (`fleet.ts:1792`) so both sides resolve one file rather than two.
+  INDEX_CONNECTOR=$(bash "$HERE/plot-host.sh" backend 2>/dev/null || true)
+  if [ -n "$INDEX_CONNECTOR" ]; then
+    # One query per branch, in BRANCH_LINES order: the annotated PR number, or
+    # the branch to match against merged heads. The answer is positional, so the
+    # two lists must stay in step — the bundle refuses a malformed batch rather
+    # than dropping a line, for exactly that reason.
+    INDEX_QUERIES=""
+    for BR in $BRANCH_LINES; do
+      REF=$(annotation_for "$BR")
+      if [ -n "$REF" ] && [ -z "${REF%#*}" ]; then
+        # A LOCAL annotation only. A cross-repo `owner/repo#N` names a PR in
+        # another repository, and this store holds THIS checkout's — answering
+        # it from here would report a foreign repo's PR as if it were ours.
+        INDEX_QUERIES="${INDEX_QUERIES}${REF##*#}	-
+"
+      elif [ -n "$REF" ]; then
+        INDEX_QUERIES="${INDEX_QUERIES}-	-
+"
+      else
+        INDEX_QUERIES="${INDEX_QUERIES}-	${BR}
+"
+      fi
+    done
+    INDEX_ANSWERS=$(printf '%s' "$INDEX_QUERIES" \
+      | node "$INDEX_LOOKUP" "$INDEX_CONNECTOR" 2>/dev/null || true)
+  fi
+fi
+
+# The index's answer for a branch, by its position in BRANCH_LINES. Echoes the
+# answer line, or nothing where the index was not consulted at all.
+index_answer_for() { # $1=1-based position → "<number>\t<state>\t<draft>\t<url>\t<head>" | ""
+  [ -n "$INDEX_ANSWERS" ] || return 0
+  printf '%s\n' "$INDEX_ANSWERS" | sed -n "${1}p"
+}
+
+# Whether the index answered this position, rather than saying `ask`.
+index_answered() { # $1=answer line
+  case "$1" in
+    ''|*"	ask	"*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Which positions the index could NOT answer. Only those reach the host, and
+# only their shape decides whether the merged-head list is fetched at all.
+POS=0
+UNRESOLVED_UNANNOTATED=0
+for BR in $BRANCH_LINES; do
+  POS=$((POS + 1))
+  index_answered "$(index_answer_for "$POS")" && continue
+  [ -z "$(annotation_for "$BR")" ] && { UNRESOLVED_UNANNOTATED=1; break; }
+done
+
 # The merged-PR head list, fetched ONCE for the whole plan (constant in branch
 # count) and only when some branch is un-annotated — an annotated-only plan pays
 # nothing. Loaded at TOP LEVEL, not lazily inside a `$(...)`: a function that set
@@ -159,11 +259,12 @@ fi
 # the host adapter's structured pr-list. A failed or unavailable host leaves it
 # empty, and an un-annotated branch then simply does not resolve — never
 # fabricated as merged.
+#
+# THE INDEX NARROWS THIS FURTHER. It is now fetched only where some un-annotated
+# branch the STORE could not answer remains, so a fully merged plan skips this
+# call along with every pr-state below it.
 MERGED_HEADS=""
-ANY_UNANNOTATED=0
-for BR in $BRANCH_LINES; do
-  [ -z "$(annotation_for "$BR")" ] && { ANY_UNANNOTATED=1; break; }
-done
+ANY_UNANNOTATED="$UNRESOLVED_UNANNOTATED"
 if [ "$ANY_UNANNOTATED" = 1 ]; then
   # --limit 500: the host CLI pages at 30 by default, too shallow to reach an
   # old plan's merge; the same headroom plot-reconcile-scan.sh uses.
@@ -186,8 +287,31 @@ append() { # $1=compact PR JSON
   RESULT="${RESULT}$1"
 }
 
+POS=0
 for BR in $BRANCH_LINES; do
+  POS=$((POS + 1))
   REF=$(annotation_for "$BR")
+
+  # THE INDEX FIRST, AND ONLY WHERE IT COMMITTED. An answered line is a MERGED
+  # row, which is the one answer that cannot change — so the host is not asked
+  # and the branch is reported from what it already said.
+  #
+  # `mergeCommit` IS ABSENT HERE, AND THAT IS DELIBERATE. The row does not carry
+  # one, and every reader of this script's output was surveyed on 2026-09-26:
+  # /plot-deliver reads number, state, branch and repo, and /plot-release reads
+  # mergeCommit from `pr-state` DIRECTLY (skills/plot-release/SKILL.md:381),
+  # never from here. Emitting an empty string would be this machine inventing an
+  # answer the host never gave.
+  INDEX_LINE=$(index_answer_for "$POS")
+  if index_answered "$INDEX_LINE"; then
+    IFS='	' read -r I_NUM I_STATE I_DRAFT I_URL _I_HEAD <<< "$INDEX_LINE"
+    [ "$I_URL" = "-" ] && I_URL=""
+    append "$(jq -nc --argjson number "$I_NUM" --arg state "$I_STATE" \
+      --argjson draft "$I_DRAFT" --arg url "$I_URL" --arg branch "$BR" \
+      '{number: $number, state: $state, draft: $draft, url: $url, repo: "", branch: $branch}')"
+    continue
+  fi
+
   if [ -n "$REF" ]; then
     # Annotated line: resolve by number, honoring a cross-repo prefix.
     NUM="${REF##*#}"
