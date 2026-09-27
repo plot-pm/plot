@@ -23,6 +23,7 @@
   "files": [
     "dist/board-server.mjs",
     "plot-agent-monitor.sh",
+    "plot-agent-manifest.sh",
     "plot-build-monitor.sh",
     "plot-monitor-subject.sh",
     "plot-approve.sh",
