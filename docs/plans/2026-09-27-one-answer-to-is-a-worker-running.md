@@ -101,7 +101,11 @@ Both read as measured and neither produces it. Recorded because the pattern is t
 
 `plot-worker-state.sh` already answers it, and the reaper is an **adapter** — it spawns `node`, `git`, `ps` and `plot-pr-merged.sh`, and sources shell helpers already. **There is no layering objection**: an earlier draft argued *"a pure domain rule must not gain a shell dependency"*, which refuted a design nobody proposed. The rule takes readings as values; the adapter takes them however it likes.
 
-**What the slice must decide is narrower**: whether to source `plot-worker-state.sh` whole and map its eight states, or to take the `plot_worker_agent_alive` fact alone. The case against the eight states is the `waiting`/`stalled` ambiguity — both are DESK readings about what an agent OWES, and `uncommittedChanges` already answers the second — not purity.
+**Settled 2026-09-27: source `plot-worker-state.sh` whole, and map only the PROCESS states.** The reaper consumes `running`, `finished`, `failed`, `ended` and `none`, and **explicitly discards `waiting` and `stalled`** — those two are read from the DESK and answer *what does this agent still owe*, which is a different question and one `uncommitted-changes` already answers.
+
+This honours both rules at once rather than trading one against the other. CLAUDE.md's *"ONE answer to is a worker running"* is satisfied because there is one classifier; its Agent/Worker split is satisfied because only the machine-side states cross into a rule about removing a checkout. **A mapping that consumed `stalled` would put an agent-side fact into a process-side decision**, which is the confusion the split exists to prevent.
+
+The slice states the five-to-one mapping in code and a test names the two discarded states, so a later reader cannot quietly widen it.
 
 ### The unpushed-commits guard, and it is a hazard this creates
 
@@ -113,9 +117,22 @@ Both read as measured and neither produces it. Recorded because the pattern is t
 
 `plot-reap.sh:506` and `:1040` carry the liveness snippet independently — the reap loop and the dirty sweep. A reading added to one leaves the sweep still printing the desk under *"dirty trees nobody owns"*.
 
-### The re-check is a precondition, not a follow-up
+### The re-check was attempted and the fact is unrecoverable
 
-**#1004, #1007 and #1014 must be re-checked before the slice starts.** All three are confirmed `MERGED` on 2026-09-26, so the deadlock is real — but whether each had a surviving wrapper with a dead agent is the claim this diagnosis rests on, and two previous diagnoses died on exactly that deferral. If the desks are gone and the fact is unrecoverable, say so and rest the plan on the sandbox reproduction alone.
+**Searched 2026-09-27, and this plan rests on the sandbox reproduction alone.** #1004, #1007 and #1014 are confirmed `MERGED` on 2026-09-26, so the deadlock is real — but whether each desk had a surviving wrapper with a dead agent cannot now be established:
+
+| where the fact would be | what is there |
+|---|---|
+| the three worktrees | gone — `git worktree list` names none of them |
+| per-slug dispatcher logs | absent |
+| the five agent manifests | every one deleted with its desk |
+| `registryd.log` | **hand-overs only** — `hand over to <id>` and `handed to <id>`, no supervision verdict for any of the three |
+
+**So the mechanism is proven to EXIST and is not proven to be the one the estate hit.** The sandbox fixture produces the reported transcript character for character in shape; that is the whole evidential basis, and it is stated here rather than implied.
+
+**A finding falls out of the search itself, and it belongs to #1030 from the other side.** Nothing on this machine records *how a desk ended*. The supervisor logs the assignment and not the outcome, and the manifest — the one artifact holding `attempts`, the state at death, and the machine's readings — is deleted by the reap. A post-mortem is impossible by construction, which is why two rounds of this plan could argue from inference for a day without anybody being able to check.
+
+**The slice must therefore not claim the reported incident as its test.** Done-when item 1 names the sandbox fixture, deliberately.
 
 ### What this does NOT do
 
@@ -127,11 +144,12 @@ Both read as measured and neither produces it. Recorded because the pattern is t
 
 ## Done when
 
-- A desk whose wrapper is alive and whose agent has exited is reaped, given its other conditions pass — the sandbox fixture above, asserted as a test.
+- A desk whose wrapper is alive and whose agent has exited is reaped, given its other conditions pass — **the sandbox fixture is the test, not the reported incident**, whose desks and manifests are gone.
 - A desk with a live agent is still kept, and the refusal still names the pid.
 - **A desk holding unpushed commits is never reaped**, and the refusal names them — the guard `reapProblems` does not have today.
 - Both reading sites are covered, asserted by a test driving the sweep's counter as well as the reap decision.
 - The reaper and `--stop` agree on one fixture, and the test names the agent-descendant fact as the reason.
+- The five-to-one state mapping is in code, and a test names `waiting` and `stalled` as deliberately discarded.
 - `reapProblems` gains no second liveness rule; the change is in the readings.
 
 ## Slices
@@ -157,3 +175,9 @@ Three further findings landed: the reaper calls `firstReapRefusal` → `reapProb
 **A process failure is recorded with it.** The juror's verdict arrived at 17:33; a moderation declaring it absent was written at 17:26 and the plan was amended, committed and pushed from that moderation. The panel was still running. The juror caught it — *"the file changed on disk mid-review"* — and re-measured against the amended text, which is the only reason the round is usable. **A juror that has not written is not a juror that found nothing.**
 
 Verdict and full reading: `.plot/panels/2026-09-27-one-answer-to-is-a-worker-running/evidence.md`, moderation in `moderator.md`.
+
+**Three decisions taken with the operator, 2026-09-27.** Each was a call the evidence could not make alone:
+
+- **The unpushed-commits guard lands in the same slice.** One slice does two things, and the reason is that no intermediate commit may be able to lose work. The alternative — liveness first, guard after — leaves a window open across a push.
+- **`plot-worker-state.sh` is sourced whole and only its process states are mapped.** See the Design section; `waiting` and `stalled` are discarded by name.
+- **The re-check was attempted and failed.** The operator did not recall the process table for the three desks, and nothing on the machine holds it. The plan says so rather than carrying the question forward a third round.
