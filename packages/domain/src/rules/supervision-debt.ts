@@ -47,3 +47,41 @@ export const OWES_A_PERSON: Record<SupervisionCause, boolean> = {
  */
 export const owesAPerson = (cause: SupervisionCause | null): boolean =>
   cause === null ? false : OWES_A_PERSON[cause];
+
+/**
+ * What a reader is told about a cause, in the register slot 5 uses.
+ *
+ * A RENDERING AND NOTHING ELSE, the shape `quietKindWord` sets: the mapping
+ * above decides who owes the desk, and this says it in words. It is here rather
+ * than in a `.tsx` for the Layering Rule's stated reason — *"a view state that
+ * cannot be asserted without a browser is a domain property that has not been
+ * extracted yet"* — so the words are asserted in a unit test and a browser test
+ * only proves they show.
+ *
+ * **THE WORDS SAY WHO ACTS, BECAUSE THAT IS THE QUESTION.** `no-headroom` reads
+ * *waiting for room* rather than *deferred*: the first tells an operator to do
+ * nothing, and the second names a mechanism they must then interpret. The three
+ * causes that owe a person read as demands.
+ *
+ * `no-progress` READS *restarting*, and that is the entry the plan contests and
+ * settles. It is what the fleet retries on, so the honest word is what the fleet
+ * is doing about it — not *stuck*, which would send a person to a desk the
+ * supervisor is already handling. `budget-spent` is the transition to a person
+ * and says so.
+ *
+ * @param cause - the cause the tick reported.
+ * @returns the phrase for a reader, in lower case.
+ */
+export const supervisionCauseWord = (cause: SupervisionCause): string => {
+  switch (cause) {
+    case 'worker-alive': return 'working';
+    case 'gates-passed': return 'finishing';
+    case 'gates-failed': return 'being corrected';
+    case 'declaration-absent': return 'declaration missing';
+    case 'declaration-unreadable': return 'declaration unreadable';
+    case 'agent-blocked': return 'blocked, asked you';
+    case 'budget-spent': return 'out of attempts';
+    case 'no-progress': return 'restarting';
+    case 'no-headroom': return 'waiting for room';
+  }
+};

@@ -16,7 +16,7 @@
 // It carries no React, so the unit suite tests it as data — which is the other
 // half of why the collapse was cheap: the hard decisions were testable without
 // a browser, and the browser only had to confirm a layout.
-import { isAgentFree } from '@plot-pm/domain';
+import { isAgentFree, supervisionCauseWord } from '@plot-pm/domain';
 import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
 
 /**
@@ -516,6 +516,53 @@ function branchLink(row: AgentRow): TupleLink {
  *     links the branch;
  *   - a `branch` names the branch and links its plan.
  */
+/**
+ * Slot 5's word, qualified by WHY the supervisor left the desk without a worker.
+ *
+ * A SECONDARY WORD ON AN EXISTING STATUS, never a replacement for one — the
+ * shape `worker_activity` already set: *"the enum is untouched, and only the
+ * rendered word differs."* The status keeps deciding what it decided; this adds
+ * the fact that made three of those statuses indistinguishable.
+ *
+ * THE DEFECT THIS RENDERS, measured 2026-09-27. A desk deferred on
+ * `no-headroom`, a desk the fleet is restarting after `no-progress`, and a desk
+ * that has spent its correction budget all look the same on the board — a desk,
+ * a claim, no live pid — and `/api/fleet` carried no cause at all. An operator
+ * intervened on two such desks that day; the fleet had already restarted one and
+ * correctly deferred the other.
+ *
+ * READ, NEVER DERIVED. The word comes from `supervisionCauseWord` in the domain
+ * and the cause from the daemon's tick. This function chooses only WHERE it
+ * shows, which is the one thing a projection may decide.
+ *
+ * IT MOVES NO ROW AND CHANGES NO SECTION. Placement reads `AgentState` through
+ * `isBrokenState`, which this does not touch: the plan gates any placement change
+ * on a payload reading showing a row misplaced, and the measured distribution
+ * found none.
+ *
+ * NULL FALLS STRAIGHT THROUGH, so a row from an older server, a desk the tick
+ * did not judge, and a report too old to count all render exactly as the board
+ * did before the field existed.
+ *
+ * @param status - the word slot 5 had already settled on.
+ * @param cause - the cause the tick reported, or null where it judged no desk.
+ * @returns the status, qualified where there is a cause to qualify it with.
+ */
+export function statusWithCause(status: string, cause: AgentRow['supervisionCause']): string {
+  if (!cause) return status;
+  const word = supervisionCauseWord(cause);
+  // NO STATUS TO QUALIFY IS THE COMMON CASE, and it is the population this
+  // exists for. `workerStatus` answers "" for `none` and `elsewhere` — a desk
+  // with no live worker, which is every desk the supervisor defers or gives up
+  // on — so the cause becomes the whole word rather than a suffix on nothing.
+  if (status === '') return word;
+  // THE CAUSE IS NOT REPEATED BACK AT A STATUS THAT ALREADY SAYS IT. A live
+  // worker renders `working` from both sides, and `working · working` is a row
+  // that looks broken to the reader it was meant to inform.
+  if (status === word) return status;
+  return `${status} · ${word}`;
+}
+
 export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow {
   const age: TupleAge =
     // A NOT-STARTED row is aged from its plan's approval, and it says so. The
@@ -526,7 +573,15 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
       ? { text: tupleWaitText(row.waitingDays), label: 'waiting' }
       : { text: row.ageMinutes === null ? '' : tupleAgeText(row.ageMinutes), label: '' };
   const plan = planLink(row);
-  const status = row.pr ? prStatus(row.pr) : stateStatus(row);
+  // THE SUPERVISION CAUSE QUALIFIES WHATEVER SLOT 5 SETTLED ON, at the ONE point
+  // that decides it for every kind. Applied here rather than inside `stateStatus`
+  // because that function owns a PRECEDENCE — startability, then quiet kind, then
+  // the git state — and the cause competes with none of them: it says why a desk
+  // has no worker, which is a different question from what the branch is.
+  const status = statusWithCause(
+    row.pr ? prStatus(row.pr) : stateStatus(row),
+    row.supervisionCause,
+  );
   // THE KIND FALLS BACK TOO, and it used to be the only one of the three that
   // did not. `icon` and `kindLabel` each guarded against a kind this projection
   // does not know while `kind` itself passed the raw value through — so a row
@@ -794,7 +849,14 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     // it is an artifact link now, like every other named thing on the row.
     return {
       ...base,
-      status: workerStatus(row.worker, row.worker_activity) || base.status,
+      // QUALIFIED LIKE `base.status` IS, because this arm computes its own word
+      // and would otherwise be the one row kind that drops the cause — and the
+      // agent row is where an operator looks first. `base.status` is already
+      // qualified, so the fallback needs nothing.
+      status: statusWithCause(
+        workerStatus(row.worker, row.worker_activity),
+        row.supervisionCause,
+      ) || base.status,
       name: agent?.session
         ? { what: 'ticket', label: shortSessionId(agent.session), href: '' }
         : branchLink(row),
