@@ -49,14 +49,25 @@ export interface TreeReadings {
   blockedMarker: boolean;
   /** What the host said about any PR for this branch. */
   merge: MergeReading;
+  /**
+   * The commits on the tree's `HEAD` that no remote holds, as short shas, or
+   * `'unknown'` when they could not be counted.
+   *
+   * A list rather than a count because the refusal names them. `'unknown'`
+   * refuses: a commit that exists only in this checkout is lost with it, and a
+   * failure to count is the case that loses it. Absent means the caller took
+   * no such reading, and nothing is refused on it.
+   */
+  unpushed?: readonly string[] | 'unknown';
 }
 
 /**
  * One refusal, and the reading it was taken from.
  *
  * `detail` is empty for the refusals whose reading is the refusal itself; it
- * carries the pid for `live-worker` and the offending path for
- * `uncommitted-changes`.
+ * carries the pid for `live-worker`, the offending path for
+ * `uncommitted-changes`, and the unpushed shas (or `unknown`) for
+ * `unpushed-commits`.
  */
 export interface ReapProblem {
   /** Which measurement refused. */
@@ -72,7 +83,8 @@ export interface ReapProblem {
  * it is the only signal describing someone acting right now; a caller reporting
  * one reason per tree takes the first and gets the most urgent. The remaining
  * order matches what the tree can lose: uncommitted work exists in exactly one
- * place, a marker holds a question for a person, a tree on the default branch
+ * place, and so do commits no remote holds; a marker holds a question for a
+ * person, a tree on the default branch
  * never had its dispatched branch checked out and so was never measured, and a
  * branch the host did not merge is unlanded.
  *
@@ -94,6 +106,11 @@ export const reapProblems = (readings: TreeReadings): ReapProblem[] => {
   }
   if (readings.dirtyPath !== '') {
     problems.push({ refusal: 'uncommitted-changes', detail: readings.dirtyPath });
+  }
+  if (readings.unpushed === 'unknown') {
+    problems.push({ refusal: 'unpushed-commits', detail: 'unknown' });
+  } else if (readings.unpushed !== undefined && readings.unpushed.length > 0) {
+    problems.push({ refusal: 'unpushed-commits', detail: readings.unpushed.join(' ') });
   }
   if (readings.isMain || readings.branch === readings.defaultBranch) {
     problems.push({ refusal: 'on-default-branch', detail: readings.defaultBranch });

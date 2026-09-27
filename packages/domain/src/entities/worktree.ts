@@ -30,6 +30,7 @@ export type WorktreeState = z.infer<typeof WorktreeStateSchema>;
 export const ReapRefusalSchema = z.enum([
   'live-worker',
   'uncommitted-changes',
+  'unpushed-commits',
   'blocked-marker',
   'on-default-branch',
   'no-merged-pr',

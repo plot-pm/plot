@@ -192,6 +192,70 @@ git fetch origin "$DEFAULT" --quiet 2>/dev/null || true
 # read one tree the same way; the helper names each excused path.
 . "$(dirname "${BASH_SOURCE[0]}")/plot-desk-dirt.sh"
 
+# Is an AGENT still working at a desk? SOURCED from `plot-worker-state.sh`,
+# the ONE classifier `plot-dispatch.sh --stop` also asks. Reading only whether
+# the recorded pid answers `ps` asked about the wrapper shell, which outlives
+# its agent: a desk whose agent had exited read `worker alive` here while
+# `--stop` answered `finished` for the same tree, so it could be neither
+# stopped nor reaped.
+# shellcheck source=plot-worker-state.sh
+. "$(dirname "${BASH_SOURCE[0]}")/plot-worker-state.sh"
+
+# The live worker's pid at a desk, or empty. The FIVE process states map to
+# one reading: `running` is live, and `finished`, `failed`, `ended` and `none`
+# are not.
+#
+# `waiting` and `stalled` are DISCARDED BY NAME. They are desk facts — a marker
+# for a person, work on the floor — which `plot_worker_state` reaches only once
+# no agent runs, and they answer what the agent still OWES. That question is
+# the blocked-marker, uncommitted and unpushed readings' below; only the
+# process fact under the two words (no agent is running) crosses into the
+# liveness reading.
+#
+# A word this mapping does not know keeps the desk: it reports the recorded
+# pid, or `unknown`, rather than guessing the process is gone.
+desk_worker_pid() { # $1=worktree → the live worker's pid, or empty
+  local row state spid
+  row=$(plot_worker_state "$1" "")
+  state=$(printf '%s' "$row" | cut -f1)
+  spid=$(printf '%s' "$row" | cut -f2)
+  case "$state" in
+    running)                   printf '%s' "${spid:-unknown}" ;;
+    finished|failed|ended|none) ;;
+    waiting|stalled)           ;;
+    *)                         printf '%s' "${spid:-unknown}" ;;
+  esac
+}
+
+# The commits on a desk's HEAD that no remote holds, as short shas, one per
+# line. Returns 1 when they cannot be counted, which the rule reads as
+# `unknown` and refuses on.
+#
+# NOT `@{upstream}..HEAD`. The host deletes a branch when its PR merges, and
+# the reaper only removes desks whose PR merged, so after `git fetch --prune`
+# every desk it serves has lost its upstream — and an absent upstream counts as
+# nothing. The reading is `HEAD --not --remotes` instead: what no remote-tracking
+# ref holds. After a squash merge and a pruned ref, the branch's own commits
+# are on no remote ref either, so the head the host MERGED is excluded too
+# (`pr_merged_heads`): a commit beyond it was never pushed.
+desk_unpushed() { # $1=worktree $2=branch $3=merge reading → short shas
+  local wt="$1" br="$2" merge="$3" list heads h
+  local -a excl=()
+  list=$(git -C "$wt" rev-list --abbrev-commit HEAD --not --remotes 2>/dev/null) || return 1
+  [ -n "$list" ] || return 0
+  if [ -n "$br" ] && [ "$merge" = merged ]; then
+    heads=$(pr_merged_heads "$br") || return 1
+    for h in $heads; do
+      git -C "$wt" cat-file -e "$h^{commit}" 2>/dev/null && excl+=("$h")
+    done
+    if [ "${#excl[@]}" -gt 0 ]; then
+      list=$(git -C "$wt" rev-list --abbrev-commit HEAD --not --remotes "${excl[@]}" 2>/dev/null) \
+        || return 1
+    fi
+  fi
+  printf '%s\n' "$list"
+}
+
 # Where the registry lives, resolved through `plot-config.sh` — the SAME key and
 # default the board's reader uses (`resolveManifestDir` in `registry.ts` shells
 # out to exactly this). Two implementations of "where is the registry" is how
@@ -506,12 +570,9 @@ while IFS=$'\037' read -r wt br prunable; do
 
   # The process table: the live worker's pid, or empty. Read but not judged —
   # an empty pid file is not a live process, and which of those two it is is
-  # the rule's to say.
-  pid=""
-  if [ -f "$wt/.plot-worker.pid" ]; then
-    p=$(cat "$wt/.plot-worker.pid" 2>/dev/null)
-    if [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1; then pid="$p"; fi
-  fi
+  # the rule's to say. "Live" means an agent runs under the recorded pid, the
+  # answer `--stop` reads; a wrapper whose agent exited is not live.
+  pid=$(desk_worker_pid "$wt")
 
   # The tree: a PLOT-BLOCKED marker, and the first uncommitted path.
   #
@@ -564,6 +625,12 @@ while IFS=$'\037' read -r wt br prunable; do
     merge=merged; why="detached, nothing to land"
   fi
 
+  # The desk again: commits only this checkout holds. Taken AFTER the merge
+  # reading, because the head the host merged is what separates a pushed
+  # commit from an unpushed one once the remote ref is gone. Lines, or the
+  # word `unknown` when they could not be counted.
+  if unpushed=$(desk_unpushed "$wt" "$short" "$merge"); then :; else unpushed=unknown; fi
+
   # THE DECISION. One call, and the script holds no `if` about whether a
   # worktree may go — only about what to do with the answer.
   #
@@ -585,7 +652,7 @@ while IFS=$'\037' read -r wt br prunable; do
   # the tree and says why. Silence is never permission, on this path either.
   verdict=$(PLOT_BRANCH="$short" PLOT_DEFAULT="$DEFAULT" PLOT_PID="$pid" \
             PLOT_DIRTY="$dirty" PLOT_MARKER="$marker" PLOT_MERGE="$merge" \
-            PLOT_RULE="$RULE" \
+            PLOT_UNPUSHED="$unpushed" PLOT_RULE="$RULE" \
             node --input-type=module - <<'NODE_EOF' 2>/dev/null
 // Imported from an ABSOLUTE path derived from this script, never from the
 // cwd. The reaper runs with its cwd wherever the operator invoked it and the
@@ -607,6 +674,9 @@ const problem = firstReapRefusal({
   dirtyPath: process.env.PLOT_DIRTY,
   blockedMarker: process.env.PLOT_MARKER === "true",
   merge: process.env.PLOT_MERGE,
+  unpushed: process.env.PLOT_UNPUSHED === "unknown"
+    ? "unknown"
+    : process.env.PLOT_UNPUSHED.split("\n").filter((l) => l !== ""),
 });
 
 // `reap` when nothing refused; otherwise the refusal and its reading, which
@@ -626,6 +696,7 @@ NODE_EOF
       live-worker)         reason="worker alive (pid $detail)" ;;
       blocked-marker)      reason="PLOT-BLOCKED marker — needs a person" ;;
       uncommitted-changes) reason="uncommitted: ${detail:0:40}" ;;
+      unpushed-commits)    reason="unpushed commits: ${detail:0:40}" ;;
       on-default-branch)   reason="on $DEFAULT — dispatched branch not checked out" ;;
       no-merged-pr)        reason="unlanded work — no merged PR" ;;
       *)                   reason="rule could not be asked — keeping" ;;
@@ -1039,11 +1110,9 @@ while IFS=$'\t' read -r wt br; do
   dcount=$(desk_dirt "$wt" | wc -l | tr -d ' ')
   [ "${dcount:-0}" -gt 0 ] || continue
 
-  dpid=""
-  if [ -f "$wt/.plot-worker.pid" ]; then
-    p=$(cat "$wt/.plot-worker.pid" 2>/dev/null)
-    if [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1; then dpid="$p"; fi
-  fi
+  # The same liveness reading the reap loop takes, so a desk the reaper keeps
+  # for a live worker and one the sweep names as owned are the same desks.
+  dpid=$(desk_worker_pid "$wt")
 
   dmanifest=""
   if m=$(manifest_for "$(canonical "$wt")"); then dmanifest=$(basename "$m"); fi
