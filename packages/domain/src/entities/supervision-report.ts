@@ -21,8 +21,23 @@ export const SUPERVISION_REPORT_VERSION = 1;
  */
 export const SupervisionReportRowSchema = z
   .object({
-    /** The branch the verdict is about — the report's key. */
-    branch: z.string().min(1),
+    /**
+     * The branch the verdict is about, or `''` for an agent holding none.
+     *
+     * **NOT `.min(1)`, AND THAT WAS MEASURED RATHER THAN REASONED.** A FREE
+     * agent is registered, has a desk cut detached at `origin/<main>` and holds
+     * no slice, so the tick judges it with an empty branch —
+     * `plot-dispatch.sh --start` creates exactly those. Written strict, one such
+     * row made the WHOLE report unparseable: measured 2026-09-27 against the
+     * live estate, a tick judging 8 agents wrote 2 free rows and all 8 desks
+     * lost their cause, because the reader's fallback for a file it cannot
+     * parse is to carry nothing.
+     *
+     * A row is dropped by the READER where it names no branch — the join is by
+     * branch and an empty key matches no row — rather than by the schema, so one
+     * unjoinable row costs itself and never the other seven.
+     */
+    branch: z.string(),
     /** The desk it is about, as the tick read it. */
     worktree: z.string(),
     /** What to do about this agent, verbatim from the tick. */

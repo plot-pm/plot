@@ -97,6 +97,16 @@ export async function readSupervisionReport(
     if (!result.ok || result.value === null) return NO_SUPERVISION_REPORT;
     const causes = new Map<string, SupervisionCause>();
     for (const row of result.value.rows) {
+      // A ROW NAMING NO BRANCH IS DROPPED, NOT KEYED ON `''`. A FREE agent holds
+      // no slice, so the tick judges it with an empty branch — measured
+      // 2026-09-27, a tick over 8 agents wrote 2 such rows. The join is by
+      // branch, so an empty key can match no row, and storing one would put a
+      // cause in the map under a name nothing asks for.
+      //
+      // IT IS DROPPED HERE AND NOT BY THE SCHEMA. A strict `min(1)` made the
+      // WHOLE file unparseable and cost all 8 desks their cause, because the
+      // reader's fallback for a file it cannot parse is to carry nothing.
+      if (row.branch === '') continue;
       const cause = knownCause(row.cause);
       if (cause !== null) causes.set(row.branch, cause);
     }

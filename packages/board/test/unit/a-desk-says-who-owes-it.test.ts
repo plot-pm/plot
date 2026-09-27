@@ -188,6 +188,47 @@ describe('absent is not false', () => {
     ).resolves.toEqual(NO_SUPERVISION_REPORT);
   });
 
+  /**
+   * THE DEFECT A LIVE RUN FOUND AND THE UNIT TESTS HAD ENCODED AWAY.
+   *
+   * A FREE agent is registered, holds no slice and has a desk cut detached at
+   * `origin/<main>` — `plot-dispatch.sh --start` creates exactly those — so the
+   * tick judges it with an EMPTY branch. Measured 2026-09-27 against the live
+   * estate: a tick over 8 agents wrote 2 such rows, the entity schema declared
+   * `branch: z.string().min(1)`, and the whole report became unparseable, so all
+   * 8 desks lost their cause.
+   *
+   * The escalation is what makes it worth a test: strictness at the ROW level
+   * became total loss at the FILE level, because the reader's fallback for an
+   * unparseable file is to carry nothing. Every fixture above used a real branch
+   * name, so the tests agreed with the wrong assumption.
+   */
+  it('keeps the other desks when a row names no branch', async () => {
+    const now = Date.now();
+    const row = await rowFor('bug/real', {
+      v: 1,
+      at: now,
+      rows: [
+        { branch: '', worktree: '/desks/free', verdict: 'leave', cause: 'worker-alive' },
+        { branch: 'bug/real', worktree: '/desks/real', verdict: 'defer', cause: 'no-headroom' },
+      ],
+    } as never, now);
+    expect(row.supervisionCause).toBe('no-headroom');
+  });
+
+  it('keys no cause under an empty branch', async () => {
+    const now = Date.now();
+    const reading = await readSupervisionReport({ repoRoot: '/nowhere' } as never, storeOf({
+      v: 1,
+      at: now,
+      rows: [{ branch: '', worktree: '/desks/free', verdict: 'leave', cause: 'worker-alive' }],
+    } as never));
+    // The join is by branch, so an empty key can match no row; storing one would
+    // put a cause in the map under a name nothing asks for.
+    expect(reading.causes.size).toBe(0);
+    expect(reading.at).toBe(now);
+  });
+
   it('drops a cause word this Plot does not know', async () => {
     // A newer daemon's tenth cause must read as *not judged* rather than reach
     // the renderer as a word it cannot describe. The report is a file, so the

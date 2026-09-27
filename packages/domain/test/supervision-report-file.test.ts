@@ -166,6 +166,30 @@ describe('supervisionReportFile — absent is not false', () => {
     rmSync(outside, { recursive: true, force: true });
   });
 
+  /**
+   * A FREE AGENT HOLDS NO BRANCH, and the report must survive one.
+   *
+   * Measured 2026-09-27 on the live estate: a tick over 8 agents wrote 2 rows
+   * with `branch: ''`, and a `min(1)` on that field made the WHOLE file
+   * unparseable — so all 8 desks lost their cause, because the reader's fallback
+   * for a file it cannot parse is to carry nothing. Row-level strictness became
+   * file-level loss.
+   */
+  it('parses a report whose row names no branch', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'plot-supervision-free-'));
+    const store = supervisionReportFile({ home, env: {} });
+    await store.write(report({
+      rows: [
+        { branch: '', worktree: '/desks/free', verdict: 'leave', cause: 'worker-alive' },
+        { branch: 'bug/real', worktree: '/desks/real', verdict: 'defer', cause: 'no-headroom' },
+      ],
+    }));
+    const read = await store.read();
+    expect(read.value?.rows).toHaveLength(2);
+    expect(read.value?.rows[1]?.cause).toBe('no-headroom');
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it('takes the home override so a suite never touches the operator report', async () => {
     const home = mkdtempSync(join(tmpdir(), 'plot-supervision-env-'));
     const store = supervisionReportFile({ cwd: main, env: { [SUPERVISION_REPORT_HOME_ENV]: home } });
