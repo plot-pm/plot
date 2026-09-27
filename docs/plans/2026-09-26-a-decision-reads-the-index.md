@@ -155,7 +155,7 @@ It proves the store serves a real consumer before anything larger depends on it,
 
 The second consumer, chosen after the first has shipped. `plot-reconcile-scan.sh` (6 calls) or `plot-fleet-scan.sh` (28) — the slice names which and why, with the first slice's experience in hand.
 
-### The rule is written down (Branch: docs/the-rule-is-written-down)
+### The rule is written down (Branch: docs/the-rule-is-written-down, PR: #1025)
 
 **Only after two consumers exist.** The rule — *a tool call writes the index; a decision reads it or is triggered by it* — goes into CLAUDE.md beside the layering rule, with the consumers as its evidence.
 
