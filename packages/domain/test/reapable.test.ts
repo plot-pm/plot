@@ -93,6 +93,35 @@ describe('reapProblems — the five refusals, each triggerable alone', () => {
   });
 });
 
+describe('reapProblems — commits only this checkout holds', () => {
+  it('refuses a merged desk holding unpushed commits, and names them', () => {
+    expect(reapProblems(landed({ unpushed: ['a1b2c3d', 'e4f5a6b'] }))).toEqual([
+      { refusal: 'unpushed-commits', detail: 'a1b2c3d e4f5a6b' },
+    ]);
+  });
+
+  it('refuses when the commits could not be counted — a failure to count loses them', () => {
+    expect(reapProblems(landed({ unpushed: 'unknown' }))).toEqual([
+      { refusal: 'unpushed-commits', detail: 'unknown' },
+    ]);
+  });
+
+  it('reaps a desk whose every commit a remote holds', () => {
+    expect(refusalsOf(landed({ unpushed: [] }))).toEqual([]);
+  });
+
+  it('reads an absent reading as not measured, and refuses nothing on it', () => {
+    expect(refusalsOf(landed())).toEqual([]);
+  });
+
+  it('comes after the merge gate, which already keeps every unmerged desk', () => {
+    expect(refusalsOf(landed({ merge: 'not-merged', unpushed: ['a1b2c3d'] }))).toEqual([
+      'no-merged-pr',
+      'unpushed-commits',
+    ]);
+  });
+});
+
 describe('reapProblems — the host is the authority, and silence is never permission', () => {
   it('refuses when the host could not be asked at all', () => {
     // The combination a real estate will not produce on demand: no `gh`, no

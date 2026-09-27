@@ -83,10 +83,10 @@ export interface ReapProblem {
  * it is the only signal describing someone acting right now; a caller reporting
  * one reason per tree takes the first and gets the most urgent. The remaining
  * order matches what the tree can lose: uncommitted work exists in exactly one
- * place, and so do commits no remote holds; a marker holds a question for a
- * person, a tree on the default branch
+ * place, a marker holds a question for a person, a tree on the default branch
  * never had its dispatched branch checked out and so was never measured, and a
- * branch the host did not merge is unlanded.
+ * branch the host did not merge is unlanded. Commits no remote holds come
+ * last: on a merged branch they are work the PR did not carry.
  *
  * Merge state is read from whether a PR merged — never from the PR's state, a
  * merged PR reports `CLOSED`, and never from ancestry, which a squash-merge
@@ -107,16 +107,19 @@ export const reapProblems = (readings: TreeReadings): ReapProblem[] => {
   if (readings.dirtyPath !== '') {
     problems.push({ refusal: 'uncommitted-changes', detail: readings.dirtyPath });
   }
-  if (readings.unpushed === 'unknown') {
-    problems.push({ refusal: 'unpushed-commits', detail: 'unknown' });
-  } else if (readings.unpushed !== undefined && readings.unpushed.length > 0) {
-    problems.push({ refusal: 'unpushed-commits', detail: readings.unpushed.join(' ') });
-  }
   if (readings.isMain || readings.branch === readings.defaultBranch) {
     problems.push({ refusal: 'on-default-branch', detail: readings.defaultBranch });
   }
   if (readings.merge !== 'merged') {
     problems.push({ refusal: 'no-merged-pr', detail: '' });
+  }
+  // Last, because the merge gate already keeps every unmerged tree: this is
+  // the refusal that can still hold a MERGED one, whose PR carried less than
+  // the desk holds.
+  if (readings.unpushed === 'unknown') {
+    problems.push({ refusal: 'unpushed-commits', detail: 'unknown' });
+  } else if (readings.unpushed !== undefined && readings.unpushed.length > 0) {
+    problems.push({ refusal: 'unpushed-commits', detail: readings.unpushed.join(' ') });
   }
   return problems;
 };
