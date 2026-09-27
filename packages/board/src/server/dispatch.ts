@@ -1,14 +1,14 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import { agentLogPath, migrateAgentLogs } from './agent-log.js';
-import { spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
 import {
   IMPLEMENT_COMMAND_KEY,
   implementLogPath,
-  composeImplementPrompt,
+  implementRunning,
+  startImplement,
 } from './implement.js';
 import { usableCommand } from './idea.js';
 import { localCapability } from './controllers/caller.js';
@@ -259,10 +259,33 @@ export interface DispatchDeps {
  * to act without a runner, not an oversight: `/plot-implement` is judgement
  * (staleness preflight, brief authorship), and no script can substitute.
  *
- * The implement step is SYNCHRONOUS: the 202 is written only after it
- * completes successfully. This is slower than the original fire-and-forget
- * dispatch, and that is the point — a brief that exists is worth more than a
- * worker that starts without one.
+ * ## The contract, changed 2026-09-26 by `a-dispatch-does-not-hold-the-loop`
+ *
+ * This docblock read *"the implement step is SYNCHRONOUS: the 202 is written
+ * only after it completes successfully"*. **It no longer is, and the 202 no
+ * longer means the brief exists.** The implement ran on the request's stack
+ * under a five-minute bound, and a single-threaded server answered nothing for
+ * the duration: measured 2026-09-26, the port holder sat at 0.0% CPU while
+ * `/api/board` timed out and the page told the operator to restart a live
+ * server.
+ *
+ * So the 202 now means **the implement was started**, and it carries the two
+ * log paths. The brief gate is unchanged in what it decides — `plot-dispatch.sh`
+ * still runs only after the implement exits 0 — and changed in WHERE the
+ * decision is read: from the child's `exit` listener, with the outcome recorded
+ * for `GET /api/implement/<slug>`.
+ *
+ * **The refusal did not move from the response to nowhere.** It never reached
+ * the operator through the response: the client aborts every action at
+ * `ACTION_TIMEOUT_MS = 15_000` (`bounded-fetch.ts:45`) and a real
+ * `/plot-implement` takes minutes, so the button got `Fetch is aborted` and
+ * never the `409 implement-failed`. The status read-back is the refusal's first
+ * working route to a person.
+ *
+ * A second POST for a slug whose implement is still `running` is REFUSED rather
+ * than queued — two implements truncate one log and may both start a dispatch.
+ * The client's in-flight guard lives in one tab and one render; a reload or a
+ * second tab walks straight past it.
  */
 export async function handleDispatch(
   req: http.IncomingMessage,
@@ -334,90 +357,103 @@ export async function handleDispatch(
     return;
   }
 
-  // Run the implement command SYNCHRONOUSLY and wait for it to complete.
-  // This is the brief gate: the dispatch proceeds only if the implement
-  // succeeds. The implement command spawns `/plot-implement <slug>`, which
-  // creates the brief at `.plot/briefs/<branch-slug>.md`.
-  const implLog = implementLogPath(opts.repoRoot, slug);
-  let implFd: number;
-  try {
-    // Truncated, not appended — this log is read back AS the answer, and an
-    // appended one would show a previous attempt's error after a later success.
-    implFd = fs.openSync(implLog, 'w');
-  } catch (err) {
-    json(500, { error: `cannot open ${implLog}: ${err instanceof Error ? err.message : String(err)}` });
-    return;
-  }
+  // ──────────────────────────────────────────────────────────────────────────
+  // THE BRIEF GATE, OFF THE EVENT LOOP.
+  //
+  // The gate's decision is unchanged: `plot-dispatch.sh` runs only after the
+  // implement exits 0. What changed is that the wait no longer happens on this
+  // request's stack. The implement runs detached, this handler answers 202, and
+  // the dispatch is started from the child's `exit` listener below.
+  // ──────────────────────────────────────────────────────────────────────────
 
-  // Through `sh -c` because `Implement command` is a shell FRAGMENT, the same
-  // interpretation `Idea command` and `Worker command` get. NOTHING from the
-  // request is interpolated into that string: the prompt names the slug, which
-  // is `SLUG_RE`-bounded, and travels as ONE argument via `"$@"`.
-  const implResult = spawnSync(
-    'sh',
-    ['-c', `${implCommand} "$@"`, 'plot-implement', composeImplementPrompt(slug)],
-    {
-      cwd: opts.repoRoot,
-      stdio: ['ignore', implFd, implFd],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch. There is nobody at this board to
-        // answer `AskUserQuestion`, and under `claude -p` that tool is not
-        // even registered — so a skill that improvises exits 0 having written
-        // nothing. Setting it makes each skipped question take the shape its
-        // author chose and name itself in the log.
-        PLOT_UNATTENDED: '1',
-        PLOT_PLAN_SLUG: slug,
-      },
-      // The implement step can take minutes for a large plan. A 5-minute
-      // timeout is generous but bounded — a hung implement must not block the
-      // board forever.
-      timeout: 5 * 60 * 1000,
-    },
-  );
-  fs.closeSync(implFd);
-
-  // A non-zero exit means the implement failed — refused by /plot-implement
-  // itself (phase wrong, drift detected in unattended mode, no eligible
-  // branch), or the runner crashed. Either way, no brief was created.
-  if (implResult.status !== 0) {
-    let message = `the implement command exited ${implResult.status ?? 'unknown'}`;
-    try {
-      const text = fs.readFileSync(implLog, 'utf8');
-      const last = text.split('\n').filter(Boolean).slice(-5).join('\n');
-      if (last) message = last;
-    } catch {
-      /* the log is empty or gone; the exit code stands */
-    }
+  // A SECOND CLICK IS REFUSED, NOT QUEUED. The synchronous route serialised two
+  // POSTs for one slug by blocking everything; an async one would run two
+  // implements at once, both truncating one log and both able to start a
+  // dispatch. The client's in-flight ref does not cover this: it lives in one
+  // tab and one render, and a reload or a second tab walks past it.
+  //
+  // THE LOCK IS THE LIVE CHILD, NOT THE LOG. `implementStatus` reports
+  // `running` whenever a log exists with no recorded outcome, which is right
+  // for a read-back and wrong for a lock — measured here, a log left by an
+  // earlier run with no state file and no process refused every later dispatch
+  // of that slug, permanently. `implementRunning` asks about a handle this
+  // server holds, so it can only be true while a child is alive.
+  if (implementRunning(slug)) {
+    const log = implementLogPath(opts.repoRoot, slug);
     json(409, {
       ok: false,
       slug,
-      reason: 'implement-failed',
-      detail: message,
-      log: implLog,
+      reason: 'implement-running',
+      detail: `an implement for \`${slug}\` is already running — watch it at ${log}, or wait for it to finish before dispatching again`,
+      log,
     });
     return;
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // The implement succeeded — the brief exists. Now spawn the dispatch.
-  // ──────────────────────────────────────────────────────────────────────────
-  // Move any pre-2026-08-30 logs out of the parent directory, once, before the
-  // first log is written to the new one. HERE rather than at startup because a
-  // dispatch is the act that creates the destination anyway — and because a
-  // board that is only ever read should not rearrange an operator's files.
+  const implLog = implementLogPath(opts.repoRoot, slug);
+  // THE LOG PATH IS CHOSEN HERE AND OPENED IN THE LISTENER. The name is part of
+  // the 202's answer, so it must be known now; the descriptor must not be,
+  // because a file held open across a five-minute implement is a descriptor
+  // leaked for every dispatch the implement then refuses.
   //
-  // The return value is deliberately unused: the migration is convenience, the
-  // dispatch is the job, and `migrateAgentLogs` swallows every failure for that
-  // reason. A dispatch must not fail for want of tidying an old log.
-  migrateAgentLogs(opts.repoRoot);
-
+  // DECLARED BEFORE THE SPAWN because the listener closes over it. A `const`
+  // read by a callback that runs before its declaration is a TDZ
+  // `ReferenceError`, not a hoisted `undefined` — and a fast-failing implement
+  // stub exits well inside the same tick.
   const log = dispatchLogPath(opts.repoRoot, slug);
-  let out: number;
-  try {
-    out = fs.openSync(log, 'a');
-  } catch (err) {
-    json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
+
+  // Everything the exit listener needs, resolved HERE while a request is still
+  // on the stack. A failure to open the dispatch log is reportable now and an
+  // uncaught exception later — see `startImplement`'s listener contract.
+  const started = startImplement(opts, slug, implCommand, (code) => {
+    // A non-zero exit means the implement failed — refused by /plot-implement
+    // itself (phase wrong, drift detected in unattended mode, no eligible
+    // branch), or the runner crashed, or the bound killed it. Either way no
+    // brief was created, so no worker starts.
+    //
+    // THE REFUSAL IS ALREADY RECORDED. `startImplement` wrote the exit code to
+    // the state file before calling this, so `GET /api/implement/<slug>` reports
+    // `failed` with the log's last lines — which is how the operator learns it,
+    // the response having been sent minutes ago.
+    if (code !== 0) return;
+
+    // ────────────────────────────────────────────────────────────────────────
+    // The implement succeeded — the brief exists. Now spawn the dispatch.
+    // ────────────────────────────────────────────────────────────────────────
+    // Move any pre-2026-08-30 logs out of the parent directory, once, before the
+    // first log is written to the new one. HERE rather than at startup because a
+    // dispatch is the act that creates the destination anyway — and because a
+    // board that is only ever read should not rearrange an operator's files.
+    //
+    // The return value is deliberately unused: the migration is convenience, the
+    // dispatch is the job, and `migrateAgentLogs` swallows every failure for that
+    // reason. A dispatch must not fail for want of tidying an old log.
+    migrateAgentLogs(opts.repoRoot);
+
+    // A THROW HERE IS CAUGHT BY `startImplement` and recorded against the slug.
+    // This runs in a listener with no request on the stack, so an uncaught
+    // `fs.openSync` failure would take the server down, and a dispatch that
+    // fails silently after its 202 is the outcome the plan calls worse than one
+    // that blocks.
+    const out = fs.openSync(log, 'a');
+    try {
+      // THE RECEIPT, IMMEDIATELY BEFORE THE SPAWN. `plot-controller-gate.sh`
+      // refuses `plot-dispatch.sh` invoked with no receipt, and this route is the
+      // legitimate caller it must not refuse — a gate that broke the legitimate
+      // path is worse than no gate. It moved into this listener WITH the spawn it
+      // announces: the two are one act, and a receipt written at request time
+      // would announce a dispatch the implement may yet refuse.
+      recordActionReceipt(opts.repoRoot, 'dispatch', slug);
+      scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', MAX_PER_CLICK, slug], {
+        log: out,
+        onError: (err) => console.error('dispatch failed to spawn:', err),
+      });
+    } finally {
+      fs.closeSync(out);
+    }
+  });
+  if ('failure' in started) {
+    json(500, { error: started.failure.detail });
     return;
   }
 
@@ -431,17 +467,6 @@ export async function handleDispatch(
   // exists once the run has finished. That is not a gap to paper over — it is
   // the same shape as start_worker's own detached spawn, and it is why the row
   // moving is the answer rather than the reply being one.
-  // THE RECEIPT, IMMEDIATELY BEFORE THE SPAWN. `plot-controller-gate.sh`
-  // refuses `plot-dispatch.sh` invoked with no receipt, and this route is the
-  // legitimate caller it must not refuse — a gate that broke the legitimate
-  // path is worse than no gate. Written here rather than inside `start` so it
-  // sits beside the decision to act, which is what the gate is asking about.
-  recordActionReceipt(opts.repoRoot, 'dispatch', slug);
-  scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', MAX_PER_CLICK, slug], {
-    log: out,
-    onError: (err) => console.error('dispatch failed to spawn:', err),
-  });
-  fs.closeSync(out);
-
+  //
   json(202, { slug, log, implementLog: implLog });
 }

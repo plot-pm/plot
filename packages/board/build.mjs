@@ -779,6 +779,45 @@ await esbuild.build({
 fs.copyFileSync(sliceSpendArtifact, shippedSliceSpend);
 fs.chmodSync(shippedSliceSpend, 0o755);
 
+// What the PR store already knows, for plot-impl-status.sh.
+//
+// ONCE PER PLAN, inside /plot-deliver — an operator command, which is the tier
+// `docs/shell-and-domain.md` says calls the domain: a bundle answers in 39 ms
+// and the alternative is `jq` re-implementing `decodePrIndex`, free to drift
+// from it the first time PR_INDEX_VERSION moves.
+//
+// IT READS THE DISK, like plot-slice-spend.mjs and unlike the stdin bundles
+// above. The store is 319 KB and 969 rows on this machine, so handing it to the
+// shell would put the parse back in bash. The reading is `prIndexFile()`'s,
+// which is also what buys `--git-common-dir` and `PLOT_PR_INDEX_HOME` without
+// re-implementing either — `--show-toplevel` resolves a DESK, and plot-reap.sh
+// removes those.
+//
+// It reads one local file and calls no host: the shell keeps every host call,
+// so plot-host.sh stays the one place that talks to the host CLI.
+//
+// ITS SIZE IS THE SCHEMA, NOT THE ADAPTER — plot-slice-spend.mjs's case exactly.
+// `decodePrIndex` is a value import that runs `entities/pr-index`'s `z.object`
+// at the top level, so zod's locale table comes with it. Hand-rolling the
+// store's validation is the second implementation the bundle exists to avoid.
+const prIndexLookupArtifact = path.join(here, 'dist/plot-pr-index-lookup.mjs');
+const shippedPrIndexLookup = path.join(here, '../../skills/plot/scripts/board/plot-pr-index-lookup.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/pr-index-lookup.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: prIndexLookupArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(prIndexLookupArtifact, shippedPrIndexLookup);
+fs.chmodSync(shippedPrIndexLookup, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -945,6 +984,7 @@ const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
 const sliceSpendKb = (fs.statSync(shippedSliceSpend).size / 1024).toFixed(1);
 const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
 const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
+const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -969,4 +1009,5 @@ console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/b
 console.log(`Built plot-slice-spend.mjs (${sliceSpendKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
