@@ -12,6 +12,7 @@
 - **Issue:** #1015
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 2
+- **Started:** 2026-09-27, Jan Wloka, `bug/one-answer-to-is-a-worker-running`
 
 ## Changelog
 
