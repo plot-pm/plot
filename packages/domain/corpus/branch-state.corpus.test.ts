@@ -23,12 +23,48 @@ import {
  * THE CORPUS TIER FOR BRANCH STATE: does the domain rule reproduce what the
  * shell answers for every branch on the estate?
  *
- * **Round 3 of the plan's interrogation set this bar and it is the gate.**
- * `branch_state()` is 183 lines with ten call sites in a 4,194-line script, the
- * board groups every section by its output, and every dispatch and reap
- * consults it. So the move is VERIFIED rather than reviewed: a disagreement
- * here is either a bug in the new rule or a defect in the old one, and this is
- * what makes that visible instead of arguable.
+ * **Round 3 of the plan's interrogation set this bar.** `branch_state()` is 183
+ * lines with ten call sites in a 4,194-line script, the board groups every
+ * section by its output, and every dispatch and reap consults it. So the move
+ * was to be VERIFIED rather than reviewed: a disagreement here is either a bug
+ * in the new rule or a defect in the old one.
+ *
+ * ## HALF OF THAT BAR IS MET, AND THE READER NEEDS TO KNOW WHICH
+ *
+ * **The readings are verified. The decision is not.** The shell's only
+ * branch-state answer comes from `node board/plot-branch-state.mjs`
+ * (`plot-fleet-scan.sh:3620`), a bundle built from the same `branchState` this
+ * file calls. Both sides of the comparison descend from one implementation, so
+ * a broken rule agrees with itself.
+ *
+ * MEASURED 2026-09-26. `rules/branch-state.ts:187` — the `pr === 'MERGED'` arm,
+ * which 20 of 26 branches reach — was changed from `'merged'` to `'wip'`:
+ *
+ *   | the same broken rule | corpus |
+ *   |---|---|
+ *   | bundle stale | FAILS, naming twenty branches |
+ *   | bundle rebuilt | PASSES |
+ *
+ * Only the rebuild moved the verdict.
+ *
+ * SO WHAT THIS HOLDS OVER THE DECISION IS THE WIRE, in the words
+ * `sprint-score.corpus.test.ts:23` already uses for this shape. What it holds
+ * BEYOND the wire is the gathering: the readings are taken here, from the
+ * sources the scan reads, so a scan that reads a wrong ref, misses a merge
+ * subject or fails to join a `pr-list` row still disagrees. That half is
+ * genuinely independent and it is why the comparison earns its place. The two
+ * can still part — at the seam rather than in the rule.
+ *
+ * ## THE CI ASYMMETRY, WHICH INVERTS THE INTUITION
+ *
+ * **The careless edit is caught and the careful one is not.** The `corpus` job
+ * does not build the board (`ci.yml:60`), so CI runs this against the COMMITTED
+ * bundle: a contributor who edits the rule and forgets to rebuild fails here.
+ * A contributor who rebuilds — which the Definition of Done requires, and which
+ * `ci.yml:873` separately gates — goes green on a rule this file never checked.
+ *
+ * **So do not read a green run as the rule being right.** `branch-state.ts`'s
+ * correctness is the unit tests' answer, from readings they supply.
  *
  * ## What is compared against what
  *
@@ -403,6 +439,27 @@ describe('the rule reproduces the shell for every branch on the estate', () => {
     // is claimed at the moment the scan runs. THE UNIT TESTS ARE WHAT COVER
     // THOSE, from readings they supply, and this report is what stops a green
     // corpus being read as more than it is.
+    //
+    // ARM COVERAGE, MEASURED 2026-09-26 — AND THE ESTATE HAS MOVED SINCE THE
+    // TABLE ABOVE. Branches reaching each arm of `rules/branch-state.ts`:
+    //
+    //   |  4 | `:183` | `mergeSubjectFound`         |
+    //   | 20 | `:187` | `pr === 'MERGED'`           |
+    //   |  2 | has-ref arm                          |
+    //   |  0 | `:264` | `refTip === mainTip` → open |
+    //
+    // WHICH CLAIM THIS SUPERSEDES: the 09-06 row reading the merge-subject
+    // lookup `PASSES — never reached`, and the sentence above it that every
+    // merged branch here still carries a ref. FOUR BRANCHES NOW REACH IT.
+    // `plot-release-refs.sh` has since deleted merged refs, so a merged branch
+    // now arrives with none and the no-ref lookup is live. The rest of the
+    // 09-06 table stands as the measurement its date gives it.
+    //
+    // `:264` IS REACHED BY NOTHING, and that is the number to carry away.
+    // `a-branch-behind-main-holds-nothing` changes exactly that line, so a
+    // green corpus says nothing whatever about its change — not merely because
+    // the decision is a tautology here, but because this estate never executes
+    // the arm.
     //
     // The distribution is printed rather than asserted for the reason
     // `eligible.corpus.test.ts` states twice over: whether a case was exercised
