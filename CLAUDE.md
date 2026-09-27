@@ -90,6 +90,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Story command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
 - **Brief command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
 - **Implement command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
+- **Interrogate command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
 
 <!-- `Implement command` runs `/plot-implement <slug>` for the board's
      `Implement` control and for `WriteBriefButton`, which is the same route
@@ -119,6 +120,25 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      Several DECLARED homes refuse and name the question rather than guessing: a
      missing story is recoverable, a story in the wrong home is referenced from
      elsewhere before anyone notices. -->
+
+<!-- `Interrogate command` runs `/plot-panel <plan path>` for the board's
+     `Interrogate` button on a Draft card, and it is REQUIRED rather than
+     optional: `Approve` falls back to `plot-approve.sh`, which performs the
+     seven mechanical steps, while a panel is N agents reading one plan through
+     N personas and there is no script to fall back to
+     (`interrogate.ts:24`). The route itself decides nothing — it writes the
+     prompt, the log and a state file outside the repository, and the SKILL
+     writes the verdict files, `panel.md` and the plan's `Rounds:` increment.
+
+     SET HERE, for the reason `Story command` states three notes above: an
+     unset key looks identical to a broken feature. Measured 2026-09-27 — an
+     operator saw no Interrogate button on four Draft cards and asked whether
+     the jury action was broken. It was not: `interrogate-route.test.ts` passes
+     9 of 9, including *"runs the command; Rounds: rises by one; the board wrote
+     nothing to the plan"*, and the route was refusing honestly with a reason
+     naming this key. The capability shipped; its first configuration did not,
+     which is the same shape `Story command` records and the reason that note
+     says shipping one without the other leaves the happy path unexercised. -->
 
 <!-- Optional: **Approve command:** how to run an agent headless for ONE prompt;
      the board appends `/plot-approve <slug>` and gets the full skill — the
