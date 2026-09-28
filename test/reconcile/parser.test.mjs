@@ -1476,14 +1476,21 @@ test('plan-meta: the anchor drops no real claim across the whole estate (differe
         else section = '';
         return;
       }
-      // THE SHAPE DECIDES, exactly as `plot-plan-meta.sh` does since 2026-09-04.
-      // A `(Branch:` in the first `### ` heading means the branch rides the
-      // heading and every body line is PROSE — a citation there was never a
-      // claim, which is why this sweep only ever examined the list dialect.
-      // Selecting by heading word instead flagged four prose citations as
-      // dropped claims, all of them in heading-shape sections.
-      if (section === 'branches' && shape === '' && /^###[ \t]/.test(line)) {
-        shape = line.includes('(Branch:') ? 'heading' : 'list';
+      // THE SHAPE DECIDES, exactly as `plot-plan-meta.sh` does. A `(Branch:` in
+      // a `### ` heading means the branch rides the heading and every body line
+      // is PROSE — a citation there was never a claim, which is why this sweep
+      // only ever examined the list dialect. Selecting by heading word instead
+      // flagged four prose citations as dropped claims, all of them in
+      // heading-shape sections.
+      //
+      // ANY heading decides, not the first one. The parser dropped its latch to
+      // `list` on 2026-09-28: a section whose first heading is narrative and
+      // whose later heading names a branch is heading-shaped, and 2 plans lost
+      // 5 slices to the latch. This mirror follows, or it would examine as
+      // claims the body lines of a section the parser reads as prose.
+      if (section === 'branches' && shape === '' && /^###[ \t]/.test(line)
+          && line.includes('(Branch:')) {
+        shape = 'heading';
       }
       if (section === 'branches' && shape === 'heading') return;
       if (section !== 'branches') return;
@@ -2429,4 +2436,120 @@ test('plan-meta: every plan that writes an assignee parses one (differential)', 
   const invented = [...parsed].filter((n) => !written.has(n));
   assert.deepEqual(dropped, [], 'plans writing an assignee the parser drops');
   assert.deepEqual(invented, [], 'plans the parser gives an assignee they do not write');
+});
+
+test('plan-meta: a branched heading is read wherever it sits, in BOTH orders', () => {
+  // THE MINIMAL PAIR, and one order alone proves nothing. `slice_shape` latched
+  // on the section's FIRST `### ` heading until 2026-09-28: a narrative opener
+  // routed the whole section to the list consumer, which never reads headings
+  // for branches, so every branched heading below it was lost. The two sources
+  // here differ only in the order of two headings and must agree.
+  const narrativeFirst = parseSource(`# A plan whose section opens with prose
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Slices
+
+### A narrative heading with no branch
+
+Prose that belongs to no slice.
+
+### Real work (Branch: bug/real-work)
+
+The slice that declares the branch.
+`);
+  const branchedFirst = parseSource(`# A plan whose section opens with the branch
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Slices
+
+### Real work (Branch: bug/real-work)
+
+The slice that declares the branch.
+
+### A narrative heading with no branch
+
+Prose that belongs to no slice.
+`);
+  assert.deepEqual(narrativeFirst.branches, ['bug/real-work'],
+    'a branched heading below a narrative one is still read');
+  assert.deepEqual(branchedFirst.branches, ['bug/real-work'],
+    'and the same section reordered gives the same answer');
+  assert.deepEqual(narrativeFirst.branches, branchedFirst.branches,
+    'the order of two headings cannot change which branches a section declares');
+  // The narrative heading is a wave in both, carrying no branch of its own.
+  for (const meta of [narrativeFirst, branchedFirst]) {
+    assert.equal(meta.waves.length, 2, 'both headings open a wave');
+    const narrative = meta.waves.find((w) => w.name === 'A narrative heading with no branch');
+    assert.deepEqual(narrative.branches, [], 'the narrative wave declares nothing');
+  }
+});
+
+test('plan-meta: a section with no branched heading anywhere keeps the old shape', () => {
+  // THE 54, and they are why the fix is a narrowing of the latch rather than a
+  // new shape rule. Of the 56 plans whose Slices section opens with a narrative
+  // heading, 54 carry no branched heading at all and must still route to the
+  // list consumer: their headings are bare names and their branches ride list
+  // items below. `slice_shape` stays `""` here, which IS the list path.
+  const meta = parseSource(`# A plan in the list dialect
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Slices
+
+### A narrative heading with no branch
+
+- \`feature/rides-a-list-item\` — the old shape puts the branch here → #7
+
+### Another narrative heading
+
+- \`docs/also-a-list-item\` — and here
+`);
+  assert.deepEqual(meta.branches, ['docs/also-a-list-item', 'feature/rides-a-list-item'],
+    'branches on list items are still read when no heading names one');
+  assert.deepEqual(meta.prs, [7], 'and their annotations still bind');
+  assert.equal(meta.waves.length, 2, 'both headings still open waves');
+});
+
+test('plan-meta: the five slices the latch lost are read, by plan and branch (differential)', () => {
+  // NAMED, because a test asserting only "more branches" passes on an over-wide
+  // fix. Measured 2026-09-28 over the whole estate: dropping the `"list"` arm
+  // changed exactly 2 records and recovered exactly these 5 declared slices,
+  // every one a correct unbackticked heading the parser had classified away.
+  const EXPECTED = {
+    '2026-08-30-the-pulse-is-an-entity.md': [
+      'docs/the-pulse-has-a-design',
+      'feature/a-subscriber-names-its-divisor',
+      'feature/an-agent-waits-instead-of-asking',
+      'feature/the-scan-reads-a-fleet-reading',
+    ],
+    '2026-07-25-opus5-longhorizon-hardening.md': ['infra/recover-opus5-hardening'],
+  };
+  const plansDir = path.join(here, '..', '..', 'docs', 'plans');
+  const names = Object.keys(EXPECTED);
+  // One parser call for both plans: it parses many files in one awk pass.
+  const records = execFileSync('bash', [parser, ...names.map((n) => path.join(plansDir, n))],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    .trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(records.length, names.length, 'one record per plan');
+  for (const r of records) {
+    const name = path.basename(r.file);
+    assert.deepEqual([...r.branches].sort(), [...EXPECTED[name]].sort(),
+      `${name} declares exactly the slices its headings name`);
+    // THE HEADINGS ARE READ, not merely present: §24 of the reconcile scan
+    // reports a `Branch:`-carrying heading whose wave holds no branch, and it
+    // named all five of these before the fix.
+    assert.deepEqual(r.unread_branch_headings, [],
+      `${name} has no heading naming a branch the parser fails to read`);
+  }
 });
