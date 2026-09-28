@@ -73,6 +73,7 @@ const KNOWN_UNCARRIED = [
   'malformed_prs',
   'changelog',
   'long_wave_names',
+  'unread_branch_headings',
   'rounds',
   'waves',
   'slices',
