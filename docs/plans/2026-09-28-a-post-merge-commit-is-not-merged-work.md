@@ -118,7 +118,7 @@ The local-branch sweep at `:919` asks `firstBranchRefusal` in `rules/sweepable.t
 
 ## Slices
 
-### A post-merge commit is not merged work (Branch: bug/a-post-merge-commit-is-not-merged-work)
+### A post-merge commit is not merged work (Branch: bug/a-post-merge-commit-is-not-merged-work, PR: #1052)
 
 Read `git cherry` for the desk's branch, keep on every `+` and on every unreadable reading, and test both round-1 fixtures by name.
 
