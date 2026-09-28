@@ -4,13 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1050
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
@@ -89,3 +89,18 @@ Measure which of the three causes holds, then wire the cold start to the store u
 **The version mismatch measured today may make this cheaper than it looks.** A store at `v: 1` against a code expecting `v: 2` fails every read silently and correctly — the symptom is *the board re-fetches everything*, which is exactly what #1050 reports. If that is the cause, the fix is a migration or a re-fold, not new persistence.
 
 Either way the rule is the same, and it is already written down: persist what was bought, derive what is free.
+
+
+## Rejected, 2026-09-28
+
+One juror, **reject**, **executed**. Moderation: `.plot/panels/2026-09-28-the-persisted-pulse-holds-the-bought-answer/panel.md`.
+
+**The feature is on `main` and shipped six days before the issue was filed.** `seedPrsFromStore` (`packages/board/src/server/fleet.ts:2629`) reads the PR store into the entry's maps when the process holds nothing, called at `:2829` **before** the host call; the call that follows is already a delta through `prWindowFor` (`:2841-2848`). Built by `83c4abdc` and `09cf9018`, both 2026-09-22. Issue #1050 was filed 2026-09-28T20:26Z.
+
+Every supporting measurement was false. The `v: 1` hypothesis this plan called *"may be the whole defect"* is dead — the live store reads `v: 2` against `PR_INDEX_VERSION = 2`, 988 rows, `complete: true`. The quoted pulse keys are the nested `pulse` object's rather than the file's. The `Done when` list describes `packages/board/test/unit/pr-store.test.ts`, 29 passing tests, line for line.
+
+**The plan's Design section is persuasive because it describes `main` accurately.** The write path was read at `fleet.ts:2740` and the read path inferred absent — 90 lines away in the same file.
+
+The three-way deferral to the slice was not diligence: all three causes are answerable by reading one file in under ten minutes, and deferring is what let a dead hypothesis reach a Draft.
+
+**#1050 is rephrased rather than closed.** Its measurement of `last-pulse.json` is correct and its conclusion is not — PR answers are persisted in a different store. The narrow question that survives: the seed is a render optimisation and does not make the host call cheaper, which is still `--state all --limit 1000`.
