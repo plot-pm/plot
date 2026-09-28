@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-27, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 1
 - **Started:** 2026-09-27, fleet agent free-d1b5cabb, `bug/a-desk-says-who-owes-it`
+- **Delivered:** 2026-09-28
 
 ## Changelog
 
