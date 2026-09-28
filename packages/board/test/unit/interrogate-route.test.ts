@@ -1,6 +1,6 @@
 // `POST /api/interrogate` and its read-back: the four refusals, the prompt, the
 // running-state read, and a full run against a stub runner that records a round
-// the way `/plot-panel` does.
+// the way `/challenge-the-plan` does.
 //
 // Every refusal is asserted on state the handler writes before it answers. The
 // one test that spawns a real command waits for the state file the exit
@@ -168,12 +168,35 @@ describe('the four refusals', () => {
 });
 
 describe('the prompt', () => {
-  it('asks for /plot-panel on the plan path and chooses no parameters', () => {
+  // The skill the prompt's first line names, read from the plugin the runner loads.
+  const skillNamedBy = (prompt: string): { name: string; body: string } => {
+    const name = /^\/([a-z-]+) /.exec(prompt)?.[1] ?? '';
+    const file = path.resolve(__dirname, '../../../../skills', name, 'SKILL.md');
+    return { name, body: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' };
+  };
+
+  it('names a caller that supplies all four of /plot-panel\'s parameters', () => {
     const prompt = composeInterrogatePrompt('docs/plans/x.md');
-    assert.match(prompt, /^\/plot-panel docs\/plans\/x\.md$/m);
-    assert.doesNotMatch(prompt, /--lens/);
+    const { name, body } = skillNamedBy(prompt);
+    assert.match(prompt, new RegExp(`^/${name} docs/plans/x\\.md$`, 'm'));
+    assert.notEqual(name, 'plot-panel', 'the mechanism refuses unattended with only a subject');
+    assert.ok(body, `no skills/${name}/SKILL.md`);
+
+    // Subject: the skill takes the plan path as its argument.
+    assert.match(body, /\$ARGUMENTS/);
+    // It runs the panel unattended, and hands /plot-panel the four parameters.
+    assert.match(body, /PLOT_UNATTENDED=1`?\*?\*?\s*→ the panel/);
+    assert.match(body, /Hand `\/plot-panel` its four parameters — Subject, Lenses, Commitment, Rubric/);
+    // Lenses, Commitment and Rubric: the skill holds each, not the board.
+    assert.match(body, /#### The lenses/);
+    assert.match(body, /Position: proceed \| amend \| reject/);
+    assert.match(body, /The rubric is \*\*identical across lenses\*\*/);
+  });
+
+  it('holds no lens, commitment or rubric of its own', () => {
+    const prompt = composeInterrogatePrompt('docs/plans/x.md');
+    assert.doesNotMatch(prompt, /--lens|Position:|proceed|amend|rubric/i);
     assert.match(prompt, /approve\s+nothing/);
-    assert.match(prompt, /names the\s+subject only/);
   });
 
   it('names the real plan file, relative to the repo', async () => {
@@ -182,7 +205,7 @@ describe('the prompt', () => {
     const got = await post({ repoRoot: dir });
     assert.equal(got.status, 202);
     const prompt = fs.readFileSync(interrogatePromptPath(dir, SLUG), 'utf8');
-    assert.match(prompt, new RegExp(`/plot-panel docs/plans/${PLAN_NAME.replace(/\./g, '\\.')}`));
+    assert.match(prompt, new RegExp(`^/challenge-the-plan docs/plans/${PLAN_NAME.replace(/\./g, '\\.')}$`, 'm'));
   });
 });
 
@@ -226,7 +249,8 @@ describe('a run records one round, and the board writes none', () => {
     fs.writeFileSync(stub, [
       '#!/bin/sh',
       'set -e',
-      'plan=$(sed -n "1s|^/plot-panel ||p" "$PLOT_INTERROGATE_PROMPT")',
+      'plan=$(sed -n "1s|^/[a-z-]* ||p" "$PLOT_INTERROGATE_PROMPT")',
+      'test -n "$plan" || { echo "no plan path on the prompt\'s first line" >&2; exit 1; }',
       `cp "$plan" "${seen}"`,
       'n=$(sed -n "s/^- \\*\\*Rounds:\\*\\* \\([0-9]*\\)$/\\1/p" "$plan")',
       'sed "s/^- \\*\\*Rounds:\\*\\* [0-9]*$/- **Rounds:** $((n + 1))/" "$plan" > "$plan.tmp"',
