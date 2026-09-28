@@ -107,7 +107,7 @@ Asking for the caller means asking for its whole phase, not only its four parame
 
 ## Slices
 
-### The jury button names its caller (Branch: bug/the-jury-button-names-its-caller)
+### The jury button names its caller (Branch: bug/the-jury-button-names-its-caller, PR: #1043)
 
 Change the prompt, fix all three sites that pin the old shape (two assertions and the stub's parser), update the route docstring, and prove a real click produces a panel.
 
