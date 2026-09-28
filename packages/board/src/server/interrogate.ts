@@ -10,15 +10,17 @@ import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './id
 
 /**
  * Interrogating a Draft plan: `POST /api/interrogate` runs the configured
- * `Interrogate command` with a prompt asking for `/plot-panel <plan path>`.
+ * `Interrogate command` with a prompt asking for `/challenge-the-plan <plan path>`.
  *
  * The shape is `commission.ts`'s: slug-scoped, Draft-only, a detached plot
  * agent answered 202, and a slug-keyed status read-back. The guards are
  * imported from `dispatch.ts` and `idea.ts`, not copied.
  *
- * The route decides nothing. The skill writes the verdict files, `panel.md` and
- * the plan's `Rounds:` increment; this module writes only the prompt, the log
- * and the state file, all outside the repository.
+ * The route decides nothing. The skill writes five artifacts: the verdict
+ * files, `panel.md`, the plan's `Rounds:` increment, the Open Points section in
+ * the plan body, and the `CHALLENGE-THE-PLAN-METADATA` block beside `Rounds:`.
+ * This module writes only the prompt, the log and the state file, all outside
+ * the repository.
  */
 
 /** The `## Plot Config` key naming the runner. REQUIRED: no script can run a panel. */
@@ -104,22 +106,22 @@ const resolvePlanBySlug = (opts: BuildBoardOptions, slug: string): string | null
 };
 
 /**
- * The prompt handed to the runner. It names the plan and nothing else: no
- * lenses, no commitment, no rubric. `/plot-panel` states that those are the
- * caller's parameters and that an unattended run refuses when one is missing
- * (its step 1), so this prompt defers to the skill rather than choosing them.
+ * The prompt handed to the runner. It names `/challenge-the-plan` and the plan,
+ * and nothing else: no lenses, no commitment, no rubric. `/challenge-the-plan`
+ * is the Draft-plan caller of `/plot-panel` and supplies all four of its
+ * parameters; under `PLOT_UNATTENDED=1` it runs the panel rather than the
+ * interview. Naming `/plot-panel` directly supplies only the subject, and an
+ * unattended panel refuses when a parameter is missing.
  *
  * @param planPath the plan file, relative to the repository root
  */
 export const composeInterrogatePrompt = (planPath: string): string =>
   [
-    `/plot-panel ${planPath}`,
+    `/challenge-the-plan ${planPath}`,
     '',
-    `Run /plot-panel on the Draft plan at ${planPath}, unattended, and follow the skill`,
-    'to its end, including recording the round in the plan. This request names the',
-    'subject only: where the skill requires a parameter this request does not name,',
-    'do what the skill says an unattended run does. Act on no verdict: approve',
-    'nothing, reject nothing, and change no phase.',
+    `Run /challenge-the-plan on the Draft plan at ${planPath}, unattended, and follow`,
+    'the skill to its end, including recording the round in the plan. Act on no',
+    'verdict: approve nothing, reject nothing, and change no phase.',
     '',
   ].join('\n');
 
