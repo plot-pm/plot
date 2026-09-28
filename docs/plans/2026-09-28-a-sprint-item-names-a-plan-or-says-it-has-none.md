@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Issue:** #1045
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
@@ -92,3 +92,38 @@ Argue the three shapes, choose one, make the readers agree, and add the issue-li
 **This cost six hours of red main and was found by the corpus tier rather than by a person.** The sprint was written, verified to *parse*, and pushed without running CI — the parse check passes because each reader is individually happy.
 
 That is the tier's whole argument: *"what makes it safe is not that one side is authoritative — it is that a test says they agree."*
+
+
+### Round 1, 2026-09-28
+
+Two jurors, both **amend**, both **executed**. Moderation: `.plot/panels/2026-09-28-a-sprint-item-names-a-plan-or-says-it-has-none/panel.md`.
+
+**The plan is scoped to a population that no longer exists.** Measured across all 16 sprint files, 248 item lines:
+
+| disagreement | count |
+|---|---|
+| issue-linked | **0** — `f6c7c9ef` emptied it |
+| struck-through | **5** |
+
+**The live disagreement is a RELEASE GATE divergence, not only a slug one.** Verified:
+
+```
+shell (reads the strike → plan is Superseded → 'withdrawn') = withdrawn
+TS    (slug "" → 'no-plan-named')                           = open
+```
+
+`workflows/release.ts:178-180` filters `i.status !== 'done' && i.status !== 'withdrawn'`. **`withdrawn` is excluded; `open` is not.** So the two readers give opposite answers about whether a release is refused. Today the one live case is a Should and only warns — **strike a Must and they disagree about a refusal.**
+
+**The recommendation is self-defeating.** Under shape 2 an issue-only Must that is ticked scores `disputed`, which `release.ts:179` counts as unfinished and whose refusal spells it out. The sprint becomes uncloseable — the plan's own feared outcome, produced by its own recommendation.
+
+**Three corrections of fact:**
+
+- **`.plot/templates/sprint.md` does not exist.** `ls .plot/templates/` returns `plan.md` alone, so shape 3 has no template to teach the shape.
+- **`plot-sprint-state.sh` parses no item reference.** `setSprintState` touches `sprint.items` once (`transitions/sprint.ts:260`) and reads the **tier**. A refusal would be the first code in the write path to read a reference at all.
+- **`skills/plot-sprint/SKILL.md:240` documents two forms** — `- [ ] [slug] description` and `- [ ] description` — and neither `[#N](url)` nor `~~[slug]~~`. **The estate's live convention is as undocumented as the dead one.**
+
+**W40 would not pass shape 3** as written: line 41's `~~[slug](…)~~` leads with a struck link, and a rule saying *the first link must be a plan* either refuses it or must carve out the strike explicitly.
+
+**The corpus pin was already failing when this was judged.** `corpus/sprint-item.corpus.test.ts:268` asserted `struckThrough === 4` against a live 5 — broken by this session's own withdrawal, fixed in `907eda9c` by moving the count and naming the fifth line. The pin caught a population change on the day it happened, which is what it was written to do.
+
+**Unsettled:** whether a Closed sprint's items ever reach `release()`. Four historical strikes score `withdrawn` on one side and `open` on the other; if closed sprints are read, four releases passed a gate the two readers disagree about.
