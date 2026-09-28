@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-09-28, jwloka, in-session after panel (round 1)
+- **Started:** 2026-09-28, jwloka, `bug/a-post-merge-commit-is-not-merged-work`
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
