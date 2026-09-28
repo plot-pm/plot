@@ -438,6 +438,12 @@ function mergedDesk(repo, tmp, branch, number) {
   squashedBranch(repo, branch);
   const wt = path.join(path.dirname(repo), 'plot-wt-' + branch.replace(/\//g, '-'));
   git(repo, 'worktree', 'add', '-q', wt, branch);
+  // The host says merged, so the patch is on main: a squash commit, which the
+  // reaper's `git cherry` reading recognises by patch-id.
+  git(repo, 'merge', '-q', '--squash', branch);
+  git(repo, 'commit', '-qm', `${branch} (#${number})`);
+  git(repo, 'push', '-q', 'origin', 'main');
+  git(repo, 'fetch', '-q', 'origin');
   const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-27T10:00:00Z', number }] });
   return { wt, bin };
 }
