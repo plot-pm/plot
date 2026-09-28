@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-27, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 2
 - **Started:** 2026-09-27, Jan Wloka, `bug/one-answer-to-is-a-worker-running`
+- **Delivered:** 2026-09-28
 
 ## Changelog
 
