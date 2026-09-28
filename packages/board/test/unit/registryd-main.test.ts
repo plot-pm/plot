@@ -9,6 +9,7 @@ import {
   reportTick,
   run,
   startAgents,
+  writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
@@ -848,5 +849,135 @@ describe('run — a failed tick must not end the daemon', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * THE REPORT THE DAEMON WRITES — the one channel to the board.
+ *
+ * Before this the tick computed a `SupervisionCause` per desk and printed it to
+ * stdout, and `/api/fleet` carried no cause at all: measured 2026-09-27, 31,240
+ * bytes over 22 rows. These assert the PRODUCER half — that the file says what
+ * the tick decided, that a `leave` row survives into it though the log drops it,
+ * and that a write nobody can perform costs a field rather than a tick.
+ */
+describe('the supervision report', () => {
+  const judged = (
+    rows: readonly { branch: string; verdict: string; cause: string }[],
+    startedAt = 1_700_000_000_000,
+  ): TickReport => ({
+    startedAt,
+    costMs: 250,
+    agents: rows.length,
+    incomplete: '',
+    handOver: null,
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [],
+      detail: {
+        agents: rows.map((r) => ({
+          branch: r.branch,
+          worktree: `/estate/${r.branch}`,
+          boundedOut: false,
+          supervision: {
+            verdict: r.verdict, cause: r.cause, branch: r.branch,
+            worktree: `/estate/${r.branch}`, session: 's1', failures: [],
+            correction: '', resume: 'available', nextAttempts: 1,
+          },
+        })),
+        left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [],
+        unclaimed: [],
+      },
+    },
+  } as never);
+
+  /** A store that records what it was handed and reaches nothing. */
+  const recorder = () => {
+    const written: unknown[] = [];
+    return {
+      written,
+      store: {
+        location: async () => ({ ok: true, value: '/fake/supervision.json' }),
+        read: async () => ({ ok: true, value: null }),
+        write: async (report: unknown) => {
+          written.push(report);
+          return { ok: true, value: undefined };
+        },
+      } as never,
+    };
+  };
+
+  it('writes the verdict and cause the tick decided, with the tick’s clock', async () => {
+    const { written, store } = recorder();
+    const warnings: string[] = [];
+    await writeSupervisionReport(
+      judged([{ branch: 'bug/a', verdict: 'defer', cause: 'no-headroom' }]),
+      store,
+      (s) => warnings.push(s),
+    );
+    expect(warnings).toEqual([]);
+    expect(written).toEqual([{
+      v: 1,
+      at: 1_700_000_000_000,
+      rows: [{ branch: 'bug/a', worktree: '/estate/bug/a', verdict: 'defer', cause: 'no-headroom' }],
+    }]);
+  });
+
+  /**
+   * `reportTick` DROPS `leave` AND THIS MUST NOT. A log of a quiet estate should
+   * be quiet; a reader asking what a desk owes needs the opposite, because an
+   * absent row has to mean only *the tick did not judge this desk*. Filtering the
+   * live ones out here would give that absence a second meaning.
+   */
+  it('keeps a live worker’s row, which the log filters out', async () => {
+    const { written, store } = recorder();
+    await writeSupervisionReport(
+      judged([
+        { branch: 'bug/live', verdict: 'leave', cause: 'worker-alive' },
+        { branch: 'bug/deferred', verdict: 'defer', cause: 'no-headroom' },
+      ]),
+      store,
+      () => {},
+    );
+    const rows = (written[0] as { rows: { branch: string }[] }).rows;
+    expect(rows.map((r) => r.branch)).toEqual(['bug/live', 'bug/deferred']);
+  });
+
+  /**
+   * AN INCOMPLETE TICK JUDGED NOTHING, AND THE ROWS SAY SO. Such a tick carries
+   * an empty decision by contract, so the report is empty with a CURRENT clock —
+   * *the supervisor ran and placed no desk*. Leaving the previous tick's file in
+   * place would let a report the estate has moved past keep answering.
+   */
+  it('writes an empty report for a tick that could not complete', async () => {
+    const { written, store } = recorder();
+    const report = judged([]);
+    await writeSupervisionReport({ ...report, incomplete: 'git would not fork' }, store, () => {});
+    expect(written[0]).toEqual({ v: 1, at: 1_700_000_000_000, rows: [] });
+  });
+
+  it('names a failed write on the warning stream and does not throw', async () => {
+    const warnings: string[] = [];
+    await writeSupervisionReport(
+      judged([{ branch: 'bug/a', verdict: 'defer', cause: 'no-headroom' }]),
+      { location: async () => ({ ok: false }), read: async () => ({ ok: false }),
+        write: async () => ({ ok: false }) } as never,
+      (s) => warnings.push(s),
+    );
+    // A FAILED WRITE COSTS A FIELD, NEVER A TICK. The daemon's job is to
+    // supervise; a read-only filesystem must not end its loop.
+    expect(warnings.join('')).toContain('could not write the supervision report');
+  });
+
+  it('survives a store that throws', async () => {
+    const warnings: string[] = [];
+    await expect(writeSupervisionReport(
+      judged([{ branch: 'bug/a', verdict: 'defer', cause: 'no-headroom' }]),
+      { location: async () => ({ ok: false }), read: async () => ({ ok: false }),
+        write: async () => { throw new Error('EROFS'); } } as never,
+      (s) => warnings.push(s),
+    )).resolves.toBeUndefined();
+    expect(warnings.join('')).toContain('EROFS');
   });
 });

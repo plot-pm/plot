@@ -3080,6 +3080,55 @@ export const AgentRowSchema = z.object({
    * exactly as it did before.
    */
   quietKind: z.enum(['merged', 'closed-pr', 'orphaned-claim', 'abandoned', 'quiet']).nullable().default(null),
+  /**
+   * Why the supervisor's last tick gave this desk no live worker, or null where
+   * it judged no such desk.
+   *
+   * THREE CAUSES, ONE APPEARANCE — the defect. A desk deferred on `no-headroom`,
+   * one the fleet is restarting after `no-progress`, and one that has spent its
+   * correction budget all look identical on the board: a desk, a claim, no live
+   * pid. Measured 2026-09-27, `/api/fleet` was 31,240 bytes over 22 rows and
+   * carried no cause at all, while the supervisor computed one for every desk
+   * each tick and discarded it after printing. On that day an operator
+   * intervened on two such desks; the fleet had already restarted one and
+   * correctly deferred the other.
+   *
+   * FORWARDED, NEVER RE-DERIVED — `quietKind`'s rule, and here it is a cost as
+   * well as a principle. The cause comes from `plot-registryd`'s per-tick report,
+   * and the board must not call `supervise()` on its own refresh: that would
+   * double the per-agent host call the tick already makes, 180 an hour at three
+   * agents, to answer a question already answered.
+   *
+   * NULL IS *THE TICK DID NOT JUDGE THIS DESK*, AND IT IS NOT A CAUSE. A missing
+   * report, an unparseable one, a desk the report does not name, a desk on
+   * another machine, and a report too old to count all read null. None of them
+   * means `worker-alive` and none means *fine* — defaulting to either would
+   * report a healthy desk nothing measured.
+   *
+   * IT MOVES NO ROW. Placement reads `AgentState` through `isBrokenState`, and
+   * this field is deliberately not an input to it: the plan gates any placement
+   * change on a payload reading showing a row misplaced, and the measured
+   * distribution found none. See `owesAPerson` for which causes ask for a person
+   * — a question a reader answers, not a section.
+   *
+   * Defaults to null so a client talking to an older server still validates, and
+   * because null is the honest reading of a payload that predates the field: the
+   * question was never put.
+   */
+  supervisionCause: z
+    .enum([
+      'worker-alive',
+      'gates-passed',
+      'gates-failed',
+      'declaration-absent',
+      'declaration-unreadable',
+      'agent-blocked',
+      'budget-spent',
+      'no-progress',
+      'no-headroom',
+    ])
+    .nullable()
+    .default(null),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
