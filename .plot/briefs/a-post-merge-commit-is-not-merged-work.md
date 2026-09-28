@@ -53,3 +53,19 @@ The plan's `## Done when` list is the specification. Assertions a naive implemen
 - Every unreadable reading keeps the desk.
 - **No new host call**, asserted by a test that counts `gh` invocations.
 - The test suite touches `sweepable.ts` nowhere.
+
+Plus the repo's gates: `pnpm test`, `pnpm run test:contracts`, and the reaper's own files under `test/reconcile/` (`reap-*.test.mjs`, `reaper.test.mjs`). No board source changes, so `pnpm run test:board` is not owed. A changeset with `'plot': patch` and a `plan:` line, description first.
+
+### Bookkeeping
+
+- Push the first real commit as soon as it exists.
+- Open the PR with `skills/plot/scripts/plot-open-pr.sh` (use `--draft` while the work still moves). Do not run `gh pr create`.
+- When the PR exists, append `→ #<number>` to the slice heading in the plan's `## Slices` section on `main`.
+
+### Scope guard
+
+This branch owns `desk_unpushed` in `skills/plot/scripts/plot-reap.sh` (one reading site, `:653`), the reaper tests under `test/reconcile/`, and its changeset. The existing assertion *"a merged desk whose merged head this desk does not hold is reaped"* is in `test/reconcile/reap-agent-liveness.test.mjs`. It changes meaning here, so rewrite it deliberately and do not delete it.
+
+At claim time (2026-09-28), no other remote branch touches `plot-reap.sh`, `rules/reapable.ts`, `plot-pr-merged.sh` or a reap test.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope.
