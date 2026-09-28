@@ -193,7 +193,7 @@ wave is a shape to fix, not a branch that cannot move.
 label. Non-blocking for the same reason: the fix is to rename the heading in
 the plan, and a cosmetic name must not gate a delivery.
 
-`unread_headings` is the count from section 24 — a slice heading that carries `Branch:` and whose wave holds no branch, so no consumer ever sees that slice. Each finding names its repair: `#1042` where the value is a readable branch lost because the section's first `###` heading carries no `(Branch:`, and a rewrite to `Branch: <prefix>/<name>` otherwise. An empty wave whose heading carries no `Branch:` is narrative and is not counted. Non-blocking: the plan is not broken, its slice is invisible, and the repair is one edit.
+`unread_headings` is the count from section 24 — a slice heading that carries `Branch:` and whose wave holds no branch, so no consumer ever sees that slice. Each finding names its repair: `#1042` where the value is a readable branch, and a rewrite to `Branch: <prefix>/<name>` otherwise. **The first arm reports nothing on this estate since 2026-09-28**: it named the 5 slices the first-heading latch lost, and #1042 removed the latch, so a readable value now reads. It stays because the shape can recur — a heading whose branch is readable and unread is still the finding, and the arm names the fix rather than asserting a count. An empty wave whose heading carries no `Branch:` is narrative and is not counted. Non-blocking: the plan is not broken, its slice is invisible, and the repair is one edit.
 
 `index_drift` is the convenience count from section 9. It is reported so the
 gap is visible, and it must never be read as a blocker: `attention=0` with

@@ -1,8 +1,9 @@
 // Section 24 of plot-reconcile-scan.sh: a slice heading that names a branch the
 // parser did not read. The fixture repository carries REAL plans copied from
 // docs/plans/, because the properties under test are about the estate: the five
-// slices lost to the first-heading latch (#1042) are reported by name, and a
-// plan whose empty waves are narrative stays silent. Offline, no git host.
+// slices once lost to the first-heading latch are now READ and no longer
+// reported (#1042, 2026-09-28), a value no prefix matches still is, and a plan
+// whose empty waves are narrative stays silent. Offline, no git host.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -88,7 +89,17 @@ Work.
 });
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-test('scan: section 24 reports the five slices lost to the first-heading latch, by name', () => {
+test('scan: section 24 no longer reports the five slices, because the parser reads them', () => {
+  // THE FIVE WERE THIS SECTION'S FOUNDING POPULATION, and #1042 removed it.
+  // The section reported them because the first-heading latch classified a
+  // narrative-opening section as list-shaped and the parser never read its
+  // branched headings. The latch went on 2026-09-28, so these five headings are
+  // read and there is nothing to report about them.
+  //
+  // The assertions are inverted rather than deleted: the two real plans are the
+  // right fixture either way, and a reader arriving from #1042 finds the case it
+  // names. What the section DOES report is asserted by the test below, against
+  // the value no prefix matches.
   const s = sections['24'];
   for (const h of [
     'Naming (Branch: docs/the-pulse-has-a-design)',
@@ -96,12 +107,12 @@ test('scan: section 24 reports the five slices lost to the first-heading latch, 
     'Ticking (Branch: feature/a-subscriber-names-its-divisor)',
     'Waiting (Branch: feature/an-agent-waits-instead-of-asking)',
   ]) {
-    assert.ok(s.includes(`${PULSE} — heading '${h}' names a branch the parser did not read`), `missing: ${h}\n${s}`);
+    assert.ok(!s.includes(`${PULSE} — heading '${h}'`), `still reported: ${h}\n${s}`);
   }
-  assert.ok(s.includes(`${OPUS5} — heading 'Recovered (Branch: infra/recover-opus5-hardening, PR: #423)'`), s);
-  // Each latched finding names #1042 as its repair, not a rewrite of the value.
+  assert.ok(!s.includes(`${OPUS5} — heading 'Recovered (Branch: infra/recover-opus5-hardening, PR: #423)'`), s);
+  // And no finding names #1042 as its repair, since that repair has landed.
   const repairs = s.split('\n').filter((l) => l.includes('repair: #1042')).length;
-  assert.equal(repairs, 5, s);
+  assert.equal(repairs, 0, s);
 });
 
 test('scan: section 24 names the rewrite for a value no prefix matches', () => {
@@ -117,7 +128,10 @@ test('scan: section 24 is silent for a plan whose empty waves are narrative', ()
 test('scan: section 24 sits below the blocking marker and gates nothing', () => {
   assert.ok(report.indexOf('== blocking sections end ==') < report.indexOf('== 24. '), 'below the marker');
   const footer = report.trim().split('\n').at(-1);
-  assert.match(footer, /\bunread_headings=6\b/);
+  // ONE, not six: #1042 removed the five latched findings and left the one
+  // heading whose value no configured prefix matches, which is a real finding
+  // and the only shape this section still has to report.
+  assert.match(footer, /\bunread_headings=1\b/);
   // No unread heading reaches the blocking attention section.
   assert.doesNotMatch(sections['5'], /Branch:/);
 });
