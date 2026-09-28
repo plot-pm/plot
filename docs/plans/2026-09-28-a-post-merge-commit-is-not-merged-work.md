@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Issue:** #1038
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
@@ -45,54 +45,89 @@ A squash-merged branch is **permanently ahead of main**. That is why `plot-pr-me
 
 ### The rule
 
-**A commit authored after its PR merged is not work the merge took, and holds the desk.**
+**A commit whose patch is not already upstream is work the merge did not take, and holds the desk.**
 
-The reading is a comparison, not an ancestry question: the desk's commit dates against the PR's `mergedAt`.
+The reading is `git cherry main <desk-branch>`, which compares by **patch-id** — the content of the change — not by sha, ancestry or timestamp. A `-` prefix means *this patch is already upstream*; a `+` means it is not.
 
-### The timestamp is already on the wire
+### Why not a date comparison, which this plan proposed first
 
-`pr_merged_heads` (`plot-pr-merged.sh:196`) fetches `--json mergedAt,headRefOid` and emits **only** `headRefOid` (`:205`). `_plot_merged_lookup` fetches `--json mergedAt` and reduces it to `found`/`none` (`:126-128`).
+Round 1's juror built fixtures for both date fields and **both fail, in opposite directions**:
 
-**So the fix costs no extra host call.** The value is fetched, tested, and discarded twice. The slice exposes it — a `pr_merged_at` beside `pr_merged_heads`, in the same sourced helper, so the reaper and `plot-release-refs.sh` cannot disagree about it.
+| field | fixture | outcome |
+|---|---|---|
+| `%cI` (committer) | merged work, desk rebased after the merge | **kept forever** — every later rebase re-stamps it, nothing clears it |
+| `%aI` (author) | a commit made today from an old patch (`cherry-pick`, `git am`) | **reaped** — the exact work loss this plan exists to prevent |
 
-### The reading is soft, and the plan says so
+Measured on this estate: **17 of 200 recent commits have `%aI ≠ %cI`**, so the divergent population is not rare. `max(%aI, %cI)` fixes the false reap and not the false keep.
 
-A commit date is not proof. A rebase rewrites author dates, and clocks skew between machines. **This is evidence, not a gate**, and it must fail toward KEEPING the desk:
+The false keep is the disqualifying one: it is #1033's forever-hold reached by the fix rather than avoided by it.
 
-- no `mergedAt` → keep, as `unknown` does today
-- an unparseable date → keep
-- a commit whose date cannot be read → keep
+### Patch-id passes both fixtures
 
-That asymmetry is the whole safety argument: the cost of keeping a reapable desk is a stale checkout, and the cost of reaping a held one is work that exists nowhere else.
+Measured 2026-09-28, in scratch repositories built from the juror's two cases:
 
-### What the slice must measure before building
+```
+CASE A  merged work, desk rebased after a squash merge
+        git cherry main work  →  0 commits marked '+'      → REAP   (correct)
 
-**Whether author date or commit date is the right field.** `git log --format=%aI` (author) survives a rebase; `%cI` (committer) is rewritten by one. The post-merge case the panel measured was a plain commit on a desk, where both agree. The slice states which it reads and why, against a fixture that rebases.
+CASE B  a commit authored 2026-09-10, made today, on no ref
+        git cherry main work  →  1 commit marked '+'       → KEEP   (correct)
+```
+
+A rebase does not change a patch-id, so Case A cannot drift into a permanent hold. A cherry-picked old patch that is genuinely absent reports `+`, so Case B cannot be reaped. **No clock is consulted, so neither skew nor a rewritten date can move the answer.**
+
+### It answers the question the dates were a proxy for
+
+*Did this desk's work reach main?* A squash merge rewrites shas and dates and preserves the patch. That is precisely why `plot-pr-merged.sh` reads `mergedAt` rather than ancestry — and patch-id is the same insight applied one level down, to the commits rather than to the branch.
+
+### The host call, and the honest cost
+
+Round 1 claimed the fix "costs no extra host call" on the strength of `mergedAt` being fetched and discarded twice. **That claim is withdrawn**: as specified it would have added a *third* `gh pr list` per desk, because `plot-pr-merged.sh` caches nothing and a new sibling function means a new call.
+
+Patch-id needs **no host call at all** — `git cherry` is local. The reaper's host budget is unchanged.
+
+### One reading site, not two
+
+`desk_unpushed` is called **once**, at `plot-reap.sh:653`. Round 1 named `:506` and `:1040`; both are wrong. `:506` is prose in a comment, and `:1040` is the orphaned-claim-ref loop, which calls `sweep_is_empty_claim` and touches neither function.
+
+The local-branch sweep at `:919` asks `firstBranchRefusal` in `rules/sweepable.ts` — a different rule with no worktree, no `HEAD` to read and no unpushed field. **It is out of scope**, and a test "driving the sweep's counter" would assert something the design does not reach.
+
+### Where the rule lives
+
+`reapProblems` (`rules/reapable.ts:100`) already takes `unpushed?: readonly string[] | 'unknown'`. The fix narrows what the adapter puts in that array, so the rule is untouched — and that means **the whole discriminator would live in bash with no domain test**.
+
+`git cherry` makes that acceptable where a date comparison would not: the shell runs one command and reads its `+`/`-` prefixes, with no comparison logic to get wrong. The slice states this explicitly rather than leaving it implicit, and adds a corpus entry if it finds itself writing any conditional beyond the prefix test.
 
 ### What this does NOT do
 
-- **It does not widen the guard back to *any* merged desk.** That is the defect #1033 fixed, and it holds every squash-merged desk on the estate forever.
-- **It does not change `reapProblems`.** `unpushed-commits` is already a refusal; this changes what the adapter reads.
-- **It does not touch `plot-release-refs.sh`'s guards.** Deleting a ref is a separate licence, deliberately narrower.
-- **It does not use ancestry.** See above.
+- **It does not widen the guard back to *any* merged desk.** That is the defect #1033 fixed.
+- **It does not change `reapProblems`.** The refusal exists; this changes the reading behind it.
+- **It does not touch `plot-release-refs.sh`.** Round 1 argued co-location would keep the two in step; measured, that script has no desk and no unpushed reading, so the argument was empty.
+- **It does not use ancestry or a timestamp.**
 
 ## Done when
 
-- A desk holding a commit authored after its PR's `mergedAt` is **kept**, and the refusal names the commit — on a squash merge, where no merged head is in the desk's history.
-- A desk whose commits all predate the merge is still **reaped** — the case #1033 fixed stays fixed, asserted by the existing test rather than a new one.
-- Every unreadable reading keeps the desk: no `mergedAt`, an unparseable date, an unreadable commit date.
-- `pr_merged_at` lives in `plot-pr-merged.sh` beside `pr_merged_heads`, sourced not run, so there is one answer to *when did this land*.
-- Both reading sites are covered — `plot-reap.sh:506` and `:1040` — asserted by a test driving the sweep's counter.
-- The slice records whether it reads author or committer date, with the fixture that decided it.
+- A desk holding a commit whose patch is **not** upstream is kept, and the refusal names the commit — on a squash merge, where no merged head is in the desk's history.
+- **Both round-1 fixtures pass, by name:** merged-work-then-rebased is reaped; an old-dated patch made today is kept. These are the two cases a date comparison cannot satisfy together.
+- A desk whose commits are all upstream by patch-id is still reaped — #1033's fix stays fixed, asserted by the existing test.
+- Every unreadable reading keeps the desk: `git cherry` failing, an unreadable base, no upstream to compare against.
+- **One reading site**, `plot-reap.sh:653`. No change to `sweepable.ts` and no test of the local-branch sweep.
+- No new host call, asserted by a test that counts `gh` invocations.
 
 ## Slices
 
 ### A post-merge commit is not merged work (Branch: bug/a-post-merge-commit-is-not-merged-work)
 
-Expose `mergedAt`, compare it to the desk's commit dates, keep on every unreadable reading, and test the squash-merge shape both ways.
+Read `git cherry` for the desk's branch, keep on every `+` and on every unreadable reading, and test both round-1 fixtures by name.
 
 ## Notes
 
 This is the narrowing #1033 made, paid off rather than widened. That plan's delivery panel split 2–1 on exactly this case; the claim was narrowed and the gap filed, which is why the code and the release note agree today.
 
 **The cheap part is that the data is already bought.** Two functions fetch `mergedAt` and discard it — one reduces it to a boolean, the other keeps a sibling field. Nothing here adds a host call.
+
+**Round 1 (2026-09-28): the mechanism was replaced, not amended.** The evidence juror committed `amend` having executed, reproduced the defect with a real `plot-reap.sh` run, and then killed the proposed fix with two fixtures — `%cI` keeps a merged desk forever, `%aI` reaps a live commit. It also found three factual errors: both cited line numbers wrong (`:506` is a comment, `:1040` is a different loop), the zero-cost claim inverted (a new sibling function is a *third* `gh` call, since nothing caches), and a co-location argument naming a consumer that does not consume.
+
+**The measurement design was the deeper error.** Round 1 asked the slice to choose a date field *"against a fixture that rebases"* — an experiment that can only ever exonerate `%aI`, because a rebase is exactly what `%cI` survives badly. The juror built the pair and the answer was *neither*.
+
+`git cherry` was found by asking what the dates were a proxy for. It passes both fixtures and needs no host call. Verdict and full reading: `.plot/panels/2026-09-28-a-post-merge-commit-is-not-merged-work/evidence.md`.
