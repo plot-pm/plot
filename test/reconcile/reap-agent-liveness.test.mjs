@@ -224,6 +224,33 @@ test('a merged desk holding a commit the PR did not carry is never reaped, and t
   assert.ok(fs.existsSync(path.join(wt, 'late.txt')), 'and the desk survives --yes');
 });
 
+test('a merged desk whose merged head this desk does not hold is reaped', () => {
+  // THE SQUASH-MERGE SHAPE, and the case that made CI red on 2026-09-27.
+  //
+  // `pr_merged_heads` answers a head the desk does not contain — a squash merge
+  // rewrites the commits, and a host answer may carry no head at all. So the
+  // subtraction in `desk_unpushed` cannot run, and the bare
+  // `rev-list --not --remotes` reports EVERY commit the branch ever had: the
+  // desk would be held forever for having done the work that merged.
+  //
+  // Measured: `sweep.test.mjs`'s "a merged desk whose only dirt is a root
+  // PLOT-CORRECTION.md is reaped" failed exactly here, because its stub names
+  // no `headRefOid` and its branch is local-only.
+  //
+  // The host's answer decides. It said the work landed.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/agent-gone-squashed';
+  const { wt } = desk(repo, branch, deadAgentWrapper());
+  // A head the desk has never seen — what a squash merge leaves behind.
+  const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-27T10:00:00Z', number: 901,
+    headRefOid: '0'.repeat(40) }] });
+
+  const out = runReap(repo, bin, '--yes');
+  assert.doesNotMatch(lineFor(out, branch), /unpushed commits/,
+    `a merged desk holds nothing unpushed the host did not take:\n${out}`);
+  assert.ok(!fs.existsSync(wt), `and the desk is reaped under --yes:\n${out}`);
+});
+
 test('a merged desk holding uncommitted changes is never reaped', () => {
   const { tmp, repo } = makeRepo();
   const branch = 'feature/agent-gone-dirty';

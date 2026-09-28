@@ -251,6 +251,27 @@ desk_unpushed() { # $1=worktree $2=branch $3=merge reading → short shas
     if [ "${#excl[@]}" -gt 0 ]; then
       list=$(git -C "$wt" rev-list --abbrev-commit HEAD --not --remotes "${excl[@]}" 2>/dev/null) \
         || return 1
+    else
+      # NO MERGED HEAD THIS DESK CONTAINS, and the host still said merged. The
+      # subtraction above cannot run, and without it `--not --remotes` reports
+      # EVERY commit the branch ever had — so the desk would be held forever
+      # for having done the work that merged.
+      #
+      # Two ways to reach here, both normal. A SQUASH merge rewrites the
+      # commits, so the head the host names exists nowhere in this history —
+      # the same property that makes `plot-pr-merged.sh` read `mergedAt` and
+      # never ancestry, measured here as ancestry clearing 1 of 29 finished
+      # trees against the host's 28. And a host answer that carries no head at
+      # all leaves nothing to subtract.
+      #
+      # The host's answer decides: it said this branch's work landed, and no
+      # reading taken from refs may overrule it. Answer empty.
+      #
+      # THE GUARD KEEPS ITS WHOLE POPULATION. It protects a desk whose agent
+      # finished and whose work has NOT merged, which is where work is lost.
+      # The merged desk that holds a commit the PR did not carry is still held,
+      # by the subtraction above, whenever the merged head is one this desk has.
+      list=""
     fi
   fi
   printf '%s\n' "$list"
