@@ -38,9 +38,13 @@ describe('the worktree vocabularies are closed sets', () => {
     expect(WorktreeStateSchema.safeParse('idle').success).toBe(false);
   });
 
-  it('names the five reap refusals', () => {
+  it('names the six reap refusals', () => {
+    // `unpushed-commits` joined the set when the reaper gained its agent-liveness
+    // reading: widening what counts as "not live" widens what is removed, and a
+    // desk whose agent finished may hold the only copy of committed work.
     expect(ReapRefusalSchema.options).toEqual([
-      'live-worker', 'uncommitted-changes', 'blocked-marker', 'on-default-branch', 'no-merged-pr',
+      'live-worker', 'uncommitted-changes', 'unpushed-commits', 'blocked-marker',
+      'on-default-branch', 'no-merged-pr',
     ]);
   });
 });
