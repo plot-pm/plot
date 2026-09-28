@@ -181,7 +181,7 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
 ```
-summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 pr_source=gh main=main
+summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 unread_headings=0 pr_source=gh main=main
 ```
 
 `uncut_slices` is the count from section 7 — slices carrying more than one
@@ -192,6 +192,8 @@ wave is a shape to fix, not a branch that cannot move.
 `prose_slice_names` is the count from section 8 — slice names too long to be a
 label. Non-blocking for the same reason: the fix is to rename the heading in
 the plan, and a cosmetic name must not gate a delivery.
+
+`unread_headings` is the count from section 24 — a slice heading that carries `Branch:` and whose wave holds no branch, so no consumer ever sees that slice. Each finding names its repair: `#1042` where the value is a readable branch lost because the section's first `###` heading carries no `(Branch:`, and a rewrite to `Branch: <prefix>/<name>` otherwise. An empty wave whose heading carries no `Branch:` is narrative and is not counted. Non-blocking: the plan is not broken, its slice is invisible, and the repair is one edit.
 
 `index_drift` is the convenience count from section 9. It is reported so the
 gap is visible, and it must never be read as a blocker: `attention=0` with
@@ -271,6 +273,7 @@ When the conversation context indicates automation (see `/plot` for detection ru
     "concurrent_delivery": 0,
     "uncut_slices": 0,
     "prose_slice_names": 0,
+    "unread_headings": 0,
     "index_drift": 0
   },
   "actions_taken": [],
