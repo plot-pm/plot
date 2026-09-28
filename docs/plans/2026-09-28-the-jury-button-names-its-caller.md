@@ -12,6 +12,7 @@
 - **Issue:** #1035
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Started:** 2026-09-28, jwloka, `bug/the-jury-button-names-its-caller`
 
 ## Changelog
 
