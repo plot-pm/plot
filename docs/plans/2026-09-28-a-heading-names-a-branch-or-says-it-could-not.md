@@ -119,7 +119,7 @@ Reproduced 2026-09-28 with a minimal pair — identical content, reordered:
 
 ## Slices
 
-### A heading names a branch or says it could not (Branch: bug/a-heading-names-a-branch-or-says-it-could-not)
+### A heading names a branch or says it could not (Branch: bug/a-heading-names-a-branch-or-says-it-could-not, PR: #1044)
 
 Widen the extraction regex, add the scan's advisory section, and prove the legitimate empty waves stay silent.
 
