@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Issue:** #1050
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
@@ -38,18 +38,25 @@ plot-host: bitbucket ignores --since <t> on a listing; bb pr list has no query f
 
 ### Why this costs more on Bitbucket than the same gap would on GitHub
 
-The rejected plan reached for a rate-limit argument and never traced it. Traced now:
+**The BOARD is the only caller that asks for a window, and an earlier draft attached this plan's cost argument to the wrong one.**
 
-- `plot-fleet-scan.sh:895` calls `pr-list --state all`; `pr_list_verdict` maps the exit to `ok|partial|throttled|secondary|failed`, and `:894` returns early on anything but `ok|partial`. Branches then fall back to local evidence and **are not offered to `--next`**.
-- `fleet.ts:2861` issues the same call on the board's PR timer.
+`fleet.ts:2862` is the sole site passing `--since`: `if (window.since !== null) args.push('--since', window.since)`. **`plot-fleet-scan.sh` never asks for one** — its call carries `--limit` and branch args, and `grep -n since` over that script returns prose comments only.
 
-A refusal is therefore a fleet that stops dispatching, not a slow screen. And the listing is not a small buy: `plot-host.sh:3705` records `quatico/quaweb-website` at **902 PRs, 886 MERGED**, where three listings answer for 50 rows of 902.
+So the fleet-stall path is real and this plan does not change it:
 
-### The narrowing already exists, one path over
+- `plot-fleet-scan.sh:895` calls `pr-list --state all`; the verdict is mapped at `:898` and `:902` returns early on anything but `ok|partial`, after which branches fall back to local evidence and are not offered to `--next`.
 
-`bb_branch_query` carries `updated_on>=` through REST `q=` (`plot-host.sh:789-790`), and `PR_LIST_SINCE` already reaches it. **The sweep can narrow; the listing cannot.** The adapter states the trade at `:3761-3764`:
+That hazard belongs to the scan's **unwindowed** call. **This plan's benefit to the fleet is indirect** — the board spends less of a shared account budget, leaving more for the scan. A real benefit, and a much weaker claim than *narrowing the window stops the fleet stalling*.
 
-> A SWEEP'S COST IS THE CALLER'S WORKING SET … 11 branches over 3 states is 33 exact queries, against 3 listings that answer for 50 of 902 rows.
+The listing is still not a small buy: 895 merged PRs re-bought on every board refresh, against 9 rows in the measured window.
+
+### The limitation is the SUBCOMMAND's, not Bitbucket's — and this is the whole fix
+
+**An earlier draft of this plan inherited a stale comment as a boundary.** `plot-host.sh:3744-3745` says *"the only Bitbucket path that can carry `updated_on` is `bb_branch_query`'s own REST `q=`"*. That is the only path **that exists today**, not the only one available — and the difference is the plan.
+
+- **`bb`'s own listing already builds a `q=` URL.** `bb_pr_list_query` (`bin/bb:445`) takes the `q=` form whenever an author is given, putting the states inside it. The listing calls that function at `:829`. The `q=` path is one branch away in code the listing already runs.
+- **Plot already calls `bb api` with a windowed `q=`** at `plot-host.sh:802`, and `bb api` is a documented escape hatch (`bin/bb:2299-2331`).
+- **`bb_branch_query` is not special.** It hardcodes `source.branch.name` into its filter; remove that clause and the same code is a windowed bulk listing.
 
 ## Design
 
@@ -57,17 +64,35 @@ A refusal is therefore a fleet that stops dispatching, not a slow screen. And th
 
 **Where the caller asked for a window and the host cannot narrow a listing, the Bitbucket arm answers from the path that can — when the working set is small enough for that to be cheaper.**
 
-A windowed listing on Bitbucket has exactly three honest options, and the slice picks between them **with a measurement, not a preference**:
+**A windowed Bitbucket listing goes through `q=`, server-side, with no branch clause.** Measured 2026-09-28 against the repository this plan cites, `quatico/quaweb-website` — 902 PRs, 895 MERGED:
 
-1. **Sweep instead.** `bb_branch_sweep` already exists and honours `--since`. Cost is branches × states, so it wins only below a crossover the slice must measure rather than assume.
-2. **Keep the full listing and say so.** Today's behaviour, already reported at `:3755`. The honest floor.
-3. **Narrow by `--limit` against the union sorted by `updated_on`.** Rejected here unless measured safe — see the guard below.
+```
+$ bb -R quatico/quaweb-website api \
+  '/repositories/{ws}/{repo}/pullrequests?q=state%3D%22MERGED%22%20AND%20updated_on%3E%3D%222026-09-20...%22&pagelen=50'
+{ "size": 9, "returned": 9, "oldest": "2026-09-20T17:46:03", "newest": "2026-09-23T17:53:36" }
 
-### The guard option 3 must clear, and it is the one this estate has been bitten by
+$ bb -R quatico/quaweb-website api '.../pullrequests?state=MERGED&pagelen=1'
+{ "size": 895 }
+```
 
-`bb pr list` paginates with a default of 50 (`bin/bb:195`, called with no limit at `:832`), and the listing is sorted by `updated_on` descending. On a merge-heavy repository the newest 50 are overwhelmingly MERGED and **open PRs are crowded out**. That is the 2026-08-18 measurement recorded at `plot-host.sh:1800-1805`: *"50 PRs, all MERGED, with the 3 open ones gone. No error, a plausible list."*
+**One request, 9 rows of 895.** `size` is the server's count of MATCHES, not a page length, so this is not a truncated page.
 
-**A short page that looks complete is this adapter's named enemy** (`:3717`). Option 3 therefore needs per-state truncation detection intact, and it interacts with `a-state-sweep-is-one-request` (#1049), which changes the same budget. **Whichever of the two lands second inherits the other's cap.**
+### The pagination hazard does not arise, and an earlier draft built its guard around it
+
+An earlier draft offered three options and spent its `Done when` on guarding the worst of them — narrowing by `--limit` against an unfiltered union sorted by `updated_on`, which crowds open PRs out on a merge-heavy repository. **That guard is unnecessary because that option should not be built.**
+
+The window narrows **server-side by predicate**, so rows outside it are never in the result set to crowd anything, and the 50-row budget is never approached.
+
+| option | calls | rows | verdict |
+|---|---|---|---|
+| sweep (`bb_branch_sweep`) | branches × states | exact | **dominated** — never wins at any working-set size |
+| keep the full listing | 1 per state | 895 | strictly worse for the same cost |
+| narrow by `--limit` | 1 per state | 50, crowded | **the hazard**; do not build |
+| **`q=` with a window** | **1 per state** | **9** | **this** |
+
+### The crossover is ~1 and needs no slice to measure it
+
+An earlier draft deferred *"at what working-set size a sweep beats a full listing"* to the slice. Bounded by reading: a sweep costs branches × states (`bb_branch_sweep` loops per branch per state, `bin/bb:864`); a full listing costs 1 per state; a **windowed** listing costs 1 per state with the same narrowing. **Against a windowed listing the sweep never wins at any size.** The deferred measurement was a measurement of a dominated option.
 
 ### What the store contributes, and what it cannot
 
@@ -83,12 +108,13 @@ The store supplies the watermark and nothing else here. `prWindowFor` already re
 
 ## Done when
 
-- **The crossover is measured and recorded in the PR**: at what working-set size a `bb_branch_sweep` beats a full listing, on a repository above the pagination cap. A number, from a run, not an estimate.
-- The Bitbucket arm honours a window by whichever path the measurement chose, or **keeps the full listing and the `:3755` report** — an explicit, recorded choice.
-- **A caller that asked for a window and got a full listing still cannot read the answer as a delta.** `PR_LIST_SINCE=""` and the stderr line are the existing guard; whatever replaces them must preserve the property, because advancing a watermark over a window never applied is the silent corruption here.
-- Per-state truncation detection survives, asserted against a fixture of **more than 50 PRs, merge-heavy** — the only regime where the failure exists.
+- **A windowed Bitbucket listing goes through `q=` and returns the server's matches**, asserted against a repository with more than 50 merged PRs: the answer's `size` is the match count, not a page length.
+- **`PR_LIST_SINCE` is no longer cleared for a listing, and `plot-host.sh:3755`'s report no longer fires** where the window was applied. The report stays for any path that still cannot narrow.
+- **A caller that asked for a window and got a full listing still cannot read the answer as a delta.** That guard is the one thing an earlier draft got right and it must survive: advancing a watermark over a window never applied is the silent corruption here. Where the window IS applied, the watermark may advance.
+- **The states travel inside `q=`, never alongside it.** `bb_pr_list_query`'s own comment (`bin/bb:440-444`) records why: *"a caller must never append `state=` alongside a `q=`: it looks like it works, and quietly discards every state."*
 - GitHub's path is unchanged, asserted by a test that still exercises it.
-- **The interaction with #1049 is stated**, whichever lands first.
+- **#1049 becomes a smaller question and the PR says so.** That plan collapses three `state=` listings into one repeated-flag call; a `q=` window already carries its states in one expression. Whichever lands second states what remains of the other.
+- **The fleet scan is explicitly out of scope.** It passes no `--since` and this plan does not change that. The PR says the fleet's benefit is an indirect budget saving, not a fix to the stall path.
 
 ## Slices
 
@@ -105,3 +131,12 @@ Measure the crossover, then narrow the Bitbucket windowed listing by the path th
 **The real report came from a Bitbucket repository**, which is why the estate's own measurements missed it: every store and every timing in the rejected plan was taken against a GitHub checkout, where `--since` works and the window is honoured.
 
 **Its sibling is #1049**, which collapses three Bitbucket listings into one. Both touch the same pagination budget from opposite directions — one reduces the number of calls, this one reduces what a call asks for — and neither should be built without reading the other.
+
+
+### Round 1, 2026-09-28
+
+One juror, **amend**, **executed**, two read-only Bitbucket calls. Moderation: `.plot/panels/2026-09-28-a-cold-bitbucket-board-buys-the-whole-list/panel.md`.
+
+**The premise was true of `bb pr list` and false of Bitbucket**, and the plan offered three options while omitting the one that wins. Measured: one `q=` request returned **9 rows of 895** on the repository this plan cites — cheaper than a sweep at any working-set size, same call count as the full listing, and immune to the crowding-out hazard because the narrowing is server-side by predicate.
+
+**The mistake was inheriting a stale comment as a boundary** — `plot-host.sh:3744-3745` names `bb_branch_query` as the only `q=` path, when `bb_pr_list_query` already builds one for `--author` and Plot already calls `bb api` with a window at `:802`. That is the same failure this plan's sibling #1049 records as its own lesson, committed two hours earlier: **a recorded measurement is re-measured before it is trusted, and so is a recorded limit.**
