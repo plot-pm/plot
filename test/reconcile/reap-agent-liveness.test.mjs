@@ -109,11 +109,12 @@ const desk = (repo, branch, wrapperPid, { pruned = true } = {}) => {
 };
 
 /** A `gh` answering `pr list` from a table; `failHeads` fails any call asking for `headRefOid`. */
-const stubGh = (tmp, prs, { failHeads = false } = {}) => {
+const stubGh = (tmp, prs, { failHeads = false, log = '' } = {}) => {
   const bin = path.join(tmp, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
 const argv = process.argv.slice(2);
+if (${JSON.stringify(log)}) { require('node:fs').appendFileSync(${JSON.stringify(log)}, argv.join(' ') + '\\n'); }
 if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const json = argv[argv.indexOf('--json') + 1] || '';
 if (${failHeads} && json.includes('headRefOid')) { process.exit(1); }
@@ -126,6 +127,30 @@ process.stdout.write(JSON.stringify(all));
 `);
   fs.chmodSync(path.join(bin, 'gh'), 0o755);
   return bin;
+};
+
+/**
+ * Lands a desk's branch on `main` as ONE squash commit and pushes it, as the
+ * host does on a squash merge: the patch is upstream, the shas are not.
+ */
+const squashLand = (repo, branch) => {
+  git(repo, 'merge', '-q', '--squash', branch);
+  git(repo, 'commit', '-qm', `${branch} (#900)`);
+  git(repo, 'push', '-q', 'origin', 'main');
+  git(repo, 'fetch', '-q', '--prune', 'origin');
+};
+
+/** A host answer saying merged and naming a head this desk has never held. */
+const squashed = (branch) => ({ [branch]: [{ mergedAt: '2026-09-27T10:00:00Z', number: 901,
+  headRefOid: '0'.repeat(40) }] });
+
+/** Commits one file at a desk under fixed author and committer dates; returns the short sha. */
+const commitDated = (wt, file, { author, committer }) => {
+  fs.writeFileSync(path.join(wt, file), file);
+  git(wt, 'add', file);
+  execFileSync('git', ['commit', '-qm', `add ${file}`], { cwd: wt,
+    env: { ...process.env, GIT_AUTHOR_DATE: author, GIT_COMMITTER_DATE: committer } });
+  return git(wt, 'rev-parse', '--short', 'HEAD').trim();
 };
 
 const merged = (branch, head) => ({ [branch]: [{ mergedAt: '2026-09-27T10:00:00Z', number: 900, headRefOid: head }] });
@@ -231,24 +256,101 @@ test('a merged desk whose merged head this desk does not hold is reaped', () => 
   // rewrites the commits, and a host answer may carry no head at all. So the
   // subtraction in `desk_unpushed` cannot run, and the bare
   // `rev-list --not --remotes` reports EVERY commit the branch ever had: the
-  // desk would be held forever for having done the work that merged.
+  // desk would be held forever for having done the work that merged (#1033).
   //
-  // Measured: `sweep.test.mjs`'s "a merged desk whose only dirt is a root
-  // PLOT-CORRECTION.md is reaped" failed exactly here, because its stub names
-  // no `headRefOid` and its branch is local-only.
-  //
-  // The host's answer decides. It said the work landed.
+  // Since #1038 the host's answer no longer decides alone: `git cherry` reads
+  // each commit's PATCH against main. Here the desk's one commit was squashed
+  // onto main, so its patch is upstream and the desk holds nothing unlanded.
+  // A fixture whose "merged" work never reached main now tests a different
+  // case — that is `an old-dated patch made today is kept` below.
   const { tmp, repo } = makeRepo();
   const branch = 'feature/agent-gone-squashed';
   const { wt } = desk(repo, branch, deadAgentWrapper());
-  // A head the desk has never seen — what a squash merge leaves behind.
-  const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-27T10:00:00Z', number: 901,
-    headRefOid: '0'.repeat(40) }] });
+  squashLand(repo, branch);
+  const bin = stubGh(tmp, squashed(branch));
 
   const out = runReap(repo, bin, '--yes');
   assert.doesNotMatch(lineFor(out, branch), /unpushed commits/,
-    `a merged desk holds nothing unpushed the host did not take:\n${out}`);
+    `a desk whose every patch is upstream holds nothing unpushed:\n${out}`);
   assert.ok(!fs.existsSync(wt), `and the desk is reaped under --yes:\n${out}`);
+});
+
+// THE TWO ROUND-1 FIXTURES, together. No date comparison satisfies both: a
+// committer date holds the rebased desk forever, and an author date reaps the
+// old patch committed today. Patch-id consults no clock.
+
+test('round-1 fixture A: merged work, desk rebased after the merge, is reaped', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/merged-then-rebased';
+  const { wt } = desk(repo, branch, deadAgentWrapper());
+  squashLand(repo, branch);
+  // A rebase after the merge re-stamps the committer date past `mergedAt`
+  // and gives the commit a new sha. The patch does not change.
+  execFileSync('git', ['rebase', '-q', '--force-rebase', 'HEAD~1'], { cwd: wt,
+    env: { ...process.env, GIT_COMMITTER_DATE: '2026-09-28T12:00:00Z' } });
+  assert.ok(git(wt, 'log', '-1', '--format=%cI') > '2026-09-27T10:00:00Z',
+    'precondition: the committer date is after the merge');
+  const bin = stubGh(tmp, squashed(branch));
+
+  const out = runReap(repo, bin, '--yes');
+  assert.doesNotMatch(lineFor(out, branch), /unpushed commits/,
+    `a rebase does not change a patch-id:\n${out}`);
+  assert.ok(!fs.existsSync(wt), `and the desk is reaped under --yes:\n${out}`);
+});
+
+test('round-1 fixture B: an old-dated patch made today is kept, and only it is named', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/old-patch-today';
+  const { wt } = desk(repo, branch, deadAgentWrapper());
+  squashLand(repo, branch);
+  // What `cherry-pick` or `git am` produces: an author date before the merge,
+  // a commit made after it, on no remote ref.
+  const late = commitDated(wt, 'old-patch.txt',
+    { author: '2026-09-10T09:00:00Z', committer: '2026-09-28T12:00:00Z' });
+  const bin = stubGh(tmp, squashed(branch));
+
+  const out = runReap(repo, bin, '--yes');
+  assert.match(lineFor(out, branch), new RegExp(`^keep.*unpushed commits: ${late}$`),
+    `the one commit whose patch is not upstream is named, and the merged one is not:\n${out}`);
+  assert.ok(fs.existsSync(path.join(wt, 'old-patch.txt')), 'and the desk survives --yes');
+});
+
+test('an unreadable base keeps a squash-merged desk', () => {
+  // `git cherry` has no `origin/main` to read and fails. A failure to observe
+  // is the case that loses work, so the rule reads `unknown` and refuses.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/no-base';
+  const { wt } = desk(repo, branch, deadAgentWrapper());
+  git(repo, 'update-ref', '-d', 'refs/remotes/origin/main');
+  git(repo, 'remote', 'set-url', 'origin', path.join(tmp, 'gone.git'));
+  const bin = stubGh(tmp, squashed(branch));
+
+  const out = runReap(repo, bin, '--yes');
+  assert.match(lineFor(out, branch), /^keep.*unpushed commits: unknown/, out);
+  assert.ok(fs.existsSync(wt), 'the desk survives --yes');
+});
+
+test('the patch-id reading asks the host nothing the merged-head reading does not', () => {
+  // `git cherry` is local. Two desks, one reaching the patch-id reading (the
+  // merged head is not in its history) and one the subtraction (it is): the
+  // host is asked the same questions for each.
+  const { tmp, repo } = makeRepo();
+  const viaCherry = 'feature/counted-cherry';
+  desk(repo, viaCherry, deadAgentWrapper());
+  squashLand(repo, viaCherry);
+  const viaHead = 'feature/counted-head';
+  const held = desk(repo, viaHead, deadAgentWrapper());
+
+  const count = (branch, prs) => {
+    const log = path.join(tmp, `gh-${branch.replace(/\//g, '-')}.log`);
+    const bin = stubGh(tmp, prs, { log });
+    runReap(repo, bin, '--dry-run');
+    return fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.includes(`--head ${branch}`)).length;
+  };
+  const cherryCalls = count(viaCherry, { ...squashed(viaCherry), ...merged(viaHead, held.head) });
+  const headCalls = count(viaHead, { ...squashed(viaCherry), ...merged(viaHead, held.head) });
+  assert.ok(headCalls > 0, 'precondition: the host is asked about the desk at all');
+  assert.equal(cherryCalls, headCalls, 'no host call is added for the patch-id reading');
 });
 
 test('a merged desk holding uncommitted changes is never reaped', () => {

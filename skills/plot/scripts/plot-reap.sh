@@ -255,7 +255,7 @@ desk_unpushed() { # $1=worktree $2=branch $3=merge reading → short shas
       # NO MERGED HEAD THIS DESK CONTAINS, and the host still said merged. The
       # subtraction above cannot run, and without it `--not --remotes` reports
       # EVERY commit the branch ever had — so the desk would be held forever
-      # for having done the work that merged.
+      # for having done the work that merged (#1033).
       #
       # Two ways to reach here, both normal. A SQUASH merge rewrites the
       # commits, so the head the host names exists nowhere in this history —
@@ -264,14 +264,27 @@ desk_unpushed() { # $1=worktree $2=branch $3=merge reading → short shas
       # trees against the host's 28. And a host answer that carries no head at
       # all leaves nothing to subtract.
       #
-      # The host's answer decides: it said this branch's work landed, and no
-      # reading taken from refs may overrule it. Answer empty.
+      # THE READING IS PATCH-ID: `git cherry` marks a commit `-` when its
+      # change is already upstream and `+` when it is not. A `+` commit that no
+      # remote holds is work the merge did not take — a commit made after the
+      # merge — and it holds the desk. No clock is consulted: a committer date
+      # holds a rebased merged desk forever, and an author date reaps an old
+      # patch committed today (#1038). The rule stays in shell because the
+      # logic is the prefix test and nothing else; a second conditional here is
+      # the signal to move it into the domain with a corpus entry.
       #
-      # THE GUARD KEEPS ITS WHOLE POPULATION. It protects a desk whose agent
-      # finished and whose work has NOT merged, which is where work is lost.
-      # The merged desk that holds a commit the PR did not carry is still held,
-      # by the subtraction above, whenever the merged head is one this desk has.
+      # It fails toward keeping: an unreadable base or a failing `git cherry`
+      # returns 1, which the rule reads as `unknown` and refuses on.
+      local full cherry
+      full=$(git -C "$wt" rev-list HEAD --not --remotes 2>/dev/null) || return 1
+      cherry=$(git -C "$wt" cherry "origin/$DEFAULT" HEAD 2>/dev/null) || return 1
       list=""
+      for h in $(printf '%s\n' "$cherry" | sed -n 's/^+ //p'); do
+        case $'\n'"$full"$'\n' in
+          *$'\n'"$h"$'\n'*) list+="$(git -C "$wt" rev-parse --short "$h")"$'\n' ;;
+        esac
+      done
+      list=${list%$'\n'}
     fi
   fi
   printf '%s\n' "$list"
