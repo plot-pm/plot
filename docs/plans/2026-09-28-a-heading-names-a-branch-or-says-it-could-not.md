@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-09-28, jwloka, in-session after panel (round 1)
+- **Started:** 2026-09-28, jwloka, `bug/a-heading-names-a-branch-or-says-it-could-not`
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
