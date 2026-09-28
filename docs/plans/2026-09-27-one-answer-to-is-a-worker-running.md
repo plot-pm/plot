@@ -156,7 +156,7 @@ The slice states the five-to-one mapping in code and a test names the two discar
 
 ## Slices
 
-### One answer to is a worker running (Branch: bug/one-answer-to-is-a-worker-running)
+### One answer to is a worker running (Branch: bug/one-answer-to-is-a-worker-running, PR: #1033)
 
 `plot-reap.sh` takes the agent-descendant reading at both sites, the unpushed-commits guard lands with it, and the agreement test runs against the live-wrapper/dead-agent fixture.
 
