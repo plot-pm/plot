@@ -108,7 +108,7 @@ A candidate fix was to scan the section before latching. It is unnecessary: noth
 
 ## Slices
 
-### A section latches on a branch, not a heading (Branch: bug/a-section-latches-on-a-branch-not-a-heading)
+### A section latches on a branch, not a heading (Branch: bug/a-section-latches-on-a-branch-not-a-heading, PR: #1054)
 
 Drop the `"list"` arm, add the ordering test and the five-slice assertion, re-run the estate diff.
 
