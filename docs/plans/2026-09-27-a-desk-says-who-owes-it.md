@@ -17,7 +17,7 @@
 
 ## Changelog
 
-- A desk says why it has no worker: deferred on headroom, being restarted, or genuinely stuck. Only the third asks for a person, and only the third appears in WAITING ON YOU.
+- A desk says why it has no worker: deferred on headroom, being restarted, or genuinely stuck. The reason reaches the row, so a person can tell a desk the fleet is about to serve from one it has given up on. **Section placement is unchanged** — the rule naming which causes owe a person ships with no reader, and a row moves only once a payload reading shows one misplaced.
 
 Board impact: **yes.** The supervision cause reaches the fleet payload and the row. No new derivation — the value already exists.
 

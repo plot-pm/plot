@@ -148,7 +148,7 @@ The slice states the five-to-one mapping in code and a test names the two discar
 
 - A desk whose wrapper is alive and whose agent has exited is reaped, given its other conditions pass — **the sandbox fixture is the test, not the reported incident**, whose desks and manifests are gone.
 - A desk with a live agent is still kept, and the refusal still names the pid.
-- **A desk holding unpushed commits is never reaped**, and the refusal names them — the guard `reapProblems` does not have today.
+- **A desk holding unpushed commits is never reaped**, and the refusal names them — the guard `reapProblems` does not have today. **On a merged desk this holds where the desk CONTAINS the merged head.** Where it does not — a squash merge rewrites the commits, and some host answers carry no head — the host's answer that the work landed is decisive, because the alternative reading reports every commit the branch ever had and holds the desk forever. A commit made *after* such a merge is not protected there; see the Notes.
 - Both reading sites are covered, asserted by a test driving the sweep's counter as well as the reap decision.
 - The reaper and `--stop` agree on one fixture, and the test names the agent-descendant fact as the reason.
 - The five-to-one state mapping is in code, and a test names `waiting` and `stalled` as deliberately discarded.
@@ -183,3 +183,11 @@ Verdict and full reading: `.plot/panels/2026-09-27-one-answer-to-is-a-worker-run
 - **The unpushed-commits guard lands in the same slice.** One slice does two things, and the reason is that no intermediate commit may be able to lose work. The alternative — liveness first, guard after — leaves a window open across a push.
 - **`plot-worker-state.sh` is sourced whole and only its process states are mapped.** See the Design section; `waiting` and `stalled` are discarded by name.
 - **The re-check was attempted and failed.** The operator did not recall the process table for the three desks, and nothing on the machine holds it. The plan says so rather than carrying the question forward a third round.
+
+**The delivery panel split 2–1 (2026-09-28), and the claim was narrowed rather than the code widened.** Two jurors built test worktrees holding a commit made after the merge, on a branch the host reports merged, and `plot-reap.sh` removed them. The third read the same behaviour as a known squash-merge gap the slice's own test asserts. All three committed `Evidence: executed`.
+
+They were right, and about a change made during review rather than by the implementing agent: the original `desk_unpushed` subtracted the merged PR's head from `rev-list HEAD --not --remotes`, and that subtraction only runs when `pr_merged_heads` returns a sha the desk contains. A squash merge leaves none, so the bare query reported every commit the branch ever had and the desk could never be reaped — which is how CI found it, on a sibling slice's test. The repair takes the host's merge answer as decisive in exactly that gap.
+
+**So the guarantee is narrower than the first release note claimed**, and the note now says so. The uncovered case: a merged desk, whose merged head it does not hold, carrying a commit made after the merge. Filed as its own issue — closing it needs a way to separate *commits the merge took* from *commits made after it* with no merged head to anchor on, which is a new reading and a new slice, not an amendment to this one.
+
+Panel and moderation: `.plot/panels/2026-09-27-one-answer-to-is-a-worker-running/`.
