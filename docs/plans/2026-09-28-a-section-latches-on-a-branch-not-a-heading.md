@@ -12,6 +12,7 @@
 - **Issue:** #1042
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 0
+- **Started:** 2026-09-28, agent `free-5b92b36d` (session `0fe6656c`), `bug/a-section-latches-on-a-branch-not-a-heading`
 
 ## Changelog
 
