@@ -265,7 +265,8 @@ describe('the three sprint-item readers agree about what an item is', () => {
     expect(found.map(report)).toEqual([]);
     // THE EXCLUSION IS PINNED. If the count moves, the population changed and
     // this file's footnote is out of date — which is a finding, not a pass.
-    expect(struckThrough).toBe(4);
+    // Moved 4 -> 5 on 2026-09-28: a withdrawn W40 item, named in the footnote.
+    expect(struckThrough).toBe(5);
   });
 });
 
@@ -280,16 +281,26 @@ describe('the three sprint-item readers agree about what an item is', () => {
  * silence. Measured 2026-09-24, re-measured on the full estate 2026-09-25:
  * 14 sprints, 197 items.
  *
- * 1. STRUCK-THROUGH REFERENCES — 4 lines, and the slug test excludes them BY
+ * 1. STRUCK-THROUGH REFERENCES — 5 lines, and the slug test excludes them BY
  * NAME. `- [x] ~~[slug]~~ ...` is how this estate marks an item that left the
  * sprint. The shell reads the slug through an optional `~~`
  * (`plot-sprint-release.sh:249`); both TypeScript readers see `~~[slug]~~ ...`
  * as text and report the item with NO slug. They agree it is an item, at the
- * same tier, with the same checkbox — only the slug parts. The four:
+ * same tier, with the same checkbox — only the slug parts. The five:
  *   - `a-half-landed-workflow-says-so`, item 3 — `the-board-watches-instead-of-re-asking`
  *   - `the-domain-is-one-implementation`, item 5 — `the-board-suite-fits-its-budget`
  *   - `a-declared-agent-costs-what-it-costs`, items 7 and 9 —
  *     `a-connector-declares-its-ceiling`, `a-complete-page-is-not-truncated`
+ *   - `plot-observes-and-recovers-its-own-fleet` (W40), item 4 —
+ *     `the-persisted-pulse-holds-the-bought-answer`, withdrawn 2026-09-28 when
+ *     a panel rejected the plan
+ *
+ * **THE FIFTH IS WHY THE PIN EXISTS.** It was added 2026-09-28 by a master
+ * agent withdrawing a rejected plan, and it turned this test red on the next
+ * commit — the pin caught a population change on the day it happened, which is
+ * the finding it was written to produce. The count is updated deliberately,
+ * with the new line named; neither reader was touched.
+ *
  * Whether the TypeScript readers should learn the strike-through is a follow-up
  * decision; it changes what a slug MEANS, not what an item is.
  *
