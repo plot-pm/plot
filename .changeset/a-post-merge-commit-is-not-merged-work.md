@@ -6,4 +6,7 @@ The reaper keeps a desk holding a commit made after its PR merged, including on 
 
 <!--
 plan: docs/plans/2026-09-28-a-post-merge-commit-is-not-merged-work.md
+bumps:
+  skills:
+    plot: patch
 -->
