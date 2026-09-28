@@ -200,6 +200,14 @@
 #                  every wave name is a label; ALWAYS present, so a consumer
 #                  never reads undefined. The plan still parses in full: waves[]
 #                  is unchanged and no name is shortened or dropped.
+#   unread_branch_headings
+#                  slice headings that carry `Branch:` and whose wave holds no
+#                  branch, verbatim, in document order — a report, not a
+#                  refusal. The wave stays in waves[] with branches []; this
+#                  separates a slice the parser could not read from a narrative
+#                  heading, which carries no `Branch:`. Covers both slice
+#                  consumers, so a heading lost to the first-heading latch
+#                  (#1042) is named too. ALWAYS present; [] when none.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -286,7 +294,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -433,6 +441,7 @@ function reset_state() {
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; n_waves = 0
+  delete branch_heading
   delete waits_of; delete waits_set
   delete builds_of; delete builds_set
   delete agent_of; delete agent_set
@@ -649,6 +658,20 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     }
   }
   out = out "]"
+  # unread_branch_headings[]: a slice heading that carries `Branch:` and whose
+  # wave holds no branch, heading text verbatim, in document order. The wave
+  # itself stays in waves[] with branches []; this names WHY it is empty, since
+  # an empty wave with no `Branch:` is narrative and one with it is a slice the
+  # parser could not read. ALWAYS present, [] when every such heading was read.
+  out = out ",\"unread_branch_headings\":["
+  ubh = 0
+  for (w = 1; w <= n_waves; w++) {
+    if ((w in branch_heading) && wave_count[w] == 0) {
+      out = out (ubh > 0 ? "," : "") "\"" jesc(branch_heading[w]) "\""
+      ubh++
+    }
+  }
+  out = out "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
@@ -669,6 +692,16 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   if (rounds != "") out = out ",\"rounds\":" rounds
   out = out "}"
   print out
+}
+# Records the current `### ` heading when it carries `Branch:`. Called by BOTH
+# slice consumers, because the list consumer also opens a wave per heading: a
+# section whose FIRST heading is narrative routes every later heading there, and
+# a `(Branch: …)` heading below it then yields nothing (#1042).
+function note_branch_heading(   h) {
+  if (index($0, "Branch:") == 0) return
+  h = trim(substr($0, 4))
+  sub(/[ \t]*<!--.*$/, "", h)
+  branch_heading[n_waves] = h
 }
 # The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
 # a measurement: the longest legitimate name in the estate is `Offered first`
@@ -932,6 +965,7 @@ section == "slices" && slice_shape != "heading" {
   # unnamed wave, so a pre-wave plan parses as exactly one wave.
   if ($0 ~ /^###[ \t]/) {
     wave_names[++n_waves] = trim(substr($0, 4))
+    note_branch_heading()
     next
   }
   # Claim reflection, written by the worker after its ref push succeeds. This is
@@ -1187,6 +1221,7 @@ section == "slices" && slice_shape == "heading" {
   sub(/[ \t]*\(Branch:.*$/, "", wname)
   wname = trim(wname)
   wave_names[++n_waves] = wname
+  note_branch_heading()
 
   # Claim/deferral annotations bind to the line carrying the branch name, which
   # is the heading. Read before any match() below, which clobbers RSTART/RLENGTH.
@@ -1291,10 +1326,17 @@ section == "slices" && slice_shape == "heading" {
   # heading with no readable branch still opened a wave above — so a `## Waves`
   # section is never silently empty, which is the failure this plan refuses: a
   # consumer sees a wave it could not extract a branch from, not an absence.
+  #
+  # THE VALUE MAY BE BACKTICKED. `(Branch: \`bug/foo\`)` is unambiguous, and a
+  # backtick between `Branch:` and the prefix made the anchored match fail, so
+  # the heading opened a wave and yielded nothing. The backticks are optional on
+  # both sides and stripped from the name. Measured 2026-09-28 over 357 plans:
+  # 2 records change, 355 byte-identical.
   hmeta = $0
-  if (match(hmeta, "Branch:[ \t]*(" PREFIXES ")/[^ \t,)]+")) {
+  if (match(hmeta, "Branch:[ \t]*`?(" PREFIXES ")/[^ \t,)`]+`?")) {
     b = substr(hmeta, RSTART, RLENGTH)
     sub(/^Branch:[ \t]*/, "", b)
+    gsub(/`/, "", b)
     branches[++n_branches] = b
     wave_of[n_branches] = n_waves
     wave_seq[n_branches] = ++wave_count[n_waves]
