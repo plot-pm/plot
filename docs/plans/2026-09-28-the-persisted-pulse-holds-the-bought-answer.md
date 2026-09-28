@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Rejected
+- **State:** Superseded
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -104,3 +104,14 @@ Every supporting measurement was false. The `v: 1` hypothesis this plan called *
 The three-way deferral to the slice was not diligence: all three causes are answerable by reading one file in under ten minutes, and deferring is what let a dead hypothesis reach a Draft.
 
 **#1050 is rephrased rather than closed.** Its measurement of `last-pulse.json` is correct and its conclusion is not — PR answers are persisted in a different store. The narrow question that survives: the seed is a render optimisation and does not make the host call cheaper, which is still `--state all --limit 1000`.
+
+
+## Superseded, 2026-09-28
+
+By [`a-cold-bitbucket-board-buys-the-whole-list`](2026-09-28-a-cold-bitbucket-board-buys-the-whole-list.md), same issue (#1050).
+
+**The reporter filed from a Bitbucket repository**, which neither this plan nor its panel knew. Every measurement here — and every one in the rejection — was taken against a GitHub checkout, where `--since` works and the window is honoured.
+
+The defect that survives is not persistence. It is that the store's *second* job is unreachable on Bitbucket: `bb pr list` takes no query flag (`plot-host.sh:3741-3746`, verified against `bb 1.9.0`), so `prWindowFor`'s window is discarded and every refresh buys the full listing.
+
+The rejection above stands for what this plan proposed. The successor proposes something else.
