@@ -115,11 +115,14 @@ test('item 1: a branch whose merged PR is not its newest is reaped', () => {
   // (#446); reading only the newest reports the branch as unlanded.
   const { tmp, repo } = makeRepo();
   const branch = 'bug/an-unreachable-host-says-so';
-  squashedWorktree(repo, branch);
+  const desk = squashedWorktree(repo, branch);
+  // The merged PR's head is the desk's commit: the host merged everything the
+  // desk holds, so nothing on it is unpushed.
+  const head = git(desk, 'rev-parse', 'HEAD').trim();
   const bin = stubGh(tmp, {
     [branch]: [
       { mergedAt: null, number: 473 },
-      { mergedAt: '2026-08-26T16:53:12Z', number: 446 },
+      { mergedAt: '2026-08-26T16:53:12Z', number: 446, headRefOid: head },
     ],
   });
 
