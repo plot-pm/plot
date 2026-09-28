@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
+- **Released:** 2026-09-28, 2.21.0
 - **Approved:** 2026-09-27, jwloka, in-session
 - **Started:** 2026-09-27, plot-worker (free-97fe8574), `bug/a-correction-is-not-unlanded-work`
 - **Type:** bug

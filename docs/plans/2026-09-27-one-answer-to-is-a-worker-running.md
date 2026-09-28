@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
+- **Released:** 2026-09-28, 2.21.0
 - **Approved:** 2026-09-27, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session

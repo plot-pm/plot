@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
+- **Released:** 2026-09-28, 2.21.0
 - **Type:** feature
 - **Review:** in-session
 - **Impl:** own branches
