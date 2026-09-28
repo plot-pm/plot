@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
+- **Released:** 2026-09-28, 2.21.0
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -147,7 +148,7 @@ Same mandatory second bracket, its own tier table, its own dedup. **So the estat
 
 ## Slices
 
-### The readers agree about what an item is (Branch: bug/the-readers-agree-about-an-item)
+### The readers agree about what an item is (Branch: bug/the-readers-agree-about-an-item, PR: #991)
 
 - `bug/the-readers-agree-about-an-item` — make the `[…]` group optional in **both** `MEMBER_LINE` (`entry/sprint-transition.ts:64`) and `SPRINT_MEMBER_LINE` (`board.ts:1148`), and re-key each dedup so bare items do not collide; **the key must not be the item text**, or two identical bare lines collapse and reproduce the defect in miniature. Unit tests asserting an all-bare sprint yields the right COUNT and commits, the board rendering its members, and the empty-Must regression; a corpus pair under `packages/domain/corpus/` comparing **all three** readers' item sets and tiers → #991
 

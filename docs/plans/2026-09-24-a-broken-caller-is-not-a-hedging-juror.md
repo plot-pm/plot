@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
+- **Released:** 2026-09-28, 2.21.0
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
@@ -103,7 +104,7 @@ Tempting and wrong. A vocabulary is caller-supplied text, and a word may legitim
 
 ## Slices
 
-### The check refuses a vocabulary it cannot use (Branch: bug/the-check-refuses-an-unusable-vocabulary)
+### The check refuses a vocabulary it cannot use (Branch: bug/the-check-refuses-an-unusable-vocabulary, PR: #984)
 
 - `bug/the-check-refuses-an-unusable-vocabulary` — validate the positions argument before building the `Commitment`: fewer than two positions, a `|` inside one, or a position carrying surrounding whitespace, exits 2 naming the separator; unit tests for the pipe form, the single-word form, the **whitespace form asserted as a partial-commit regression**, and the unchanged comma path including a genuine hedge → #984
 
