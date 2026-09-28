@@ -187,6 +187,11 @@ git fetch origin "$DEFAULT" --quiet 2>/dev/null || true
 # newest — and defines `pr_merged` and nothing else on load.
 . "$(dirname "${BASH_SOURCE[0]}")/plot-pr-merged.sh"
 
+# Which uncommitted paths count as unlanded work. SOURCED, because the reap
+# reading, the dirty sweep below and `plot-reconcile-scan.sh` section 21 must
+# read one tree the same way; the helper names each excused path.
+. "$(dirname "${BASH_SOURCE[0]}")/plot-desk-dirt.sh"
+
 # Where the registry lives, resolved through `plot-config.sh` — the SAME key and
 # default the board's reader uses (`resolveManifestDir` in `registry.ts` shells
 # out to exactly this). Two implementations of "where is the registry" is how
@@ -510,16 +515,15 @@ while IFS=$'\037' read -r wt br prunable; do
 
   # The tree: a PLOT-BLOCKED marker, and the first uncommitted path.
   #
-  # The tiny-garden pulse is excused because every board suite rewrites it — a
-  # worker that did nothing but run the tests would otherwise never be
-  # reapable. Any OTHER dirty path is still reported, which keeps this an
-  # exception rather than a hole. It is filtered HERE, in the reading, because
-  # it is a fact about this repository's fixtures and not about whether a
-  # worktree may go.
+  # `desk_dirt` excuses the paths the estate writes itself — the tiny-garden
+  # pulse and a root `PLOT-CORRECTION.md` — and reports every OTHER dirty path,
+  # which keeps this an exception rather than a hole. It is filtered HERE, in
+  # the reading, because those are facts about files this estate writes and
+  # not about whether a worktree may go. The filter runs before `head`, so a
+  # correction beside a real file names the real file.
   marker=false
   ls "$wt"/PLOT-BLOCKED* >/dev/null 2>&1 && marker=true
-  dirty=$(git -C "$wt" status --porcelain 2>/dev/null \
-            | grep -v 'tiny-garden/\.plot/state' | head -1)
+  dirty=$(desk_dirt "$wt" | head -1)
 
   # The host: whether ANY PR for this branch merged.
   #
@@ -1032,8 +1036,7 @@ while IFS=$'\t' read -r wt br; do
   [ -n "$MAIN_CHECKOUT" ] && [ "$(canonical "$wt")" = "$(canonical "$MAIN_CHECKOUT")" ] && continue
   dshort=${br#refs/heads/}
 
-  dcount=$(git -C "$wt" status --porcelain 2>/dev/null \
-             | grep -v 'tiny-garden/\.plot/state' | wc -l | tr -d ' ')
+  dcount=$(desk_dirt "$wt" | wc -l | tr -d ' ')
   [ "${dcount:-0}" -gt 0 ] || continue
 
   dpid=""

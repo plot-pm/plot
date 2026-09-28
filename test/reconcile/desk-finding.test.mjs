@@ -139,3 +139,56 @@ test('desk: the sweep changes nothing', () => {
   assert.ok(fs.existsSync(path.join(repo, '.worktrees', 'feature-stranded')),
     'the sweep reports desks and removes none');
 });
+
+test('desk: section 21 agrees with the reaper that a correction is not unlanded work', () => {
+  // `plot-reap.sh` and section 21 read one tree through one helper. A desk
+  // the reaper removes and section 21 keeps for `uncommitted-changes` is two
+  // answers about one tree. Detached desks at origin/main have nothing to
+  // land, so both readers judge them with no host call.
+  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-desk-correction-'));
+  try {
+    const origin = path.join(own, 'origin.git');
+    const r = path.join(own, 'repo');
+    git(own, 'init', '--bare', '-q', '-b', 'main', origin);
+    git(own, 'clone', '-q', origin, r);
+    git(r, 'config', 'user.email', 'test@example.invalid');
+    git(r, 'config', 'user.name', 'Plot Test');
+    git(r, 'config', 'commit.gpgsign', 'false');
+    fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+      '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+      + '- **Delivered index:** plans/delivered/\n- **Worktree root:** .worktrees\n');
+    // The pid file is ignored in any adopting repository; without the rule
+    // every desk reads as carrying `?? .plot-worker.pid`.
+    fs.writeFileSync(path.join(r, '.gitignore'), '.plot-worker.pid\n.worktrees/\n');
+    fs.mkdirSync(path.join(r, 'plans'), { recursive: true });
+    git(r, 'add', '-A');
+    git(r, 'commit', '-qm', 'config');
+    git(r, 'push', '-q', 'origin', 'main');
+
+    const desk = (name, files) => {
+      const wt = path.join(r, '.worktrees', name);
+      git(r, 'worktree', 'add', '--detach', '-q', wt, 'origin/main');
+      fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '999999\n');
+      for (const f of files) fs.writeFileSync(path.join(wt, f), 'written\n');
+    };
+    desk('free-corrected', ['PLOT-CORRECTION.md']);
+    desk('free-dirty', ['PLOT-CORRECTION.md', 'work.txt']);
+
+    const scanOut = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: r });
+    const reapOut = execFileSync('bash', [reap, '--dry-run'], { encoding: 'utf8', cwd: r });
+    const section = scanOut.slice(scanOut.indexOf('== 21.'), scanOut.indexOf('== 22.'));
+    const findingFor = (name) => section.split('\n').find((l) => l.includes(`/${name} `)) ?? '';
+    const reapFor = (name) => reapOut.split('\n').find((l) => l.includes(` ${name} `)) ?? '';
+
+    assert.match(reapFor('free-corrected'), /^would/, `the reaper reaps the corrected desk:\n${reapOut}`);
+    assert.match(findingFor('free-corrected'), /finished/,
+      `section 21 calls the same desk finished:\n${section}`);
+    assert.doesNotMatch(findingFor('free-corrected'), /uncommitted/);
+
+    // The control: a real file beside the correction holds the desk in both.
+    assert.match(reapFor('free-dirty'), /^keep.*uncommitted: \?\? work\.txt/, reapOut);
+    assert.match(findingFor('free-dirty'), /uncommitted-changes/, section);
+  } finally {
+    fs.rmSync(own, { recursive: true, force: true });
+  }
+});

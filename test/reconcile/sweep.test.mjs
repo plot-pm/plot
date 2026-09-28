@@ -421,3 +421,118 @@ test('the five worktree refusals still refuse, with the new kinds present', () =
   assert.ok(fs.existsSync(wt), 'a dirty dispatch tree survives --yes');
   assert.ok(fs.existsSync(path.join(wt, 'uncommitted.txt')), 'and keeps its work');
 });
+
+// ---------------------------------------------------------------------------
+// A correction is not unlanded work
+// ---------------------------------------------------------------------------
+//
+// `PLOT-CORRECTION.md` is written at the desk root by the worker loop, read by
+// the agent, and worth nothing afterwards. Measured 2026-09-27: a desk whose PR
+// had merged was kept for `?? PLOT-CORRECTION.md` alone. The cases below are
+// the ones a naive fix passes without: the sweep's counter (a fix at the reap
+// reading only), a nested file (an unanchored match), a correction beside a
+// real file (a filter after `head`), and the blocked marker.
+
+/** A dispatch desk on a squash-merged branch, recognised by its legacy name. */
+function mergedDesk(repo, tmp, branch, number) {
+  squashedBranch(repo, branch);
+  const wt = path.join(path.dirname(repo), 'plot-wt-' + branch.replace(/\//g, '-'));
+  git(repo, 'worktree', 'add', '-q', wt, branch);
+  const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-27T10:00:00Z', number }] });
+  return { wt, bin };
+}
+
+test('a merged desk whose only dirt is a root PLOT-CORRECTION.md is reaped', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/corrected-and-merged';
+  const { wt, bin } = mergedDesk(repo, tmp, branch, 801);
+  fs.writeFileSync(path.join(wt, 'PLOT-CORRECTION.md'), 'Use the other helper.\n');
+
+  const dry = run(repo, bin, '--dry-run');
+  assert.doesNotMatch(dry, /uncommitted/, `a correction is not unlanded work:\n${dry}`);
+  assert.match(dry, /dirty_trees=0/, `nor is the desk a dirty tree nobody owns:\n${dry}`);
+  assert.ok(fs.existsSync(wt), 'a dry run removes nothing');
+
+  run(repo, bin, '--yes');
+  assert.ok(!fs.existsSync(wt), 'under --yes the corrected desk is reaped');
+});
+
+test('a tree whose only dirt is a root PLOT-CORRECTION.md is not a dirty leftover', () => {
+  // The sweep's own population: not a dispatch tree, so the reaper does not
+  // judge it, and the sweep is the only reader. It prints the desk under
+  // "dirty trees nobody owns" unless it reads through the same filter.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/corrected-unowned';
+  squashedBranch(repo, branch);
+  const wt = path.join(tmp, 'corrected');
+  git(repo, 'worktree', 'add', '-q', wt, branch);
+  fs.writeFileSync(path.join(wt, 'PLOT-CORRECTION.md'), 'Use the other helper.\n');
+  const bin = stubGh(tmp, {});
+
+  const out = run(repo, bin, '--dry-run');
+  assert.match(out, /dirty_trees=0/, `a correction alone is not dirt:\n${out}`);
+});
+
+test('a PLOT-CORRECTION.md below the desk root still refuses, and is named', () => {
+  // The match is anchored to the root. `docs/PLOT-CORRECTION.md` is a file
+  // somebody wrote into the tree, and nothing says it exists anywhere else.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/nested-correction';
+  const { wt, bin } = mergedDesk(repo, tmp, branch, 802);
+  // `docs/` holds a tracked file, so porcelain prints the path itself rather
+  // than collapsing an untracked directory to `?? docs/` — which no filter on
+  // the file name could ever match, and the test would pass for that reason.
+  fs.mkdirSync(path.join(wt, 'docs'));
+  fs.writeFileSync(path.join(wt, 'docs', 'README.md'), 'docs\n');
+  git(wt, 'add', 'docs/README.md');
+  git(wt, 'commit', '-qm', 'docs');
+  fs.writeFileSync(path.join(wt, 'docs', 'PLOT-CORRECTION.md'), 'a document\n');
+
+  const out = run(repo, bin, '--yes');
+  assert.match(lineFor(out, branch), /uncommitted: \?\? docs\/PLOT-CORRECTION\.md/,
+    `a nested file must still refuse, naming its path:\n${out}`);
+  assert.ok(fs.existsSync(path.join(wt, 'docs', 'PLOT-CORRECTION.md')), 'and the file survives');
+});
+
+test('a correction beside a real file refuses, naming the real file', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/corrected-and-dirty';
+  const { wt, bin } = mergedDesk(repo, tmp, branch, 803);
+  // Porcelain sorts `PLOT-CORRECTION.md` before `z-work.txt`, so a filter
+  // applied after `head -1` would name the correction or name nothing.
+  fs.writeFileSync(path.join(wt, 'PLOT-CORRECTION.md'), 'Use the other helper.\n');
+  fs.writeFileSync(path.join(wt, 'z-work.txt'), 'exists nowhere else');
+
+  const out = run(repo, bin, '--yes');
+  const line = lineFor(out, branch);
+  assert.match(line, /uncommitted: \?\? z-work\.txt/, `the refusal names the real file:\n${out}`);
+  assert.doesNotMatch(line, /PLOT-CORRECTION/, 'and never the correction');
+  assert.ok(fs.existsSync(path.join(wt, 'z-work.txt')), 'the real file survives');
+});
+
+test('a blocked marker beside a correction still refuses as blocked', () => {
+  // A blocked desk owes a person an answer; a correction owes nobody
+  // anything. Excusing the one must not excuse the other.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/corrected-and-blocked';
+  const { wt, bin } = mergedDesk(repo, tmp, branch, 804);
+  fs.writeFileSync(path.join(wt, 'PLOT-CORRECTION.md'), 'Use the other helper.\n');
+  fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which helper?\n');
+
+  const out = run(repo, bin, '--yes');
+  assert.match(lineFor(out, branch), /^keep/, `a blocked desk is kept:\n${out}`);
+  assert.match(lineFor(out, branch), /blocked|PLOT-BLOCKED/i, 'for its marker');
+  assert.ok(fs.existsSync(wt), 'and survives --yes');
+});
+
+test('the tool-error state file is not tracked, and no new ignore rule stands in for it', () => {
+  // Tracked, the file reported ` M` in every desk whose tooling rewrote it,
+  // and `.omc/` was already ignored — an ignore rule cannot cover a tracked
+  // path. Untracking it lets the existing rule take over.
+  const root = path.join(here, '..', '..');
+  const tracked = execFileSync('git', ['ls-files', '--', 'packages/board/.omc'],
+    { encoding: 'utf8', cwd: root }).trim();
+  assert.equal(tracked, '', 'no .omc state is tracked');
+  const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+  assert.doesNotMatch(ignore, /last-tool-error/, 'the existing `.omc/` rule covers it by itself');
+});

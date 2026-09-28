@@ -309,6 +309,8 @@ fi
 # Measured 2026-09-04, that is exactly the state the estate reached twice.
 # shellcheck source=plot-default-branch.sh
 . "$script_dir/plot-default-branch.sh"
+# shellcheck source=plot-desk-dirt.sh
+. "$script_dir/plot-desk-dirt.sh"
 MAIN=$(cfg "Main branch")
 [ -n "$MAIN" ] || MAIN=$(default_branch)
 
@@ -2599,7 +2601,9 @@ else
     d_marker=false
     ls "$dwt"/PLOT-BLOCKED* >/dev/null 2>&1 && d_marker=true
     d_clean=true
-    [ -n "$(git -C "$dwt" status --porcelain 2>/dev/null | grep -v 'tiny-garden/\.plot/state' | head -1)" ] && d_clean=false
+    # The paths the reaper counts, through the reaper's own helper: a desk
+    # `plot-reap.sh` removes must not read here as `uncommitted-changes`.
+    [ -n "$(desk_dirt "$dwt" | head -1)" ] && d_clean=false
     d_main=false
     [ "$dshort" = "$MAIN" ] && d_main=true
     d_detached=false
