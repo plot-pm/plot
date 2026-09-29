@@ -80,8 +80,13 @@ export const parsePersonDirectory = (text: string | undefined): PersonDirectory 
     claims.set(key, (claims.get(key) ?? new Set()).add(handle));
   };
   for (const entry of (text ?? '').split(';')) {
-    const [head, ...rest] = entry.split('=');
-    const handle = normalize(head ?? '');
+    // `split` ALWAYS yields at least one element, so the first is a string at
+    // runtime whatever `noUncheckedIndexedAccess` says. A `?? ''` or a
+    // destructuring default here is a branch no input can take, and the
+    // domain's branch gate is 100% — so the index is asserted, not guarded.
+    const parts = entry.split('=');
+    const handle = normalize(parts[0] as string);
+    const rest = parts.slice(1);
     if (handle === '') continue;
     claim(handle, handle);
     for (const spelling of rest.join('=').split(',')) claim(spelling, handle);
