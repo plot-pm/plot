@@ -16,6 +16,8 @@ import {
 import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
+import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
+import type { PortResult } from '@plot-pm/domain';
 import { landed } from '@plot-pm/domain/rules/landed';
 import type { MergeReading } from '@plot-pm/domain/rules/reapable';
 import type { PlanBranchLine } from '@plot-pm/domain/rules/gates';
@@ -303,6 +305,50 @@ export const spendForTick = async (
 });
 
 /**
+ * The host's merge answer for a branch, asked at most once per tick.
+ *
+ * The supervisor world and the queue world ask the same question about the
+ * same branch: `merge` for every registered agent, and `sliceHasMerged` for
+ * every agent with a branch. Both read through one memo, so a busy agent costs
+ * one host call per tick rather than two.
+ */
+export interface MergeMemo {
+  /**
+   * The raw port answer for `branch`. The first call in a tick asks the host;
+   * every later call in the same tick shares that call's Promise.
+   */
+  ask(branch: string): Promise<PortResult<MergedAnswer>>;
+  /** Forgets every answer, so the next tick asks again. */
+  clear(): void;
+}
+
+/**
+ * Builds a {@link MergeMemo} over a host.
+ *
+ * The memo holds the PROMISE, so two concurrent readers share one call, and the
+ * RAW `PortResult`, so each consumer still derives its own word from a failed
+ * call. A memo of booleans would read a host outage as *not merged*.
+ *
+ * @param host - the host to ask.
+ * @returns a memo that is empty until its first `ask`.
+ */
+export const mergeMemoOver = (host: Pick<Host, 'prMerged'>): MergeMemo => {
+  let asked = new Map<string, Promise<PortResult<MergedAnswer>>>();
+  return {
+    ask: (branch) => {
+      const known = asked.get(branch);
+      if (known !== undefined) return known;
+      const answer = host.prMerged(branch);
+      asked.set(branch, answer);
+      return answer;
+    },
+    clear: () => {
+      asked = new Map();
+    },
+  };
+};
+
+/**
  * Builds the world this daemon reads the estate through.
  *
  * Every reading goes through a port-backed adapter, and the adapters are the
@@ -312,17 +358,19 @@ export const spendForTick = async (
  *
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
+ * @param merges - the per-tick merge memo; `beginTick` clears it. Pass the
+ *   same memo to {@link queueWorldForRepo} so both worlds share one answer.
  * @returns the world the tick reads through.
  */
 export const worldForRepo = (
   repoRoot: string,
   scriptsDir: string,
   tally: HostTally = { calls: 0 },
+  merges: MergeMemo = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir })),
 ): SupervisorWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const processes = processesShell(context);
   const trees = treesGit(context);
-  const host = hostShell(context);
   const machine = machineSystem(context);
   const plans = planStoreShell(context);
   const refs = refsGit(context);
@@ -338,6 +386,7 @@ export const worldForRepo = (
     repoRoot,
     beginTick: () => {
       memo = null;
+      merges.clear();
     },
     isAlive: async (pid) => {
       const answer = await processes.isAlive(pid);
@@ -348,7 +397,7 @@ export const worldForRepo = (
     },
     prMerged: async (branch): Promise<MergeReading> => {
       tally.calls += 1;
-      const answer = await host.prMerged(branch);
+      const answer = await merges.ask(branch);
       if (!answer.ok) return 'unreachable';
       return answer.value === 'merged'
         ? 'merged'
@@ -451,17 +500,25 @@ export const worldForRepo = (
  *
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
+ * @param merges - the per-tick merge memo {@link worldForRepo} clears; when
+ *   absent, every merge question goes to the host.
  * @returns the world the queue is read through.
  */
 export const queueWorldForRepo = (
   repoRoot: string,
   scriptsDir: string,
   tally: HostTally = { calls: 0 },
+  merges?: MergeMemo,
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const plans = planStoreShell(context);
   const refs = refsGit(context);
   const host = hostShell(context);
+  // NO MEMO GIVEN, NO MEMO BUILT. This world has no `beginTick`, so a memo it
+  // built for itself would never be cleared and would freeze every merge answer
+  // for the life of the daemon. Without one, each question goes to the host.
+  const askMerged = (branch: string) =>
+    merges === undefined ? host.prMerged(branch) : merges.ask(branch);
   const processes = processesShell(context);
   const trees = treesGit(context);
 
@@ -517,14 +574,14 @@ export const queueWorldForRepo = (
     },
     sliceHasMerged: async (branch) => {
       tally.calls += 1;
-      const answer = await host.prMerged(branch);
+      const answer = await askMerged(branch);
       // SILENCE IS NOT LANDED. An unreachable host answers *not merged*, so an
       // agent stays holding its branch rather than being handed a second one.
       return answer.ok && answer.value === 'merged';
     },
     queuedHasLanded: async (branch) => {
       tally.calls += 1;
-      const answer = await host.prMerged(branch);
+      const answer = await askMerged(branch);
       // THE DOMAIN DECIDES THE WORD, from a `LookupReading` this join takes.
       // `landed` is the ONE answer to *did this land* — it reads the merge
       // timestamp, never a PR's `state` and never ancestry — and consuming it
@@ -942,8 +999,12 @@ export const run = async (
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
   const tally: HostTally = { calls: 0 };
-  const world = worldForRepo(repoRoot, scriptsDir, tally);
-  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally);
+  // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
+  // `beginTick` clears the memo, so the queue read that follows shares the
+  // tick's answers and the next tick asks again.
+  const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
+  const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
+  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges);
   const scripts = scriptsShell({ repoRoot, scriptDir: scriptsDir });
   // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
   // adapter is a closure over two paths and spawns only when it is called.

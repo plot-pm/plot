@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   accountRate,
   argsFrom,
+  mergeMemoOver,
   queueWorldForRepo,
   readRegistry,
   reportTick,
@@ -15,6 +16,10 @@ import {
   worldForRepo,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
+import type { MergedAnswer } from '@plot-pm/domain/ports/host';
+import type { PortResult } from '@plot-pm/domain';
+import { whyNotReady } from '@plot-pm/domain/rules/queue';
+import { readQueue, type QueueWorld } from '../../src/server/queue-reading.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
@@ -1045,6 +1050,125 @@ describe('the worlds count the host calls a tick makes', () => {
       expect(tally.calls).toBe(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a tick asks the host about a branch once', () => {
+  // A STUB HOST THAT COUNTS. The duplicate this guards against has no visible
+  // effect on a tick's decision — only on its cost — so a test that checks the
+  // decision alone passes with the duplicate still present.
+  const countingHost = (answer: () => PortResult<MergedAnswer>) => {
+    const asked: string[] = [];
+    return {
+      asked,
+      prMerged: async (branch: string) => {
+        asked.push(branch);
+        return answer();
+      },
+    };
+  };
+
+  // The adapters these worlds build reach nothing until one is called, so a
+  // path that holds no repository is enough for the members under test.
+  const worlds = (host: ReturnType<typeof countingHost>) => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-merge-memo-'));
+    const merges = mergeMemoOver(host);
+    return {
+      root,
+      world: worldForRepo(root, root, { calls: 0 }, merges),
+      queue: queueWorldForRepo(root, root, { calls: 0 }, merges),
+    };
+  };
+
+  it('asks once for a branch the supervisor and the queue both read', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    const { root, world, queue } = worlds(host);
+    try {
+      world.beginTick?.();
+      // CONCURRENT, AS `readAgent` ASKS: the memo holds the Promise, so a
+      // second reader arriving before the first answer shares the call.
+      await Promise.all([world.merge('feature/busy'), world.merge('feature/busy')]);
+      await queue.sliceHasMerged('feature/busy');
+      await queue.queuedHasLanded('feature/busy');
+      expect(host.asked).toEqual(['feature/busy']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('asks again in the next tick, because beginTick clears the memo', async () => {
+    // A MEMO THAT NEVER CLEARS passes a one-tick test and freezes merge state
+    // for the life of the daemon.
+    const host = countingHost(() => answered('not-merged'));
+    const { root, world, queue } = worlds(host);
+    try {
+      for (let tick = 0; tick < 2; tick += 1) {
+        world.beginTick?.();
+        await world.merge('feature/busy');
+        await queue.sliceHasMerged('feature/busy');
+      }
+      expect(host.asked).toEqual(['feature/busy', 'feature/busy']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('asks separately about different branches', async () => {
+    const host = countingHost(() => answered('merged'));
+    const { root, world, queue } = worlds(host);
+    try {
+      world.beginTick?.();
+      await world.merge('feature/one');
+      await queue.queuedHasLanded('feature/two');
+      expect(host.asked.sort()).toEqual(['feature/one', 'feature/two']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps each consumer’s silence word when the host call fails', async () => {
+    // A MEMO OF BOOLEANS would pass every count above and read an outage as
+    // *not merged* here. The memo holds the raw answer, and each consumer
+    // derives its own word from it.
+    const host = countingHost(() => failed());
+    const { root, world, queue } = worlds(host);
+    try {
+      world.beginTick?.();
+      expect(await world.merge('feature/busy')).toBe('unreachable');
+      expect(await queue.sliceHasMerged('feature/busy')).toBe(false);
+      expect(await queue.queuedHasLanded('feature/busy')).toBe('unknown');
+      expect(host.asked).toEqual(['feature/busy']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('holds a slice whose merge state is unreadable, through the memo', async () => {
+    const host = countingHost(() => failed());
+    const { root, world, queue } = worlds(host);
+    try {
+      world.beginTick?.();
+      const stub: QueueWorld = {
+        plans: async () => [
+          {
+            file: 'docs/plans/2026-09-29-a-plan.md',
+            phase: 'approved',
+            slices: [{ branches: [{ branch: 'feature/one', deferred: false }] }],
+          } as never,
+        ],
+        claimedBranches: async () => new Set<string>(),
+        mergedBranches: async () => new Set<string>(),
+        briefPresent: async () => true,
+        sliceHasMerged: queue.sliceHasMerged,
+        queuedHasLanded: queue.queuedHasLanded,
+        workerAlive: async () => true,
+        blocked: async () => false,
+      };
+      const { slices } = await readQueue([], stub);
+      expect(slices.map((slice) => whyNotReady(slice))).toEqual(['merge-unknown']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
