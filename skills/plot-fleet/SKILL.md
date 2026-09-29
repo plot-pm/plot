@@ -126,7 +126,7 @@ user rather than working around it.
 | no `plot-registryd.mjs` | reinstall or update the Plot plugin — the bundle is tracked, so its absence is a broken installation; `pnpm build:board` only in a development checkout of Plot |
 | `node` is not Plot's pinned major, or Plot's pin is unreadable | put that major first on `PATH` (`nvm install N && nvm use N`), then run it again; an unreadable pin is a broken installation |
 | platform is neither launchd nor systemd | run the daemon by hand; there is no unit to fill |
-| a unit with that label is already loaded | `--stop` it, or give a second checkout its own label |
+| a unit with that label is already loaded | the refusal names the checkout the loaded job serves: **this** repository → `--stop`, then `--start`; **another** checkout (named by path) → give this checkout its own label and leave that one running; **cannot determine** → read the job with `launchctl print` before stopping anything |
 
 **The node refusal is the one that is easiest to talk past, and must not be.**
 The unit bakes `$NODE` in **permanently**. Measured 2026-09-05: `command -v
