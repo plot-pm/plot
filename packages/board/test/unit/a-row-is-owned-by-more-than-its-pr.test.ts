@@ -2,7 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parsePersonDirectory, type OwnedRow } from '@plot-pm/domain';
-import { agent, board, card, column, fleet, row } from '../catalogue/index.js';
+import {
+  AgentEntrySchema,
+  AgentRowSchema,
+  BoardSchema,
+  CardSchema,
+  ColumnSchema,
+  FleetSchema,
+  type AgentEntry,
+  type AgentRow,
+  type Board,
+  type Card,
+  type Column,
+  type Fleet,
+} from '../../src/contract/schema.js';
 import {
   agentsForReader,
   boardForReader,
@@ -37,6 +50,32 @@ vi.mock('@plot-pm/domain', async (importOriginal) => {
       return real.isMine(owned, reader);
     },
   };
+});
+
+// FIXTURES FROM THE SCHEMAS, not from `../catalogue/`: importing the catalogue
+// marks a file as a browser test, and this one drives no page.
+const row = (over: Partial<AgentRow> = {}): AgentRow => AgentRowSchema.parse({
+  repo: 'garden', kind: 'branch', branch: 'feature/a-branch', plan: 'a-plan',
+  planFile: '2026-08-24-a-plan.md', wave: 'Wave', state: 'wip', phase: 'Development',
+  group: 'working', ageMinutes: 30, note: '', pr: null, branchUrl: '', ...over,
+});
+const agent = (over: Partial<AgentEntry> = {}): AgentEntry => AgentEntrySchema.parse({
+  session: 'sess0000', branch: 'feature/a-branch', worktree: '/wt/a-branch', command: '',
+  startedAt: '', pid: '', previousPid: '', relaunches: 0, state: 'running', ...over,
+});
+const card = (over: Partial<Card> = {}): Card => CardSchema.parse({
+  slug: 'a-plan', title: 'A plan', type: 'feature', phase: 'Development',
+  path: 'docs/plans/2026-08-24-a-plan.md', ...over,
+});
+const column = (over: Partial<Column> = {}): Column => ColumnSchema.parse({ phase: 'Development', cards: [], ...over });
+const board = (over: Partial<Board> = {}): Board => BoardSchema.parse({
+  generatedAt: '2026-08-30T12:00:00.000Z', columns: [], sprints: [], stories: [], checklist: null, ...over,
+});
+const fleet = (over: Partial<Fleet> = {}): Fleet => FleetSchema.parse({
+  generatedAt: '2026-08-30T12:00:00.000Z', ageSeconds: 1, ready: true, error: null, rows: [], slices: [],
+  summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+  stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },
+  prAgeSeconds: 1, prNextInSeconds: 59, scanNextInSeconds: 4, prError: null, ...over,
 });
 
 const people = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
