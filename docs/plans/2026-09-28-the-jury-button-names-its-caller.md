@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-28, jwloka, in-session after panel (round 1)
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
 - **Started:** 2026-09-28, jwloka, `bug/the-jury-button-names-its-caller`
+- **Delivered:** 2026-09-29
 
 ## Changelog
 
