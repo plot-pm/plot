@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-09-29, jwloka, in-session
+- **Started:** 2026-09-29, jwloka, `bug/a-dispatch-promises-a-worker`
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
