@@ -50,6 +50,12 @@ interface SprintFilterProps {
    * "112 plans" → "21 members".
    */
   estateTotals?: SprintCounts;
+  /**
+   * What the filter did to the fleet's rows while a sprint is selected, or
+   * null when none is. `hidden` counts rows it removed; `exempt` counts rows
+   * it showed without a membership test because they name no plan.
+   */
+  report?: { hidden: number; exempt: number } | null;
 }
 
 /**
@@ -81,7 +87,7 @@ function formatCounts(counts: SprintCounts, isEstate: boolean): string {
  * Shows estate totals when filter is OFF, sprint numbers when ON — the
  * "Compared" slice of the-sprint-filter-says-what-it-filters plan.
  */
-export function SprintFilter({ sprints, selected, onToggle, estateTotals }: SprintFilterProps) {
+export function SprintFilter({ sprints, selected, onToggle, estateTotals, report = null }: SprintFilterProps) {
   // No active sprints: show disabled state with estate totals
   if (sprints.length === 0) {
     return (
@@ -194,6 +200,24 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals }: Spri
           </label>
         );
       })}
+      {/* WHAT THE FILTER DID, over every row on the tab — one line for all
+          selected sprints, because the rows are filtered once. `hidden` and
+          `shown without a plan` are two facts and both print at 0, like
+          «Only my work»'s `0 rows hidden`: a zero says the filter ran. The
+          per-section `hidden by Sprint only` counts are each section's share
+          of the first number. */}
+      {report && (
+        <div
+          data-sprint-report
+          data-sprint-hidden={report.hidden}
+          data-sprint-exempt-count={report.exempt}
+          className="px-3 text-xs text-slate-500 dark:text-slate-400"
+        >
+          {report.hidden === 1 ? '1 row hidden' : `${report.hidden} rows hidden`}
+          {' · '}
+          {report.exempt} shown without a plan
+        </div>
+      )}
     </div>
   );
 }
