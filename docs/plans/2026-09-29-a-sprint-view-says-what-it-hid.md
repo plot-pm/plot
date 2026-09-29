@@ -142,3 +142,16 @@ The refusal to hide rows was upheld, and the juror confirmed it reads the report
 4. **The Slices entry built the weakest of three options.** A count is not a mark; the mark is now required.
 
 Also folded: three populations (`brokenRows`, `draftRows`, `issues`) never reach the filter and inflate the same section's tally.
+### Slice decisions, 2026-09-29
+
+**The exemption stays `release`, or `pr` with an empty plan, and nothing is widened.** `rowIsSprintExempt` in `packages/board/src/app/lib/filters.ts` names it; the row mark and the control count both read it. The `release` row is marked and counted the same way as a plan-less PR.
+
+**A conflicted plan-less PR is not hidden, measured against the call sites.** The conflict arm of `rowKind` is reached with `true` only from the plan-named loop (`fleet.ts:6612`), whose rows always carry a plan. The plan-less PR loop calls `rowKind(branch, true, false)` (`fleet.ts:6991`): no conflict set is computed for a branch no plan names, so a conflicted `sprint/1-8-leg` stays a `pr` row and stays exempt. Round 1's correction 1 does not hold on current code.
+
+**An `idea/*` row is out of scope, and it is not plan-less.** It is kind `plan` and carries its draft's slug (`fleet.ts:6992`), so it is asked about membership like any plan. Consequence: a draft plan awaiting approval disappears from a sprint view unless a selected sprint file lists its slug, and it counts in `rows hidden`.
+
+**A loose plan-less branch is out of scope.** A ref with no plan and no open PR is kind `branch` (`fleet.ts:7303`) and is hidden under «Sprint only». Consequence: it disappears from a sprint view and counts in `rows hidden`.
+
+**The denominator is fixed.** A section's `hidden by Sprint only` subtracts against `rowsForReader(fleet.rows, reader, mineOnly)`, so a row hidden by «Only my work» counts only on that control.
+
+**The mark needed `packages/board/src/app/lib/agent-rows/rows.tsx`**, which the brief's scope guard did not list: the `no plan` badge renders inside `Row`, beside the slice badge, through a new `sprintExempt` prop.
