@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ownership, isMine, type OwnedRow, type Reader } from '../src/index.js';
+import { ownership, isMine, parsePersonDirectory, type OwnedRow, type Reader } from '../src/index.js';
 
 /**
  * Whose a row is, and whether a filter to the reader's work keeps it.
@@ -103,5 +103,84 @@ describe('one person, compared through Person', () => {
     expect(ownership(pr('jan.wloka'), { hostUser: '', gitEmail: 'jan.wloka@quatico.com' })).toBe('unknown');
     expect(ownership(pr('jan.wloka'), { hostUser: 'jan.wloka@quatico.com' })).toBe('unknown');
     expect(ownership(pr('jwloka'), { gitEmail: 'jwloka@quatico.com' })).not.toBe('mine');
+  });
+});
+
+/**
+ * The directory this repository declares in `## Plot Config`. The three
+ * spellings are the estate's measured `Assignee:` values: `jwloka` 62,
+ * `Jan Wloka` 51, `eins78` 4. The four `eins78` plans were each added by Max
+ * Albrecht, so `eins78` is a second person rather than a third spelling.
+ */
+const directory = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
+const declared: Reader = { ...reader, directory };
+const plan = (assignee?: string): OwnedRow => ({ kind: 'plan', assignee });
+
+describe('a plan is owned by its assignee, resolved through the directory', () => {
+  it('reads both of the reader\'s spellings as the reader\'s', () => {
+    expect(ownership(plan('jwloka'), declared)).toBe('mine');
+    expect(ownership(plan('Jan Wloka'), declared)).toBe('mine');
+  });
+
+  it('reads a spelling the directory declares for another person as theirs', () => {
+    expect(ownership(plan('eins78'), declared)).toBe('theirs');
+    expect(ownership(plan('Max Albrecht'), declared)).toBe('theirs');
+    expect(isMine(plan('eins78'), declared)).toBe(false);
+  });
+
+  it('keeps the reader\'s 113 plans on the measured estate, and hides the other 4', () => {
+    const estatePlans = [
+      ...Array.from({ length: 62 }, () => plan('jwloka')),
+      ...Array.from({ length: 51 }, () => plan('Jan Wloka')),
+      ...Array.from({ length: 4 }, () => plan('eins78')),
+    ];
+    expect(estatePlans.filter((row) => isMine(row, declared))).toHaveLength(113);
+  });
+
+  it('hides none of the reader\'s plans without a directory', () => {
+    // WITHOUT A DIRECTORY `Jan Wloka` is undeclared rather than somebody else.
+    // An exact-match rule hid 51 of the reader's 113 plans here.
+    expect(ownership(plan('Jan Wloka'), reader)).toBe('unknown');
+    expect(isMine(plan('Jan Wloka'), reader)).toBe(true);
+    expect(ownership(plan('jwloka'), reader)).toBe('mine');
+  });
+
+  it('keeps a plan whose assignee spelling the directory does not declare', () => {
+    expect(ownership(plan('Someone New'), declared)).toBe('unknown');
+    expect(isMine(plan('Someone New'), declared)).toBe(true);
+  });
+
+  it('keeps a plan that names nobody', () => {
+    expect(ownership(plan(''), declared)).toBe('unknown');
+    expect(ownership(plan(undefined), declared)).toBe('unknown');
+  });
+
+  it('keeps every plan when the reader has no comparable login', () => {
+    expect(ownership(plan('eins78'), { directory })).toBe('unknown');
+    expect(ownership(plan('eins78'), { hostUser: 'jan.wloka@quatico.com', directory })).toBe('unknown');
+  });
+});
+
+describe('a PR author resolves through the same directory', () => {
+  it('reads a declared second spelling of the reader as the reader\'s', () => {
+    const aliased: Reader = { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = jwloka-work') };
+    expect(ownership(pr('jwloka-work'), aliased)).toBe('mine');
+  });
+
+  it('still reads an undeclared author handle as somebody else\'s', () => {
+    // A PR author and a login are both host handles, so the PR arm needs no
+    // declaration to answer theirs — unlike the plan arm.
+    expect(ownership(pr('maemisegger'), declared)).toBe('theirs');
+  });
+});
+
+describe('isMine keeps what it cannot classify', () => {
+  it('answers true for unknown, the permissive default', () => {
+    // A LATER CHANGE THAT MAKES UNKNOWN HIDE fails here. Every population the
+    // board has no owner for — issues, builds, bare branches — is `other`.
+    expect(ownership({ kind: 'other' }, declared)).toBe('unknown');
+    expect(isMine({ kind: 'other' }, declared)).toBe(true);
+    expect(isMine(plan(''), declared)).toBe(true);
+    expect(isMine(pr(''), declared)).toBe(true);
   });
 });
