@@ -1297,7 +1297,7 @@ test('consumer: the filled unit names the plugin bundle, never the consumer chec
   // following the label (#1053).
   const target = process.platform === 'darwin'
     ? path.join(home, 'Library', 'LaunchAgents', `${fleetLabel}.plist`)
-    : path.join(home, '.config', 'systemd', 'user', `${unitNameFor(ctl, fleetLabel)}.service`);
+    : path.join(home, '.config', 'systemd', 'user', `${unitNameFor(ctl, fleetLabel, consumer)}.service`);
   assert.ok(fs.existsSync(target), `no unit was filled at ${target}`);
   const unit = fs.readFileSync(target, 'utf8');
   assert.ok(unit.includes(bundle), `the unit does not name the plugin bundle ${bundle}:\n${unit}`);
@@ -1474,11 +1474,16 @@ out=$(supervisor_workdir); rc=$?; printf '%s|%s|%s' "$rc" "$out" "$(supervisor_c
 // output is discarded by the script, so a wrong name still exits cleanly and
 // only the recorded call can show which unit was asked about.
 
-const unitNameFor = (ctl, label) => {
+// THE CWD IS A PARAMETER, because sourcing the script resolves a repo root and
+// refuses outside one. `path.dirname(ctl)` is a git repository for a `sandbox`
+// ctl and NOT for a `consumerSandbox` one, whose ctl lives in a plugin cache —
+// so the default masked the failure everywhere but the one call site that
+// needed it, and only on a runner whose temp dir is outside any checkout.
+const unitNameFor = (ctl, label, cwd = path.dirname(ctl)) => {
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'; printf '%s' "$UNIT_NAME"`;
   const env = { ...process.env, PLOT_FLEET_LABEL: label };
   if (label === undefined) delete env.PLOT_FLEET_LABEL;
-  return execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd: path.dirname(ctl), env });
+  return execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd, env });
 };
 
 // A systemd whose active units are files in a directory, so `disable --now`
