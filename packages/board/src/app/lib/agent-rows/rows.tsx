@@ -1562,10 +1562,16 @@ export function Row({
   agent = null,
   section,
   sliceName = null,
+  sprintExempt = false,
   onRevealBranch,
   highlighted = false,
 }: {
   row: AgentRow;
+  /**
+   * The sprint filter is on and passed this row without a membership test —
+   * see `rowIsSprintExempt`. Renders a `no plan` mark beside the branch name.
+   */
+  sprintExempt?: boolean;
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /** Reveal a branch's row — forwarded to the agent panel's BRANCH fact. */
   onRevealBranch?: AgentListProps['onRevealBranch'];
@@ -1962,6 +1968,18 @@ export function Row({
               title={`Slice ${sliceName} — the part of the plan this branch belongs to`}
             >
               {sliceName}
+            </span>
+          )}
+          {/* `no plan` — the sprint filter showed this row without asking
+              whether a selected sprint names it, because it names no plan.
+              The mark is what separates an exempt row from a member row. */}
+          {sprintExempt && (
+            <span
+              data-sprint-exempt
+              className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+              title="Not in the sprint — shown under Sprint only because it names no plan"
+            >
+              no plan
             </span>
           )}
           {/* `deferred` — BESIDE the state, never instead of it, the same shape

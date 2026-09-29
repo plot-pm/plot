@@ -30,7 +30,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { SprintFilter } from './SprintFilter.js';
-import { slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
+import { rowIsSprintExempt, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
@@ -525,9 +525,13 @@ export function AgentList({
   // of any selected sprint — joining on the sprint file's `- [ ] [slug]` list,
   // not on the plan's `Sprint:` back-reference field.
   //
-  // PLAN-LESS ROWS ALWAYS PASS. The exemption is by KIND, not by empty sprint:
+  // TWO KINDS OF ROW PASS WITHOUT A MEMBERSHIP TEST — `rowIsSprintExempt`:
   //   - `kind: 'release'` — the release row (changeset-release/main)
-  //   - `kind: 'pr'` AND `row.plan === ''` — an unplanned PR
+  //   - `kind: 'pr'` AND `row.plan === ''` — an open PR no plan names
+  // This is NOT "every row with no plan": a plan-less row of any other kind (a
+  // loose `branch` with no open PR) reaches `slugPassesSprintFilter('')` and is
+  // hidden. An `idea/*` row is kind `plan` and carries its draft's slug, so it
+  // is asked about membership like any plan.
   // The old filter `r.sprint === ''` admitted 53 plan rows (slices/branches
   // whose sprint field was empty) alongside the 2 genuine plan-less rows.
   //
@@ -537,13 +541,19 @@ export function AgentList({
   const selectedSprints = useMemo(() => [...sprintFilter], [sprintFilter]);
   const filteredRows = sprintFilter.size === 0
     ? fleet.rows
-    : fleet.rows.filter((r) => {
-      // EXEMPT: rows with no plan
-      if (r.kind === 'release') return true;
-      if (r.kind === 'pr' && r.plan === '') return true;
-      // FILTER: rows with a plan, by membership
-      return slugPassesSprintFilter(r.plan, selectedSprints, membership);
-    });
+    : fleet.rows.filter((r) =>
+      rowIsSprintExempt(r) || slugPassesSprintFilter(r.plan, selectedSprints, membership));
+  // WHAT THE SPRINT FILTER DID, over the whole fleet — reported on its control.
+  // `exempt` counts the rows the filter passed without asking (they stay on
+  // screen and carry a mark); `hidden` counts the rows it removed. Two numbers
+  // because they are two facts: a reader told `4 hidden` must not have to work
+  // out how many unrelated rows were shown anyway.
+  const sprintReport = sprintFilter.size === 0
+    ? null
+    : {
+      hidden: fleet.rows.length - filteredRows.length,
+      exempt: filteredRows.filter(rowIsSprintExempt).length,
+    };
 
   // THE ROWS THIS READER ASKED FOR. Applied AFTER the sprint filter and BEFORE
   // `rowsBySection`, for the reason the sprint filter states about itself: both
@@ -551,7 +561,8 @@ export function AgentList({
   // those rows belong*.
   //
   // COMPOSED RATHER THAN MERGED. The sprint filter reports what it withheld per
-  // section, counted against `fleet.rows`; folding ownership into that count
+  // section, counted against the ownership-filtered `fleet.rows`
+  // (`unfilteredSectionedRows` below); folding ownership into that count
   // would make one number the answer to two different questions, and a reader
   // told `3 hidden` could not tell which filter hid them. So this narrows the
   // rows and contributes nothing to that accounting.
@@ -801,6 +812,7 @@ export function AgentList({
             selected={sprintFilter}
             onToggle={toggleSprintFilter}
             estateTotals={fleet.estateTotals}
+            report={sprintReport}
           />
         </div>
 
@@ -936,8 +948,13 @@ export function AgentList({
         // not — the spec says a filtered section must say what it withheld.
         // ONLY COMPUTED WHEN A FILTER IS ACTIVE: when no filter applies, every
         // row is shown and no section hides anything to report.
+        //
+        // THE OWNERSHIP FILTER IS APPLIED TO BOTH SIDES, so the difference is
+        // what the SPRINT filter alone withheld. Against bare `fleet.rows` a row
+        // hidden by «Only my work» was counted a second time under the label
+        // `hidden by Sprint only`.
         const unfilteredSectionedRows = sprintFilter.size > 0
-          ? rowsBySection(fleet.rows)
+          ? rowsBySection(rowsForReader(fleet.rows, reader, mineOnly))
           : sectionedRows;
         // THE SERVER-DERIVED SLICES, bound once beside the rows so every
         // `sliceGroupsFor`/`ungroupedRows` call below asks the same list rather
@@ -1125,9 +1142,21 @@ export function AgentList({
         const hiddenSuffix = hiddenCount > 0
           ? ` — ${hiddenCount} hidden by Sprint only`
           : '';
+        // WHAT THE SPRINT FILTER NEVER SAW. Issues, draft plans and stopped
+        // agents reach WAITING ON YOU from the fleet directly — an issue carries
+        // no sprint, and the other two are joined to unfiltered rows — so the
+        // tally beside them is not a sprint-filtered number, and the header says
+        // so rather than letting `hidden by Sprint only` imply it.
+        const unfilteredCount = sprintFilter.size > 0
+          ? issues.length + drafts.length + broken.length
+          : 0;
+        const unfilteredSuffix = unfilteredCount > 0
+          ? ` · ${unfilteredCount} not sprint-filtered (issues, draft plans, stopped agents)`
+          : '';
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
             {countOf + issues.length > 0 ? shownLabel : emptyHint}{hiddenSuffix}
+            {unfilteredSuffix && <span data-sprint-unfiltered={unfilteredCount}>{unfilteredSuffix}</span>}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
@@ -2135,6 +2164,11 @@ export function AgentList({
                           key={rowKey(r)}
                           row={r}
                           onOpenPlan={onOpenPlan}
+                          // THE ROW THE SPRINT FILTER LET THROUGH WITHOUT ASKING
+                          // wears a mark, so it reads as exempt rather than as a
+                          // sprint member. Only here: a row in a plan group names
+                          // a plan, and `rowIsSprintExempt` never holds for it.
+                          sprintExempt={sprintFilter.size > 0 && rowIsSprintExempt(r)}
                           // Looked up per row rather than per group: a row's
                           // plan is what dispatch takes, and only the rows that
                           // are startable ever use it.

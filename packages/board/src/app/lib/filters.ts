@@ -1,4 +1,4 @@
-import type { Board, Card, FleetSprint, SprintCard } from '../../contract/schema.js';
+import type { AgentRow, Board, Card, FleetSprint, SprintCard } from '../../contract/schema.js';
 
 /** Sentinels for "plans with no sprint / no story assigned". */
 export const NO_SPRINT = '__no_sprint__';
@@ -309,3 +309,22 @@ export function slugPassesSprintFilter(
   }
   return false;
 }
+
+/**
+ * Does the Agents tab's sprint filter let this row through without asking about
+ * membership?
+ *
+ * Two kinds of row are exempt: the release row (`kind: 'release'`) and a PR row
+ * that names no plan (`kind: 'pr'` with `plan === ''`). Every other row is
+ * decided by {@link slugPassesSprintFilter} on its `plan`. A plan-less row of
+ * any other kind — a loose `branch`, for example — is not exempt, and against a
+ * selected sprint it is hidden.
+ *
+ * The row's mark and the control's count both read this predicate, so the two
+ * cannot disagree about which rows were exempted.
+ *
+ * @param row - the row's kind and plan slug
+ * @returns true when the filter passes the row unconditionally
+ */
+export const rowIsSprintExempt = (row: Pick<AgentRow, 'kind' | 'plan'>): boolean =>
+  row.kind === 'release' || (row.kind === 'pr' && row.plan === '');

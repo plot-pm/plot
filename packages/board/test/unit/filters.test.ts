@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   NO_SPRINT,
   passesFilter,
+  rowIsSprintExempt,
   sanitizeSelection,
   sprintFilterOptions,
   withCounts,
@@ -128,5 +129,22 @@ describe('sanitizeSelection', () => {
     // After sanitizing, the invalid filter falls away and all cards pass:
     const clean = sanitizeSelection(raw, options);
     expect(cards.filter((c) => passesFilter(c, clean, 'sprint', NO_SPRINT))).toHaveLength(3);
+  });
+});
+
+describe('rowIsSprintExempt', () => {
+  it('exempts the release row and a PR row that names no plan', () => {
+    expect(rowIsSprintExempt({ kind: 'release', plan: '' })).toBe(true);
+    expect(rowIsSprintExempt({ kind: 'pr', plan: '' })).toBe(true);
+  });
+
+  it('asks membership of a PR row that names a plan', () => {
+    expect(rowIsSprintExempt({ kind: 'pr', plan: 'a-plan' })).toBe(false);
+  });
+
+  it('does not exempt a plan-less row of any other kind', () => {
+    for (const kind of ['branch', 'plan', 'wave', 'ticket', 'build', 'agent'] as const) {
+      expect(rowIsSprintExempt({ kind, plan: '' })).toBe(false);
+    }
   });
 });

@@ -130,7 +130,7 @@ And the feedback loop closes harder on the supervisor than on the board. `cadenc
 
 ## Slices
 
-### A daemon spends within its means (Branch: bug/a-daemon-spends-within-its-means)
+### A daemon spends within its means (Branch: bug/a-daemon-spends-within-its-means, PR: #1072)
 
 Read the account's spend rate in the tick and report it beside the supervisor's own share. Add no backoff.
 
