@@ -4,13 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1057
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
@@ -78,3 +78,25 @@ Resolve a slice row's PR from `byHead` where the plan carries no annotation, kee
 **The agent did everything right and the board still could not show its work.** That is what makes this worth a plan rather than a brief instruction change: no participant misbehaved, and the gap is between two correct rules.
 
 **Its sibling is [`a-sprint-view-says-what-it-hid`](2026-09-29-a-sprint-view-says-what-it-hid.md) (#1058)** — both are the board declining to show a PR an operator must act on, from the same estate on the same day, for unrelated reasons.
+
+
+## Rejected, 2026-09-29
+
+One juror, **reject**, **executed**. Moderation: `.plot/panels/2026-09-29-a-slice-row-finds-its-pr-by-head/panel.md`.
+
+**The mechanism this plan proposes is on `main`, and this plan's own citation is the answer.** `fleet.ts:6440-6441`, inside the slice loop:
+
+```ts
+const held = prsByHeadMap?.get(b.branch) ?? null;
+const linked = held && held.state === 'CLOSED' ? pr : (held ?? pr);
+```
+
+`held ?? pr` — **the head map is asked FIRST**, and `fleet.ts:6675` is the row's `pr` field. `prsByHeadMap` is `entry.prsByHead`, which is the `byHead` map this plan cited at `:2674` as an unconsumed fact. The distance from the cited line to the shipped fix is under fifty lines, with a measurement in its comment (#252/#253/#254).
+
+**The precedence this plan argued for would have been a regression.** *"Where they disagree the annotation wins"* describes a coupling that does not exist: no `agentPr` call site reads `plan.prs`, and the scan emits no per-branch PR number. It would have added plan text as an input to a host-derived field, against the shipped direction.
+
+**Verified live, on the estate, with the discriminating case.** `origin/main`'s copy of `a-row-is-owned-by-more-than-its-pr` carries **zero** `→ #N`; its branch has open PR #1060; the board renders `{"number": 1060, "url": …, "author": "jwloka"}`. This plan's first `Done when` passes on `main` today.
+
+**The half of the symptom that is real is the half this mechanism cannot touch.** `(unnamed)` is `UNNAMED_SLICE` (`schema.ts:1429`) — the slice's **name**, from a `###` heading missing on the read ref. `byHead` can never supply a slice name. The plan conflated the name and the link and proposed a fix for the one that works.
+
+**#1057 is rephrased, not closed.** The reporter saw something real on Bitbucket. What a replacement must establish first: was `prsByHead` populated at all when that row rendered? Bitbucket refreshes at 4× the GitHub period (`prRefreshMsFor`), so a cold map is the likelier cause — and if it was empty, reading it harder cannot help.
