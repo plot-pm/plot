@@ -161,7 +161,7 @@ const directory: PersonDirectory = { 'jan wloka': 'jwloka', jwloka: 'jwloka' };
 
 ## Slices
 
-### A row is owned by more than its PR (Branch: bug/a-row-is-owned-by-more-than-its-pr)
+### A row is owned by more than its PR (Branch: bug/a-row-is-owned-by-more-than-its-pr, PR: #1060)
 
 Read `assignee` in `prOwnership`, then take branches, plans and builds in order, stopping where ownership stops being obvious.
 
