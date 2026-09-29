@@ -1,4 +1,4 @@
-import { resolvePerson, samePerson } from '../entities/person.js';
+import { declaresSpelling, resolvePerson, samePerson, type PersonDirectory } from '../entities/person.js';
 
 /**
  * Whose a row is, as far as the board can tell.
@@ -20,6 +20,11 @@ export interface Reader {
   hostUser?: string;
   /** Git's `user.email`. Never compared against a PR author. */
   gitEmail?: string;
+  /**
+   * The declared spellings of each person, from the `People` config key.
+   * Absent or empty where none is declared.
+   */
+  directory?: PersonDirectory;
 }
 
 /**
@@ -29,29 +34,59 @@ export interface Reader {
  *   where the host did not answer.
  * - `agent` — a registry agent row; `identity` is `manifest` or `synthesized`,
  *   `state` is the agent's state word. Either is absent on an older server.
- * - `other` — a plan card, an issue, or a branch with no PR. None carries an
+ * - `plan` — a plan card; `assignee` is the plan's `Assignee:` line, free
+ *   text, `''` or absent where the plan names nobody.
+ * - `other` — an issue, a build, or a branch with no PR. None carries an
  *   owner.
  */
 export type OwnedRow =
   | { kind: 'pr'; author?: string }
   | { kind: 'agent'; identity?: string; state?: string }
+  | { kind: 'plan'; assignee?: string }
   | { kind: 'other' };
 
 /** Agent states that say nothing about a desk on this machine. */
 const NO_DESK_HERE: readonly string[] = ['elsewhere', 'unknown'];
 
 /**
+ * The reader's host login, or `''` where it cannot be compared: absent, empty,
+ * or shaped like an email. An email and a login are two spellings of one
+ * person, and nothing here bridges them.
+ */
+const comparableLogin = (reader: Reader): string => {
+  const login = reader.hostUser?.trim() ?? '';
+  return login.includes('@') ? '' : login;
+};
+
+/**
  * Whose a PR is, by its author against the reader's host login.
  *
- * Unknown where either side is empty, and where the reader's login is shaped
- * like an email: an email and a login are two spellings of one person, and
- * nothing here bridges them.
+ * Both are host handles, so an author that resolves to another person is
+ * somebody else's. Unknown where either side is empty.
  */
 const prOwnership = (author: string | undefined, reader: Reader): Ownership => {
-  const login = reader.hostUser?.trim() ?? '';
+  const login = comparableLogin(reader);
   const by = author?.trim() ?? '';
-  if (login === '' || by === '' || login.includes('@')) return 'unknown';
-  return samePerson(resolvePerson(login), resolvePerson(by)) ? 'mine' : 'theirs';
+  if (login === '' || by === '') return 'unknown';
+  const directory = reader.directory ?? {};
+  return samePerson(resolvePerson(login, directory), resolvePerson(by, directory)) ? 'mine' : 'theirs';
+};
+
+/**
+ * Whose a plan is, by its `Assignee:` line against the reader's host login.
+ *
+ * `mine` where the assignee resolves to the reader. `theirs` only where the
+ * directory declares the assignee's spelling for another person: an assignee
+ * is free text, so an undeclared spelling that differs from the login may
+ * still be the reader, and is unknown. Unknown where either side is empty.
+ */
+const planOwnership = (assignee: string | undefined, reader: Reader): Ownership => {
+  const login = comparableLogin(reader);
+  const by = assignee?.trim() ?? '';
+  if (login === '' || by === '') return 'unknown';
+  const directory = reader.directory ?? {};
+  if (samePerson(resolvePerson(login, directory), resolvePerson(by, directory))) return 'mine';
+  return declaresSpelling(by, directory) ? 'theirs' : 'unknown';
 };
 
 /**
@@ -80,6 +115,8 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
       return prOwnership(row.author, reader);
     case 'agent':
       return agentOwnership(row.identity, row.state);
+    case 'plan':
+      return planOwnership(row.assignee, reader);
     default:
       return 'unknown';
   }

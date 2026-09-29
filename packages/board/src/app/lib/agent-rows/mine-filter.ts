@@ -1,5 +1,5 @@
 import { isMine, type OwnedRow, type Reader } from '@plot-pm/domain';
-import { type AgentEntry, type AgentRow } from '../../../contract/schema.js';
+import { type AgentEntry, type AgentRow, type Board, type Card } from '../../../contract/schema.js';
 
 /**
  * Where the "only my work" preference lives.
@@ -74,7 +74,9 @@ export const writeMineOnly = (on: boolean, storage?: Pick<Storage, 'setItem'>): 
  * A branch row as the ownership rule reads it.
  *
  * A row with a PR is a `pr` row and matches on the author's handle; a row
- * without one names no owner at all. **The branch name is deliberately not
+ * without one names no owner at all. That includes a `build` row: a build of
+ * `main` belongs to nobody in particular, and a build of a branch is owned by
+ * whoever owns the branch, which no fact on the row says. **The branch name is deliberately not
  * consulted** — `feature/jw-something` looks like a claim of ownership and is
  * not one, and guessing from it would invent an owner the row never carried.
  *
@@ -96,18 +98,27 @@ export const ownedFromAgent = (agent: Pick<AgentEntry, 'identity' | 'state'>): O
   ({ kind: 'agent', identity: agent.identity, state: agent.state });
 
 /**
- * Who is reading, as the ownership rule wants it — the two identity fields
- * `ServerInfo` carries.
+ * A plan card as the ownership rule reads it — its `Assignee:` line.
  *
- * Both are optional on {@link Reader} because the client CASTS the board
+ * `assignee` is `''` where the plan names nobody. The rule resolves it through
+ * the reader's directory; nothing is resolved here.
+ */
+export const ownedFromCard = (card: Pick<Card, 'assignee'>): OwnedRow =>
+  ({ kind: 'plan', assignee: card.assignee });
+
+/**
+ * Who is reading, as the ownership rule wants it — the identity fields
+ * `ServerInfo` carries, and the `People` directory beside them.
+ *
+ * All are optional on {@link Reader} because the client CASTS the board
  * payload rather than parsing it, so a server from before those fields
- * delivers `undefined` where the schema promises `''`. The rule treats the two
- * alike; this passes them through rather than normalising, so it cannot
- * disagree with the rule about what empty means.
+ * delivers `undefined` where the schema promises a value. The rule treats
+ * absent and empty alike; this passes them through rather than normalising, so
+ * it cannot disagree with the rule about what empty means.
  */
 export const readerFrom = (
-  server?: { hostUser?: string; gitEmail?: string },
-): Reader => ({ hostUser: server?.hostUser, gitEmail: server?.gitEmail });
+  server?: { hostUser?: string; gitEmail?: string; people?: Record<string, string> },
+): Reader => ({ hostUser: server?.hostUser, gitEmail: server?.gitEmail, directory: server?.people });
 
 /**
  * The rows that stay in view, given the reader and whether the filter is on.
@@ -126,3 +137,35 @@ export const rowsForReader = <T extends Pick<AgentRow, 'pr'>>(
   reader: Reader,
   on: boolean,
 ): T[] => (on ? rows.filter((r) => isMine(ownedFromRow(r), reader)) : rows);
+
+/**
+ * The registry agents that stay in view, given the reader and whether the
+ * filter is on.
+ *
+ * Off returns the array untouched, for the reason {@link rowsForReader} gives.
+ * On, an agent is hidden only where {@link isMine} answers false for
+ * {@link ownedFromAgent}.
+ */
+export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>>(
+  agents: T[],
+  reader: Reader,
+  on: boolean,
+): T[] => (on ? agents.filter((a) => isMine(ownedFromAgent(a), reader)) : agents);
+
+/**
+ * The board with only the plan cards that stay in view.
+ *
+ * Off returns the board untouched. On, each column keeps the cards
+ * {@link isMine} keeps for {@link ownedFromCard}; a card whose assignee is
+ * empty or undeclared stays. Nothing but the columns' cards changes.
+ */
+export const boardForReader = (board: Board, reader: Reader, on: boolean): Board =>
+  on
+    ? {
+      ...board,
+      columns: board.columns.map((column) => ({
+        ...column,
+        cards: column.cards.filter((card) => isMine(ownedFromCard(card), reader)),
+      })),
+    }
+    : board;

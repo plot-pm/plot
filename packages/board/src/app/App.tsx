@@ -9,6 +9,7 @@ import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
+import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
 import {
   NO_SPRINT,
   NO_STORY,
@@ -142,6 +143,15 @@ export function App() {
   const [lanes, setLanes] = useState(
     () => new URLSearchParams(location.search).get('lanes') === '1',
   );
+  // "ONLY MY WORK" ON THE PLANS TAB. One stored preference governs both tabs:
+  // the Agents tab's control writes the same key, and each tab renders alone,
+  // so this re-reads the key whenever the tab changes.
+  const [mineOnly, setMineOnly] = useState<boolean>(() => readMineOnly());
+  useEffect(() => setMineOnly(readMineOnly()), [tab]);
+  const onMineOnly = (next: boolean) => {
+    setMineOnly(next);
+    writeMineOnly(next);
+  };
   const [error, setError] = useState<string | null>(null);
   const [sprintSel, setSprintSel] = useState<string[]>(() => readList('sprint'));
   const [storySel, setStorySel] = useState<string[]>(() => readList('story'));
@@ -1077,6 +1087,22 @@ export function App() {
             Story lanes
           </label>
         )}
+        {/* A plan card is the reader's where its `Assignee:` resolves to the
+            reader through the `People` directory, and somebody else's only
+            where the directory declares its spelling for another person. A
+            card naming nobody, or an undeclared spelling, stays. */}
+        {tab === 'plans' && board && (
+          <label data-mine-filter className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <input
+              type="checkbox"
+              data-mine-toggle
+              checked={mineOnly}
+              onChange={(e) => onMineOnly(e.target.checked)}
+              className="h-3.5 w-3.5 accent-green-600"
+            />
+            Only my work
+          </label>
+        )}
       </header>
       <main>
         {tab === 'stories' ? (
@@ -1211,7 +1237,7 @@ export function App() {
             )}
           {lanes ? (
             <Swimlanes
-              board={withEffectiveDispatch(board)}
+              board={withEffectiveDispatch(boardForReader(board, readerFrom(board.server), mineOnly))}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
@@ -1223,7 +1249,7 @@ export function App() {
             />
           ) : (
             <BoardView
-              board={withEffectiveDispatch(board)}
+              board={withEffectiveDispatch(boardForReader(board, readerFrom(board.server), mineOnly))}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}

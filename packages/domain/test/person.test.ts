@@ -3,6 +3,8 @@ import {
   resolvePerson,
   samePerson,
   namesAPerson,
+  parsePersonDirectory,
+  declaresSpelling,
   type PersonDirectory,
 } from '../src/index.js';
 
@@ -75,5 +77,39 @@ describe('a `who` position does not always hold a person', () => {
   it('rejects an empty or blank value', () => {
     expect(namesAPerson('')).toBe(false);
     expect(namesAPerson('   ')).toBe(false);
+  });
+});
+
+describe('a directory is read from its config form', () => {
+  it('resolves the estate\'s three measured Assignee spellings', () => {
+    // `jwloka` 62, `Jan Wloka` 51, `eins78` 4 across 117 plans. The `eins78`
+    // plans were added by Max Albrecht: two people, three spellings.
+    const people = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
+    expect(resolvePerson('Jan Wloka', people).handle).toBe('jwloka');
+    expect(resolvePerson('jwloka', people).handle).toBe('jwloka');
+    expect(resolvePerson('eins78', people).handle).toBe('eins78');
+    expect(samePerson(resolvePerson('Jan Wloka', people), resolvePerson('jwloka', people))).toBe(true);
+    expect(samePerson(resolvePerson('eins78', people), resolvePerson('jwloka', people))).toBe(false);
+  });
+
+  it('declares every handle as a spelling of itself', () => {
+    expect(parsePersonDirectory('eins78')).toEqual({ eins78: 'eins78' });
+    expect(declaresSpelling('EINS78', parsePersonDirectory('eins78'))).toBe(true);
+  });
+
+  it('lowercases handles and tolerates surrounding space', () => {
+    expect(parsePersonDirectory(' JWloka =  Jan Wloka ,  jan  ;')).toEqual({ jwloka: 'jwloka', 'jan wloka': 'jwloka', jan: 'jwloka' });
+  });
+
+  it('drops a spelling two people claim', () => {
+    const people = parsePersonDirectory('alice = Sam; bob = Sam');
+    expect(declaresSpelling('Sam', people)).toBe(false);
+    expect(people).toEqual({ alice: 'alice', bob: 'bob' });
+  });
+
+  it('declares nobody for an empty or absent value', () => {
+    expect(parsePersonDirectory('')).toEqual({});
+    expect(parsePersonDirectory(undefined)).toEqual({});
+    expect(declaresSpelling('jwloka', {})).toBe(false);
   });
 });

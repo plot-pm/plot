@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
-import { openCatalogue, board as buildBoard, expandAgentFolds, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, board as buildBoard, card, column, expandAgentFolds, type Catalogue } from '../catalogue/index.js';
 import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -250,6 +250,86 @@ describe('the board filters to my work', () => {
       // nothing — which reads as a broken filter.
       await expect.poll(() => page.locator('[data-mine-filter][data-mine-known="0"]').count())
         .toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+});
+
+/**
+ * THE PLANS TAB FILTERS BY ASSIGNEE — `a-row-is-owned-by-more-than-its-pr`.
+ *
+ * The directory is stated on the board payload, as the server sends it from the
+ * `People` key. Three cards carry the reader's two spellings and a declared
+ * colleague; two more carry nobody and an undeclared spelling, and both stay.
+ */
+describe('the plans tab filters to my work', () => {
+  let cat: Catalogue;
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
+  }, 60_000);
+
+  afterAll(async () => {
+    await cat?.close();
+  });
+
+  const SLUGS = ['by-login', 'by-name', 'by-colleague', 'by-nobody', 'by-stranger'];
+
+  const kanban = () => buildBoard({
+    server: {
+      restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME,
+      people: { [ME]: ME, 'gardener g.': ME, [THEM]: THEM },
+    },
+    columns: [
+      column({
+        phase: 'Development',
+        cards: [
+          card({ slug: 'by-login', title: 'By login', assignee: ME }),
+          card({ slug: 'by-name', title: 'By name', assignee: 'Gardener G.' }),
+          card({ slug: 'by-colleague', title: 'By colleague', assignee: THEM }),
+          card({ slug: 'by-nobody', title: 'By nobody', assignee: '' }),
+          card({ slug: 'by-stranger', title: 'By stranger', assignee: 'Someone New' }),
+        ],
+      }),
+    ],
+  });
+
+  const shownCards = async (page: Page): Promise<string[]> =>
+    page.locator('[id^="plan-"]').evaluateAll((els) => els.map((e) => e.id.replace(/^plan-/, '')));
+
+  it('hides only the card declared for somebody else, and restores it when unticked', async () => {
+    const page = await cat.open('an-empty-estate', { tab: 'board', over: { fleet: fleet(), board: kanban() } });
+    try {
+      await expect.poll(async () => (await shownCards(page)).length).toBe(SLUGS.length);
+      const toggle = page.locator('[data-mine-toggle]');
+      await expect.poll(() => toggle.isChecked()).toBe(false);
+
+      await toggle.check();
+      await expect.poll(async () => (await shownCards(page)).includes('by-colleague')).toBe(false);
+      // THE READER'S SECOND SPELLING STAYS, and so do the two cards the rule
+      // cannot place. An exact-match rule would drop `by-name` here.
+      expect((await shownCards(page)).sort()).toEqual(SLUGS.filter((s) => s !== 'by-colleague').sort());
+
+      await toggle.uncheck();
+      await expect.poll(async () => (await shownCards(page)).sort()).toEqual([...SLUGS].sort());
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shares one preference with the agents tab', async () => {
+    const page = await cat.open('an-empty-estate', { tab: 'board', over: { fleet: fleet(), board: kanban() } });
+    try {
+      await page.locator('[data-mine-toggle]').check();
+      await page.getByRole('button', { name: 'Agents' }).click();
+      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await expect.poll(() => page.locator('[data-mine-toggle]').isChecked()).toBe(true);
+
+      await page.locator('[data-mine-toggle]').uncheck();
+      await page.getByRole('button', { name: 'Plans' }).click();
+      await expect.poll(() => page.locator('[data-mine-toggle]').isChecked()).toBe(false);
+      await expect.poll(async () => (await shownCards(page)).length).toBe(SLUGS.length);
     } finally {
       await page.close();
     }

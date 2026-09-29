@@ -1,9 +1,10 @@
 /**
  * A human a record names.
  *
- * Identity: slug — the handle, chosen by a person. State source: none; a
- * Person is not derived from anywhere, because nothing in the estate resolves
- * one human's two spellings to one identity.
+ * Identity: slug — the handle, chosen by a person. State source: the
+ * `People` key of `## Plot Config`, read by {@link parsePersonDirectory}; a
+ * Person is declared there rather than derived, because no reading in the
+ * estate knows that two spellings name one human.
  *
  * Two fields, and only the first is identity. There is no email, no avatar and
  * no role: an email is a git artefact and a privacy surface, and a role is a
@@ -45,6 +46,56 @@ export const resolvePerson = (raw: string, directory: PersonDirectory = {}): Per
   return handle === undefined
     ? { handle: key, displayName: '' }
     : { handle, displayName: raw.trim() };
+};
+
+/**
+ * Whether a raw spelling is declared in the directory.
+ *
+ * @param raw - the spelling as an artefact wrote it.
+ * @param directory - the declared spelling-to-handle mapping.
+ * @returns true when the directory maps the spelling to a handle.
+ */
+export const declaresSpelling = (raw: string, directory: PersonDirectory): boolean =>
+  directory[normalize(raw)] !== undefined;
+
+/**
+ * Reads a directory from its `## Plot Config` form.
+ *
+ * The form is `handle = Spelling, Spelling; handle = Spelling`: one entry per
+ * person, separated by `;`, each naming the handle and then the other
+ * spellings of that person. Every handle also resolves to itself, so an entry
+ * with no `=` declares a person with one spelling. Handles are lowercased.
+ *
+ * A spelling that two entries claim for different handles resolves to nobody:
+ * it is dropped, so it stays undeclared.
+ *
+ * @param text - the config value; `''` or absent where none is declared.
+ * @returns the directory, empty where `text` declares nobody.
+ */
+export const parsePersonDirectory = (text: string | undefined): PersonDirectory => {
+  const claims = new Map<string, Set<string>>();
+  const claim = (spelling: string, handle: string): void => {
+    const key = normalize(spelling);
+    if (key === '') return;
+    claims.set(key, (claims.get(key) ?? new Set()).add(handle));
+  };
+  for (const entry of (text ?? '').split(';')) {
+    // `split` ALWAYS yields at least one element, so the first is a string at
+    // runtime whatever `noUncheckedIndexedAccess` says. A `?? ''` or a
+    // destructuring default here is a branch no input can take, and the
+    // domain's branch gate is 100% — so the index is asserted, not guarded.
+    const parts = entry.split('=');
+    const handle = normalize(parts[0] as string);
+    const rest = parts.slice(1);
+    if (handle === '') continue;
+    claim(handle, handle);
+    for (const spelling of rest.join('=').split(',')) claim(spelling, handle);
+  }
+  const directory: Record<string, string> = {};
+  for (const [key, handles] of claims) {
+    if (handles.size === 1) directory[key] = [...handles][0] as string;
+  }
+  return directory;
 };
 
 /**

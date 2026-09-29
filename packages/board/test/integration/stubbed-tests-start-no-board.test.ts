@@ -589,7 +589,9 @@ const EXPECTED_FILES = 53;
 // Added, not moved — `EXPECTED_FILES` counts the new file and nothing lost an
 // `it(`. Re-derived against the main this branch sits on rather than by
 // arithmetic on a stale one.
-const EXPECTED_TESTS = 516;
+// 516 → 518 on 2026-09-29: two `it(` added to `mine-filter.browser.test.ts`
+// for the Plans tab's filter. Added, not moved; no file was added.
+const EXPECTED_TESTS = 518;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

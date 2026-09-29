@@ -59,6 +59,7 @@ export { splitBranch };
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import {
   readMineOnly,
+  agentsForReader,
   readerFrom,
   rowsForReader,
   writeMineOnly,
@@ -421,12 +422,21 @@ export function AgentList({
   // hiding it because its plan is off-focus is the empty-section defect wearing a
   // filter. The join to a hidden row still carries that row's facts.
   const rowByBranch = new Map((fleet?.rows ?? []).map((r) => [r.branch, r]));
-  const workingRows = workingAgentRows(fleet?.agents ?? [], rowByBranch);
+  // WHO IS READING, for the "only my work" filter. Derived from the board's
+  // identity fields and its `People` directory, and nothing else — the row's
+  // branch name is never consulted.
+  const reader = useMemo(() => readerFrom(server), [server]);
+  // THE AGENTS THIS READER ASKED FOR, through the agent arm of the ownership
+  // rule. That arm answers `mine` or `unknown` and never `theirs`, so no worker
+  // is hidden today: a worker stays a fact about the fleet. The call is what
+  // lets the rule, rather than this component, decide that.
+  const ownAgents = agentsForReader(fleet?.agents ?? [], reader, mineOnly);
+  const workingRows = workingAgentRows(ownAgents, rowByBranch);
   // THE BROKEN AGENTS — `stalled` and `unknown` — for WAITING ON YOU.
   // A problem report: the worker stopped and needs a person to look. Joined to
   // branch rows by the same rule as `workingRows`, so the row's plan and PR
   // travel with it where one exists.
-  const brokenRows = brokenAgentRows(fleet?.agents ?? [], rowByBranch);
+  const brokenRows = brokenAgentRows(ownAgents, rowByBranch);
   // THE DRAFT PLANS NO BRANCH ROW CARRIES — for WAITING ON YOU. Tested against
   // the unfiltered `fleet.rows`, like the joins above: a row the sprint filter
   // hides still means the plan has one. `?? []` because the client casts the
@@ -534,10 +544,6 @@ export function AgentList({
       // FILTER: rows with a plan, by membership
       return slugPassesSprintFilter(r.plan, selectedSprints, membership);
     });
-
-  // WHO IS READING, for the "only my work" filter. Derived from the board's two
-  // identity fields and nothing else — the row's branch name is never consulted.
-  const reader = useMemo(() => readerFrom(server), [server]);
 
   // THE ROWS THIS READER ASKED FOR. Applied AFTER the sprint filter and BEFORE
   // `rowsBySection`, for the reason the sprint filter states about itself: both
