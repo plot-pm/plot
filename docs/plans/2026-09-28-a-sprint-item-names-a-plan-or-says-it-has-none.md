@@ -12,6 +12,7 @@
 - **Issue:** #1045
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Started:** 2026-09-29, Jan Wloka, `bug/a-sprint-item-names-a-plan-or-says-it-has-none`
 
 ## Changelog
 
