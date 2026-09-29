@@ -141,10 +141,31 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
     fs.chmodSync(f, 0o755);
   }
 
+  // A DEFAULT HARNESS, IN ITS OWN DIRECTORY AND NOT IN `guardBin`.
+  //
+  // `--start` resolves the agent harness on PATH and refuses when it cannot,
+  // so every case that fills a unit needs one. Until this existed the suite
+  // took it from the DEVELOPER'S OWN PATH: nine cases that never mention a
+  // harness passed on a machine with `claude` installed and failed on CI with
+  // `cannot resolve the agent harness 'claude'`.
+  //
+  // IT IS A SEPARATE DIRECTORY BECAUSE `guardBin` GOES FIRST. `startWith`
+  // builds its own PATH and puts a case's stub dir after `guardBin`, so a
+  // `claude` in `guardBin` would outrank the stub the case named and
+  // `--start puts the resolved harness first` would assert against the wrong
+  // binary. This dir is appended by `run()` instead, and `startWith`'s
+  // explicit PATH leaves it out entirely — a case about the harness gets no
+  // default, which is what those cases are for.
+  const harnessBin = path.join(box, 'harness-default-bin');
+  fs.mkdirSync(harnessBin, { recursive: true });
+  const defaultHarness = path.join(harnessBin, 'claude');
+  fs.writeFileSync(defaultHarness, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(defaultHarness, 0o755);
+
   fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-qm', 'init');
-  return { root, box, fleetLabel, guardBin, ctl: path.join(dst, 'plot-fleetctl.sh') };
+  return { root, box, fleetLabel, guardBin, harnessBin, ctl: path.join(dst, 'plot-fleetctl.sh') };
 }
 
 // THE GUARD IS THE FIRST ARGUMENT AFTER THE CWD, AND IT IS REFUSED WHEN ABSENT.
@@ -158,6 +179,14 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
 // A CALLER MAY STILL OVERRIDE `PATH` through `env` — `stubPlatform`'s two cases
 // do, deliberately, to drive a LOADED launchd. That is a stub too, so the
 // guarantee holds: what this refuses is reaching the machine's own binary.
+// THE PATH A CASE BUILDS, plus the sandbox's default harness at the END.
+//
+// Thirteen cases override PATH to put a platform stub first, which discards
+// the harness dir `run()` appends. Each still needs a resolvable harness for
+// `--start` to fill a unit at all, and none of them is about the harness — so
+// the default goes last, where a case's own stub always outranks it.
+const withHarness = (box, ...dirs) => [...dirs, path.join(box, 'harness-default-bin')].join(':');
+
 function run(ctl, args, cwd, guardBin, env = {}) {
   if (typeof guardBin !== 'string' || guardBin === '') {
     throw new Error(
@@ -176,7 +205,10 @@ function run(ctl, args, cwd, guardBin, env = {}) {
         env: {
           ...process.env,
           PLOT_FLEET_LABEL: undefined,
-          PATH: `${guardBin}:${process.env.PATH}`,
+          // The sandbox's default harness sits AFTER `guardBin` and after the
+          // machine's PATH, so it answers only when nothing else does. A case
+          // that names its own harness dir overrides PATH entirely.
+          PATH: `${guardBin}:${process.env.PATH}:${path.join(path.dirname(guardBin), 'harness-default-bin')}`,
           ...env,
         },
       }),
@@ -366,7 +398,7 @@ test('--stop polls the unload past a still-loaded first answer, clears the marke
   const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 0, 'a confirmed unload is a clean stop');
   assert.match(r.out, /supervisor unloaded/);
@@ -387,7 +419,7 @@ test('--stop keeps the marker and exits 1 when the unload is never confirmed', (
   const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 1, 'a stop that printed a failure may not exit 0');
   assert.match(r.out, /did NOT unload within 1s/);
@@ -418,7 +450,7 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
     const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
       HOME: fakeHome(box, { unit: true, label: fleetLabel }),
       PLOT_FLEET_LABEL: fleetLabel,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: withHarness(box, bin, process.env.PATH),
     });
     assert.equal(r.status, 1, 'both failures reach one non-zero exit');
     assert.match(r.out, /did NOT unload within 1s/, 'the supervisor failure is reported');
@@ -439,7 +471,7 @@ test('--stop of an unloaded supervisor still exits 0 and says so', () => {
   const r = run(ctl, ['--stop'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 0, 'nothing was loaded, so nothing failed');
   assert.match(r.out, /supervisor was not loaded/);
@@ -1078,7 +1110,7 @@ test('--status exits exactly 1 for every not-loaded state, on any platform', () 
     const r = run(ctl, ['--status'], root, guardBin, {
       HOME: home,
       PLOT_FLEET_LABEL: fleetLabel,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: withHarness(box, bin, process.env.PATH),
     });
     assert.equal(r.status, 1,
       `${state}: the state reached the exit code the board branches on`);
@@ -1104,7 +1136,7 @@ test('--status exits 0 and says up where the init system holds the label', () =>
   const r = run(ctl, ['--status'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 0, 'a loaded supervisor did not answer 0');
   assert.match(r.out, /^supervisor: running \(pid 4242\)/m,
@@ -1119,7 +1151,7 @@ test('--status carries the tick age on the running summary line, and only with a
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('tick-age-stale');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
   const bin = stubPlatform(box, { loaded: true });
-  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${bin}:${process.env.PATH}` };
+  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH) };
 
   // No log: the field is absent, never 0.
   const bare = run(ctl, ['--status'], root, guardBin, env);
@@ -1154,7 +1186,7 @@ test('--status prints no tick age outside the running arm', () => {
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(log, 'tick\n');
   const r = run(ctl, ['--status'], root, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${bin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 1);
   assert.match(r.out, /^\s+last tick: \d+s ago/m, 'the loaded-not-running arm lost its tick line');
@@ -1190,7 +1222,7 @@ test('--status says loaded, not running when the label is held and no process is
     const r = run(ctl, ['--status'], root, guardBin, {
       HOME: home,
       PLOT_FLEET_LABEL: fleetLabel,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: withHarness(box, bin, process.env.PATH),
     });
 
     // THE EXIT CODE IS THE HALF A NAIVE FIX MISSES. `supervisor_loaded` was
@@ -1233,7 +1265,7 @@ test('--status keeps the summary line shape in the loaded-but-dead state', () =>
   const r = run(ctl, ['--status'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.match(r.out, /^summary: agents_running=\d+ agents_other=\d+ supervisor=\S+ install=\S+$/m,
     'the loaded-but-dead state is not on the summary line the board reads');
@@ -1315,7 +1347,7 @@ const startAndReadLabel = (label, env) => {
   const { root, box, ctl, guardBin } = sandbox(label);
   const home = fakeHome(box);
   const bin = stubPlatform(box, {});
-  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: `${bin}:${process.env.PATH}`, ...env });
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: withHarness(box, bin, process.env.PATH), ...env });
   const unitName = `${env.PLOT_FLEET_LABEL ?? 'com.plot-pm.registryd'}.plist`;
   const target = path.join(home, 'Library', 'LaunchAgents', unitName);
   assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
@@ -1343,7 +1375,7 @@ test('label: --dry-run names the label that --start then writes', () => {
   const { root, box, ctl, guardBin } = sandbox('label-dry');
   const bin = stubPlatform(box, {});
   const dry = run(ctl, ['--start', '--dry-run'], root, guardBin, {
-    HOME: fakeHome(box), PATH: `${bin}:${process.env.PATH}`, PLOT_FLEET_LABEL: override,
+    HOME: fakeHome(box), PATH: withHarness(box, bin, process.env.PATH), PLOT_FLEET_LABEL: override,
   });
   assert.equal(dry.status, 0, dry.out);
   const reported = dry.out.match(/^would fill and load (\S+) \(launchd\)$/m)?.[1];
@@ -1443,7 +1475,7 @@ test("consumer: the node refusal fires on Plot's pin where the consumer has none
   const home = fakeHome(box);
 
   const r = run(ctl, ['--start'], consumer, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${stubBin}:${guardBin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, stubBin, guardBin, process.env.PATH),
   });
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /node on PATH is 26, Plot pins 24/);
