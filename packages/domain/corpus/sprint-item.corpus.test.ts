@@ -84,8 +84,13 @@ interface ItemLine {
  * shipped readers still answer what this copy answers, which is what keeps it
  * honest. A copy nothing checks would let the pair part silently, which is the
  * very failure this file exists to catch.
+ *
+ * **A REFERENCE IS A PLAN SLUG, STRUCK OR NOT**, since 2026-09-29: the bracket
+ * was `[^\]]+` and now matches the shell's own shape. Editing THIS COPY ALONE
+ * turns the file green and leaves the board's reading unchanged, which is why
+ * the fixture test below drives the shipped readers instead.
  */
-const MEMBER_LINE = /^- \[( |x)\] (?:\[([^\]]+)\]\s*)?(.*)$/;
+const MEMBER_LINE = /^- \[( |x)\] (?:(?:~~)?\[([a-z0-9][a-z0-9-]*)\]\s*)?(.*)$/;
 
 const TIER_HEADINGS: ReadonlyArray<readonly [RegExp, Tier]> = [
   [/^### Must Have\b/, 'must'],
@@ -232,41 +237,51 @@ describe('the three sprint-item readers agree about what an item is', () => {
     expect(found.map(report)).toEqual([]);
   });
 
-  it('reads the same slug for every item that is not struck through', () => {
-    // THE SLUG IS COMPARED, and the one population that parts on it is excluded
-    // BY NAME rather than by dropping the field. `~~[slug]~~` is how this estate
-    // marks an item that left the sprint: the shell reads through the strike
-    // (`plot-sprint-release.sh:249`), both TypeScript readers see it as text.
-    // Measured 2026-09-25: exactly 4 lines, listed at the foot of this file.
+  it('reads the same slug for every item, struck through or not', () => {
+    // THE STRIKE IS NO LONGER AN EXCLUSION. Until 2026-09-29 this test skipped
+    // `~~[slug]~~` lines by name and pinned the count at 5, because the shell
+    // read the slug through the strike (`plot-sprint-release.sh:249`) and both
+    // TypeScript readers saw only text. That difference was not cosmetic: it
+    // made the board count W40's withdrawn Should `open` while the release gate
+    // counted it `withdrawn`, on the ACTIVE sprint.
     //
-    // Excluding the population rather than the field is what keeps this honest
-    // — a fifth struck-through line changes nothing, but a NEW kind of slug
-    // disagreement still fails here.
+    // The readers learned the shell's rule, so the population needs no carve-out
+    // and every item's slug is compared. A struck line that parts now FAILS, in
+    // the same breath as any other slug disagreement — which is what removing an
+    // exclusion buys over widening one.
     const key = (it: ItemLine) => `${it.sprint}#${it.ordinal}`;
     const byKey = new Map(tsSide.map((it) => [key(it), it]));
     const found: Disagreement[] = [];
-    let struckThrough = 0;
     for (const it of shellSide) {
       const other = byKey.get(key(it));
       if (!other) continue; // the previous test's subject
-      // The TypeScript side sees the whole `~~[slug]~~ …` as text, so that is
-      // where the strike is detected — the shell has already resolved it away.
-      // TWO WRITTEN FORMS, both measured on this estate: `~~[slug]~~` wraps a
-      // bare reference, `~~[slug](../plans/x.md)~~` wraps a full markdown link.
-      // The shell handles both because its own regex only needs the opening
-      // `~~` and the bracket (`plot-sprint-release.sh:249`); anchoring on the
-      // CLOSING `~~` caught the first form only and let the other two through.
-      if (other.slug === '' && /^~~\[[^\]]+\]/.test(other.text)) {
-        struckThrough += 1;
-        continue;
-      }
       compareField(found, subjectOf(it), 'slug', it.slug, other.slug);
     }
     expect(found.map(report)).toEqual([]);
-    // THE EXCLUSION IS PINNED. If the count moves, the population changed and
-    // this file's footnote is out of date — which is a finding, not a pass.
-    // Moved 4 -> 5 on 2026-09-28: a withdrawn W40 item, named in the footnote.
-    expect(struckThrough).toBe(5);
+  });
+
+  it('resolves the struck-through population on BOTH sides', () => {
+    // THE PIN THE EXCLUSION LEFT BEHIND. Removing a carve-out can hide a
+    // population as easily as reconcile it: if both readers stopped seeing the
+    // strike, the slug test above would pass by comparing `''` against `''`.
+    // So this asserts the strike RESOLVES — a real slug on each side — rather
+    // than that the two merely agree.
+    //
+    // The line is identified from the shell's text, which keeps the whole
+    // `~~[slug]…` string; the TypeScript side consumes the reference, so its
+    // own text no longer carries the marker.
+    //
+    // Measured 2026-09-29: 5 lines, the same five the footnote names. If the
+    // count moves the population changed, which is a finding and not a pass.
+    const byKey = new Map(tsSide.map((it) => [`${it.sprint}#${it.ordinal}`, it]));
+    const struck = shellSide.filter((it) => it.text.startsWith('~~'));
+    expect(struck).toHaveLength(5);
+    for (const it of struck) {
+      const other = byKey.get(`${it.sprint}#${it.ordinal}`);
+      expect(other, subjectOf(it)).toBeDefined();
+      expect(it.slug, `${subjectOf(it)} :: shell`).not.toBe('');
+      expect(other!.slug, `${subjectOf(it)} :: typescript`).not.toBe('');
+    }
   });
 });
 

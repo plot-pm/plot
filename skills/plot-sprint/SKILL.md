@@ -239,6 +239,18 @@ Write `docs/sprints/${WEEK_PREFIX}-<slug>.md` using the template from `skills/pl
 
 Item format: `- [ ] [slug] description` (plan reference) or `- [ ] description` (lightweight task).
 
+**A reference is a plan slug, and only a plan slug.** All three readers apply the same rule — `plot-sprint-release.sh`, `itemsFrom` and `parseSprintMembers` — so an item is one of:
+
+| Written | Reads as | Scored from |
+|---|---|---|
+| `- [ ] [slug] description` | the plan `slug` | the plan's phase, checkbox second |
+| `- [ ] [slug](../plans/….md) description` | the plan `slug` | the plan's phase, checkbox second |
+| `- [ ] ~~[slug]~~ description` | the plan `slug`, read through the strike | the plan's phase — `withdrawn` where it was rejected or superseded |
+| `- [ ] [#123](url) description` | an item naming **no plan** | its checkbox alone |
+| `- [ ] description` | an item naming **no plan** | its checkbox alone |
+
+An item that names no plan is still a commitment: an unticked one is `open`, which the release gate counts as unfinished. **Link a plan where there is one** — an issue link is read as text, so the sprint's progress cannot follow the work.
+
 #### Item Annotations
 
 Plan-backed items carry HTML comment annotations for automation tracking:
