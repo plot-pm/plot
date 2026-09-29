@@ -12,6 +12,7 @@
 - **Issue:** #1055
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Started:** 2026-09-29, jwloka, `bug/the-board-runs-the-artifact-its-repo-built`
 
 ## Changelog
 
