@@ -4,13 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Rejected
 - **Type:** infra
 - **Review:** in-session
 - **Impl:** own branches
 - **Issue:** #1069
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
@@ -106,3 +106,32 @@ Add a caller field to the ledger line, populate it from the invoking component, 
 **The ledger has been measured before and changed at the source.** `plot-host.sh:2393` — *"AT THE SOURCE rather than at `budget.tsv`, because fixing the one known writer leaves the next to inherit the defect"* — is the precedent for where this field is written.
 
 **Its siblings, both narrowed by panels after blaming the wrong process:** [`a-tick-asks-the-host-once`](2026-09-29-a-tick-asks-the-host-once.md) (#1059) and [`a-daemon-spends-within-its-means`](2026-09-29-a-daemon-spends-within-its-means.md) (#1065). Neither is this plan's dependency, and this plan is what would have shortened both.
+
+
+## Rejected, 2026-09-29
+
+One juror, **reject**, **executed**. Moderation: `.plot/panels/2026-09-29-a-spend-line-names-its-caller/panel.md`.
+
+**The ledger already names the spender, and this plan aggregated the field away before declaring it absent.**
+
+`plot-host.sh:2679-2685` defines the Bitbucket account as the workspace parsed from `remote.origin.url`:
+
+> The remote's owner is the free approximation and is the half of the key that groups correctly: two checkouts of one workspace share a budget.
+
+Re-run with the account kept rather than summed — same file, same window:
+
+```
+bitbucket/quatico/api     2205     <- the 88%
+github/jwloka/graphql      771
+bitbucket/plot-pm/api      240     <- this repository
+```
+
+**The 88% is the `quatico` workspace. This repository is `plot-pm`.** The `Done when` bullet *"The 88% is attributed"* was satisfiable with one `awk` over the existing file, at zero cost — and issue #1069 asked for exactly that breakdown, which this plan skipped.
+
+**The stated consequence was also backwards.** `spendRateFor` (`fleet.ts:1870`) shells `spend-rate` with no arguments, which resolves to **this** connector and account: measured `github/jwloka`, **969/hr**. The Bitbucket `quatico` traffic is filtered out at `plot-budget.sh:250` and was never in the board's window. So *"the board is pinned by traffic that is not the board's"* is false — it is pinned by ~900 GitHub calls an hour under this user's own account.
+
+**And appending a field would break every reader.** `plot-budget.sh:248` is `if (NF != 10 || $1 != "b1") { unreadable++; next }` — an arity gate, not positional parsing. An eleventh field makes every new line **unreadable**, not merely ignored.
+
+**Attribution and rate are different questions.** Neither #1059 nor #1065 turned on *who*: the first needed calls-per-tick, which the ledger cannot express because it has no tick boundary; the second needed *does throttling help*, which a share cannot answer.
+
+**#1069 is rephrased, not closed.** The 88% is real and it is another checkout saturating a shared Bitbucket account — a finding worth owning, and not the cause of this board's stretch.
