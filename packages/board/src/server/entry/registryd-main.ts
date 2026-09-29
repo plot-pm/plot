@@ -37,7 +37,10 @@ import {
   unclaimedLines,
   TICK_INTERVAL_MS,
   type TickReport,
+  type TickSpend,
 } from './registryd.js';
+import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
+import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type QueueHold } from '@plot-pm/domain/rules/queue';
 import {
   SUPERVISION_REPORT_VERSION,
@@ -250,6 +253,58 @@ export const readRegistry = async (
 };
 
 /**
+ * How many host calls the current tick has made.
+ *
+ * The two worlds add one per host call, and the loop sets it to zero at the top
+ * of every tick. It carries nothing into the next tick and no decision reads
+ * it: it exists to put this tick's own spend on the tick line.
+ */
+export interface HostTally {
+  calls: number;
+}
+
+/**
+ * The account's observed request rate, read from the budget record.
+ *
+ * Asked of `plot-host.sh spend-rate` through the scripts adapter. That op
+ * reads a file every spender appends to and asks no host, so reading it
+ * costs no request.
+ *
+ * @param scripts - the adapter that runs `plot-host.sh`.
+ * @returns requests per hour, or null for no evidence: a failed or unaskable
+ *   call, unparseable output, or a record with no span to divide by.
+ */
+export const accountRate = async (scripts: Pick<Scripts, 'hostSaid'>): Promise<number | null> => {
+  try {
+    const said = await scripts.hostSaid(['spend-rate']);
+    if (said.answer !== 'answered') return null;
+    const parsed: unknown = JSON.parse(said.stdout);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const perHour = (parsed as { perHour?: unknown }).perHour;
+    return typeof perHour === 'number' && Number.isFinite(perHour) ? perHour : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * What the account spends beside what this tick spent, for the tick line.
+ *
+ * @param scripts - the adapter that runs `plot-host.sh`.
+ * @param calls - the host calls this tick made.
+ * @param intervalMs - the wait between ticks.
+ * @returns the account's rate and this supervisor's rate at this tick's calls.
+ */
+export const spendForTick = async (
+  scripts: Pick<Scripts, 'hostSaid'>,
+  calls: number,
+  intervalMs: number,
+): Promise<TickSpend> => ({
+  accountPerHour: await accountRate(scripts),
+  minePerHour: boardSharePerHour(intervalMs, calls),
+});
+
+/**
  * The host's merge answer for a branch, asked at most once per tick.
  *
  * The supervisor world and the queue world ask the same question about the
@@ -310,6 +365,7 @@ export const mergeMemoOver = (host: Pick<Host, 'prMerged'>): MergeMemo => {
 export const worldForRepo = (
   repoRoot: string,
   scriptsDir: string,
+  tally: HostTally = { calls: 0 },
   merges: MergeMemo = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir })),
 ): SupervisorWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
@@ -340,6 +396,7 @@ export const worldForRepo = (
       return answer.ok ? answer.value : true;
     },
     prMerged: async (branch): Promise<MergeReading> => {
+      tally.calls += 1;
       const answer = await merges.ask(branch);
       if (!answer.ok) return 'unreachable';
       return answer.value === 'merged'
@@ -450,6 +507,7 @@ export const worldForRepo = (
 export const queueWorldForRepo = (
   repoRoot: string,
   scriptsDir: string,
+  tally: HostTally = { calls: 0 },
   merges?: MergeMemo,
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
@@ -502,6 +560,7 @@ export const queueWorldForRepo = (
       // measured 2026-09-06, #707 and #710 are hundreds of merges back and a
       // default page missed both, leaving their plans blocked exactly as
       // before.
+      tally.calls += 1;
       const answer = await host.prList('merged', 500);
       if (!answer.ok) return new Set<string>();
       // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
@@ -514,12 +573,14 @@ export const queueWorldForRepo = (
       return new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head));
     },
     sliceHasMerged: async (branch) => {
+      tally.calls += 1;
       const answer = await askMerged(branch);
       // SILENCE IS NOT LANDED. An unreachable host answers *not merged*, so an
       // agent stays holding its branch rather than being handed a second one.
       return answer.ok && answer.value === 'merged';
     },
     queuedHasLanded: async (branch) => {
+      tally.calls += 1;
       const answer = await askMerged(branch);
       // THE DOMAIN DECIDES THE WORD, from a `LookupReading` this join takes.
       // `landed` is the ONE answer to *did this land* — it reads the merge
@@ -937,12 +998,14 @@ export const run = async (
   const repoRoot = process.env.PLOT_REPO_ROOT ?? process.cwd();
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
+  const tally: HostTally = { calls: 0 };
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
   const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
-  const world = worldForRepo(repoRoot, scriptsDir, merges);
-  const queue = queueWorldForRepo(repoRoot, scriptsDir, merges);
+  const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
+  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges);
+  const scripts = scriptsShell({ repoRoot, scriptDir: scriptsDir });
   // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
   // adapter is a closure over two paths and spawns only when it is called.
   const performer = performerShell({ repoRoot, scriptDir: scriptsDir });
@@ -983,7 +1046,8 @@ export const run = async (
     // THE CATCH IS INSIDE THE LOOP, which is what makes the recovery the one
     // the contract already promises: the next iteration re-reads the registry
     // and the desks from disk, exactly as it does after a restart.
-    let report;
+    let report: TickReport;
+    tally.calls = 0;
     try {
       // THE REGISTRY IS RE-READ HERE, at the top of every tick. That is the
       // whole of the daemon's state: there is nothing else to lose, so
@@ -1021,6 +1085,13 @@ export const run = async (
     // `if (args.once) return code` below is what separates them, so until that
     // line both paths run here and the distinction is passed rather than
     // inferred downstream.
+    // THE SPEND IS READ ONLY FOR A TICK THAT COMPLETED. An incomplete tick
+    // keeps its own line, and a spend reading that fails leaves `account=unread`
+    // on a complete one: neither reading can change which kind of tick it was.
+    // Reported, never acted on — `args.intervalMs` below does not read it.
+    if (report.incomplete === '') {
+      report = { ...report, spend: await spendForTick(scripts, tally.calls, args.intervalMs) };
+    }
     const code = reportTick(report, write, warn, !args.once);
     // THE ONE CHANNEL TO THE BOARD, written beside the log and for the same
     // reason: the tick's judgement is worth nothing to an operator that cannot
