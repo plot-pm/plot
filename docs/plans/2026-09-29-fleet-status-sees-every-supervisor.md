@@ -1,6 +1,6 @@
-# Fleet status sees every supervisor
+# Fleet status sees every Plot process on the machine
 
-> `--status` asks about ONE label. The load that starves the board is a property of the MACHINE, and nothing on the estate asks what else is spending on it.
+> `--status` asks about one supervisor. The scans that starve the board are spawned by BOARDS, three of them from three installations, and nothing on the estate asks what else is running here.
 
 ## Status
 
@@ -10,24 +10,17 @@
 - **Issue:** #1080
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- `/plot-fleet --status` names every Plot supervisor loaded on this machine, not only this checkout's, and the checkout each one serves.
+- `/plot-fleet --status` names every Plot supervisor AND every Plot board running on this machine, with the checkout each one serves and how many scans each has in flight.
 
 Board impact: none. This is fleet control's status output.
 
 ## Motivation
 
-Measured 2026-09-29 on this machine, while an operator reported the board dead:
-
-```
-$ launchctl list | grep plot
-8411   -9  com.plot-pm.registryd
-27932   0  com.plot-pm.registryd.ewz-kus-portal
-```
-
-and this checkout's own status, run at the same moment:
+Measured 2026-09-29, while an operator reported the board dead. This checkout's `--status`:
 
 ```
 supervisor: running (pid 8411) — com.plot-pm.registryd
@@ -35,83 +28,101 @@ supervisor: running (pid 8411) — com.plot-pm.registryd
 summary: agents_running=1 agents_other=3 supervisor=up
 ```
 
-**The second supervisor does not appear.** It was found with `lsof -a -p 27932 -d cwd`, which is not a thing an operator should need.
-
-What it was costing, measured in the same minute:
+and the machine:
 
 | reading | value |
 |---|---|
 | `plot-fleet-scan.sh` processes | **17**, from five installations |
 | `plot-host.sh pr-list` processes | **27** |
-| load average | **11.48** |
-| `/api/board` response | 4.5 s |
-| `/api/fleet` | timed out at 90 s, board served a stale pulse |
+| load average | **11.48**, later 17.14 |
+| `/api/board` | 4.5 s |
+| `/api/fleet` | timed out at 90 s; the board served a stale pulse |
 
 A board serving its last good pulse reads to an operator exactly like a board that has died.
 
-### The two readings that already exist are each correct and each scoped to one label
+### The scans come from BOARDS, and this plan was first written about supervisors
 
-**#1051** (delivered) made `PLOT_FLEET_LABEL` reach the plist's `Label`, so two checkouts can each run a supervisor. That is why these two coexist rather than colliding, and it is working.
-
-**#1048** (delivered) made `--status` name the checkout a supervisor serves, through `launchctl print gui/<uid>/<label>`'s `working directory`.
-
-`serves_line` is called at `plot-fleetctl.sh:456` and `:478`, both times for `$LABEL` — the label THIS checkout would use. So the pair answers *which checkout does my supervisor serve* perfectly, and **cannot be made to answer** *what else is running here*, because a `print` needs a label and the other checkout's label is not a fact this repository holds.
-
-**Neither is defective. The gap is that no reading is machine-scoped.**
-
-### The answer is one command and it is already cheap
+**Round 1 refuted the plan's causal claim by tracing process ancestry.** The plan said the load was the second supervisor's and that *"17 scans from five installations is a symptom of the supervisors."*
 
 ```
-$ time (launchctl list | grep -c 'com.plot-pm.registryd')
-2
-0.058 total
+40506<-77823<-66504     66504 = board-server.mjs  (plugin marketplace)
+41402<-82707<-46011     46011 = board-server.mjs  (plugin cache 2.21.0)
 ```
 
-`launchctl list` enumerates by PREFIX rather than resolving a known label, which is the whole difference: it finds labels this checkout has never heard of. Each then resolves its checkout by the reading #1048 already built:
+**No scan descends from any supervisor.** Both supervisors have **zero children**. Three `board-server.mjs` processes are running, from three installations:
 
-```
-com.plot-pm.registryd                  -> /Users/jwloka/Quatico/Agentic-Tools/plot
-com.plot-pm.registryd.ewz-kus-portal   -> /Users/jwloka/Quatico/ewz/ewz-kus-portal
-```
+| pid | installation |
+|---|---|
+| 43308 | `.worktrees/free-28240a09/` |
+| 46011 | `~/.claude/plugins/cache/plot-marketplace/plot/2.21.0/` |
+| 66504 | `~/.claude/plugins/marketplaces/plot-marketplace/` |
 
-58 ms for the enumeration, plus one `print` per supervisor found — and the count is supervisors on a machine, not agents, so it is one or two in practice.
+**The supervisors were visible and plausible and they are not the spender.** The plan's own line — *"counting processes would be a second, noisier reading of the same fact"* — was wrong twice: it is not the same fact, and it is the fact.
+
+**So the subject is every Plot process, not every supervisor.** A status naming two supervisors and omitting three boards would have sent an operator to stop the wrong thing.
+
+### The existing readings are each correct and each scoped to one label
+
+**#1051** gave each checkout its own launchd label; **#1048** made `--status` name the checkout a supervisor serves; **#1053** (merged during this panel) made the systemd unit name follow the label, so `UNIT_NAME` now exists and the nine hardcoded `plot-registryd` sites are gone.
+
+All three answer *about my supervisor*. `serves_line` is called at `:456` and `:478`, both for `$LABEL`. **None is defective and none is machine-scoped.**
+
+### The prefix is not a convention, and enumerating by it re-hides the thing
+
+The plan first proposed enumerating labels by the default prefix, calling a non-prefix label *"a stated limit rather than a silent one"*.
+
+`plot-fleetctl.sh:84` is `LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.registryd}"` — **any string, no validation, no warning.** The "convention" is one worked example in `units/README.md:69-72` (the plan cited `:67`, which is a closing code fence). An operator who types `com.quatico.ewz.registryd` — this operator's own namespace everywhere else — gets a second supervisor that is invisible **again**, now with a status line claiming it looked.
+
+**So enumeration is by PROCESS, not by label.** `pgrep -f` over the two artifact names finds every Plot process whatever it was labelled, and a label is then read from the process rather than guessed at.
 
 ## Design
 
 ### The rule
 
-**`--status` reports every Plot supervisor on the machine, and marks which one is this checkout's.**
+**`--status` reports every Plot process on the machine — supervisors and boards — and marks which are this checkout's.**
 
-The existing block is unchanged and stays first — an operator asking about their own fleet still gets their own fleet, in the same shape. A second block follows only when a supervisor other than this checkout's is loaded.
+The existing block is unchanged and stays first. A second block follows only when a Plot process other than this checkout's supervisor is running.
 
 ```
 supervisor: running (pid 8411) — com.plot-pm.registryd
   serves:  THIS repository (/Users/jwloka/Quatico/Agentic-Tools/plot)
   …
 
-other supervisors on this machine:
-  com.plot-pm.registryd.ewz-kus-portal  (pid 27932) — /Users/jwloka/Quatico/ewz/ewz-kus-portal
+others on this machine:
+  supervisor  com.plot-pm.registryd.ewz-kus-portal  (pid 27932)  /Users/jwloka/Quatico/ewz/ewz-kus-portal
+  board       (pid 66504)  ~/.claude/plugins/marketplaces/plot-marketplace   scans in flight: 5
+  board       (pid 46011)  ~/.claude/plugins/cache/plot-marketplace/2.21.0   scans in flight: 4
+  board       (pid 43308)  .worktrees/free-28240a09                          scans in flight: 0
 ```
 
-**Silent when there is only one.** A line reading `other supervisors: none` on every single-checkout machine is noise on the common case, and this must not make the ordinary output longer.
+**Silent when this checkout's supervisor is the only Plot process.** A line reading `others: none` on every single-checkout machine is noise on the common case.
 
-### It reports and never acts
+### Scans in flight is the number that explains the load
 
-**No stop, no signal, no count folded into the summary.** A supervisor serving another project is that project's, and this checkout has no standing to end it — the same rule `/plot-board --start` already applies when another checkout holds the port, and `plot-boardctl.sh`'s refusal is the precedent.
+A board with 5 scans in flight is the finding; a board with 0 is background. **This is the reading the first draft explicitly refused** as *"a second, noisier reading"*, and the ancestry measurement is why it is now the point: without it the output names three boards and does not say which is costing anything.
 
-**`summary=` does not gain a field either.** `agents_running` and `supervisor=up` are answers about THIS fleet, and a machine-wide number beside them would be read as this fleet's. The other supervisors are named in prose because naming them is the whole deliverable.
+Count by parentage — `pgrep -P <board pid>` and its descendants — never by a global `pgrep -f plot-fleet-scan`, which cannot attribute.
 
-### The prefix is derived, never hardcoded
+### Enumeration is by process, not by label
 
-The default label is `com.plot-pm.registryd` and an override appends to it by convention (`com.plot-pm.registryd.ewz-kus-portal`, written by hand per `units/README.md:67`). **The prefix to enumerate is the DEFAULT label, not `$LABEL`** — enumerating `$LABEL` on a checkout that set an override would find only itself, which is the bug being fixed.
+```
+pgrep -f 'board/plot-registryd\.mjs'   → every supervisor, whatever its label
+pgrep -f 'board/board-server\.mjs'     → every board
+```
 
-**A label that does not carry the prefix is invisible to this, and that is a stated limit rather than a silent one.** An operator free to choose any string may choose one that shares no prefix; the output says what it enumerated so a reader can tell an empty answer from an unasked question.
+Then per process: its `cwd` through `lsof -a -p <pid> -d cwd` (macOS) or `/proc/<pid>/cwd` (Linux), which is the checkout it serves and needs no label at all.
 
-### systemd is a different reading and gets its own
+**A supervisor's label is still reported where it can be read**, from `launchctl list` matched by pid rather than by prefix — so `com.quatico.ewz.registryd` is named like any other. The label is a detail *about* a found process, never the way one is found.
 
-A systemd user unit has no `Label` — its identity is its filename, which is why `units/README.md:115` documents `plot-registryd-<name>.service` where the launchd path documents a relabel. So the Linux enumeration is `systemctl --user list-units 'plot-registryd*'` over a unit-name glob, and the checkout comes from `systemctl --user show <unit> -p WorkingDirectory --value`.
+**`lsof` may be absent or refuse**, and a process whose cwd cannot be read is named with that as its answer rather than omitted.
 
-**This must be written, not inferred.** The measured platform here is launchd, and a slice that ships the macOS half and leaves Linux answering nothing reproduces the shape `fleetctl.test.mjs:523` already refuses by name: *a fleet that assigns on macOS and not on Linux is a defect reproducing on half the installations.* CI is ubuntu-latest only, so the Linux arm is the one CI can assert and the macOS arm is the one that cannot be.
+### The platform difference shrank while this plan was being judged
+
+The first draft specified a launchd label enumeration and a systemd unit-name glob, and a juror found the systemd half rested on a broken premise: `$LABEL` reached none of the nine hardcoded `plot-registryd` sites.
+
+**#1053 merged during the panel and removed them** — `UNIT_NAME` now derives from the label on both platforms.
+
+**Enumerating by process makes the point moot anyway.** `pgrep -f` over the two artifact names is the same command on both platforms; only the cwd reading differs (`lsof` against `/proc`). That is one documented branch instead of two enumeration strategies, and the Linux arm is the one CI can actually assert.
 
 ### What this does NOT do
 
@@ -122,21 +133,34 @@ A systemd user unit has no `Label` — its identity is its filename, which is wh
 
 ## Done when
 
-- **With two supervisors loaded, `--status` names both and marks which is this checkout's**, asserted against a fake `launchctl` on PATH returning two labels. The suite's own rule is that it never loads anything (`fleetctl.test.mjs:18-24`) and the `guardBin` seam at `:276` is how a fake is supplied.
-- **With one supervisor loaded, the output is byte-identical to today's**, asserted. This is the common case and the regression that would matter.
-- **A supervisor whose checkout cannot be determined is named with that as its answer**, not omitted. An unreadable `working directory` is `launchctl print` exiting 113 for an unheld label, which `plot-fleetctl.sh:141-151` already records having been bitten by once.
-- **The systemd arm enumerates by unit-name glob and is asserted on the Linux runner**, where the launchd arm cannot be. Both arms exist or the slice is not done.
-- **The prefix enumerated is named in the output**, so an operator can distinguish *no other supervisor* from *no other supervisor carrying this prefix*.
-- `node --test test/reconcile/fleetctl.test.mjs` stays green — it runs 48 tests today. Any assertion that changes is named rather than renumbered.
+- **With three boards and two supervisors running, `--status` names all five**, asserted against stubbed process listings. Measured on this machine: the shipped `--status` names one of the five.
+- **Each named process carries its checkout**, read from its cwd and not from a label. A process whose cwd cannot be read is named with that as its answer, never omitted.
+- **Each board carries its scans in flight, counted by parentage.** A global `pgrep -f plot-fleet-scan` cannot attribute and must not be used — that number is what separates the board causing the load from the two that are idle.
+- **A supervisor whose label shares no prefix with the default is still found.** `com.quatico.ewz.registryd` is the case: `plot-fleetctl.sh:84` validates nothing, so a prefix enumeration re-hides exactly what this plan exists to show, while printing a status line that claims it looked.
+- **With only this checkout's supervisor running, the output is byte-identical to today's**, asserted. The common case must not get longer.
+- **The Linux cwd arm reads `/proc/<pid>/cwd` and is asserted on the ubuntu runner**, where the `lsof` arm cannot be. The enumeration itself is one `pgrep` on both.
+- `node --test test/reconcile/fleetctl.test.mjs` stays green — 67 tests as of #1078. Any assertion that changes is named rather than renumbered.
 
 ## Slices
 
-### Fleet status sees every supervisor (Branch: bug/fleet-status-sees-every-supervisor)
+### Fleet status sees every Plot process on the machine (Branch: bug/fleet-status-sees-every-supervisor)
 
-Enumerate by prefix on both platforms, resolve each checkout, print a second block only when there is one.
+Enumerate supervisors and boards by process, resolve each checkout from its cwd, count each board's scans by parentage, print a second block only when there is something to report.
 
 ## Notes
 
 **This is what #1048 could not become.** That plan's design section argued correctly that nothing needs adding to the unit — only reading from it — and built the per-label reading this reuses whole. What it could not do is find a label nobody told it about, and that limit was not visible until two supervisors ran at once on one machine.
 
 **The operator found the fault before the tooling did.** The report was *"board seems again dead"*, and the board was answering in 4.5 s. Every component was behaving correctly and the machine was saturated; the missing thing was a reading whose scope matched the problem's.
+
+### Round 1, 2026-09-29
+
+One juror, **amend**, **executed**. Verdict: `.plot/panels/2026-09-29-fleet-status-sees-every-supervisor/premise.md`.
+
+**The causal claim was refuted by process ancestry.** The plan blamed a second supervisor; no scan descends from either supervisor, both have zero children, and the scans are spawned by **three boards** from three installations. The symptom was measured correctly and the mechanism was inferred from co-occurrence — the estate's named failure mode, reproduced by the plan's own author.
+
+The subject is therefore every Plot process rather than every supervisor, and **scans in flight** — the reading the first draft refused as noise — is the number that identifies the spender.
+
+**The prefix enumeration was refused too.** `plot-fleetctl.sh:84` validates no label, and the "convention" is one example in a README paragraph (cited at `:67`, which is a code fence; the example is at `:69-72`). An operator typing `com.quatico.ewz.registryd` would be invisible again, under a status line claiming it looked. Enumeration is now by process.
+
+**One finding was overtaken during the panel.** The juror showed the systemd arm rested on nine hardcoded `plot-registryd` sites that `$LABEL` never reached. #1053 merged while the panel ran and `UNIT_NAME` now derives from the label on both platforms. The finding was correct when written.
