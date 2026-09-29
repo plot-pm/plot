@@ -12,6 +12,7 @@
 - **Issue:** #1051
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Started:** 2026-09-29, jwloka, `bug/a-label-override-reaches-the-unit`
 
 ## Changelog
 
