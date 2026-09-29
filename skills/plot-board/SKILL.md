@@ -44,7 +44,7 @@ teaches the wrong command.
 | `--status` | Does a board answer, on which port, since when, whose checkout it serves. **Starts and stops nothing.** |
 | `--start` | Resolve the artifact, start the board, record the tree's root pid, prove it answers, print the URL. |
 | `--stop` | Stop the board's process TREE — only when the pidfile and the port agree about which tree that is. |
-| `--port N` | Which port to act on (default 7777). |
+| `--port N` | Which port to act on, for this run. Without it, the `Board port` key in `## Plot Config` (`CLAUDE.md`, else `AGENTS.md`); without the key, 7777. A key that is not a number is refused. |
 | `--wait S` | With `--stop`: seconds to wait before escalating to KILL (default 10). |
 | `--dry-run` | With `--start`: report the artifact, port and command. Starts nothing. |
 
@@ -190,7 +190,8 @@ refusal to the user; each names the fact that disagrees and what to look at.
 - **Never stop a board unattended.** Under `PLOT_UNATTENDED=1`, report what is
   running and stop there.
 - **Never stop a board this repository did not start.** It may be another
-  worktree's. `--port N` gives this one its own board instead.
+  worktree's. A `Board port` key gives this checkout its own board instead,
+  and `--port N` does the same for one run.
 - **This command never touches the supervisor**, and `/plot-fleet` never touches
   the board. Neither may become a dependency of the other.
 - **This command answers no estate question.** Which waves are eligible and
