@@ -275,6 +275,27 @@ export interface DispatchDeps {
  * decision is read: from the child's `exit` listener, with the outcome recorded
  * for `GET /api/implement/<slug>`.
  *
+ * ## The body says so, changed 2026-09-29 by `a-dispatch-promises-a-worker`
+ *
+ * The contract above was true and the BODY did not say it. `{ slug, log,
+ * implementLog }` is success-shaped for an outcome this route cannot know, and
+ * every caller read it as *work is running*: measured 2026-09-27, four desks,
+ * two live workers, and the endpoint answered the same for all of them.
+ *
+ * The body now names the act — `act: 'implement-started'` — and points at
+ * `status`, the read-back where the fate becomes knowable. No field in it can be
+ * read as a worker running, and the log field is qualified as `dispatchLog`
+ * because the file it names is written only if the implement exits 0.
+ *
+ * **What it deliberately does not do.** It adds no `started`, `queued` or
+ * `claimed`: each is a fact about a world that does not exist when the response
+ * is written, and `started` could only be answered by re-introducing the blocked
+ * event loop above. It adds no controller verb and moves no row — whether a
+ * deferred desk's row shows its cause is `a-desk-says-who-owes-it`'s question,
+ * and that record is keyed by BRANCH over a desk a tick has judged. This route
+ * knows neither: the branch is chosen by `--next` at runtime and no desk exists.
+ * So nothing here belongs there.
+ *
  * **The refusal did not move from the response to nowhere.** It never reached
  * the operator through the response: the client aborts every action at
  * `ACTION_TIMEOUT_MS = 15_000` (`bounded-fetch.ts:45`) and a real
@@ -468,5 +489,36 @@ export async function handleDispatch(
   // the same shape as start_worker's own detached spawn, and it is why the row
   // moving is the answer rather than the reply being one.
   //
-  json(202, { slug, log, implementLog: implLog });
+  // SO THE BODY NAMES THE ACT AND NOT AN OUTCOME. Every field here is either
+  // the act performed or an address; none can be read as *a worker is running*.
+  // Measured 2026-09-27, the bare success this replaced answered the same for
+  // four desks of which two had live workers, one carried `exit=124` and one had
+  // no worker log at all.
+  //
+  // `act` is the one fact that is TRUE WHEN IT IS WRITTEN and stays true: an
+  // implement child was spawned. `started`, `queued` and `claimed` were each
+  // considered and dropped — every one describes a world that does not exist
+  // yet. No claim is pushed, no desk is cut, and `plot-dispatch.sh` has not been
+  // invoked; it runs from the exit listener above, minutes later. Answering
+  // `started` honestly would mean awaiting that listener, which is exactly and
+  // only what `a-dispatch-does-not-hold-the-loop` removed.
+  //
+  // `dispatchLog` RATHER THAN `log`, and the rename is the point rather than
+  // tidying. The file does not exist yet — it is written only if the implement
+  // exits 0 — so a caller handed a bare `log` beside a success reasonably reads
+  // it as *a dispatch ran*. Qualified and paired with `implementLog`, the two
+  // read as addresses to watch. Neither client read the old field (both take the
+  // body only on `!res.ok`), so the rename breaks nothing.
+  //
+  // `status` points at where the fate becomes knowable. NOTE WHAT ITS `done`
+  // MEANS: the implement exited 0 and the dispatch script was spawned — not that
+  // a worker runs. That route already reports `running`/`done`/`failed`/`unknown`
+  // and this route adds nothing to it.
+  json(202, {
+    act: 'implement-started',
+    slug,
+    status: `/api/implement/${slug}`,
+    dispatchLog: log,
+    implementLog: implLog,
+  });
 }

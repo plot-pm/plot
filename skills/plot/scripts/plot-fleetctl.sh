@@ -84,6 +84,26 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.registryd}"
 UNIT_DIR="$script_dir/../units"
 
+# THE SYSTEMD UNIT'S NAME, DERIVED FROM THE LABEL. launchd keys a job by the
+# label inside the plist; systemd keys a unit by its FILENAME, so a second
+# checkout needs a second filename. Every `systemctl` call and the install
+# target take this answer — a hardcoded name wrote two checkouts into one file
+# and made refusal 4 ask about a unit it did not name (#1053).
+#
+# THE DEFAULT LABEL MAPS TO `plot-registryd`, the name every existing Linux
+# install carries. Any other label loses a leading `com.plot-pm.registryd.`,
+# has each byte systemd refuses in a unit name replaced by `-`, and gains the
+# prefix `plot-registryd-` — the shape `units/README.md` documents for a
+# second repository.
+unit_name() {
+  case "$LABEL" in
+    com.plot-pm.registryd) printf '%s' plot-registryd; return ;;
+  esac
+  rest=${LABEL#com.plot-pm.registryd.}
+  printf 'plot-registryd-%s' "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
+}
+UNIT_NAME=$(unit_name)
+
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }
 repo_root=$(git rev-parse --show-toplevel)
 
@@ -153,7 +173,7 @@ running_major() {
 supervisor_loaded() {
   case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 && return 0 ;;
-    systemd) systemctl --user is-active --quiet plot-registryd && return 0 ;;
+    systemd) systemctl --user is-active --quiet "$UNIT_NAME" && return 0 ;;
   esac
   return 1
 }
@@ -164,7 +184,7 @@ supervisor_pid() {
   case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1 ;;
-    systemd) systemctl --user show plot-registryd -p MainPID --value 2>/dev/null \
+    systemd) systemctl --user show "$UNIT_NAME" -p MainPID --value 2>/dev/null \
                | grep -v '^0$' ;;
   esac
 }
@@ -188,7 +208,7 @@ supervisor_workdir() {
   case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | sed -n 's/^[[:space:]]*working directory = \(.*\)$/\1/p' | head -1 ;;
-    systemd) systemctl --user show plot-registryd -p WorkingDirectory --value 2>/dev/null \
+    systemd) systemctl --user show "$UNIT_NAME" -p WorkingDirectory --value 2>/dev/null \
                | head -1 ;;
   esac
   return 0
@@ -277,7 +297,7 @@ start_marker() { printf '%s' "$repo_root/.plot/state/fleet-start.done"; }
 unit_target() {
   case "$(platform)" in
     launchd) printf '%s' "$HOME/Library/LaunchAgents/$LABEL.plist" ;;
-    systemd) printf '%s' "$HOME/.config/systemd/user/plot-registryd.service" ;;
+    systemd) printf '%s' "$HOME/.config/systemd/user/$UNIT_NAME.service" ;;
   esac
 }
 
@@ -510,7 +530,7 @@ if [ "$mode" = "status" ]; then
         echo "  A --start filled this unit and did not finish. Tell launchd about it:"
         case "$plat" in
           launchd) echo "    launchctl bootstrap gui/\$(id -u) $unit" ;;
-          systemd) echo "    systemctl --user enable --now plot-registryd" ;;
+          systemd) echo "    systemctl --user enable --now $UNIT_NAME" ;;
         esac
         echo "  Nothing needs re-cutting: /plot-fleet --start also does this, and starts agents too."
         ;;
@@ -722,7 +742,7 @@ if [ "$mode" = "start" ]; then
         echo "plot-fleetctl: '$LABEL' is already loaded, and which checkout it serves cannot be determined" >&2
         case "$plat" in
           launchd) how="launchctl print gui/\$(id -u)/$LABEL" ;;
-          *)       how="systemctl --user show plot-registryd" ;;
+          *)       how="systemctl --user show $UNIT_NAME" ;;
         esac
         echo "  $plat names no working directory for it, so it may be another checkout's." >&2
         echo "  Read it before stopping it: $how" >&2
@@ -761,7 +781,7 @@ if [ "$mode" = "start" ]; then
       ;;
     systemd)
       template="$UNIT_DIR/plot-registryd.service"
-      target="$HOME/.config/systemd/user/plot-registryd.service"
+      target="$HOME/.config/systemd/user/$UNIT_NAME.service"
       mkdir -p "$HOME/.config/systemd/user"
       ;;
   esac
@@ -815,8 +835,8 @@ if [ "$mode" = "start" ]; then
         echo "plot-fleetctl: systemctl --user daemon-reload failed" >&2
         exit 1
       }
-      systemctl --user enable --now plot-registryd || {
-        echo "plot-fleetctl: systemctl --user enable --now plot-registryd failed" >&2
+      systemctl --user enable --now "$UNIT_NAME" || {
+        echo "plot-fleetctl: systemctl --user enable --now $UNIT_NAME failed" >&2
         exit 1
       }
       ;;
@@ -943,7 +963,7 @@ EOF
   if supervisor_loaded; then
     case "$(platform)" in
       launchd) launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null ;;
-      systemd) systemctl --user disable --now plot-registryd >/dev/null 2>&1 ;;
+      systemd) systemctl --user disable --now "$UNIT_NAME" >/dev/null 2>&1 ;;
     esac
     # THE UNLOAD IS VERIFIED TO A BOUND, NEVER ASKED ONCE. Measured 2026-09-24:
     # a single `supervisor_loaded` after `bootout` answered *loaded*, this

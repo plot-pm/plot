@@ -213,7 +213,11 @@ export interface ProcessGroup {
  * `branch` is therefore OPTIONAL, and empty is a real value rather than a gap.
  */
 export interface AgentEntry {
-  /** The session id the dispatcher minted — the identity, and the transcript's name. */
+  /**
+   * The session id the dispatcher minted — the agent's identity and its manifest's
+   * filename, fixed for the agent's life. It names the transcript only until the
+   * first hop to a new branch; {@link resumeId} names it after that.
+   */
   session: string;
   /**
    * Whether a manifest declared this agent, or the registry inferred it from a
@@ -230,12 +234,12 @@ export interface AgentEntry {
    * none.
    *
    * **A SECOND FIELD, NOT AN ALIAS FOR {@link session}**, even though a dispatch
-   * writes the same value into both. `session` is the transcript join key and
-   * stays fixed across a branch hop by design — `plot-worker-loop.sh` rewrites
-   * `branch` and `worktree` on a hop and leaves `session` alone. The resume
-   * handle is a different identity with a different lifetime, and whether it
-   * should follow a hop cannot even be ASKED while one field carries both
-   * meanings. Nothing may assume the two agree.
+   * writes the same value into both. `session` names the agent and stays fixed
+   * across a branch hop. `resumeId` names the current slice's conversation:
+   * `plot-worker-loop.sh` mints a new one on a hop to a different branch and
+   * keeps it on a hop to the same branch. The transcript join reads this field,
+   * and reads `session` only where this one is empty. Nothing may assume the two
+   * agree.
    *
    * A handle alone never means resume is possible: the runtime writes a
    * transcript for it only if the project's `.plot/worker-prompt.sh` passed
@@ -510,7 +514,7 @@ export function parseManifest(json: string): AgentEntry | null {
     identity: 'manifest',
     // NOT DEFAULTED TO `session`, and that is the whole reason it is a second
     // field. A manifest written before this existed asserts no resume handle,
-    // and filling one in from the join key would invent a claim the file never
+    // and filling one in from `session` would invent a claim the file never
     // made — precisely the collapse the plan forbids. `''` is *no handle*, and
     // `resumeAvailability` refuses on it by name.
     resumeId: typeof o.resumeId === 'string' ? o.resumeId : '',
@@ -785,7 +789,12 @@ export async function readAgentRegistryWithInfo(
     if (entry.worktree) {
       try {
         const tdir = transcriptDir(entry.worktree, home);
-        const file = transcriptFile(tdir, entry.session);
+        // THE CURRENT SLICE'S CONVERSATION: `resumeId`, which a hop to a new
+        // branch re-mints, and `session` only on a manifest that carries no
+        // handle. A handle with no transcript yet (minted, first prompt not
+        // run) costs the fields rather than falling back to the previous
+        // slice's file, which would report a dead session as the live one.
+        const file = transcriptFile(tdir, entry.resumeId || entry.session);
         if (file) Object.assign(entry, readTranscriptFacts(file));
       } catch {
         // Fields absent. The entry stays — see above.
@@ -847,8 +856,8 @@ export async function readAgentRegistryWithInfo(
  * An entry for a worktree the registry can see but has no manifest for.
  *
  * It invents NOTHING it does not have. `session` is `''` — the id is minted at
- * launch and this worktree has none, so the transcript join (which keys on the
- * session) is skipped and the transcript fields stay absent, exactly the
+ * launch and this worktree has none, so the transcript join (which keys on
+ * `resumeId`, or on `session` where that is empty) is skipped and the transcript fields stay absent, exactly the
  * *a missing transcript costs fields, not entries* rule applied to an entry that
  * never had one. `command` and `startedAt` are `''`: they are launch facts, and a
  * start time guessed from the worktree's mtime would read as a launch record and

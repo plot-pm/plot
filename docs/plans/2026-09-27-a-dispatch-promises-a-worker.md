@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Started:** 2026-09-29, jwloka, `bug/a-dispatch-promises-a-worker`
 - **Type:** bug
@@ -13,6 +13,7 @@
 - **Issue:** #1027
 - **Sprint:** plot-works-in-the-repos-that-adopt-it
 - **Rounds:** 1
+- **Delivered:** 2026-09-29
 
 ## Changelog
 
@@ -99,7 +100,7 @@ Whether a deferred desk's row shows the reason is `a-desk-says-who-owes-it`'s qu
 
 ## Slices
 
-### A dispatch says what it started (Branch: bug/a-dispatch-promises-a-worker)
+### A dispatch says what it started (Branch: bug/a-dispatch-promises-a-worker, PR: #1076)
 
 The three outcomes, verification without blocking, and the #1030 boundary settled first.
 

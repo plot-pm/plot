@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
 - **Started:** 2026-09-29, jwloka, `bug/a-unit-name-follows-the-label`
+- **Delivered:** 2026-09-29
 
 ## Changelog
 
@@ -139,7 +140,7 @@ An operator who sets nothing gets `plot-registryd.service`, exactly as today. Th
 
 ## Slices
 
-### A unit name follows the label (Branch: bug/a-unit-name-follows-the-label)
+### A unit name follows the label (Branch: bug/a-unit-name-follows-the-label, PR: #1078)
 
 Add `unit_name()`, derive the systemd filename from `$LABEL`, and route the nine systemctl sites through it.
 

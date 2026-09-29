@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
 - **Started:** 2026-09-29, claude (unattended), `bug/the-board-port-is-configured-not-typed`
+- **Delivered:** 2026-09-29
 
 ## Changelog
 
@@ -107,7 +108,7 @@ The value would then be written in three places — the shell, the server, and t
 
 ## Slices
 
-### The board port is configured, not typed (Branch: bug/the-board-port-is-configured-not-typed)
+### The board port is configured, not typed (Branch: bug/the-board-port-is-configured-not-typed, PR: #1079)
 
 Read the key in `plot-boardctl.sh`, keep `--port` ahead of it, assert all three precedence cases.
 

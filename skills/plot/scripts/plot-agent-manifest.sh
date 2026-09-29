@@ -13,7 +13,9 @@
 # arrived. The loop is a script, not a library, so sourcing it would run it; the
 # body moved here unchanged and the loop sources this file instead.
 #
-# Defines one function and does nothing else on load.
+# Defines two functions and does nothing else on load: `clear_manifest_branch`,
+# and `plot_session_id`, which `plot-dispatch.sh` calls to launch an agent and
+# `plot-worker-loop.sh` calls when a hop moves the agent to a new branch.
 
 # Clear `branch` when a slice finishes, so the window before the next one is
 # observable.
@@ -55,4 +57,27 @@ clear_manifest_branch() { # $1=manifest
   ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
 
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# A session id, in the shape the runtime uses for its transcript filename.
+#
+# `uuidgen` where it exists (macOS and most Linux), falling back to `/dev/urandom`
+# — never to `$RANDOM` or a timestamp. Two workers launched in the same second by
+# the same fan-out would collide on either, and a collision here silently merges
+# two agents into one manifest.
+#
+# Lowercased because the runtime writes its transcript filename in lowercase and
+# the board joins on exact string equality; `uuidgen` on macOS returns uppercase.
+plot_session_id() {
+  local id=""
+  if command -v uuidgen >/dev/null 2>&1; then
+    id=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+  fi
+  if [ -z "$id" ]; then
+    # 16 random bytes rendered as a v4-shaped id. The shape matters only for
+    # recognisability; nothing parses it.
+    id=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n' \
+         | sed -E 's/(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/')
+  fi
+  printf '%s' "$id"
 }

@@ -86,11 +86,14 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
     // Beside the repo, not inside it — the same place the fleet's worktrees
     // live. Compared through realpath because macOS temp dirs are reached via
     // a /private symlink and the server keeps PLOT_REPO_ROOT verbatim.
+    // `dispatchLog`, renamed from `log` by `a-dispatch-promises-a-worker`: the
+    // bare name read as *a dispatch ran*, and at 202 time the file does not
+    // exist — it is written only if the implement exits 0.
     assert.equal(
-      fs.realpathSync(path.dirname(body.log)),
+      fs.realpathSync(path.dirname(body.dispatchLog)),
       fs.realpathSync(path.resolve(tmp, '..')),
     );
-    assert.equal(path.basename(body.log), 'plot-dispatch-ship-the-widget.log');
+    assert.equal(path.basename(body.dispatchLog), 'plot-dispatch-ship-the-widget.log');
     // The implementLog should also be present — from the implement step. It
     // names where the run is being written, not where it finished: the child is
     // still running when this is read.
@@ -363,5 +366,111 @@ describe('POST /api/dispatch: implement failure stops dispatch', () => {
     // empty run list is evidence rather than a race won.
     await settle();
     assert.deepEqual(stub.runs(), []);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// What the 202 says it did — `a-dispatch-promises-a-worker`.
+//
+// The body is asserted WHILE THE IMPLEMENT IS STILL RUNNING, which is the only
+// moment that tests the claim. At 202 time no claim is pushed, no desk exists
+// and `plot-dispatch.sh` has not been invoked — it runs from the child's exit
+// listener, minutes later. A stub that exits inside the same tick lets that
+// listener run first, so the assertion would be taken against a world the
+// caller never sees, and a dishonest body would pass.
+//
+// THE ASSERTION IS ON THE WHOLE KEY SET, not on the added field. A test that
+// checks only `act` passes while a `started: true` sits beside it, which is the
+// exact shape this branch exists to refuse.
+// ────────────────────────────────────────────────────────────────────────────
+describe('POST /api/dispatch: the 202 names the act, not an outcome', () => {
+  let tmp, server, stub;
+
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
+    stub = makeStubScripts();
+    writeImplementCommand(tmp, { bin: stub.blockingImplementBin });
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(async () => {
+    // RELEASED, THEN WAITED FOR. The child holds the gate open until told, and a
+    // teardown that removed the tree under a live child is the `ENOTEMPTY` the
+    // helper's own `rmTree` note records.
+    stub?.release();
+    if (server) {
+      await until(async () => {
+        const res = await request(server.port, {
+          method: 'GET',
+          path: '/api/implement/ship-the-widget',
+        });
+        return JSON.parse(res.body).state !== 'running';
+      }, 'the blocking implement child to exit').catch(() => {});
+    }
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('answers a body whose every field is an address, while the implement runs', async () => {
+    const res = await request(server.port, {
+      method: 'POST',
+      path: '/api/dispatch',
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ slug: 'ship-the-widget' }),
+    });
+    assert.equal(res.status, 202);
+    const body = JSON.parse(res.body);
+
+    // The child has NOT exited: the implement stub blocks on its gate file, so
+    // no exit listener has run and no dispatch has been started. This is the
+    // precondition the whole assertion rests on, so it is asserted rather than
+    // assumed.
+    const live = await request(server.port, {
+      method: 'GET',
+      path: '/api/implement/ship-the-widget',
+    });
+    assert.equal(
+      JSON.parse(live.body).state,
+      'running',
+      'the implement must still be running when the body is judged',
+    );
+    assert.deepEqual(stub.runs(), [], 'no dispatch has been started at 202 time');
+
+    // THE WHOLE KEY SET. A new field that could be read as an outcome fails
+    // here even if every assertion below it still passes.
+    assert.deepEqual(
+      Object.keys(body).sort(),
+      ['act', 'dispatchLog', 'implementLog', 'slug', 'status'].sort(),
+      'the 202 carries exactly these fields',
+    );
+
+    // The act performed, named. `implement-started` is true when it is written
+    // and stays true; it describes the spawn, not the run.
+    assert.equal(body.act, 'implement-started');
+    assert.equal(body.slug, 'ship-the-widget');
+
+    // Where the fate becomes knowable — the read-back, which the plan verified
+    // against the shipped route and this slice adds nothing to.
+    assert.equal(body.status, '/api/implement/ship-the-widget');
+
+    // `dispatchLog` RATHER THAN `log`. The bare name read as *a dispatch ran*,
+    // and the file it names does not exist yet: it is written only if the
+    // implement exits 0. Qualified, the pair reads as two addresses.
+    assert.equal(path.basename(body.dispatchLog), 'plot-dispatch-ship-the-widget.log');
+    assert.equal(
+      fs.realpathSync(path.dirname(body.dispatchLog)),
+      fs.realpathSync(path.resolve(tmp, '..')),
+    );
+    assert.equal(path.basename(body.implementLog), 'plot-implement-ship-the-widget.log');
+
+    // NO FIELD CAN BE READ AS A WORKER RUNNING. Named explicitly so a future
+    // addition of any of them fails a test that says why.
+    for (const forbidden of ['started', 'queued', 'claimed', 'ok', 'running', 'dispatched']) {
+      assert.ok(
+        !(forbidden in body),
+        `\`${forbidden}\` names a world that does not exist when the response is written`,
+      );
+    }
   });
 });

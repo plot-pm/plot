@@ -258,8 +258,10 @@ See `skills/plot/templates/claude-md-snippet.md` for a ready-to-paste template.
 Plot ships a local Kanban board for maintainers who want a glanceable view of plan phases without GitHub auth or latency. Start it with:
 
 ```bash
-pnpm board   # serves http://localhost:7777 (override: PORT=8080 pnpm board)
+pnpm board   # serves http://localhost:<Board port>, default 7777
 ```
+
+The port is the `Board port` key in `## Plot Config` (read from `CLAUDE.md`, else `AGENTS.md`). A second checkout on one machine declares its own port there once, and `/plot-board` binds it. Plot's own `pnpm board` script reads the key too; a project whose `Board command` is a script of its own passes the key's value to the server as `PORT`, so the restart command the board shows binds the declared port. `/plot-board --port N` and `PORT=N pnpm board` override the key for one run.
 
 The board renders 4 columns (Draft / Approved / Delivered / Released) from the project's plans, and offers **multi-select sprint and story filters** (URL state: `?sprint=a,b` and `?story=c,d`; the two intersect). It reads plans through `plot-plan-meta.sh` — the same plan-format contract the rest of Plot uses — so canonical and front-matter plans both render, and directory locations come from `## Plot Config` (`Plan directory`, `Sprint directory`, `Story directory`). It is a read-only, local-only tool with no external dependencies at runtime.
 

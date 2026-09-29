@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Started:** 2026-09-29, jwloka, `bug/a-slice-starts-its-own-conversation`
 - **Type:** bug
@@ -13,6 +13,7 @@
 - **Issue:** #1067
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Delivered:** 2026-09-29
 
 ## Changelog
 
@@ -127,7 +128,7 @@ A fresh handle writes a new file in the **same directory**, so the reading is un
 
 ## Slices
 
-### A slice starts its own conversation (Branch: bug/a-slice-starts-its-own-conversation)
+### A slice starts its own conversation (Branch: bug/a-slice-starts-its-own-conversation, PR: #1077)
 
 Mint a fresh handle in `update_manifest_on_hop` when the branch changes, keep resume for the same branch, and state what the board shows for earlier slices.
 

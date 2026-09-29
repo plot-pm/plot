@@ -118,7 +118,7 @@ An earlier draft proposed a PATH list plus a refusal. The refusal exists (above)
 
 ## Slices
 
-### A unit can find the harness (Branch: bug/a-unit-can-find-the-harness)
+### A unit can find the harness (Branch: bug/a-unit-can-find-the-harness, PR: #1075)
 
 Resolve the harness at install time and bake it into both units, following `__NODE__`, and refuse at `--start` when it cannot be resolved.
 

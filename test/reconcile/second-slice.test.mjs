@@ -66,16 +66,20 @@ function shimmedScripts(root, manifest, handOver) {
   fs.cpSync(scripts, dir, { recursive: true });
   const real = path.join(dir, 'plot-fleet-scan.real.sh');
   fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
-  const once = path.join(root, 'handed-over');
+  // ONE HAND-OVER PER FREE WINDOW, in order. A string is a sequence of one.
+  const queue = path.join(root, 'hand-overs');
+  fs.writeFileSync(queue, [handOver].flat().join('\n') + '\n');
   fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
-if [ -f ${JSON.stringify(manifest)} ] && [ ! -f ${JSON.stringify(once)} ]; then
-  touch ${JSON.stringify(once)}
+next=$(head -n1 ${JSON.stringify(queue)})
+if [ -f ${JSON.stringify(manifest)} ] && [ -n "$next" ]; then
+  tail -n +2 ${JSON.stringify(queue)} > ${JSON.stringify(queue)}.rest
+  mv ${JSON.stringify(queue)}.rest ${JSON.stringify(queue)}
   node -e '
     const fs = require("fs");
     const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     m.branch = process.argv[2];
     fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
-  ' ${JSON.stringify(manifest)} ${JSON.stringify(handOver)}
+  ' ${JSON.stringify(manifest)} "$next"
 fi
 exec bash ${JSON.stringify(real)} "\$@"
 `, { mode: 0o755 });
@@ -90,7 +94,7 @@ exec bash ${JSON.stringify(real)} "\$@"
  * branch that was eligible from the start would let the loop "hop" onto work
  * nothing ever blocked, and the hop is what this file is about.
  */
-function sandbox() {
+function sandbox({ third = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-2ndslice-'));
   const origin = path.join(root, 'origin.git');
   const work = path.join(root, 'work');
@@ -125,7 +129,10 @@ function sandbox() {
 
 ### Implementation
 - \`feature/api\` — blocked behind the seam
-`);
+${third ? `
+### Surface
+- \`feature/ui\` — blocked behind the api
+` : ''}`);
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
@@ -161,6 +168,8 @@ function manifestFile(sb, wt, branch) {
     attempts: 0,
     wavesCount: 1,
     startedAt: '2026-09-05T09:00:00Z',
+    // A FIELD NO WRITER NAMES, which a hop must carry through untouched.
+    note: 'kept across hops',
   }, null, 2) + '\n');
   return file;
 }
@@ -173,12 +182,12 @@ function manifestFile(sb, wt, branch) {
  * with nothing to take, and a free agent WAITS. So a non-zero exit is expected
  * and the code is asserted by the caller, never here.
  */
-function runLoop(dir, wt, manifest, env = {}) {
+function runLoop(dir, wt, manifest, env = {}, timeout = 120000) {
   try {
     const stdout = execFileSync('bash', [path.join(dir, 'plot-worker-loop.sh')], {
       cwd: wt,
       encoding: 'utf8',
-      timeout: 120000,
+      timeout,
       env: {
         ...process.env,
         PLOT_BRANCH: 'feature/seam',
@@ -230,8 +239,8 @@ git -C ${work} merge -q --no-ff -m "Merge $PLOT_BRANCH" "origin/$PLOT_BRANCH"
 git -C ${work} push -q origin main
 `;
 
-test('second slice: the loop creates a session once and resumes after', serial, () => {
-  const sb = sandbox();
+test('second slice: every new branch starts its own conversation, across two hops', serial, () => {
+  const sb = sandbox({ third: true });
   try {
     const { wt } = claim(sb, 'feature/seam');
     const log = path.join(sb.root, 'seen');
@@ -239,7 +248,7 @@ test('second slice: the loop creates a session once and resumes after', serial, 
     fs.mkdirSync(log, { recursive: true });
     fs.mkdirSync(home, { recursive: true });
 
-    // PRECONDITION: wave 2 must be blocked, or the hop proves nothing.
+    // PRECONDITION: later waves must be blocked, or the hops prove nothing.
     const before = execFileSync('bash', [scan, '--offline', 'secondslice'],
       { encoding: 'utf8', cwd: sb.work });
     assert.match(before, /Implementation — blocked/,
@@ -249,48 +258,99 @@ test('second slice: the loop creates a session once and resumes after', serial, 
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'),
       recordingPrompt(sb.work, log, home));
 
+    // THE HAND-OVERS GO THROUGH THE REAL SEQUENCE: the loop clears `branch`,
+    // the shim writes the next one the way `assignSlice` does, and the loop
+    // reads it back. So at every hop the manifest already names the NEW
+    // branch — a comparison against it would never mint.
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, 'feature/api');
-    runLoop(dir, wt, manifest, { PLOT_TRANSCRIPT_HOME: home });
+    const dir = shimmedScripts(sb.root, manifest, ['feature/api', 'feature/ui']);
+    // THREE SLICES ARE TWO HOPS MORE THAN ONE, and a loaded machine measured
+    // 165 s for them; the bound is a hang guard, not a speed assertion.
+    runLoop(dir, wt, manifest, { PLOT_TRANSCRIPT_HOME: home }, 300000);
 
     const read = (slice) => fs.readFileSync(path.join(log, `flag-${slice}.txt`), 'utf8')
       .split('\n').filter((l) => l !== '');
+    const manifestAt = (slice) =>
+      JSON.parse(fs.readFileSync(path.join(log, `manifest-${slice}.json`), 'utf8'));
 
-    // THE FIRST SLICE CREATES. No transcript exists under the handle yet, so
-    // the loop asserts the id rather than continuing a conversation that is not
-    // there — which is also the honest answer for an agent whose earlier prompt
-    // never ran.
-    const first = read('seam');
-    assert.deepEqual(first, ['--session-id', SESSION],
-      `the first slice creates the session\n${first.join(' ')}`);
+    // THE FIRST SLICE CREATES under the launch id.
+    assert.deepEqual(read('seam'), ['--session-id', SESSION], 'the first slice creates the session');
 
-    // THE SECOND SLICE RESUMES, and this is the whole bug. The prompt on
-    // `feature/api` ran at all — which it could not before — and it was handed
-    // `--resume` because the first slice left a transcript under the handle.
-    assert.ok(fs.existsSync(path.join(log, 'flag-api.txt')),
-      'the second slice ran a prompt at all — the failure this slice is about');
-    const second = read('api');
-    assert.deepEqual(second, ['--resume', SESSION],
-      `the second slice resumes the same conversation\n${second.join(' ')}`);
+    // EACH LATER SLICE CREATES TOO, under an id of its own. Resuming the
+    // previous slice's conversation was the measured failure: a 3.7 MB
+    // transcript reloading for 2 770 s against a 900 s idle window.
+    assert.ok(fs.existsSync(path.join(log, 'flag-ui.txt')),
+      'the third slice ran a prompt, so both hops happened');
+    const [apiFlag, apiId] = read('api');
+    const [uiFlag, uiId] = read('ui');
+    assert.equal(apiFlag, '--session-id', 'the second slice starts a conversation, never --resume');
+    assert.equal(uiFlag, '--session-id', 'the third slice starts a conversation, never --resume');
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    assert.match(apiId, UUID, 'the minted id is lowercase, as the runtime names its file');
+    assert.match(uiId, UUID, 'the minted id is lowercase, as the runtime names its file');
+    assert.equal(new Set([SESSION, apiId, uiId]).size, 3, 'three slices, three conversations');
 
-    // THE HANDLE IS NEVER BLANK. `--resume` is optional-valued, so a blank
-    // opens an interactive picker in a `-p` run with no terminal and hangs.
-    for (const [slice, got] of [['seam', first], ['api', second]]) {
-      assert.notEqual(got[1], '', `the ${slice} slice carries a handle beside its flag`);
-      assert.notEqual(got[1], '<unset>', `the ${slice} slice has a handle to carry`);
+    // THE MANIFEST AS THE LOOP LEFT IT, read from the copies the prompts took
+    // (the loop's exit trap removes the file itself).
+    const api = manifestAt('api');
+    const ui = manifestAt('ui');
+    assert.equal(api.resumeId, apiId, 'the hop wrote the handle the prompt carried');
+    assert.equal(ui.resumeId, uiId, 'the second hop wrote its own handle');
+    for (const m of [api, ui]) {
+      assert.equal(m.session, SESSION, 'session names the agent and does not follow the hop');
+      assert.equal(m.attempts, 0, 'attempts survives a hop');
+      assert.equal(m.note, 'kept across hops', 'an unnamed field survives a hop');
     }
-
-    // AND THE HOP WROTE `resumeId`. It had one writer, no readers and a twin
-    // until this change; `session` stays fixed and stays the join key. Read
-    // from the copy the second slice's prompt took, because the loop's exit
-    // trap removes the manifest itself.
-    const after = JSON.parse(fs.readFileSync(path.join(log, 'manifest-api.json'), 'utf8'));
-    assert.equal(after.resumeId, SESSION, 'the hop writes the resume handle');
-    assert.equal(after.session, SESSION, 'and leaves the join key alone');
-    assert.equal(after.wavesCount, 2, 'the hop happened');
+    assert.equal(ui.wavesCount, 3, 'two hops happened');
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// 1b — THE DECISION ITSELF, for the cases a loop run cannot reach cheaply
+// ---------------------------------------------------------------------------
+//
+// `update_manifest_on_hop` is lifted out of the loop and called with the
+// manifest as the loop's own sequence leaves it: `branch` already names the
+// branch being taken. The previous branch arrives as the fifth argument, the
+// way the loop passes `$PLOT_BRANCH`.
+
+function hop(manifestJson, args) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hopfn-'));
+  try {
+    const file = path.join(root, 'agent.json');
+    fs.writeFileSync(file, JSON.stringify(manifestJson));
+    const loop = path.join(scripts, 'plot-worker-loop.sh');
+    const body = execFileSync('sed', ['-n', '/^update_manifest_on_hop() {/,/^}/p', loop], { encoding: 'utf8' });
+    const code = execFileSync('bash', ['-c',
+      `. "$1"; eval "$2"; update_manifest_on_hop "$3" "$4" "$5" "$6" "$7"`, 'hop',
+      path.join(scripts, 'plot-agent-manifest.sh'), body, file, ...args], { encoding: 'utf8' });
+    void code;
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('hop: the same branch keeps its conversation', () => {
+  const after = hop({ session: SESSION, resumeId: SESSION, branch: 'feature/seam', wavesCount: 1 },
+    ['feature/seam', '/desk', SESSION, 'feature/seam']);
+  assert.equal(after.resumeId, SESSION);
+});
+
+test('hop: a different branch gets a new handle even though the manifest already names it', () => {
+  const after = hop({ session: SESSION, resumeId: SESSION, branch: 'feature/api', wavesCount: 1 },
+    ['feature/api', '/desk', SESSION, 'feature/seam']);
+  assert.notEqual(after.resumeId, SESSION);
+  assert.match(after.resumeId, /^[0-9a-f-]{36}$/);
+  assert.equal(after.session, SESSION);
+});
+
+test('hop: an agent that held no slice keeps its launch handle', () => {
+  const after = hop({ session: SESSION, resumeId: SESSION, branch: 'feature/api', wavesCount: 1 },
+    ['feature/api', '/desk', SESSION, '']);
+  assert.equal(after.resumeId, SESSION);
 });
 
 // ---------------------------------------------------------------------------
