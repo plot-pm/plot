@@ -4,7 +4,7 @@
 
 This directory holds one unit file for each, plus the install steps. Both are templates — replace the placeholders and install. The plist carries four (`__LABEL__`, `__REPO_ROOT__`, `__NODE__`, `__REGISTRYD__`); the systemd unit carries three, because a systemd unit has no label field.
 
-**`/plot-fleet --start` automates every step below**, and adds four refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does. A second checkout needs no hand steps: `PLOT_FLEET_LABEL` gives it its own label, as described below.
+**`/plot-fleet --start` automates every step below**, and adds four refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does. A second checkout needs no hand steps: `PLOT_FLEET_LABEL` gives it its own launchd label or its own systemd unit, as described below.
 
 ## Why the OS and not Plot
 
@@ -107,7 +107,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now plot-registryd
 ```
 
-Check it:
+Check it (`plot-registryd` is the default unit name; a checkout started under `PLOT_FLEET_LABEL` has its own, see below):
 
 ```bash
 systemctl --user status plot-registryd
@@ -130,7 +130,7 @@ systemctl --user disable --now plot-registryd
 sudo loginctl enable-linger "$USER"
 ```
 
-**Two repositories need two units.** Copy the file to `plot-registryd-<name>.service` and enable that name; nothing in the unit is shared.
+**Two repositories need two units, and `PLOT_FLEET_LABEL` names the second.** systemd keys a unit by its filename, so `/plot-fleet` derives the filename from the label. The default label `com.plot-pm.registryd` keeps `plot-registryd.service`. Any other label loses a leading `com.plot-pm.registryd.`, has each character systemd refuses in a unit name replaced by `-`, and gains the prefix `plot-registryd-`: `PLOT_FLEET_LABEL=com.plot-pm.registryd.<name>` installs `plot-registryd-<name>.service`. `--start`, `--status` and `--stop` all use that name, so run each under the same label. By hand, copy the file to `plot-registryd-<name>.service` and enable that name; nothing in the unit is shared. A unit installed that way is the one `/plot-fleet` finds under the matching label.
 
 ## Reading the log
 
