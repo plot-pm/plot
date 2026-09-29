@@ -120,7 +120,7 @@ The store supplies the watermark and nothing else here. `prWindowFor` already re
 
 ## Slices
 
-### A cold Bitbucket board buys the whole list (Branch: bug/a-cold-bitbucket-board-buys-the-whole-list)
+### A cold Bitbucket board buys the whole list (Branch: bug/a-cold-bitbucket-board-buys-the-whole-list, PR: #1061)
 
 Measure the crossover, then narrow the Bitbucket windowed listing by the path that measurement chose, preserving truncation detection and the no-false-delta guard.
 
