@@ -110,7 +110,7 @@ A reading the host cannot answer still holds the slice. This plan reduces how of
 
 ## Slices
 
-### A tick asks the host once (Branch: bug/a-tick-asks-the-host-once)
+### A tick asks the host once (Branch: bug/a-tick-asks-the-host-once, PR: #1070)
 
 Memo the per-tick merge readings so no branch is asked twice, preserving `unaskable` as distinct from *not merged*, and stop asking for an empty branch.
 
