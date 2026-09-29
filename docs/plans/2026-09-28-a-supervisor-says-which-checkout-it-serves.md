@@ -116,7 +116,7 @@ systemctl --user show plot-registryd -p WorkingDirectory --value
 
 ## Slices
 
-### A supervisor says which checkout it serves (Branch: bug/a-supervisor-says-which-checkout-it-serves)
+### A supervisor says which checkout it serves (Branch: bug/a-supervisor-says-which-checkout-it-serves, PR: #1062)
 
 Read `WorkingDirectory` from the loaded job, add the three-way answer to the refusal and to `--status`.
 
