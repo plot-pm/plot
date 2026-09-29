@@ -880,6 +880,90 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
   printf '%s' "$_acc"
 }
 
+# List every pull request in ONE state updated inside the window, as one array.
+#
+# THE WINDOWED LISTING, and the third command in `pr_list_states`' slot beside
+# `bb pr list` and `bb_branch_sweep`. It takes the same trailing
+# `--state <s> --json` and prints the same JSON array, so the states loop, the
+# partial-answer rule and the one error classification stay in that helper.
+#
+# THE QUERY IS `bb_branch_query`'s WITHOUT THE BRANCH CLAUSE:
+#
+#   /repositories/{ws}/{repo}/pullrequests
+#     ?q=state="MERGED" AND updated_on>="<since>"&pagelen=50
+#
+# Measured 2026-09-28 on `quatico/quaweb-website`: `size: 9` in one request,
+# against 895 rows for the unwindowed listing of the same state.
+#
+# THE STATE TRAVELS INSIDE `q=`, NEVER BESIDE IT. Bitbucket lets `q=` silently
+# override a `state=` parameter, so `?q=…&state=MERGED` answers for whatever the
+# `q=` says and discards the state. `bb_query_state` maps the adapter's word to
+# Bitbucket's inside the expression.
+#
+# EVERY PAGE IS READ. `bb api` makes ONE request and returns ONE raw page, so a
+# window holding more than 50 matches arrives in several. The payload's `next`
+# names the following page as an absolute URL, and `bb api` prefixes its own
+# base, so the base is removed before the call. The walk ends when `next` is
+# absent.
+#
+# A SHORT WINDOW IS REFUSED, NEVER PRINTED AS WHOLE. `size` is the server's
+# count of matches. When the distinct rows read fall short of it, or a `next`
+# names a URL outside the API base, this prints nothing and exits 3. The board
+# advances its watermark over what a window returns, so a short window printed
+# as whole loses the missing rows until the next full read.
+#
+# THE HOST'S FAILURE TEXT AND EXIT CODE LEAVE UNTOUCHED, as in
+# `bb_branch_query`: `pr_list_call` classifies once, so a `429` still reads as
+# a rate limit.
+BB_API_BASE="https://api.bitbucket.org/2.0"
+bb_window_listing() { # global bb args… --state <s> --json → one JSON array
+  local _st="" _args=() _q _path _page _size=0 _next _pages=0 _rows _spool _rc
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --state) _st="${2:?}"; shift 2 ;;
+      --json)  shift ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  [ -n "$_st" ] || die "bb_window_listing: no --state"
+  [ -n "$PR_LIST_SINCE" ] || die "bb_window_listing: no window"
+  _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
+  _q="${_q// /%20}"
+  _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50"
+  _spool="$(mktemp "/tmp/plot-host-window.$$.XXXXXX")" || return 3
+  while [ -n "$_path" ]; do
+    _page="$(bb ${_args[@]+"${_args[@]}"} api "$_path")" \
+      || { _rc=$?; rm -f "$_spool"; return $_rc; }
+    _pages=$((_pages + 1))
+    printf '%s\n' "$_page" | jq -c '.values // []' >> "$_spool" \
+      || { rm -f "$_spool"; return 3; }
+    _size="$(printf '%s' "$_page" | jq -r '.size // 0')" || { rm -f "$_spool"; return 3; }
+    _next="$(printf '%s' "$_page" | jq -r '.next // empty')" || { rm -f "$_spool"; return 3; }
+    _path=""
+    if [ -n "$_next" ]; then
+      case "$_next" in
+        "$BB_API_BASE"/*) _path="${_next#"$BB_API_BASE"}" ;;
+        *)
+          rm -f "$_spool"
+          echo "bitbucket window state=$_st: next page '$_next' is outside $BB_API_BASE; refusing a window it cannot read to the end" >&2
+          return 3
+          ;;
+      esac
+    fi
+  done
+  # Distinct by id: a pull request updated while the walk runs can move between
+  # pages and arrive twice.
+  _rows="$(jq -c -s 'add // [] | unique_by(.id)' < "$_spool")" || { rm -f "$_spool"; return 3; }
+  rm -f "$_spool"
+  local _got
+  _got="$(jq 'length' <<<"$_rows")" || return 3
+  if [ "$_got" -lt "$_size" ] 2>/dev/null; then
+    echo "bitbucket window state=$_st is short ($_got of $_size matches after $_pages pages); refusing it rather than printing it as whole" >&2
+    return 3
+  fi
+  printf '%s' "$_rows"
+}
+
 # The branches a sweep asks about, newline-or-space separated. Empty means the
 # caller named none, and the arm keeps the bulk listing it has always used.
 #
@@ -894,13 +978,13 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
 # separator is git's guarantee rather than a hopeful convention.
 PR_LIST_BRANCHES=""
 
-# The window a sweep's query carries, the host's own stamp. Empty means ask
+# The window a Bitbucket query carries, the host's own stamp. Empty means ask
 # about everything, which is what every caller predating `--since` asks.
 #
 # A GLOBAL FOR `PR_LIST_BRANCHES`' REASON, and it travels the same route: the
 # `pr-list` arm sets it immediately before the call, `bb_branch_sweep` passes
-# through without reading it, and `bb_branch_query` composes it into the one
-# `q=` Bitbucket takes. Threading it through the sweep as an argument would mean
+# through without reading it, and `bb_branch_query` and `bb_window_listing`
+# compose it into the one `q=` Bitbucket takes. Threading it through the sweep as an argument would mean
 # teaching that function a parameter it only forwards, and its header already
 # refuses the mirror of that — "teaching `pr_list_states` which of its commands
 # is a sweep would put a backend's shape inside the one piece of this file that
@@ -1000,7 +1084,13 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     # THE DETECTOR ITSELF IS UNTOUCHED and still fires exactly as it did on
     # every listing call — `host.test.mjs:3060` passes unedited. What changed is
     # that a path exists whose premise it was never written about.
-    [ -n "$PR_LIST_BRANCHES" ] || pr_list_report_truncation "$backend" "$limit" "$_s" \
+    #
+    # A WINDOWED LISTING MAKES NO PAGE CLAIM EITHER. `bb_window_listing` reads
+    # every page and refuses a window whose rows fall short of the server's
+    # `size`, so an answer that reaches this line is whole. Only Bitbucket sets
+    # `PR_LIST_SINCE`; the GitHub arm carries its window as `--search`.
+    [ -n "$PR_LIST_BRANCHES" ] || [ -n "$PR_LIST_SINCE" ] \
+      || pr_list_report_truncation "$backend" "$limit" "$_s" \
       "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)"
     printf '%s' "$_raw" | jq -c ${PR_LIST_JQ_ARGS[@]+"${PR_LIST_JQ_ARGS[@]}"} "$jq_prog"
   done
@@ -3720,7 +3810,7 @@ case "$op" in
       # listing; a per-branch query returns that branch's pull requests and
       # nothing was capped, so the notice would describe a truncation that did
       # not happen. Said only for the listing it is about.
-      if [ -n "$limit" ] && [ -z "$branches" ]; then
+      if [ -n "$limit" ] && [ -z "$branches" ] && [ -z "$since" ]; then
         echo "plot-host: bitbucket ignores --limit $limit; bb returns a fixed page (50 at 1.0.0)" >&2
       fi
       # Establish that bb supports --json BEFORE calling it — Done-when 5.
@@ -3738,23 +3828,18 @@ case "$op" in
       # ways, which is how the six hand-applied fixes `pr_list_call` warns about
       # began. One assignment here; the sites are untouched but for this word.
       PR_LIST_BRANCHES="$branches"
-      # THE WINDOW REACHES THE SWEEP AND NOT THE LISTING, and the asymmetry is
-      # the CLI's rather than a choice. `bb pr list` takes `--state`, `--author`,
-      # `--json` and `--jq` and no query flag at all — verified against bb 1.9.0,
-      # which answers `unknown flag: --query` — so the only Bitbucket path that
-      # can carry `updated_on` is `bb_branch_query`'s own REST `q=`.
+      # THE WINDOW REACHES EVERY BITBUCKET PATH THROUGH `q=`. `bb pr list` takes
+      # no query flag (bb 1.9.0 answers `unknown flag: --query`), so a windowed
+      # LISTING goes through `bb_window_listing`, and a windowed SWEEP through
+      # `bb_branch_query`. Both put `updated_on>=` in the one `q=` Bitbucket
+      # takes, beside the state clause.
       #
-      # SAID RATHER THAN SWALLOWED, for the reason `--limit` two blocks up is
-      # said: a caller that asked for a window and got a full listing must not
-      # read the answer as a delta. It would advance its watermark over a window
-      # it never applied — harmless this pass, since a full listing holds every
-      # row a narrow one would, and wrong the moment the caller uses the flag to
-      # decide whether its answer was complete.
+      # THE REPORT STAYS FOR A PATH THAT CANNOT NARROW. Every path above
+      # narrows today, so `ignores --since` prints nowhere. A path added later
+      # that cannot carry the window clears `PR_LIST_SINCE` and says so: a
+      # caller that asked for a window and got a full listing must not read the
+      # answer as a delta.
       PR_LIST_SINCE="$since"
-      if [ -n "$since" ] && [ -z "$branches" ]; then
-        echo "plot-host: bitbucket ignores --since $since on a listing; bb pr list has no query flag (bb 1.9.0) — answering in full" >&2
-        PR_LIST_SINCE=""
-      fi
       PR_SWEEP_ASKED=0
       bb_cmd=(bb ${repo_args[@]+"${repo_args[@]}"} pr list)
       if [ -n "$branches" ]; then
@@ -3764,6 +3849,8 @@ case "$op" in
         # that answer for 50 of 902 rows.
         for _b in $branches; do PR_SWEEP_ASKED=$((PR_SWEEP_ASKED + 1)); done
         bb_cmd=(bb_branch_sweep ${repo_args[@]+"${repo_args[@]}"})
+      elif [ -n "$PR_LIST_SINCE" ]; then
+        bb_cmd=(bb_window_listing ${repo_args[@]+"${repo_args[@]}"})
       fi
       if [ "$rich" = 1 ]; then
         if [ "$ci" = "jenkins" ]; then
