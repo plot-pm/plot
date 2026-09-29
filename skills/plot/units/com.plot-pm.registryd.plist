@@ -3,7 +3,9 @@
 <!--
   plot-registryd, kept alive by launchd — macOS.
 
-  Replace the three placeholders before installing:
+  Replace the four placeholders before installing:
+    __LABEL__       the launchd label (`plot-fleetctl.sh` fills PLOT_FLEET_LABEL,
+                    default com.plot-pm.registryd)
     __REPO_ROOT__   absolute path to the repository this daemon supervises
     __NODE__        absolute path to node 24 (`which node` under `nvm use`)
     __REGISTRYD__   absolute path to plot-registryd.mjs
@@ -13,11 +15,13 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.plot-pm.registryd</string>
+  <string>__LABEL__</string>
 
-  <!-- ONE DAEMON PER REPOSITORY. The label carries no repository name, so a
-       second checkout needs a second file with a second label — see the README.
-       Two daemons sharing one label is launchd loading whichever was last. -->
+  <!-- ONE DAEMON PER REPOSITORY. The default label carries no repository name,
+       so a second checkout sets PLOT_FLEET_LABEL before `plot-fleetctl.sh
+       --start`, which fills it here and names the file after it — see the
+       README. launchd keys a job by this Label, not by the filename: two files
+       sharing one Label are ONE job, and the second bootstrap fails. -->
 
   <!-- `--start-agents` IS WHAT MAKES THIS A SUPERVISOR. The flag defaults off so
        that `/plot-fleet --once` can run against a live estate for free — a tick

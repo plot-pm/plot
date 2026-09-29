@@ -651,7 +651,12 @@ if [ "$mode" = "start" ]; then
   esac
   [ -f "$template" ] || { echo "plot-fleetctl: no unit template at $template" >&2; exit 1; }
 
-  sed -e "s|__REPO_ROOT__|$repo_root|g" \
+  # THE LABEL IS FILLED, not only the filename. launchd keys a job by the
+  # `Label` inside the plist, so an override that renamed the file alone loaded
+  # under the default label (#1051). The systemd unit carries no label and the
+  # expression finds nothing there.
+  sed -e "s|__LABEL__|$LABEL|g" \
+      -e "s|__REPO_ROOT__|$repo_root|g" \
       -e "s|__NODE__|$node_bin|g" \
       -e "s|__REGISTRYD__|$registryd|g" \
       "$template" > "$target" || { echo "plot-fleetctl: could not write $target" >&2; exit 1; }

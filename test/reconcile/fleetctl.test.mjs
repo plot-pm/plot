@@ -447,18 +447,27 @@ test('--stop of an unloaded supervisor still exits 0 and says so', () => {
 
 // ── The units fill and parse — the check CI can actually run on Linux ─────────
 
-test('both unit templates carry exactly the three documented placeholders', () => {
-  for (const f of ['com.plot-pm.registryd.plist', 'plot-registryd.service']) {
+// EACH TEMPLATE HAS ITS OWN SET. The plist carries `__LABEL__` because launchd
+// keys a job by the `Label` inside it (#1051); a systemd unit has no label
+// field, so the service keeps three and its identity problem is #1053's.
+const PLACEHOLDERS = {
+  'com.plot-pm.registryd.plist': ['__LABEL__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+  'plot-registryd.service': ['__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+};
+
+test('each unit template carries exactly its documented placeholders', () => {
+  for (const [f, expected] of Object.entries(PLACEHOLDERS)) {
     const body = fs.readFileSync(path.join(units, f), 'utf8');
     const found = new Set(body.match(/__[A-Z_]+__/g) ?? []);
-    assert.deepEqual([...found].sort(), ['__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+    assert.deepEqual([...found].sort(), expected,
       `${f} names a placeholder the fill does not replace`);
   }
 });
 
 test('the fill leaves no placeholder in either unit', () => {
-  for (const f of ['com.plot-pm.registryd.plist', 'plot-registryd.service']) {
+  for (const f of Object.keys(PLACEHOLDERS)) {
     const body = fs.readFileSync(path.join(units, f), 'utf8')
+      .replaceAll('__LABEL__', 'com.example.fill')
       .replaceAll('__REPO_ROOT__', '/tmp/repo')
       .replaceAll('__NODE__', '/tmp/node')
       .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
@@ -468,6 +477,7 @@ test('the fill leaves no placeholder in either unit', () => {
 
 test('the filled plist is valid XML', () => {
   const filled = fs.readFileSync(path.join(units, 'com.plot-pm.registryd.plist'), 'utf8')
+    .replaceAll('__LABEL__', 'com.example.supplied')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
     .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
@@ -484,7 +494,8 @@ test('the filled plist is valid XML', () => {
       else stack.push(name);
     }
     assert.deepEqual(stack, [], 'a tag was left open in the filled plist');
-    assert.match(filled, /<key>Label<\/key>\s*<string>com\.plot-pm\.registryd<\/string>/);
+    assert.match(filled, /<key>Label<\/key>\s*<string>com\.example\.supplied<\/string>/,
+      'the filled Label is not the one the fill supplied');
     assert.match(filled, /<key>KeepAlive<\/key>\s*<true\/>/);
   } finally {
     fs.rmSync(tmp, { force: true });
@@ -1157,6 +1168,60 @@ test('--dry-run reports the state it would act on, and writes nothing', () => {
   assert.match(r.out, /^state: (not-installed|interrupted|installed|running)$/m);
   assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-start.done')), false,
     '--dry-run wrote the completion marker');
+});
+
+// ── The label reaches the unit, not only its filename (#1051) ─────────────────
+//
+// THE FILENAME WAS ALWAYS RIGHT, which is why every case below reads the
+// WRITTEN plist. launchd keys a job by the `Label` inside it, so an override
+// that renamed the file and kept the template's literal loaded under the
+// default. A test asserting `x.plist` exists passes against that defect.
+//
+// `stubPlatform` answers Darwin, so the launchd arm runs on CI's Linux too, and
+// its `launchctl` refuses the bootstrap: the run exits after the fill and
+// before anything reaches an init system.
+
+/** Runs `--start` under a Darwin stub and returns the filled plist's `Label`. */
+const startAndReadLabel = (label, env) => {
+  const { root, box, ctl, guardBin } = sandbox(label);
+  const home = fakeHome(box);
+  const bin = stubPlatform(box, {});
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: `${bin}:${process.env.PATH}`, ...env });
+  const unitName = `${env.PLOT_FLEET_LABEL ?? 'com.plot-pm.registryd'}.plist`;
+  const target = path.join(home, 'Library', 'LaunchAgents', unitName);
+  assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
+  const unit = fs.readFileSync(target, 'utf8');
+  assert.equal(unit.match(/__[A-Z_]+__/g), null, 'a placeholder survived the fill');
+  return { r, unit, label: unit.match(/<key>Label<\/key>\s*<string>([^<]*)<\/string>/)?.[1] };
+};
+
+test('label: an override is the Label inside the written plist', () => {
+  const { unit, label } = startAndReadLabel('label-override', { PLOT_FLEET_LABEL: 'com.example.x' });
+  assert.equal(label, 'com.example.x', `the written plist loads under another label:\n${unit}`);
+});
+
+test('label: an unset override writes the default Label, never an empty one', () => {
+  // A FILL THAT SUBSTITUTES AN EMPTY STRING passes the placeholder gate — no
+  // `__LABEL__` survives it — and installs a job launchd cannot key.
+  const { unit, label } = startAndReadLabel('label-default', {});
+  assert.equal(label, 'com.plot-pm.registryd', `the default label did not reach the unit:\n${unit}`);
+});
+
+test('label: --dry-run names the label that --start then writes', () => {
+  // THE OPERATOR-VISIBLE HALF. `--dry-run` always printed the override; the
+  // defect was that the written unit disagreed with it. One value, both ends.
+  const override = 'com.example.dry';
+  const { root, box, ctl, guardBin } = sandbox('label-dry');
+  const bin = stubPlatform(box, {});
+  const dry = run(ctl, ['--start', '--dry-run'], root, guardBin, {
+    HOME: fakeHome(box), PATH: `${bin}:${process.env.PATH}`, PLOT_FLEET_LABEL: override,
+  });
+  assert.equal(dry.status, 0, dry.out);
+  const reported = dry.out.match(/^would fill and load (\S+) \(launchd\)$/m)?.[1];
+  assert.equal(reported, override, `--dry-run reported another label:\n${dry.out}`);
+
+  const { label } = startAndReadLabel('label-dry-written', { PLOT_FLEET_LABEL: override });
+  assert.equal(label, reported, 'the written Label is not the one --dry-run reported');
 });
 
 // ── A consumer repository: Plot installed somewhere else (#969) ───────────────
