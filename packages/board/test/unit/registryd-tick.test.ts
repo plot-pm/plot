@@ -908,3 +908,71 @@ describe('a tick says which hold refused each slice', () => {
     expect(line).not.toContain('no-brief=');
   });
 });
+
+describe('a tick reports what the account spends — a-daemon-spends-within-its-means', () => {
+  const quiet = async () => tick({ registry: async () => [], world: world(), now: () => 0 });
+  const BASE = 'plot-registryd tick agents=0 left=0 reap=0 correct=0 person=0 defer=0 cost=0ms';
+
+  it('appends the account rate and its own rate after every earlier field', async () => {
+    const report = { ...(await quiet()), spend: { accountPerHour: 2825.4, minePerHour: 120 } };
+    // THE EARLIER FIELDS KEEP THEIR NAMES AND ORDER, so a tick after this change
+    // stays comparable with one before it in `.plot/logs/registryd.log`.
+    expect(tickLine(report)).toBe(`${BASE} account=2825/hr mine=120/hr`);
+  });
+
+  it('prints an unread record as unread, never as zero', async () => {
+    const report = { ...(await quiet()), spend: { accountPerHour: null, minePerHour: 0 } };
+    const line = tickLine(report);
+    expect(line).toContain('account=unread');
+    expect(line).not.toContain('account=0');
+  });
+
+  it('omits the spend fields where nobody read the record', async () => {
+    expect(tickLine(await quiet())).toBe(BASE);
+    expect(tickLine({ ...(await quiet()), spend: null })).toBe(BASE);
+  });
+
+  it('names a saturated account and an unreachable host separately', async () => {
+    const queue: QueueWorld = {
+      plans: async () => [
+        {
+          file: 'docs/plans/2026-09-05-a-plan.md',
+          phase: 'approved',
+          slices: [{ branches: [{ branch: 'feature/waiting', deferred: false }] }],
+        } as never,
+      ],
+      claimedBranches: async () => new Set<string>(),
+      mergedBranches: async () => new Set<string>(),
+      briefPresent: async () => true,
+      sliceHasMerged: async () => false,
+      // THE HOST WOULD NOT ANSWER — the hold `merge-unknown` names.
+      queuedHasLanded: async () => 'unknown',
+      workerAlive: async () => true,
+      blocked: async () => false,
+    };
+    const report = await tick({ registry: async () => [], world: world(), queue, now: () => 0 });
+    // AND THE ACCOUNT IS SPENDING HARD — the rate `account=` names.
+    const line = tickLine({ ...report, spend: { accountPerHour: 2825, minePerHour: 120 } });
+    expect(line).toContain('merge-unknown=1');
+    expect(line).toContain('account=2825/hr');
+    expect(line).toContain('mine=120/hr');
+  });
+
+  it('keeps an incomplete tick on its own line whatever the spend says', async () => {
+    const report = await tick({
+      registry: async () => Promise.reject(new Error('spawn git ENOMEM')),
+      world: world(),
+      now: () => 0,
+    });
+    expect(tickLine({ ...report, spend: { accountPerHour: 2825, minePerHour: 120 } })).toBe(
+      'plot-registryd tick incomplete reason="spawn git ENOMEM" cost=0ms next=re-reads',
+    );
+  });
+
+  it('leaves the interval at 60 s: the plan adds no backoff', () => {
+    // `a-daemon-spends-within-its-means` measured the supervisor at about 5% of
+    // the account's load and chose to REPORT rather than stretch. A later plan
+    // that adds backoff changes this value and must re-measure who spends.
+    expect(TICK_INTERVAL_MS).toBe(60_000);
+  });
+});

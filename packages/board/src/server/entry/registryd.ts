@@ -104,6 +104,32 @@ export interface TickReport {
    * indistinguishable from one reading an estate with nothing to hand over.
    */
   handOver: Decision<AssignDetail> | null;
+  /**
+   * What the account spent and what this tick spent, or null/absent where
+   * nobody read the spend record. Filled by the looping daemon after a tick
+   * completes; {@link tick} itself leaves it unset.
+   */
+  spend?: TickSpend | null;
+}
+
+/**
+ * What the host account is spending, beside what this supervisor spends.
+ *
+ * Reported and never acted on: the tick interval does not read it.
+ */
+export interface TickSpend {
+  /**
+   * The account's observed rate from the budget record (`plot-host.sh
+   * spend-rate`), requests per hour. Null when the record gave no rate: an
+   * unreadable record, a missing script, or a window with no span. Null is no
+   * evidence, and it never prints as zero.
+   */
+  accountPerHour: number | null;
+  /**
+   * This supervisor's rate at this tick's host calls: the calls the tick made,
+   * repeated once per interval for an hour.
+   */
+  minePerHour: number;
 }
 
 /** What a daemon needs to run one tick. */
@@ -346,6 +372,22 @@ export const tickLine = (report: TickReport): string => {
   if (detail.unclaimed.length > 0) fields.push(`unclaimed=${detail.unclaimed.length}`);
 
   fields.push(`cost=${report.costMs}ms`);
+
+  // THE SPEND FIELDS COME AFTER `cost=`, so every field an earlier tick printed
+  // keeps its place and a log stays comparable across the change. They are
+  // omitted where nobody read the spend record, the rule the queue fields
+  // follow. `account=unread` is not `account=0/hr`: an unreadable record says
+  // nothing about the account, and a zero would claim it is idle.
+  //
+  // `account=` is a different fact from `merge-unknown=`. The hold says the host
+  // did not answer this tick; the rate says how much the account is spending.
+  if (report.spend) {
+    const { accountPerHour, minePerHour } = report.spend;
+    fields.push(
+      accountPerHour === null ? 'account=unread' : `account=${Math.round(accountPerHour)}/hr`,
+      `mine=${Math.round(minePerHour)}/hr`,
+    );
+  }
   return fields.join(' ');
 };
 

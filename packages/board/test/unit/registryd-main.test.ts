@@ -4,14 +4,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  accountRate,
   argsFrom,
+  queueWorldForRepo,
   readRegistry,
   reportTick,
   run,
+  spendForTick,
   startAgents,
+  worldForRepo,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
+import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
 import { answered, failed, unaskable } from '@plot-pm/domain';
 import { TICK_INTERVAL_MS, type TickReport } from '../../src/server/entry/registryd.js';
@@ -979,5 +984,67 @@ describe('the supervision report', () => {
       (s) => warnings.push(s),
     )).resolves.toBeUndefined();
     expect(warnings.join('')).toContain('EROFS');
+  });
+});
+
+describe('the tick reads the account rate from the spend record', () => {
+  /** A scripts adapter whose `plot-host.sh spend-rate` says `answer`. */
+  const saying = (answer: HostAnswer): Pick<Scripts, 'hostSaid'> & { asked: string[][] } => {
+    const asked: string[][] = [];
+    return {
+      asked,
+      hostSaid: async (args) => {
+        asked.push([...args]);
+        return answer;
+      },
+    };
+  };
+  const record = (perHour: unknown) =>
+    saying({ answer: 'answered', stdout: JSON.stringify({ connector: 'bitbucket', perHour, basis: 'actual' }) });
+
+  it('reads perHour from a saturated stub record through spend-rate', async () => {
+    const scripts = record(2825.4);
+    expect(await accountRate(scripts)).toBe(2825.4);
+    expect(scripts.asked).toEqual([['spend-rate']]);
+  });
+
+  it('reads no evidence as null, never as zero', async () => {
+    // A window with no span, a failed call, an unaskable host and a torn line.
+    expect(await accountRate(record(null))).toBeNull();
+    expect(await accountRate(saying({ answer: 'failed', said: 'no such file' }))).toBeNull();
+    expect(await accountRate(saying({ answer: 'unaskable', said: 'no host' }))).toBeNull();
+    expect(await accountRate(saying({ answer: 'answered', stdout: '{"perHour":' }))).toBeNull();
+  });
+
+  it('prices its own share at this tick\'s calls over the interval', async () => {
+    // Two host calls a tick at 60 s is the 120/hr ceiling the plan measured.
+    expect(await spendForTick(record(2825), 2, TICK_INTERVAL_MS)).toEqual({
+      accountPerHour: 2825,
+      minePerHour: 120,
+    });
+    expect((await spendForTick(record(null), 0, TICK_INTERVAL_MS)).minePerHour).toBe(0);
+  });
+});
+
+describe('the worlds count the host calls a tick makes', () => {
+  it('adds one per host call, answered or not, across both worlds', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-tally-'));
+    try {
+      // A HOST THAT ANSWERS `merged` to one question and fails the other: a
+      // refused call spent quota too, so both count.
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        '#!/usr/bin/env bash\n[ "$1" = pr-merged ] && { echo merged; exit 0; }\nexit 1\n',
+      );
+      const tally = { calls: 0 };
+      const world = worldForRepo(dir, dir, tally);
+      const queue = queueWorldForRepo(dir, dir, tally);
+      await world.merge('feature/a');
+      await queue.mergedBranches();
+      await queue.sliceHasMerged('feature/b');
+      expect(tally.calls).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
