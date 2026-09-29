@@ -680,6 +680,37 @@ if [ "$mode" = "start" ]; then
     exit 1
   fi
 
+  # REFUSAL 2b — no harness. The unit bakes the directory in permanently.
+  #
+  # THE DIRECTORY TRAVELS ON `PATH`, NOT AS `PLOT_HARNESS`. `plot-dispatch.sh`
+  # exports `PLOT_HARNESS="$launch_harness"` on every launch, and that is empty
+  # unless a charter names a harness — so a value the unit set there is
+  # overwritten before the worker prompt reads it, and the prompt falls back to
+  # a bare `command -v claude`. `PATH` reaches the worker unchanged, so putting
+  # the resolved directory first makes that lookup answer this binary.
+  #
+  # THE EXIT CODE DECIDES, NOT THE OUTPUT. `command -v` exits non-zero and
+  # prints nothing for a missing name. It prints a bare word for a builtin or a
+  # function, which names no directory, so a non-absolute answer refuses too.
+  harness_name=${PLOT_HARNESS:-claude}
+  harness_bin=$(command -v "$harness_name") || harness_bin=""
+  case "$harness_bin" in
+    /*) harness_dir=$(dirname "$harness_bin") ;;
+    *)
+      echo "plot-fleetctl: cannot resolve the agent harness '$harness_name' to a file on PATH" >&2
+      if [ -n "${PLOT_HARNESS:-}" ]; then
+        echo "  PLOT_HARNESS is set to '$PLOT_HARNESS', so that is the name looked for." >&2
+      else
+        echo "  PLOT_HARNESS is unset, so the default name 'claude' was looked for." >&2
+      fi
+      echo "  The unit bakes the harness's directory into its PATH permanently, and a" >&2
+      echo "  worker that cannot find its harness exits 127 after you have moved on." >&2
+      echo "  Fix it: put the harness on PATH (or set PLOT_HARNESS to its name or" >&2
+      echo "  absolute path), check with 'command -v $harness_name', then run this again." >&2
+      exit 1
+      ;;
+  esac
+
   # REFUSAL 3 — no init system to hand the daemon to.
   plat=$(platform)
   if [ "$plat" = "none" ]; then
@@ -725,6 +756,7 @@ if [ "$mode" = "start" ]; then
     echo "state: $(fleet_install_state)"
     echo "would fill and load $LABEL ($plat)"
     echo "  node:      $node_bin (major $have, pinned $want)"
+    echo "  harness:   $harness_bin (first on the unit's PATH: $harness_dir)"
     echo "  registryd: $registryd"
     echo "  repo:      $repo_root"
     echo "would then start agents: plot-dispatch.sh --start ${start_count:-(default)}"
@@ -762,6 +794,7 @@ if [ "$mode" = "start" ]; then
   sed -e "s|__LABEL__|$LABEL|g" \
       -e "s|__REPO_ROOT__|$repo_root|g" \
       -e "s|__NODE__|$node_bin|g" \
+      -e "s|__HARNESS_DIR__|$harness_dir|g" \
       -e "s|__REGISTRYD__|$registryd|g" \
       "$template" > "$target" || { echo "plot-fleetctl: could not write $target" >&2; exit 1; }
 

@@ -47,10 +47,15 @@
   <dict>
     <key>PLOT_REPO_ROOT</key>
     <string>__REPO_ROOT__</string>
-    <!-- git, gh and node must be findable: launchd gives a job a minimal PATH
-         and none of the three is on it. Add homebrew's prefix for your arch. -->
+    <!-- git, gh, node and the agent harness (claude, or the name in
+         PLOT_HARNESS) must be findable: launchd gives a job a minimal PATH and
+         none of the four is on it. The first entry is the directory the fleet
+         start resolved the harness in with `command -v`, so a worker runs the
+         binary the operator's shell runs. It comes first for EVERY binary in
+         that directory, not only the harness; on a typical install that is
+         ~/.local/bin. Add homebrew's prefix for your arch. -->
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>__HARNESS_DIR__:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
 
   <key>RunAtLoad</key>

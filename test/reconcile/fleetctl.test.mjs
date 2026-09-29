@@ -141,10 +141,31 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
     fs.chmodSync(f, 0o755);
   }
 
+  // A DEFAULT HARNESS, IN ITS OWN DIRECTORY AND NOT IN `guardBin`.
+  //
+  // `--start` resolves the agent harness on PATH and refuses when it cannot,
+  // so every case that fills a unit needs one. Until this existed the suite
+  // took it from the DEVELOPER'S OWN PATH: nine cases that never mention a
+  // harness passed on a machine with `claude` installed and failed on CI with
+  // `cannot resolve the agent harness 'claude'`.
+  //
+  // IT IS A SEPARATE DIRECTORY BECAUSE `guardBin` GOES FIRST. `startWith`
+  // builds its own PATH and puts a case's stub dir after `guardBin`, so a
+  // `claude` in `guardBin` would outrank the stub the case named and
+  // `--start puts the resolved harness first` would assert against the wrong
+  // binary. This dir is appended by `run()` instead, and `startWith`'s
+  // explicit PATH leaves it out entirely — a case about the harness gets no
+  // default, which is what those cases are for.
+  const harnessBin = path.join(box, 'harness-default-bin');
+  fs.mkdirSync(harnessBin, { recursive: true });
+  const defaultHarness = path.join(harnessBin, 'claude');
+  fs.writeFileSync(defaultHarness, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(defaultHarness, 0o755);
+
   fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-qm', 'init');
-  return { root, box, fleetLabel, guardBin, ctl: path.join(dst, 'plot-fleetctl.sh') };
+  return { root, box, fleetLabel, guardBin, harnessBin, ctl: path.join(dst, 'plot-fleetctl.sh') };
 }
 
 // THE GUARD IS THE FIRST ARGUMENT AFTER THE CWD, AND IT IS REFUSED WHEN ABSENT.
@@ -158,6 +179,14 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
 // A CALLER MAY STILL OVERRIDE `PATH` through `env` — `stubPlatform`'s two cases
 // do, deliberately, to drive a LOADED launchd. That is a stub too, so the
 // guarantee holds: what this refuses is reaching the machine's own binary.
+// THE PATH A CASE BUILDS, plus the sandbox's default harness at the END.
+//
+// Thirteen cases override PATH to put a platform stub first, which discards
+// the harness dir `run()` appends. Each still needs a resolvable harness for
+// `--start` to fill a unit at all, and none of them is about the harness — so
+// the default goes last, where a case's own stub always outranks it.
+const withHarness = (box, ...dirs) => [...dirs, path.join(box, 'harness-default-bin')].join(':');
+
 function run(ctl, args, cwd, guardBin, env = {}) {
   if (typeof guardBin !== 'string' || guardBin === '') {
     throw new Error(
@@ -176,7 +205,10 @@ function run(ctl, args, cwd, guardBin, env = {}) {
         env: {
           ...process.env,
           PLOT_FLEET_LABEL: undefined,
-          PATH: `${guardBin}:${process.env.PATH}`,
+          // The sandbox's default harness sits AFTER `guardBin` and after the
+          // machine's PATH, so it answers only when nothing else does. A case
+          // that names its own harness dir overrides PATH entirely.
+          PATH: `${guardBin}:${process.env.PATH}:${path.join(path.dirname(guardBin), 'harness-default-bin')}`,
           ...env,
         },
       }),
@@ -366,7 +398,7 @@ test('--stop polls the unload past a still-loaded first answer, clears the marke
   const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 0, 'a confirmed unload is a clean stop');
   assert.match(r.out, /supervisor unloaded/);
@@ -387,7 +419,7 @@ test('--stop keeps the marker and exits 1 when the unload is never confirmed', (
   const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 1, 'a stop that printed a failure may not exit 0');
   assert.match(r.out, /did NOT unload within 1s/);
@@ -418,7 +450,7 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
     const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
       HOME: fakeHome(box, { unit: true, label: fleetLabel }),
       PLOT_FLEET_LABEL: fleetLabel,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: withHarness(box, bin, process.env.PATH),
     });
     assert.equal(r.status, 1, 'both failures reach one non-zero exit');
     assert.match(r.out, /did NOT unload within 1s/, 'the supervisor failure is reported');
@@ -439,10 +471,151 @@ test('--stop of an unloaded supervisor still exits 0 and says so', () => {
   const r = run(ctl, ['--stop'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 0, 'nothing was loaded, so nothing failed');
   assert.match(r.out, /supervisor was not loaded/);
+});
+
+// ── The unit finds the harness the operator's shell finds ─────────────────────
+
+// THE SUBJECT IS WHAT THE WORKER RESOLVES, NOT WHAT THE UNIT FILE SAYS.
+// `plot-dispatch.sh:1447` exports `PLOT_HARNESS` on every launch, empty unless a
+// charter names a harness, so a value baked into that variable would be
+// overwritten and a grep for it would pass while proving nothing. These cases
+// read the filled unit's `PATH` and ask a clean shell what `command -v` answers.
+//
+// A REAL `--start`, stopped by the guard. The guard's `launchctl` answers 113
+// and its `systemctl` answers 3, so the unit is filled and then the load fails:
+// the file is left behind for the test to read, and nothing reaches launchd.
+
+const onLaunchd = os.platform() === 'darwin';
+
+const unitTemplate = () =>
+  path.join(units, onLaunchd ? 'com.plot-pm.registryd.plist' : 'plot-registryd.service');
+
+// THE UNIT NAME FOLLOWS THE LABEL ON BOTH PLATFORMS since #1053. This
+// hardcoded `plot-registryd.service` while a labelled `--start` writes
+// `plot-registryd-<name>.service`, so on Linux it looked for a file that is
+// never written and reported `no unit was filled` about a unit that was.
+const unitFile = (home, fleetLabel, ctl) =>
+  onLaunchd
+    ? path.join(home, 'Library', 'LaunchAgents', `${fleetLabel}.plist`)
+    : path.join(home, '.config', 'systemd', 'user', `${unitNameFor(ctl, fleetLabel)}.service`);
+
+const unitPath = (body) => {
+  const m = onLaunchd
+    ? body.match(/<key>PATH<\/key>\s*<string>([^<]*)<\/string>/)
+    : body.match(/^Environment=PATH=(.*)$/m);
+  assert.ok(m, 'the unit carries no PATH');
+  return m[1];
+};
+
+// The unit's own PATH with the harness entry removed: what a worker searched
+// before this slice.
+const defaultUnitPath = () =>
+  unitPath(fs.readFileSync(unitTemplate(), 'utf8')).replace('__HARNESS_DIR__:', '');
+
+const resolvedBy = (searchPath, name) =>
+  execFileSync('/usr/bin/env', ['-i', `PATH=${searchPath}`, '/bin/sh', '-c', `command -v ${name}`],
+    { encoding: 'utf8' }).trim();
+
+const stubHarness = (box, name) => {
+  const dir = path.join(box, 'harness-bin');
+  fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, name);
+  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(bin, 0o755);
+  return { dir, bin };
+};
+
+// ONLY THE DIRECTORIES THE CASE NAMES, plus node's own, so a `claude` this
+// machine has installed cannot answer in the stub's place.
+const startWith = (label, { searchDirs = [], harness } = {}) => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox(label);
+  const home = path.join(box, 'home');
+  fs.mkdirSync(home);
+  // ON LINUX ONLY, A SYSTEMD THAT ACCEPTS `daemon-reload`. `guardBin`'s stub
+  // exits 3 for every call, which is right for the launchd arm these cases
+  // were written for and fatal on Linux: `--start` fills the unit and then
+  // refuses, so the case reads `no unit was filled` about a file on disk.
+  //
+  // IT IS NOT ADDED ON macOS, and that is the whole reason for the guard:
+  // `stubSystemd` also fakes `uname -s` as Linux, so adding it here would
+  // drive the systemd arm on a Darwin host while `onLaunchd` still says
+  // launchd, and the two would disagree about where the unit lands.
+  const sd = onLaunchd ? null : stubSystemd(box);
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home,
+    PLOT_FLEET_LABEL: fleetLabel,
+    PLOT_HARNESS: harness,
+    PATH: [...(sd ? [sd.bin] : []), guardBin, ...searchDirs,
+      path.dirname(process.execPath), defaultUnitPath()].join(':'),
+  });
+  return { r, box, home, file: unitFile(home, fleetLabel, ctl) };
+};
+
+test('--start puts the resolved harness first, and a clean shell on the unit PATH finds it', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-harness-stub-')));
+  try {
+    const { dir, bin } = stubHarness(stubBox, 'claude');
+    const { r, file } = startWith('harness-default', { searchDirs: [dir] });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const searched = unitPath(fs.readFileSync(file, 'utf8'));
+    assert.equal(searched.split(':')[0], dir);
+    assert.equal(resolvedBy(searched, 'claude'), bin,
+      'a worker on the unit PATH does not run the harness --start resolved');
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('--start honours PLOT_HARNESS when it resolves the harness', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-harness-named-')));
+  try {
+    const { dir, bin } = stubHarness(stubBox, 'my-harness');
+    const { r, file } = startWith('harness-named', { searchDirs: [dir], harness: 'my-harness' });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const searched = unitPath(fs.readFileSync(file, 'utf8'));
+    assert.equal(searched.split(':')[0], dir);
+    assert.equal(resolvedBy(searched, 'my-harness'), bin);
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('refusal: a PLOT_HARNESS that names nothing on PATH refuses and writes no unit', () => {
+  const { r, home, file } = startWith('harness-missing', { harness: 'my-harness' });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /cannot resolve the agent harness 'my-harness'/);
+  assert.match(r.out, /PLOT_HARNESS is set to 'my-harness'/);
+  assert.match(r.out, /bakes/);
+  assert.equal(fs.existsSync(file), false, 'a refused start left a unit behind');
+  assert.equal(fs.existsSync(path.join(home, 'Library', 'LaunchAgents')), false);
+  assert.equal(fs.existsSync(path.join(home, '.config', 'systemd')), false);
+});
+
+test('refusal: an unresolvable harness refuses --dry-run too', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('harness-missing-dry');
+  const r = run(ctl, ['--start', '--dry-run'], root, guardBin, {
+    HOME: fakeHome(box),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PLOT_HARNESS: 'my-harness',
+    PATH: [guardBin, path.dirname(process.execPath), defaultUnitPath()].join(':'),
+  });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /my-harness/);
+});
+
+test('a harness already on the default unit PATH resolves to the same binary', () => {
+  // THE UNCHANGED CASE. `sh` stands in for a harness installed where the unit
+  // already looked: prepending its directory repeats an entry and must not
+  // change which file answers.
+  const before = resolvedBy(defaultUnitPath(), 'sh');
+  const { r, file } = startWith('harness-already', { harness: 'sh' });
+  assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+  const searched = unitPath(fs.readFileSync(file, 'utf8'));
+  assert.equal(resolvedBy(searched, 'sh'), before);
 });
 
 // ── The units fill and parse — the check CI can actually run on Linux ─────────
@@ -451,8 +624,8 @@ test('--stop of an unloaded supervisor still exits 0 and says so', () => {
 // keys a job by the `Label` inside it (#1051); a systemd unit has no label
 // field, so the service keeps three and its identity problem is #1053's.
 const PLACEHOLDERS = {
-  'com.plot-pm.registryd.plist': ['__LABEL__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
-  'plot-registryd.service': ['__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+  'com.plot-pm.registryd.plist': ['__HARNESS_DIR__', '__LABEL__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+  'plot-registryd.service': ['__HARNESS_DIR__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
 };
 
 test('each unit template carries exactly its documented placeholders', () => {
@@ -470,6 +643,7 @@ test('the fill leaves no placeholder in either unit', () => {
       .replaceAll('__LABEL__', 'com.example.fill')
       .replaceAll('__REPO_ROOT__', '/tmp/repo')
       .replaceAll('__NODE__', '/tmp/node')
+      .replaceAll('__HARNESS_DIR__', '/tmp/harness')
       .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
     assert.equal(body.match(/__[A-Z_]+__/g), null, `${f} still holds a placeholder after the fill`);
   }
@@ -480,6 +654,7 @@ test('the filled plist is valid XML', () => {
     .replaceAll('__LABEL__', 'com.example.supplied')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
+    .replaceAll('__HARNESS_DIR__', '/tmp/harness')
     .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
   const tmp = path.join(os.tmpdir(), `plot-plist-${process.pid}.plist`);
   fs.writeFileSync(tmp, filled);
@@ -506,6 +681,7 @@ test('the filled systemd unit is well-formed', () => {
   const filled = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
+    .replaceAll('__HARNESS_DIR__', '/tmp/harness')
     .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
   for (const section of ['[Unit]', '[Service]', '[Install]']) {
     assert.ok(filled.includes(section), `the unit has no ${section} section`);
@@ -949,7 +1125,7 @@ test('--status exits exactly 1 for every not-loaded state, on any platform', () 
     const r = run(ctl, ['--status'], root, guardBin, {
       HOME: home,
       PLOT_FLEET_LABEL: fleetLabel,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: withHarness(box, bin, process.env.PATH),
     });
     assert.equal(r.status, 1,
       `${state}: the state reached the exit code the board branches on`);
@@ -975,7 +1151,7 @@ test('--status exits 0 and says up where the init system holds the label', () =>
   const r = run(ctl, ['--status'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 0, 'a loaded supervisor did not answer 0');
   assert.match(r.out, /^supervisor: running \(pid 4242\)/m,
@@ -990,7 +1166,7 @@ test('--status carries the tick age on the running summary line, and only with a
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('tick-age-stale');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
   const bin = stubPlatform(box, { loaded: true });
-  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${bin}:${process.env.PATH}` };
+  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH) };
 
   // No log: the field is absent, never 0.
   const bare = run(ctl, ['--status'], root, guardBin, env);
@@ -1025,7 +1201,7 @@ test('--status prints no tick age outside the running arm', () => {
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(log, 'tick\n');
   const r = run(ctl, ['--status'], root, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${bin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.equal(r.status, 1);
   assert.match(r.out, /^\s+last tick: \d+s ago/m, 'the loaded-not-running arm lost its tick line');
@@ -1034,7 +1210,7 @@ test('--status prints no tick age outside the running arm', () => {
   // Both arms print one line, apart from the number.
   const upBin = stubPlatform(fs.mkdtempSync(path.join(box, 'up-')), { loaded: true });
   const up = run(ctl, ['--status'], root, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${upBin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, upBin, process.env.PATH),
   });
   assert.equal(up.status, 0);
   const tickLine = (out) => (/^\s+last tick: .*$/m.exec(out) ?? [''])[0].replace(/\d+s ago/, 'Ns ago');
@@ -1061,7 +1237,7 @@ test('--status says loaded, not running when the label is held and no process is
     const r = run(ctl, ['--status'], root, guardBin, {
       HOME: home,
       PLOT_FLEET_LABEL: fleetLabel,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: withHarness(box, bin, process.env.PATH),
     });
 
     // THE EXIT CODE IS THE HALF A NAIVE FIX MISSES. `supervisor_loaded` was
@@ -1104,7 +1280,7 @@ test('--status keeps the summary line shape in the loaded-but-dead state', () =>
   const r = run(ctl, ['--status'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: withHarness(box, bin, process.env.PATH),
   });
   assert.match(r.out, /^summary: agents_running=\d+ agents_other=\d+ supervisor=\S+ install=\S+$/m,
     'the loaded-but-dead state is not on the summary line the board reads');
@@ -1186,7 +1362,7 @@ const startAndReadLabel = (label, env) => {
   const { root, box, ctl, guardBin } = sandbox(label);
   const home = fakeHome(box);
   const bin = stubPlatform(box, {});
-  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: `${bin}:${process.env.PATH}`, ...env });
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: withHarness(box, bin, process.env.PATH), ...env });
   const unitName = `${env.PLOT_FLEET_LABEL ?? 'com.plot-pm.registryd'}.plist`;
   const target = path.join(home, 'Library', 'LaunchAgents', unitName);
   assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
@@ -1214,7 +1390,7 @@ test('label: --dry-run names the label that --start then writes', () => {
   const { root, box, ctl, guardBin } = sandbox('label-dry');
   const bin = stubPlatform(box, {});
   const dry = run(ctl, ['--start', '--dry-run'], root, guardBin, {
-    HOME: fakeHome(box), PATH: `${bin}:${process.env.PATH}`, PLOT_FLEET_LABEL: override,
+    HOME: fakeHome(box), PATH: withHarness(box, bin, process.env.PATH), PLOT_FLEET_LABEL: override,
   });
   assert.equal(dry.status, 0, dry.out);
   const reported = dry.out.match(/^would fill and load (\S+) \(launchd\)$/m)?.[1];
@@ -1317,7 +1493,7 @@ test("consumer: the node refusal fires on Plot's pin where the consumer has none
   const home = fakeHome(box);
 
   const r = run(ctl, ['--start'], consumer, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${stubBin}:${guardBin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, stubBin, guardBin, process.env.PATH),
   });
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /node on PATH is 26, Plot pins 24/);
@@ -1544,7 +1720,7 @@ test('systemd: --start under a label writes and enables the unit that label name
   const home = fakeHome(box);
   const sd = stubSystemd(box);
   const r = run(ctl, ['--start'], root, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, sd.bin, guardBin, process.env.PATH),
   });
   const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
   const units = path.join(home, '.config', 'systemd', 'user');
@@ -1559,7 +1735,7 @@ test('systemd: --start with no label still writes plot-registryd.service', () =>
   const home = fakeHome(box);
   const sd = stubSystemd(box);
   const r = run(ctl, ['--start'], root, guardBin, {
-    HOME: home, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+    HOME: home, PATH: withHarness(box, sd.bin, guardBin, process.env.PATH),
   });
   assert.ok(fs.existsSync(path.join(home, '.config', 'systemd', 'user', 'plot-registryd.service')), r.out);
   assert.ok(sd.calls().includes('--user enable --now plot-registryd'), sd.calls().join('\n'));
@@ -1572,7 +1748,7 @@ test('systemd: refusal 4 asks about the unit it names, so a second label is not 
   const home = fakeHome(box);
   const sd = stubSystemd(box, { active: ['plot-registryd'] });
   const r = run(ctl, ['--start'], root, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, sd.bin, guardBin, process.env.PATH),
   });
   assert.doesNotMatch(r.out, /is already loaded/, r.out);
   const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
@@ -1587,7 +1763,7 @@ test('systemd: refusal 4 still refuses when the label\'s own unit is active', ()
   const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
   const sd = stubSystemd(box, { active: [name] });
   const r = run(ctl, ['--start'], root, guardBin, {
-    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, sd.bin, guardBin, process.env.PATH),
   });
   assert.equal(r.status, 1);
   assert.match(r.out, /is already loaded/);
@@ -1599,7 +1775,7 @@ test('systemd: --status and --stop ask about the unit --start wrote', () => {
   const home = fakeHome(box);
   const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
   const sd = stubSystemd(box, { active: [name, 'plot-registryd'] });
-  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}` };
+  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, sd.bin, guardBin, process.env.PATH) };
 
   run(ctl, ['--status'], root, guardBin, env);
   assert.ok(sd.calls().includes(`--user is-active --quiet ${name}`), sd.calls().join('\n'));
