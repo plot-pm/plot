@@ -29,7 +29,7 @@ import { parseSprintFile } from '../../src/server/board.js';
  */
 
 /** The corpus file's copy, verbatim. A change here must be made there too. */
-const CORPUS_MEMBER_LINE = /^- \[( |x)\] (?:\[([^\]]+)\]\s*)?(.*)$/;
+const CORPUS_MEMBER_LINE = /^- \[( |x)\] (?:(?:~~)?\[([a-z0-9][a-z0-9-]*)\]\s*)?(.*)$/;
 
 /**
  * Lines exercising every shape this estate writes, plus the ones it must reject.
@@ -47,6 +47,7 @@ const LINES = [
   '- [ ] ~~[c-plan]~~ struck through, bare reference',
   '- [x] ~~[d-plan](../plans/x.md)~~ struck through, full link',
   '- [ ] Close [#935](https://example.invalid/935) — a reference mid-text',
+  '- [ ] [#1039](https://example.invalid/1039) — **an issue in the lead**, naming no plan',
   '- [x] an item ending in t',
   '- [ ] trailing annotation <!-- moved: 2026-01-01 -->',
   // Not items: no checkbox at all.
@@ -89,24 +90,48 @@ describe('the sprint-item readers agree with each other', () => {
     );
   });
 
-  it('reads nine of these thirteen lines as items', () => {
-    // THE NUMBER, pinned: nine checkbox lines at the left margin, and four
+  it('reads ten of these fourteen lines as items', () => {
+    // THE NUMBER, pinned: ten checkbox lines at the left margin, and four
     // that are not items — two prose bullets, an indented checkbox, and a line
     // that is not a bullet. A reader that started accepting the indented one
     // would widen what a sprint promises without anyone choosing that.
-    expect(itemsFrom(SPRINT(LINES.join('\n')))).toHaveLength(9);
-    expect(members(LINES.join('\n'))).toHaveLength(9);
+    //
+    // Moved 9 -> 10 on 2026-09-29 with the issue-linked line below, which is
+    // an item under every shape considered; the four non-items are unchanged.
+    expect(itemsFrom(SPRINT(LINES.join('\n')))).toHaveLength(10);
+    expect(members(LINES.join('\n'))).toHaveLength(10);
   });
 
-  it('agrees that a struck-through reference is an item with no slug', () => {
-    // BOTH FORMS the estate writes. This is the population the corpus test
-    // excludes BY NAME from its slug comparison, because the shell reads the
-    // slug through the strike and these two do not. Pinning the behaviour here
-    // is what makes that exclusion a stated difference rather than a guess.
+  it('reads the slug through a strike, in both written forms', () => {
+    // BOTH FORMS the estate writes, and this pin was INVERTED on 2026-09-29.
+    // It asserted `['', '']` — the reading that made the board count W40's
+    // withdrawn Should `open` while the release gate counted it `withdrawn`.
+    // The shell has read through the strike since 2026-09-08
+    // (`plot-sprint-release.sh:249`) and the release gate relies on it, so the
+    // two TypeScript readers learned that rule rather than the shell losing it.
+    //
+    // The closing `~~` is deliberately not required: the second form wraps a
+    // full markdown link, and anchoring on it reads that line as unstruck.
     const body = ['- [ ] ~~[c-plan]~~ bare', '- [x] ~~[d-plan](../plans/x.md)~~ linked'].join('\n');
     const fromTransition = itemsFrom(SPRINT(body));
     expect(fromTransition).toHaveLength(2);
-    expect(fromTransition.map((i) => i.plan)).toEqual(['', '']);
-    expect(members(body).map((m) => m.slug)).toEqual(['', '']);
+    expect(fromTransition.map((i) => i.plan)).toEqual(['c-plan', 'd-plan']);
+    expect(members(body).map((m) => m.slug)).toEqual(['c-plan', 'd-plan']);
+  });
+
+  it('reads an issue in the lead as an item naming no plan', () => {
+    // THE SHAPE THIS PLAN CHOSE. A reference is a plan slug, so `[#1039](…)`
+    // is text and the item names no plan — the answer the shell has always
+    // given, and the one the release gate already acts on. It stays an ITEM:
+    // a sprint committing to a ticket is a promise, and dropping the line
+    // would understate what the sprint owes.
+    const body = '- [ ] [#1039](https://example.invalid/1039) — **an issue**, naming no plan';
+    const fromTransition = itemsFrom(SPRINT(body));
+    expect(fromTransition).toHaveLength(1);
+    expect(fromTransition[0].plan).toBe('');
+    // The text keeps the issue link, so the line is still readable as what it
+    // promised — an item naming no plan is not an item naming nothing.
+    expect(fromTransition[0].text).toContain('#1039');
+    expect(members(body).map((m) => m.slug)).toEqual(['']);
   });
 });
