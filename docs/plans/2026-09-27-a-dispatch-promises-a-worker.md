@@ -99,7 +99,7 @@ Whether a deferred desk's row shows the reason is `a-desk-says-who-owes-it`'s qu
 
 ## Slices
 
-### A dispatch says what it started (Branch: bug/a-dispatch-promises-a-worker)
+### A dispatch says what it started (Branch: bug/a-dispatch-promises-a-worker, PR: #1076)
 
 The three outcomes, verification without blocking, and the #1030 boundary settled first.
 
