@@ -332,3 +332,137 @@ test('start: --dry-run reports the plan and writes no pidfile', async () => {
   assert.match(r.out, new RegExp(`port:\\s+${port}`));
   assert.ok(!fs.existsSync(path.join(root, '.plot', 'state', 'board.pid')));
 });
+
+// ── The port is configured: `--port N` > `Board port` key > 7777 (#1056) ──────
+//
+// THE BOUND PORT IS THE EVIDENCE, NEVER THE EXIT CODE. The server treats a held
+// port as a report and exits 0, so a start that attached to somebody else's
+// board passes an exit-code assertion. These cases start a stand-in board that
+// binds `$PORT` and names that port in `/api/board`, and read it back from the
+// socket that answered.
+
+/** Writes a `## Plot Config` carrying the key into the named file. */
+const declarePort = (root, value, file = 'CLAUDE.md') => {
+  if (file !== 'CLAUDE.md') fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n');
+  fs.writeFileSync(path.join(root, file),
+    `# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Board port:** ${value}\n`);
+};
+
+/**
+ * A stand-in board: binds `$PORT` and answers `/api/board` with the repository
+ * it runs in and the port it bound. It exits by itself after a minute, so a
+ * failed test cannot leave it running for long.
+ */
+const standInBoard = (root) => {
+  const dir = path.join(root, 'skills', 'plot', 'scripts', 'board');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'board-server.mjs'), [
+    "import http from 'node:http';",
+    'const port = Number(process.env.PORT);',
+    'http.createServer((req, res) => {',
+    "  res.setHeader('content-type', 'application/json');",
+    '  res.end(JSON.stringify({ server: { repo: process.cwd(), port } }));',
+    "}).listen(port, '127.0.0.1');",
+    'setTimeout(() => process.exit(0), 60000);',
+  ].join('\n'));
+};
+
+const NO_OTHER_ARTIFACT = { PLOT_PLUGIN_ROOT: '/nonexistent-plugin-root', PLOT_NPM_BIN: '/nonexistent-npm-bin' };
+
+/** The port a board on `port` reports it bound, or null when nothing answers. */
+const boundPort = async (port) => {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/board`);
+    return (await res.json())?.server?.port ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/** Kills whatever the sandbox's pidfile names, so no stand-in outlives a test. */
+const reap = (root) => {
+  const pidfile = path.join(root, '.plot', 'state', 'board.pid');
+  if (!fs.existsSync(pidfile)) return;
+  const pid = Number(fs.readFileSync(pidfile, 'utf8').trim());
+  if (pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+};
+
+test('port: the Board port key is the port --start binds, and --status and --stop act on it without --port', async () => {
+  const { root, ctl } = sandbox('port-key');
+  const port = await freePort();
+  declarePort(root, port);
+  standInBoard(root);
+  try {
+    const started = run(ctl, ['--start'], root, NO_OTHER_ARTIFACT);
+    assert.equal(started.status, 0, started.out);
+    assert.equal(await boundPort(port), port, 'the board did not bind the declared port');
+
+    const status = run(ctl, ['--status'], root);
+    assert.equal(status.status, 0, status.out);
+    assert.match(status.out, new RegExp(`^port ${port}: pid \\d+ listening`, 'm'));
+
+    const stopped = run(ctl, ['--stop'], root);
+    assert.equal(stopped.status, 0, stopped.out);
+    assert.equal(await boundPort(port), null, '--stop without --port left the declared port held');
+  } finally {
+    reap(root);
+  }
+});
+
+test('port: --port N wins over the Board port key', async () => {
+  // A READ PLACED AFTER THE FLAG LOOP inverts this and still passes the case
+  // above, which never passes the flag.
+  const { root, ctl } = sandbox('port-flag');
+  const declared = await freePort();
+  const flagged = await freePort();
+  declarePort(root, declared);
+  standInBoard(root);
+  try {
+    const r = run(ctl, ['--start', '--port', String(flagged)], root, NO_OTHER_ARTIFACT);
+    assert.equal(r.status, 0, r.out);
+    assert.equal(await boundPort(flagged), flagged);
+    assert.equal(await boundPort(declared), null, 'the key bound a port although --port was given');
+  } finally {
+    reap(root);
+  }
+});
+
+test('port: no key keeps 7777', () => {
+  // `--dry-run`, because this suite never goes near 7777: an operator's own
+  // board holds it.
+  const { root, ctl } = sandbox('port-none');
+  standInBoard(root);
+  const r = run(ctl, ['--start', '--dry-run'], root, NO_OTHER_ARTIFACT);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /port:\s+7777\b/);
+});
+
+test('port: a key with no value keeps 7777', () => {
+  const { root, ctl } = sandbox('port-empty');
+  declarePort(root, '');
+  standInBoard(root);
+  const r = run(ctl, ['--start', '--dry-run'], root, NO_OTHER_ARTIFACT);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /port:\s+7777\b/);
+});
+
+test('port: the key is read from AGENTS.md when CLAUDE.md holds no Plot Config', () => {
+  const { root, ctl } = sandbox('port-agents');
+  declarePort(root, 7801, 'AGENTS.md');
+  standInBoard(root);
+  const r = run(ctl, ['--start', '--dry-run'], root, NO_OTHER_ARTIFACT);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /port:\s+7801\b/);
+});
+
+test('port: a key that is not a number is refused, and --port still runs', () => {
+  const { root, ctl } = sandbox('port-bad');
+  declarePort(root, 'seventy');
+  standInBoard(root);
+  const refused = run(ctl, ['--status'], root);
+  assert.equal(refused.status, 1);
+  assert.match(refused.out, /'Board port' key .* needs a number, got 'seventy'/);
+  const flagged = run(ctl, ['--start', '--dry-run', '--port', '7802'], root, NO_OTHER_ARTIFACT);
+  assert.equal(flagged.status, 0, flagged.out);
+  assert.match(flagged.out, /port:\s+7802\b/);
+});

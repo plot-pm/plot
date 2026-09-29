@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Started:** 2026-09-29, jwloka, `bug/a-slice-starts-its-own-conversation`
 - **Type:** bug
@@ -13,6 +13,7 @@
 - **Issue:** #1067
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Delivered:** 2026-09-29
 
 ## Changelog
 

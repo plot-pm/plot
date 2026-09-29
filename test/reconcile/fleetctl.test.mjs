@@ -1292,9 +1292,12 @@ test('consumer: the filled unit names the plugin bundle, never the consumer chec
   // the fill and before anything reaches the init system or starts an agent.
   run(ctl, ['--start'], consumer, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
 
+  // THE SCRIPT'S OWN ANSWER, never a second copy of the naming rule: a test
+  // that hardcoded the systemd name kept passing after the name stopped
+  // following the label (#1053).
   const target = process.platform === 'darwin'
     ? path.join(home, 'Library', 'LaunchAgents', `${fleetLabel}.plist`)
-    : path.join(home, '.config', 'systemd', 'user', 'plot-registryd.service');
+    : path.join(home, '.config', 'systemd', 'user', `${unitNameFor(ctl, fleetLabel, consumer)}.service`);
   assert.ok(fs.existsSync(target), `no unit was filled at ${target}`);
   const unit = fs.readFileSync(target, 'utf8');
   assert.ok(unit.includes(bundle), `the unit does not name the plugin bundle ${bundle}:\n${unit}`);
@@ -1459,4 +1462,168 @@ launchctl() { return 113; }
 out=$(supervisor_workdir); rc=$?; printf '%s|%s|%s' "$rc" "$out" "$(supervisor_checkout)"`;
   const out = execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd: root });
   assert.equal(out, '0||unknown');
+});
+
+// ── The systemd unit name follows the label (#1053) ───────────────────────────
+//
+// launchd keys a job by the label inside the plist; systemd keys a unit by its
+// FILENAME. With the name hardcoded, two checkouts wrote one file, and refusal
+// 4 asked `is-active` about the default unit while naming the operator's label.
+// These cases run the systemd arm on any host through a `uname` and a
+// `systemctl` on `PATH`, and the `systemctl` stub RECORDS its argv: `disable`
+// output is discarded by the script, so a wrong name still exits cleanly and
+// only the recorded call can show which unit was asked about.
+
+// THE CWD IS A PARAMETER, because sourcing the script resolves a repo root and
+// refuses outside one. `path.dirname(ctl)` is a git repository for a `sandbox`
+// ctl and NOT for a `consumerSandbox` one, whose ctl lives in a plugin cache —
+// so the default masked the failure everywhere but the one call site that
+// needed it, and only on a runner whose temp dir is outside any checkout.
+const unitNameFor = (ctl, label, cwd = path.dirname(ctl)) => {
+  const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'; printf '%s' "$UNIT_NAME"`;
+  const env = { ...process.env, PLOT_FLEET_LABEL: label };
+  if (label === undefined) delete env.PLOT_FLEET_LABEL;
+  return execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd, env });
+};
+
+// A systemd whose active units are files in a directory, so `disable --now`
+// can make one inactive and the `--stop` poll sees it go. `daemon-reload`
+// succeeds and `enable` fails, so a `--start` records the enable call and exits
+// before it starts any agent.
+const stubSystemd = (box, { active = [] } = {}) => {
+  const bin = path.join(box, 'systemd-bin');
+  const state = path.join(box, 'systemd-active');
+  const log = path.join(box, 'systemctl.log');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.mkdirSync(state, { recursive: true });
+  for (const name of active) fs.writeFileSync(path.join(state, name), '');
+  const write = (name, body) => {
+    const p = path.join(bin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Linux || exec /usr/bin/uname "$@"');
+  write('systemctl', [
+    `printf '%s\\n' "$*" >> '${log}'`,
+    '[ "$1" = --user ] && shift',
+    'case "$1" in',
+    `  is-active) [ -f '${state}'/"$3" ] && exit 0; exit 3 ;;`,
+    `  show) [ -f '${state}'/"$2" ] && [ "$4" = MainPID ] && echo 4242; exit 0 ;;`,
+    `  disable) rm -f '${state}'/"$3"; exit 0 ;;`,
+    '  daemon-reload) exit 0 ;;',
+    '  *) exit 1 ;;',
+    'esac',
+  ].join('\n'));
+  return { bin, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) };
+};
+
+test('unit name: the default label keeps plot-registryd, and every existing install with it', () => {
+  const { ctl } = sandbox('unitname-default');
+  assert.equal(unitNameFor(ctl, undefined), 'plot-registryd');
+  assert.equal(unitNameFor(ctl, 'com.plot-pm.registryd'), 'plot-registryd');
+});
+
+test('unit name: another label strips the default prefix and keeps the rest distinct', () => {
+  const { ctl } = sandbox('unitname-derived');
+  // THE SHAPE `units/README.md` DOCUMENTS for a second repository.
+  assert.equal(unitNameFor(ctl, 'com.plot-pm.registryd.ewz-kus-portal'), 'plot-registryd-ewz-kus-portal');
+  // Two labels sharing a last segment stay two units.
+  assert.notEqual(unitNameFor(ctl, 'com.a.portal'), unitNameFor(ctl, 'com.b.portal'));
+  assert.equal(unitNameFor(ctl, 'com.a.portal'), 'plot-registryd-com.a.portal');
+});
+
+test('unit name: bytes systemd refuses in a unit name are replaced', () => {
+  const { ctl } = sandbox('unitname-sanitise');
+  const name = unitNameFor(ctl, 'com.plot-pm.registryd.my label/x$y');
+  assert.equal(name, 'plot-registryd-my-label-x-y');
+  assert.match(name, /^[A-Za-z0-9:_.-]+$/);
+});
+
+test('systemd: --start under a label writes and enables the unit that label names', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('unitname-start');
+  const home = fakeHome(box);
+  const sd = stubSystemd(box);
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+  });
+  const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
+  const units = path.join(home, '.config', 'systemd', 'user');
+  assert.ok(fs.existsSync(path.join(units, `${name}.service`)), `no ${name}.service:\n${r.out}`);
+  assert.equal(fs.existsSync(path.join(units, 'plot-registryd.service')), false,
+    'a labelled start wrote the default unit, which another checkout owns');
+  assert.ok(sd.calls().includes(`--user enable --now ${name}`), sd.calls().join('\n'));
+});
+
+test('systemd: --start with no label still writes plot-registryd.service', () => {
+  const { root, box, ctl, guardBin } = sandbox('unitname-unset');
+  const home = fakeHome(box);
+  const sd = stubSystemd(box);
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+  });
+  assert.ok(fs.existsSync(path.join(home, '.config', 'systemd', 'user', 'plot-registryd.service')), r.out);
+  assert.ok(sd.calls().includes('--user enable --now plot-registryd'), sd.calls().join('\n'));
+});
+
+test('systemd: refusal 4 asks about the unit it names, so a second label is not refused', () => {
+  // A's default unit is active; B starts under its own label. Asking the
+  // hardcoded name refused B and told it to do what it just did.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('unitname-refusal');
+  const home = fakeHome(box);
+  const sd = stubSystemd(box, { active: ['plot-registryd'] });
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+  });
+  assert.doesNotMatch(r.out, /is already loaded/, r.out);
+  const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
+  assert.ok(sd.calls().includes(`--user is-active --quiet ${name}`), sd.calls().join('\n'));
+  assert.equal(sd.calls().some((c) => / plot-registryd$/.test(c)), false,
+    `a call named the default unit:\n${sd.calls().join('\n')}`);
+});
+
+test('systemd: refusal 4 still refuses when the label\'s own unit is active', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('unitname-taken');
+  const home = fakeHome(box);
+  const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
+  const sd = stubSystemd(box, { active: [name] });
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}`,
+  });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /is already loaded/);
+  assert.match(r.out, new RegExp(`systemctl --user show ${name.replace(/[.]/g, '\\.')}`));
+});
+
+test('systemd: --status and --stop ask about the unit --start wrote', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('unitname-stop');
+  const home = fakeHome(box);
+  const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
+  const sd = stubSystemd(box, { active: [name, 'plot-registryd'] });
+  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: `${sd.bin}:${guardBin}:${process.env.PATH}` };
+
+  run(ctl, ['--status'], root, guardBin, env);
+  assert.ok(sd.calls().includes(`--user is-active --quiet ${name}`), sd.calls().join('\n'));
+
+  const r = run(ctl, ['--stop', '--wait', '5'], root, guardBin, env);
+  // THE RECORDED CALL, NOT THE EXIT CODE: `disable` output is discarded.
+  assert.ok(sd.calls().includes(`--user disable --now ${name}`), `${sd.calls().join('\n')}\n${r.out}`);
+  assert.equal(sd.calls().includes('--user disable --now plot-registryd'), false,
+    'a labelled --stop disabled the default unit, which another checkout owns');
+  assert.ok(fs.existsSync(path.join(box, 'systemd-active', 'plot-registryd')),
+    'the other checkout\'s unit was stopped');
+});
+
+test('gate: no systemctl call or systemd unit path in plot-fleetctl.sh hardcodes plot-registryd', () => {
+  // THE SHIPPED TEMPLATE'S FILENAME IS EXCLUDED by construction: that line
+  // names `$UNIT_DIR`, carries no `systemctl` and no `systemd/user`, and is the
+  // file the fill reads rather than a unit anybody routes to.
+  const lines = fs.readFileSync(path.join(scripts, 'plot-fleetctl.sh'), 'utf8').split('\n');
+  const offenders = lines
+    .map((line, i) => [i + 1, line])
+    .filter(([, line]) => !/^\s*#/.test(line))
+    .filter(([, line]) => /systemctl|systemd\/user/.test(line))
+    .filter(([, line]) => /plot-registryd(?![-\w]*\.mjs)/.test(line.replace(/\$UNIT_NAME/g, '')));
+  assert.deepEqual(offenders, [], `hardcoded unit name:\n${offenders.map(([n, l]) => `${n}: ${l}`).join('\n')}`);
+  // The template line survives and stays hardcoded.
+  assert.ok(lines.some((line) => line.includes('template="$UNIT_DIR/plot-registryd.service"')));
 });
