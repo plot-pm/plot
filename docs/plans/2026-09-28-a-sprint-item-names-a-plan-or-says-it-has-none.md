@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
 - **Started:** 2026-09-29, Jan Wloka, `bug/a-sprint-item-names-a-plan-or-says-it-has-none`
+- **Delivered:** 2026-09-29
 
 ## Changelog
 
