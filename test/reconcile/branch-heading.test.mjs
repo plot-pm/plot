@@ -67,19 +67,29 @@ test('plan-meta: a Branch: heading that yields no branch is named in unread_bran
   assert.deepEqual(meta.unread_branch_headings, ['Lost (Branch: feat/nope)']);
 });
 
-test('plan-meta: a heading lost to the first-heading latch (#1042) is named', () => {
-  // The minimal pair from the plan: identical content, reordered. With the
-  // narrative heading first the section routes to the list consumer and the
-  // branched heading yields nothing; the report names it. With the branched
-  // heading first it is read and nothing is reported.
+test('plan-meta: the first-heading latch (#1042) loses nothing, in either order', () => {
+  // The minimal pair from the plan: identical content, reordered. This test
+  // PINNED THE DEFECT when the field shipped — the latch routed a
+  // narrative-first section to the list consumer, the branched heading yielded
+  // nothing, and this report named it, which is what the field is for.
+  //
+  // #1042 removed the latch on 2026-09-28, so the pair now agrees and there is
+  // nothing left to report. The assertion is inverted rather than deleted: the
+  // pair is the right fixture either way, and a reader arriving from the issue
+  // finds the case it names. The detector's own behaviour is unchanged and
+  // asserted by the three tests below.
   const narrative = '### A narrative heading with no branch\n\nProse.\n';
   const real = '### Real work (Branch: bug/real-work)\n\nWork.\n';
   const latched = parseSource(plan(narrative + '\n' + real));
-  assert.deepEqual(latched.branches, [], 'the latch still loses it — #1042 is not fixed here');
-  assert.deepEqual(latched.unread_branch_headings, ['Real work (Branch: bug/real-work)']);
+  assert.deepEqual(latched.branches, ['bug/real-work'],
+    'a branched heading below a narrative one is read — #1042 is fixed');
+  assert.deepEqual(latched.unread_branch_headings, [],
+    'and so there is no unread heading to report');
   const read = parseSource(plan(real + '\n' + narrative));
   assert.deepEqual(read.branches, ['bug/real-work']);
   assert.deepEqual(read.unread_branch_headings, []);
+  assert.deepEqual(latched.branches, read.branches,
+    'the order of two headings cannot change the answer');
 });
 
 test('plan-meta: an empty wave whose heading carries no Branch: is not reported', () => {

@@ -944,20 +944,26 @@ section == "changelog" {
   cl_open = 0
   next
 }
-# WHICH SHAPE THIS SECTION HOLDS, decided once from its first `### ` heading and
-# then fixed for the rest of the section.
+# WHICH SHAPE THIS SECTION HOLDS, decided by ANY heading in it that names a
+# branch — not by the first heading alone.
 #
 # `(Branch:` IS THE MARKER, and it is the only reliable one. A heading carrying
 # it is the new shape by construction — that parenthetical is where the new
-# layout puts the branch. A heading without it is the old shape, whose headings
+# layout puts the branch. Headings without it are the old shape, whose headings
 # are bare names (`### Tracer`) and whose branches ride list items below.
 #
-# A SECTION WITH NO `### ` AT ALL is the old shape, and must be: a plan written
-# before subheadings existed is one unnamed wave of list items, which is exactly
-# what the old consumer produces. `slice_shape` therefore stays `""` until a
-# heading is seen, and `""` routes to the old consumer.
+# THE FIRST HEADING IS NOT THE DECIDER, and a latch on it loses work. Measured
+# 2026-09-28 over 357 plans: 56 sections open with a narrative heading, and in 2
+# of them a branched heading sits below it, so the section routed to the list
+# consumer and 5 declared slices were read as none. `slice_shape` therefore
+# stays `""` until a BRANCHED heading appears, wherever it sits.
+#
+# A SECTION WITH NO BRANCHED `### ` AT ALL is the old shape, and must be: a plan
+# written before subheadings existed is one unnamed wave of list items, which is
+# exactly what the old consumer produces — 54 of those 56 plans. `""` routes
+# there, so the absent latch and the old answer are one behaviour.
 section == "slices" && $0 ~ /^###[ \t]/ && slice_shape == "" {
-  slice_shape = (index($0, "(Branch:") > 0) ? "heading" : "list"
+  if (index($0, "(Branch:") > 0) slice_shape = "heading"
 }
 
 section == "slices" && slice_shape != "heading" {
