@@ -1,5 +1,6 @@
 import { hostFor, planStoreFor, treesFor } from './board.js';
 import type { BuildBoardOptions } from './board.js';
+import { parsePersonDirectory, type PersonDirectory } from '@plot-pm/domain';
 import type { ServerInfo } from '../contract/schema.js';
 
 /**
@@ -164,6 +165,21 @@ const ciSystem = async (opts: BuildBoardOptions): Promise<string> => {
   return cachedCi;
 };
 
+/** The `## Plot Config` key declaring each person's spellings. */
+const PEOPLE_KEY = 'People';
+
+let cachedPeople: PersonDirectory | null = null;
+
+/**
+ * The declared spellings of each person, read ONCE for the process's life — a
+ * startup fact, like `CI`. `{}` where the key is absent or unreadable, which
+ * the ownership rule reads as no spelling declared.
+ */
+const people = async (opts: BuildBoardOptions): Promise<PersonDirectory> => {
+  if (cachedPeople === null) cachedPeople = parsePersonDirectory(await readConfig(opts, PEOPLE_KEY, ''));
+  return cachedPeople;
+};
+
 /** Who is reading this board: the host user and git's email, `''` where absent. */
 interface Identity {
   hostUser: string;
@@ -218,11 +234,12 @@ export async function serverInfo(
   // be synchronous spawns on the `/api/board` path, which is the defect this
   // migration exists for: a synchronous spawn cannot yield, so the loop served
   // nothing while either ran.
-  const [restartCommand, branch, ci, who] = await Promise.all([
+  const [restartCommand, branch, ci, who, directory] = await Promise.all([
     readConfig(opts, BOARD_COMMAND_KEY, NO_COMMAND),
     currentBranch(opts),
     ciSystem(opts),
     identity(opts),
+    people(opts),
   ]);
   return {
     restartCommand,
@@ -234,6 +251,9 @@ export async function serverInfo(
     // a different kind of row. Memoised on a 60 s TTL.
     hostUser: who.hostUser,
     gitEmail: who.gitEmail,
+    // The spellings the ownership rule resolves an assignee and an author
+    // through. Memoised for the process, like `ci`.
+    people: directory,
     // A STARTUP FACT, like `branch`, and already resolved before the first
     // response — `repoRoot` is what every helper spawn is measured against, so
     // this reports a value the server already holds rather than computing one.

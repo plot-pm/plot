@@ -1051,6 +1051,13 @@ export const ServerInfoSchema = z.object({
    */
   gitEmail: z.string().default(''),
   /**
+   * The declared spellings of each person, from the `People` key of
+   * `## Plot Config` — spelling (lowercased) to handle, as
+   * `parsePersonDirectory` reads it. The ownership rule resolves a plan's
+   * `Assignee:` line and a PR's author through it. `{}` where none is declared.
+   */
+  people: z.record(z.string(), z.string()).default({}),
+  /**
    * The repository this server is serving — the root it resolves plans, scripts
    * and worktrees against.
    *
@@ -1088,6 +1095,7 @@ export const BoardSchema = z.object({
     branch: '',
     hostUser: '',
     gitEmail: '',
+    people: {},
     repo: '',
     ci: '',
   }),

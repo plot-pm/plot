@@ -1,0 +1,165 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { parsePersonDirectory, type OwnedRow } from '@plot-pm/domain';
+import { agent, board, card, column, fleet, row } from '../catalogue/index.js';
+import {
+  agentsForReader,
+  boardForReader,
+  ownedFromCard,
+  ownedFromRow,
+  readerFrom,
+  rowsForReader,
+} from '../../src/app/lib/agent-rows/mine-filter.js';
+import { AgentList } from '../../src/app/components/AgentList.js';
+
+/**
+ * `a-row-is-owned-by-more-than-its-pr` — the ownership rule reaches agents and
+ * plan cards, and every population it still cannot place answers `unknown` and
+ * stays.
+ *
+ * The directory is this repository's own `People` value. `eins78` is Max
+ * Albrecht, who added each of the four plans carrying that spelling.
+ */
+
+/** Every row `isMine` is asked about, recorded through the production module. */
+const asked = vi.hoisted(() => [] as OwnedRow[]);
+
+vi.mock('@plot-pm/domain', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@plot-pm/domain')>();
+  return {
+    ...real,
+    isMine: (owned: OwnedRow, reader: Parameters<typeof real.isMine>[1]) => {
+      asked.push(owned);
+      return real.isMine(owned, reader);
+    },
+  };
+});
+
+const people = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
+const server = { hostUser: 'jwloka', gitEmail: 'jan.wloka@quatico.com', people };
+const reader = readerFrom(server);
+
+describe('readerFrom carries the directory', () => {
+  it('passes the server\'s People directory to the rule', () => {
+    expect(reader.directory).toEqual(people);
+  });
+
+  it('leaves it absent for an older server that never sent it', () => {
+    expect(readerFrom({ hostUser: 'jwloka' }).directory).toBeUndefined();
+  });
+});
+
+describe('plan cards reach the rule by their assignee', () => {
+  const kanban = board({
+    columns: [
+      column({
+        phase: 'Development',
+        cards: [
+          card({ slug: 'by-login', assignee: 'jwloka' }),
+          card({ slug: 'by-name', assignee: 'Jan Wloka' }),
+          card({ slug: 'by-max', assignee: 'eins78' }),
+          card({ slug: 'by-nobody', assignee: '' }),
+          card({ slug: 'by-stranger', assignee: 'Someone New' }),
+        ],
+      }),
+    ],
+  });
+  const slugs = (b: typeof kanban) => b.columns.flatMap((c) => c.cards.map((x) => x.slug));
+
+  it('maps a card to a plan row', () => {
+    expect(ownedFromCard({ assignee: 'Jan Wloka' })).toEqual({ kind: 'plan', assignee: 'Jan Wloka' });
+  });
+
+  it('returns the board untouched when off', () => {
+    expect(boardForReader(kanban, reader, false)).toBe(kanban);
+  });
+
+  it('hides only the card the directory declares for another person', () => {
+    expect(slugs(boardForReader(kanban, reader, true))).toEqual(['by-login', 'by-name', 'by-nobody', 'by-stranger']);
+  });
+
+  it('hides no card without a directory, and keeps the reader\'s other spelling', () => {
+    // An exact-match rule would hide `Jan Wloka` here: 51 of the reader's 113
+    // assigned plans on this estate.
+    const bare = readerFrom({ hostUser: 'jwloka' });
+    expect(slugs(boardForReader(kanban, bare, true))).toEqual(slugs(kanban));
+  });
+
+  it('hides no card when the board names no reader', () => {
+    expect(slugs(boardForReader(kanban, readerFrom({ people }), true))).toEqual(slugs(kanban));
+  });
+});
+
+describe('each population the rule cannot place answers unknown and stays', () => {
+  it('keeps a build row', () => {
+    const build = row({ kind: 'build', branch: 'main', pr: null });
+    expect(ownedFromRow(build)).toEqual({ kind: 'other' });
+    expect(rowsForReader([build], reader, true)).toHaveLength(1);
+  });
+
+  it('keeps a bare branch row, whatever its name says', () => {
+    const branch = row({ kind: 'branch', branch: 'feature/eins78-something', pr: null });
+    expect(ownedFromRow(branch)).toEqual({ kind: 'other' });
+    expect(rowsForReader([branch], reader, true)).toHaveLength(1);
+  });
+
+  it('keeps a plan row on the Agents tab, which carries no assignee', () => {
+    const planRow = row({ kind: 'plan', branch: '', pr: null });
+    expect(ownedFromRow(planRow)).toEqual({ kind: 'other' });
+    expect(rowsForReader([planRow], reader, true)).toHaveLength(1);
+  });
+
+  it('keeps a card whose assignee is empty or undeclared', () => {
+    expect(boardForReader(board({ columns: [column({ cards: [card({ assignee: '' }), card({ slug: 'b', assignee: 'Someone New' })] })] }), reader, true)
+      .columns[0]?.cards).toHaveLength(2);
+  });
+
+  it('keeps every agent, since the agent arm never answers theirs', () => {
+    const agents = [
+      agent({ branch: 'a', identity: 'manifest', state: 'running' }),
+      agent({ branch: 'b', identity: 'synthesized', state: 'running' }),
+      agent({ branch: 'c', identity: 'manifest', state: 'elsewhere' }),
+    ];
+    expect(agentsForReader(agents, reader, true)).toHaveLength(3);
+    expect(agentsForReader(agents, reader, false)).toBe(agents);
+  });
+});
+
+describe('an agent reaches the agent arm through AgentList', () => {
+  const store = new Map<string, string>();
+
+  beforeEach(() => {
+    asked.length = 0;
+    store.clear();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const render = () => {
+    const pulse = fleet({
+      rows: [row({ branch: 'feature/a-branch', group: 'working' })],
+      agents: [agent({ branch: 'feature/a-branch', identity: 'manifest', state: 'running' })],
+    });
+    return renderToStaticMarkup(createElement(AgentList, { fleet: pulse, pollSeconds: 4, server }));
+  };
+
+  it('asks the rule about the registry agent when the filter is on', () => {
+    store.set('plot-board:agents:mine-only', '1');
+    const html = render();
+    expect(asked).toContainEqual({ kind: 'agent', identity: 'manifest', state: 'running' });
+    // And the worker is still on screen: the arm answered `mine`.
+    expect(html).toContain('feature/a-branch');
+  });
+
+  it('asks nothing when the filter is off', () => {
+    render();
+    expect(asked.filter((o) => o.kind === 'agent')).toHaveLength(0);
+  });
+});

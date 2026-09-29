@@ -294,7 +294,8 @@ export interface AgentListProps {
   highlightBranch?: string;
   /**
    * Who is reading — the two identity fields `/api/board`'s `server` carries,
-   * for the "only my work" filter to compare each row against.
+   * and its `People` directory, for the "only my work" filter to compare each
+   * row against.
    *
    * A PROP rather than a field on `Fleet`, because the identity travels on the
    * BOARD payload and the two are fetched separately. Absent where the board
@@ -303,7 +304,7 @@ export interface AgentListProps {
    * hides nothing. A filter that emptied the board because it did not yet know
    * who was looking would be the worse failure by far.
    */
-  server?: { hostUser?: string; gitEmail?: string };
+  server?: { hostUser?: string; gitEmail?: string; people?: Record<string, string> };
 }
 
 /**
