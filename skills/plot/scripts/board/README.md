@@ -7,7 +7,8 @@
   server with the client HTML inlined, then copies the single self-contained
   file here). The build is deterministic; CI rebuilds and byte-diffs this file
   to catch a stale check-in.
-- **Run:** `pnpm board` (from the repo root) → http://localhost:7777, or
+- **Run:** `pnpm board` (from the repo root) → the port in the `Board port`
+  key of `## Plot Config` (default http://localhost:7777), or
   `node skills/plot/scripts/board/board-server.mjs` directly. Node ≥ 20, plus
   `bash` and Plot's sibling helper scripts (`../plot-plan-meta.sh`,
   `../plot-config.sh`), which it uses to read plans — it never parses plan files

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Plot helper: board control — the door to the local Kanban board.
-# Usage: plot-boardctl.sh --status
+# Usage: plot-boardctl.sh --status [--port N]
 #        plot-boardctl.sh --start [--port N] [--dry-run]
 #        plot-boardctl.sh --stop [--port N] [--wait SECONDS]
 #   --status  does a board answer, on which port, since when, and for which
@@ -12,7 +12,8 @@
 #             running. Refuses when `artifact_source` is `none`.
 #   --stop    stop the board's process TREE, and only when the pidfile and the
 #             port agree about which tree that is.
-#   --port N  which port to ask about (default 7777, the port the board binds).
+#   --port N  which port to ask about; it wins over the `Board port` key in
+#             `## Plot Config`, and the key wins over the default, 7777.
 #   --wait S  seconds to wait for the tree to exit before escalating to KILL
 #             (default 10).
 #   --dry-run with --start: report the artifact, the port and the command; start
@@ -71,10 +72,12 @@ set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# THE PORT THE BOARD BINDS, and the default rather than a choice. Several
-# worktrees run boards side by side and the server reports `already running`
-# rather than taking a held port, so a start that picked its own port would
-# scatter boards an operator then cannot find.
+# THE PORT THE BOARD BINDS: `--port N`, else the `Board port` key in
+# `## Plot Config`, else this default. Several worktrees run boards side by side
+# and the server reports `already running` rather than taking a held port, so a
+# start that picked its own port would scatter boards an operator then cannot
+# find. A second checkout declares its port once in the key rather than typing
+# `--port` on every `--start`, `--status` and `--stop` (#1056).
 DEFAULT_PORT=7777
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-boardctl: not a git repository" >&2; exit 1; }
@@ -214,7 +217,14 @@ board_repo() {
 # Arguments
 # ---------------------------------------------------------------------------
 mode=""
-port="$DEFAULT_PORT"
+# READ ONCE, BEFORE THE FLAGS, so `--port N` overwrites it. The key is the
+# repository's and every worktree reads the same value; the pidfile above stays
+# per-worktree.
+# `plot-config.sh` answers the default for an absent or empty key; a helper
+# that cannot run at all reads the same way, since absent is not a value.
+port=$(PLOT_REPO_ROOT="$repo_root" "$script_dir/plot-config.sh" get "Board port" "$DEFAULT_PORT" 2>/dev/null) || port=""
+[ -n "$port" ] || port="$DEFAULT_PORT"
+port_from_flag=0
 dry_run=0
 # TEN SECONDS, and a bound rather than a deadline. A board asked to stop closes
 # its listener and exits; the bound exists for the one that does not, so a stop
@@ -227,6 +237,7 @@ while [ $# -gt 0 ]; do
     --start)  mode=start ;;
     --stop)   mode=stop ;;
     --port)   port="${2:?--port needs a value}"
+              port_from_flag=1
               case "$port" in
                 ''|*[!0-9]*) echo "plot-boardctl: --port needs a number, got '$port'" >&2; exit 1 ;;
               esac
@@ -242,6 +253,18 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# A KEY THAT IS NOT A NUMBER IS REFUSED, the way `--port` refuses one, and never
+# passed to the server. Checked after the flags, so an explicit `--port` still
+# runs where the key is wrong. An empty key already fell back to the default.
+if [ "$port_from_flag" = 0 ]; then
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "plot-boardctl: the 'Board port' key in ## Plot Config needs a number, got '$port'" >&2
+      echo "  Fix the key, or pass --port N for this run." >&2
+      exit 1 ;;
+  esac
+fi
 
 [ -n "$mode" ] || { echo "plot-boardctl: one of --status, --start, --stop is required" >&2; exit 1; }
 

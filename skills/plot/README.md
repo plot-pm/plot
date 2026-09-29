@@ -83,7 +83,7 @@ export PLOT_BOARD=/abs/path/to/plot/skills/plot/scripts/board/server.mjs
 
 ```bash
 cd /path/to/other-project   # this becomes the data root (cwd)
-pnpm board                  # reads ./docs/plans/, serves http://localhost:7777
+pnpm board                  # reads ./docs/plans/, serves the Board port (default http://localhost:7777)
 ```
 
 Notes:
