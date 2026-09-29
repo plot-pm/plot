@@ -101,7 +101,7 @@ PLOT_FLEET_LABEL=<new> skills/plot/scripts/plot-fleetctl.sh --start
 
 ## Slices
 
-### A label override reaches the unit (Branch: bug/a-label-override-reaches-the-unit)
+### A label override reaches the unit (Branch: bug/a-label-override-reaches-the-unit, PR: #1063)
 
 Make the label a placeholder, fill it, and assert against the loaded job rather than the file.
 
