@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-28, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 0
 - **Started:** 2026-09-28, agent `free-5b92b36d` (session `0fe6656c`), `bug/a-section-latches-on-a-branch-not-a-heading`
+- **Delivered:** 2026-09-29
 
 ## Changelog
 

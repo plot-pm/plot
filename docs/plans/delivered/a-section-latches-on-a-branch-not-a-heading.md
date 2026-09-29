@@ -1,0 +1,1 @@
+../2026-09-28-a-section-latches-on-a-branch-not-a-heading.md
