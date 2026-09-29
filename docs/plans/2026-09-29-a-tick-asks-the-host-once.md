@@ -12,6 +12,7 @@
 - **Issue:** #1059
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Started:** 2026-09-29, jwloka, `bug/a-tick-asks-the-host-once`
 
 ## Changelog
 
