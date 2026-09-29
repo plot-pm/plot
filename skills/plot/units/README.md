@@ -2,9 +2,9 @@
 
 `plot-registryd` supervises the agents a repository registered. Something has to supervise it, and that something is the operating system: `launchd` on macOS, `systemd` on Linux.
 
-This directory holds one unit file for each, plus the install steps. Both are templates — replace the placeholders and install. The plist carries four (`__LABEL__`, `__REPO_ROOT__`, `__NODE__`, `__REGISTRYD__`); the systemd unit carries three, because a systemd unit has no label field.
+This directory holds one unit file for each, plus the install steps. Both are templates — replace the placeholders and install. The plist carries five (`__LABEL__`, `__REPO_ROOT__`, `__NODE__`, `__HARNESS_DIR__`, `__REGISTRYD__`); the systemd unit carries four, because a systemd unit has no label field. `__HARNESS_DIR__` is the directory that holds the agent harness (`claude`, or the name in `PLOT_HARNESS`). It goes first on the unit's `PATH`, so a worker runs the same binary as the operator's shell, and every other binary in that directory also comes first.
 
-**`/plot-fleet --start` automates every step below**, and adds four refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does. A second checkout needs no hand steps: `PLOT_FLEET_LABEL` gives it its own label, as described below.
+**`/plot-fleet --start` automates every step below**, and adds five refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, a harness that `command -v` cannot resolve, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does. A second checkout needs no hand steps: `PLOT_FLEET_LABEL` gives it its own label, as described below.
 
 ## Why the OS and not Plot
 
@@ -33,6 +33,7 @@ Run these from the repository you want supervised.
 # 1. Where things are. Run `nvm use` first if you use nvm — the daemon needs Node 24.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 NODE="$(command -v node)"
+HARNESS_DIR="$(dirname "$(command -v "${PLOT_HARNESS:-claude}")")"   # check it printed a directory
 REGISTRYD="$REPO_ROOT/skills/plot/scripts/board/plot-registryd.mjs"
 LABEL="com.plot-pm.registryd"   # launchd keys the job by this string
 
@@ -44,6 +45,7 @@ mkdir -p ~/Library/LaunchAgents
 sed -e "s|__LABEL__|$LABEL|g" \
     -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
     -e "s|__NODE__|$NODE|g" \
+    -e "s|__HARNESS_DIR__|$HARNESS_DIR|g" \
     -e "s|__REGISTRYD__|$REGISTRYD|g" \
     "$REPO_ROOT/skills/plot/units/com.plot-pm.registryd.plist" \
     > ~/Library/LaunchAgents/$LABEL.plist
@@ -92,12 +94,14 @@ Run these from the repository you want supervised.
 # 1. Where things are. Run `nvm use` first if you use nvm — the daemon needs Node 24.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 NODE="$(command -v node)"
+HARNESS_DIR="$(dirname "$(command -v "${PLOT_HARNESS:-claude}")")"   # check it printed a directory
 REGISTRYD="$REPO_ROOT/skills/plot/scripts/board/plot-registryd.mjs"
 
 # 2. Fill the template into your user units directory.
 mkdir -p ~/.config/systemd/user
 sed -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
     -e "s|__NODE__|$NODE|g" \
+    -e "s|__HARNESS_DIR__|$HARNESS_DIR|g" \
     -e "s|__REGISTRYD__|$REGISTRYD|g" \
     "$REPO_ROOT/skills/plot/units/plot-registryd.service" \
     > ~/.config/systemd/user/plot-registryd.service
