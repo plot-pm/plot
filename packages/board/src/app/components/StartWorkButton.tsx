@@ -258,14 +258,19 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         body: JSON.stringify({ slug: card.slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
+      // `dispatchLog`, not `log` — renamed by `a-dispatch-promises-a-worker`,
+      // which also added `act` and `status`. Declared here only to keep this
+      // type honest about the body that arrives; the success path still reads
+      // none of it, for the reason the comment below gives.
       const body = (await res.json()) as {
-        slug?: string; log?: string; error?: string; detail?: string; reason?: string;
+        act?: string; slug?: string; status?: string; dispatchLog?: string;
+        error?: string; detail?: string; reason?: string;
       };
       // A non-2xx is the ONE thing the button can report as a failure: the
       // dispatch was refused before it began, and the server said why in words.
-      // The 202 body still carries `log` (the dispatcher log path), but the
-      // button no longer keeps it: the row's `Status` menu entry reads that log
-      // durably, rather than this render owning a pointer it will destroy.
+      // The 202 body still carries `dispatchLog` (the dispatcher log path), but
+      // the button no longer keeps it: the row's `Status` menu entry reads that
+      // log durably, rather than this render owning a pointer it will destroy.
       if (!res.ok) {
         // `detail` FIRST, because it is the field this endpoint actually sends.
         // `/api/dispatch` answers a refusal with `{ok, slug, reason, detail}` —
