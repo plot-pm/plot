@@ -139,7 +139,7 @@ An operator who sets nothing gets `plot-registryd.service`, exactly as today. Th
 
 ## Slices
 
-### A unit name follows the label (Branch: bug/a-unit-name-follows-the-label)
+### A unit name follows the label (Branch: bug/a-unit-name-follows-the-label, PR: #1078)
 
 Add `unit_name()`, derive the systemd filename from `$LABEL`, and route the nine systemctl sites through it.
 
