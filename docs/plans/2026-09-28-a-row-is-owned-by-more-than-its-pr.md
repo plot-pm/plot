@@ -12,6 +12,7 @@
 - **Issue:** #1046
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
+- **Started:** 2026-09-29, jwloka, `bug/a-row-is-owned-by-more-than-its-pr`
 
 ## Changelog
 
