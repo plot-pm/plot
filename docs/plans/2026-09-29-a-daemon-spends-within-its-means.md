@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Issue:** #1065
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 0
+- **Rounds:** 1
 
 ## Changelog
 
@@ -28,17 +28,44 @@ A panel instrumented a real tick with a counting `plot-host.sh`: **4 host calls 
 
 **Four calls a minute is not much. Four calls a minute that never slow down is the incident.**
 
-### The asymmetry, measured
+### THE DIAGNOSIS WAS WRONG, AND THE ARITHMETIC REFUTES IT
 
-| | board | supervisor |
-|---|---|---|
-| spend rate read | `spendRateFor` (`fleet.ts:1870`) | **none** |
-| concurrency bound | `withHostSlot` (`fleet.ts:1983`) | **none** |
-| cadence stretches | `rules/cadence.ts` — `cadenceStretch`, `MAX_CADENCE_STRETCH`, `CADENCE_DAMPING` | **none** |
+An earlier draft blamed the supervisor. **Measured on the live account, and independently re-measured by the moderator:**
 
-`grep -c 'withHostSlot\|recordSpend\|spendRate\|cadence'` over `registryd-main.ts` and `supervisor.ts`: **one hit, and it is a prose comment.** No machinery.
+```
+total last 60 min: 2825 requests
+   bitbucket api    2497/hr   88%
+   github  graphql   284/hr   10%   <- the supervisor's own pool
+   jenkins            42/hr
+   github  core        2/hr
+```
 
-So under a 429 the board throttles and the daemon keeps asking at a fixed interval — **on the same account, competing with the consumer that is behaving.**
+An instrumented tick makes **two** host calls, not four — **120 req/hr at a 60 s tick, ceiling.** So the supervisor is **at most ~8% of the account** and a fraction of the Bitbucket traffic that caused the reported 429.
+
+**The competition an earlier draft described runs ten times the other way.**
+
+### THE BOARD IS ALREADY PAST ITS CEILING
+
+The finding no amount of reading would have produced. Live, `/api/fleet`:
+
+```
+prAgeSeconds 511, prNextInSeconds 0  ->  interval 511s  ->  stretch 8.52
+MAX_CADENCE_STRETCH = 8
+```
+
+Against `PR_REFRESH_MS = 60_000`. **The board is not throttling gracefully — it is pinned past its hard ceiling**, because `targetStretch` returns the maximum outright when `others >= share` (310/hr against a share of 60).
+
+`cadence.ts:34-48` says what that means, and an earlier draft quoted none of it:
+
+> **IT BOUNDS THE STRETCH, NOT THE SPEND.** An account genuinely spending eight times one board's share will exceed its budget … this rule divides a cadence, it does not enforce a quota.
+
+**So adding a second consumer to that division removes ~5% of the load from an account already saturated.** The 429 does not stop.
+
+### The supervisor is already IN the denominator
+
+An earlier draft called this an instrumentation gap. It is not. `plot-host.sh:2621` — *"EVERY HOST CALL APPENDS ONE LINE, AND SO DOES EVERY REFUSAL"* — and the supervisor reaches the host through `host-shell.ts` → `plot-host.sh`. **Its calls are already in the record**, already inside the rate the board divides by, already pushing the board toward its ceiling. `prSpenders` counts them.
+
+**The gap is in the reaction, not the measurement** — and reacting subtracts a consumer that is not the problem.
 
 ### The rule is already in the domain
 
@@ -48,23 +75,40 @@ Its name says `board`, and that is a naming question the slice must answer rathe
 
 ## Design
 
-### The rule
+### The rule, narrowed after round 1
 
-**A tick that cannot afford its host questions defers them and says so.**
+**A tick REPORTS what the account is spending and what its own share of it is. It does not stretch.**
 
-Two properties, and the second is what makes the first safe:
+An earlier draft proposed a stretching cadence. The measurement killed it: the supervisor is ~8% of the account, the board is already past its ceiling at 8.52×, and a stretched supervisor pins at eight-minute hand-overs **permanently** to remove 5% of a load it did not create.
 
-1. **The interval stretches** when the account is under pressure, following `cadenceStretch` rather than a second implementation of it.
-2. **A deferred question holds the slice**, exactly as an unreadable one does today. This plan changes how often the supervisor asks, never what it concludes from silence.
+**What survives is the observability half.** The supervisor is in the spend record and reads none of it, so nobody could tell from a tick that the account was saturated — which is why the incident was diagnosed three times before it was measured. A tick that printed `account 2825/hr, mine 120/hr, board stretched 8.5×` would have settled it in one line.
 
-### Holding is already right and must stay
+**This is a smaller plan than the one that was written, and the narrowing is the finding.**
 
-`queue-reading.ts` states it: *"SILENCE LEAVES THE SLICE BLOCKED … Promoting on silence would hand an agent a slice whose predecessor may still be running."* **Backing off makes silence more common, so the property it relies on has to be asserted rather than assumed.**
+### BACKING OFF COSTS MORE THAN THE INCIDENT, AND THIS IS WHY THE PLAN NARROWED
 
-### What the slice must decide, with an argument
+An earlier draft asserted holding is safe because it is what silence already does, and never counted it. **Counted:**
 
-- **Whether the two consumers share a budget or hold separate ones.** They are separate processes with separate lifetimes on one account. `boardSharePerHour`'s name suggests the rule already contemplates several consumers; `othersPerHour` suggests it models them. **The slice reads those two functions before choosing** — this is not deferred judgement, it is two functions to open.
-- **What the tick reports while throttled.** `merge-unknown=N` currently means *the host would not answer*. A deliberately deferred question must be distinguishable from a failed one, or an operator watching a backoff sees an outage.
+`queue.ts:116-124` is where the safety argument actually rests:
+
+> an unreachable host costs this pass its hand-overs and **the next tick re-asks**.
+
+**A hold costs 60 seconds because the next tick is 60 seconds away.** A deliberate stretch breaks exactly that clause: at `MAX_CADENCE_STRETCH = 8` the next tick is **eight minutes** away.
+
+| | cost |
+|---|---|
+| the reported incident | 429 twice in two hours, ~20 min each — **40 min lost in 120** |
+| a stretched supervisor here | `others` (310/hr) exceeds `share` (60) **continuously**, so it pins at the ceiling and stays — **an 8-minute hand-over cadence all day** |
+
+**Backing off converts an intermittent 20-minute outage into a permanent 8-minute one.**
+
+And the feedback loop closes harder on the supervisor than on the board. `cadence.ts:11-20`: *"a board that has stopped asking has stopped spending, so a board pushed past an hour has no reading of its own fresh enough to bring it back."* A board at the ceiling still renders a stale page. **A supervisor at the ceiling is a fleet that hands over once every eight minutes** — its spend and its entire purpose are the same calls.
+
+### The naming question is answered: rename nothing
+
+`boardSharePerHour` (`cadence.ts:71`) is arithmetic over an interval and a cost and names a consumer nowhere; `othersPerHour` (`:101`) subtracts a consumer's derived contribution from an observed total. **Neither is board-specific**, and a reporting supervisor does not need them renamed.
+
+**Convergence was also answered, and against the earlier draft.** `CADENCE_DAMPING = 0.25` was measured so that *"one through eight boards all settle at exactly 60.0"* — two stretching consumers converge rather than oscillate. But **only where the account has headroom.** Here `others >= share` sends both to the ceiling by `cadence.ts:143`, so they converge on both being maximally slow while 88% of the traffic carries on — filed as **#1069**.
 
 ### What this does NOT do
 
@@ -76,18 +120,17 @@ Two properties, and the second is what makes the first safe:
 
 ## Done when
 
-- **A supervisor that is rate-limited asks less often**, asserted with a stub host returning 429 and a tick loop observed over several passes — not a claim in the PR body.
-- **A deferred question holds its slice**, asserted. The one property a backoff must not cost.
-- **The cadence rule is asked, not reimplemented**, asserted by there being no second stretch computation in the daemon.
-- **A throttled tick is distinguishable from an outage in what it prints.**
-- **The default interval is unchanged with an unpressured host**, asserted — every existing installation depends on it.
-- **The naming question is settled in the PR**: `boardSharePerHour` is either renamed, or the plan records why a supervisor asking a function called *board* is acceptable.
+- **A tick reports the account's observed rate, its own share, and the board's current stretch**, asserted against a stub spend record.
+- **The tick interval is UNCHANGED**, asserted. This plan adds no backoff, and a later one may not add it without re-measuring who spends.
+- **The report distinguishes a saturated account from an unreachable host.** `merge-unknown=N` means *the host would not answer*; *the account is at 2825/hr* is a different fact and an operator must not read one as the other.
+- **The counters keep their shape**, so a tick remains comparable with an earlier one and anything parsing the `summary:` line is unaffected.
+- **No cross-tick state is added.** The spend record is already on disk and read per tick; `DESIGN-agent.md`'s *holds nothing between ticks* survives intact, which the stretching version could not have promised.
 
 ## Slices
 
 ### A daemon spends within its means (Branch: bug/a-daemon-spends-within-its-means)
 
-Read the account's spend rate in the tick, stretch the interval through `cadenceStretch`, and hold every question the budget defers.
+Read the account's spend rate in the tick and report it beside the supervisor's own share. Add no backoff.
 
 ## Notes
 
@@ -96,3 +139,18 @@ Read the account's spend rate in the tick, stretch the interval through `cadence
 **Split out deliberately.** A slice that fixed #1059's duplicate call and claimed the rate-limit incident would be the last time anybody checked — and the duplicate is 2 calls out of 4, which halves a number that was never the problem.
 
 **Nobody has watched a Bitbucket supervisor under a live 429.** The incident report describes the symptom; the absence of backoff is read from source on a GitHub checkout. The slice should say which of the two it verified.
+
+
+### Round 1, 2026-09-29
+
+One juror, **amend**, **executed** — it measured the live account, replayed the cadence arithmetic, and ran two instrumented ticks. The moderator re-measured the account independently and confirmed the shape.
+
+**The diagnosis was wrong.** 2825 req/hr on this machine, **88% of it Bitbucket**; the supervisor's own pool is 284/hr and its measured ceiling is 120. It is ~8% of the account, not the unthrottled spender this plan described.
+
+**The board is past its ceiling** — 8.52× against `MAX_CADENCE_STRETCH = 8`, verified live and worse than when the juror measured 7.25×. Adding a second consumer to that division removes 5% of a load it did not create. The load itself is **#1069**.
+
+**And backing off would cost more than the incident:** `others` exceeds `share` continuously here, so a stretching supervisor pins at eight-minute hand-overs permanently, against the incident's two twenty-minute windows.
+
+**So the plan narrowed to its observability half**, which is the part the evidence supports: the supervisor is already in the spend record and reads none of it, which is why this incident was diagnosed three times before anyone measured it.
+
+**What the juror upheld:** the refusal to promote on silence, the refusal to touch the board, and the refusal to claim #1059's fix — *"better discipline than the fourteen plans behind it"*.
