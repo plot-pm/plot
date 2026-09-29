@@ -18,6 +18,12 @@
 
 ### Must Have
 
+<!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
+     it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`
+     names an issue, so it is an item with no plan and is scored on its
+     checkbox. Strike a reference — `~~[<plan-slug>]~~` — to mark an item that
+     left the sprint; the plan's own state then says whether it was withdrawn. -->
+
 - [ ] <items>
 
 ### Should Have
