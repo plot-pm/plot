@@ -5287,29 +5287,156 @@ test('host: the sweep encodes the stamp, so a colon cannot end the filter', () =
   assert.ok(!/18:42:10/.test(call), 'no raw colon survives inside the q= value');
 });
 
-test('host: a bitbucket LISTING says it cannot narrow, and answers in full', () => {
-  // THE DISCOVERY THIS SLICE MADE. `bb pr list` takes --state, --author, --json
-  // and --jq and has NO query flag — verified against bb 1.9.0, which answers
-  // `unknown flag: --query`. So the bulk listing cannot carry a window at all.
-  //
-  // SAID RATHER THAN SWALLOWED, for the reason `--limit` is said one block up:
-  // a caller that asked for a window and got a full listing must not read the
-  // answer as a delta. It would advance its watermark over a window it never
-  // applied — harmless this pass, since a full listing holds every row a narrow
-  // one would, and wrong the moment the caller uses the flag to decide whether
-  // its answer was complete.
+// A `bb` stub that serves the windowed REST listing ONE PAGE PER CALL, as
+// `bb api` does, and refuses `bb pr list` outright so a listing cannot pass by
+// reaching for the old path.
+//
+// `pages` is the endpoint's own envelope per page: `size` is the server's match
+// count over the whole window, and a page with a following one carries `next`
+// as the absolute URL Bitbucket returns. The page asked for is read from a
+// `page=N` parameter; a path without one is page 1. Payloads are files, for
+// `makeSweepBbStub`'s `MAX_ARG_STRLEN` reason.
+const BB_BASE = 'https://api.bitbucket.org/2.0';
+function makeWindowBbStub({ size, pages, next = (n) => `${BB_BASE}/repositories/w/r/pullrequests?q=x&pagelen=50&page=${n}` }) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-window-'));
+  const callsFile = path.join(dir, 'bb.calls');
+  const files = pages.map((rows, i) => {
+    const f = path.join(dir, `page-${i + 1}.json`);
+    const env = { size: size ?? rows.length, page: i + 1, pagelen: 50, values: rows };
+    if (i + 1 < pages.length) env.next = next(i + 2);
+    writeFileSync(f, JSON.stringify(env));
+    return f;
+  });
+  const body = `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
+if [ "$1" != "api" ]; then echo "stub: bb pr list must not be called on a window" >&2; exit 9; fi
+page=1
+[[ "$2" =~ [\\&\\?]page=([0-9]+) ]] && page="\${BASH_REMATCH[1]}"
+f="${dir}/page-$page.json"
+[ -f "$f" ] || { echo "error: HTTP 404 — no page $page" >&2; exit 1; }
+cat "$f"
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, callsFile };
+}
+
+const mergedRows = (from, n) => Array.from({ length: n }, (_, i) => restPr(from + i, `feature/w${from + i}`));
+
+const runWindow = (bb, args) => spawnSync('bash', [adapter, 'pr-list', ...args], {
+  encoding: 'utf8',
+  env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+});
+
+test('host: a bitbucket LISTING narrows through q=, and says nothing about ignoring --since', () => {
+  // THE DONE-WHEN THIS SLICE REVERSES. `bb pr list` has no query flag, so this
+  // test asserted that a windowed listing answered in full and said so. The
+  // REST endpoint `bb_branch_query` already asks takes the same window without
+  // the branch clause, and on `quatico/quaweb-website` it answered `size: 9`
+  // where the listing answers 895.
+  const bb = makeWindowBbStub({ pages: [mergedRows(900, 3)] });
+  const res = runWindow(bb, ['--rich', '--state', 'merged', '--since', '2026-09-20T18:42:10Z']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.doesNotMatch(res.stderr, /ignores --since/, 'the window was applied, so nothing is reported as ignored');
+  const calls = sweepCalls(bb.callsFile);
+  assert.equal(calls.length, 1, 'one request answers the window');
+  const call = calls[0];
+  assert.match(call, /^api \/repositories\/\{ws\}\/\{repo\}\/pullrequests\?q=/, 'the REST path, with its leading slash');
+  assert.match(call, /q=state=%22MERGED%22%20AND%20updated_on>=%222026-09-20T18%3A42%3A10Z%22/,
+    'the state and the window are two terms of one q=, the stamp encoded');
+  assert.equal(call.match(/q=/g).length, 1, 'exactly one q= parameter');
+  // BITBUCKET LETS q= SILENTLY OVERRIDE state=, so a state beside the filter
+  // would look like it works while discarding the state.
+  assert.ok(!/[?&]state=/.test(call), 'no state= parameter beside q=');
+  assert.ok(!/source\.branch\.name/.test(call), 'a listing carries no branch clause');
+  assert.equal(res.stdout.trim().split('\n').length, 3, 'every row in the window is printed');
+});
+
+test('host: a window of more than 50 matches is read to its last page', () => {
+  // THE TRAP. `bb api` returns ONE page, and a board that folds the first 50 of
+  // 51 advances its watermark past the one it never saw. The answer's length is
+  // the server's `size`, not a page length.
+  const bb = makeWindowBbStub({ size: 51, pages: [mergedRows(1, 50), mergedRows(51, 1)] });
+  const res = runWindow(bb, ['--rich', '--state', 'merged', '--limit', '1000',
+    '--since', '2026-09-20T18:42:10Z']);
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(rows.length, 51, 'the server counted 51 matches and 51 rows are printed');
+  assert.equal(new Set(rows.map((r) => r.number)).size, 51, 'each once');
+  const calls = sweepCalls(bb.callsFile);
+  assert.equal(calls.length, 2, 'one request per page');
+  // `bb api` prefixes its own base, so the absolute `next` loses it.
+  assert.match(calls[1], /^api \/repositories\/w\/r\/pullrequests\?q=x&pagelen=50&page=2$/);
+  // A WHOLE ANSWER IS NOT CALLED POSSIBLY TRUNCATED, and `--limit` capped
+  // nothing: both notices describe a listing's fixed page.
+  assert.doesNotMatch(res.stderr, /possibly truncated/);
+  assert.doesNotMatch(res.stderr, /ignores --limit/);
+});
+
+test('host: a window that reads short of its size is refused, never printed as whole', () => {
+  // The last page says there is no next one, yet the rows fall short of the
+  // server's count. Printing 50 as the window would lose the 51st until the
+  // next full read.
+  const bb = makeWindowBbStub({ size: 51, pages: [mergedRows(1, 50)] });
+  const res = runWindow(bb, ['--rich', '--state', 'merged', '--since', '2026-09-20T18:42:10Z']);
+  assert.notEqual(res.status, 0, 'a short window is a failed state');
+  assert.equal(res.stdout.trim(), '', 'and nothing is printed as if it were the answer');
+  assert.match(res.stderr, /50 of 51/, 'the shortfall is named');
+});
+
+test('host: a next page outside the API base is refused', () => {
+  // `bb api` would prefix its base to the whole URL and ask for nonsense; the
+  // window could then never be read to the end.
+  const bb = makeWindowBbStub({ size: 51, pages: [mergedRows(1, 50), mergedRows(51, 1)],
+    next: (n) => `https://elsewhere.example/page=${n}` });
+  const res = runWindow(bb, ['--rich', '--state', 'merged', '--since', '2026-09-20T18:42:10Z']);
+  assert.notEqual(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
+  assert.equal(sweepCalls(bb.callsFile).length, 1, 'the foreign URL is never requested');
+});
+
+test('host: a windowed --state all asks once per state, each state inside its own q=', () => {
+  // `pr_list_states` owns the loop; the window sits in its slot and adds none.
+  const bb = makeWindowBbStub({ pages: [[]] });
+  const res = runWindow(bb, ['--rich', '--state', 'all', '--since', '2026-09-20T18:42:10Z']);
+  assert.equal(res.status, 0, res.stderr);
+  const calls = sweepCalls(bb.callsFile);
+  assert.equal(calls.length, 3);
+  for (const s of ['OPEN', 'MERGED', 'DECLINED']) {
+    assert.ok(calls.some((c) => c.includes(`q=state=%22${s}%22%20AND%20updated_on>=`)), `${s} asked inside q=`);
+  }
+});
+
+test('host: a windowed state the host refuses keeps the host\'s own words', () => {
+  // The raw stderr travels to `pr_list_call`, which classifies once — so a
+  // Bitbucket rate limit keeps its burst code (6), as it does through the
+  // sweep, and never reads as a generic failure (3).
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-window-429-'));
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+echo "error: HTTP 429 — Rate limit for this resource has been exceeded" >&2; exit 1
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  const res = runWindow({ dir }, ['--rich', '--state', 'merged', '--since', '2026-09-20T18:42:10Z']);
+  assert.equal(res.status, 6, res.stderr);
+  assert.match(res.stderr, /Rate limit for this resource has been exceeded/);
+});
+
+test('host: a bitbucket listing with no window keeps bb pr list', () => {
+  // No window, nothing to narrow: the call every caller predating `--since`
+  // has always made, and no window notice.
   const bb = makeStrictBbStub({ json: '[]' });
-  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'open',
-    '--since', '2026-09-20T18:42:10Z'], {
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'open'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
   assert.equal(res.status, 0, res.stderr);
-  assert.match(res.stderr, /since/i, 'the shortfall is reported, never swallowed');
-  // AND THE FLAG NEVER REACHES `bb`, which would refuse it. The strict stub is
-  // what makes this an assertion rather than a hope.
-  assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--since')));
-  assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--query')));
+  assert.doesNotMatch(res.stderr, /since/i);
+  assert.ok(callsOf(bb.callsFile).some((c) => c.includes('pr list')), 'bb pr list is called');
+  assert.ok(!callsOf(bb.callsFile).some((c) => c.startsWith('api')), 'and the REST window is not');
 });
 
 // --- default-branch: the host is asked, on both backends ------------------
