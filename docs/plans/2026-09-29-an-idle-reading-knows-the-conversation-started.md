@@ -10,6 +10,7 @@
 - **Issue:** #1074
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -71,13 +72,33 @@ The `-- .` keeps only commits that TOUCHED A FILE, and `plot-dispatch.sh:2074` w
 
 `plot-worker-monitor.sh` matches on the word and publishes NOTHING: `busy` and `unknown` are already non-findings there, and this joins them. **No new finding is added** — an unstarted worker is not a state an operator acts on, it is the absence of grounds for the one finding this plan constrains.
 
-### The worker's start is a fact the desk already holds
+### The instrument is the MANIFEST's mtime, not the pid file's
 
-The monitor does not need a new record. `.plot-worker.pid` is written at launch, and its own mtime is when this worker started — the same instrument the quiet reader already uses on transcripts, applied to a file whose meaning is exactly *this worker began here*.
+**Round 1 refuted the plan's original instrument by measurement.** It proposed `.plot-worker.pid`'s mtime as *when this worker started*. It is when the **wrapper loop** launched, and the loop never rewrites it across a hop.
 
-**This is not a new clock.** The header at `:87-91` defends mtime for precisely this question: *how long since output?* is a question about elapsed time. *Did output happen after the worker started?* is the same kind of question, comparing two mtimes the machine already keeps.
+Measured 2026-09-29 on this machine's live, working desks:
 
-**What this does NOT do is join on the session id.** The header's argument stands — an operator's own session at the desk is a true answer to *is anything happening here* — and this keeps that. The comparison is against a TIME, so an operator typing at the desk still produces a newer mtime and still reads as activity, whoever's session wrote it.
+| desk | pid file age | transcripts older than it |
+|---|---|---|
+| `free-c7b58b4f` | **8h 00m** | 0 of 9 |
+| `free-dfdc5491` | **3h 29m** | 0 of 4 |
+| `free-02487045` | 2h 48m | 0 of 4 |
+
+**0 of 17 transcripts predate their pid file**, so the proposed rule fires on none of them — including the reused-desk case the Motivation is written about, where the pid file is hours older than every transcript by construction. The fix as first drafted is inert on 100% of this estate.
+
+**`update_manifest_on_hop` rewrites the manifest on every hop**, so its mtime moves with the slice where the pid file's does not — measured +10108 s, +6257 s and +3704 s ahead of the pid file on the three live desks. It also bumps `wavesCount`, and all three desks here have hopped (5, 4 and 3 waves).
+
+**So the reading is: the newest transcript against the MANIFEST's mtime.** Same instrument class the quiet reader already defends at `:87-91` — comparing two mtimes the machine keeps — applied to the file that actually marks this slice's start.
+
+**The operator-at-the-desk case still holds**, and it was measured: an operator typing after the slice started writes a newer mtime and reads as activity, whoever's session wrote it. The comparison is against a time, never a session id, which is what preserves the quiet reader's own argument. An operator who typed *before* the slice started now reads as `unstarted` — that is a real narrowing and it is stated rather than implied.
+
+### This plan DEPENDS on #1067, and that is a reversal
+
+The plan first argued #1067 only reduces the defect's frequency. **Measured, it is a precondition.**
+
+Today `.plot/worker-prompt.sh:19-21` passes `--session-id` on the first prompt and `--resume` after, and all three live manifests confirm `resumeId == session`. So a hop writes into the **same** `.jsonl` the previous slice wrote: one file, one mtime, and no second file that could be older. **`unstarted` is unreachable on a hop as `main` stands.**
+
+#1067 (PR #1077, merged) makes each slice mint its own conversation, so the directory holds a file per slice and the state becomes reachable. **This plan must land after it**, and the earlier "it changes nothing this rule reads" — true of the quiet reader's code — was the wrong question.
 
 ### What this does NOT do
 
@@ -88,12 +109,14 @@ The monitor does not need a new record. `.plot-worker.pid` is written at launch,
 
 ## Done when
 
-- A desk whose newest transcript predates `.plot-worker.pid`'s mtime answers `unstarted`, asserted against a sandbox directory built with `touch -t`.
-- A desk whose newest transcript is NEWER than the pid file still answers a number, including when that transcript belongs to another session — the operator-at-the-desk case the header protects, asserted explicitly.
-- `plot-worker-monitor.sh` publishes no finding on `unstarted`, and in particular does not publish `idle`, asserted across two consecutive passes with an unchanged tree and commits present — the exact four-condition conjunction that fires today.
-- A desk with no pid file answers as it does today. **The reading degrades to the current behaviour rather than to `unstarted`**: an unreadable start time is not evidence that the conversation has not begun, and defaulting to `unstarted` would silently disable `idle` wherever the pid file is missing.
-- **The ewz-leg shape is reproduced in a sandbox and the reading is named** — reset fall-through, or a branch carrying pushed work. If it is the former, it is filed as its own issue and referenced here. **Answering "cannot be established" does not satisfy this bullet**; the ticket already says that, and repeating it ships the fix without knowing whether a second defect sits behind it.
-- `node --test test/reconcile/worker-monitor.test.mjs` stays green, and any assertion that changes is named rather than renumbered.
+- **A desk whose newest transcript predates its MANIFEST's mtime answers `unstarted`**, asserted against a sandbox built with `touch -t`. Not the pid file: measured, 0 of 17 live transcripts predate their pid file, so a rule keyed on it fires on nothing.
+- **A desk whose newest transcript is NEWER than the manifest still answers a number**, including when that transcript belongs to another session — the operator-at-the-desk case, asserted explicitly.
+- **The hop case is asserted**: a desk carrying a previous slice's transcript and a freshly rewritten manifest answers `unstarted`. This is the shape #1074 was filed from, and the plan's first instrument missed it.
+- **`plot-worker-monitor.sh` publishes no finding on `unstarted`**, asserted across two consecutive passes with an unchanged tree and commits present — the four-condition conjunction that fires today.
+- **A desk with no manifest answers as it does today.** An unreadable start time is not evidence the conversation has not begun.
+- **The ewz-leg reading is named.** Round 1 refuted one of the two: a correctly reset desk returns `has_commits rc=1` and `idle` cannot fire, measured. So the desk either carried pushed work from an earlier attempt, or the reset fell through — the slice says which and files the other.
+- **Both copies of the script are changed**: `skills/plot/scripts/plot-worker-monitor.sh` and `packages/board/plot-worker-monitor.sh`, byte-identical today and shipped through the board's `files` list. The slice says how they stay in sync.
+- `node --test test/reconcile/workermonitor.test.mjs` stays green — **note the path has no hyphen**; it runs 36 tests today.
 
 ## Slices
 
@@ -104,3 +127,15 @@ Add the `unstarted` word, match it in the monitor, and reproduce the ewz-leg sha
 ## Notes
 
 **The two joins are now three questions, and the header should say so.** `plot-transcript-quiet.sh:36-41` already contrasts *is anything happening at this desk* (per worktree) with *what has THIS agent spent* (per session). This plan adds a third: *has this worker's conversation started* — per worktree, and per worker's start time. It is neither of the first two, and a reader of that header should not have to derive it.
+
+### Round 1, 2026-09-29
+
+Two jurors, both **amend**, both **executed**. Verdicts: `.plot/panels/2026-09-29-an-idle-reading-knows-the-conversation-started/`.
+
+**Both refuted the plan's instrument independently.** `.plot-worker.pid`'s mtime is the wrapper's launch and is never rewritten on a hop; 0 of 17 live transcripts predate their pid file, so the rule was inert on every desk on this machine — including the reused-desk case the plan was written about. One juror drove the full hop shape through two monitor passes and watched `idle` publish anyway.
+
+**The design is rebuilt on the manifest's mtime**, which `update_manifest_on_hop` rewrites per slice, measured hours ahead of the pid file on all three live desks.
+
+**The relationship to #1067 is reversed from what the plan claimed.** Today a hop `--resume`s one session id into one file, so there is no second file to be older and `unstarted` is unreachable. #1067 mints a fresh conversation per slice and makes the state reachable — it is a precondition, not a frequency reduction.
+
+Also folded in: the ewz-leg commit reading is half-settled by measurement (a correctly reset desk refuses `idle`); the script has two byte-identical copies and the plan named one; and the test file is `workermonitor.test.mjs`, without the hyphen.
