@@ -445,14 +445,140 @@ test('--stop of an unloaded supervisor still exits 0 and says so', () => {
   assert.match(r.out, /supervisor was not loaded/);
 });
 
+// ── The unit finds the harness the operator's shell finds ─────────────────────
+
+// THE SUBJECT IS WHAT THE WORKER RESOLVES, NOT WHAT THE UNIT FILE SAYS.
+// `plot-dispatch.sh:1447` exports `PLOT_HARNESS` on every launch, empty unless a
+// charter names a harness, so a value baked into that variable would be
+// overwritten and a grep for it would pass while proving nothing. These cases
+// read the filled unit's `PATH` and ask a clean shell what `command -v` answers.
+//
+// A REAL `--start`, stopped by the guard. The guard's `launchctl` answers 113
+// and its `systemctl` answers 3, so the unit is filled and then the load fails:
+// the file is left behind for the test to read, and nothing reaches launchd.
+
+const onLaunchd = os.platform() === 'darwin';
+
+const unitTemplate = () =>
+  path.join(units, onLaunchd ? 'com.plot-pm.registryd.plist' : 'plot-registryd.service');
+
+const unitFile = (home, fleetLabel) =>
+  onLaunchd
+    ? path.join(home, 'Library', 'LaunchAgents', `${fleetLabel}.plist`)
+    : path.join(home, '.config', 'systemd', 'user', 'plot-registryd.service');
+
+const unitPath = (body) => {
+  const m = onLaunchd
+    ? body.match(/<key>PATH<\/key>\s*<string>([^<]*)<\/string>/)
+    : body.match(/^Environment=PATH=(.*)$/m);
+  assert.ok(m, 'the unit carries no PATH');
+  return m[1];
+};
+
+// The unit's own PATH with the harness entry removed: what a worker searched
+// before this slice.
+const defaultUnitPath = () =>
+  unitPath(fs.readFileSync(unitTemplate(), 'utf8')).replace('__HARNESS_DIR__:', '');
+
+const resolvedBy = (searchPath, name) =>
+  execFileSync('/usr/bin/env', ['-i', `PATH=${searchPath}`, '/bin/sh', '-c', `command -v ${name}`],
+    { encoding: 'utf8' }).trim();
+
+const stubHarness = (box, name) => {
+  const dir = path.join(box, 'harness-bin');
+  fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, name);
+  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(bin, 0o755);
+  return { dir, bin };
+};
+
+// ONLY THE DIRECTORIES THE CASE NAMES, plus node's own, so a `claude` this
+// machine has installed cannot answer in the stub's place.
+const startWith = (label, { searchDirs = [], harness } = {}) => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox(label);
+  const home = path.join(box, 'home');
+  fs.mkdirSync(home);
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home,
+    PLOT_FLEET_LABEL: fleetLabel,
+    PLOT_HARNESS: harness,
+    PATH: [guardBin, ...searchDirs, path.dirname(process.execPath), defaultUnitPath()].join(':'),
+  });
+  return { r, box, home, file: unitFile(home, fleetLabel) };
+};
+
+test('--start puts the resolved harness first, and a clean shell on the unit PATH finds it', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-harness-stub-')));
+  try {
+    const { dir, bin } = stubHarness(stubBox, 'claude');
+    const { r, file } = startWith('harness-default', { searchDirs: [dir] });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const searched = unitPath(fs.readFileSync(file, 'utf8'));
+    assert.equal(searched.split(':')[0], dir);
+    assert.equal(resolvedBy(searched, 'claude'), bin,
+      'a worker on the unit PATH does not run the harness --start resolved');
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('--start honours PLOT_HARNESS when it resolves the harness', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-harness-named-')));
+  try {
+    const { dir, bin } = stubHarness(stubBox, 'my-harness');
+    const { r, file } = startWith('harness-named', { searchDirs: [dir], harness: 'my-harness' });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const searched = unitPath(fs.readFileSync(file, 'utf8'));
+    assert.equal(searched.split(':')[0], dir);
+    assert.equal(resolvedBy(searched, 'my-harness'), bin);
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('refusal: a PLOT_HARNESS that names nothing on PATH refuses and writes no unit', () => {
+  const { r, home, file } = startWith('harness-missing', { harness: 'my-harness' });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /cannot resolve the agent harness 'my-harness'/);
+  assert.match(r.out, /PLOT_HARNESS is set to 'my-harness'/);
+  assert.match(r.out, /bakes/);
+  assert.equal(fs.existsSync(file), false, 'a refused start left a unit behind');
+  assert.equal(fs.existsSync(path.join(home, 'Library', 'LaunchAgents')), false);
+  assert.equal(fs.existsSync(path.join(home, '.config', 'systemd')), false);
+});
+
+test('refusal: an unresolvable harness refuses --dry-run too', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('harness-missing-dry');
+  const r = run(ctl, ['--start', '--dry-run'], root, guardBin, {
+    HOME: fakeHome(box),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PLOT_HARNESS: 'my-harness',
+    PATH: [guardBin, path.dirname(process.execPath), defaultUnitPath()].join(':'),
+  });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /my-harness/);
+});
+
+test('a harness already on the default unit PATH resolves to the same binary', () => {
+  // THE UNCHANGED CASE. `sh` stands in for a harness installed where the unit
+  // already looked: prepending its directory repeats an entry and must not
+  // change which file answers.
+  const before = resolvedBy(defaultUnitPath(), 'sh');
+  const { r, file } = startWith('harness-already', { harness: 'sh' });
+  assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+  const searched = unitPath(fs.readFileSync(file, 'utf8'));
+  assert.equal(resolvedBy(searched, 'sh'), before);
+});
+
 // ── The units fill and parse — the check CI can actually run on Linux ─────────
 
 // EACH TEMPLATE HAS ITS OWN SET. The plist carries `__LABEL__` because launchd
 // keys a job by the `Label` inside it (#1051); a systemd unit has no label
 // field, so the service keeps three and its identity problem is #1053's.
 const PLACEHOLDERS = {
-  'com.plot-pm.registryd.plist': ['__LABEL__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
-  'plot-registryd.service': ['__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+  'com.plot-pm.registryd.plist': ['__HARNESS_DIR__', '__LABEL__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+  'plot-registryd.service': ['__HARNESS_DIR__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
 };
 
 test('each unit template carries exactly its documented placeholders', () => {
@@ -470,6 +596,7 @@ test('the fill leaves no placeholder in either unit', () => {
       .replaceAll('__LABEL__', 'com.example.fill')
       .replaceAll('__REPO_ROOT__', '/tmp/repo')
       .replaceAll('__NODE__', '/tmp/node')
+      .replaceAll('__HARNESS_DIR__', '/tmp/harness')
       .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
     assert.equal(body.match(/__[A-Z_]+__/g), null, `${f} still holds a placeholder after the fill`);
   }
@@ -480,6 +607,7 @@ test('the filled plist is valid XML', () => {
     .replaceAll('__LABEL__', 'com.example.supplied')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
+    .replaceAll('__HARNESS_DIR__', '/tmp/harness')
     .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
   const tmp = path.join(os.tmpdir(), `plot-plist-${process.pid}.plist`);
   fs.writeFileSync(tmp, filled);
@@ -506,6 +634,7 @@ test('the filled systemd unit is well-formed', () => {
   const filled = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
+    .replaceAll('__HARNESS_DIR__', '/tmp/harness')
     .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
   for (const section of ['[Unit]', '[Service]', '[Install]']) {
     assert.ok(filled.includes(section), `the unit has no ${section} section`);
