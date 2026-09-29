@@ -185,6 +185,46 @@ describe('the transcript join — by exact session id, never by guess', () => {
     assert.equal(got[0].model, undefined);
   });
 
+  it('joins the CURRENT slice\'s conversation after a hop, not the launch one', async () => {
+    // `plot-worker-loop.sh` mints a new `resumeId` on a hop to a new branch and
+    // leaves `session` naming the agent. Joined on `session`, the row would
+    // report the first slice's dead conversation as the live one.
+    const wt = '/tmp/wt-hopped';
+    manifest('launch.json', { session: 'launch', resumeId: 'second-slice', branch: 'feature/api',
+      worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
+    transcript(wt, 'launch', [
+      { type: 'assistant', timestamp: '2026-08-20T10:30:00Z',
+        message: { model: 'model-for-launch', usage: { cache_read_input_tokens: 999999 } } },
+    ]);
+    transcript(wt, 'second-slice', facts('second-slice'));
+    const [e] = await readAgentRegistry(root, home);
+    assert.equal(e.session, 'launch', 'session still names the agent');
+    assert.equal(e.model, 'model-for-second-slice');
+    assert.equal(e.contextTokens, 4242);
+    assert.equal(e.lastActivity, '2026-08-20T11:00:00Z');
+  });
+
+  it('costs FIELDS, not a fallback to the old slice, before the new conversation exists', async () => {
+    // Minted, first prompt not yet run: no transcript under the new handle.
+    // Absent is not false, and the previous slice's file is not this one.
+    const wt = '/tmp/wt-minted';
+    manifest('launch.json', { session: 'launch', resumeId: 'not-yet', worktree: wt,
+      startedAt: '2026-08-20T10:00:00Z' });
+    transcript(wt, 'launch', facts('launch'));
+    const [e] = await readAgentRegistry(root, home);
+    assert.equal(e.model, undefined);
+    assert.equal(e.contextTokens, undefined);
+  });
+
+  it('joins on session where the manifest carries no resume handle', async () => {
+    const wt = '/tmp/wt-older';
+    manifest('a.json', { session: 'older', worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
+    transcript(wt, 'older', facts('older'));
+    const [e] = await readAgentRegistry(root, home);
+    assert.equal(e.resumeId, '');
+    assert.equal(e.model, 'model-for-older');
+  });
+
   it('has no transcript to join when the worktree is unknown', async () => {
     manifest('a.json', { session: 'nowt', startedAt: '2026-08-20T10:00:00Z' });
     const got = await readAgentRegistry(root, home);
