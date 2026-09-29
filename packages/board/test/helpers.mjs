@@ -232,11 +232,37 @@ export function makeStubScripts() {
     `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(implementMarker)}\necho "stub implement: $*"\n`,
     { mode: 0o755 },
   );
+  // A SECOND implement stub that does NOT exit until a file is created, and it
+  // exists because the fast one above cannot prove the response body honest.
+  //
+  // The 202 is written while the implement child is alive, and the child's exit
+  // listener is what starts the dispatch. A stub that exits inside the same tick
+  // lets that listener run before the assertion reads the response — so a test
+  // using it passes against a body that reports facts only true AFTER the exit,
+  // which is precisely the claim this branch removes. Blocking on a gate file
+  // holds the child in the state the response actually describes, so the
+  // assertion is taken against the world the caller sees.
+  //
+  // `release()` opens the gate; the child then exits 0 like the fast stub, so
+  // teardown waits for a real exit rather than retrying an `rmSync`.
+  const gate = path.join(dir, 'implement-gate.txt');
+  const blockingImplementBin = path.join(dir, 'stub-implement-blocking.sh');
+  fs.writeFileSync(
+    blockingImplementBin,
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(implementMarker)}\n` +
+      `echo "stub implement (blocking): $*"\n` +
+      `while [ ! -f ${JSON.stringify(gate)} ]; do sleep 0.05; done\n`,
+    { mode: 0o755 },
+  );
   return {
     dir,
     marker,
     /** The `Implement command` stub binary path — write this to the repo's CLAUDE.md. */
     implementBin,
+    /** An `Implement command` stub that blocks until {@link release} is called. */
+    blockingImplementBin,
+    /** Let the blocking implement stub exit 0. */
+    release: () => fs.writeFileSync(gate, 'go\n'),
     implementMarker,
     /** How many times the dispatch stub ran. 0 is the assertion that matters most. */
     runs: () =>
