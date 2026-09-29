@@ -494,10 +494,14 @@ const onLaunchd = os.platform() === 'darwin';
 const unitTemplate = () =>
   path.join(units, onLaunchd ? 'com.plot-pm.registryd.plist' : 'plot-registryd.service');
 
-const unitFile = (home, fleetLabel) =>
+// THE UNIT NAME FOLLOWS THE LABEL ON BOTH PLATFORMS since #1053. This
+// hardcoded `plot-registryd.service` while a labelled `--start` writes
+// `plot-registryd-<name>.service`, so on Linux it looked for a file that is
+// never written and reported `no unit was filled` about a unit that was.
+const unitFile = (home, fleetLabel, ctl) =>
   onLaunchd
     ? path.join(home, 'Library', 'LaunchAgents', `${fleetLabel}.plist`)
-    : path.join(home, '.config', 'systemd', 'user', 'plot-registryd.service');
+    : path.join(home, '.config', 'systemd', 'user', `${unitNameFor(ctl, fleetLabel)}.service`);
 
 const unitPath = (body) => {
   const m = onLaunchd
@@ -531,13 +535,24 @@ const startWith = (label, { searchDirs = [], harness } = {}) => {
   const { root, box, ctl, fleetLabel, guardBin } = sandbox(label);
   const home = path.join(box, 'home');
   fs.mkdirSync(home);
+  // ON LINUX ONLY, A SYSTEMD THAT ACCEPTS `daemon-reload`. `guardBin`'s stub
+  // exits 3 for every call, which is right for the launchd arm these cases
+  // were written for and fatal on Linux: `--start` fills the unit and then
+  // refuses, so the case reads `no unit was filled` about a file on disk.
+  //
+  // IT IS NOT ADDED ON macOS, and that is the whole reason for the guard:
+  // `stubSystemd` also fakes `uname -s` as Linux, so adding it here would
+  // drive the systemd arm on a Darwin host while `onLaunchd` still says
+  // launchd, and the two would disagree about where the unit lands.
+  const sd = onLaunchd ? null : stubSystemd(box);
   const r = run(ctl, ['--start'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
     PLOT_HARNESS: harness,
-    PATH: [guardBin, ...searchDirs, path.dirname(process.execPath), defaultUnitPath()].join(':'),
+    PATH: [...(sd ? [sd.bin] : []), guardBin, ...searchDirs,
+      path.dirname(process.execPath), defaultUnitPath()].join(':'),
   });
-  return { r, box, home, file: unitFile(home, fleetLabel) };
+  return { r, box, home, file: unitFile(home, fleetLabel, ctl) };
 };
 
 test('--start puts the resolved harness first, and a clean shell on the unit PATH finds it', () => {
