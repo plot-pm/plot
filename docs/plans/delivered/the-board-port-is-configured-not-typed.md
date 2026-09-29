@@ -1,0 +1,1 @@
+../2026-09-29-the-board-port-is-configured-not-typed.md
