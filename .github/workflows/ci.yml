@@ -222,8 +222,15 @@ jobs:
       - name: The systemd unit is one systemd accepts
         run: |
           mkdir -p ~/.config/systemd/user
+          # THE PLACEHOLDER SET IS THE TEMPLATE'S, and this step is a third
+          # copy of it after `plot-fleetctl.sh` and `fleetctl.test.mjs`. The
+          # gate below is what keeps the three honest: a placeholder added to
+          # the template and not here fails this step by name, which is how
+          # `__HARNESS_DIR__` was caught. `dirname` of this runner's node is a
+          # real directory and the value only has to make the unit verify.
           sed -e "s|__REPO_ROOT__|$PWD|g" \
               -e "s|__NODE__|$(command -v node)|g" \
+              -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
               -e "s|__REGISTRYD__|$PWD/skills/plot/scripts/board/plot-registryd.mjs|g" \
               skills/plot/units/plot-registryd.service \
               > ~/.config/systemd/user/plot-registryd.service
