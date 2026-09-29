@@ -85,7 +85,7 @@ W40's items were rewritten: Musts link their plans, Shoulds lead with a bold des
 
 ## Slices
 
-### A sprint item names a plan or says it has none (Branch: bug/a-sprint-item-names-a-plan-or-says-it-has-none)
+### A sprint item names a plan or says it has none (Branch: bug/a-sprint-item-names-a-plan-or-says-it-has-none, PR: #1066)
 
 Argue the three shapes, choose one, make the readers agree, and add the issue-linked fixture to the corpus test.
 
