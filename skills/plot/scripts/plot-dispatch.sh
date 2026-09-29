@@ -392,28 +392,9 @@ fi
 # until this moved. Nothing here executes at definition time; only the position
 # changed.
 
-# A session id, in the shape the runtime uses for its transcript filename.
-#
-# `uuidgen` where it exists (macOS and most Linux), falling back to `/dev/urandom`
-# — never to `$RANDOM` or a timestamp. Two workers launched in the same second by
-# the same fan-out would collide on either, and a collision here silently merges
-# two agents into one manifest.
-#
-# Lowercased because the runtime writes its transcript filename in lowercase and
-# the board joins on exact string equality; `uuidgen` on macOS returns uppercase.
-plot_session_id() {
-  local id=""
-  if command -v uuidgen >/dev/null 2>&1; then
-    id=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
-  fi
-  if [ -z "$id" ]; then
-    # 16 random bytes rendered as a v4-shaped id. The shape matters only for
-    # recognisability; nothing parses it.
-    id=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n' \
-         | sed -E 's/(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/')
-  fi
-  printf '%s' "$id"
-}
+# `plot_session_id` — the session id a launch records — is SOURCED from
+# `plot-agent-manifest.sh` above, because the worker loop mints one on a hop to
+# a new branch and two generators of one id drift.
 
 # JSON-escape one string for a manifest value.
 #

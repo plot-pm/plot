@@ -268,20 +268,20 @@ case "$CORRECTION_BUDGET" in (*[!0-9]*|'') CORRECTION_BUDGET=2 ;; esac
 # This function updates `branch`, `worktree` and `resumeId`, and increments
 # `wavesCount`.
 #
-# `resumeId` IS WRITTEN HERE, AND THE QUESTION IT ANSWERS WAS LEFT OPEN UNTIL
-# 2026-09-05. The field was written once at dispatch, equal to `session`, and
-# read by nothing — a field with one writer, no readers and a twin. This
-# function left it alone and stated the consequence: *should the resume handle
-# follow a hop?*
+# `resumeId` IS THE HANDLE THE NEXT PROMPT CONTINUES, and a new branch gets a
+# new one. One conversation per SLICE: a hop to a different branch mints a
+# fresh id with `plot_session_id`, so the first prompt on the new slice runs
+# `--session-id` and loads nothing. A hop that lands on the same branch keeps
+# the handle and resumes. `session` is not touched: it is the manifest's
+# filename and the agent's name, and the board joins the transcript on
+# `resumeId` instead (`packages/board/src/server/registry.ts`).
 #
-# IT DOES, AND THE VALUE IS THE ONE THE NEXT PROMPT CONTINUES. An agent keeps a
-# single conversation for its whole life, because `transcript.ts:100` opens
-# `${sessionId}.jsonl` literally and a forked chain is a linked list the board
-# cannot follow. So the handle carried across a hop is the handle the hop
-# arrives with, and writing it is what makes `session_handle` read a field the
-# loop maintains rather than a launch fact nobody updates. The two fields still
-# diverge exactly where the docstring predicted — a later `--fork-session`
-# becomes a change to this one line's value rather than a new concept.
+# THE PREVIOUS BRANCH IS AN ARGUMENT, NOT THE MANIFEST'S `branch`. By the time
+# this runs, `clear_manifest_branch` has blanked the field and the registry has
+# written the NEW branch into it, so the manifest names `$2` on every hop. The
+# branch the agent is leaving survives only in the caller's `$PLOT_BRANCH`. An
+# empty previous branch is an agent that held no slice yet, and it keeps its
+# launch handle.
 #
 # `attempts` STAYS FIXED, and it does so by being untouched rather than by being
 # preserved: the node one-liner round-trips the whole object, so every field
@@ -298,9 +298,13 @@ case "$CORRECTION_BUDGET" in (*[!0-9]*|'') CORRECTION_BUDGET=2 ;; esac
 # interprets escape sequences differently, awk quoting varies), and node is
 # guaranteed present — the Worker command itself requires it. The one-liner
 # reads, updates, and writes atomically through a temp file.
-update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree $4=resume_id
-  local manifest="$1" new_branch="$2" new_worktree="$3" resume_id="${4:-}"
+update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree $4=resume_id $5=previous_branch
+  local manifest="$1" new_branch="$2" new_worktree="$3" resume_id="${4:-}" previous_branch="${5:-}"
   [ -f "$manifest" ] || return 0
+
+  if [ -n "$previous_branch" ] && [ "$previous_branch" != "$new_branch" ]; then
+    resume_id=$(plot_session_id) || resume_id=""
+  fi
 
   local tmp="$manifest.plot-hop-tmp"
   # AN EMPTY HANDLE LEAVES THE FIELD ALONE rather than blanking it. A loop with
@@ -631,9 +635,10 @@ assigned_branch() { # $1=manifest → prints the branch, or nothing
 # The resume handle the manifest carries, or nothing while it carries none.
 #
 # A SECOND FIELD, NOT AN ALIAS FOR `session`. A dispatch writes the same value
-# into both, and `registry.ts:126` states why they are still two: `session` is
-# the transcript join key and stays fixed across a hop by design, while the
-# resume handle is a different identity with a different lifetime. Reading this
+# into both, and they part at the first hop to a new branch: `session` names the
+# agent and its manifest file for the agent's whole life, while `resumeId` names
+# the current slice's conversation and is what the board joins the transcript
+# on. Reading this
 # field rather than `$PLOT_SESSION_ID` is what makes the hop's write below mean
 # anything — the loop asks for the handle, and gets the one the hop last wrote.
 #
@@ -685,12 +690,11 @@ manifest_resume_id() { # $1=manifest → prints the handle, or nothing
 # the harness it invokes belong to the project — so the one honest test is
 # whether a transcript exists under the id Plot asserted."*
 #
-# THE PROBE IS PER DESK, and that is a known limitation rather than a choice
-# made here. `plot_transcript_dir` keys on the worktree path, so a CREATED desk
-# gets a fresh directory while a RESET desk keeps its own; an agent that cut a
-# new desk therefore reads *no transcript* and creates a session under an id the
-# runtime already holds. The plan records the per-desk split as a defect for a
-# later change in the board and puts it out of scope here.
+# THE PROBE IS PER DESK. `plot_transcript_dir` keys on the worktree path, so a
+# CREATED desk gets a fresh directory while a RESET desk keeps its own. A hop to
+# a new branch mints a new handle, so on either desk the first prompt of the
+# new slice finds no transcript and creates one. A same-branch hop onto a
+# created desk still reads *no transcript* under a handle the runtime holds.
 session_transcript_exists() { # $1=worktree $2=id → 0 found | 1 not
   local wt="$1" id="$2" dir
   [ -n "$wt" ] && [ -n "$id" ] || return 1
@@ -2307,7 +2311,7 @@ while true; do
   # and `branch` and `wavesCount` still change, which is what
   # `packages/board/src/server/registry.ts:114` reads.
   if [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ]; then
-    update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$hop_wt" "$(session_handle)"
+    update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$hop_wt" "$(session_handle)" "${PLOT_BRANCH:-}"
   fi
 
   # Move to the desk and update environment for the next iteration. On a reset
