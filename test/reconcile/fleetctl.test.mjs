@@ -1337,3 +1337,126 @@ test('consumer: a missing bundle still refuses, and names the build only for a d
     }
   }
 });
+
+// ── Which checkout the loaded supervisor serves ───────────────────────────────
+//
+// REFUSAL 4 said `'<label>' is already loaded` and nothing more, so an operator
+// ran `launchctl print` by hand to learn whose supervisor held the label. The
+// reading is the loaded job's `working directory`, compared with this checkout.
+//
+// THE STUB PRINTS WHAT `launchctl print` PRINTS: `working directory = <path>`
+// under a tab, lowercase with a space. The plist's `WorkingDirectory` key never
+// appears in that output, so a stub fed the plist shape would pass against the
+// template and find nothing on a live machine.
+//
+// THE STUB REPLACES THE SANDBOX'S OWN GUARD. Every call lands in the sandbox's
+// `guardBin`; `print` answers the case, and every other subcommand is recorded
+// so a test can assert that nothing was booted out or bootstrapped.
+
+/**
+ * Arm the sandbox's guard bin as a Darwin machine holding the label.
+ *
+ * @param workdir - the job's working directory; null prints no such line
+ * @returns the file every non-`print` launchctl call is appended to
+ */
+function holdLabel(box, guardBin, workdir) {
+  const calls = path.join(box, 'launchctl.calls');
+  const write = (name, body) => {
+    const p = path.join(guardBin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
+  const printed = [
+    `gui/501/x = {`,
+    `\tactive count = 1`,
+    ...(workdir === null ? [] : [`\tworking directory = ${workdir}`]),
+    `\tpid = 4242`,
+    `}`,
+  ].map((l) => `printf '%s\\n' '${l}'`).join('\n');
+  write('launchctl', `if [ "$1" = print ]; then\n${printed}\nexit 0\nfi\necho "$*" >> '${calls}'\nexit 0`);
+  return calls;
+}
+
+const launchctlCalls = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean) : []);
+
+/** Run `--start` against a held label and return the run plus what it touched. */
+function startAgainst(label, workdir) {
+  const s = sandbox(label);
+  const calls = holdLabel(s.box, s.guardBin, typeof workdir === 'function' ? workdir(s) : workdir);
+  const home = fakeHome(s.box);
+  const r = run(s.ctl, ['--start'], s.root, s.guardBin, { HOME: home, PLOT_FLEET_LABEL: s.fleetLabel });
+  return { ...s, r, calls: launchctlCalls(calls), units: fs.readdirSync(path.join(home, 'Library', 'LaunchAgents')) };
+}
+
+test('refusal 4: a label held by another checkout names that checkout', () => {
+  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleetctl-other-')));
+  const { r, calls, units, root } = startAgainst('held-other', other);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, new RegExp(`serving ANOTHER checkout \\(${other.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`),
+    'the refusal names the other checkout by path');
+  assert.match(r.out, new RegExp(`This repository is ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.deepEqual(calls, [], 'nothing was booted out or bootstrapped');
+  assert.deepEqual(units, [], 'no unit was written');
+});
+
+test('refusal 4: a label held by THIS checkout says so, and still refuses', () => {
+  const { r, calls, units } = startAgainst('held-this', (s) => s.root);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /serving THIS repository/);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(units, []);
+});
+
+test('refusal 4: this checkout through a symlink is still this checkout', () => {
+  const { r } = startAgainst('held-link', (s) => {
+    const link = path.join(s.box, 'linked-repo');
+    fs.symlinkSync(s.root, link);
+    return link;
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /serving THIS repository/, 'physical paths are compared');
+});
+
+test('refusal 4: no working directory answers cannot determine, and still refuses', () => {
+  // THE DANGEROUS MISREADING. An implementation that reads empty as *this
+  // repository* passes the two cases above and invites an overwrite of a
+  // supervisor that is not this checkout's.
+  const { r, calls, units } = startAgainst('held-unknown', null);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /cannot be determined/);
+  assert.doesNotMatch(r.out, /THIS repository/, 'an unreadable job is never read as this checkout');
+  assert.deepEqual(calls, []);
+  assert.deepEqual(units, []);
+});
+
+test('--status names the checkout the running supervisor serves', () => {
+  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleetctl-other-')));
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('status-serves');
+  const calls = holdLabel(box, guardBin, other);
+  const r = run(ctl, ['--status'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /supervisor: running \(pid 4242\)/);
+  assert.match(r.out, new RegExp(`serves:  ANOTHER checkout \\(${other.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
+  assert.match(r.out, /^summary: /m, 'the summary line the board reads is still there');
+  assert.deepEqual(launchctlCalls(calls), []);
+});
+
+test('--status says cannot determine where the job names no working directory', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('status-serves-unknown');
+  holdLabel(box, guardBin, null);
+  const r = run(ctl, ['--status'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /serves:  cannot determine/);
+});
+
+test('supervisor_workdir returns 0 when launchctl answers 113', () => {
+  // A reader ending in a launchctl pipeline must not leak the init system's code.
+  const { root, ctl } = sandbox('workdir-rc');
+  const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'
+platform() { echo launchd; }
+launchctl() { return 113; }
+out=$(supervisor_workdir); rc=$?; printf '%s|%s|%s' "$rc" "$out" "$(supervisor_checkout)"`;
+  const out = execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd: root });
+  assert.equal(out, '0||unknown');
+});

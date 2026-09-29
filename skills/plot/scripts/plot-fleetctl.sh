@@ -169,6 +169,66 @@ supervisor_pid() {
   esac
 }
 
+# The working directory of the LOADED job, or empty.
+#
+# THE LOADED JOB, NOT THE PLIST. A plist on disk may not be the job launchd
+# holds, and a file read cannot see a job installed by hand elsewhere. launchd
+# prints the key as `working directory`, lowercase with a space; `grep
+# WorkingDirectory` over the same output finds nothing.
+#
+# `gui/`, like `supervisor_loaded`: the unit is a LaunchAgent, and `system/`
+# answers *Could not find service* for it.
+#
+# The systemd arm is read, not run: no Linux machine was available to verify
+# it, and one hardcoded unit name means it can never name another checkout.
+#
+# Exit status is always 0. The pipeline ends in `head`, and the trailing
+# `return 0` keeps launchctl's 113 from reaching a caller.
+supervisor_workdir() {
+  case "$(platform)" in
+    launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
+               | sed -n 's/^[[:space:]]*working directory = \(.*\)$/\1/p' | head -1 ;;
+    systemd) systemctl --user show plot-registryd -p WorkingDirectory --value 2>/dev/null \
+               | head -1 ;;
+  esac
+  return 0
+}
+
+# Which checkout the loaded supervisor serves: one line, `this <path>`,
+# `another <path>`, or `unknown`.
+#
+# PHYSICAL PATHS ARE COMPARED, as `plot-boardctl.sh --status` does, so a
+# checkout reached through a symlink is still this one.
+#
+# EMPTY IS `unknown`, NEVER `this`. An empty reading comes from a label launchd
+# does not hold, a job in another user's domain, or a hand-written unit without
+# the key. Reading any of them as *this repository* would invite an overwrite of
+# a supervisor that is not this checkout's.
+supervisor_checkout() {
+  local served here there
+  served=$(supervisor_workdir)
+  if [ -z "$served" ]; then
+    echo unknown
+    return 0
+  fi
+  here=$(cd "$repo_root" && pwd -P)
+  there=$(cd "$served" 2>/dev/null && pwd -P) || there="$served"
+  if [ "$here" = "$there" ]; then
+    printf 'this %s\n' "$served"
+  else
+    printf 'another %s\n' "$served"
+  fi
+}
+
+# The `--status` line for `supervisor_checkout`'s answer.
+serves_line() { # $1=the answer
+  case "$1" in
+    this\ *)    echo "  serves:  THIS repository (${1#this })" ;;
+    another\ *) echo "  serves:  ANOTHER checkout (${1#another }) — this repository is $repo_root" ;;
+    *)          echo "  serves:  cannot determine — $(platform) names no working directory for $LABEL" ;;
+  esac
+}
+
 # Seconds since the supervisor last wrote its log, or empty when there is no
 # log or its mtime cannot be read. Empty is not zero: no reading is not a fresh
 # tick. Evidence only — the staleness judgement is `rules/supervisor-reading.ts`.
@@ -393,6 +453,7 @@ if [ "$mode" = "status" ]; then
   elif [ "$sup_loaded" = 0 ] && [ -n "$sup_pid" ]; then
     install_state=running
     echo "supervisor: running (pid $sup_pid) — $LABEL"
+    serves_line "$(supervisor_checkout)"
     # A pid is not a tick: measured 2026-09-23, this arm printed `running`
     # over a 25-hour-old log. The age is evidence and the state word stays.
     tick_age=$(tick_age_seconds)
@@ -414,6 +475,7 @@ if [ "$mode" = "status" ]; then
     echo "supervisor: LOADED, NOT RUNNING ($LABEL) — $(platform) holds the label and no process is behind it"
     echo "  label:   loaded"
     echo "  process: absent"
+    serves_line "$(supervisor_checkout)"
     # THE TICK AGE IS EVIDENCE AND NEVER THE VERDICT. A log's mtime says when
     # the daemon last wrote, and a healthy supervisor between ticks has not
     # written for up to 60 s — so a reader gets the number and this derives
@@ -609,11 +671,33 @@ if [ "$mode" = "start" ]; then
   # REFUSAL 4 — the label is taken. launchd keys a job by LABEL, so loading a
   # second repository's unit over the first supervises the wrong estate without
   # saying anything.
+  #
+  # THE REFUSAL NAMES WHOSE SUPERVISOR HOLDS THE LABEL, and it refuses on all
+  # three answers. Only the text differs; nothing is unloaded or written.
   if supervisor_loaded; then
-    echo "plot-fleetctl: '$LABEL' is already loaded" >&2
-    echo "  One supervisor per repository, and the label carries no repository name." >&2
-    echo "  Stop this one: /plot-fleet --stop" >&2
-    echo "  Or, for a second checkout, give it its own label — skills/plot/units/README.md" >&2
+    served=$(supervisor_checkout)
+    case "$served" in
+      this\ *)
+        echo "plot-fleetctl: '$LABEL' is already loaded, serving THIS repository (${served#this })" >&2
+        echo "  The fleet is already supervised here. See it: /plot-fleet --status" >&2
+        echo "  To restart it: /plot-fleet --stop, then /plot-fleet --start" >&2
+        ;;
+      another\ *)
+        echo "plot-fleetctl: '$LABEL' is already loaded, serving ANOTHER checkout (${served#another })" >&2
+        echo "  This repository is $repo_root. That supervisor is not yours to stop." >&2
+        echo "  Give this checkout its own label — skills/plot/units/README.md" >&2
+        ;;
+      *)
+        echo "plot-fleetctl: '$LABEL' is already loaded, and which checkout it serves cannot be determined" >&2
+        case "$plat" in
+          launchd) how="launchctl print gui/\$(id -u)/$LABEL" ;;
+          *)       how="systemctl --user show plot-registryd" ;;
+        esac
+        echo "  $plat names no working directory for it, so it may be another checkout's." >&2
+        echo "  Read it before stopping it: $how" >&2
+        echo "  Or, for a second checkout, give it its own label — skills/plot/units/README.md" >&2
+        ;;
+    esac
     exit 1
   fi
 
