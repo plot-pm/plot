@@ -66,12 +66,25 @@ const TIER_HEADINGS: ReadonlyArray<readonly [RegExp, MoscowTier]> = [
  * `commitment-empty` refused a sprint whose Must Haves the release gate counted
  * as two open items. One file, two readers, opposite answers.
  *
- * The slug group is `(?:\[([^\]]+)\]\s*)?` — optional, and still any bracketed
- * text rather than a slug shape, which is deliberate: `[#966](…)` is a reference
- * this estate writes and narrowing it here would drop a line the release reader
- * keeps.
+ * **A REFERENCE IS A PLAN SLUG, AND IT MAY BE STRUCK THROUGH.** The group is
+ * `(?:~~)?\[([a-z0-9][a-z0-9-]*)\]`, which is `plot-sprint-release.sh:249`'s
+ * own rule ported rather than a fourth reading of the format. It replaced
+ * `\[([^\]]+)\]` on 2026-09-29: that bracket was any text, so `~~[slug]~~` read
+ * as no reference here while the shell resolved the slug, and the board counted
+ * W40's withdrawn Should as `open` where the release gate counted it
+ * `withdrawn`. One file, opposite answers again.
+ *
+ * Only the OPENING `~~` is required, matching the shell: the estate writes both
+ * `~~[slug]~~` and `~~[slug](../plans/x.md)~~`, and anchoring on the closing
+ * `~~` would read the second as unstruck.
+ *
+ * **A NON-SLUG BRACKET IS TEXT, NOT A REFERENCE.** `- [ ] [#966](…) …` names an
+ * issue and no plan, so it reads as an item with no reference — the same answer
+ * the shell has always given it. The narrowing drops no line from either
+ * reader: measured 2026-09-29 across all 16 sprint files, every leading bracket
+ * on an item line is slug-shaped or struck.
  */
-const MEMBER_LINE = /^- \[( |x)\] (?:\[([^\]]+)\]\s*)?(.*)$/;
+const MEMBER_LINE = /^- \[( |x)\] (?:(?:~~)?\[([a-z0-9][a-z0-9-]*)\]\s*)?(.*)$/;
 
 /**
  * A `## Status` field: `- **Name:** value`.

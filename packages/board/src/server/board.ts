@@ -1152,7 +1152,16 @@ const SPRINT_TIER_HEADINGS: ReadonlyArray<readonly [RegExp, SprintMember['tier']
  * The rest of the line is captured because a member with no slug has no other
  * name to render.
  */
-const SPRINT_MEMBER_LINE = /^- \[( |x)\] (?:\[([^\]]+)\]\s*)?(.*)$/;
+/**
+ * A member line, and the twin of `itemsFrom`'s `MEMBER_LINE`.
+ *
+ * **A REFERENCE IS A PLAN SLUG, AND IT MAY BE STRUCK THROUGH.** The rule is
+ * `plot-sprint-release.sh:249`'s, ported so the three readers give one answer;
+ * `entry/sprint-transition.ts` states it at length and the two must change
+ * together. A non-slug bracket — `[#966](…)` — is text, so such an item names
+ * no plan, which is what the shell has always reported.
+ */
+const SPRINT_MEMBER_LINE = /^- \[( |x)\] (?:(?:~~)?\[([a-z0-9][a-z0-9-]*)\]\s*)?(.*)$/;
 
 /**
  * Read a sprint file's members: the `- [ ] [slug]` / `- [x] [slug]` lines, the
