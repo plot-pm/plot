@@ -2,9 +2,9 @@
 
 `plot-registryd` supervises the agents a repository registered. Something has to supervise it, and that something is the operating system: `launchd` on macOS, `systemd` on Linux.
 
-This directory holds one unit file for each, plus the install steps. Both are templates — replace three placeholders and install.
+This directory holds one unit file for each, plus the install steps. Both are templates — replace the placeholders and install. The plist carries four (`__LABEL__`, `__REPO_ROOT__`, `__NODE__`, `__REGISTRYD__`); the systemd unit carries three, because a systemd unit has no label field.
 
-**`/plot-fleet --start` automates every step below**, and adds four refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does, or when you are giving a second checkout its own label.
+**`/plot-fleet --start` automates every step below**, and adds four refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does. A second checkout needs no hand steps: `PLOT_FLEET_LABEL` gives it its own label, as described below.
 
 ## Why the OS and not Plot
 
@@ -34,20 +34,22 @@ Run these from the repository you want supervised.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 NODE="$(command -v node)"
 REGISTRYD="$REPO_ROOT/skills/plot/scripts/board/plot-registryd.mjs"
+LABEL="com.plot-pm.registryd"   # launchd keys the job by this string
 
 # 2. The log directory the unit writes to.
 mkdir -p "$REPO_ROOT/.plot/logs"
 
 # 3. Fill the template into your LaunchAgents directory.
 mkdir -p ~/Library/LaunchAgents
-sed -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
+sed -e "s|__LABEL__|$LABEL|g" \
+    -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
     -e "s|__NODE__|$NODE|g" \
     -e "s|__REGISTRYD__|$REGISTRYD|g" \
     "$REPO_ROOT/skills/plot/units/com.plot-pm.registryd.plist" \
-    > ~/Library/LaunchAgents/com.plot-pm.registryd.plist
+    > ~/Library/LaunchAgents/$LABEL.plist
 
 # 4. Load it. It starts immediately and on every login.
-launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.plot-pm.registryd.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/$LABEL.plist
 ```
 
 Check it:
@@ -64,7 +66,23 @@ Stop it, or reload it after editing the file:
 launchctl bootout "gui/$(id -u)/com.plot-pm.registryd"
 ```
 
-**Two repositories need two files.** The label is what `launchd` keys a job by, so a second checkout needs a second plist with a second label — change both `com.plot-pm.registryd` occurrences to something like `com.plot-pm.registryd.other-repo`, and the filename to match.
+**Two repositories need two labels.** `launchd` keys a job by the `Label` inside the plist, not by the filename: two files with one `Label` are one job, and the second `bootstrap` fails with `5: Input/output error`. Give the second checkout its own label when you start it:
+
+```bash
+PLOT_FLEET_LABEL=com.plot-pm.registryd.other-repo skills/plot/scripts/plot-fleetctl.sh --start
+```
+
+`--start` fills the label into the plist and names the file after it. Set the same variable for `--status` and `--stop` in that checkout.
+
+**An installed unit does not update itself.** A unit installed before `__LABEL__` existed keeps the label it was loaded under, and `--stop` under a new override cannot find it. Boot it out by its old label, remove its file, and start again under the override:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.plot-pm.registryd"
+rm ~/Library/LaunchAgents/com.plot-pm.registryd.plist
+PLOT_FLEET_LABEL=<new> skills/plot/scripts/plot-fleetctl.sh --start
+```
+
+Alternatively, set `PLOT_FLEET_LABEL` to the old label, which adopts the existing unit.
 
 ## Install — Linux (`systemd`)
 
