@@ -24,6 +24,8 @@ import { AgentList } from '../../src/app/components/AgentList.js';
 
 /** Every row `isMine` is asked about, recorded through the production module. */
 const asked = vi.hoisted(() => [] as OwnedRow[]);
+/** Set to make the spied rule refuse every agent, so its answer is visible. */
+const refuseAgents = vi.hoisted(() => ({ on: false }));
 
 vi.mock('@plot-pm/domain', async (importOriginal) => {
   const real = await importOriginal<typeof import('@plot-pm/domain')>();
@@ -31,6 +33,7 @@ vi.mock('@plot-pm/domain', async (importOriginal) => {
     ...real,
     isMine: (owned: OwnedRow, reader: Parameters<typeof real.isMine>[1]) => {
       asked.push(owned);
+      if (refuseAgents.on && owned.kind === 'agent') return false;
       return real.isMine(owned, reader);
     },
   };
@@ -131,6 +134,7 @@ describe('an agent reaches the agent arm through AgentList', () => {
 
   beforeEach(() => {
     asked.length = 0;
+    refuseAgents.on = false;
     store.clear();
     vi.stubGlobal('localStorage', {
       getItem: (k: string) => store.get(k) ?? null,
@@ -145,7 +149,7 @@ describe('an agent reaches the agent arm through AgentList', () => {
   const render = () => {
     const pulse = fleet({
       rows: [row({ branch: 'feature/a-branch', group: 'working' })],
-      agents: [agent({ branch: 'feature/a-branch', identity: 'manifest', state: 'running' })],
+      agents: [agent({ session: 's-1', branch: 'feature/a-branch', identity: 'manifest', state: 'running' })],
     });
     return renderToStaticMarkup(createElement(AgentList, { fleet: pulse, pollSeconds: 4, server }));
   };
@@ -156,6 +160,18 @@ describe('an agent reaches the agent arm through AgentList', () => {
     expect(asked).toContainEqual({ kind: 'agent', identity: 'manifest', state: 'running' });
     // And the worker is still on screen: the arm answered `mine`.
     expect(html).toContain('feature/a-branch');
+  });
+
+  it('renders the WORKING section from the rule\'s answer', () => {
+    // The agent arm never answers `theirs`, so a real answer cannot show the
+    // wiring. A rule that refused every agent must empty WORKING; a component
+    // that computed the answer and rendered `fleet.agents` anyway would not.
+    store.set('plot-board:agents:mine-only', '1');
+    const rows = (html: string) => html.split('data-agent-row=""').length - 1;
+    const kept = rows(render());
+    refuseAgents.on = true;
+    expect(kept).toBeGreaterThan(0);
+    expect(rows(render())).toBe(kept - 1);
   });
 
   it('asks nothing when the filter is off', () => {
