@@ -107,7 +107,7 @@ The value would then be written in three places — the shell, the server, and t
 
 ## Slices
 
-### The board port is configured, not typed (Branch: bug/the-board-port-is-configured-not-typed)
+### The board port is configured, not typed (Branch: bug/the-board-port-is-configured-not-typed, PR: #1079)
 
 Read the key in `plot-boardctl.sh`, keep `--port` ahead of it, assert all three precedence cases.
 
