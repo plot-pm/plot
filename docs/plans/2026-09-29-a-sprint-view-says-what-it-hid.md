@@ -119,7 +119,7 @@ A PR with no plan is not noise by default. `#1104` is the **sprint's own PR**. `
 
 ## Slices
 
-### A sprint view says what it hid (Branch: bug/a-sprint-view-says-what-it-hid)
+### A sprint view says what it hid (Branch: bug/a-sprint-view-says-what-it-hid, PR: #1071)
 
 **Mark the exempt row**, and count the exempt rows in the same pass that filters. A count alone does not discharge the report.
 
