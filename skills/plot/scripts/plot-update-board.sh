@@ -59,11 +59,22 @@ STATUS="${2:?Usage: plot-update-board.sh <pr-url> <status> <owner> <project-numb
 OWNER="${3:?Usage: plot-update-board.sh <pr-url> <status> <owner> <project-number>}"
 PROJECT_NUMBER="${4:?Usage: plot-update-board.sh <pr-url> <status> <owner> <project-number>}"
 
+# WHERE THE PROJECT'S METADATA IS REMEMBERED, and both paths are OVERWRITTEN
+# rather than grown: one file per project, replaced whenever the metadata is
+# fetched again.
+#
+# OUTSIDE A GIT REPOSITORY IT GOES UNDER `~/.plot/state/`, NOT `/tmp`. A
+# `/tmp/plot-board-cache-*.json` had no bound and no owner — nothing removed it
+# and no manifest declared it — and a shared temp directory is where a file
+# nobody owns is indistinguishable from a file somebody else owns. The state
+# directory is the one place this repository already declares its bounds in.
 GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || GIT_DIR=""
 if [ -n "$GIT_DIR" ]; then
   CACHE_FILE="${GIT_DIR}/plot-board-cache-${OWNER}-${PROJECT_NUMBER}.json"
 else
-  CACHE_FILE="/tmp/plot-board-cache-${OWNER}-${PROJECT_NUMBER}.json"
+  CACHE_HOME="${HOME:-}/.plot/state/board-cache"
+  mkdir -p "$CACHE_HOME" 2>/dev/null || true
+  CACHE_FILE="${CACHE_HOME}/${OWNER}-${PROJECT_NUMBER}.json"
 fi
 
 # --- Load or fetch project metadata (project ID, Status field ID, options) ---

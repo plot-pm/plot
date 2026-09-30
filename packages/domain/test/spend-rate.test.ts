@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { encodeEntry, type BudgetEntry, type BudgetKey } from '../src/entities/budget.js';
-import { PRUNE_THRESHOLD, spendRate } from '../src/rules/budget-record.js';
+import { spendRate } from '../src/rules/budget-record.js';
 
 /**
  * The ONE ANSWER a reader of the record gets.
@@ -148,24 +148,8 @@ describe('the reading is the newest live line', () => {
   });
 });
 
-describe('the reader says whether pruning is owed', () => {
-  it('owes nothing while the dead lines are few', () => {
-    const read = spendRate(lines(entry(NOW - 5 * 60 * MINUTE), entry(NOW - MINUTE)), KEY, NOW);
-    expect(read.pruneOwed).toBe(false);
-  });
-
-  it('owes a truncation once enough lines are dead', () => {
-    // Truncation is the one write that is not an append, so a threshold of one
-    // would make every reader a writer and reintroduce the contention the
-    // append-only design removes.
-    const dead = Array.from({ length: PRUNE_THRESHOLD }, (_, index) =>
-      entry(NOW - 5 * 60 * MINUTE - index),
-    );
-    const read = spendRate(lines(...dead, entry(NOW - MINUTE)), KEY, NOW);
-    expect(read.pruneOwed).toBe(true);
-  });
-
-  it('counts an unreadable line toward pruning and never toward the spend', () => {
+describe('the reader counts what it could not read', () => {
+  it('counts an unreadable line as unreadable and never as a spend', () => {
     // A torn tail describes nothing. Counting it as a spend would inflate the
     // rate; ignoring it entirely would leave it in the file forever.
     const read = spendRate([...lines(entry(NOW)), 'b1\tgithub\tjwloka', 'not a line'], KEY, NOW);

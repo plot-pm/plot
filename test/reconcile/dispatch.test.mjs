@@ -3550,7 +3550,11 @@ test('dispatch: PLOT_START_ONE skips the subtraction, because the count was alre
       const out = runDetached(['--start', '1'], checkout, { PLOT_START_ONE: '1' });
       assert.match(out, /summary: agents=1 /, `call ${i + 1}: ${out}`);
     }
-    assert.equal(fs.readdirSync(path.join(checkout, '.plot', 'agents')).length, 3,
+    // A manifest is a `.json` file, as both registry readers count it; the
+    // launcher's `<session>.json.plot-pid-tmp` can sit beside one for a moment.
+    const manifests = fs.readdirSync(path.join(checkout, '.plot', 'agents'))
+      .filter((f) => f.endsWith('.json'));
+    assert.equal(manifests.length, 3,
       'three calls, three agents — none of them subtracted the ones before it');
   } finally {
     reapFixtureWorkers(checkout);

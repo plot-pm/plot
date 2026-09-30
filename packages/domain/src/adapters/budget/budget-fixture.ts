@@ -35,7 +35,7 @@ export interface BudgetFixture {
  * @returns a `BudgetRecord` backed by an array.
  */
 export const budgetFixture = (fixture: BudgetFixture = {}): BudgetRecord => {
-  let held: string[] = [...(fixture.lines ?? [])];
+  const held: string[] = [...(fixture.lines ?? [])];
   const path = fixture.location ?? '/fixture/.plot/state/budget.tsv';
 
   return {
@@ -49,10 +49,5 @@ export const budgetFixture = (fixture: BudgetFixture = {}): BudgetRecord => {
     },
 
     lines: async (): Promise<PortResult<readonly string[]>> => answered([...held]),
-
-    truncate: async (keep: readonly BudgetEntry[]): Promise<PortResult<void>> => {
-      held = keep.map((entry) => encodeEntry(entry).replace(/\n$/, ''));
-      return answered(undefined);
-    },
   };
 };

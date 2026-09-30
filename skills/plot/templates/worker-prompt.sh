@@ -143,6 +143,22 @@ model_args=()
 effort_args=()
 [ -n "${PLOT_EFFORT:-}" ] && effort_args=(--reasoning-effort "$PLOT_EFFORT")
 
+# THE SETTINGS FILE THIS PROJECT STARTS ITS AGENTS WITH, resolved once per agent
+# start by `plot-worker-loop.sh` and named by the `Agent settings` config key.
+#
+# Every dispatched agent is a `claude -p` session and inherits every
+# `SessionStart` hook the operator's plugins declare. Measured 2026-09-30, one
+# plugin's lockless sync ran three times at once, the 1-minute load reached 195,
+# and the supervisor did not tick for 12 minutes.
+#
+# GUARDED ON TWO THINGS, and the harness is the second. `--settings` is THIS
+# harness's flag: a project running something else gets its argv unchanged rather
+# than an argument its harness would reject. The loop leaves the variable UNSET
+# when it resolved nothing or refused the file, so `[ -n ... ]` is the whole test.
+settings_args=()
+[ -n "${PLOT_AGENT_SETTINGS:-}" ] && [ "$harness" = "claude" ] &&
+  settings_args=(--settings "$PLOT_AGENT_SETTINGS")
+
 # WHAT IT BUILT, ON REQUEST — a debug hook, and deliberately not a contract.
 #
 # THE CHAIN IS OTHERWISE UNOBSERVABLE. A worker launches detached, Plot never
@@ -161,9 +177,10 @@ if [ -n "${PLOT_PRINT_INVOCATION:-}" ]; then
   printf '%s\n' "$harness" \
     ${model_args[@]+"${model_args[@]}"} \
     ${effort_args[@]+"${effort_args[@]}"} \
+    ${settings_args[@]+"${settings_args[@]}"} \
     ${cap_args[@]+"${cap_args[@]}"} \
     ${session_args[@]+"${session_args[@]}"}
   exit 0
 fi
 
-"$harness" ${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the repo's gates, and never skip a failing test. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions
+"$harness" ${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} ${settings_args[@]+"${settings_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the repo's gates, and never skip a failing test. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions

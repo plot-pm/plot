@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
@@ -253,6 +255,7 @@ const readingsFor = (
     mergeSubjectFound: refTip === null && mergeSubjectNames(branch),
     hostReach: hostReach(),
     pr: prFor(branch),
+    prListComplete: prList.complete,
     commitsAhead: counts.total,
     realCommitsAhead: counts.real,
     waits: waitsOn === '' ? null : { branch: waitsOn, pr: prFor(waitsOn) },
@@ -480,5 +483,89 @@ describe('the rule reproduces the shell for every branch on the estate', () => {
     // eslint-disable-next-line no-console
     console.log(`branch states exercised against production: ${report}`);
     expect(seen.size).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The zero-ahead table, one fixture reading per row, through the rule and the
+ * shipped bundle.
+ *
+ * The estate reaches few of these rows at any moment, so the fixtures are what
+ * hold the wire for all of them.
+ */
+describe('the bundle answers the zero-ahead table as the rule does', () => {
+  const BUNDLE = `${ROOT}/skills/plot/scripts/board/plot-branch-state.mjs`;
+
+  const behind: BranchReadings = {
+    deferredByPlan: false,
+    refTip: 'bbb',
+    mainTip: 'aaa',
+    mergeSubjectFound: false,
+    hostReach: 'ok',
+    pr: 'none',
+    prListComplete: true,
+    commitsAhead: 0,
+    realCommitsAhead: 0,
+    waits: null,
+  };
+
+  const ROWS: ReadonlyArray<readonly [string, Partial<BranchReadings>]> = [
+    ['main unreadable', { mainTip: null }],
+    ['pull request merged', { pr: 'MERGED' }],
+    ['host unasked', { hostReach: 'unasked', pr: 'unreadable', prListComplete: false }],
+    ['host throttled', { hostReach: 'throttled', pr: 'unreadable' }],
+    ['host secondary', { hostReach: 'secondary', pr: 'unreadable' }],
+    ['host failed', { hostReach: 'failed', pr: 'unreadable' }],
+    ['host asked, pr unreadable', { pr: 'unreadable' }],
+    ['host asked, pr open', { pr: 'OPEN' }],
+    ['host asked, pr none, list complete', { pr: 'none' }],
+    ['host asked, pr closed, list complete', { pr: 'CLOSED' }],
+    ['host asked, pr none, list not complete', { pr: 'none', prListComplete: false }],
+    ['host asked, pr closed, list not complete', { pr: 'CLOSED', prListComplete: false }],
+  ];
+
+  const PR_WORD: Readonly<Record<PrReading, string>> = {
+    OPEN: 'OPEN',
+    MERGED: 'MERGED',
+    CLOSED: 'CLOSED',
+    none: 'NONE',
+    unreadable: '-',
+  };
+
+  const lineFor = (r: BranchReadings): string =>
+    [
+      String(r.deferredByPlan),
+      r.refTip ?? '-',
+      r.mainTip ?? '-',
+      String(r.mergeSubjectFound),
+      r.hostReach,
+      PR_WORD[r.pr],
+      String(r.commitsAhead),
+      String(r.realCommitsAhead),
+      '-',
+      '?',
+      String(r.prListComplete),
+    ].join('\t');
+
+  const runBundle = (input: string): { status: number | null; stdout: string } => {
+    const out = spawnSync(process.execPath, [BUNDLE], { input, encoding: 'utf8' });
+    return { status: out.status, stdout: out.stdout };
+  };
+
+  it('answers every row the way branchState does', () => {
+    const readings = ROWS.map(([, over]) => ({ ...behind, ...over }));
+    const out = runBundle(readings.map(lineFor).join('\n') + '\n');
+    expect(out.status).toBe(0);
+    const bundle = out.stdout.trim().split('\n').map((l) => l.split('\t')[0]);
+    const rule = readings.map(branchState);
+    const disagreements = ROWS.map(([name], i) => ({ name, rule: rule[i], bundle: bundle[i] }))
+      .filter((d) => d.rule !== d.bundle)
+      .map((d) => `${d.name} :: state :: rule="${d.rule}" bundle="${d.bundle}"`);
+    expect(disagreements).toEqual([]);
+  });
+
+  it('refuses a ten-field line with exit 2', () => {
+    const ten = lineFor(behind).split('\t').slice(0, 10).join('\t');
+    expect(runBundle(`${ten}\n`).status).toBe(2);
   });
 });

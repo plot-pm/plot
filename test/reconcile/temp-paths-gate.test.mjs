@@ -91,17 +91,27 @@ passes('mktemp in scripts/, which is outside the mktemp rule', script('d=$(mktem
 passes('mktemp inside plot-tmp.sh itself', script('x=$(mktemp -d "${TMPDIR:-/tmp}/plot-$2.XXXXXX")', 'trap _plot_tmp_on_exit EXIT'),
   'skills/plot/scripts/plot-tmp.sh');
 
-test('temp-paths gate: the two named exceptions pass, and a stale one fails', () => {
+test('temp-paths gate: the named exception passes, and a stale one fails', () => {
+  // ONE EXCEPTION, AND IT WAS TWO. `plot-update-board.sh`'s
+  // `/tmp/plot-board-cache-` line was the second; slice 3 of
+  // `every-temp-directory-has-an-owner` moved that cache to
+  // `~/.plot/state/board-cache/` and deleted the entry, which is the shrink this
+  // test's second half has always asserted. The assertion is kept and its
+  // subject moved: a stale entry is now CONSTRUCTED rather than borrowed from
+  // the live list, because the live list no longer holds one to go stale.
   const dir = treeWith({
     'skills/plot/scripts/plot-reap.sh': script('case "$p" in', '  /private/tmp/*|/private/var/*|/private/etc/*) p=${p#/private} ;;', 'esac'),
-    'skills/plot/scripts/plot-update-board.sh': script('  CACHE_FILE="/tmp/plot-board-cache-${OWNER}-${PROJECT_NUMBER}.json"'),
   });
   let got = run(dir);
   assert.equal(got.status, 0, got.stdout);
-  assert.match(got.stdout, /exception list: 2/);
+  assert.match(got.stdout, /exception list: 1/);
 
-  // The cache moves (slice 3) and the entry stays: the list must shrink with it.
-  writeFileSync(path.join(dir, 'skills/plot/scripts/plot-update-board.sh'), script('CACHE_FILE="$HOME/.plot/state/board-cache/x.json"'));
+  // THE EXCEPTION'S OWN LINE CHANGES, so the entry matches nothing and the gate
+  // refuses it. This is the property that makes the list able only to shrink.
+  writeFileSync(
+    path.join(dir, 'skills/plot/scripts/plot-reap.sh'),
+    script('case "$p" in', '  /var/*) p=${p} ;;', 'esac'),
+  );
   got = run(dir);
   rmSync(dir, { recursive: true, force: true });
   assert.equal(got.status, 1, got.stdout);

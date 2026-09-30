@@ -788,8 +788,20 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
   # this outlives the dispatch run by design, because the fan-out must not block
   # on a `claude -p` session of unknown length. `setsid` is not used — it does
   # not exist on macOS, where most of this fleet runs.
+  # THE SETTINGS FILE THIS PROJECT STARTS ITS AGENTS WITH. The `Brief command` is
+  # a `claude -p` session like any other agent and inherits every `SessionStart`
+  # hook the operator's plugins declare, so it carries the same variable the
+  # worker loop exports — and the configured command interpolates
+  # `${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"}` itself.
+  #
+  # SET INLINE rather than exported, because this spawn already names its
+  # environment on the command line. A refusal or an absent key leaves it EMPTY,
+  # which `${VAR:+…}` reads as nothing — so a broken config cannot stop a brief
+  # being written.
+  _brief_settings="$(bash "$(dirname "${BASH_SOURCE[0]}")/plot-agent-settings.sh" 2>/dev/null || echo "")"
   ( cd "$repo_root" \
     && PLOT_UNATTENDED=1 PLOT_PLAN_SLUG="$bslug" PLOT_BRIEF_BRANCH="$branch" \
+       PLOT_AGENT_SETTINGS="$_brief_settings" \
        nohup sh -c "$cmd \"\$@\"" plot-brief \
        "$(brief_prompt "$branch" "$bslug")" \
        >"$log" 2>&1 </dev/null & ) 2>/dev/null

@@ -75,6 +75,25 @@ fi
 
 # An existing file: read what it passes, and never touch it.
 if grep -q 'PLOT_SESSION_FLAG' "$target"; then
+  # ADD, DO NOT REPLACE — and the order is why this sits INSIDE this branch
+  # rather than after it. The session-flag check ends in `exit 0`, so a second
+  # check written below it is unreachable for every prompt that passes the first:
+  # the two questions are asked of the SAME file, and the session one answers
+  # first for nearly every prompt in existence.
+  #
+  # ONLY WHILE `Agent settings` IS SET. A project that configures no settings file
+  # has nothing for its prompt to spend, so asking whether the prompt mentions the
+  # variable would report a gap that does not exist.
+  _settings_key="$(bash "$(dirname "${BASH_SOURCE[0]}")/plot-config.sh" get "Agent settings" "" 2>/dev/null || echo "")"
+  if [ -n "$_settings_key" ] && ! grep -q 'PLOT_AGENT_SETTINGS' "$target"; then
+    # A REPORT LIKE `stale` AND `present`, and the wording stays the project's.
+    # Every dispatched agent inherits every SessionStart hook the operator's
+    # plugins declare; this prompt is where the flag that stops that is spent, and
+    # a prompt that never mentions the variable silently starts every agent with
+    # the operator's whole plugin set.
+    echo "settings-unread — $target interpolates PLOT_SESSION_FLAG but not PLOT_AGENT_SETTINGS, while \`Agent settings\` names $_settings_key. Every agent it starts loads the operator's plugins. Add \${PLOT_AGENT_SETTINGS:+--settings \"\$PLOT_AGENT_SETTINGS\"} to its harness invocation; the template at $template shows it." >&2
+    exit 3
+  fi
   echo "current — $target interpolates PLOT_SESSION_FLAG"
   exit 0
 fi
