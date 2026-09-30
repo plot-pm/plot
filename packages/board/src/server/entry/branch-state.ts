@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
  * The `node` entry point `plot-fleet-scan.sh` runs, once per plan.
  *
  * ```
- * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\n' | node plot-branch-state.mjs
+ * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\n' | node plot-branch-state.mjs
  * wip	0
  * ```
  *
@@ -54,7 +54,7 @@ import { pathToFileURL } from 'node:url';
 /**
  * One branch's readings, as the scan writes them.
  *
- * Ten tab-separated fields, and every one is spelled rather than implied:
+ * Eleven tab-separated fields, and every one is spelled rather than implied:
  * `-` is the absent marker the scan already uses everywhere a middle column may
  * be empty, because a run of tabs collapses into one separator under bash's
  * `read`.
@@ -71,6 +71,7 @@ import { pathToFileURL } from 'node:url';
  * | `realCommitsAhead` | a non-negative integer |
  * | `waitsBranch` | the prerequisite, or `-` where the plan names none |
  * | `waitsPr` | the prerequisite's PR word, `-` where the host could not answer, or `?` where it was not asked |
+ * | `prListComplete` | `true` where the host's PR list held every PR, anything else otherwise |
  *
  * **`?` IS NOT A READING AND `-` IS.** They were one marker until the first CI
  * run of this bundle, and collapsing them is a defect with a direction: the
@@ -84,7 +85,7 @@ import { pathToFileURL } from 'node:url';
  * So `?` alone means the shell has not put the question, and only `?` makes
  * `waits` null and raises the flag that asks it to.
  */
-const FIELDS = 10;
+const FIELDS = 11;
 
 /**
  * The scan's PR words, in the rule's vocabulary.
@@ -187,9 +188,9 @@ const parsedFrom = (text: string): ParsedLine[] =>
         );
       }
       const [
-        deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr,
+        deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete,
       ] = fields as [
-        string, string, string, string, string, string, string, string, string, string,
+        string, string, string, string, string, string, string, string, string, string, string,
       ];
       const readings: BranchReadings = {
         deferredByPlan: deferred === 'true',
@@ -198,6 +199,7 @@ const parsedFrom = (text: string): ParsedLine[] =>
         mergeSubjectFound: subject === 'true',
         hostReach: reachFrom(reach),
         pr: prFrom(pr),
+        prListComplete: listComplete === 'true',
         commitsAhead: countFrom(ahead, i + 1, 'commitsAhead'),
         realCommitsAhead: countFrom(real, i + 1, 'realCommitsAhead'),
         waits:

@@ -3377,7 +3377,7 @@ EOF
   echo "$total $n"
 }
 
-# WHAT WAS READ OF ONE BRANCH — ten tab-separated fields, and no decision.
+# WHAT WAS READ OF ONE BRANCH — eleven tab-separated fields, and no decision.
 #
 # `branch_state()` UNTIL THIS SLICE, and every line of git archaeology below is
 # its own, unchanged. What went is the `if` chain that merged these readings
@@ -3394,10 +3394,11 @@ EOF
 # run of tabs collapses into one separator under `read`, so no field is ever
 # empty. Nothing here is optional, so nothing can shift.
 #
-# EIGHT FIELDS, NOT TEN. The two the plan states — the prerequisite's name and
-# what the host said about it — are appended by the caller, because reading the
-# second costs a host round trip and the scan spends it only where it could
+# EIGHT FIELDS, NOT ELEVEN. The two the plan states — the prerequisite's name
+# and what the host said about it — are appended by the caller, because reading
+# the second costs a host round trip and the scan spends it only where it could
 # change the answer. The rule reports which states those are; see the caller.
+# The caller appends the PR list's completeness last, once per run.
 #
 # THE DEFAULT BRANCH'S TIP IS READ ONCE PER RUN, not once per branch. It does
 # not move while the scan runs — every fact below is derived from the ref batch
@@ -3863,12 +3864,17 @@ for plan in "${plans[@]}"; do
   # deciding it — see pass 1c.
   readings=""
   order=""
+  # THE ELEVENTH FIELD: whether the PR list held every PR (`.list-complete`,
+  # written by `prefill_pr_states`). The rule reads a `NONE` for a ref behind
+  # main as `open` only when it is true; a capped list may omit a merged PR.
+  list_complete=false
+  [ -n "$HOST_STATE_CACHE" ] && [ -f "$HOST_STATE_CACHE/.list-complete" ] && list_complete=true
   while IFS=$'\t' read -r idx br deferred why waits wname claim; do
     [ -n "$br" ] || continue
     # "-" is the absent marker the shim writes, for the tab-collapse reason
     # above. Normalized here so everything downstream tests emptiness.
     [ "$waits" = "-" ] && waits=""
-    readings+="$(branch_readings "$br" "$deferred")	${waits:--}	?"$'\n'
+    readings+="$(branch_readings "$br" "$deferred")	${waits:--}	?	$list_complete"$'\n'
     order+="$idx	$br	$deferred	$why	${waits:--}	$wname	$claim"$'\n'
   done <<< "$wave_lines"
 
@@ -3923,7 +3929,8 @@ for plan in "${plans[@]}"; do
       # list may legitimately omit: its plan may be delivered and its ref gone.
       # `host_pr_state`'s run cache keeps this at one call per prerequisite per
       # run, never one per pass.
-      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$(waits_pr_state "$waits_br")"$'\n'
+      # Field 10 is replaced; field 11 is carried.
+      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$(waits_pr_state "$waits_br")	$(printf '%s' "$rd_line" | cut -f11)"$'\n'
     else
       refill+="$rd_line"$'\n'
     fi

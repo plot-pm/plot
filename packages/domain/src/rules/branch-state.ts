@@ -99,6 +99,12 @@ export interface BranchReadings {
   /** What the host said about this branch's own pull request. */
   pr: PrReading;
   /**
+   * Whether the host's pull request list held every pull request of the
+   * repository, so that `none` for this branch rules out a merged one. `false`
+   * for a list cut at its limit, an empty list, or no list.
+   */
+  prListComplete: boolean;
+  /**
    * Commits this branch carries that the default branch lacks — every commit,
    * claim markers included.
    */
@@ -236,39 +242,30 @@ const ownState = (readings: BranchReadings): BranchState => {
 
   // Nothing of its own. NOT a claim: that shape is indistinguishable from
   // merged work, which is why claims carry a commit.
-  //
-  // ZERO AHEAD CARRIES THREE SHAPES, and only one of them is landed work:
-  //
-  //   | shape                        | ancestry says           | truth         |
-  //   |------------------------------|-------------------------|---------------|
-  //   | behind main via landed work  | is an ancestor → merged | merged        |
-  //   | reset to main                | is an ancestor → merged | holds nothing |
-  //   | cut from an older main, or   | is an ancestor → merged | holds nothing |
-  //   | its claim commit was lost    |                         |               |
-  //
-  // Measured 2026-08-29: `feature/one-deliver-rule-decides-in-the-domain` was
-  // reset to `origin/main` so a worker could rebuild it, its pull request
-  // having been CLOSED and never merged. Seconds later the scan reported the
-  // branch `merged`, completed its wave, and opened the next one on work that
-  // does not exist. `merged` SETTLES a wave, so this error does not stall the
-  // fleet — it advances it onto a seam nobody wrote.
-  //
-  // Equality of the two tips separates *reset to main* from the other two. It
-  // cannot separate those two from each other: on both, the ref is a strict
-  // ancestor of the default branch and the tips differ. No host call is added:
-  // `plot-pr-merged.sh` was measured answering *not merged* for three
-  // genuinely merged branches while throttled, and this reading must not
-  // inherit that failure mode.
-  if (readings.refTip !== null && readings.refTip === readings.mainTip) {
+  if (readings.refTip === readings.mainTip) {
     // It points AT the default branch: no work of its own, and none of its own
-    // landed. `open` is what the scan already says for work not yet done.
+    // landed.
     return 'open';
   }
-  // Behind the default branch, or the default branch unreadable. Only the host
-  // reading already in hand may promote this to `merged`; without it, the
-  // readings do not determine the answer, which is what `unknown` states. An
-  // `unknown` branch holds its wave, where `merged` would settle it.
-  return 'merged';
+  // Behind the default branch, or the default branch unreadable. Ancestry does
+  // not separate landed work from a ref cut at an older tip of the default
+  // branch, so the host's answer decides.
+  if (readings.mainTip === null) return 'unknown';
+  if (readings.pr === 'MERGED') return 'merged';
+  // With no host, ancestry is the only merge signal there is.
+  if (readings.hostReach === 'unasked') return 'merged';
+  if (
+    readings.hostReach === 'throttled'
+    || readings.hostReach === 'secondary'
+    || readings.hostReach === 'failed'
+    || readings.pr === 'unreadable'
+  ) {
+    return 'unknown';
+  }
+  if (readings.pr === 'OPEN') return 'wip';
+  // `none` and `CLOSED`: no pull request for this branch merged. A capped list
+  // cannot rule out a merged one outside its window.
+  return readings.prListComplete ? 'open' : 'unknown';
 };
 
 /**
@@ -282,7 +279,7 @@ const ownState = (readings: BranchReadings): BranchState => {
  *    overturns it.
  * 2. **The branch's own readings**, in the order {@link ownState} states: the
  *    ref before the merge subject, the claim count before the work count, the
- *    tip comparison before `merged`.
+ *    tip comparison before the host's answer.
  * 3. **A prerequisite's state beats `open` and `unknown`, and nothing else.**
  *    A branch carrying work, a claim or a merge keeps the state its work
  *    earned.
