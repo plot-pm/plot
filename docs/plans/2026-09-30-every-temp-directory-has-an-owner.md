@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Issue:** #1083
@@ -129,7 +130,7 @@ Measured 2026-09-30:
 
 - **A script or test removes only a path it created**, by the exact name `mktemp`, `mkdtempSync` or the helper returned, or by the name recorded in the helper's registry.
 - **The sweep matches Plot's own name shape only**: entries whose name starts with `plot-` followed by at least one more character, directly under `$TMPDIR`, owned by this user and past the age bound, plus `memo/<pid>` directories under `$PLOT_BUDGET_HOME`. It lists candidates with `find -maxdepth 1 -user … -name 'plot-*'`, reports each by its full path, and removes each by that path. It never passes a glob to `rm`, and it never reads `/tmp` or `/var/folders` when `$TMPDIR` points elsewhere. The separator after the prefix may be a hyphen or a dot: `mkdtempSync` appends six characters with no separator, so every suite leftover reads `plot-host-pTFuyG`, and `plot-dispatch.sh:2652` and `plot-phase-gate.sh:239` use `plot-gate-XXXXXX` and `plot-phase-gate-XXXXXX`. In the real `$TMPDIR` on 2026-09-30, 4,850 of 4,952 `plot-*` entries had no dot, so a dot-only shape would miss nearly all of them.
-- **The Layer 1 gate also refuses an `rm` whose argument holds a glob character under `$TMPDIR`, `${TMPDIR`, `/tmp`, `/var/folders` or `$(getconf`**, in `skills/plot/scripts/*.sh` and in `scripts/`. Test files use `rmSync` on a path they hold, and the leak gate's migration adds no pattern delete.
+- **The Layer 1 gate also refuses an `rm` whose argument holds an unquoted glob character under `$TMPDIR`, `${TMPDIR`, `/tmp`, `/var/folders` or `$(getconf`**, in `skills/plot/scripts/*.sh` and in `scripts/`. It joins continuation lines, replaces every `"…"` span with a token, and removes `${VAR:?}` guards and comments before it matches, so a quoted literal `*` and a `:?` guard pass, and the incident's own form, `rm -rf "$(getconf DARWIN_USER_TEMP_DIR)"tmp.*`, fails. That form of the gate caught all four direct fixtures in round 3 and fired on 0 estate files. It also refuses `find … -delete`, `find … -exec rm` and `xargs rm` outright, which occur 0 times in scope today. A glob reached through a variable (`d=$TMPDIR; rm -rf $d/tmp.*`) is beyond a grep, so for that shape the rule stays a rule, and the sweep's own test is the gate for the sweep. Test files use `rmSync` on a path they hold, and the leak gate's migration adds no pattern delete.
 
 ### Layer 1: scripts create every temp path through one helper
 
@@ -266,7 +267,7 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 - **Sourcing the helper twice is a no-op**: a script that sources `plot-tmp.sh`, registers a path, and sources it again leaves nothing at exit. A stale `plot-reg.<pid>` fixture holding a `c:` command, placed at the path the next process will use, is truncated at first source and its command does not run.
 - **A `mktemp` call, a fixed `/tmp/` path, `$(plot_tmpdir`, or a raw EXIT/INT/TERM trap added to a script fails CI** by name, and the gate passes on the slice's own branch. Fixtures cover a redirection, and an assignment to a variable written through on a later line in the shape of `plot-host.sh:578`, `:1051` and `:4636`; `plot-reap.sh:470` and `plot-update-board.sh:66` pass through the exception list.
 - **The sweep removes an owned `plot-*` directory and a dead-pid memo directory older than the bound, and keeps a younger one, a live-pid one, and every `tmp.*` entry**, with `--dry-run` as the default. A registryd tick with `--sweep-temp` runs it at most once an hour; a tick without the flag runs nothing.
-- **An `rm` with a glob under a shared temp directory fails the gate**, asserted by a fixture script holding `rm -rf "$TMPDIR"/tmp.*`, and the sweep's test asserts that a non-Plot entry of the same age and owner survives, `tmp.*` and `plot` without a dot included.
+- **An `rm` with a glob under a shared temp directory fails the gate**, asserted by fixtures holding `rm -rf "$TMPDIR"/tmp.*`, `rm -rf "$(getconf DARWIN_USER_TEMP_DIR)"tmp.*`, a continuation-line form and `find "$TMPDIR" -name 'tmp.*' -delete`, while `rm -rf "$TMPDIR/tmp.*"` (quoted) and `rm -rf "${TMPDIR:?}/plot-foo.$$"` pass. The sweep's test asserts that old owned `plot-host-pTFuyG` and `plot-run.x` entries are removed, and that non-Plot entries of the same age and owner survive: `tmp.*`, `plotter-old`, and an entry named exactly `plot`.
 - **`plot-reconcile-scan.sh` reports** the sweepable count, the legacy fleet-scan `tmp.*` cache count, and the broken-lock count, below its blocking marker.
 - **One run of `test/reconcile/host.test.mjs` leaves zero entries in its `TMPDIR`**, measured the same way as the 365 above, on macOS and with GNU `mktemp`. The four scan files `fleet`, `fleetrefplans`, `fleetclaimable` and `fleetderived` leave zero with GNU `mktemp`.
 - **One run of `host.test.mjs` adds zero lines to the operator's `budget.tsv`** and creates nothing under the operator's `~/.plot/state/slots/`.
