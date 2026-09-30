@@ -4835,6 +4835,13 @@ test('host: nothing but the two named variables is imported', () => {
 
 // --- the ledger, which is what the widening owns -----------------------------
 
+// THESE THREE CASES NAME `PLOT_BUDGET_HOME` BESIDE `HOME`, and must.
+// `plot-budget.sh:74` reads `${PLOT_BUDGET_HOME:-}` FIRST and falls back to
+// `$HOME/.plot/state`, so `HOME` alone decides where the record lands only while
+// nothing exports the override. `scripts/owned-run.sh` now exports one for the
+// whole run, which is what keeps a suite out of the operator's real ledger — so
+// a case that sets `HOME` and then reads the ledger under it must say which
+// ledger it means.
 test('host: the budget ledger records no email, and reads it from the file', () => {
   // THE GATE READS THE LEDGER, not the code. Every other gate here reads what
   // the adapter PRINTS, and what it WRITES is the half that was missed — a
@@ -4842,7 +4849,7 @@ test('host: the budget ledger records no email, and reads it from the file', () 
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
   const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ledger-')));
-  const res = runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  const res = runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
   assert.equal(res.status, 0, `the call must proceed (stderr: ${res.stderr})`);
 
   const ledger = path.join(home, '.plot', 'state', 'budget.tsv');
@@ -4862,7 +4869,7 @@ test('host: two accounts stay distinguishable in the ledger', () => {
   const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ledger2-')));
   const accountsFor = (email) => {
     const dir = jiraEnvRepo(`JIRA_EMAIL=${email}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
-    runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+    runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
   };
   accountsFor('one@acme.test');
   accountsFor('two@acme.test');
@@ -4881,8 +4888,8 @@ test('host: the same account keys the same way across calls', () => {
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ledger3-')));
   const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
-  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
-  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
+  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
   const lines = readFileSync(path.join(home, '.plot', 'state', 'budget.tsv'), 'utf8')
     .split('\n').filter((l) => l.includes('\tjira\t'));
   assert.equal(lines.length, 2, 'both calls recorded');
