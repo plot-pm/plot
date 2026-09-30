@@ -9,6 +9,7 @@
 - **Issue:** #1104
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -24,11 +25,13 @@ A person reading the board meets a ticket by its key: the WAITING ON YOU ticket 
 
 ### The key comes from the parser
 
-`plot-plan-meta.sh` already parses `- **Issue:**` into `issues[]`: `#N` in every repository, and `KEY-N` where `Tracker` is `jira` or `linear` (`plot-plan-meta.sh:318-327`). Nothing new is parsed, and a repository whose tracker the parser does not read as keyed keeps `#N` only, unchanged.
+`plot-plan-meta.sh` already parses `- **Issue:**` into `issues[]` (`plot-plan-meta.sh:318-327`). Measured 2026-09-30: `#1089` emits `[1089]` and `#1090, #1091` emits `[1090,1091]`, JSON numbers; with a `jira` or `linear` tracker `EWZKUS-3430` emits `["EWZKUS-3430"]`, a string; with any other tracker a key is dropped. Nothing new is parsed.
 
 ### The payload carries it
 
-`CardSchema` and `DraftPlanSchema` (`packages/board/src/contract/schema.ts`) gain `issues: z.array(z.string()).default([])`, holding each key as the ticket row prints it: the number without `#` for a GitHub issue, the key as written for Jira or Linear. The card builder and the draft-plan builder in `packages/board/src/server/board.ts` copy it from the parsed plan. `.default([])` keeps an older server's payload valid.
+**The board's parse keeps it.** `readPlanMeta` (`board.ts:1121-1130`) parses each parser line through `PlanMetaSchema` (`contract/schema.ts:61`), which has no `issues` field, so zod drops it before either builder reads it. `PlanMetaSchema` gains `issues: z.array(z.union([z.number(), z.string()])).default([])`.
+
+`CardSchema` and `DraftPlanSchema` (`packages/board/src/contract/schema.ts`) gain `issues: z.array(z.string()).default([])`, holding each key as the ticket row prints it: the number without `#` for a GitHub issue, the key as written for Jira or Linear. The card builder (`board.ts:2007`) and `draftPlanOf` (`board.ts:2278`) copy it from the parsed plan with `.map(String)`, so `1089` arrives as `"1089"`. `.default([])` keeps an older server's payload valid.
 
 ### The row prints it
 
@@ -43,16 +46,16 @@ Every caller of `tupleFromPlan` passes the issues it has: the plan row in `rows.
 
 ## Done when
 
-- A plan whose `Issue:` is `#1089` renders its plan row as `1089: <slug>`, and one naming `#1090, #1091` as `1090, 1091: <slug>`; a browser test asserts both, and a plan with no `Issue:` renders the slug alone.
-- With `Tracker: jira …`, a fixture plan naming `EWZKUS-3430` renders `EWZKUS-3430: <slug>`.
-- A Draft plan row prints the prefix the same way.
-- A payload with no `issues` field, as an older server sends, renders the slug alone and throws nothing.
+- Server tier: a fixture repository whose plan names `#1089` yields a card with `issues: ["1089"]`, and a Draft plan naming `#1090, #1091` yields a draft entry with `["1090", "1091"]`.
+- Server tier: a fixture repository whose `CLAUDE.md` sets `Tracker: jira …`, served with `PLOT_REPO_ROOT` pointing at it, yields `issues: ["EWZKUS-3430"]` for a plan naming that key.
+- Browser: a plan row whose card carries `["1089"]` renders `1089: <slug>`, one carrying `["1090", "1091"]` renders `1090, 1091: <slug>`, one carrying `["EWZKUS-3430"]` renders `EWZKUS-3430: <slug>`, and a Draft plan row prints its prefix the same way.
+- Browser: a card with no `issues` field, as an older server sends, renders the slug alone and throws nothing.
 
 ## Slices
 
 ### A plan row names its ticket (Branch: feature/a-plan-row-names-its-ticket)
 
-The two schema fields, the two server builders, `tupleFromPlan` and its two callers, and the browser tests. <!-- builds: the plan row's ticket prefix -->
+`PlanMetaSchema`, the two payload schema fields, the two server builders, `tupleFromPlan` and its two callers, and the browser tests. <!-- builds: the plan row's ticket prefix -->
 
 ## Notes
 

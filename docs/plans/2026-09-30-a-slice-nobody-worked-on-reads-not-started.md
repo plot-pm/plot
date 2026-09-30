@@ -91,7 +91,7 @@ The prerequisite is the branch the slice's `waits:` or wave order names, which t
 
 ## Slices
 
-### A slice with no work waits in not started (Branch: bug/a-slice-with-no-work-waits-in-not-started)
+### No work waits in not started (Branch: bug/a-slice-with-no-work-waits-in-not-started)
 
 `classifyGroup`'s arms for `blocked`, `waiting` and `unknown`, the tail guarded on `wip`, `rowsFromPulse`'s closed-PR arm yielding to a live worker, and `classifier-is-total.test.ts`.
 
