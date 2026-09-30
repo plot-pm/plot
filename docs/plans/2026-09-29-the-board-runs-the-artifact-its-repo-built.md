@@ -112,7 +112,7 @@ Everything else keeps today's order. The probe is the only place this is decided
 
 ## Slices
 
-### The board runs the artifact its repo built (Branch: bug/the-board-runs-the-artifact-its-repo-built)
+### The board runs the artifact its repo built (Branch: bug/the-board-runs-the-artifact-its-repo-built, PR: #1098)
 
 Pick the test, apply it in the probe, and assert both directions.
 
