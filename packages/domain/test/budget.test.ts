@@ -18,10 +18,8 @@ import {
   FALLBACK_WINDOW_MS,
   groupByBudget,
   latest,
-  PRUNE_THRESHOLD,
   readWindow,
   survivors,
-  truncationOwed,
   windowSpend,
   windowStart,
 } from '../src/rules/budget-record.js';
@@ -402,31 +400,7 @@ describe('truncation keeps every line inside the window', () => {
     expect([...groupByBudget(lines).keys()]).toEqual([budgetKeyOf(GITHUB), budgetKeyOf(REST)]);
   });
 
-  it('owes no truncation while the dead lines are few', () => {
-    // Truncation is the one write that is not an append, and a threshold of one
-    // would make every reader a writer — reintroducing the contention the
-    // append-only design removes.
-    const lines = Array.from({ length: PRUNE_THRESHOLD - 1 }, () =>
-      encodeEntry(entry(GITHUB, NOW - 3 * FALLBACK_WINDOW_MS, { resetAt: null })),
-    );
-    expect(truncationOwed(readWindow(lines, GITHUB, NOW))).toBe(false);
-  });
-
-  it('owes a truncation once enough lines are dead', () => {
-    const lines = Array.from({ length: PRUNE_THRESHOLD }, () =>
-      encodeEntry(entry(GITHUB, NOW - 3 * FALLBACK_WINDOW_MS, { resetAt: null })),
-    );
-    expect(truncationOwed(readWindow(lines, GITHUB, NOW))).toBe(true);
-  });
-
-  it('counts unreadable lines toward the truncation it owes', () => {
-    // They are dead weight the same way, and a file of them would otherwise
-    // never be pruned.
-    const lines = Array.from({ length: PRUNE_THRESHOLD }, () => 'garbage');
-    expect(truncationOwed(readWindow(lines, GITHUB, NOW))).toBe(true);
-  });
-
-  it('leaves the record readable after truncation', () => {
+  it('leaves the record readable after a window filter', () => {
     const lines = [
       encodeEntry(entry(GITHUB, NOW - 3 * FALLBACK_WINDOW_MS, { resetAt: null })),
       encodeEntry(entry(GITHUB, NOW - 60 * 1000, { resetAt: null })),

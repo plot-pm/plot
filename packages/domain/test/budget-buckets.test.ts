@@ -134,17 +134,6 @@ describe('an account spends every bucket it has', () => {
     expect(spend.buckets.size).toBe(0);
     expect(spend.spent).toBe(0);
     expect(spend.perHour).toBeNull();
-    expect(spend.pruneOwed).toBe(false);
-  });
-
-  it('reports pruning owed where any one bucket has earned it', () => {
-    // ONE FILE, MANY BUDGETS, and the reader that holds it is the one placed
-    // to say whether the rewrite is worth it.
-    const dead = Array.from({ length: 200 }, (_, index) =>
-      entry('graphql', NOW - 200 * MINUTE + index, { resetAt: NOW - 100 * MINUTE }),
-    );
-    const record = lines(...dead, entry('graphql', NOW - MINUTE, { resetAt: NOW - 100 * MINUTE }));
-    expect(accountSpend(record, 'github', 'jwloka', NOW).pruneOwed).toBe(true);
   });
 });
 

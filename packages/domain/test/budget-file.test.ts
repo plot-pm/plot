@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,7 +18,7 @@ import {
   type BudgetKey,
 } from '../src/entities/budget.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
-import { readWindow, survivors } from '../src/rules/budget-record.js';
+import { readWindow } from '../src/rules/budget-record.js';
 
 /**
  * The record ON DISK — the half of this slice that a pure test cannot see.
@@ -195,40 +195,76 @@ describe('the append is atomic because the line is short', () => {
   });
 });
 
-describe('truncation keeps the live window and nothing else', () => {
-  it('rewrites the file to what the window proved live', async () => {
-    // ASSERTED ON WHAT SURVIVES ON DISK. A pruner that is merely called proves
-    // nothing.
-    const now = 1_788_269_670_000;
+describe('the reader reads two generations under the counter', () => {
+  it('reads the previous generation as well as the current one', async () => {
+    // TWO FILES, ONE ANSWER. A rotation renames the current generation over the
+    // previous one, so a reader of the current file alone loses a whole
+    // generation of the live window.
     const record = budgetFile({ home });
-    const liveAt = [now - 20 * 60 * 1000, now - 60 * 1000];
-    for (const at of [now - 5 * 60 * 60 * 1000, ...liveAt]) {
-      answer(await record.append(entry(at)));
-    }
-
-    const before = answer(await record.lines());
-    expect(before).toHaveLength(3);
-    answer(await record.truncate(survivors(before, now)));
-
-    const after = answer(await record.lines());
-    expect(after.map((line) => decodeEntry(line)?.at)).toEqual(liveAt);
-    expect(readWindow(after, KEY, now).dead).toHaveLength(0);
+    writeFileSync(join(home, 'budget.tsv'), encodeEntry(entry(2_000)));
+    writeFileSync(join(home, 'budget.tsv.1'), encodeEntry(entry(1_000)));
+    expect(answer(await record.lines()).map((line) => decodeEntry(line)?.at)).toEqual([
+      2_000, 1_000,
+    ]);
   });
 
-  it('leaves a record every reader can still parse', async () => {
-    const now = 1_788_269_670_000;
+  it('reads the current generation first', async () => {
+    // THE ORDER IS THE CORRECTNESS ARGUMENT. A rotation between the two reads
+    // makes the reader see the old current generation twice, which over-counts;
+    // the reverse order skips the live generation entirely.
     const record = budgetFile({ home });
-    answer(await record.append(entry(now - 60 * 1000)));
-    answer(await record.truncate(survivors(answer(await record.lines()), now)));
-    expect(readWindow(answer(await record.lines()), KEY, now).unreadable).toBe(0);
+    writeFileSync(join(home, 'budget.tsv'), encodeEntry(entry(9_000)));
+    writeFileSync(join(home, 'budget.tsv.1'), encodeEntry(entry(1_000)));
+    expect(decodeEntry(answer(await record.lines())[0] ?? '')?.at).toBe(9_000);
   });
 
-  it('empties the record when the whole window is dead', async () => {
-    const now = 1_788_269_670_000;
+  it('answers a missing previous generation with the current one', async () => {
+    // ABSENT UNTIL THE FIRST ROTATION, which is every machine's normal state.
     const record = budgetFile({ home });
-    answer(await record.append(entry(now - 5 * 60 * 60 * 1000)));
-    answer(await record.truncate(survivors(answer(await record.lines()), now)));
-    expect(answer(await record.lines())).toEqual([]);
+    answer(await record.append(entry(1_000)));
+    expect(answer(await record.lines())).toHaveLength(1);
+  });
+
+  it('answers a missing current generation with the previous one', async () => {
+    // ABSENT BETWEEN A ROTATION AND THE NEXT APPEND. Answering 0 here would
+    // grant headroom the record never measured.
+    const record = budgetFile({ home });
+    writeFileSync(join(home, 'budget.tsv.1'), encodeEntry(entry(1_000)));
+    expect(answer(await record.lines())).toHaveLength(1);
+  });
+
+  it('answers an unrotated record with no counter', async () => {
+    // A MISSING COUNTER READS AS 0, which is even, so a machine that has never
+    // rotated reads its record in one pass.
+    const record = budgetFile({ home });
+    answer(await record.append(entry(1_000)));
+    expect(existsSync(join(home, 'budget.gen'))).toBe(false);
+    expect(answer(await record.lines())).toHaveLength(1);
+  });
+
+  it('answers an even counter it read twice', async () => {
+    const record = budgetFile({ home });
+    writeFileSync(join(home, 'budget.gen'), '4\n');
+    answer(await record.append(entry(1_000)));
+    expect(answer(await record.lines())).toHaveLength(1);
+  });
+
+  it('still answers when the counter stays odd', async () => {
+    // A ROTATOR DIED AND THE SHELL HAS NOT YET REPAIRED IT. The read is taken
+    // again and then answered from its last pass: an answer that can only
+    // over-count is what a caller may act on, where a refusal is not.
+    const record = budgetFile({ home });
+    writeFileSync(join(home, 'budget.gen'), '3\n');
+    answer(await record.append(entry(1_000)));
+    expect(answer(await record.lines())).toHaveLength(1);
+  });
+
+  it('reports a generation that exists and cannot be read', async () => {
+    // A DIRECTORY WHERE A GENERATION SHOULD BE is not an empty generation, and a
+    // caller must not read it as an empty window.
+    const record = budgetFile({ home });
+    mkdirSync(join(home, 'budget.tsv'));
+    expect(isAnswered(await record.lines())).toBe(false);
   });
 });
 
@@ -257,13 +293,5 @@ describe('the fixture answers the way the file does', () => {
       key: { ...KEY, account: 'a'.repeat(MAX_LINE_BYTES) },
     });
     expect(isAnswered(await record.append(huge))).toBe(false);
-  });
-
-  it('replaces its lines on truncation', async () => {
-    const record = budgetFixture({
-      lines: [encodeEntry(entry(1_000)).trimEnd(), encodeEntry(entry(2_000)).trimEnd()],
-    });
-    answer(await record.truncate([entry(2_000)]));
-    expect(answer(await record.lines())).toHaveLength(1);
   });
 });
