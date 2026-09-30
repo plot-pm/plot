@@ -78,7 +78,7 @@ The choice is a view state, so it is computed once and tested without a browser,
 
 ## Slices
 
-### A plan row says its verdict once (Branch: bug/a-plan-row-says-its-verdict-once)
+### A plan row says its verdict once (Branch: bug/a-plan-row-says-its-verdict-once, PR: #1109)
 
 `planRowShowsSoleVerdict` and its unit test, `PlanRow`'s status cell, the comments naming the old rule, and new browser tests; no existing test asserts the plan-row verdict.
 
