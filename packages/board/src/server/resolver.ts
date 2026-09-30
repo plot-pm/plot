@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { agentLogPath } from './agent-log.js';
 import { isBoardArtifact, type Repair, type Stuck } from '../contract/schema.js';
 import { scriptsFor, type BuildBoardOptions } from './board.js';
+import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 /**
  * The ONE automatic write this system grants: an artifact-only merge conflict
@@ -280,6 +281,64 @@ export function repairEnabledFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
   return env.PLOT_BOARD_REPAIR !== '0';
+}
+
+/**
+ * Resolves the settings file every agent this process starts will receive, and
+ * assigns it to the environment those agents inherit.
+ *
+ * Every agent-runner command is a `claude -p` session and inherits every
+ * `SessionStart` hook the operator's plugins declare. Measured 2026-09-30, one
+ * plugin's lockless sync ran three times at once at ~300% CPU each, the
+ * 1-minute load reached 195, and the supervisor did not tick for 12 minutes. The
+ * `Agent settings` key is how a project names what its agents start without.
+ *
+ * **NO SPAWN SITE IS EDITED.** This sets `PLOT_AGENT_SETTINGS` once and the ten
+ * agent-runner spawns inherit it: eight spread `process.env` into their `env`,
+ * and two pass no `env` at all. Teaching each site to append `--settings` would
+ * need a rule recognising `claude` inside `PLOT_UNATTENDED=1 claude -p …`,
+ * `env …`, an absolute path, a wrapper and `npx`. A variable needs no
+ * recognition, and each configured command interpolates
+ * `${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"}` itself.
+ *
+ * **ONE FUNCTION, TWO PROCESSES.** The board assigns it at startup and
+ * `entry/main.ts` assigns it again, because `plot-ask.mjs fleet` runs
+ * `maybeAutoDispatch` in its OWN node process which the board's `process.env`
+ * never reaches. A second copy of this reading is what would drift.
+ *
+ * **It never throws.** A failed resolve is not fatal: the agents start without
+ * the flag, exactly as they did before this existed.
+ *
+ * @param scripts - the runner for `plot-agent-settings.sh`.
+ * @param env - the environment to assign into; defaults to this process's.
+ * @param log - where a resolved path is announced.
+ * @param warn - where a refusal or a failure is named.
+ * @returns the resolved absolute path, or undefined when none travels.
+ */
+export async function primeAgentSettings(
+  scripts: Scripts,
+  env: Record<string, string | undefined> = process.env,
+  log: (s: string) => void = (s) => console.log(s),
+  warn: (s: string) => void = (s) => console.warn(s),
+): Promise<string | undefined> {
+  try {
+    const { stdout, stderr, code } = await scripts.awaited('plot-agent-settings.sh', []);
+    const resolved = stdout.trim();
+    // EXIT 3 IS A REFUSAL; EXIT 0 WITH NO PATH IS AN ABSENT KEY. Reading stdout's
+    // emptiness alone cannot tell them apart, and only the first belongs in a log.
+    if (code === 0 && resolved !== '') {
+      env.PLOT_AGENT_SETTINGS = resolved;
+      log(`[board] agents start with settings: ${resolved}`);
+      return resolved;
+    }
+    if (code !== 0) {
+      warn(`[board] agents start without a settings file: ${stderr.trim()}`);
+    }
+    return undefined;
+  } catch (err: unknown) {
+    warn(`[board] could not resolve the agent settings file: ${String(err)}`);
+    return undefined;
+  }
 }
 
 /**
