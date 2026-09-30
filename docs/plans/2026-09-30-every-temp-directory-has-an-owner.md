@@ -292,11 +292,11 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 
 Layers 1 and 2: `plot-tmp.sh` with assignment by name, the file-backed exit registry and the re-raising signal traps; the migration of all 14 `mktemp` sites, the nine fixed-name `/tmp` paths and the 8 traps; the gate; the fleet-scan cache rename; the reaper's sweep over `plot-*` entries and dead-pid memo directories; the registryd `--sweep-temp` flag in both units; and the scan's advisory counts.
 
-### The suites own their temp root (Branch: bug/the-suites-own-their-temp-root)
+### The suites own their temp root (Branch: bug/the-suites-own-their-temp-root) <!-- waits: bug/scripts-share-one-temp-helper -->
 
 Layers 3 and 4: `scripts/owned-run.sh` with the private `TMPDIR`, `HOME` and `PLOT_BUDGET_HOME`, the original-environment registry check, the signal traps, the leak gate, and the per-file fixes that make it pass. It needs the first slice: without templated script paths the gate is blind on macOS and red on Linux.
 
-### Every state file declares its bound (Branch: bug/every-state-file-declares-its-bound)
+### Every state file declares its bound (Branch: bug/every-state-file-declares-its-bound) <!-- waits: bug/the-suites-own-their-temp-root -->
 
 Layer 5: two-generation rotation of the budget ledger with the generation counter, the stale-lock recovery and the removal of `truncate()`; process-owned log rotation; the board-project cache move; and the inventory gate. It needs the second slice: the inventory gate runs inside that slice's sandbox, and its `HOME` redirect keeps the suites out of the ledger this slice bounds.
 
