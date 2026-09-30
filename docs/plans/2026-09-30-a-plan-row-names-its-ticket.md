@@ -55,7 +55,7 @@ Every caller of `tupleFromPlan` passes the issues it has: the plan row in `rows.
 
 ## Slices
 
-### A plan row names its ticket (Branch: feature/a-plan-row-names-its-ticket)
+### A plan row names its ticket (Branch: feature/a-plan-row-names-its-ticket, PR: #1105)
 
 `PlanMetaSchema`, the two payload schema fields, the two server builders, `tupleFromPlan` and its two callers, and the browser tests. <!-- builds: the plan row's ticket prefix -->
 

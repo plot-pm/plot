@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   accountRate,
   argsFrom,
+  sweepTempIfDue,
   mergeMemoOver,
   queueWorldForRepo,
   readRegistry,
@@ -48,7 +49,14 @@ describe('the daemon’s arguments', () => {
       max: 0,
       intervalMs: TICK_INTERVAL_MS,
       startAgents: false,
+      sweepTemp: false,
     });
+  });
+
+  it('sweeps no temp path unless asked', () => {
+    expect(argsFrom([])?.sweepTemp).toBe(false);
+    expect(argsFrom(['--once'])?.sweepTemp).toBe(false);
+    expect(argsFrom(['--sweep-temp'])?.sweepTemp).toBe(true);
   });
 
   it('starts no agent unless asked — deciding is the default, performing is opt-in', () => {
@@ -1219,5 +1227,44 @@ describe('a tick asks the host about a branch once', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the hourly temp sweep', () => {
+  const HOUR = 60 * 60 * 1000;
+  const sweepOver = (lastAt: number | null, result = answered('temp-summary: swept=1 removed=1')) => {
+    const calls: number[] = [];
+    return {
+      calls,
+      port: {
+        lastAt: async () => lastAt,
+        sweep: async () => { calls.push(1); return result; },
+      },
+    };
+  };
+
+  it('runs when no sweep has run', async () => {
+    const s = sweepOver(null);
+    const out: string[] = [];
+    expect(await sweepTempIfDue(s.port, 10 * HOUR, (x) => out.push(x), () => {})).toBe(true);
+    expect(s.calls).toHaveLength(1);
+    expect(out.join('')).toMatch(/temp-summary: swept=1/);
+  });
+
+  it('runs at most once an hour', async () => {
+    const now = 10 * HOUR;
+    const recent = sweepOver(now - HOUR + 1);
+    expect(await sweepTempIfDue(recent.port, now, () => {}, () => {})).toBe(false);
+    expect(recent.calls).toHaveLength(0);
+    const due = sweepOver(now - HOUR);
+    expect(await sweepTempIfDue(due.port, now, () => {}, () => {})).toBe(true);
+    expect(due.calls).toHaveLength(1);
+  });
+
+  it('reports a failed sweep on stderr and does not throw', async () => {
+    const s = sweepOver(null, failed());
+    const err: string[] = [];
+    expect(await sweepTempIfDue(s.port, 0, () => {}, (x) => err.push(x))).toBe(true);
+    expect(err.join('')).toMatch(/temp sweep did not run/);
   });
 });

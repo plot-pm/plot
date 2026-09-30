@@ -80,6 +80,10 @@ export {
 } from './supervision-report/supervision-report-file.js';
 export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 
+// THE TEMP SWEEP. `plot-reap.sh --sweep-temp --yes`, with the time of the last
+// run kept as a marker file's modification time under `.plot/state/`.
+export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';
+
 export { refsGit } from './refs/refs-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 

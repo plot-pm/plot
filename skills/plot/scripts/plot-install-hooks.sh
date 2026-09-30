@@ -95,6 +95,7 @@ case "${1:-}" in
 esac
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/plot-tmp.sh"
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || {
   echo "plot-install-hooks: not a git repository" >&2
@@ -165,16 +166,14 @@ fi
 # Constructs a guarded condition per gate, in a scratch repository, and requires
 # the refusal. Nothing here touches the operator's tree.
 if [ "$verify_only" = 1 ]; then
-  # THE TEARDOWN IS WHY THIS IS A TRAP AND NOT A TRAILING `rm`.
+  # THE TEARDOWN IS WHY THIS IS AN EXIT HANDLER AND NOT A TRAILING `rm`.
   # plot-board-verify.sh's argument, verbatim in kind: "always clean up" is a
   # rule the writer can believe they followed, and the path that forgets it is
   # the assertion failure — which here is the EXPECTED outcome on an unverified
-  # install. `trap ... EXIT` is the gate; the shell runs it on every exit path.
+  # install. `plot-tmp.sh` registers the directory and removes it on every exit
+  # path.
   scratch=""
-  cleanup() { [ -n "$scratch" ] && rm -rf "$scratch" 2>/dev/null; return 0; }
-  trap cleanup EXIT INT TERM
-
-  scratch="$(mktemp -d 2>/dev/null)" || {
+  plot_tmpdir scratch install-hooks 2>/dev/null || {
     echo "unverified — no scratch directory could be made; no gate was proved" >&2
     exit 3
   }

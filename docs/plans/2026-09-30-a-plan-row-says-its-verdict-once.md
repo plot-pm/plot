@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-09-30, jwloka, in-session
+- **Started:** 2026-09-30, jwloka, `bug/a-plan-row-says-its-verdict-once`
 - **Type:** bug
 - **Issue:** #1103
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 4
 
 ## Changelog
 
@@ -44,12 +46,20 @@ So the slice row prints the verdict when it is visible and either has no `soleRo
 | visible, several branches | no verdict; the PR fold |
 | visible, one branch, `soleRowStatus` empty | no verdict; the PR fold |
 | visible, one branch, `soleRowStatus` a word | the verdict, and no fold |
+| NOT STARTED, every branch deferred: the section renders no slice row | the verdict |
 
 The measured case, `a-cold-bitbucket-board-buys-the-whole-list` in DONE, prints `complete` on its slice row with an empty `soleRowStatus`, so its plan row drops `complete`. WORKING and WAITING ON A MACHINE render no plan row, and Draft plans render under NOT STARTED.
 
 ### One function decides
 
-The choice is a view state, so it is computed once and tested without a browser, per *Every rendered state is a domain property*: `planRowShowsSoleVerdict({ sliceRowVisible, soleRowStatus })` beside `soleRowStatus` in `packages/board/src/app/lib/agent-rows/stuck.ts`, where `soleRowStatus` is the string for a one-branch slice and `null` for a slice of several branches. It answers `true` when `sliceRowVisible` is false, or when `soleRowStatus` is a non-empty string; `false` otherwise. `AgentList.tsx` computes both inputs at the `PlanRow` call sites (`:1582`, `:1911`, and `rows.tsx:877`) from the section's existing visibility expression and `soleRowStatus` on the slice's one row. `PlanRow` asks the function before printing `soleSlice.verdict` in `statusExtra`, and prints no fold where it prints the verdict.
+The choice is a view state, so it is computed once and tested without a browser, per *Every rendered state is a domain property*: `planRowShowsSoleVerdict({ sliceRowVisible, soleRowStatus })` beside `soleRowStatus` in `packages/board/src/app/lib/agent-rows/stuck.ts`, where `soleRowStatus` is the string for a one-branch slice and `null` for a slice of several branches. It answers `true` when `sliceRowVisible` is false, or when `soleRowStatus` is a non-empty string; `false` otherwise. `AgentList.tsx` computes both inputs at its two `PlanRow` call sites, from expressions each site already has:
+
+| Call site | `sliceRowVisible` | `soleRowStatus` |
+|---|---|---|
+| NOT STARTED (`:1582`) | the not-started slice groups are non-empty: `groupBySlice(group.rows.filter(isUnbegun)).length > 0`; an all-deferred plan renders none | `null`: the `SliceRow` here gets no `soleRow` and always prints the verdict |
+| WAITING ON YOU, QUIET, DONE (`:1911`, the `planHeads` sections) | the head is open, or `hasExceptions` keeps its rows shown | `soleRowStatus(row)` for a slice of one branch, `null` for several |
+
+`rows.tsx:877` is the gate for the plan row's *Start work* action and not a call site; it is unchanged. `PlanRow` asks the function before printing `soleSlice.verdict` in `statusExtra`, and prints no fold where it prints the verdict.
 
 **`soleSlice` keeps its other job.** It still carries the one-slice plan's *Start work* action onto the plan row (`rows.tsx:877-881`, `soleSlice?.verdict === 'eligible' && card && dispatch`); that gate is untouched.
 
@@ -61,8 +71,9 @@ The choice is a view state, so it is computed once and tested without a browser,
 - A browser test over a one-slice plan in DONE whose one branch has `pr.state: 'unknown'`, head open, renders the verdict text once, on the slice row, and no `data-sole-wave-verdict` on the plan row.
 - A browser test over a one-slice plan in WAITING ON YOU with an open PR, head open, renders the verdict on the plan row and the PR word on the slice row, with no fold on the plan row.
 - A browser test over a one-slice plan whose slice holds two branches renders the verdict on the slice row only.
-- A collapsed one-slice plan head renders its verdict on the plan row.
-- A one-slice plan in NOT STARTED renders its verdict once, and an `eligible` one still carries *Start work* on the plan row.
+- A collapsed one-slice plan head in WAITING ON YOU renders its verdict on the plan row; a one-slice plan in NOT STARTED has no fold, so the case exists only in the `planHeads` sections.
+- A one-slice Approved plan whose branches are all deferred renders its verdict on its plan row in NOT STARTED.
+- A one-slice plan in NOT STARTED with an unbegun branch renders its verdict once, on the slice row, and an `eligible` one still carries *Start work* on the plan row.
 - Every comment listed above states the new rule.
 
 ## Slices
@@ -72,5 +83,7 @@ The choice is a view state, so it is computed once and tested without a browser,
 `planRowShowsSoleVerdict` and its unit test, `PlanRow`'s status cell, the comments naming the old rule, and new browser tests; no existing test asserts the plan-row verdict.
 
 ## Notes
+
+**Implementation notes from round 4.** At `:1911` the slice's one row is `wg.rows[0]`. At `:1582` `expanded` is always `null` for a one-slice plan, so the fold guard needs no input, and `groupBySlice(group.rows.filter(isUnbegun))` is pure in `group.rows` and can move up to the `PlanRow` call.
 
 Filed while reading the board on 2026-09-30; the slice row returned for one-slice plans before this, and the plan-row verdict was left behind.
