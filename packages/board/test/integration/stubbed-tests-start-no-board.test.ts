@@ -437,7 +437,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 54 → 55 on 2026-09-30: `plan-row-names-its-ticket.browser.test.ts`, for the
 // tracker keys a plan row prints before its slug. A plain addition; it serves
 // its own state through the catalogue and starts no board.
-const EXPECTED_FILES = 55;
+//
+// 55 → 56 on 2026-09-30: `plan-row-verdict-once.browser.test.ts`, for the
+// section in which a one-slice plan's verdict appears. A plain addition; it
+// serves its own state through the catalogue and starts no board.
+const EXPECTED_FILES = 56;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -604,7 +608,10 @@ const EXPECTED_FILES = 55;
 // 524 → 527 on 2026-09-30: the three `it(` in
 // `plan-row-names-its-ticket.browser.test.ts`. Added, not moved —
 // `EXPECTED_FILES` counts the new file.
-const EXPECTED_TESTS = 527;
+// 527 → 533 on 2026-09-30: the six `it(` in
+// `plan-row-verdict-once.browser.test.ts`. Added, not moved —
+// `EXPECTED_FILES` counts the new file, and no file lost an `it(`.
+const EXPECTED_TESTS = 533;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
