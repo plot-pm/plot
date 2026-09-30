@@ -2010,6 +2010,8 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       type: meta.type || 'unknown',
       phase,
       path: relPath,
+      // The parser emits a GitHub `#N` as a number; the row prints a string.
+      issues: meta.issues.map(String),
       // THE READING WAS ALWAYS HERE AND WAS ALWAYS DROPPED. `prsByNumber` hands
       // back a whole `PrRecord` — `checks` and `mergeable` among them — and
       // this map took `url` and discarded the rest, so the board computed a
@@ -2281,6 +2283,7 @@ export const draftPlanOf = (meta: PlanMeta, relPath: string): DraftPlan | null =
       plan: planSlug(relPath),
       planFile: path.basename(relPath),
       title: meta.title,
+      issues: meta.issues.map(String),
       ...(meta.rounds === undefined ? {} : { rounds: meta.rounds }),
     }
     : null;
