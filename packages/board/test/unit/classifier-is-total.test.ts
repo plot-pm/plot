@@ -74,7 +74,9 @@ function branchRow(state: BranchState, group: WaitingGroup, verdict: SliceVerdic
 // added to a schema and not here would leave a hole the totality proof cannot
 // see.
 
-const STATES: readonly BranchState[] = ['open', 'wip', 'merged', 'claimed', 'deferred'];
+const STATES: readonly BranchState[] = [
+  'open', 'wip', 'merged', 'claimed', 'deferred', 'blocked', 'waiting', 'unknown',
+];
 const VERDICTS = ['complete', 'eligible', 'blocked'] as const;
 // The SCAN's phase vocabulary — what `classify` actually consumes. '' is the
 // pre-#140 scan that says nothing about the plan and must fall through to git,
@@ -162,8 +164,8 @@ describe('classify is total over the state cross-product', () => {
   }
 
   it('produces a group for every combination — none is unclassified', () => {
-    // 5 states × 3 verdicts × 5 scan phases × 8 workers = 600 combinations.
-    expect(CROSS_PRODUCT.length).toBe(600);
+    // 8 states × 3 verdicts × 5 scan phases × 8 workers = 960 combinations.
+    expect(CROSS_PRODUCT.length).toBe(960);
     const unclassified = CROSS_PRODUCT.filter((row) => {
       const g = section(row);
       return g === undefined || g === null;
