@@ -32,9 +32,15 @@
 #   ANSWERS. Its last fallback builds `$git_root/skills/plot/scripts/board/
 #   board-server.mjs` and reports `artifact_source="checkout"`: in this
 #   repository, and in any checkout that vendors the skills, the board artifact
-#   IS in the repository. It tries the plugin and npm first, so the checkout
-#   path is reached only after both are absent, and naming where the artifact
-#   came from is the probe's whole output.
+#   IS in the repository. Naming where the artifact came from is the probe's
+#   whole output.
+#
+#   The checkout path is reached two ways. A declared `Board artifact` key is
+#   resolved BEFORE the plugin and npm searches and reports `checkout`, because
+#   a repository that builds the artifact must run the one it built. With no
+#   key, the checkout path is the last fallback after plugin and npm. The
+#   exemption rests on provenance, not on order: the probe names where the
+#   artifact came from, and a checkout is one place an artifact lives.
 
 set -uo pipefail
 
