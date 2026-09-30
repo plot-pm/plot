@@ -54,6 +54,12 @@ exit 1
 if [[ "\$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "\$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$@" > "${argvFile}"
+# The plain listing is \`bb api …/pullrequests?state=<S>&pagelen=50\`, and
+# \`bb api\` returns the raw page, so the canned rows arrive under \`values\`.
+if [[ "\$*" == *"api "*"/pullrequests?state="* ]]; then
+  printf '{"values":%s}' '${json.replace(/'/g, `'\\''`)}'
+  exit 0
+fi
 printf '%s' '${json.replace(/'/g, `'\\''`)}'
 `;
     writeFileSync(path.join(dir, 'bb'), body);
@@ -102,13 +108,20 @@ if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$*" >> "${callsFile}"
 state=open
+page=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --state) state="$2"; shift 2 ;;
     --limit) echo "unknown flag: --limit" >&2; exit 1 ;;
+    # The plain listing: \`bb api …/pullrequests?state=<S>&pagelen=50\`. Its
+    # state is Bitbucket's upper-case word, and its answer is a raw page.
+    */pullrequests\\?state=*)
+      state="\${1#*\\?state=}"; state="\$(printf '%s' "\${state%%&*}" | tr '[:upper:]' '[:lower:]')"; page=1; shift ;;
     *) shift ;;
   esac
 done
+if [ "$page" = 1 ]; then printf '{"values":'; fi
+trap '[ "$page" = 1 ] && printf "}"' EXIT
 case "$state" in
   open|merged|declined|superseded) ;;
   *) echo "error: invalid --state '\${state}' (must be open, merged, declined, or superseded)" >&2; exit 1 ;;
@@ -483,7 +496,7 @@ test('host: pr-list bitbucket flattens to number/title/state/head', () => {
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   // `author` is `""` where the host names none; this payload carries no author.
   assert.deepEqual(out, { number: 3, title: 'A', state: 'OPEN', head: 'feature/a', author: '' });
-  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'list', '--state', 'open', '--json']);
+  assert.deepEqual(argvOf(stubs.bbArgv), ['api', '/repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50']);
 });
 
 test('host: pr-state lookup miss yields state NONE, exit 0', () => {
@@ -1011,10 +1024,80 @@ test('host: pr-list --state all issues one bb call per real state', () => {
 
   const calls = callsOf(bb.callsFile);
   assert.equal(calls.length, 3, 'one call per state, not one call with three flags');
-  assert.ok(calls.some((c) => c.includes('--state open')));
-  assert.ok(calls.some((c) => c.includes('--state merged')));
-  assert.ok(calls.some((c) => c.includes('--state declined')));
-  assert.ok(!calls.some((c) => c.includes('--state all')), 'bb has no `all` state');
+  for (const s of ['OPEN', 'MERGED', 'DECLINED']) {
+    assert.ok(calls.some((c) => c.includes(`pullrequests?state=${s}&pagelen=50`)), `${s} asked at pagelen=50`);
+  }
+  assert.ok(calls.every((c) => (c.match(/state=/g) ?? []).length === 1), 'each call carries exactly one state');
+  assert.ok(!calls.some((c) => c.includes('pr list')), 'bb pr list walks 10-row pages');
+  assert.ok(!calls.some((c) => /all/i.test(c)), 'bb has no `all` state');
+});
+
+// A `bb api` stub that answers `/pullrequests` the way Bitbucket does: the
+// union of every `state=` parameter, newest `updated_on` first, `pagelen`
+// rows a page (10 when none is asked, 50 at most). Each invocation is one
+// request, recorded one line per call. A small fixture certifies anything, so
+// the rows are merge-heavy and the open and declined ones are older than the
+// 50th merged: one union request would return 50 merged rows and nothing else.
+const makeBitbucketPagesStub = (prs) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bb-pages-'));
+  const callsFile = path.join(dir, 'bb.calls');
+  const rowsFile = path.join(dir, 'rows.json');
+  writeFileSync(rowsFile, JSON.stringify(prs));
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
+if [ "$1" != "api" ]; then echo "stub: only bb api is served" >&2; exit 9; fi
+query="\${2#*\\?}"
+states="$(printf '%s' "$query" | tr '&' '\\n' | sed -n 's/^state=//p' | jq -R . | jq -sc .)"
+pagelen="$(printf '%s' "$query" | tr '&' '\\n' | sed -n 's/^pagelen=//p')"
+jq -c --argjson states "$states" --argjson pagelen "\${pagelen:-10}" '
+  [ .[] | select(.state as $s | $states | index($s)) ] | sort_by(.updated_on) | reverse
+  | { size: length, pagelen: ([$pagelen, 50] | min), values: .[:([$pagelen, 50] | min)] }
+' ${JSON.stringify(rowsFile)}
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, callsFile };
+};
+
+const mergeHeavyPrs = () => {
+  const at = (day) => `2026-09-${String(day).padStart(2, '0')}T12:00:00.000000+00:00`;
+  const pr = (id, state, updated) =>
+    ({ id, title: `PR ${id}`, state, updated_on: updated, source: { branch: { name: `feature/pr-${id}` } } });
+  const merged = Array.from({ length: 60 }, (_, i) =>
+    pr(100 + i, 'MERGED', `2026-09-29T${String(Math.floor(i / 60 * 24)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00.000000+00:00`));
+  return [
+    ...merged,
+    pr(1, 'OPEN', at(1)), pr(2, 'OPEN', at(2)), pr(3, 'OPEN', at(3)),
+    pr(4, 'DECLINED', at(4)), pr(5, 'DECLINED', at(5)),
+  ];
+};
+
+test('host: a merge-heavy --state all keeps every open and declined row in three requests', () => {
+  const bb = makeBitbucketPagesStub(mergeHeavyPrs());
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').map((l) => JSON.parse(l));
+  const count = (st) => rows.filter((r) => r.state === st).length;
+  assert.equal(count('OPEN'), 3, 'an open PR older than the 50th merged one is not crowded out');
+  assert.equal(count('CLOSED'), 2, 'nor is a declined one');
+  assert.equal(count('MERGED'), 50, 'merged answers one page of 50, as bb pr list did');
+  assert.equal(callsOf(bb.callsFile).length, 3, 'one request per state, where bb pr list walked 10-row pages');
+});
+
+test('host: a full merged page is still reported as possibly truncated, and names its state', () => {
+  // The detector's rule is unchanged: under an ignored --limit it reports every
+  // non-empty state, since a listing of this shape cannot prove its total.
+  const bb = makeBitbucketPagesStub(mergeHeavyPrs());
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '300'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stderr, /state=merged possibly truncated \(50 rows/);
 });
 
 // ── A PARTIAL ANSWER IS NOT AN OUTAGE (#912) ─────────────────────────────────
@@ -1152,8 +1235,8 @@ test('host: pr-list --state closed sends bb its own word, declined', () => {
   });
   const calls = callsOf(bb.callsFile);
   assert.equal(calls.length, 1);
-  assert.ok(calls[0].includes('--state declined'));
-  assert.ok(!calls[0].includes('closed'));
+  assert.ok(calls[0].includes('state=DECLINED'));
+  assert.ok(!/closed/i.test(calls[0]));
 });
 
 // The board calls with --limit 300. bb has no --limit and errors on it, so the
@@ -2843,6 +2926,11 @@ function makeQuaticoBbStub({ json = '[]' } = {}) {
   const body = `#!/usr/bin/env bash
 if [[ "\$*" == *"--version"* ]]; then
   echo "bb version 1.9.0"
+  exit 0
+fi
+# The plain listing goes through \`bb api\`, which returns the raw page.
+if [[ "\$*" == *"api "*"/pullrequests?state="* ]]; then
+  printf '{"values":%s}' '${json.replace(/'/g, `'\\''`)}'
   exit 0
 fi
 # Accept --json and respond
@@ -5425,9 +5513,9 @@ echo "error: HTTP 429 — Rate limit for this resource has been exceeded" >&2; e
   assert.match(res.stderr, /Rate limit for this resource has been exceeded/);
 });
 
-test('host: a bitbucket listing with no window keeps bb pr list', () => {
-  // No window, nothing to narrow: the call every caller predating `--since`
-  // has always made, and no window notice.
+test('host: a bitbucket listing with no window asks one page per state', () => {
+  // No window, nothing to narrow: one `bb api` request for the state at
+  // `pagelen=50`, no `q=`, and no window notice.
   const bb = makeStrictBbStub({ json: '[]' });
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'open'], {
     encoding: 'utf8',
@@ -5435,8 +5523,9 @@ test('host: a bitbucket listing with no window keeps bb pr list', () => {
   });
   assert.equal(res.status, 0, res.stderr);
   assert.doesNotMatch(res.stderr, /since/i);
-  assert.ok(callsOf(bb.callsFile).some((c) => c.includes('pr list')), 'bb pr list is called');
-  assert.ok(!callsOf(bb.callsFile).some((c) => c.startsWith('api')), 'and the REST window is not');
+  const calls = callsOf(bb.callsFile);
+  assert.deepEqual(calls, ['api /repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50']);
+  assert.ok(!calls.some((c) => c.includes('q=')), 'and the REST window is not');
 });
 
 // --- default-branch: the host is asked, on both backends ------------------
