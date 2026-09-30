@@ -102,7 +102,7 @@ The prerequisite is the branch the slice's `waits:` annotation names; `blocked` 
 
 ## Slices
 
-### No work waits in not started (Branch: bug/a-slice-with-no-work-waits-in-not-started)
+### No work waits in not started (Branch: bug/a-slice-with-no-work-waits-in-not-started, PR: #1106)
 
 `classifyGroup`'s arms for `blocked`, `waiting` and `unknown` after the worker block, the `waits_on` parameter, the tail guarded on `wip`, `rowsFromPulse`'s closed-PR arm yielding to a live worker, and `classifier-is-total.test.ts`.
 
