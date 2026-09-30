@@ -5,13 +5,36 @@ import path from 'node:path';
 import { parseSprintFile, collectSprints } from '../../src/server/board.js';
 import { sprintMembership } from '../../src/server/fleet.js';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. This file created sandboxes and removed none, so each run left them
+// in `TMPDIR`; `scripts/owned-run.sh` now fails a run that does.
+//
+// `rmTree` rather than a raw recursive `fs.rmSync`: CI's *A teardown does not
+// race a child* step allows exactly ONE such call under `packages/board/test/`,
+// and it is `rmTree`'s own body. `rmTree` also retries ENOTEMPTY/EBUSY/EPERM,
+// which is what a teardown racing a still-running child throws.
+//
+// Never a glob and never a prefix sweep over the shared temp directory.
+import { rmTree } from '../../helpers.mjs';
+const trackTemp = <T extends string>(dir: T): T => {
+  trackedTempPaths.push(dir);
+  return dir;
+};
+const trackedTempPaths: string[] = [];
+process.on('exit', () => {
+  for (const dir of trackedTempPaths) {
+    try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
+  }
+});
+
+
 /**
  * Write a sprint file into a fresh temp dir and return its absolute path.
  * Sprint files carry a `## Status` block with a `Phase:` — without it
  * `parseSprintFile` returns null, so every fixture supplies one.
  */
 function writeSprint(body: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-members-'));
+  const dir = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-members-')));
   const abs = path.join(dir, '2026-W40-fixture.md');
   fs.writeFileSync(abs, body, 'utf8');
   return abs;
@@ -191,7 +214,7 @@ describe('parseSprintFile — members', () => {
 describe('collectSprints — a slug naming no plan is reported, not dropped', () => {
   /** Build a sprint directory with `active/<file>` and return its repoRoot + sprintDir. */
   function withSprintDir(fileName: string, body: string): { repoRoot: string; sprintDir: string } {
-    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-collect-'));
+    const repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-collect-')));
     const activeDir = path.join(repoRoot, 'docs/sprints/active');
     fs.mkdirSync(activeDir, { recursive: true });
     fs.writeFileSync(path.join(activeDir, fileName), body, 'utf8');
@@ -251,7 +274,7 @@ describe('sprintMembership — which active sprint claims each plan', () => {
    * on the phase itself rather than trusting the directory.
    */
   function withSprints(files: Record<string, string>): { repoRoot: string; scriptsDir: string } {
-    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-membership-'));
+    const repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-membership-')));
     const activeDir = path.join(repoRoot, 'docs/sprints/active');
     fs.mkdirSync(activeDir, { recursive: true });
     for (const [name, body] of Object.entries(files)) {

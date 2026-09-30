@@ -11,6 +11,29 @@ import { costBadgeText, costBadgeDetail } from '../../src/app/components/PlanCar
 import type { SliceSpendRecord } from '@plot-pm/domain';
 import { answered, failed, type PortResult } from '@plot-pm/domain';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. This file created sandboxes and removed none, so each run left them
+// in `TMPDIR`; `scripts/owned-run.sh` now fails a run that does.
+//
+// `rmTree` rather than a raw recursive `fs.rmSync`: CI's *A teardown does not
+// race a child* step allows exactly ONE such call under `packages/board/test/`,
+// and it is `rmTree`'s own body. `rmTree` also retries ENOTEMPTY/EBUSY/EPERM,
+// which is what a teardown racing a still-running child throws.
+//
+// Never a glob and never a prefix sweep over the shared temp directory.
+import { rmTree } from '../../helpers.mjs';
+const trackTemp = <T extends string>(dir: T): T => {
+  trackedTempPaths.push(dir);
+  return dir;
+};
+const trackedTempPaths: string[] = [];
+process.on('exit', () => {
+  for (const dir of trackedTempPaths) {
+    try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
+  }
+});
+
+
 /**
  * WHAT A PLAN'S CARD SAYS ABOUT WHAT ITS SLICES COST.
  *
@@ -42,7 +65,7 @@ function planFile(branches: string[]): string {
 
 /** A temp repo holding `plans` — slug → branch list. */
 function withEstate(plans: Record<string, string[]>): { repoRoot: string; scriptsDir: string } {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-cost-'));
+  const repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plan-cost-')));
   const plansDir = path.join(repoRoot, 'docs/plans');
   fs.mkdirSync(plansDir, { recursive: true });
   for (const [slug, branches] of Object.entries(plans)) {

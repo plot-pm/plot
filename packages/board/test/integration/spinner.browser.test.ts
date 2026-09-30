@@ -8,6 +8,29 @@ import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import type { Fleet } from '../../src/contract/schema.js';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. This file created sandboxes and removed none, so each run left them
+// in `TMPDIR`; `scripts/owned-run.sh` now fails a run that does.
+//
+// `rmTree` rather than a raw recursive `fs.rmSync`: CI's *A teardown does not
+// race a child* step allows exactly ONE such call under `packages/board/test/`,
+// and it is `rmTree`'s own body. `rmTree` also retries ENOTEMPTY/EBUSY/EPERM,
+// which is what a teardown racing a still-running child throws.
+//
+// Never a glob and never a prefix sweep over the shared temp directory.
+import { rmTree } from '../../helpers.mjs';
+const trackTemp = <T extends string>(dir: T): T => {
+  trackedTempPaths.push(dir);
+  return dir;
+};
+const trackedTempPaths: string[] = [];
+process.on('exit', () => {
+  for (const dir of trackedTempPaths) {
+    try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
+  }
+});
+
+
 /**
  * A BUTTON THAT IS ACTING LOOKS DIFFERENT FROM ONE THAT WAS NEVER CLICKED.
  *
@@ -45,7 +68,7 @@ const DRAFT_WITH_PR = 'Plant heirloom tomatoes';
  * the plot checkout reads plot's own `CLAUDE.md` instead of the garden's.
  */
 function detachedGarden(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-spin-'));
+  const dir = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-spin-')));
   fs.cpSync(FIXTURE, dir, { recursive: true });
   return dir;
 }

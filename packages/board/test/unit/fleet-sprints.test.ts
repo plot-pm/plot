@@ -7,6 +7,29 @@ import { parseSprintFile, planStatusBySlug } from '../../src/server/board.js';
 import { activeSprints, estateTotals } from '../../src/server/fleet.js';
 import { FleetSprintSchema, type FleetReading } from '../../src/contract/schema.js';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. This file created sandboxes and removed none, so each run left them
+// in `TMPDIR`; `scripts/owned-run.sh` now fails a run that does.
+//
+// `rmTree` rather than a raw recursive `fs.rmSync`: CI's *A teardown does not
+// race a child* step allows exactly ONE such call under `packages/board/test/`,
+// and it is `rmTree`'s own body. `rmTree` also retries ENOTEMPTY/EBUSY/EPERM,
+// which is what a teardown racing a still-running child throws.
+//
+// Never a glob and never a prefix sweep over the shared temp directory.
+import { rmTree } from '../../helpers.mjs';
+const trackTemp = <T extends string>(dir: T): T => {
+  trackedTempPaths.push(dir);
+  return dir;
+};
+const trackedTempPaths: string[] = [];
+process.on('exit', () => {
+  for (const dir of trackedTempPaths) {
+    try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
+  }
+});
+
+
 // The `Counted` wave: the fleet payload carries each Active sprint with its
 // target release and four exhaustive counts (open/wip/done/withdrawn),
 // aggregated server-side from `plan.status`. These fixtures build real plan
@@ -40,7 +63,7 @@ function withEstate(
   plans: Record<string, string>,
   sprints: Record<string, string>,
 ): { repoRoot: string; scriptsDir: string } {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-sprints-'));
+  const repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-sprints-')));
   const plansDir = path.join(repoRoot, 'docs/plans');
   const activeDir = path.join(repoRoot, 'docs/sprints/active');
   fs.mkdirSync(plansDir, { recursive: true });
@@ -88,7 +111,7 @@ function sprintFile(status: string, members: string): string {
 
 describe('parseSprintFile — release', () => {
   it('reads the `- **Release:** x.y.z` record from the ## Status block', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-release-'));
+    const dir = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-release-')));
     const abs = path.join(dir, '2026-W40-fixture.md');
     fs.writeFileSync(abs, `# Sprint: Fixture\n\n## Status\n\n- **Phase:** Active\n- **Release:** 2.9.0\n`, 'utf8');
     expect(parseSprintFile(abs)!.release).toBe('2.9.0');
@@ -97,7 +120,7 @@ describe('parseSprintFile — release', () => {
   it('is "" when the sprint names no release — never a placeholder', async () => {
     // The control renders nothing rather than "→ —", so absence must reach it as
     // an empty string.
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-release-'));
+    const dir = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-release-')));
     const abs = path.join(dir, '2026-W40-fixture.md');
     fs.writeFileSync(abs, `# Sprint: Fixture\n\n## Status\n\n- **Phase:** Active\n`, 'utf8');
     expect(parseSprintFile(abs)!.release).toBe('');
