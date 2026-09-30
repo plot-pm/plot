@@ -3070,6 +3070,60 @@ if [ -n "$unread_out" ]; then printf '%b' "$unread_out"; else echo "  (none — 
 echo
 
 # ---------------------------------------------------------------------------
+# 25. Temp paths and ledger locks a killed process left behind.
+#
+# THREE COUNTS, EACH ITS OWN FOOTER KEY. `temp_sweepable=` is what
+# `plot-reap.sh --sweep-temp` would remove — asked of the reaper in its dry-run
+# form, so the scan and the sweep cannot disagree about the rule. On a machine
+# with no supervisor running `--sweep-temp`, this is the only place the backlog
+# shows.
+#
+# `legacy_tmp_caches=` counts the fleet-scan host-state caches that releases
+# before `plot-tmp.sh` left as template-less `tmp.*` directories — one per scan,
+# about 955 files each. A `tmp.*` directory counts only when it holds one of the
+# four files the scan wrote there. IT PRINTS NO REMOVAL COMMAND: `tmp.*` is
+# every template-less `mktemp` on the machine, and removing them is a person's
+# decision. Only `$TMPDIR` is read, which on a stock macOS is the per-user
+# directory those `mktemp` calls wrote to.
+#
+# `broken_locks=` is the line count of the budget ledger's stale-lock record,
+# `budget-lock-broken.tsv`. An absent file is zero lines, not unaskable.
+#
+# REPORTS AND NEVER GATES. Below `== blocking sections end ==`, out of
+# `attention=`.
+echo "== 25. Temp paths and ledger locks a killed process left behind (a person decides) =="
+n_temp_sweepable=0; n_legacy_tmp=0; n_broken_locks=0
+temp_summary=$(bash "$script_dir/plot-reap.sh" --sweep-temp --dry-run 2>/dev/null | grep '^temp-summary:' | tail -1)
+case "$temp_summary" in
+  *" swept="*) n_temp_sweepable=$(printf '%s' "$temp_summary" | sed -E 's/.* swept=([0-9]+).*/\1/') ;;
+esac
+legacy_root="${TMPDIR:-/tmp}"
+if [ -d "$legacy_root" ]; then
+  while IFS= read -r legacy_dir; do
+    [ -n "$legacy_dir" ] || continue
+    if [ -e "$legacy_dir/.list-arrived" ] || [ -e "$legacy_dir/.list-complete" ] \
+       || [ -e "$legacy_dir/pr-list.json" ] || [ -e "$legacy_dir/pr-list-open.json" ]; then
+      n_legacy_tmp=$((n_legacy_tmp + 1))
+    fi
+  done < <(find "$legacy_root" -mindepth 1 -maxdepth 1 -type d -user "$(id -un)" -name 'tmp.*' 2>/dev/null)
+fi
+broken_file="${PLOT_BUDGET_HOME:-${HOME:-}/.plot/state}/budget-lock-broken.tsv"
+[ -f "$broken_file" ] && n_broken_locks=$(wc -l < "$broken_file" | tr -d ' ')
+if [ "$n_temp_sweepable" -gt 0 ]; then
+  echo "  $n_temp_sweepable temp entr(ies) past the sweep's age bound — see: plot-reap.sh --sweep-temp"
+  echo "    remove: plot-reap.sh --sweep-temp --yes"
+fi
+if [ "$n_legacy_tmp" -gt 0 ]; then
+  echo "  $n_legacy_tmp fleet-scan cache(s) from an earlier release, left as tmp.* directories"
+  echo "    decide: a person removes these by exact path; no sweep matches tmp.*"
+fi
+[ "$n_broken_locks" -gt 0 ] && echo "  $n_broken_locks stale budget-ledger lock(s) broken — see: $broken_file"
+if [ "$n_temp_sweepable" -eq 0 ] && [ "$n_legacy_tmp" -eq 0 ] && [ "$n_broken_locks" -eq 0 ]; then
+  echo "  (none — nothing past the sweep's bound, no legacy cache, no broken lock)"
+fi
+echo
+
+# ---------------------------------------------------------------------------
 # 6. Delivered plans whose work is already inside a release tag.
 #
 # IT ASKS WHICH RELEASE CONTAINS THIS, NOT WHETHER THE DELIVERY LANDED, and that
@@ -3219,5 +3273,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues unread_headings=$n_unread pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues unread_headings=$n_unread temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0
