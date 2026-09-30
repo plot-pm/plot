@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 4
+- **Started:** 2026-09-30, jwloka, `bug/an-idle-reading-knows-the-conversation-started`
 
 ## Changelog
 
