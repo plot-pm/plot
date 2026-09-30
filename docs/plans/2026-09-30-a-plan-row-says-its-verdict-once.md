@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1103
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -81,5 +82,7 @@ The choice is a view state, so it is computed once and tested without a browser,
 `planRowShowsSoleVerdict` and its unit test, `PlanRow`'s status cell, the comments naming the old rule, and new browser tests; no existing test asserts the plan-row verdict.
 
 ## Notes
+
+**Implementation notes from round 4.** At `:1911` the slice's one row is `wg.rows[0]`. At `:1582` `expanded` is always `null` for a one-slice plan, so the fold guard needs no input, and `groupBySlice(group.rows.filter(isUnbegun))` is pure in `group.rows` and can move up to the `PlanRow` call.
 
 Filed while reading the board on 2026-09-30; the slice row returned for one-slice plans before this, and the plan-row verdict was left behind.
