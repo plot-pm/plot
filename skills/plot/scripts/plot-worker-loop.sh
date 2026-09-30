@@ -70,6 +70,7 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/plot-tmp.sh"
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="."
 
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
@@ -1608,7 +1609,9 @@ _cleanup_on_exit() {
   _prompt_child=""
   _wait_sleep_pid=""
 }
-trap _cleanup_on_exit EXIT
+# Through `plot-tmp.sh`'s one exit registry, which owns EXIT, INT and TERM. The
+# ALRM and USR1 traps above stay this script's own.
+plot_on_exit _cleanup_on_exit
 
 # Run the prompt under BOTH readings. Returns 0 if it finished on its own
 # (whatever its own exit status), or 124 — timeout(1)'s convention — if either

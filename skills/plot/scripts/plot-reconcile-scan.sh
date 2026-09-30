@@ -256,6 +256,8 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
 cd "$repo_root" || exit 1
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Every temp path this scan creates, and its only EXIT/INT/TERM traps.
+. "$script_dir/plot-tmp.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
 # jq is required: the plan-metadata rows are read through a jq pipe below.
@@ -474,9 +476,9 @@ load_open_pr_branches() {
     [ -n "$slug" ] && repo_args="--repo $slug"
   fi
 
-  tmpstderr=$(mktemp) || { PR_SOURCE="failed"; PR_ERROR="could not create a temp file"; return 0; }
-  # Clean up the temp file on return. Use /bin/rm to avoid PATH issues.
-  trap "/bin/rm -f '$tmpstderr' 2>/dev/null" RETURN
+  tmpstderr=""
+  plot_tmpfile tmpstderr reconcile-pr-err \
+    || { PR_SOURCE="failed"; PR_ERROR="could not create a temp file"; return 0; }
 
   # SEPARATE call from parse: capture the adapter's own exit status, not jq's.
   # A 429 makes it exit 5; testing `$?` after a pipe loses that.
@@ -2963,7 +2965,8 @@ elif [ "$oi_scheme" = "jira" ]; then
   echo "  (not evaluated — plan Issue: numbers cannot be matched to Jira keys)"
   echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
 else
-  oi_err_file=$(mktemp) || oi_err_file=""
+  oi_err_file=""
+  plot_tmpfile oi_err_file reconcile-issue-err || oi_err_file=""
   # SEPARATE call from parse, the shape section 3 uses at `:473`: capture the
   # adapter's own exit status rather than jq's, because a rate limit makes it
   # exit 5 and testing `$?` after a pipe loses that.

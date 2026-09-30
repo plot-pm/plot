@@ -391,6 +391,15 @@ set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Every temp path this script creates, and its only EXIT/INT/TERM traps.
+. "$here/plot-tmp.sh"
+
+# The host CLI's stderr for one call, read back after the call. One file per
+# process, created here in the parent because the calls redirect into it from
+# inside command substitutions, where an assignment would not reach the caller.
+HOST_ERR=""
+plot_tmpfile HOST_ERR host-err || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+
 die() { echo "plot-host: $*" >&2; exit 1; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
@@ -575,7 +584,9 @@ pr_list_failed() { # $1=stderr text
 # hundred lines below, where a `die` in a subshell turned an unknown state into
 # "no PRs matched".
 pr_list_call() { # "$@"=the host command → payload on stdout, or dies
-  local out rc err tmp="/tmp/plot-host-prlist-err.$$"
+  local out rc err tmp=""
+  plot_tmpfile tmp host-prlist-err \
+    || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
   out="$("$@" 2>"$tmp")"; rc=$?
   err="$(cat "$tmp" 2>/dev/null)"; rm -f "$tmp"
   [ "$rc" -eq 0 ] || pr_list_failed "$err"
@@ -858,7 +869,7 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
   # already seen once per branch, so eleven branches parsed the first branch's
   # payload eleven times.
   local _spool
-  _spool="$(mktemp "/tmp/plot-host-sweep.$$.XXXXXX")" || return 3
+  plot_tmpfile _spool host-sweep || return 3
   for _br in $PR_LIST_BRANCHES; do
     # RETURN, NOT EXIT. This runs inside the command substitution
     # `pr_list_call` wraps the sweep in, so the code must travel back as this
@@ -867,7 +878,7 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
     # as the sweep's own — the silent empty list `pr_list_call`'s header names.
     #
     # The spool is removed on EVERY exit path, including the failing one: a
-    # sweep that gives up mid-way must not leave a payload behind in /tmp.
+    # sweep that gives up mid-way must not leave a payload behind in TMPDIR.
     bb_branch_query "$_br" "$_st" ${_args[@]+"${_args[@]}"} >> "$_spool" \
       || { _rc=$?; rm -f "$_spool"; return $_rc; }
   done
@@ -930,7 +941,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
   _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
   _q="${_q// /%20}"
   _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50"
-  _spool="$(mktemp "/tmp/plot-host-window.$$.XXXXXX")" || return 3
+  plot_tmpfile _spool host-window || return 3
   while [ -n "$_path" ]; do
     _page="$(bb ${_args[@]+"${_args[@]}"} api "$_path")" \
       || { _rc=$?; rm -f "$_spool"; return $_rc; }
@@ -1048,7 +1059,7 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
   local backend="$1" limit="$2" states="$3" jq_prog="$4"; shift 4
   local _s _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states=""
   for _s in $states; do
-    _tmp="/tmp/plot-host-prlist-state-err.$$.$_s"
+    plot_tmpfile _tmp "host-prlist-state-err-$_s" || return 3
     # THE SUBSHELL'S CODE IS THE ONLY CHANNEL OUT, so it is captured rather
     # than propagated. `pr_list_failed` runs INSIDE the substitution and has
     # already composed its report and its repair line; that text is spooled
@@ -2648,11 +2659,11 @@ backend() {
 # `budget_rate`. A directory keyed on a pid must be removed by the process that
 # made it, or a long-lived machine accumulates one per `plot-host.sh` call.
 #
-# `EXIT` ALONE, deliberately. It runs on a normal return and on an uncaught
-# signal's default termination path is irrelevant here: the sweep is an
-# optimisation's housekeeping, and a cache that outlives one run costs a stale
-# reading at worst, which is the same staleness the memo grants by design.
-trap 'budget_memo_clear' EXIT
+# Registered with `plot-tmp.sh`, which owns this process's EXIT, INT and TERM
+# traps: a second `trap … EXIT` here would replace the helper's and leak every
+# temp path above. A memo that outlives a SIGKILL costs a stale reading at
+# worst, and `plot-reap.sh --sweep-temp` removes a dead pid's directory.
+plot_on_exit budget_memo_clear
 
 # WHO IS SPENDING — read from the CLI's own config, never from an API call.
 #
@@ -2875,13 +2886,13 @@ plot_harvest_headers() {
 # read may not charge.
 gh_api_harvest() {
   local raw rc hdr_tmp err_tmp
-  hdr_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-host-hdr.XXXXXX")" || {
+  plot_tmpfile hdr_tmp host-hdr || {
     # No temp file, no harvest — and the call still happens, recorded by the
     # wrapper from its argv alone. Bookkeeping never fails its caller.
     gh api "$@"
     return $?
   }
-  err_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-host-herr.XXXXXX")" || {
+  plot_tmpfile err_tmp host-herr || {
     rm -f "$hdr_tmp"
     gh api "$@"
     return $?
@@ -3194,11 +3205,11 @@ case "$op" in
         # place that knows how to read either.
         rest_repo="$(gh_rest_repo)" || exit $?
         if [[ "$ref" =~ ^[0-9]+$ ]]; then
-          if out="$(gh_api_harvest "repos/$rest_repo/pulls/$ref" 2>/tmp/plot-host-err.$$)"; then
-            rm -f "/tmp/plot-host-err.$$"
+          if out="$(gh_api_harvest "repos/$rest_repo/pulls/$ref" 2>"$HOST_ERR")"; then
+            rm -f "$HOST_ERR"
             rest_pr_to_state <<<"$out"
           else
-            err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3211,15 +3222,15 @@ case "$op" in
           # `state=all`, because the default is `open` and a merged PR would
           # otherwise read as NONE — wrong in the reassuring direction.
           rest_owner="${rest_repo%%/*}"
-          if out="$(gh_api_harvest "repos/$rest_repo/pulls?head=$rest_owner:$ref&state=all&per_page=1" 2>/tmp/plot-host-err.$$)"; then
-            rm -f "/tmp/plot-host-err.$$"
+          if out="$(gh_api_harvest "repos/$rest_repo/pulls?head=$rest_owner:$ref&state=all&per_page=1" 2>"$HOST_ERR")"; then
+            rm -f "$HOST_ERR"
             if [ "$(jq -r 'length' <<<"$out" 2>/dev/null)" = "0" ]; then
               echo '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
             else
               jq -c '.[0]' <<<"$out" | rest_pr_to_state
             fi
           else
-            err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3227,11 +3238,11 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out"
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
         # this coming — `rate_limit` does not report the secondary limit — so the
         # cheap path was chosen and then declined. The second path is the one
@@ -3264,11 +3275,11 @@ case "$op" in
       # the GitHub arm gives for anything unmerged, so a caller cannot tell the
       # backends apart.
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
-        if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/tmp/plot-host-err.$$)"; then
-          rm -f "/tmp/plot-host-err.$$"
+        if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>"$HOST_ERR")"; then
+          rm -f "$HOST_ERR"
           jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // "")}' <<<"$out"
         else
-          err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       else
@@ -3293,7 +3304,7 @@ case "$op" in
         out=""; bb_rc=0
         bb_all_states="$(bb_states_for all)" || exit 1
         for _s in $bb_all_states; do
-          if _part="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json 2>/tmp/plot-host-err.$$)"; then
+          if _part="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json 2>"$HOST_ERR")"; then
             out="$out$_part"
             # `jq -e` exits non-zero on null/false, so this asks "did this state
             # contain the branch?" without a second parse of the whole page.
@@ -3305,7 +3316,7 @@ case "$op" in
           fi
         done
         if [ "$bb_rc" = 0 ]; then
-          rm -f "/tmp/plot-host-err.$$"
+          rm -f "$HOST_ERR"
           out="$(jq -c -s 'add // []' <<<"$out")"
           # THE BRANCH ARM CARRIES `mergeCommit` TOO, and it is the path that
           # matters most: `plot-pr-state.sh:33` asks `pr-state "idea/${SLUG}"` —
@@ -3319,7 +3330,7 @@ case "$op" in
                | if .==null then {number:0,state:"NONE",draft:false,url:"",mergeCommit:""}
                  else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // "")} end' <<<"$out"
         else
-          err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       fi
@@ -3351,15 +3362,15 @@ case "$op" in
       # --state all, because a merged PR reports CLOSED and the default `open`
       # would hide every one of them. --limit 100 rather than 1: the newest PR
       # is not the merge, exactly as the state is not the merge.
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         if jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out"; then
           echo "merged"
         else
           echo "not-merged"
         fi
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # A LOOKUP MISS IS AN ANSWER — the branch has no PR, so nothing merged.
         # Anything else is the host failing to be asked, and that is `unknown`
         # rather than exit 3: the caller asked a question with a third value
@@ -3378,15 +3389,15 @@ case "$op" in
       # exposes no `mergedAt`, so this is the closest fact the backend holds,
       # and it is a positive statement about the merge rather than an inference
       # from CLOSED — `DECLINED` is bb's closed-unmerged word and is distinct.
-      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         if jq -e --arg b "$ref" 'any(.[]; .source.branch.name==$b)' >/dev/null 2>&1 <<<"$out"; then
           echo "merged"
         else
           echo "not-merged"
         fi
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         if [ -z "$err" ] || is_lookup_miss "$err"; then
           echo "not-merged"
         else
@@ -3426,15 +3437,15 @@ case "$op" in
       esac
     done
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,mergeCommit 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,mergeCommit 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         # The FIRST merged PR carrying a sha. A branch may hold several merged
         # PRs; each names its own merge commit, and any of them is a commit that
         # landed this branch's work.
         jq -r 'map(select(.mergedAt != null and .mergeCommit != null))
                | map(.mergeCommit.oid) | first // empty' <<<"$out"
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
         # nothing" — the caller distinguishes the two by the exit code.
@@ -3448,12 +3459,12 @@ case "$op" in
     else
       bb_require_json
       # Bitbucket names the merge commit `merge_commit.hash` on a merged PR.
-      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         jq -r --arg b "$ref" 'map(select(.source.branch.name==$b))
                | map(.merge_commit.hash // empty) | first // empty' <<<"$out"
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         if [ -z "$err" ] || is_lookup_miss "$err"; then
           :
         else
@@ -4281,13 +4292,13 @@ case "$op" in
       # unstarted by the only vocabulary GitHub has.
       gh_state="open"
       if out="$(gh issue list --state "$gh_state" ${limit_args[@]+"${limit_args[@]}"} \
-                  --json number,title,url,createdAt 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+                  --json number,title,url,createdAt 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         jq -c --arg status "$gh_state" \
           '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
                   status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end)}' <<<"$out"
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # NO empty-list fallback. `host_miss_or_fail` exists for a lookup whose
         # subject is absent — one PR that does not exist. A LIST has no absent
         # subject: if the call failed, the answer is unknown, and printing
@@ -4401,11 +4412,11 @@ case "$op" in
           url: ($base + "/browse/" + .key)
         }'
     elif [ "$be" = "github" ]; then
-      if out="$(gh issue view "$num" --json number,title,body,url 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+      if out="$(gh issue view "$num" --json number,title,body,url 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // "")}' <<<"$out"
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # NO miss/fail split here, and that is deliberate. `host_miss_or_fail`
         # exists where an absent subject is a NORMAL answer — a branch with no
         # PR. An issue number reaching this op was read off `issue-list`
@@ -4553,8 +4564,8 @@ case "$op" in
     # This op REPORTS; it does not decide. A caller that wants to fall back when
     # one budget is spent reads this, compares remaining to zero, and acts.
     if [ "$be" = "github" ]; then
-      if out="$(gh api rate_limit 2>/tmp/plot-host-err.$$)"; then
-        rm -f "/tmp/plot-host-err.$$"
+      if out="$(gh api rate_limit 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
         # The payload has `resources.graphql` and `resources.core`, each with
         # `remaining`, `limit`, and `reset`. Extract the two we care about.
         jq -c '{
@@ -4570,7 +4581,7 @@ case "$op" in
           }
         }' <<<"$out"
       else
-        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # The host could not be asked. Report unknown rather than failing outright,
         # because this is informational — a caller that cannot read the budget
         # should proceed with the default path, not error out.
@@ -4633,7 +4644,8 @@ case "$op" in
     # inventing a reading nobody took — the mistake `rate_limit` makes by
     # answering for both at once.
     if [ "$be" = "github" ]; then
-      _hdr_tmp="/tmp/plot-host-limit.$$"
+      _hdr_tmp=""
+      plot_tmpfile _hdr_tmp host-limit || die3 "limit: no temp file could be made under ${TMPDIR:-/tmp}"
       # `command gh`, NOT THE WRAPPER, and for the ordering reason
       # `gh_api_harvest` gives: the wrapper records the moment the call returns,
       # before any header has been read, so a wrapped call here would file an
