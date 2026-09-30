@@ -1,0 +1,1 @@
+../2026-09-30-a-fleet-agent-starts-without-the-operators-plugins.md

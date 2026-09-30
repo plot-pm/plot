@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Started:** 2026-09-30, jwloka, `bug/a-fleet-agent-starts-without-the-operators-plugins`
+- **Delivered:** 2026-09-30
 
 ## Changelog
 
