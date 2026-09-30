@@ -288,7 +288,7 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 
 ## Slices
 
-### Scripts share one temp helper (Branch: bug/scripts-share-one-temp-helper)
+### Scripts share one temp helper (Branch: bug/scripts-share-one-temp-helper, PR: #1102)
 
 Layers 1 and 2: `plot-tmp.sh` with assignment by name, the file-backed exit registry and the re-raising signal traps; the migration of all 14 `mktemp` sites, the nine fixed-name `/tmp` paths and the 8 traps; the gate; the fleet-scan cache rename; the reaper's sweep over `plot-*` entries and dead-pid memo directories; the registryd `--sweep-temp` flag in both units; and the scan's advisory counts.
 
