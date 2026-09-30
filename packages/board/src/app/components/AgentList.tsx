@@ -77,7 +77,7 @@ import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, brokenAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
-import { hasExceptions } from '../lib/agent-rows/stuck.js';
+import { hasExceptions, planRowShowsSoleVerdict, soleRowStatus } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
@@ -105,6 +105,34 @@ export function soleSliceFor(planName: string, slices: Slice[] | undefined): Sli
   const w = slices.find((wave) => wave.plan === planName);
   return w && isOneSlicePlan(w) ? w : null;
 }
+
+/**
+ * Are a `planHeads` plan group's slice rows on the page?
+ *
+ * ONE EXPRESSION, THREE READERS, and they MUST agree or the board contradicts
+ * itself: the plan row's caret says one thing, the content another, and the plan
+ * row's verdict duplicates a row it believes is hidden. Two readers were already
+ * required to agree by a comment; the verdict made a third, and three copies of
+ * a four-term boolean is where drift starts.
+ *
+ * A FOLD WITH EXCEPTIONS STAYS OPEN — *folding may hide repetition, never
+ * exceptions* — so `hasExceptions` wins over the reader's override. The override
+ * itself is keyed two ways because the DEFAULT differs: a plan of several slices
+ * is folded until opened (`open:`), a plan of one is open until shut (`shut:`),
+ * so one Set holds overrides rather than states.
+ *
+ * @param planHeads Whether this section draws plan heads at all. Where it does
+ *   not, the rows are never folded and this is trivially true.
+ */
+const sliceRowsShown = (
+  planHeads: boolean,
+  rows: AgentRow[],
+  sliceCount: number,
+  plan: string,
+  openPlans: Set<string>,
+): boolean => !planHeads
+  || hasExceptions(rows)
+  || (sliceCount > 1 ? openPlans.has(`open:${plan}`) : !openPlans.has(`shut:${plan}`));
 
 /**
  * What the server writes where a plan divides its work into no slices at all.
@@ -1479,6 +1507,15 @@ export function AgentList({
                   const planHeads = !countsPlans && Boolean(group.plan)
                     && ungroupedRows(group.rows, key, slices).length === 0
                     && sliceGroupsFor(group.rows, key, slices).length > 0;
+                  // ARE THIS GROUP'S SLICE ROWS ON THE PAGE? Read by THREE things
+                  // that must agree: the plan row's caret (`expanded`), the list
+                  // that draws the rows, and the plan row's decision whether to
+                  // state its sole slice's verdict. Computed once here, where
+                  // `planHeads` and the slice groups are already in hand.
+                  const planSliceGroups = sliceGroupsFor(group.rows, key, slices);
+                  const planSliceRowsShown = sliceRowsShown(
+                    planHeads, group.rows, planSliceGroups.length, group.plan, openPlans,
+                  );
                   // A GROUP WITH NO PLAN HAS NOTHING TO HEAD — the rule
                   // `showPlanHeading` and `planHeads` already apply, and
                   // `sectionTally` reads the same guard. Without it every
@@ -1497,6 +1534,15 @@ export function AgentList({
                     const expanded = foldable
                       ? openPlans.has(group.plan) || groupHasExceptions
                       : null;
+                    // THE SLICE ROWS THIS SECTION WILL DRAW, hoisted from the list
+                    // below so the plan row can ask whether any exist. Pure in
+                    // `group.rows`, so moving it up costs nothing and the two
+                    // readers cannot disagree.
+                    //
+                    // AN ALL-DEFERRED PLAN DRAWS NONE: `isUnbegun` filters every
+                    // row out, so the list is empty and the plan row keeps the
+                    // verdict — the only place it can appear.
+                    const unbegunSliceGroups = groupBySlice(group.rows.filter(isUnbegun));
                     return (
                       // THE RULE BELONGS TO THE GROUP, NOT TO ITS ROWS.
                       //
@@ -1577,11 +1623,28 @@ export function AgentList({
                           // slice elsewhere whenever the row needed attention.
                           elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
                             new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
-                          // A ONE-SLICE plan shows its slice's verdict on this row
-                          // instead of nesting a slice row beneath it.
+                          // A ONE-SLICE plan carries its slice's *Start work* on
+                          // this row, and its verdict where the slice row beneath
+                          // does not state it.
                           soleSlice={soleSliceFor(group.plan, slices)}
-                          // …and the hidden slice row's *Start work* rides here
-                          // too, dispatching that one slice.
+                          // THE VERDICT ONCE PER SECTION. Here the slice row always
+                          // states it where one is drawn: `SliceRow` gets no
+                          // `soleRow` in this section, so it prints the verdict
+                          // rather than a branch's status — hence `null`, never
+                          // `soleRowStatus`.
+                          //
+                          // So the only question is whether a slice row exists. An
+                          // ALL-DEFERRED plan draws none and keeps the verdict.
+                          // The fold does not enter: `expanded` is null for a
+                          // one-slice plan here, meaning *there was never a fold*,
+                          // so the collapsed-head case belongs to the `planHeads`
+                          // sections alone.
+                          showsSoleVerdict={planRowShowsSoleVerdict({
+                            sliceRowVisible: unbegunSliceGroups.length > 0,
+                            soleRowStatus: null,
+                          })}
+                          // …and the slice row's *Start work* rides here too,
+                          // dispatching that one slice.
                           onStarting={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
@@ -1644,13 +1707,15 @@ export function AgentList({
                                 begun, with its age and its PR erased."* */}
                             {/* SLICE ROWS NAME THEIR SLICES, however many slices
                                 the plan has. A one-slice plan's branches belong to
-                                that slice, and its name is part of their identity —
-                                the verdict migrated to the plan row, the name did
-                                not. */}
+                                that slice, and its name is part of their identity.
+                                This row gets no `soleRow`, so it states the SLICE's
+                                verdict; the plan row above it therefore yields the
+                                verdict whenever this row is drawn. Where none is
+                                drawn — every branch deferred — the plan row keeps
+                                it. */}
                             {(() => {
                               const oneSlice = soleSliceFor(group.plan, slices);
-                              const sliceGroups = groupBySlice(group.rows.filter(isUnbegun));
-                              return sliceGroups.map((wg) => {
+                              return unbegunSliceGroups.map((wg) => {
                               const many = wg.rows.length > 1;
                               const sliceOpen = many
                                 ? openSlices.has(sliceKey(group.plan, wg.wave))
@@ -1878,15 +1943,18 @@ export function AgentList({
                         // NOT STARTED, for the same reason: *folding may hide
                         // repetition, never exceptions*. A reader must see the
                         // conflict, claim, or structural issue the fold holds.
-                        expanded={
-                          hasExceptions(group.rows)
-                            ? true
-                            : (sliceGroupsFor(group.rows, key, slices).length > 1
-                              ? openPlans.has(`open:${group.plan}`)
-                              : !openPlans.has(`shut:${group.plan}`))
-                        }
+                        //
+                        // `sliceRowsShown` IS THE ONE EXPRESSION, read here, by
+                        // the list guard below, and by `showsSoleVerdict` — three
+                        // readers that must agree. It was written out three times
+                        // when the verdict became the third.
+                        expanded={planSliceRowsShown}
+                        // THE KEY FOLLOWS THE DEFAULT, which differs by slice
+                        // count: a plan of several is folded until opened, a plan
+                        // of one open until shut. `sliceRowsShown` reads the same
+                        // count, so the click and the state agree.
                         onToggle={() => togglePlan(
-                          sliceGroupsFor(group.rows, key, slices).length > 1
+                          planSliceGroups.length > 1
                             ? `open:${group.plan}` : `shut:${group.plan}`,
                         )}
                         active={group.rows.some((r) => active.has(rowKey(r)))}
@@ -1906,11 +1974,37 @@ export function AgentList({
                         // plan wholly done.
                         elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
                           new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
-                        // A ONE-SLICE plan shows its slice's verdict on this row
-                        // instead of nesting a slice row beneath it.
+                        // A ONE-SLICE plan carries its slice's *Start work* on
+                        // this row, and its verdict where the slice row beneath
+                        // does not state it.
                         soleSlice={soleSliceFor(group.plan, slices)}
-                        // …and the hidden slice row's *Start work* rides here
-                        // too, dispatching that one slice.
+                        // THE VERDICT ONCE PER SECTION. The slice row beneath is
+                        // on the page where the fold says so, and it states the
+                        // verdict itself unless its one branch has a status word
+                        // of its own. `soleRowStatus` answers for a slice of ONE;
+                        // a slice of several passes `null`, because that row
+                        // prints `N <verdict>` and there is no single row to ask.
+                        //
+                        // Per SECTION, not per plan: `soleSliceFor` ignores the
+                        // section, so a plan split across NOT STARTED and WAITING
+                        // ON YOU asks once here with this section's own inputs.
+                        //
+                        // THE GROUP IS THIS SECTION'S ONLY ONE, and the guard says
+                        // so rather than indexing `[0]` on faith: a one-slice plan
+                        // whose rows are all in this section forms exactly one
+                        // group here. Where it forms none — or somehow more — the
+                        // input is `null`, which is the safe reading: the slice row
+                        // is taken to state the verdict, so the plan row yields it
+                        // rather than risking the duplicate.
+                        showsSoleVerdict={planRowShowsSoleVerdict({
+                          sliceRowVisible: planSliceRowsShown,
+                          soleRowStatus:
+                            planSliceGroups.length === 1 && planSliceGroups[0]!.rows.length === 1
+                              ? soleRowStatus(planSliceGroups[0]!.rows[0]!)
+                              : null,
+                        })}
+                        // …and the slice row's *Start work* rides here too,
+                        // dispatching that one slice.
                         onStarting={onStarting}
                       />
                     )}
@@ -1970,11 +2064,12 @@ export function AgentList({
                         answers.
 
                         A FOLD WITH EXCEPTIONS STAYS OPEN — same logic as the
-                        `expanded` prop above, and the two MUST agree or the
-                        caret says one thing while the content says another. */}
-                    {(!planHeads || hasExceptions(group.rows) || (sliceGroupsFor(group.rows, key, slices).length > 1
-                      ? openPlans.has(`open:${group.plan}`)
-                      : !openPlans.has(`shut:${group.plan}`))) && (
+                        `expanded` prop above, and the THREE readers MUST agree or
+                        the caret says one thing while the content says another —
+                        and the plan row states a verdict the row beneath it is
+                        stating too. `sliceRowsShown` is the one expression all
+                        three read. */}
+                    {planSliceRowsShown && (
                     <ul
                       role="presentation"
                       // THE SAME SLICE-LIST WRAPPER NOT STARTED ALREADY CARRIES.
@@ -2018,9 +2113,13 @@ export function AgentList({
                       {(() => {
                         /* SLICE ROWS NAME THEIR SLICES, however many slices
                            the plan has. A one-slice plan's branches belong to
-                           that slice, and its name is part of their identity —
-                           the verdict migrated to the plan row, the name did
-                           not. See NOT STARTED for the longer form. */
+                           that slice, and its name is part of their identity.
+                           A row of ONE branch states that branch's status word
+                           and leaves the verdict to the plan row; a row of
+                           several, or one whose branch has no word to say,
+                           states the verdict itself and the plan row yields it.
+                           `planRowShowsSoleVerdict` holds the rule. See NOT
+                           STARTED for the longer form. */
                         const sliceGroups = sliceGroupsFor(group.rows, key, slices);
                         return sliceGroups.map((wg) => {
                         // A SLICE OF ONE NEEDS NO FOLD — its single branch is

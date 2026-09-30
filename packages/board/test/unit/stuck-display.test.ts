@@ -2,7 +2,7 @@ import {
   describe,
   it,
   expect } from 'vitest';
-import { offersChangedFiles, stuckEvidence, stuckWord, hasExceptions, exceptionSummary, EXCEPTION_STATES } from '../../src/app/lib/agent-rows/stuck.js';
+import { offersChangedFiles, stuckEvidence, stuckWord, hasExceptions, exceptionSummary, planRowShowsSoleVerdict, EXCEPTION_STATES } from '../../src/app/lib/agent-rows/stuck.js';
 import { changedFilesLabel, offersAction } from '../../src/app/lib/agent-rows/actions.js';
 import {
   StuckStateSchema, BOARD_ARTIFACT_PATHS,
@@ -424,3 +424,62 @@ describe('exceptionSummary — NAME the exceptions, do not count them', () => {
   });
 });
 
+describe('planRowShowsSoleVerdict — a one-slice plan says its verdict ONCE', () => {
+  /**
+   * ONE ROW PER ROW OF THE PLAN'S TABLE. The premise the old rule rested on —
+   * *"a plan with one slice renders NO slice row"* — went false when
+   * `AgentList.tsx` began rendering a slice row for every plan, and the verdict
+   * was then stated twice. Measured 2026-09-30:
+   * `a-cold-bitbucket-board-buys-the-whole-list` showed `complete` on its plan
+   * row and `complete` on its slice row in DONE.
+   */
+
+  it('prints the verdict where the slice row is HIDDEN', () => {
+    // A collapsed head (the `shut:` override), or a section whose visibility
+    // expression removed the rows: nothing beneath states the verdict, so the
+    // plan row is the only place it can appear. The status is irrelevant here —
+    // there is no row to print it.
+    expect(planRowShowsSoleVerdict({ sliceRowVisible: false, soleRowStatus: null })).toBe(true);
+    expect(planRowShowsSoleVerdict({ sliceRowVisible: false, soleRowStatus: '' })).toBe(true);
+    expect(planRowShowsSoleVerdict({ sliceRowVisible: false, soleRowStatus: 'green' })).toBe(true);
+  });
+
+  it('yields the verdict where a visible slice row holds SEVERAL branches', () => {
+    // `null` means there is no single row to ask, because the slice holds more
+    // than one branch — that row prints `N <verdict>` or `<verdict> · N left`,
+    // so the verdict is already on the page.
+    //
+    // THE CASE AN IMPLEMENTATION READING `soleRowStatus !== null` GETS RIGHT AND
+    // ONE READING `=== null` GETS BACKWARDS. It is here because the two empty
+    // values mean the same thing by different routes.
+    expect(planRowShowsSoleVerdict({ sliceRowVisible: true, soleRowStatus: null })).toBe(false);
+  });
+
+  it('yields the verdict where a visible one-branch row has an EMPTY status', () => {
+    // `soleRowStatus` is `''` only where the PR state is `unknown`: `prStatus`
+    // returns the empty string rather than the word *unknown*, so the slice row
+    // falls back to printing the verdict. THIS IS THE MEASURED DEFECT.
+    expect(planRowShowsSoleVerdict({ sliceRowVisible: true, soleRowStatus: '' })).toBe(false);
+  });
+
+  it('prints the verdict where a visible one-branch row says a WORD of its own', () => {
+    // Every other one-branch row prints its own status, so the verdict is
+    // nowhere beneath and belongs on the plan row. The seven words
+    // `soleRowStatus` can return, each pinned: a gate that accepted only PR
+    // states would drop the verdict from every branch with no PR.
+    for (const word of ['green', 'checks failing', 'deferred', 'delivered', 'open', 'working', 'stalled']) {
+      expect(planRowShowsSoleVerdict({ sliceRowVisible: true, soleRowStatus: word })).toBe(true);
+    }
+  });
+
+  it('separates the two empty values from each other and from a word', () => {
+    // The contract in one assertion: `null` and `''` agree, and both differ from
+    // a word. An implementation collapsing the string to a boolean before it
+    // arrives here passes every test above and loses the distinction this
+    // function exists to hold.
+    expect(planRowShowsSoleVerdict({ sliceRowVisible: true, soleRowStatus: null }))
+      .toBe(planRowShowsSoleVerdict({ sliceRowVisible: true, soleRowStatus: '' }));
+    expect(planRowShowsSoleVerdict({ sliceRowVisible: true, soleRowStatus: 'open' }))
+      .not.toBe(planRowShowsSoleVerdict({ sliceRowVisible: true, soleRowStatus: '' }));
+  });
+});
