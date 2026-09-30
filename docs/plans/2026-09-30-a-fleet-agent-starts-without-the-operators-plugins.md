@@ -102,7 +102,7 @@ A board that appends `--settings` to a command it recognises as `claude` needs a
 
 ## Slices
 
-### A fleet agent starts without the operator's plugins (Branch: bug/a-fleet-agent-starts-without-the-operators-plugins) <!-- builds: plot-agent-settings.sh, the Agent settings resolver -->
+### A fleet agent starts without the operator's plugins (Branch: bug/a-fleet-agent-starts-without-the-operators-plugins, PR: #1107) <!-- builds: plot-agent-settings.sh, the Agent settings resolver -->
 
 The refusal measurement first, then the refusal rule and the resolver, the worker loop and template, the board's startup export, the dispatch brief spawn, the install-prompt report, and this repository's settings file and keys.
 
