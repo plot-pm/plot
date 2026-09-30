@@ -1326,8 +1326,12 @@ function makeEmptyBbStub(dir) {
   const argvLog = path.join(dir, 'bb.argv');
   fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
-# Return empty JSON array — zero open PRs, exit 0.
-echo '[]'
+# Zero open PRs, exit 0. The listing is \`bb api …/pullrequests?state=…\`,
+# which returns a raw page; every other call gets an empty array.
+case "$*" in
+  *"api "*"/pullrequests?state="*) echo '{"values":[]}' ;;
+  *) echo '[]' ;;
+esac
 exit 0
 `);
   fs.chmodSync(path.join(dir, 'bb'), 0o755);
@@ -3875,6 +3879,7 @@ case "$*" in
   *"pr view "*)
     n=$(printf '%s' "$*" | sed -E 's/.*pr view ([0-9]+).*/\\1/')
     printf '%s' "{\\"number\\":$n,\\"state\\":\\"MERGED\\",\\"draft\\":false,\\"url\\":\\"u\\"}" ;;
+  *"api "*"/pullrequests?state="*) printf '%s' '{"values":[]}' ;;
   *) printf '%s' '[]' ;;
 esac
 exit 0

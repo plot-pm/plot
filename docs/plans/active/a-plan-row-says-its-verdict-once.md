@@ -1,0 +1,1 @@
+../2026-09-30-a-plan-row-says-its-verdict-once.md

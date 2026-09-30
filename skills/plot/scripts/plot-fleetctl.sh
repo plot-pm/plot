@@ -249,6 +249,211 @@ serves_line() { # $1=the answer
   esac
 }
 
+# ---------------------------------------------------------------------------
+# Every Plot process on this machine
+# ---------------------------------------------------------------------------
+#
+# `--status` above answers about ONE label. Measured 2026-09-29: it printed one
+# healthy supervisor while 17 `plot-fleet-scan.sh` processes from five
+# installations loaded the machine, spawned by BOARDS, and no reading showed
+# them. This block finds supervisors, boards and top-level scans by PROCESS,
+# never by label — `LABEL` accepts any string, so a label search misses
+# `com.quatico.ewz.registryd` and still claims it looked.
+#
+# NOTHING READ FROM ANOTHER PROCESS REACHES A SHELL EVALUATOR. The snapshot
+# holds every user's command lines. awk emits candidate paths as data; bash
+# tests each as a variable. No awk `system()`, no `eval`, no `sh -c`: measured
+# 2026-09-30, `system("test -x \"" $0 "\"")` ran `$(touch …)`, backticks and
+# `$(( $( ) ))` out of a stranger's argv. The `lsof` cwd and the cgroup line are
+# handled the same way.
+
+# Classifies `ps axww -o pid=,ppid=,uid=,args=` rows read on stdin. Prints one
+# `C<TAB>pid<TAB>ppid<TAB>uid<TAB>kind<TAB>argv0<TAB>path` line per candidate,
+# where argv0 is `-` unless it holds a space (then the caller must find an
+# executable regular file there), and one `S<TAB>pid` line per `systemd --user`
+# process, which is the Linux subreaper an orphan reparents to.
+plot_process_candidates() {
+  awk '
+    # End index in s of the first `name` followed by a space or the end of s,
+    # or 0. With `bare`, name must also start s or follow a `/`.
+    function art_end(s, name, bare,   off, i, j, c) {
+      off = 0
+      while ((i = index(substr(s, off + 1), name)) > 0) {
+        j = off + i + length(name) - 1
+        c = substr(s, j + 1, 1)
+        if (c == "" || c == " ") {
+          if (!bare || off + i == 1 || substr(s, off + i - 1, 1) == "/") return j
+        }
+        off += i
+      }
+      return 0
+    }
+    {
+      if (!match($0, /^ *[0-9]+ +[0-9]+ +[0-9]+ /)) next
+      split(substr($0, 1, RLENGTH), h, " ")
+      args = substr($0, RLENGTH + 1)
+      s = "/" args
+      if (s ~ /\/systemd --user$/) { print "S\t" h[1]; next }
+      # Step 1: argv[0] runs to the first (^|/)(node|bash|sh) and a space.
+      if (!match(s, /\/(node|bash|sh) /)) next
+      interp = substr(s, RSTART + 1, RLENGTH - 2)
+      argv0 = substr(args, 1, RSTART + RLENGTH - 3)
+      rest = substr(args, RSTART + RLENGTH - 1)
+      # Steps 2 and 3: the leading options, then the first token holding a `/`.
+      pos = 1; n = length(rest); start = 0; bad = 0
+      while (pos <= n) {
+        while (pos <= n && substr(rest, pos, 1) == " ") pos++
+        if (pos > n) break
+        k = index(substr(rest, pos), " ")
+        tok = k ? substr(rest, pos, k - 1) : substr(rest, pos)
+        if (tok ~ /^-[^-]/) {
+          if (interp == "node") { if (substr(tok, 2) ~ /[ep]/) bad = 1 }
+          else if (substr(tok, 2) ~ /c/) bad = 1
+        } else if (interp == "node" && tok ~ /^--(eval|print)(=|$)/) bad = 1
+        if (bad) break
+        if (index(tok, "/") || tok == "plot-fleet-scan.sh") { start = pos; break }
+        if (!k) break
+        pos += k
+      }
+      if (bad || !start) next
+      p = substr(rest, start)
+      # Step 4: the path names the kind.
+      kind = ""; e = 0
+      if (interp == "node") {
+        b = art_end(p, "/board/board-server.mjs", 0)
+        r = art_end(p, "/board/plot-registryd.mjs", 0)
+        if (b && (!r || b < r)) { kind = "board"; e = b }
+        else if (r) { kind = "supervisor"; e = r }
+      } else if ((e = art_end(p, "plot-fleet-scan.sh", 1))) kind = "scan"
+      if (kind == "") next
+      print "C\t" h[1] "\t" h[2] "\t" h[3] "\t" kind "\t" (index(argv0, " ") ? argv0 : "-") "\t" substr(p, 1, e)
+    }'
+}
+
+# The working directory of a pid, or empty for *cannot determine*. `$1` is the
+# kernel (`uname -s`). An empty `lsof` answer is cannot-determine whatever its
+# exit code: for another user's process it prints nothing and exits 1.
+process_cwd() { # $1=kernel $2=pid
+  local cwd=""
+  case "$1" in
+    Darwin) cwd=$(lsof -a -p "$2" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1) ;;
+    Linux)  cwd=$(readlink "${PLOT_PROC_ROOT:-/proc}/$2/cwd" 2>/dev/null) ;;
+  esac
+  cwd=${cwd//$'\t'/?}
+  printf '%s' "${cwd//$'\n'/?}"
+}
+
+# A path for printing: under `$HOME` it starts with `~`.
+home_short() {
+  case "$1" in
+    "${HOME:-/nonexistent}"/*) printf '~%s' "${1#"$HOME"}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# The second `--status` block: every Plot supervisor, board and top-level scan
+# on this machine except the supervisor the first block names (`$1`, its pid,
+# or empty). Prints NOTHING when every one serves this checkout and no scan is
+# orphaned — a foreign installation serving this checkout is the normal shape
+# of an adopting repository, so it is silent. Never prints a line starting
+# with `summary:`, which is the board's contract.
+plot_processes_block() { # $1=pid to skip
+  local skip="${1:-}" kernel here tag pid ppid uid kind a0 path verified="" top rows=""
+  local orph cwd serves inst full suffix label owner lc="" lc_read=0 line seg noisy=0
+  kernel=$(uname -s 2>/dev/null)
+  here=$(cd "$repo_root" && pwd -P)
+  while IFS=$'\t' read -r tag pid ppid uid kind a0 path; do
+    case "$tag" in
+      S) verified+="S"$'\t'"$pid"$'\n' ;;
+      C) if [ "$a0" != "-" ] && ! [[ -f "$a0" && -x "$a0" ]]; then continue; fi
+         verified+="C"$'\t'"$pid"$'\t'"$ppid"$'\t'"$uid"$'\t'"$kind"$'\t'"$path"$'\n' ;;
+    esac
+  done < <(ps axww -o pid=,ppid=,uid=,args= 2>/dev/null | plot_process_candidates)
+  [ -n "$verified" ] || return 0
+  # A process is reported only where its parent is not of the same kind: that
+  # folds a `node --watch` board's child and a scan's subshells. Orphaned is a
+  # parent that exited — ppid 1, or the `systemd --user` subreaper.
+  top=$(printf '%s' "$verified" | awk -F'\t' '
+    $1 == "S" { sd[$2] = 1; next }
+    { n++; P[n] = $2; PP[n] = $3; U[n] = $4; K[n] = $5; A[n] = $6; kind[$2] = $5 }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (kind[PP[i]] == K[i]) continue
+        print K[i] "\t" P[i] "\t" ((PP[i] == 1 || (PP[i] in sd)) ? 1 : 0) "\t" U[i] "\t" A[i]
+      }
+    }')
+  while IFS=$'\t' read -r kind pid orph uid path; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$skip" ] && continue
+    cwd=$(process_cwd "$kernel" "$pid")
+    if [ -z "$cwd" ]; then
+      owner=$(id -un "$uid" 2>/dev/null) || owner=$uid
+      [ -n "$owner" ] || owner=$uid
+      serves="cannot determine (owner $owner)"
+    elif [ "$cwd" = "$repo_root" ] || [ "$cwd" = "$here" ]; then
+      serves="THIS repository"
+    else
+      serves=$cwd
+    fi
+    case "$path" in
+      /*) full=$path ;;
+      *)  full=""; [ -n "$cwd" ] && full="$cwd/$path" ;;
+    esac
+    case "$kind" in
+      board)      suffix=/skills/plot/scripts/board/board-server.mjs ;;
+      supervisor) suffix=/skills/plot/scripts/board/plot-registryd.mjs ;;
+      *)          suffix=/skills/plot/scripts/plot-fleet-scan.sh ;;
+    esac
+    inst="cannot determine"
+    case "$full" in
+      ?*"$suffix")
+        full=${full%"$suffix"}
+        if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
+          inst="THIS repository"
+        else
+          inst=$(home_short "$full")
+        fi ;;
+    esac
+    label=""
+    if [ "$kind" = supervisor ]; then
+      case "$kernel" in
+        Darwin)
+          [ "$lc_read" = 1 ] || { lc=$(launchctl list 2>/dev/null); lc_read=1; }
+          label=$(printf '%s\n' "$lc" | awk -F'\t' -v p="$pid" '$1 == p { print $3; exit }') ;;
+        Linux)
+          line=$(grep '^0::' "${PLOT_PROC_ROOT:-/proc}/$pid/cgroup" 2>/dev/null | head -1)
+          seg=${line##*/}
+          case "$seg" in *?.service) label="unit ${seg%.service}" ;; esac ;;
+      esac
+      label=${label//$'\t'/?}
+    fi
+    [ "$serves" = "THIS repository" ] || noisy=1
+    [ "$kind" = scan ] && [ "$orph" = 1 ] && noisy=1
+    rows+="$kind"$'\t'"$pid"$'\t'"$orph"$'\t'"$serves"$'\t'"$inst"$'\t'"$label"$'\n'
+  done <<< "$top"
+  [ "$noisy" = 1 ] || return 0
+  echo ""
+  echo "plot processes on this machine:"
+  printf '%s' "$rows" | awk -F'\t' '
+    function where(r) { return "    serves:     " S[r] "\n    installed:  " I[r] }
+    { n++; K[n] = $1; P[n] = $2; O[n] = $3; S[n] = $4; I[n] = $5; L[n] = $6 }
+    END {
+      for (i = 1; i <= n; i++) if (K[i] == "supervisor")
+        print "  supervisor  pid " P[i] (L[i] != "" ? "  " L[i] : "") "\n" where(i)
+      for (i = 1; i <= n; i++) if (K[i] == "board")
+        print "  board       pid " P[i] "\n" where(i)
+      for (i = 1; i <= n; i++) if (K[i] == "scan") {
+        g = S[i] "\t" I[i]
+        if (!(g in first)) { first[g] = i; order[++m] = g }
+        if (O[i]) orphaned[g]++; else live[g]++
+      }
+      for (j = 1; j <= m; j++) {
+        g = order[j]
+        print "  scans       " (live[g] + 0) " in flight, " (orphaned[g] + 0) " orphaned\n" where(first[g])
+      }
+    }'
+}
+
 # Seconds since the supervisor last wrote its log, or empty when there is no
 # log or its mtime cannot be read. Empty is not zero: no reading is not a fresh
 # tick. Evidence only — the staleness judgement is `rules/supervisor-reading.ts`.
@@ -614,6 +819,13 @@ if [ "$mode" = "status" ]; then
     [ -n "$tick_age" ] && tick_field=" tick_age=$tick_age"
   fi
   echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$sup_word install=$install_state$tick_field"
+  # EVERY PLOT PROCESS ON THE MACHINE, AFTER THE SUMMARY AND NEVER BEFORE IT.
+  # The board reads the first `summary:` line; this block changes neither that
+  # line nor the exit code below. It prints under every platform arm, `none`
+  # included, because a board runs on a host with no init system.
+  skip_pid=""
+  [ "$install_state" = running ] && skip_pid=$sup_pid
+  plot_processes_block "$skip_pid" || true
   # THE EXIT CODE COMES FROM THE CAPTURE, NEVER FROM A FRESH PROBE. This line
   # read `supervisor_loaded; exit $?` — a fourth call to the init system that
   # recomputed the verdict from the label alone, so a loaded-but-dead

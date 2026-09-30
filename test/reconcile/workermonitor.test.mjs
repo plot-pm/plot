@@ -38,21 +38,29 @@ const monitor = path.join(scripts, 'plot-worker-monitor.sh');
  *
  * `ports` is shell that redefines any of `monitor_pid_alive`,
  * `monitor_pid`, `monitor_transcript_quiet`, `monitor_activity`,
- * `monitor_tree_fingerprint` and `monitor_has_commits`. `passes` is how many times `monitor_pass` is called —
- * the two-sample rule means most interesting assertions need at least two.
+ * `monitor_tree_fingerprint`, `monitor_has_commits` and
+ * `monitor_conversation_spoken`. `passes` is how many times `monitor_pass` is
+ * called — the two-sample rule means most interesting assertions need at least
+ * two. `body`, when given, replaces the pass loop with its own shell.
+ *
+ * `PLOT_SESSION_ID` and `PLOT_MANIFEST_FILE` are blanked after the ambient
+ * environment and before `env`. A dispatched worker running this suite carries
+ * its own handle, which names no file in the test's desk; without the blanking
+ * every quiet test reads `unspoken` (measured 28/36). A test that wants a
+ * handle passes one in `env`.
  *
  * Returns the findings the monitor published, parsed. Publishing goes to a real
  * file because that IS the publish path in this slice; stubbing it would leave
  * the one thing a subscriber reads untested.
  */
-function drive(ports, passes = 1, { env = {} } = {}) {
+function drive(ports, passes = 1, { env = {}, body = '' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-'));
   const file = path.join(dir, 'findings.jsonl');
   const script = `
     PLOT_MONITOR_NO_MAIN=1
     . ${JSON.stringify(monitor)}
     ${ports}
-    for _i in $(seq 1 ${passes}); do monitor_pass; done
+    ${body || `for _i in $(seq 1 ${passes}); do monitor_pass; done`}
   `;
   try {
     execFileSync('bash', ['-c', script], {
@@ -60,6 +68,8 @@ function drive(ports, passes = 1, { env = {} } = {}) {
       timeout: 30_000,
       env: {
         ...process.env,
+        PLOT_SESSION_ID: '',
+        PLOT_MANIFEST_FILE: '',
         PLOT_BRANCH: 'feature/watched',
         PLOT_WORKTREE: dir,
         PLOT_MONITOR_FILE: file,
@@ -840,4 +850,318 @@ test('transcript-quiet: the newest session across a desk is the reading', () => 
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AN IDLE READING KNOWS THE CONVERSATION STARTED — #1074
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// After a hop to a new branch the loop mints a fresh handle, and the new
+// conversation has no transcript file until its first line. The desk-wide quiet
+// number then reads the PREVIOUS slice's file. Past the window, the monitor
+// asks whether `<handle>.jsonl` exists; where it does not, the verdict is
+// `unspoken` and nothing is published.
+//
+// These run the REAL transcript reader, the REAL probe and the REAL handle
+// against files on disk. Only the pid, the CPU, the tree and the commit count
+// are stubbed, because those are the readings a test cannot schedule.
+
+const loopScript = path.join(scripts, 'plot-worker-loop.sh');
+const manifestLib = path.join(scripts, 'plot-agent-manifest.sh');
+
+/** Every port but the transcript reading and the conversation probe. */
+const LIVE_DESK = `
+  monitor_pid_alive() { return 0; }
+  monitor_pid() { printf '4242'; }
+  monitor_activity() { printf 'idle'; }
+  monitor_tree_fingerprint() { printf 'unchanged'; }
+  monitor_has_commits() { return 0; }
+`;
+
+/**
+ * A desk with a transcript directory and a manifest. `transcript(name, age)`
+ * writes `<name>.jsonl` with its mtime `age` seconds in the past;
+ * `manifest(fields)` writes the agent manifest. `env` is what `drive` needs for
+ * the monitor to find both.
+ */
+const hopDesk = () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-hop-'));
+  const home = path.join(root, 'home');
+  const worktree = path.join(root, 'desk');
+  fs.mkdirSync(worktree, { recursive: true });
+  const dir = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  const manifestFile = path.join(root, 'agent.json');
+  const transcript = (name, age) => {
+    const file = path.join(dir, `${name}.jsonl`);
+    fs.writeFileSync(file, '{}\n');
+    const t = new Date(Date.now() - age * 1000);
+    fs.utimesSync(file, t, t);
+    return file;
+  };
+  const manifest = (fields) => fs.writeFileSync(manifestFile,
+    JSON.stringify({ session: 'launch-id', branch: 'bug/next', ...fields }, null, 2) + '\n');
+  return {
+    root, dir, worktree, manifestFile, transcript, manifest,
+    env: {
+      PLOT_TRANSCRIPT_HOME: home,
+      PLOT_WORKTREE: worktree,
+      PLOT_SESSION_ID: 'launch-id',
+      PLOT_MANIFEST_FILE: manifestFile,
+    },
+    done: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+};
+
+/** `touch -t` form (local time, `CCYYMMDDhhmm.SS`) for `age` seconds ago. */
+const touchStamp = (age) => {
+  const d = new Date(Date.now() - age * 1000);
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}.${p2(d.getSeconds())}`;
+};
+
+/** The verdict one sample gives, from the real ports over `desk`. */
+const verdictOf = (desk, ports = LIVE_DESK, env = {}) => execFileSync('bash', ['-c', `
+  PLOT_MONITOR_NO_MAIN=1
+  . ${JSON.stringify(monitor)}
+  ${ports}
+  sample_verdict
+`], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...desk.env, ...env } });
+
+test('unspoken: a hop whose conversation has no file answers unspoken and publishes nothing', () => {
+  // THE DEFECT. The previous slice's file is 3 000 s old, and the manifest's
+  // `resumeId` names a conversation that has not written. Before this rule the
+  // desk read `quiet` twice and published `idle` on a silence the previous
+  // session produced.
+  const desk = hopDesk();
+  try {
+    desk.transcript('previous-slice', 3000);
+    desk.manifest({ resumeId: 'new-slice' });
+    assert.equal(verdictOf(desk), 'unspoken');
+    assert.deepEqual(drive(LIVE_DESK, 4, { env: desk.env }), [],
+      'a worker whose conversation has not written was published idle on the previous slice\'s silence');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: the first line ends it, and idle needs two quiet passes after it', () => {
+  const desk = hopDesk();
+  try {
+    desk.transcript('previous-slice', 3000);
+    desk.manifest({ resumeId: 'new-slice' });
+    // Pass 1 has no file. Then the conversation writes and goes quiet for
+    // 1 200 s. Pass 2 is the first `quiet` (prev was `unspoken`), pass 3 fires.
+    const own = path.join(desk.dir, 'new-slice.jsonl');
+    const published = drive(LIVE_DESK, 0, {
+      env: desk.env,
+      body: `
+        monitor_pass; printf '%s' "$prev_verdict" > ${JSON.stringify(path.join(desk.root, 'v1'))}
+        printf '{}\\n' > ${JSON.stringify(own)}; touch -t ${touchStamp(1200)} ${JSON.stringify(own)}
+        monitor_pass
+        printf 'after-2:%s' "$published" > ${JSON.stringify(path.join(desk.root, 'v2'))}
+        monitor_pass
+      `,
+    });
+    assert.equal(fs.readFileSync(path.join(desk.root, 'v1'), 'utf8'), 'unspoken');
+    assert.equal(fs.readFileSync(path.join(desk.root, 'v2'), 'utf8'), 'after-2:',
+      'idle fired on the first quiet pass after unspoken — the two-sample rule counted unspoken as quiet');
+    assert.equal(published.length, 1, `expected one idle, got ${JSON.stringify(published)}`);
+    assert.equal(published[0].finding, 'idle');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: a transcript created in the same second as the manifest write reads as started', () => {
+  // THE SAME-SECOND TIE, asserted with `touch -t`: both files carry one epoch
+  // second, 20 minutes ago. An instrument comparing the two timestamps would
+  // have to break the tie one way or the other; existence compares nothing.
+  const desk = hopDesk();
+  try {
+    desk.manifest({ resumeId: 'new-slice' });
+    const own = desk.transcript('new-slice', 0);
+    execFileSync('touch', ['-t', touchStamp(1200), own, desk.manifestFile]);
+    assert.equal(fs.statSync(own).mtimeMs, fs.statSync(desk.manifestFile).mtimeMs,
+      'the fixture failed to give both files one second');
+    assert.equal(verdictOf(desk), 'quiet');
+    const published = drive(LIVE_DESK, 2, { env: desk.env });
+    assert.equal(published.length, 1);
+    assert.equal(published[0].finding, 'idle');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: after raise_manifest_corrections the resumed conversation still reaches idle', () => {
+  // THE NEGATIVE CASE the manifest-mtime instrument failed (round 2). The real
+  // loop function rewrites the manifest NOW, after the conversation spoke; its
+  // file is 1 200 s old. Only `resumeId` decides, and the correction does not
+  // change it.
+  const desk = hopDesk();
+  try {
+    desk.manifest({ resumeId: 'the-slice' });
+    desk.transcript('the-slice', 1200);
+    execFileSync('bash', ['-c', `
+      PLOT_WORKER_LOOP_SOURCED=1
+      . ${JSON.stringify(loopScript)}
+      raise_manifest_corrections ${JSON.stringify(desk.manifestFile)}
+    `], { encoding: 'utf8', timeout: 60_000 });
+    assert.equal(JSON.parse(fs.readFileSync(desk.manifestFile, 'utf8')).correctionAttempts, 1,
+      'the correction was not written — this test proves nothing');
+    const published = drive(LIVE_DESK, 2, { env: desk.env });
+    assert.equal(published.length, 1, `expected idle, got ${JSON.stringify(published)}`);
+    assert.equal(published[0].finding, 'idle');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: after clear_manifest_branch the slice\'s file still answers a number', () => {
+  const desk = hopDesk();
+  try {
+    desk.manifest({ resumeId: 'the-slice' });
+    desk.transcript('the-slice', 1200);
+    execFileSync('bash', ['-c', `
+      . ${JSON.stringify(manifestLib)}
+      clear_manifest_branch ${JSON.stringify(desk.manifestFile)}
+    `], { encoding: 'utf8', timeout: 30_000 });
+    assert.equal(JSON.parse(fs.readFileSync(desk.manifestFile, 'utf8')).branch, '');
+    assert.equal(verdictOf(desk), 'quiet');
+    const published = drive(LIVE_DESK, 2, { env: desk.env });
+    assert.equal(published.length, 1);
+    assert.equal(published[0].finding, 'idle');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: an operator at the desk is decided by the handle, in all three readings', () => {
+  // The quiet number stays desk-wide; the handle enters only as an existence
+  // test, and only past the window.
+  const desk = hopDesk();
+  try {
+    desk.manifest({ resumeId: 'worker' });
+
+    // 1. The worker's own file exists (old); an operator's newer file sets the
+    //    number and reads as activity at the desk.
+    desk.transcript('worker', 3000);
+    desk.transcript('operator', 10);
+    assert.equal(verdictOf(desk), 'busy',
+      'an operator typing at the desk was not read as activity — the quiet number was scoped to the handle');
+
+    // 2. Before the worker's own file exists, an operator's file inside the
+    //    window reads busy, as it did before this rule.
+    fs.rmSync(path.join(desk.dir, 'worker.jsonl'));
+    desk.transcript('operator', 100);
+    assert.equal(verdictOf(desk), 'busy',
+      'the conversation probe ran before the window check');
+
+    // 3. Before the worker's own file exists, an operator's file 1 000 s old is
+    //    not this worker's silence.
+    desk.transcript('operator', 1000);
+    assert.equal(verdictOf(desk), 'unspoken');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: the port separates no file from no handle', () => {
+  // `plot_transcript_exists` reads *no handle* as *no file*, which suits
+  // `session_flag`. The port must not: a monitor with no handle that read every
+  // quiet worker as unspoken would disable `idle` silently.
+  const desk = hopDesk();
+  const rc = (env) => execFileSync('bash', ['-c', `
+    PLOT_MONITOR_NO_MAIN=1
+    . ${JSON.stringify(monitor)}
+    monitor_conversation_spoken; printf '%s' "$?"
+  `], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...desk.env, ...env } });
+  try {
+    desk.manifest({ resumeId: 'worker' });
+    assert.equal(rc({}), '1', 'a handle with no file did not answer unspoken');
+    desk.transcript('worker', 5000);
+    assert.equal(rc({}), '0', 'a handle with a file did not answer spoken');
+    assert.equal(rc({ PLOT_SESSION_ID: '', PLOT_MANIFEST_FILE: '' }), '2',
+      'no handle was read as no file');
+    // A manifest with no `resumeId` falls back to the launch id — the prompt's order.
+    desk.manifest({});
+    assert.equal(rc({}), '1', 'the launch id fallback was not asked');
+    desk.transcript('launch-id', 5000);
+    assert.equal(rc({}), '0');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: with no handle the monitor judges the desk alone, as before', () => {
+  // `drive` blanks the handle, so this is a hand-started monitor over a desk
+  // whose only file is 3 000 s old: it reaches idle, as it did before the probe.
+  const desk = hopDesk();
+  try {
+    desk.transcript('previous-slice', 3000);
+    const published = drive(LIVE_DESK, 2, {
+      env: { PLOT_TRANSCRIPT_HOME: desk.env.PLOT_TRANSCRIPT_HOME, PLOT_WORKTREE: desk.worktree },
+    });
+    assert.equal(published.length, 1, `expected idle, got ${JSON.stringify(published)}`);
+    assert.equal(published[0].finding, 'idle');
+  } finally {
+    desk.done();
+  }
+});
+
+test('unspoken: a hand-started monitor with no handle says so on stderr, once', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-nohandle-'));
+  const run = (env) => spawnSync('bash', [monitor, '--once'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    env: {
+      ...process.env,
+      PLOT_SESSION_ID: '',
+      PLOT_MANIFEST_FILE: '',
+      PLOT_WORKTREE: dir,
+      PLOT_MONITOR_FILE: path.join(dir, 'findings.jsonl'),
+      ...env,
+    },
+  });
+  try {
+    const bare = run({});
+    assert.equal(bare.status, 0);
+    const line = 'plot-worker-monitor: no session handle (PLOT_SESSION_ID and PLOT_MANIFEST_FILE unset) — idle is judged on the desk alone';
+    assert.equal(bare.stderr.split('\n').filter((l) => l === line).length, 1,
+      `the missing handle was not reported once: ${bare.stderr}`);
+    const handled = run({ PLOT_SESSION_ID: 'launch-id' });
+    assert.doesNotMatch(handled.stderr, /no session handle/,
+      'a monitor holding a handle reported none');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('unspoken: inside the window the probe is never asked', () => {
+  // LAZY: `session_handle` starts a `node`, and a busy worker pays nothing.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-lazy-'));
+  const marker = path.join(dir, 'asked');
+  try {
+    const ports = `${LIVE_DESK}
+      monitor_conversation_spoken() { : > ${JSON.stringify(marker)}; return 1; }`;
+    const inside = `${ports}\n monitor_transcript_quiet() { printf '100'; }`;
+    assert.deepEqual(drive(inside, 3), []);
+    assert.equal(fs.existsSync(marker), false, 'the probe ran inside the window');
+    const past = `${ports}\n monitor_transcript_quiet() { printf '5000'; }`;
+    assert.deepEqual(drive(past, 3), [], 'a stubbed unspoken answer still published a finding');
+    assert.equal(fs.existsSync(marker), true, 'the probe was not asked past the window');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('unspoken: the loop and the monitor share one probe and one handle', () => {
+  const loopSrc = fs.readFileSync(loopScript, 'utf8');
+  assert.doesNotMatch(loopSrc, /session_transcript_exists/);
+  assert.doesNotMatch(loopSrc, /^manifest_resume_id\(\)/m);
+  assert.doesNotMatch(loopSrc, /^session_handle\(\)/m);
+  assert.match(loopSrc, /plot_transcript_exists "\$\{PLOT_WORKTREE:-\$PWD\}"/,
+    'session_flag no longer asks the shared probe');
+  assert.match(fs.readFileSync(manifestLib, 'utf8'), /^session_handle\(\) \{/m);
+  assert.match(fs.readFileSync(transcriptLib, 'utf8'), /^plot_transcript_exists\(\) \{/m);
 });

@@ -62,11 +62,12 @@ function dispatchablePlan(work, { slug = 'monitor-sampling', date = '2026-08-30'
  * about load, not a property of the logic, and it is overridable precisely so
  * that a test need not wait a minute to observe two passes.
  */
-function dispatchOne(name, { workerCommand, monitorInterval = '1' } = {}) {
+function dispatchOne(name, { workerCommand, monitorInterval = '1', env = {} } = {}) {
   const sb = makeSandbox({ name, config: '' });
+  const command = typeof workerCommand === 'function' ? workerCommand(sb) : workerCommand;
   fs.writeFileSync(
     path.join(sb.work, 'CLAUDE.md'),
-    `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${workerCommand}\n`,
+    `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${command}\n`,
   );
   dispatchablePlan(sb.work);
   // THE DESK IS LAID BY THE FIXTURE, not by the fan-out. Dispatch hands a slice
@@ -74,7 +75,7 @@ function dispatchOne(name, { workerCommand, monitorInterval = '1' } = {}) {
   // and its monitors once a desk exists, so the fixture provides one and every
   // assertion below stands unchanged.
   const { worktree: wt } = staffDesk(sb.work, 'feature/sampled',
-    { env: { PLOT_MONITOR_INTERVAL: monitorInterval } });
+    { env: { PLOT_MONITOR_INTERVAL: monitorInterval, ...(typeof env === 'function' ? env(sb) : env) } });
   return { sb, worktree: wt, findingsFile: path.join(wt, '.plot-worker.monitor.worker.jsonl') };
 }
 
@@ -379,6 +380,83 @@ test('the published findings file does not make the worktree read as dirty', () 
 
     assert.equal(dirty, '',
       `the monitor's own findings file reads as unlanded work: ${dirty}`);
+  } finally {
+    run.sb.cleanup();
+  }
+});
+
+// ── the conversation handle reaches the monitor through the real launch ──────
+//
+// #1074. Past the window, the monitor asks whether `<handle>.jsonl` exists, and
+// answers `unspoken` where it does not. The unit suite proves the rule against
+// a handle it passes in by hand; only a real dispatch proves that the wrapper
+// passes `PLOT_SESSION_ID` and `PLOT_MANIFEST_FILE` down to the monitor.
+//
+// THE PAIR IS THE PROOF. Both runs lay the same desk: a previous slice's
+// transcript far past a shortened window, a committed file, a tree that then
+// stays still, and a worker that sleeps. The only difference is whether the
+// worker writes a file under its own handle, so the handle is the only thing
+// that can separate the two outcomes.
+//
+// THE WORKER WRITES THE FILE, NOT THE TEST. The handle is minted inside the
+// launch (`plot_session_id`) and `staffDesk` returns only after the worker has
+// run, so the test cannot know it in time. The worker asks `session_handle`, the
+// function the monitor asks. It runs as a script file because a `$` in the
+// Worker command is expanded several shells out.
+const conversationDesk = (name, { spoken }) => dispatchOne(name, {
+  // Both travel through `staffDesk`'s env and reach the monitor by inheritance,
+  // as `PLOT_MONITOR_INTERVAL` does.
+  env: (sb) => ({ PLOT_TRANSCRIPT_HOME: path.join(sb.root, 'home'), PLOT_MONITOR_QUIET_SECONDS: '60' }),
+  workerCommand: (sb) => {
+    const script = path.join(sb.root, 'worker.sh');
+    fs.writeFileSync(script, `#!/usr/bin/env bash
+. ${JSON.stringify(path.join(SCRIPTS, 'plot-agent-manifest.sh'))}
+dir="$PLOT_TRANSCRIPT_HOME/.claude/projects/$(printf '%s' "$PLOT_WORKTREE" | tr '/.' '--')"
+mkdir -p "$dir"
+printf '{}\\n' > "$dir/previous-slice.jsonl"
+touch -t 200001010000 "$dir/previous-slice.jsonl"
+${spoken ? `handle=$(session_handle) || exit 3
+printf '{}\\n' > "$dir/$handle.jsonl"
+touch -t 200001010000 "$dir/$handle.jsonl"` : ''}
+echo work > done.txt
+git add done.txt
+git -c user.email=a@b -c user.name=a commit -qm work
+sleep 8
+`);
+    return `bash ${script}`;
+  },
+});
+
+test('a real dispatch whose conversation has written, and gone quiet, is published idle', () => {
+  // The positive half: with the handle's own file present and old, every
+  // condition of `idle` holds, so the monitor must publish it.
+  const name = 'monitor-spoken';
+  const run = conversationDesk(name, { spoken: true });
+  try {
+    const records = waitFor(run.findingsFile, (r) => r.some((x) => x.finding === 'idle'));
+    assert.ok(records.some((x) => x.finding === 'idle'),
+      `a worker whose own transcript was silent past the window was never published idle: ${JSON.stringify(records)}`);
+  } finally {
+    run.sb.cleanup();
+  }
+});
+
+test('a real dispatch whose conversation has not written is never published idle', () => {
+  // The negative half: the same desk with no file under the handle. The
+  // previous slice's silence is not this worker's. `gone` on the worker's exit
+  // is correct and is not the subject, as in the healthy-worker test above.
+  const name = 'monitor-unspoken';
+  const run = conversationDesk(name, { spoken: false });
+  const exitFile = path.join(run.worktree, '.plot-worker.exit');
+  try {
+    const deadline = Date.now() + 30_000;
+    while (!fs.existsSync(exitFile) && Date.now() < deadline) execFileSync('sleep', ['0.2']);
+    assert.ok(fs.existsSync(exitFile), 'the worker never finished, so its silence proves nothing');
+    const records = fs.existsSync(run.findingsFile)
+      ? fs.readFileSync(run.findingsFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      : [];
+    assert.equal(records.filter((x) => x.finding === 'idle').length, 0,
+      `a worker whose conversation never wrote was published idle on the previous slice's silence: ${JSON.stringify(records)}`);
   } finally {
     run.sb.cleanup();
   }

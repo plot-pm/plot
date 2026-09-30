@@ -33,7 +33,20 @@
 #                   equality, not containment: board.ts compares realpaths and
 #                   silently drops branch-staged plans when they differ.
 #   artifact        absolute path to a runnable board-server.mjs, or ""
-#   artifact_source plugin | npm | checkout | none  (resolved in that order)
+#   artifact_source plugin | npm | checkout | none
+#
+#                   A declared `Board artifact` is asked FIRST and answers
+#                   `checkout`; with no key the order is plugin, npm, checkout,
+#                   exactly as before. The key exists because a repository that
+#                   BUILDS the artifact must run the one it built — otherwise
+#                   `pnpm build:board` writes a file the board never reads, and
+#                   the symptom looks like the fix not working.
+#
+#                   A relative value resolves against the MAIN CHECKOUT (the
+#                   parent of `--git-common-dir`), never `--show-toplevel`,
+#                   so a dispatch desk resolves the same file as the checkout
+#                   rather than its own copy. A declared-but-missing file
+#                   answers `none` and does NOT fall back to the plugin.
 #   has_plot_config true when a hub doc carries a `## Plot Config`
 #   plan_dir        the configured plan directory (default docs/plans/)
 #   plan_files      count of *.md under plan_dir (0 when it does not exist)
@@ -187,13 +200,28 @@ gh_workflows=false
 [ -n "$git_root" ] && [ -d "$git_root/.github/workflows" ] && gh_workflows=true
 
 # --- board artifact -----------------------------------------------------
-# Precedence: plugin, then npm, then this checkout. The plugin wins because it
-# tracks the installed plot version; npm 'latest' has lagged behind it.
+# Precedence: a declared `Board artifact`, then plugin, then npm, then this
+# checkout. The plugin wins over npm because it tracks the installed plot
+# version; npm 'latest' has lagged behind it.
 # PLOT_PLUGIN_ROOT / PLOT_NPM_BIN exist so tests need not depend on $HOME.
 #
 # The plugin layout is Claude Code's. Cursor has no such directory, so the
 # search simply finds nothing there and precedence falls through to npm —
 # no host detection needed, and no branch that could rot.
+#
+# A DECLARED KEY WINS FIRST, because a repository that BUILDS the artifact must
+# run the one it built. Measured 2026-09-29: the same repository answers
+# `checkout` with PLOT_PLUGIN_ROOT=/nonexistent and `plugin` with the real
+# plugin root — same tree, same file on disk, shadowed purely by resolution
+# order. The two copies are byte-identical today, so the defect is LATENT: the
+# day the plugin copy lags, `pnpm build:board` writes a file the board never
+# reads and the symptom is indistinguishable from the fix not working.
+#
+# The key is the test rather than a marker on the tree. `packages/board/
+# package.json` was measured and rejected: the plugin ships `packages/`, a fork
+# carries it for free, and EVERY DISPATCH DESK IS A FULL WORKTREE that
+# satisfies it — five trees here carry it and their artifacts already disagree.
+# Newest-mtime was rejected too: a stale build after `git pull` wins silently.
 artifact=""
 artifact_source="none"
 
@@ -226,6 +254,43 @@ mtime() {
   esac
 }
 
+# A DECLARED `Board artifact` IS THE ANSWER, and it is asked first.
+#
+# It resolves against the MAIN CHECKOUT, never `--show-toplevel`. A dispatch
+# desk is a worktree, so `--show-toplevel` there is the DESK, and a relative
+# value resolved against it would give every desk its own copy — the exact
+# disagreement this key exists to end. The parent of `--git-common-dir` is the
+# main checkout from inside a desk and from the checkout itself alike.
+# `board/plot-pr-index-lookup.mjs` made the same choice for the same reason.
+#
+# An absolute value is taken as given, the way `Worktree root` and
+# `Agent registry` treat theirs.
+#
+# A DECLARED-BUT-MISSING FILE DOES NOT FALL BACK. The key says which artifact
+# this repository runs; answering `plugin` because that file is absent is the
+# quiet wrong answer this whole change removes. It reports `none`, which
+# `plot-boardctl.sh` already refuses on — a refusal naming a path the operator
+# declared, rather than a board silently running someone else's build.
+_declared=$(bash "$here/plot-config.sh" get "Board artifact" "" 2>/dev/null || echo "")
+if [ -n "$_declared" ]; then
+  case "$_declared" in
+    /*) _declared_path="$_declared" ;;
+    *)
+      _common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "")
+      if [ -n "$_common" ]; then
+        _main_root=$(cd "$_common/.." 2>/dev/null && pwd -P)
+      else
+        _main_root="$git_root"
+      fi
+      _declared_path="$_main_root/$_declared"
+      ;;
+  esac
+  # Declared is declared: present or absent, the search stops here.
+  if [ -f "$_declared_path" ]; then
+    artifact="$_declared_path"; artifact_source="checkout"
+  fi
+fi
+
 plugin_root="${PLOT_PLUGIN_ROOT:-$HOME/.claude/plugins}"
 
 # MEASURED 2026-08-18: this glob matched THREE artifacts on a normal machine —
@@ -239,6 +304,11 @@ plugin_root="${PLOT_PLUGIN_ROOT:-$HOME/.claude/plugins}"
 # So: `marketplaces/` explicitly, because that IS the installed copy and
 # `cache/<version>/` is history. Newest mtime only as a fallback for layouts
 # without it.
+# THE GUARD IS "was the key declared", NOT "is $artifact empty". A declared key
+# whose file is missing leaves $artifact empty, and an emptiness test would
+# resume the plugin search from there — reinstating the silent fallback this
+# change exists to remove, in the one case where it is most misleading.
+if [ -z "$_declared" ]; then
 cand=$(find "$plugin_root/marketplaces" -type f -name 'board-server.mjs' -path '*/board/*' 2>/dev/null | head -1)
 if [ -z "$cand" ]; then
   best=""; best_m=-1
@@ -267,6 +337,7 @@ if [ -z "$artifact" ] && [ -n "$git_root" ] &&
   artifact="$git_root/skills/plot/scripts/board/board-server.mjs"
   artifact_source="checkout"
 fi
+fi  # end: no `Board artifact` declared
 
 # --- CLI auth -----------------------------------------------------------
 # THREE STATES, NOT TWO. An unrecognised output is "unknown" — *cannot

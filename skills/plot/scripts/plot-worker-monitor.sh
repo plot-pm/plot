@@ -185,6 +185,11 @@ the environment, exactly as the wrapper's other children do:
   PLOT_MONITOR_FILE  where findings are published (default:
                      $PLOT_WORKTREE/.plot-worker.monitor.worker.jsonl)
   PLOT_MONITOR_INTERVAL  seconds between passes (default 30)
+  PLOT_SESSION_ID    the launch session id; the handle when the manifest
+                     carries no `resumeId`
+  PLOT_MANIFEST_FILE the agent's manifest, whose `resumeId` names the current
+                     conversation. With neither set, `idle` is judged on the
+                     desk alone and one line on stderr says so.
 
   --once   take one sample and exit, rather than looping. A single pass can
            never publish `idle` — that needs two — so this is how a test drives
@@ -255,6 +260,15 @@ plot_transcript_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-transcri
 # shellcheck source=plot-transcript-quiet.sh
 if [ -r "$plot_transcript_lib" ]; then . "$plot_transcript_lib"; fi
 
+# THE CONVERSATION HANDLE — `session_handle`, the one the loop hands the prompt.
+# The manifest's `resumeId`, else `PLOT_SESSION_ID`, both read from the
+# environment the wrapper passes down. Never `plot_manifest_for_worktree`: it
+# resolves `--show-toplevel` to the desk and ignores `Agent registry`, so it
+# names a directory that does not exist (#1086).
+plot_manifest_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-agent-manifest.sh"
+# shellcheck source=plot-agent-manifest.sh
+if [ -r "$plot_manifest_lib" ]; then . "$plot_manifest_lib"; fi
+
 # HOW LONG A TRANSCRIPT MUST BE QUIET BEFORE THE QUESTION IS EVEN ASKED.
 #
 # 900 s, and the number comes from wave 1's measurement rather than from taste.
@@ -318,7 +332,7 @@ publish() { # $1=finding $2=evidence $3=since
 }
 
 # ---------------------------------------------------------------------------
-# THE PORTS — four named seams, so every branch is reachable from a test
+# THE PORTS — seven named seams, so every branch is reachable from a test
 # ---------------------------------------------------------------------------
 #
 # Each of these is one question against the machine, and each is a `monitor_*`
@@ -372,6 +386,29 @@ monitor_activity() { # $1=pid → working | idle | ""
 monitor_transcript_quiet() { # → seconds | unavailable
   command -v plot_transcript_quiet_seconds >/dev/null 2>&1 || { printf 'unavailable'; return 0; }
   plot_transcript_quiet_seconds "$worktree"
+}
+
+# Has THIS worker's conversation written yet?
+#
+# THE DESK-WIDE NUMBER CANNOT SAY. After a hop to a new branch the loop mints a
+# fresh handle, and the new conversation has no transcript file until its first
+# line. Until then the desk's newest file is the PREVIOUS slice's, and its
+# silence is not this worker's. So the monitor asks the loop's own probe with
+# the loop's own handle: one probe, two readers, one answer.
+#
+# THREE ANSWERS, AND THE THIRD IS NOT THE SECOND. `0` the handle's file exists,
+# `1` it does not, `2` there is no handle to ask about. `plot_transcript_exists`
+# reads *no handle* as *no file*, which suits `session_flag`; here it would
+# make a hand-started monitor read every quiet worker as unspoken and disable
+# `idle` silently. So the handle is checked here, before the probe.
+monitor_conversation_spoken() { # → 0 spoken | 1 unspoken | 2 no handle
+  command -v session_handle >/dev/null 2>&1 || return 2
+  command -v plot_transcript_exists >/dev/null 2>&1 || return 2
+  local handle
+  handle=$(session_handle) || return 2
+  [ -n "$handle" ] || return 2
+  plot_transcript_exists "$worktree" "$handle" && return 0
+  return 1
 }
 
 # A cheap stand-in for "the tree as it is right now", compared between passes.
@@ -462,7 +499,7 @@ since=''
 # every other question meaningless — you cannot measure the CPU of a subtree
 # that is not there, and `plot_worker_activity` would answer "" for it anyway,
 # which is indistinguishable from a live pid with no children.
-sample_verdict() { # → gone | quiet | busy | unknown
+sample_verdict() { # → gone | quiet | busy | unknown | unspoken
   local alive
   monitor_pid_alive; alive=$?
   [ "$alive" = 1 ] && { printf 'gone'; return; }
@@ -499,6 +536,18 @@ sample_verdict() { # → gone | quiet | busy | unknown
   # Inside the window, the agent has produced output recently. Nothing else
   # needs asking: no CPU sample can overturn a line written seconds ago.
   if [ "$quiet" -lt "$PLOT_MONITOR_QUIET_SECONDS" ]; then printf 'busy'; return; fi
+
+  # PAST THE WINDOW, AND ONLY HERE, ASK WHETHER THIS CONVERSATION HAS WRITTEN.
+  # The number is the desk's; a new conversation with no file yet has produced
+  # none of its silence. `unspoken` is a reading that was made, and it is not
+  # `unknown`, which is no reading. Only `1` answers it: with no handle (`2`)
+  # the verdict is judged on the desk alone, as before this port existed.
+  #
+  # LAZY ON PURPOSE. `session_handle` starts one `node` (about 35 ms), so a
+  # worker inside the window never pays it.
+  local spoken
+  monitor_conversation_spoken; spoken=$?
+  [ "$spoken" = 1 ] && { printf 'unspoken'; return; }
 
   # PAST THE WINDOW, THE SECOND READING DECIDES — and it answers a question the
   # transcript cannot. A transcript is equally quiet whether the agent is
@@ -556,9 +605,13 @@ monitor_pass() {
         # failure to observe is not evidence of something to see.
       fi
       ;;
-    # `busy` and `unknown` are not findings. Nothing is published, which is the
-    # design: silence means healthy, and the AgentMonitor's slower loop is what
-    # catches a worker that finished without saying so.
+    # `busy`, `unknown` and `unspoken` are not findings. Nothing is published,
+    # which is the design: silence means healthy, and the AgentMonitor's slower
+    # loop is what catches a worker that finished without saying so. `unspoken`
+    # is recorded as `prev_verdict`, so `idle` needs two `quiet` passes after
+    # the conversation's first line. No grace period bounds it: a prompt that
+    # stays alive and never writes a line ends at `Worker bound`, the cost
+    # `unknown` already carries.
   esac
 
   prev_verdict="$verdict"
@@ -588,6 +641,14 @@ monitor_pass() {
 # redefined ports needs the functions without the loop; everything above this
 # line defines, and nothing below it runs when the guard is set.
 [ -n "${PLOT_MONITOR_NO_MAIN:-}" ] && return 0 2>/dev/null
+
+# ONE LINE AT START WHEN THERE IS NO HANDLE. Every wrapper-started monitor has
+# one, because `plot-dispatch.sh` sets `PLOT_SESSION_ID` on every launch; only a
+# monitor started by hand has none. It then behaves as it did before the
+# conversation probe, and says so rather than degrading silently.
+if [ -z "${PLOT_SESSION_ID:-}" ] && [ -z "${PLOT_MANIFEST_FILE:-}" ]; then
+  echo 'plot-worker-monitor: no session handle (PLOT_SESSION_ID and PLOT_MANIFEST_FILE unset) — idle is judged on the desk alone' >&2
+fi
 
 monitor_pass
 [ "$once" = 1 ] && exit 0

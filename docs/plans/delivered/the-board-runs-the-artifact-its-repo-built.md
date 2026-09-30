@@ -1,0 +1,1 @@
+../2026-09-29-the-board-runs-the-artifact-its-repo-built.md

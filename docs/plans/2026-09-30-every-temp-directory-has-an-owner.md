@@ -13,6 +13,8 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Started:** 2026-09-30, jwloka, `bug/scripts-share-one-temp-helper`
+- **Started:** 2026-09-30, Jan Wloka, `bug/the-suites-own-their-temp-root`
+- **Started:** 2026-09-30, jwloka, `bug/every-state-file-declares-its-bound`
 
 ## Changelog
 
@@ -287,19 +289,18 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 
 ## Slices
 
-### Scripts share one temp helper (Branch: bug/scripts-share-one-temp-helper)
+### Temp helper and state bounds
 
-Layers 1 and 2: `plot-tmp.sh` with assignment by name, the file-backed exit registry and the re-raising signal traps; the migration of all 14 `mktemp` sites, the nine fixed-name `/tmp` paths and the 8 traps; the gate; the fleet-scan cache rename; the reaper's sweep over `plot-*` entries and dead-pid memo directories; the registryd `--sweep-temp` flag in both units; and the scan's advisory counts.
+- `bug/scripts-share-one-temp-helper` → #1102 — Layers 1 and 2: `plot-tmp.sh` with assignment by name, the file-backed exit registry and the re-raising signal traps; the migration of all 14 `mktemp` sites, the nine fixed-name `/tmp` paths and the 8 traps; the gate; the fleet-scan cache rename; the reaper's sweep over `plot-*` entries and dead-pid memo directories; the registryd `--sweep-temp` flag in both units; and the scan's advisory counts.
+- `bug/every-state-file-declares-its-bound` — Layer 5: two-generation rotation of the budget ledger with the generation counter, the stale-lock recovery and the removal of `truncate()`; process-owned log rotation; and the board-project cache move. It waits for no slice: it touches none of the first two slices' files, and its own tests set `PLOT_BUDGET_HOME` and `HOME` to a scratch directory, so they never write the operator's ledger.
 
-### The suites own their temp root (Branch: bug/the-suites-own-their-temp-root)
+### The suites own their temp root (Branch: bug/the-suites-own-their-temp-root) <!-- waits: bug/scripts-share-one-temp-helper -->
 
-Layers 3 and 4: `scripts/owned-run.sh` with the private `TMPDIR`, `HOME` and `PLOT_BUDGET_HOME`, the original-environment registry check, the signal traps, the leak gate, and the per-file fixes that make it pass. It needs the first slice: without templated script paths the gate is blind on macOS and red on Linux.
-
-### Every state file declares its bound (Branch: bug/every-state-file-declares-its-bound)
-
-Layer 5: two-generation rotation of the budget ledger with the generation counter, the stale-lock recovery and the removal of `truncate()`; process-owned log rotation; the board-project cache move; and the inventory gate. It needs the second slice: the inventory gate runs inside that slice's sandbox, and its `HOME` redirect keeps the suites out of the ledger this slice bounds.
+Layers 3 and 4: `scripts/owned-run.sh` with the private `TMPDIR`, `HOME` and `PLOT_BUDGET_HOME`, the original-environment registry check, the signal traps, the leak gate, the per-file fixes that make it pass, and the inventory gate with its manifest of globs. It needs the first slice: without templated script paths the gate is blind on macOS and red on Linux. The inventory gate lives here because it runs inside this slice's sandbox; the manifest declares each path's bound, and the third slice makes the ledger, log and cache bounds true.
 
 ## Notes
+
+**Slices re-cut on 2026-09-30, after approval, at the operator's call.** The inventory gate moved from the third slice to the second, whose sandbox it runs in, and the third slice joined the first slice's wave so it runs beside it: Plot runs waves in order, so a wait annotation alone could not release it. The suites' slice now follows both. No design text changed.
 
 **The 365 was the second measurement.** The issue first said a killed run skipped cleanup. One clean run showed the leak is the normal path, and #1083 carries that correction.
 

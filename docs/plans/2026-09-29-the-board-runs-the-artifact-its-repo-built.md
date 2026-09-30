@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
 - **Started:** 2026-09-29, jwloka, `bug/the-board-runs-the-artifact-its-repo-built`
+- **Delivered:** 2026-09-30
 
 ## Changelog
 
@@ -112,7 +113,7 @@ Everything else keeps today's order. The probe is the only place this is decided
 
 ## Slices
 
-### The board runs the artifact its repo built (Branch: bug/the-board-runs-the-artifact-its-repo-built)
+### The board runs the artifact its repo built (Branch: bug/the-board-runs-the-artifact-its-repo-built, PR: #1098)
 
 Pick the test, apply it in the probe, and assert both directions.
 

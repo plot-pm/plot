@@ -52,6 +52,23 @@
 #                       the board finds the registry wherever it was started.
 #                       Absent = the default, so a single-checkout project is
 #                       unaffected.
+#   Board artifact      the board-server.mjs this repository runs, read by
+#                       plot-board-probe.sh. Declared, it is resolved FIRST and
+#                       reported as `artifact_source: checkout`; absent, the
+#                       order stays plugin, npm, checkout — the adopting
+#                       project's case, unchanged. It exists because a
+#                       repository that BUILDS the artifact must run the one it
+#                       built: without it `pnpm build:board` writes a file the
+#                       board never reads whenever a plugin is installed, and
+#                       the symptom looks like the fix not working.
+#                       A relative value resolves against the MAIN CHECKOUT (the
+#                       parent of `--git-common-dir`), never `--show-toplevel`,
+#                       so a dispatch desk resolves the same file rather than
+#                       its own copy; an absolute one is taken as given.
+#                       A declared file that is missing reports `none` and does
+#                       NOT fall back to the plugin — the key names which
+#                       artifact runs, so a silent substitution is the wrong
+#                       answer it removes. Absent = today's order.
 #   Worktree root       where /plot-dispatch creates fleet worktrees. A relative
 #                       value resolves against the repo root, an absolute one is
 #                       taken as given. Absent = the default `repo_root/..` with

@@ -793,12 +793,20 @@ describe('the exit code this adapter reads is the one the script spends', () => 
       encoding: 'utf8',
     });
 
-  /** A `bb` that answers every state but `merged`. */
+  /**
+   * A `bb` that answers every state but `merged`.
+   *
+   * It imitates the call the script makes: one `bb api …?state=<S>&pagelen=50`
+   * per state, answered with a paginated `{"values": […]}` page. A stub that
+   * matched the older `bb pr list --state merged` argument never failed the
+   * merged state, and its bare array failed `jq` on every state, so the
+   * script correctly read a total outage.
+   */
   const ONE_STATE_FAILS = [
     'for a in "$@"; do',
-    '  if [ "$a" = "merged" ]; then echo "bb: HTTP 500 on merged" >&2; exit 1; fi',
+    '  case "$a" in *state=MERGED*) echo "bb: HTTP 500 on merged" >&2; exit 1;; esac',
     'done',
-    `echo '[{"id":11,"title":"t","state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"u"}}}]'`,
+    `echo '{"pagelen":50,"values":[{"id":11,"title":"t","state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"u"}}}]}'`,
   ].join('\n');
 
   /** A `bb` that answers nothing at all. */
