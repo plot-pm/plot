@@ -14,6 +14,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. Measured 2026-09-30 with GNU `mktemp` first on PATH: the four scan
+// files left 66 `plot-fleet-*` sandboxes between them. Those are the TESTS' own
+// directories — the 98 `tmp.*` entries the scripts used to leave are gone, which
+// is what `bug/scripts-share-one-temp-helper` fixed.
+//
+// One `process.on('exit')` rather than a cleanup per case, so a new case is
+// covered without remembering to add one, and it is idempotent with the `rmSync`
+// calls already here. Never a glob over the shared temp directory.
+//
+// A FUNCTION DECLARATION HOLDING ITS OWN STATE, because `before()` hooks above
+// this point call it: a function declaration is hoisted whole, while a `const`
+// it closed over would stay in the temporal dead zone until the module reached
+// it.
+function trackTemp(dir) {
+  (trackTemp.paths ??= []).push(dir);
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of trackTemp.paths ?? []) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scan = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-fleet-scan.sh');
 
@@ -60,7 +82,7 @@ function write(rel, content) {
 }
 
 before(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-'));
+  tmp = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-')));
   const origin = path.join(tmp, 'origin.git');
   repo = path.join(tmp, 'repo');
   git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
@@ -254,7 +276,7 @@ test('fleet: --loose opens a wave whose prior branches are pushed but unmerged',
   // The real difference: a prior wave with WORK PUSHED but not merged blocks
   // under strict and opens under loose. That is the throughput/rebase-risk
   // trade the plan makes explicit.
-  const lt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-'));
+  const lt = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-')));
   const bare = path.join(lt, 'origin.git');
   const r = path.join(lt, 'repo');
   git(lt, 'init', '--bare', '-q', '-b', 'main', bare);
@@ -310,7 +332,7 @@ test('fleet: --next exits 1 in a repo with no plans at all', () => {
   // `BRANCH=$(... --next) || exit` would accept an EMPTY branch name as a
   // valid answer and try to claim it. Exit 1 is the contract: "nothing to
   // start", whatever the reason.
-  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-noplans-'));
+  const bare = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-noplans-')));
   const o = path.join(bare, 'origin.git');
   const r = path.join(bare, 'repo');
   git(bare, 'init', '--bare', '-q', '-b', 'main', o);
@@ -338,7 +360,7 @@ test('fleet: --next exits 1 in a repo with no plans at all', () => {
 test('fleet: --next stays silent when nothing is claimable', () => {
   // Empty output, exit 1: "nothing to start" is a normal state, not an error
   // condition to crash on, but it must be distinguishable from a name.
-  const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-none-'));
+  const blocked = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-none-')));
   const bare = path.join(blocked, 'origin.git');
   const r = path.join(blocked, 'repo');
   git(blocked, 'init', '--bare', '-q', '-b', 'main', bare);
@@ -515,7 +537,7 @@ test('fleet: a plan that left the reading is named, not counted', () => {
   // it and a plan removed from the working tree alone never leaves the reading.
   // Committing into the shared fixture would dirty it for the nineteen tests
   // that assert over an unmodified repo.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-delta-loss-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-delta-loss-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -537,7 +559,7 @@ test('fleet: a plan that left the reading is named, not counted', () => {
   git(r, 'commit', '-qm', 'two plans');
   git(r, 'push', '-q', 'origin', 'main');
 
-  const shim = shimScripts(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-delta-shim-')));
+  const shim = shimScripts(trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-delta-shim-'))));
   const scanIn = path.join(shim, 'plot-fleet-scan.sh');
   const pulse = () =>
     execFileSync('bash', [scanIn, '--offline', '--log-pulse'], { encoding: 'utf8', cwd: r });
@@ -609,7 +631,7 @@ test('fleet: --loose needs a ready, non-draft PR — not merely pushed work', ()
   // CI or a draft PR opened the next wave — the next wave then building on a
   // seam that is not merely unlanded but possibly broken. Strictly worse than
   // the promised semantics, so the code follows the promise.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose2-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose2-')));
   const bare = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', bare);
@@ -650,7 +672,7 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
   // Every other --loose test passes --offline, which disables the fetch and so
   // makes loose_verifiable=1 unreachable — the positive path was never
   // exercised, only the degraded one. A stubbed host covers it.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loosepos-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loosepos-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -681,7 +703,7 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
   // from the ONE `pr-list --rich` the scan already makes — never a per-branch
   // `pr-state`. So the signal lives in the `pr-list` reply here; `pr-state`
   // remains stubbed as a witness that it is NOT consulted on this path.
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-')));
   shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'),
     '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":false,"url":"x"}\' ;;\n  pr-list) echo \'{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
@@ -826,7 +848,7 @@ const footerOf = (out) => {
 // helpers bound to it. `main` names the default branch, so the develop fixture
 // can prove MAIN resolution is honoured rather than assumed.
 function makeRepo(prefix, planBody, { main = 'main' } = {}) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   const bare = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', main, bare);
@@ -1093,7 +1115,7 @@ test('fleet: the merge history is read once per run, not once per branch', () =>
     f.push('origin', '--delete', `feature/${n}`);
   }
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-')));
   const argvLog = path.join(shim, 'git.argv');
   const realGit = execFileSync('bash', ['-lc', 'command -v git'],
     { encoding: 'utf8' }).trim();
@@ -1238,7 +1260,7 @@ test('fleet: detection reads git only — no plan annotation, no host call', () 
   f.push('origin', 'main');
   f.push('origin', '--delete', 'feature/unannotated');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-')));
   const callLog = path.join(shim, 'host.calls');
   for (const cli of ['gh', 'bb']) {
     fs.writeFileSync(path.join(shim, cli), `#!/usr/bin/env bash
@@ -1332,7 +1354,7 @@ test('fleet: --json carries the merged state and the detection source', () => {
 // scan resolves its siblings by path, so the copy is what makes the stub
 // reachable — the same shape the --loose host tests use.
 function hostShim(body) {
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sqhost-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sqhost-')));
   shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), body);
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
@@ -2256,7 +2278,7 @@ test('fleet: a MISSING worktree directory is detected, not mistaken for clean', 
 
   // A git shim on PATH records argv, so the skip can be asserted rather than
   // inferred from an outcome that would look identical either way.
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-wt-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-wt-')));
   const argvLog = path.join(shim, 'git.argv');
   const realGit = execFileSync('bash', ['-lc', 'command -v git'],
     { encoding: 'utf8' }).trim();
@@ -2299,7 +2321,7 @@ test('fleet: the worktree list is read once per run, not once per branch', () =>
   }
   git(f.dir, 'checkout', '-q', 'main');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-wt2-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-wt2-')));
   const argvLog = path.join(shim, 'git.argv');
   const realGit = execFileSync('bash', ['-lc', 'command -v git'],
     { encoding: 'utf8' }).trim();
@@ -2346,7 +2368,7 @@ test('fleet: the local signal stays git-only — no host call, and no cap', () =
     fs.writeFileSync(path.join(trees[n], `${n}.txt`), 'uncommitted\n');
   }
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-wt-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-wt-')));
   const callLog = path.join(shim, 'host.calls');
   for (const cli of ['gh', 'bb']) {
     fs.writeFileSync(path.join(shim, cli), `#!/usr/bin/env bash
@@ -2520,7 +2542,7 @@ test('fleet: the scan does not retry or wait on a lock', () => {
   fs.writeFileSync(path.join(wt, 'h.txt'), 'mid-write\n');
   lockWorktree(wt);
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-lock-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-lock-')));
   const argvLog = path.join(shim, 'git.argv');
   const realGit = execFileSync('bash', ['-lc', 'command -v git'],
     { encoding: 'utf8' }).trim();
@@ -2821,7 +2843,7 @@ test('fleet: a FAILED ahead query is not read as its own output', () => {
   f.push('-u', 'origin', 'feature/liar');
   git(f.dir, 'checkout', '-q', 'main');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-ahead-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-ahead-')));
   const realGit = execFileSync('bash', ['-lc', 'command -v git'],
     { encoding: 'utf8' }).trim();
   fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash
@@ -2895,7 +2917,7 @@ test('fleet: a branch with NO local head is not asked, and answers zero', () => 
   git(f.dir, 'checkout', '-q', 'main');
   git(f.dir, 'branch', '-D', 'feature/elsewhere');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-nohead-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-nohead-')));
   const seen = path.join(shim, 'ahead.calls');
   const realGit = execFileSync('bash', ['-lc', 'command -v git'],
     { encoding: 'utf8' }).trim();
@@ -2945,7 +2967,7 @@ test('fleet: unpushed commits make no host call, and are not capped', () => {
     git(f.dir, 'checkout', '-q', 'main');
   }
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-ahead-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-ahead-')));
   const callLog = path.join(shim, 'host.calls');
   for (const cli of ['gh', 'bb']) {
     fs.writeFileSync(path.join(shim, cli), `#!/usr/bin/env bash
@@ -3481,7 +3503,7 @@ test('fleet: PLOT_SCAN_ASK_ALWAYS restores the host call', () => {
 // records every invocation's subcommand and execs through, so the number is the
 // process count the scan actually pays for.
 function countGitSpawns(f, args = ['--json']) {
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-')));
   const log = path.join(shim, 'git.txt');
   const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
   fs.writeFileSync(path.join(shim, 'git'),
@@ -4025,7 +4047,7 @@ test('changed_ago: branches with no local worktree cost nothing extra', () => {
   git(f.dir, 'checkout', '-q', 'main');
   // No worktree for any of them: every branch is "elsewhere".
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-chg-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-chg-')));
   const argvLog = path.join(shim, 'git.argv');
   const realGit = execFileSync('bash', ['-lc', 'command -v git'],
     { encoding: 'utf8' }).trim();
@@ -4336,7 +4358,7 @@ esac
 test('fleet: --loose rejects a failing PR and blocks the successor wave', () => {
   // THE DEFECT THIS FIX ADDRESSES. An OPEN, non-draft PR with failing checks
   // must NOT open the next wave — it is not "ready" in the documented sense.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-fail-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-fail-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -4361,7 +4383,7 @@ test('fleet: --loose rejects a failing PR and blocks the successor wave', () => 
   git(r, 'checkout', '-q', 'main');
 
   // Stub: pr-list --rich returns a failing build
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-')));
   shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
@@ -4387,7 +4409,7 @@ esac
 
 test('fleet: --loose rejects a pending PR and blocks the successor wave', () => {
   // PENDING means CI is still running — the seam is unproven.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-pend-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-pend-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -4411,7 +4433,7 @@ test('fleet: --loose rejects a pending PR and blocks the successor wave', () => 
   git(r, 'push', '-q', '-u', 'origin', 'feature/first');
   git(r, 'checkout', '-q', 'main');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-')));
   shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
@@ -4437,7 +4459,7 @@ esac
 test('fleet: --loose rejects an unknown-rollup PR and announces the degradation', () => {
   // UNKNOWN means the host could not produce a rollup — Bitbucket with no CI.
   // The degradation must be ANNOUNCED rather than silent.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-unk-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-unk-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -4461,7 +4483,7 @@ test('fleet: --loose rejects an unknown-rollup PR and announces the degradation'
   git(r, 'push', '-q', '-u', 'origin', 'feature/first');
   git(r, 'checkout', '-q', 'main');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-')));
   shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
@@ -4488,7 +4510,7 @@ esac
 
 test('fleet: --loose rejects a none-rollup PR (no checks ran)', () => {
   // NONE means no checks ran — nothing was verified.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-none-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-none-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -4512,7 +4534,7 @@ test('fleet: --loose rejects a none-rollup PR (no checks ran)', () => {
   git(r, 'push', '-q', '-u', 'origin', 'feature/first');
   git(r, 'checkout', '-q', 'main');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-')));
   shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
@@ -4537,7 +4559,7 @@ esac
 
 test('fleet: --loose accepts a green PR and opens the successor wave', () => {
   // The positive case: a green, non-draft PR DOES satisfy loose eligibility.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-green-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-green-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -4561,7 +4583,7 @@ test('fleet: --loose accepts a green PR and opens the successor wave', () => {
   git(r, 'push', '-q', '-u', 'origin', 'feature/first');
   git(r, 'checkout', '-q', 'main');
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-')));
   shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
@@ -4588,7 +4610,7 @@ esac
 test('fleet: --loose makes no per-branch host call with --rich cache', () => {
   // COST ASSERTION: the rollup comes from pr-list --rich, never from per-branch
   // pr-state calls. This is the N+1 fix.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-cost-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-cost-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -4615,7 +4637,7 @@ test('fleet: --loose makes no per-branch host call with --rich cache', () => {
     git(r, 'checkout', '-q', 'main');
   }
 
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const shim = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-')));
   shimScripts(shim);
   const calls = path.join(shim, 'calls.txt');
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
@@ -5264,7 +5286,7 @@ esac
 // configuration, not a fault, and it belongs with the missing token in
 // `unasked`. Caught by dispatch.test.mjs's `noRemote` fixture.
 test('fleet: no remote reads unasked, and the offer still names work', () => {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-noremote-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-noremote-')));
   const r = path.join(t, 'repo');
   fs.mkdirSync(r);
   git(r, 'init', '-q', '-b', 'main', '.');

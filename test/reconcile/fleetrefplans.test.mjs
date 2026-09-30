@@ -24,6 +24,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. Measured 2026-09-30 with GNU `mktemp` first on PATH: the four scan
+// files left 66 `plot-fleet-*` sandboxes between them. Those are the TESTS' own
+// directories — the 98 `tmp.*` entries the scripts used to leave are gone, which
+// is what `bug/scripts-share-one-temp-helper` fixed.
+//
+// One `process.on('exit')` rather than a cleanup per case, so a new case is
+// covered without remembering to add one, and it is idempotent with the `rmSync`
+// calls already here. Never a glob over the shared temp directory.
+//
+// A FUNCTION DECLARATION HOLDING ITS OWN STATE, because `before()` hooks above
+// this point call it: a function declaration is hoisted whole, while a `const`
+// it closed over would stay in the temporal dead zone until the module reached
+// it.
+function trackTemp(dir) {
+  (trackTemp.paths ??= []).push(dir);
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of trackTemp.paths ?? []) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scan = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-fleet-scan.sh');
 
@@ -71,7 +93,7 @@ function scanJson(cwd, ...args) {
 }
 
 before(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-ref-'));
+  tmp = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-ref-')));
   origin = path.join(tmp, 'origin.git');
   A = path.join(tmp, 'A');
   B = path.join(tmp, 'B');
@@ -268,7 +290,7 @@ test('the scan leaves no temp directory behind', () => {
   // alone and failed in the full suite, naming directories no assertion in
   // this file created. Pointing the scan at a directory nothing else writes
   // measures what this test actually controls.
-  const priv = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-tmphome-'));
+  const priv = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-tmphome-')));
   try {
     execFileSync('bash', [scan, '--json'], {
       encoding: 'utf8', cwd: A, env: { ...process.env, TMPDIR: priv },
@@ -289,7 +311,7 @@ test('the scan removes its host-state cache too, and leaves nothing in TMPDIR', 
   // 2026-09-30, about 50 in six minutes, each holding ~955 files. A stub `gh`
   // records what TMPDIR holds while the scan runs, which proves the cache was
   // made under TMPDIR and under its `plot-` name before the exit removed it.
-  const priv = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-hoststate-'));
+  const priv = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-hoststate-')));
   const tmpHome = path.join(priv, 'tmp');
   const bin = path.join(priv, 'bin');
   fs.mkdirSync(tmpHome);
@@ -318,10 +340,10 @@ test('the scan removes its host-state cache too, and leaves nothing in TMPDIR', 
 test('two exit traps in one shell: the second replaces the first, one registry keeps both', () => {
   // The two-statement reproduction from the plan, then the same two paths
   // through plot-tmp.sh. Before: `unnamed dir: … survives=YES`.
-  const priv = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-twotraps-'));
+  const priv = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-twotraps-')));
   const helper = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-tmp.sh');
   const runIn = (lines) => {
-    const tmpHome = fs.mkdtempSync(path.join(priv, 'case-'));
+    const tmpHome = trackTemp(fs.mkdtempSync(path.join(priv, 'case-')));
     execFileSync('bash', ['-c', lines.join('\n')], { encoding: 'utf8', env: { ...process.env, TMPDIR: tmpHome } });
     return fs.readdirSync(tmpHome);
   };
