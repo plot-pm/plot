@@ -49,6 +49,7 @@ import {
   type SupervisionReport,
 } from '@plot-pm/domain/entities/supervision-report';
 import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
+import { logDir, processLog, truncateInherited } from '../process-log.js';
 
 /**
  * `plot-registryd` — the supervisor, one per repository.
@@ -1282,7 +1283,28 @@ export const reportTick = (
 // Only when RUN, never when imported — a test importing `run` must not have the
 // process loop under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  void run(process.argv.slice(2), dirname(fileURLToPath(import.meta.url)))
+  // THE DAEMON OPENS ITS OWN LOG, because only the opener can rotate it. launchd
+  // opens `registryd.log` through the unit's `StandardOutPath`, and a writer that
+  // inherited that descriptor follows the inode across a rename and never
+  // creates the new name — so external rotation cannot work, which is how
+  // `registryd.log` reached 131 MB in 13 days.
+  //
+  // THE INHERITED PAIR IS TRUNCATED AT START where it has passed the bound. It
+  // still catches what is printed before this line and any crash trace, so the
+  // unit keeps both paths; what it must not do is grow without one.
+  truncateInherited(1);
+  truncateInherited(2);
+  const logs = logDir(process.env.PLOT_REPO_ROOT ?? process.cwd());
+  const out = processLog(join(logs, 'registryd.log'));
+  const err = processLog(join(logs, 'registryd.err'));
+  void run(
+    process.argv.slice(2),
+    dirname(fileURLToPath(import.meta.url)),
+    (text) => out.write(text),
+    undefined,
+    undefined,
+    (text) => err.write(text),
+  )
     .then((code) => process.exit(code))
     // THE SECOND HALF, AND NOT A SUBSTITUTE FOR THE FIRST. The loop's `catch`
     // covers a failing tick; this covers what throws before the loop is

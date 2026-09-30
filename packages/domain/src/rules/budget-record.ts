@@ -89,14 +89,13 @@ export interface RecordRead {
 /**
  * Reads the record's lines into live and dead, for ONE budget.
  *
- * THE WINDOW FILTER IS WHAT MAKES THE ANSWER RIGHT, not the pruning. A reader
- * that filters and never truncates is correct and wastes disk; a reader that
- * truncates and does not filter is fast and wrong. So this is the operation
- * every reader performs, and {@link truncationOwed} is the optional half.
+ * THE WINDOW FILTER IS WHAT MAKES THE ANSWER RIGHT, and it is the whole of the
+ * answer. The record is bounded by rotation rather than by a reader rewriting
+ * it: a reader that filters is correct, and a reader that rewrote the file lost
+ * 59 of 600 concurrent appends when it was measured.
  *
  * Lines belonging to other budgets are not this budget's business and are
- * neither returned nor counted dead — treating them as dead would let one
- * reader's truncation delete another connector's live window.
+ * neither returned nor counted dead.
  *
  * @param lines - the record's raw lines, in file order.
  * @param key - which budget to read.
@@ -175,35 +174,6 @@ export const survivors = (lines: readonly string[], now: number): readonly Budge
   }
   return kept.sort((left, right) => left.at - right.at);
 };
-
-/**
- * The fewest dead lines worth the one write that is not an append.
- *
- * Truncation rewrites the whole file, and in that moment a concurrent
- * appender's line can be lost. A hundred lines is under a tenth of the ~1,160
- * an hour measured 2026-09-01, so the rewrite happens a few times a window
- * rather than on every read — while a threshold of one would make every reader
- * a writer and reintroduce the contention the append-only design removes.
- */
-export const PRUNE_THRESHOLD = 100;
-
-/**
- * Whether this reader should truncate what it has just proven dead.
- *
- * PRUNED BY THE READER THAT ALREADY READ IT. A reader holding the file has just
- * established which lines are dead; a separate cleaner would re-read everything
- * to learn the same thing and would need a lock the append-only design exists
- * to avoid.
- *
- * A failed truncation costs disk rather than correctness, which is why this
- * answers *should* and never *must*: the window filter is what makes the answer
- * right.
- *
- * @param read - what {@link readWindow} found.
- * @returns true where enough lines are dead to be worth rewriting the file.
- */
-export const truncationOwed = (read: RecordRead): boolean =>
-  read.dead.length + read.unreadable >= PRUNE_THRESHOLD;
 
 /**
  * How many calls were spent inside the window, and over how long.
@@ -301,8 +271,6 @@ export interface SpendRate {
   verdict: 'spendable' | 'spent' | 'unknown';
   /** How many lines could not be read at all. */
   unreadable: number;
-  /** Whether enough lines are dead to be worth the one write that is not an append. */
-  pruneOwed: boolean;
 }
 
 /**
@@ -311,7 +279,7 @@ export interface SpendRate {
  * THE ONE ENTRY POINT FOR A READER, and the reason it exists rather than four
  * exported rules: every caller wants the rate AND the reading AND the verdict,
  * and a caller that composes them itself composes them slightly differently.
- * The board's cadence, the banner's wording and the pruner all read this.
+ * The board's cadence and the banner's wording both read this.
  *
  * DERIVED OVER THE WINDOW, WHICH IS THE WHOLE POINT. Measured 2026-09-01: one
  * board at 5 s and eleven scripts at 90 s append ~1,160 lines an hour, 15 MB a
@@ -321,7 +289,7 @@ export interface SpendRate {
  * @param lines - the record's raw lines, in file order.
  * @param key - which budget to read.
  * @param now - epoch milliseconds.
- * @returns the spend, the reading, and whether pruning is owed.
+ * @returns the spend, the reading, and the verdict.
  */
 export const spendRate = (
   lines: readonly string[],
@@ -339,7 +307,6 @@ export const spendRate = (
     headroom: reading === null ? null : headroom(reading),
     verdict: spendVerdict(reading),
     unreadable: read.unreadable,
-    pruneOwed: truncationOwed(read),
   };
 };
 
@@ -370,8 +337,6 @@ export interface AccountSpend {
    * summed and must not be — see {@link bucketVerdict}.
    */
   perHour: number | null;
-  /** Whether any bucket holds enough dead lines to be worth a truncation. */
-  pruneOwed: boolean;
 }
 
 /**
@@ -404,15 +369,13 @@ export const accountSpend = (
   const buckets = new Map<string, SpendRate>();
   let spent = 0;
   let perHour: number | null = null;
-  let pruneOwed = false;
   for (const bucket of names) {
     const rate = spendRate(lines, { connector, account, bucket }, now);
     buckets.set(bucket, rate);
     spent += rate.spent;
     if (rate.perHour !== null) perHour = (perHour ?? 0) + rate.perHour;
-    if (rate.pruneOwed) pruneOwed = true;
   }
-  return { buckets, spent, perHour, pruneOwed };
+  return { buckets, spent, perHour };
 };
 
 /**

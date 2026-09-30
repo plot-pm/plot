@@ -8,11 +8,25 @@
 # `plot-worker-state.sh`: the caller parses its own `$@`, so a file that ran an
 # argument parser at load time could not be sourced.
 #
-# IT APPENDS AND READS, AND IT NEVER PRUNES. Truncation is the one write that is
-# not an append, and it belongs to the `BudgetRecord` port's `truncate()` — a
-# second pruning path in shell would rewrite the file while the port's reader
-# believed it held the lines it had just proven dead. The shell writes the
-# record; the domain is what cleans it.
+# IT APPENDS, READS TWO GENERATIONS UNDER A COUNTER, AND ROTATES BY RENAME. The
+# record is three files: `budget.tsv` (current generation), `budget.tsv.1`
+# (previous) and `budget.gen`, a generation counter. A rotation renames the
+# current file over the previous one; it never rewrites either.
+#
+# ROTATION BY RENAME, NOT BY WRITE-ASIDE, AND THE DIFFERENCE IS MEASURED. The
+# port's `truncate()` read the live lines, wrote them aside and renamed the copy
+# over the record: over a 46 MB ledger with four appenders writing 600 lines,
+# **59 of the 600 appends were lost** in one 660 ms window. A line appended
+# between the read and the rename is not in the kept set, and an appender whose
+# `O_APPEND` descriptor opened the old inode writes into the unlinked file. A
+# rename loses nothing, because an append that races it lands in one of the two
+# files and the reader reads both: 11 of 11 trials, 600 of 600 visible. So
+# `truncate()` is gone from the port and from the adapter.
+#
+# THE APPENDER NEVER WAITS. An appender that finds the lock held by a live owner
+# appends and moves on — `O_APPEND` atomicity below `PIPE_BUF` is what makes the
+# record lock-free, and an appender that blocked on a rotation would put a lock
+# on plot's hot path to save a rename nobody is waiting for.
 #
 # WHY A SECOND IMPLEMENTATION OF A FORMAT THE DOMAIN ALREADY ENCODES. The
 # spenders are eleven shell scripts, a board and a person at a terminal, and
@@ -120,6 +134,268 @@ budget_now_ms() {
   printf '%s000\n' "$(date +%s)"
 }
 
+# ── Rotation ─────────────────────────────────────────────────────────────────
+#
+# THE GENERATION IS 24 HOURS AND EVERY WINDOW IS AT MOST ONE HOUR. The
+# generation length is 24 times `BUDGET_FALLBACK_WINDOW_MS`, the upper bound of
+# every spend window, so a line inside a live window is never in the generation a
+# rotation discards. A contract test asserts that this exceeds the domain's
+# `FALLBACK_WINDOW_MS`, so a longer window added later fails loudly rather than
+# dropping live lines.
+BUDGET_GENERATION_MS=86400000
+
+# How long a lock may stand before it is stale. A rotation is two renames, so a
+# lock older than this describes an owner that died rather than one still working.
+BUDGET_LOCK_STALE_MS=10000
+
+# The previous generation, the counter, and the lock, all beside the record.
+budget_prev_path() { printf '%s\n' "$(budget_path).1"; }
+budget_gen_path() { local p; p="$(budget_path)" || return 1; printf '%s\n' "${p%/*}/budget.gen"; }
+budget_lock_path() { local p; p="$(budget_path)" || return 1; printf '%s\n' "${p%/*}/budget.lock"; }
+budget_break_path() { local p; p="$(budget_path)" || return 1; printf '%s\n' "${p%/*}/budget-lock-broken.tsv"; }
+
+# The generation counter. A MISSING COUNTER READS AS 0, so the first release
+# reads an unrotated ledger correctly — absence is the state of every machine
+# that has not rotated yet, and reporting it as broken would make a working
+# record look faulty. Anything that is not a number reads as 0 for the same
+# reason: a torn counter must not stop a read.
+budget_gen_read() {
+  local path value
+  path="$(budget_gen_path)" || { printf '0\n'; return 0; }
+  { IFS= read -r value; } 2>/dev/null <"$path" || value=''
+  case "$value" in
+    ''|*[!0-9]*) printf '0\n' ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+# Publishes a counter value. WRITTEN ASIDE AND RENAMED, so a reader never sees a
+# partial number: a redirect creates the name before the content, and a reader
+# that opened it between the two would read an empty counter as 0 and believe no
+# rotation was in progress.
+budget_gen_write() {
+  local value="${1:-0}" path scratch
+  path="$(budget_gen_path)" || return 1
+  mkdir -p "${path%/*}" 2>/dev/null || return 1
+  scratch="$path.$$.$BASHPID.tmp"
+  printf '%s\n' "$value" >"$scratch" 2>/dev/null || return 1
+  mv -f "$scratch" "$path" 2>/dev/null || { rm -f "$scratch" 2>/dev/null; return 1; }
+  return 0
+}
+
+# The first line's timestamp of a generation, or nothing where it cannot be read.
+#
+# THE BRACES MATTER. `{ read …; } 2>/dev/null < "$file"` catches the redirection
+# error; a trailing `2>/dev/null` on the `read` alone does not, and the moment
+# after a rename is exactly when that redirection fails.
+budget_first_at() {
+  local file="${1:-}" line at
+  { IFS= read -r line; } 2>/dev/null <"$file" || return 1
+  at="$(printf '%s' "$line" | LC_ALL=C awk -F'\t' '{print $5}')"
+  case "$at" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$at"
+}
+
+# Is the current generation older than one generation length?
+#
+#   budget_rotation_due <now-ms>
+#
+# Exit 0 where a rotation is due. A record with no first line, no readable
+# timestamp or no file at all is NOT due: absence is not age.
+budget_rotation_due() {
+  local now="${1:-}" path at
+  path="$(budget_path)" || return 1
+  at="$(budget_first_at "$path")" || return 1
+  [ -n "$now" ] || now="$(budget_now_ms)"
+  [ "$(( now - at ))" -ge "$BUDGET_GENERATION_MS" ]
+}
+
+# This process's owner line: pid and the moment it took the lock.
+budget_owner_line() { printf '%s\t%s\n' "$$" "${1:-0}"; }
+
+# The owner line inside a lock directory, or nothing.
+budget_lock_owner() {
+  local dir="${1:-}" line
+  { IFS= read -r line; } 2>/dev/null <"$dir/owner" || return 1
+  printf '%s\n' "$line"
+}
+
+# Is this lock held by a live owner?
+#   0 = held     1 = stale (dead pid, or older than the bound)
+#
+# A PID THE TABLE CANNOT BE ASKED ABOUT KEEPS ITS LOCK, `budget_slot_held`'s
+# rule: breaking a lock on the strength of not knowing would rotate under a live
+# rotator, and the loss that causes is the one rotation exists to avoid.
+budget_lock_held() {
+  local dir="${1:-}" now="${2:-}" line pid at
+  line="$(budget_lock_owner "$dir")" || return 1
+  pid="${line%%$'\t'*}"; at="${line##*$'\t'}"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  case "$at" in ''|*[!0-9]*) return 0 ;; esac
+  [ -n "$now" ] || now="$(budget_now_ms)"
+  [ "$(( now - at ))" -lt "$BUDGET_LOCK_STALE_MS" ]
+}
+
+# Breaks a stale lock, and takes only the lock it inspected.
+#
+#   budget_lock_break <now-ms>
+#
+# RENAME FIRST, COMPARE SECOND. The breaker reads the owner line, renames the
+# lock directory to a unique name, then reads the owner line inside the renamed
+# directory and compares. Rename is atomic, so at most one process moves a given
+# directory:
+#
+# - **Match**: it broke the stale lock. It records one line in
+#   `budget-lock-broken.tsv` and on stderr, removes the renamed directory, and
+#   repairs an odd counter.
+# - **Mismatch**: it moved a FRESH owner's live lock. It records nothing and does
+#   not rotate; the fresh owner's pre-`mv` check of its own owner line then fails,
+#   so that rotator stops without renaming.
+#
+# Round 3 measured the unguarded version: two breakers both rotated, and 20
+# live-window lines read as 0. Only the breaker whose line matched writes a
+# record, so each break is recorded exactly once.
+#
+# DELETES ONLY A PATH IT HOLDS BY NAME. The renamed directory is unique to this
+# process, and it is removed by that exact name — never a glob.
+budget_lock_break() {
+  local now="${1:-}" lock before after moved rc=1
+  lock="$(budget_lock_path)" || return 1
+  [ -d "$lock" ] || return 1
+  [ -n "$now" ] || now="$(budget_now_ms)"
+
+  before="$(budget_lock_owner "$lock")" || before=''
+  if budget_lock_held "$lock" "$now"; then return 1; fi
+
+  moved="$lock.broken.$$.${RANDOM}${RANDOM}"
+  mv "$lock" "$moved" 2>/dev/null || return 1
+  after="$(budget_lock_owner "$moved")" || after=''
+
+  if [ "$before" = "$after" ] && [ -n "$before" ]; then
+    local pid at age break_file
+    pid="${before%%$'\t'*}"; at="${before##*$'\t'}"
+    case "$at" in ''|*[!0-9]*) age='-' ;; *) age="$(( now - at ))" ;; esac
+    break_file="$(budget_break_path)" || break_file=''
+    if [ -n "$break_file" ]; then
+      printf 'b1\t%s\t%s\t%s\n' "$now" "$pid" "$age" >>"$break_file" 2>/dev/null || true
+    fi
+    echo "plot-budget: broke a stale rotation lock (pid=$pid age=${age}ms)" >&2
+    rc=0
+  fi
+
+  rm -rf "$moved" 2>/dev/null || true
+
+  # AN ODD COUNTER IS REPAIRED ONLY BY THE BREAKER WHOSE LINE MATCHED. A
+  # mismatching breaker moved a live lock and knows nothing about the counter;
+  # writing it even would clear a rotation still in progress.
+  if [ "$rc" -eq 0 ]; then
+    local gen
+    gen="$(budget_gen_read)"
+    if [ $(( gen % 2 )) -eq 1 ]; then budget_gen_write "$(( gen + 1 ))" || true; fi
+  fi
+  return "$rc"
+}
+
+# Checks the lock and breaks it where it is stale. The one entry point for both
+# triggers: an appender whose rotation is due finds the lock held, and any
+# appender or reader that reads an ODD counter.
+#
+# THE SECOND TRIGGER IS WHY THIS IS NOT GATED ON A DUE ROTATION. A rotator killed
+# after its `mv` and before its even write leaves a YOUNG `budget.tsv`, so no
+# rotation is due for 24 h — and without this trigger the lock and the odd
+# counter would stand for that long. Round 2 measured the consequence: 50 later
+# appends, each due to rotate, never rotated.
+budget_lock_recover() {
+  local now="${1:-}" lock
+  lock="$(budget_lock_path)" || return 1
+  [ -d "$lock" ] || return 1
+  budget_lock_break "$now"
+}
+
+# Rotates the current generation, under the lock.
+#
+#   budget_rotate <now-ms>
+#
+# Exit 0 where the rename happened. The sequence is a writer's half of a sequence
+# lock: odd counter, rename, even counter.
+#
+# THE AGE CONDITION AND THE OWNER LINE ARE BOTH RE-READ IMMEDIATELY BEFORE THE
+# `mv`. This one check makes a second rotation within a generation impossible,
+# whoever holds the lock: the file a rotation leaves behind is new, so the age
+# condition is false for it. Round 3 forced a second rotation 0.4 s after the
+# first and 3 of 600 lines went in 5 of 5 trials — that is the discard this check
+# refuses, and an implementation without it passes the one-rotation race.
+#
+# THE OWNER LINE GUARDS AGAINST A BREAKER. A breaker that moved this lock by
+# mistake leaves no owner line to match, so a rotator whose lock was moved stops
+# without renaming rather than rotating beside the process that took it.
+budget_rotate() {
+  local now="${1:-}" lock path prev gen owner
+  path="$(budget_path)" || return 1
+  lock="$(budget_lock_path)" || return 1
+  prev="$(budget_prev_path)" || return 1
+  [ -n "$now" ] || now="$(budget_now_ms)"
+
+  mkdir -p "${path%/*}" 2>/dev/null || return 1
+  # THE LOCK IS A `mkdir`, NEVER `flock`, which macOS does not ship. `mkdir`
+  # fails where the name is taken, which is the whole of the mutual exclusion.
+  mkdir "$lock" 2>/dev/null || return 1
+
+  owner="$(budget_owner_line "$now")"
+  printf '%s\n' "$owner" >"$lock/owner" 2>/dev/null || { rm -rf "$lock" 2>/dev/null; return 1; }
+
+  gen="$(budget_gen_read)"
+  # THE NEXT ODD NUMBER. A reader that sees it retries, and a reader that sees it
+  # with no live owner runs the stale-lock check.
+  if [ $(( gen % 2 )) -eq 1 ]; then gen=$(( gen + 1 )); fi
+  budget_gen_write "$(( gen + 1 ))" || { rm -rf "$lock" 2>/dev/null; return 1; }
+
+  local rc=1
+  if budget_rotation_due "$now" && [ "$(budget_lock_owner "$lock" 2>/dev/null || true)" = "$owner" ]; then
+    # O(1) AT ANY SIZE, and it loses no append: a writer that races this lands in
+    # one of the two files and the reader reads both.
+    if mv -f "$path" "$prev" 2>/dev/null; then rc=0; fi
+  fi
+
+  budget_gen_write "$(( gen + 2 ))" || true
+  # REMOVED ONLY WHERE THE LINE IS STILL THIS PROCESS'S. A lock a breaker moved
+  # belongs to whoever created the directory standing there now.
+  if [ "$(budget_lock_owner "$lock" 2>/dev/null || true)" = "$owner" ]; then
+    rm -rf "$lock" 2>/dev/null || true
+  fi
+  return "$rc"
+}
+
+# Rotates where one is due, and never makes its caller wait.
+#
+#   budget_rotate_if_due <now-ms>
+#
+# Called by `budget_append` before it appends and by `budget_rate_read` before it
+# reads. Both triggers live here: a due rotation whose lock is held runs the
+# stale-lock check, and an odd counter runs it whether or not a rotation is due.
+budget_maybe_rotate() {
+  local now="${1:-}" lock gen
+  [ -n "$now" ] || now="$(budget_now_ms)"
+  lock="$(budget_lock_path)" || return 0
+
+  # TRIGGER TWO, AND IT IS FIRST because it covers the case no rotation is due
+  # for: a rotator killed after its `mv`.
+  gen="$(budget_gen_read)"
+  if [ $(( gen % 2 )) -eq 1 ]; then budget_lock_recover "$now" || true; fi
+
+  budget_rotation_due "$now" || return 0
+
+  if [ -d "$lock" ]; then
+    # TRIGGER ONE. A live owner keeps its lock and this appender moves on.
+    budget_lock_recover "$now" || return 0
+  fi
+  budget_rotate "$now" || return 0
+  return 0
+}
+
 # Appends one line: what a call spent, and what the response said.
 #
 #   budget_append <connector> <account> <bucket> <spent> <limit> <remaining> <reset-seconds> <basis>
@@ -181,9 +457,20 @@ budget_append() {
   fi
 
   mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
+
+  # ROTATES BEFORE IT APPENDS, AND NEVER WAITS TO. `budget_maybe_rotate` returns 0
+  # on every path — a lock held by a live owner, a rotation that lost its race, a
+  # counter it could not write — so the append below happens either way. An
+  # appender that blocked on a rotation would put a lock on plot's hot path.
+  budget_maybe_rotate || true
+
   # ONE `printf`, ONE `>>`. The redirection opens with `O_APPEND` and the single
   # write is what the atomicity guarantee is about; two writes could interleave
   # however short each was.
+  #
+  # AN APPEND THAT RACES THE RENAME IS NOT LOST. It lands in whichever file the
+  # descriptor resolved to, and the reader reads both generations: 11 of 11
+  # trials, 600 of 600 lines visible.
   printf '%s\n' "$line" >>"$path" 2>/dev/null || true
   return 0
 }
@@ -221,30 +508,102 @@ BUDGET_FALLBACK_WINDOW_MS=3600000
 # which is a reading about whichever pool was spent last — so a caller deciding
 # whether a bucket is spent must name that bucket. `graphql_budget_spent` does,
 # and this is why.
+# THE ZERO ANSWER, and it is a well-formed reading rather than a failure: a
+# machine that has not spent has spent nothing.
+BUDGET_ZERO_ANSWER='{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown","read":0}'
+
+# READS TWO GENERATIONS UNDER THE COUNTER, like a sequence lock:
+#
+# 1. Read `budget.gen` as `g1`. An ODD value means a rotation is in progress, or
+#    a rotator died — run the stale-lock check, then retry.
+# 2. Read `budget.tsv`, then `budget.tsv.1`, THROUGH ONE PIPE.
+# 3. Read `budget.gen` as `g2`. A value that differs from `g1` means a rotation
+#    landed during the read; discard the answer and retry.
+#
+# THE ORDER IN STEP 2 IS DELIBERATE: CURRENT FIRST, THEN PREVIOUS. A rotation
+# between the two reads makes the reader see the old current file twice — it
+# counts that generation twice and never misses it, and the counter check then
+# discards the answer. The reverse order skips the whole live generation: round 2
+# measured `spent` 0 for it.
+#
+# NO FILE NAME IS EVER PASSED TO `awk`. BSD awk 20200816 and gawk both exit 2
+# before `END` on a missing input file, and the `|| echo` fallback below would
+# turn that into spent 0 — the direction that GRANTS headroom. `.1` is missing on
+# every machine until its first rotation and `budget.tsv` is missing after each
+# rotation until the next append, so both are normal states and each reads as
+# empty through `{ cat …; cat …; } 2>/dev/null`.
+#
+# AFTER THREE RETRIES IT ANSWERS FROM THE LAST READ AND SAYS SO. The answer
+# carries `"rotating":true` and can only OVER-count, which makes
+# `graphql_budget_spent` more cautious and never less.
+BUDGET_READ_RETRIES=3
+
 budget_rate_read() {
   local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
-  local path
+  local path prev answer g1 g2 attempt=0
   [ -n "$now" ] || now="$(budget_now_ms)"
-  path="$(budget_path)" || { echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'; return 0; }
+  path="$(budget_path)" || { echo "$BUDGET_ZERO_ANSWER"; return 0; }
+  prev="$(budget_prev_path)"
 
-  # A MISSING FILE IS AN EMPTY RECORD, not a failure — absence is the state of
-  # every computer that has not spent yet, and reporting it as broken would make
-  # a fresh checkout look faulty.
-  if [ ! -f "$path" ]; then
-    echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'
-    return 0
-  fi
+  while : ; do
+    g1="$(budget_gen_read)"
+    if [ $(( g1 % 2 )) -eq 1 ]; then
+      # A ROTATION IS IN PROGRESS, OR A ROTATOR DIED. The check is the same one
+      # an appender runs, and it is what stops an odd counter standing for 24 h.
+      budget_lock_recover "$now" || true
+      if [ "$attempt" -lt "$BUDGET_READ_RETRIES" ]; then
+        attempt=$(( attempt + 1 ))
+        continue
+      fi
+    fi
 
-  LC_ALL=C awk -v want_c="$connector" -v want_a="$account" -v want_b="$bucket" \
+    answer="$(budget_rate_pass "$connector" "$account" "$bucket" "$now" "$path" "$prev")"
+
+    g2="$(budget_gen_read)"
+    if [ "$g2" = "$g1" ] && [ $(( g2 % 2 )) -eq 0 ]; then
+      printf '%s\n' "$answer"
+      return 0
+    fi
+
+    if [ "$attempt" -ge "$BUDGET_READ_RETRIES" ]; then
+      # THE LAST READ, MARKED. It can only over-count, because a rotation during
+      # the read makes the live generation read twice and never skipped.
+      printf '%s,"rotating":true}\n' "${answer%\}}"
+      return 0
+    fi
+    attempt=$(( attempt + 1 ))
+  done
+}
+
+# One pass over both generations. The `awk` half of the reader; the counter check
+# above decides whether its answer is kept.
+budget_rate_pass() {
+  local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
+  local path="${5:-}" prev="${6:-}"
+
+  # `|| true` ON EACH `cat`, AND `pipefail` IS WHY. A missing generation is the
+  # normal state — `.1` until the first rotation, `budget.tsv` between a rotation
+  # and the next append — and under `set -o pipefail`, which `plot-host.sh` sets,
+  # a failing `cat` fails the WHOLE pipeline however well `awk` answered. The
+  # `|| echo` fallback below then fires beside a perfectly good answer and the
+  # caller reads TWO JSON objects: measured, `plot-host.sh spend-rate` printed
+  # the same object twice and `JSON.parse` refused it. The redirection silences
+  # the message; only this silences the status.
+  { cat -- "$path" || true; cat -- "$prev" || true; } 2>/dev/null | LC_ALL=C awk -v want_c="$connector" -v want_a="$account" -v want_b="$bucket" \
       -v now="$now" -v fallback="$BUDGET_FALLBACK_WINDOW_MS" '
-    BEGIN { FS = "\t"; unreadable = 0; n = 0; passed = -1 }
+    BEGIN { FS = "\t"; unreadable = 0; n = 0; passed = -1; total = 0 }
     {
       # A NULL IS THE NORMAL CASE, not an error. The file is appended to by
       # processes that may be killed mid-write, so a torn tail, a blank line and
       # a line from a newer format are all things a reader meets — and every one
       # is skipped rather than thrown on. A reader that failed on one bad line
       # would report the whole account as unreadable, which reads as headroom.
+      # WHAT THE PASS READ, ACROSS BOTH GENERATIONS, counted before any filter:
+      # the `read` field is the bound this reader reports, and the bound is about
+      # the FILE rather than about one key. It replaced a timing claim, which
+      # measured machine load rather than the ledger.
       if ($0 == "") next
+      total++
       if (NF != 10 || $1 != "b1") { unreadable++; next }
       if ($2 != want_c || $3 != want_a) next
       if (want_b != "" && $4 != want_b) next
@@ -315,10 +674,10 @@ budget_rate_read() {
         # cadence input this slice exists to make honest.
         rate = "null"
       }
-      printf "{\"spent\":%d,\"spanMs\":%d,\"perHour\":%s,\"lines\":%d,\"unreadable\":%d,\"limit\":%s,\"remaining\":%s,\"resetAt\":%s,\"basis\":\"%s\"}\n", \
-        spent, span, rate, n, unreadable, limit, remaining, reset, basis
+      printf "{\"spent\":%d,\"spanMs\":%d,\"perHour\":%s,\"lines\":%d,\"unreadable\":%d,\"limit\":%s,\"remaining\":%s,\"resetAt\":%s,\"basis\":\"%s\",\"read\":%d}\n", \
+        spent, span, rate, n, unreadable, limit, remaining, reset, basis, total
     }
-  ' "$path" 2>/dev/null || echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'
+  ' 2>/dev/null || echo "$BUDGET_ZERO_ANSWER"
 }
 
 # THE SAME ANSWER IS SCANNED FOR ONCE PER PROCESS, and that is the whole of this

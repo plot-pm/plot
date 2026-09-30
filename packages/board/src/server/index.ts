@@ -1,5 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
+import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
@@ -32,6 +33,7 @@ import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js'
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
 import { handleImplement, implementAvailability, implementStatus } from './implement.js';
 import { dropAvailability, handleDrop } from './drop.js';
+import { logDir, processLog, truncateInherited } from './process-log.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -71,6 +73,58 @@ const opts: BuildBoardOptions = {
   // settle under the other.
   repairEnabled: repairEnabledFromEnv(),
 };
+
+// ── The board's own log ──────────────────────────────────────────────────────
+//
+// THE BOARD OPENS ITS OWN LOG, because only the opener can rotate it.
+// `plot-boardctl.sh` opens `board.log` with `>>` before it `exec`s this process,
+// and a writer that inherited that descriptor follows the inode across a rename
+// and never creates the new name — so `mv`, `newsyslog` and `logrotate` all
+// leave the board writing into the renamed file.
+//
+// THE INHERITED PAIR IS TRUNCATED AT START where it has passed the bound, which
+// is safe because every opener uses `O_APPEND` (`lsof +fg` reported `AP` on all
+// four live descriptors). It still catches whatever is printed before this line
+// and any crash trace, which is why `plot-boardctl.sh` keeps its redirect.
+//
+// `console` IS REDIRECTED RATHER THAN ITS TWENTY CALL SITES REWRITTEN. Every
+// line this server logs goes through `console.log` or `console.error`, and one
+// seam here is both the smaller diff and the harder thing to forget: a route
+// added later logs through the rotating writer without knowing it exists.
+//
+// THE STARTUP BANNER STILL GOES TO STDOUT, AND IT IS A PROTOCOL RATHER THAN A
+// LOG LINE. `packages/board/test/helpers.mjs:88` waits for
+// `Plot board: http://localhost:<port>` on the child's stdout to know the server
+// is up, and `plot-boardctl.sh` reads the same line. Measured: redirecting it
+// into `board.log` timed out 40 browser and integration tests at *"server did
+// not start in 5s"* — the server was up and nothing could tell. So a line that
+// ANNOUNCES THE BOARD is written to both, and everything else is logged.
+truncateInherited(1);
+truncateInherited(2);
+const boardLog = processLog(path.join(logDir(opts.repoRoot), 'board.log'));
+const render = (parts: readonly unknown[]): string =>
+  parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
+/**
+ * Whether a line reports the board's own status to whoever launched it.
+ *
+ * EVERY `Plot board…` LINE, NOT ONLY THE READY ONE. Two callers read this
+ * process's stdout and act on what they find: `packages/board/test/helpers.mjs`
+ * waits for `Plot board: http://localhost:<port>` to know the server is up, and
+ * a second board prints `Plot board already running at …` and exits 0, which
+ * `port.test.mjs` asserts by regex. Measured: a predicate matching only
+ * `Plot board:` sent the already-running line to `board.log` and that test failed
+ * in CI. The `tailscale:` line is the same announcement's second address.
+ */
+const announces = (text: string): boolean =>
+  text.startsWith('Plot board') || text.trimStart().startsWith('tailscale:');
+const toLog = (parts: readonly unknown[]): void => {
+  const text = render(parts);
+  if (announces(text)) process.stdout.write(`${text}\n`);
+  boardLog.write(`${text}\n`);
+};
+console.log = (...parts: unknown[]): void => toLog(parts);
+console.error = (...parts: unknown[]): void => toLog(parts);
+console.warn = (...parts: unknown[]): void => toLog(parts);
 
 /**
  * The driven side this process serves, chosen ONCE at start.

@@ -28,6 +28,14 @@ import type { BudgetEntry } from '../entities/budget.js';
  * fleet's macOS machines, so `MAX_LINE_BYTES` is the format's cap and
  * `withinLineCap` is what an appender checks.
  *
+ * THE RECORD IS BOUNDED BY ROTATION, AND THE PORT NAMES NO WRITE FOR IT. It once
+ * declared `truncate()`, which replaced the record with the lines a reader had
+ * proven live: measured over a 46 MB ledger with four concurrent appenders, that
+ * rewrite lost **59 of 600** appends in one 660 ms window, because a line
+ * appended between the read and the rename is not in the kept set. Rotation
+ * renames instead, which loses nothing, and it belongs to the adapter — so this
+ * port declares only reads and one append.
+ *
  * IT NAMES NO FILE, NO DIRECTORY AND NO FORMAT. Where the record lives is the
  * adapter's business; that it is one per computer is the port's. `location` is
  * the one exception, and it reports rather than decides — it exists so an
@@ -60,9 +68,15 @@ export interface BudgetRecord {
   append(entry: BudgetEntry): Promise<PortResult<void>>;
 
   /**
-   * Reads every line the record holds, in file order.
+   * Reads every line the record holds, in file order, across both generations.
    *
-   * A MISSING FILE IS AN EMPTY RECORD, not a failure. `unknown` and *absent*
+   * TWO GENERATIONS UNDER ONE COUNTER, because that is how the record is
+   * bounded: a rotation renames the current generation over the previous one and
+   * the reader reads both, so an append that races the rename lands in one of
+   * them and is never missed. A counter that moved during the read means a
+   * rotation landed; the read is taken again.
+   *
+   * A MISSING GENERATION IS AN EMPTY ONE, not a failure. `unknown` and *absent*
    * are the same answer, which is what lets a fresh checkout work with no
    * ceremony and keeps a deleted record from being a fault. A file that cannot
    * be read for any other reason is `failed`, and a caller must not read that
@@ -74,21 +88,4 @@ export interface BudgetRecord {
    * @returns the record's lines, oldest first.
    */
   lines(): Promise<PortResult<readonly string[]>>;
-
-  /**
-   * Replaces the record with the lines that survived the window.
-   *
-   * THE ONE WRITE THAT IS NOT AN APPEND, and the only reason it is licensed:
-   * the reader has already established which lines are dead, and a separate
-   * cleaner would re-read everything to learn the same thing and would need a
-   * lock the append-only design exists to avoid.
-   *
-   * At most once per reset, and a failure costs disk rather than correctness —
-   * the window filter is what makes the answer right. So a caller that gets
-   * `failed` here carries on rather than refusing to spend.
-   *
-   * @param keep - the surviving entries, from `survivors`.
-   * @returns nothing on success.
-   */
-  truncate(keep: readonly BudgetEntry[]): Promise<PortResult<void>>;
 }

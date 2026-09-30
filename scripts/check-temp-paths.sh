@@ -40,10 +40,6 @@
 #
 # `plot-reap.sh` — `/private/tmp/*|…) p=${p#/private}`, a `case` pattern that
 #   normalises a path macOS spells two ways. It writes nothing.
-# `plot-update-board.sh` — `CACHE_FILE="/tmp/plot-board-cache-…"`, the project
-#   cache outside a git repository. It persists across calls, so it is state and
-#   not a temp path; slice 3 of every-temp-directory-has-an-owner moves it and
-#   deletes this entry.
 #
 # An exception whose file exists and whose line no longer matches FAILS the
 # gate, so the list can only shrink.
@@ -54,8 +50,7 @@ set -uo pipefail
 # explicit root lets test/reconcile/temp-paths-gate.test.mjs prove the refusals.
 cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 
-EXCEPTIONS='skills/plot/scripts/plot-reap.sh	tmp-literal	/private/tmp/*|
-skills/plot/scripts/plot-update-board.sh	tmp-literal	CACHE_FILE="/tmp/plot-board-cache-'
+EXCEPTIONS='skills/plot/scripts/plot-reap.sh	tmp-literal	/private/tmp/*|'
 
 files=""
 for f in skills/plot/scripts/*.sh scripts/*.sh; do
