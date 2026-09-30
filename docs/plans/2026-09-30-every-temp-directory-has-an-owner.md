@@ -1,6 +1,6 @@
-# Every temp directory has an owner
+# Every file Plot writes has an owner
 
-> A clean, all-green run of one contract file leaves 365 directories in `$TMPDIR`, and a fleet scan leaves one per poll. Cleanup is written per call site and most call sites omit it, so the fix makes removal a property of the run rather than of each site.
+> A clean, all-green run of one contract file leaves 365 directories in `$TMPDIR`, a fleet scan leaves one per poll, and the budget ledger grows 1.7 MB a day with no pruning. Cleanup is written per call site and most sites omit it, so the fix makes removal a property of the run, and a bound a property of every state file.
 
 ## Status
 
@@ -14,6 +14,7 @@
 ## Changelog
 
 - Plot's contract suites and helper scripts remove every temporary directory they create, and CI fails a test that leaves one behind.
+- The budget ledger keeps only its live window, supervisor and board logs rotate by size, and every file Plot writes declares its bound.
 
 Board impact: none. No plan-format, template or payload change; `plot-fleet-scan.sh` changes only how it cleans up.
 
@@ -50,6 +51,25 @@ The board runs the scan every 5 s. The machine held 20,939 `tmp.*` entries.
 ### Per-site cleanup is a rule
 
 `test/reconcile/` holds 360 `mkdtempSync` sites. Each one needs its own `rmSync`, and nothing checks that it has one. By this repository's own test, that is a rule: a reviewer can answer "does this test clean up?" with yes without running it.
+
+### Persistent state has no bound either
+
+Measured 2026-09-30:
+
+| File | Size | Bound |
+|---|---|---|
+| `~/.plot/state/budget.tsv` | 46 MB, 823,526 lines over 27 days | none |
+| `.plot/logs/registryd.log.2026-09-21` | 131 MB, one day | none |
+| `.plot/logs/board.log` | 2.4 MB | none |
+| `.plot/logs/registryd.log` | 1.6 MB | none |
+| PR index, `.git/.plot/state/` | 380 KB | one row per PR |
+| `.plot/state/` receipts, pulse, controls | 356 KB | spent or overwritten |
+| `.plot/state/unowned-*.tsv` | 242 lines | kept on purpose; the count is the record |
+| per-desk `.plot-worker.*` | ~12 KB per desk | removed with the desk by `plot-reap.sh` |
+
+**The budget ledger has a pruning design and no caller.** `plot-budget.sh:11-16` says it *"appends and reads, and it never prunes"*, and leaves truncation to the `BudgetRecord` port's `truncate()` (`ports/budget.ts:93`). A search of `packages/domain/src` and `packages/board/src` finds the declaration and no call. `plot-budget.sh` reads the file on every host call to compute its window, so the ledger's growth becomes a per-call cost.
+
+**No code rotates the supervisor log.** A search of `skills/plot/scripts/` and `packages/board/src` finds no rotation for `registryd.log`. What produced `registryd.log.2026-09-21` is not established; the slice names it or removes the file's cause.
 
 ## Design
 
@@ -93,9 +113,20 @@ A trap does not run on SIGKILL. The board ends a scan at its 90 s timeout, and `
 
 **`tmp.*` is included only because the fleet scan named its directory that way.** Layer 3 gives that directory a `plot-` prefix, so a later version can drop `tmp.*` from the sweep and stop touching other tools' files.
 
+### Layer 5: every state file declares its bound
+
+**The budget ledger calls `truncate()`.** The supervisor tick calls it after reading the ledger, keeping the entries inside the live window the port already computes. The shell side stays append-only, which is what `plot-budget.sh:11-16` requires: one writer truncates, and it is the domain.
+
+**Logs rotate by size in the one place that opens each log.** `registryd.log` and `board.log` rotate at a size bound (default 10 MB) and keep the last N files (default 3). A size bound, not a date bound: the measured failure is one day producing 131 MB.
+
+**An inventory gate holds the rule.** A contract test lists every path the scripts and the board write under `.plot/`, `~/.plot/` and the git common dir's `.plot/`, and each entry declares one bound: *overwritten*, *spent*, *window*, *rotated*, *removed with its desk*, *kept on purpose*, or *tracked in git*. A write to a path with no declaration fails the test. This is the gate that stops the next state file from starting unbounded, the way layer 2 stops the next leaking test.
+
+**It declares, it does not measure sizes.** A size check in CI would read a runner's fresh filesystem and pass every time. The declaration is what a reviewer and the test can both read.
+
 ### What this does NOT do
 
 - **It does not change what any test asserts.** Only where its sandbox lives.
+- **It does not delete the `unowned-*.tsv` ledgers.** Their growth is one line per bypass, and the count is the record they exist to keep.
 - **It does not sweep the whole temp directory.** Only `plot-*` and, for now, `tmp.*` entries this user owns, past the age bound.
 - **It does not claim the leak caused the app-launch fault** seen the same day. Removing 141,249 directories restored neither LaunchServices nor `getconf DARWIN_USER_CACHE_DIR`.
 
@@ -107,6 +138,10 @@ A trap does not run on SIGKILL. The board ends a scan at its 90 s timeout, and `
 - **`plot-fleet-scan.sh` leaves no directory on a normal exit**, including the host-state cache the second trap used to replace. The two-statement reproduction above becomes a test.
 - **A raw `mktemp -d` added to a script fails CI** by name.
 - **The sweep removes an owned `plot-*` directory older than the bound and keeps a younger one**, with `--dry-run` as the default.
+- **`budget.tsv` stays inside its window**: after a tick, no entry older than the port's window start remains, asserted against a fixture ledger holding entries on both sides of it.
+- **`registryd.log` and `board.log` rotate at the bound and keep N files**, asserted by writing past the bound in a sandbox.
+- **The origin of `registryd.log.2026-09-21` is named**, or its cause is removed. "Unknown" does not satisfy this bullet.
+- **The inventory gate fails on an undeclared state path**, asserted by a fixture script that writes one.
 - **The 74 hardcoded `'/tmp'` literals are classified**: 14 in `test/reconcile/` and 60 in `packages/board/test/`. A literal that creates a file moves under `TMPDIR`; one that is only fixture data stays and is named as such.
 
 ## Slices
@@ -119,8 +154,12 @@ Layers 1 and 2: per-run `TMPDIR` in the wrapper, the leak gate, and the fixes th
 
 Layers 3 and 4: `plot-tmp.sh`, the `mktemp -d` gate, the fleet-scan trap fix, and the reaper's age sweep.
 
+### Every state file declares its bound (Branch: bug/every-state-file-declares-its-bound)
+
+Layer 5: the `truncate()` caller for the budget ledger, size-based log rotation, and the inventory gate.
+
 ## Notes
 
 **The 365 was the second measurement.** The issue first said a killed run skipped cleanup. One clean run showed the leak is the normal path, and #1083 carries that correction.
 
-**The two slices are independent.** Slice 1 changes test wrappers and tests; slice 2 changes scripts and the reaper. Either can land first.
+**The three slices are independent.** Slice 1 changes test wrappers and tests, slice 2 changes scripts and the reaper, and slice 3 changes the supervisor tick, the two log writers and adds one contract test. Any can land first.
