@@ -29,6 +29,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
 const installer = path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-install-hooks.sh');
+const tmpHelper = path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-tmp.sh');
 const shippedHooks = path.join(repoRoot, 'hooks', 'hooks.json');
 
 // The gates the shipped file actually registers — read, never named here, for
@@ -55,6 +56,8 @@ function repo({ settings } = {}) {
   const localInstaller = path.join(dir, 'skills', 'plot', 'scripts', 'plot-install-hooks.sh');
   copyFileSync(installer, localInstaller);
   chmodSync(localInstaller, 0o755);
+  // The installer sources plot-tmp.sh from beside itself.
+  copyFileSync(tmpHelper, path.join(dir, 'skills', 'plot', 'scripts', 'plot-tmp.sh'));
 
   if (settings !== undefined) {
     mkdirSync(path.join(dir, '.claude'), { recursive: true });
@@ -274,6 +277,7 @@ const gateScripts = [
   'plot-controller-gate.sh',
   'plot-brief-name-gate.sh',
   'plot-phase-gate.sh',
+  'plot-tmp.sh',
   'plot-state-receipt.sh',
   'plot-config.sh',
 ];
@@ -440,6 +444,7 @@ function splitInstall({ vendorGates = false, siblingGates = false } = {}) {
   const installerPath = path.join(plugin, 'plot-install-hooks.sh');
   copyFileSync(installer, installerPath);
   chmodSync(installerPath, 0o755);
+  copyFileSync(tmpHelper, path.join(plugin, 'plot-tmp.sh'));
 
   const place = (dest) => {
     mkdirSync(dest, { recursive: true });

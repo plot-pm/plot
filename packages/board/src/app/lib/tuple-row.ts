@@ -1244,6 +1244,11 @@ export interface PlanRowFacts {
   rowCount?: number;
   plan: string;
   planFile: string;
+  /**
+   * The tracker keys the plan answers, printed before the slug as the ticket
+   * row printed them: `1089`, `EWZKUS-3430`. Empty prints the slug alone.
+   */
+  issues: readonly string[];
   /** The plan's phase, which is slot 5 — this is the object it belongs to. */
   phase: string;
   /** Days since approval, or null. A plan's clock is its approval. */
@@ -1252,6 +1257,16 @@ export interface PlanRowFacts {
   branch?: string;
   branchUrl?: string;
 }
+
+/**
+ * The plan row's name: the plan's tracker keys, then its slug —
+ * `1090, 1091: <slug>` — in the form `tupleFromIssue` prints a ticket.
+ *
+ * @param plan - the plan's slug.
+ * @param issues - the tracker keys; empty or absent returns the slug alone.
+ */
+export const planNameLabel = (plan: string, issues: readonly string[] = []): string =>
+  issues.length > 0 ? `${issues.join(', ')}: ${plan}` : plan;
 
 /**
  * Project a plan into the six slots.
@@ -1272,7 +1287,7 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
     kindLabel: KIND_LABEL.plan,
     name: {
       what: 'plan',
-      label: facts.plan,
+      label: planNameLabel(facts.plan, facts.issues),
       href: facts.planFile ? `/plan/${encodeURIComponent(facts.planFile)}` : '',
       internal: true,
     },

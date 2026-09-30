@@ -28,6 +28,7 @@ describe('a Draft plan with no branch row', () => {
       plan: 'zucchini-glut',
       planFile: '2026-09-26-zucchini-glut.md',
       title: 'Zucchini glut',
+      issues: [],
       rounds: 2,
     });
     const rows = draftPlanRows([draft!], []);

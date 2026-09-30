@@ -282,6 +282,63 @@ test('the scan leaves no temp directory behind', () => {
   }
 });
 
+test('the scan removes its host-state cache too, and leaves nothing in TMPDIR', () => {
+  // THE CACHE THE REF TRAP REPLACED. The host-state cache had its own
+  // `trap … EXIT` and the `REF_TMP` trap in the same shell replaced it, so every
+  // scan that asked the host left one `tmp.*` directory behind — measured
+  // 2026-09-30, about 50 in six minutes, each holding ~955 files. A stub `gh`
+  // records what TMPDIR holds while the scan runs, which proves the cache was
+  // made under TMPDIR and under its `plot-` name before the exit removed it.
+  const priv = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-hoststate-'));
+  const tmpHome = path.join(priv, 'tmp');
+  const bin = path.join(priv, 'bin');
+  fs.mkdirSync(tmpHome);
+  fs.mkdirSync(bin);
+  const seen = path.join(priv, 'seen');
+  fs.writeFileSync(path.join(bin, 'gh'), [
+    '#!/usr/bin/env bash',
+    `ls "$TMPDIR" >> '${seen}'`,
+    "echo '[]'",
+    '',
+  ].join('\n'), { mode: 0o755 });
+  try {
+    execFileSync('bash', [scan, '--json'], {
+      encoding: 'utf8', cwd: A,
+      env: { ...process.env, TMPDIR: tmpHome, PLOT_HOST: 'github', PATH: `${bin}:${process.env.PATH}` },
+    });
+    const during = fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8') : '';
+    assert.match(during, /^plot-fleet-host-state\.[A-Za-z0-9]{6}$/m,
+      `the host was asked while the cache existed under TMPDIR:\n${during}`);
+    assert.deepEqual(fs.readdirSync(tmpHome), [], 'every entry the scan made is gone at exit');
+  } finally {
+    fs.rmSync(priv, { recursive: true, force: true });
+  }
+});
+
+test('two exit traps in one shell: the second replaces the first, one registry keeps both', () => {
+  // The two-statement reproduction from the plan, then the same two paths
+  // through plot-tmp.sh. Before: `unnamed dir: … survives=YES`.
+  const priv = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-twotraps-'));
+  const helper = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-tmp.sh');
+  const runIn = (lines) => {
+    const tmpHome = fs.mkdtempSync(path.join(priv, 'case-'));
+    execFileSync('bash', ['-c', lines.join('\n')], { encoding: 'utf8', env: { ...process.env, TMPDIR: tmpHome } });
+    return fs.readdirSync(tmpHome);
+  };
+  try {
+    const before = runIn([
+      'a=$(mktemp -d "$TMPDIR/plot-first.XXXXXX"); trap \'rm -rf "$a"\' EXIT INT TERM',
+      'b=$(mktemp -d "$TMPDIR/plot-second.XXXXXX"); trap \'rm -rf "$b"\' EXIT INT TERM',
+    ]);
+    assert.equal(before.length, 1, 'the reproduction: the first directory survives');
+    assert.match(before[0], /^plot-first\./);
+    const after = runIn([`. '${helper}'`, 'plot_tmpdir a first', 'plot_tmpdir b second']);
+    assert.deepEqual(after, []);
+  } finally {
+    fs.rmSync(priv, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // A branch's own plans (#972)
 // ---------------------------------------------------------------------------

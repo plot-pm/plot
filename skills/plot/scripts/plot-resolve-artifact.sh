@@ -70,6 +70,7 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/plot-tmp.sh"
 
 # THE FILES THIS SCRIPT MAY RESOLVE — a SET, and derived rather than listed.
 #
@@ -231,8 +232,9 @@ if ! mkdir "$lock" 2>/dev/null; then
 fi
 # Released on every exit, including a kill. A lock that outlives its process
 # would make one interrupted repair block the branch forever — and the repair is
-# idempotent, so there is nothing to protect after the process is gone.
-trap 'rmdir "$lock" 2>/dev/null || true' EXIT INT TERM
+# idempotent, so there is nothing to protect after the process is gone. A TERM
+# or INT stops the repair (143 or 130) after the lock is released.
+plot_on_exit 'rmdir "$lock" 2>/dev/null || true'
 
 if [ -d "$wt" ] && git worktree list --porcelain | grep -qx "worktree $wt"; then
   # A REUSED WORKTREE MAY BELONG TO SOMEONE ELSE, and on 2026-08-17 one did: the

@@ -109,6 +109,11 @@ export const PlanMetaSchema = z.preprocess(readEitherSpelling, z.object({
   })).default([]),
   prs: z.array(z.number()).default([]),
   /**
+   * The tracker issues the plan's `Issue:` field names, as the parser emits
+   * them: a number for a GitHub `#N`, a string for a Jira or Linear key.
+   */
+  issues: z.array(z.union([z.number(), z.string()])).default([]),
+  /**
    * The plan's recorded answer to *how is approval given* — `pr`, `in-session`,
    * `ballot`, … — absent (`NONE`) on pre-Plot-2 plans.
    *
@@ -616,6 +621,11 @@ export const CardSchema = z.object({
    * as *not local*, which renders nothing either way.
    */
   notPushed: z.boolean().optional(),
+  /**
+   * The tracker keys the plan answers, as strings without `#` — `"1089"`,
+   * `"EWZKUS-3430"`. The plan row prints them before its slug.
+   */
+  issues: z.array(z.string()).default([]),
 });
 export type Card = z.infer<typeof CardSchema>;
 
@@ -3846,6 +3856,8 @@ export const DraftPlanSchema = z.object({
   planFile: z.string(),
   title: z.string().default(''),
   rounds: z.number().optional(),
+  /** The tracker keys the plan answers, as `CardSchema.issues` carries them. */
+  issues: z.array(z.string()).default([]),
 });
 export type DraftPlan = z.infer<typeof DraftPlanSchema>;
 

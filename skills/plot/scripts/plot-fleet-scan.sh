@@ -253,6 +253,8 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # plot-dispatch.sh so a worker has ONE state, not one per reader.
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
+# Every temp path this scan creates, and its only EXIT/INT/TERM traps.
+. "$script_dir/plot-tmp.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
 do_fetch=1
@@ -573,14 +575,15 @@ fi
 # outlives the scan that fetched it — a stale `merged` read from a previous run
 # is exactly the fabricated verdict the failure direction above forbids.
 #
-# Cleanup is trapped rather than trailing: the script exits early in several
+# Cleanup is registered rather than trailing: the script exits early in several
 # places (--next with nothing to start, no active plans), and a temp directory
-# left behind on those paths would accumulate one per poll.
+# left behind on those paths would accumulate one per poll. It goes through
+# `plot-tmp.sh`'s one registry: this cache had its own EXIT trap, and the
+# `REF_TMP` trap below replaced it, so every scan left one `tmp.*` directory of
+# ~955 files behind (measured 2026-09-30).
 HOST_STATE_CACHE=""
 if [ "$HOST_LOOKUP_OK" = 1 ]; then
-  HOST_STATE_CACHE=$(mktemp -d 2>/dev/null) || HOST_STATE_CACHE=""
-  [ -n "$HOST_STATE_CACHE" ] \
-    && trap 'rm -rf "$HOST_STATE_CACHE" 2>/dev/null || true' EXIT INT TERM
+  plot_tmpdir HOST_STATE_CACHE fleet-host-state 2>/dev/null || HOST_STATE_CACHE=""
 fi
 
 # The cache key. Shared by the join and by `host_pr_state`, because the two
@@ -2577,15 +2580,15 @@ ref_ls() { # $1=dir → newline-separated paths under it in origin/$MAIN
 # `ref_plan_file` is called as `$(ref_plan_file ...)`, which runs it in a
 # SUBSHELL. A lazy `[ -z "$REF_TMP" ] && REF_TMP=$(mktemp -d)` inside it
 # assigns in the child and the parent never sees it — so every call made a
-# fresh directory, the parent's variable stayed empty, and the EXIT trap
-# cleaned nothing. Measured while writing this: three plans, three temp dirs,
+# fresh directory, the parent's variable stayed empty, and the exit cleanup
+# removed nothing. Measured while writing this: three plans, three temp dirs,
 # none removed. The lifetime is owned out here, where the trap can see it.
 REF_TMP=""
 if [ "$PLAN_SOURCE" = "ref" ]; then
-  REF_TMP=$(mktemp -d "${TMPDIR:-/tmp}/plot-fleet-ref.XXXXXX") || REF_TMP=""
   # The scan is read-only and short-lived, and the board polls it every 5 s —
-  # a directory that outlives the run would accumulate one per poll.
-  [ -n "$REF_TMP" ] && trap 'rm -rf "$REF_TMP"' EXIT INT TERM
+  # a directory that outlives the run would accumulate one per poll, so the
+  # helper removes it at exit.
+  plot_tmpdir REF_TMP fleet-ref || REF_TMP=""
   # No temp dir means no way to hand the parser a file, so the ref path cannot
   # work. Falling back to the checkout is the honest answer, and it announces
   # itself through `plan_source` exactly like an unreadable ref.

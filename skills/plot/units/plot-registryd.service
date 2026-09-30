@@ -50,7 +50,10 @@ Environment=PATH=__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/u
 # place where that is nobody's intent. Measured 2026-09-07: three consecutive
 # ticks reported `handed=2` while both free agents' manifests read `branch: ""`
 # and had been quiet 3,067 seconds.
-ExecStart=__NODE__ __REGISTRYD__ --start-agents
+#
+# `--sweep-temp` runs `plot-reap.sh --sweep-temp --yes` at most once an hour:
+# nothing else schedules the backstop for temp paths a SIGKILL left behind.
+ExecStart=__NODE__ __REGISTRYD__ --start-agents --sweep-temp
 
 # RESTART ALWAYS, and the reason is the same one the plist gives: every
 # recoverable failure is now a tick that reports and continues, so a process

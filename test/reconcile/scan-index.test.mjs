@@ -139,9 +139,17 @@ before(() => {
 });
 
 /** Run the scan with a stubbed host and a store home (a fresh empty one by default). */
+//
+// A PRIVATE TMPDIR AND BUDGET HOME, shared by every run in this file: tests
+// here compare two reports byte for byte, and section 25 counts what the temp
+// directory holds, which other processes on the machine change between runs.
+let scanTmpdir;
 const runScan = (stub, { storeHome, cwd = repo, extraEnv = {} } = {}) => {
+  scanTmpdir ??= tmp('scanidx-tmpdir');
   const env = {
     ...process.env,
+    TMPDIR: scanTmpdir,
+    PLOT_BUDGET_HOME: scanTmpdir,
     PATH: `${stub.dir}:${process.env.PATH}`,
     PLOT_PR_INDEX_HOME: storeHome ?? tmp('scanidx-empty'),
     ...extraEnv,
@@ -243,7 +251,8 @@ for (const [name, opts] of [
 // before the store existed.
 test('--offline reads no store and asks no host', () => {
   const stub = stubGh();
-  const env = { ...process.env, PATH: `${stub.dir}:${process.env.PATH}` };
+  scanTmpdir ??= tmp('scanidx-tmpdir');
+  const env = { ...process.env, TMPDIR: scanTmpdir, PLOT_BUDGET_HOME: scanTmpdir, PATH: `${stub.dir}:${process.env.PATH}` };
   const plain = execFileSync('bash', [scan, '--offline'], {
     encoding: 'utf8', cwd: repo, env: { ...env, PLOT_PR_INDEX_HOME: tmp('scanidx-empty') },
   });

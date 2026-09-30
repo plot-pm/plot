@@ -641,6 +641,9 @@ export function PlanRow({
         const t = tupleFromPlan({
           plan: group.plan,
           planFile: group.planFile,
+          // `?? []`: the client casts the payload, and an older server sends
+          // no `issues` field.
+          issues: card?.issues ?? [],
           phase,
           waitingDays: waiting,
           // HOW MANY IT HEADS. The `h3` this row replaced carried `(3)` beside
