@@ -1,0 +1,1 @@
+../2026-09-29-an-idle-reading-knows-the-conversation-started.md
