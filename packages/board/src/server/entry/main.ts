@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { scriptsFor, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
+import { primeAgentSettings } from '../resolver.js';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 
 /**
@@ -119,6 +120,19 @@ export const run = async (
   // controller that asks ports, and those ports are chosen by the same
   // composition root — so `PLOT_BOARD_MOCK` reaches this question too.
   const estate = estateFromEnv(opts);
+
+  // THE SETTINGS FILE, IN THIS PROCESS TOO — and this is a SECOND process, which
+  // is the whole reason the line exists. `askOnce` runs `maybeAutoDispatch` and
+  // `maybeAutoDeliver`, which start agents; the board's own
+  // `process.env.PLOT_AGENT_SETTINGS` never reaches here, because this artifact
+  // runs as its own `node`.
+  //
+  // AWAITED, unlike the board's fire-and-forget assignment at `index.ts:131`.
+  // There the process is long-lived and the first spawn is a request away; here
+  // the dispatch happens INSIDE the `askOnce` below, so an unawaited resolve
+  // would race the agents it is meant to configure and lose on a fast estate.
+  await primeAgentSettings(scriptsFor(opts));
+
   const answer = await askOnce({
     ports: estate,
     question,
