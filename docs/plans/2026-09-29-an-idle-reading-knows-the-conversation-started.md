@@ -10,7 +10,7 @@
 - **Issue:** #1074
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -184,3 +184,9 @@ One juror, **amend**, **executed**. Verdict: `.plot/panels/2026-09-29-an-idle-re
 **The rule held when built.** The juror measured the runtime on Claude Code 2.1.285: `--session-id` creates `<id>.jsonl` and `--resume` appends to the same file. `PLOT_SESSION_ID` and `PLOT_MANIFEST_FILE` reach a monitor started the way `start_worker` starts it. A scratch build of the design passed every Done-when case against the real helper functions.
 
 **Three corrections are folded in.** A worker's ambient `PLOT_SESSION_ID` turned 8 of 36 unit tests red, so `drive()` now blanks both variables and the probe is a seventh port. The runtime writes its first line before its first model call, so a cold model does not reach the defect and the unbounded cost is a process that writes no line. Two citations were wrong: the claim commit is `plot-worker-loop.sh:2277`, and `agent.ts:390` is under `packages/domain/src/transitions/`. The engagement test is named: `test/e2e/worker-monitor-samples.test.mjs`, which runs in CI.
+
+### Round 4, 2026-09-30
+
+One juror, **proceed**, **executed**. Verdict: `.plot/panels/2026-09-29-an-idle-reading-knows-the-conversation-started/round4.md`. Built as written: `workermonitor.test.mjs` passes 36/36 with `PLOT_SESSION_ID` unset and set, against 28/36 for the old `drive()` with the new monitor, the count the plan names. `workerloop.test.mjs` passes 36/36; one case failed once at load 22 and passed six times alone, on this branch and on `main`.
+
+Three text fixes for the e2e bullet, for the implementer: the worker writes the handle's transcript file, not the test, because the handle is minted inside the launch (`plot_session_id`) and `staffDesk` returns through `plot-dispatch.sh --restart`; "publishes nothing" means no `idle`, since the monitor correctly publishes `gone` when the worker exits and the healthy-worker test already excludes `gone` (`:319`); and `PLOT_TRANSCRIPT_HOME` and `PLOT_MONITOR_QUIET_SECONDS` travel through `staffDesk`'s `env` and reach the monitor by inheritance, as `PLOT_MONITOR_INTERVAL` does.
