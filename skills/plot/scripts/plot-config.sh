@@ -69,6 +69,36 @@
 #                       NOT fall back to the plugin — the key names which
 #                       artifact runs, so a silent substitution is the wrong
 #                       answer it removes. Absent = today's order.
+#   Agent settings      a JSON settings file every `claude -p` the fleet starts
+#                       is given, through `--settings`. It names the plugins this
+#                       project's agents start WITHOUT. Every dispatched agent
+#                       inherits every `SessionStart` hook the operator's plugins
+#                       declare, and the fleet starts a session on every worker
+#                       start, restart, retry and hop plus every agent-runner
+#                       command the board runs: measured 2026-09-30, one plugin's
+#                       lockless sync ran three times at once, the 1-minute load
+#                       reached 195, and the supervisor did not tick for 12
+#                       minutes.
+#                       Resolved by `plot-agent-settings.sh`, which prints an
+#                       absolute path (exit 0), nothing for an absent or empty key
+#                       (exit 0), or nothing with the reason on stderr (exit 3)
+#                       for a missing, unparseable or gate-disabling file. A
+#                       relative value resolves against the MAIN CHECKOUT (the
+#                       parent of `--git-common-dir`), never `--show-toplevel`,
+#                       for `Board artifact`'s reason: a desk must resolve the
+#                       same file, and one cut from an older main may not hold it.
+#                       The path travels to every consumer as
+#                       `PLOT_AGENT_SETTINGS`, and each command key interpolates
+#                       `${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"}`
+#                       itself — Plot rewrites no configured command.
+#                       A file setting any `plot@…` plugin false, `disableAllHooks`
+#                       true, or ANY `env` key is REFUSED: those switch Plot's own
+#                       four gates off, and a settings `PATH` hiding the gates'
+#                       tools makes them fail open. It is a check against an
+#                       accidental switch-off, not a boundary — the file is
+#                       project-owned and reviewed like this one.
+#                       Absent or empty = no change, so an adopting project that
+#                       sets nothing behaves exactly as today.
 #   Worktree root       where /plot-dispatch creates fleet worktrees. A relative
 #                       value resolves against the repo root, an absolute one is
 #                       taken as given. Absent = the default `repo_root/..` with
