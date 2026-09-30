@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The ONE answer to "how long has this worktree's agent been quiet?" — sourced,
-# not run, by `plot-worker-monitor.sh`.
+# not run, by `plot-worker-monitor.sh` and `plot-worker-loop.sh`.
 #
 # It reads the AGENT rather than the machine. A `claude -p` session appends a
 # timestamped line to its transcript for every model turn, tool call and tool
@@ -39,6 +39,14 @@
 # 2026-09-03 held 45 session files, 30 of them subagents, and a sum across them
 # belongs to no one. `rules/spend.ts` states that side; the two read the same
 # files and must not be made to share a join.
+#
+# A THIRD QUESTION USES BOTH KEYS: *has this worker's conversation written?* It
+# is per worktree AND per conversation handle, and it is asked as a file's
+# existence, never as a time: `plot_transcript_exists` below. The loop asks it
+# to choose `--session-id` or `--resume`; the worker monitor asks it before it
+# calls a quiet desk idle, because until the new conversation writes its first
+# line the desk's newest file belongs to the previous one. It does not change
+# the quiet number, which stays about the desk.
 #
 # So the join here is the one `plot-quiet-stretch.mjs` already made and proved
 # on 23 real sessions: the runtime stores a session under
@@ -119,6 +127,26 @@ plot_transcript_quiet_seconds() { # $1=worktree → seconds | unavailable
   # elsewhere; clamping says what is meant.
   [ "$quiet" -lt 0 ] && quiet=0
   printf '%s' "$quiet"
+}
+
+# Does the conversation `id` have a transcript at this worktree?
+#
+# EXISTENCE, NOT A TIMESTAMP. The runtime creates `<id>.jsonl` with its first
+# line and appends to it after, under both `--session-id` and `--resume`. So the
+# file's presence says the conversation has written, and no comparison of
+# clocks is made, so a file created in the same second as a manifest write
+# reads as present.
+#
+# NO HANDLE AND NO FILE ARE ONE ANSWER HERE, and a caller that must tell them
+# apart checks the handle first. `session_flag` reads both as *create*; the
+# monitor's port does not, because a monitor with no handle must not read every
+# quiet worker as unspoken.
+plot_transcript_exists() { # $1=worktree $2=id → 0 found | 1 not
+  local wt="$1" id="$2" dir
+  [ -n "$wt" ] && [ -n "$id" ] || return 1
+  dir=$(plot_transcript_dir "$wt" 2>/dev/null) || return 1
+  [ -n "$dir" ] || return 1
+  [ -f "$dir/$id.jsonl" ]
 }
 
 # A file's modification time as a unix epoch. BSD and GNU `stat` disagree on the
