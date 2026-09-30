@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Issue:** #1090, #1091
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -109,6 +110,8 @@ The prerequisite is the branch the slice's `waits:` annotation names; `blocked` 
 `branchState`'s zero-ahead table, the `prListComplete` reading, the scan and the bundle carrying it as an eleventh field, the corpus fixtures, the rewritten tests named above, and the three measured rows as fixtures.
 
 ## Notes
+
+**Implementation notes from round 4.** Every `BranchReadings` literal gains `prListComplete`: `branch-state.test.ts:25`, the three in the #995 guard, and the corpus `readingsFor`, which can fill it from `readPrList().complete`; update the docs at `entry/branch-state.ts:15` and `:57-72`. The PR list counts as complete only with at least one row (`plot-fleet-scan.sh:1078`), and the refill shim answers `NONE` for the slice and `MERGED` for its prerequisite. The `mainTip` null row reads `unknown` for an unreadable main, not an incomplete host answer; give it its own sentence if the arm can tell them apart.
 
 **Found while recovering the fleet on 2026-09-30.** One of the three rows was made by the operator's own recovery: an empty claim pushed at `origin/main` to keep the queue from handing out slice 2 of #1083 early (#1100), which then read as merged.
 
