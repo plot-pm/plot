@@ -16,9 +16,9 @@
 
 ## Changelog
 
-- A Bitbucket `pr-list --state all` costs one request instead of three.
+- A Bitbucket `pr-list` asks one page of 50 per state, so `--state all` costs 3 requests where it cost 8 on `quatico/quaweb-website`, with the same rows.
 
-Board impact: fewer host calls per refresh on a Bitbucket estate. No payload change.
+Board impact: fewer host requests per refresh on a Bitbucket estate. No payload change. `PR_REQUESTS_PER_REFRESH.bitbucket` stays 4 (3 listings + `issue-list`), which is now the real request count.
 
 ## Motivation
 
@@ -53,71 +53,46 @@ On an account near its rate limit, two extra requests per sweep is what tips a r
 
 ### The rule
 
-**`bb_states_for all` produces one call carrying three `--state` flags.**
+**Amended 2026-09-30, jwloka: one request per state at `pagelen=50`.** The rule approved on 2026-09-29 read *"`bb_states_for all` produces one call carrying three `--state` flags."* The measurement below refutes it, and the rule changes rather than the page budget.
 
-The loop that exists to call once per state collapses to one invocation. Everything downstream — the jq program, the three call sites that differ only in it, `PR_LIST_PARTIAL_RC` — is untouched.
+`bb_state_listing` asks `bb api /repositories/{ws}/{repo}/pullrequests?state=<S>&pagelen=50` once per state. `bb_states_for all` still expands to three states, and `pr_list_states` still loops over them. The jq programs, the three call sites that differ only in them, `PR_LIST_PARTIAL_RC` and the truncation report are untouched. The sweep (`--branch`) and the window (`--since`) paths keep their own commands.
 
-### The 50-row budget is SHARED, and this is what the slice must handle
+### The measurement that changed the rule
 
-**This is the defect, and it would reintroduce the 2026-08-18 failure by a different mechanism.**
+`bb pr list` sends no `pagelen`, so Bitbucket answers 10 rows a page and `bb_paginate` walks pages until it holds 50. A `bb` invocation is therefore not one request. Measured 2026-09-29 on `quatico/quaweb-website` with `bb` 1.9.0 (Quatico's script):
 
-`bb pr list` calls `bb_paginate "$path"` (`bin/bb:832`) with **no limit argument**, and the default is `local limit="${1:-50}"` (`bin/bb:195`).
+| listing | bb invocations | HTTP requests | rows returned |
+|---|---|---|---|
+| per state through `bb pr list` (before) | 3 | 8 (merged 5, declined 2, open 1) | 67 = 3 open + 50 merged + 14 declined |
+| one `bb pr list --state open --state merged --state declined` | 1 | 5 | 50 = 3 open + 45 merged + 2 declined |
+| `bb api` union, `pagelen=50`, walking `next` until every row is present | 1 script call | up to 19 (`size` = 912) | 67 |
+| **per state through `bb api …?state=<S>&pagelen=50` (shipped)** | 3 | **3** | **67** |
 
-| | requests | row budget |
-|---|---|---|
-| today | 3 | **50 per state**, up to 150 |
-| one repeated-flag call | 1 | **50 total**, from a union sorted by `updated_on` |
-
-On a merge-heavy repository — every mature one, and `plot-host.sh:3705` records `quatico/quaweb-website` at **902 PRs, 886 MERGED** — the 50 most recently updated are overwhelmingly merged, and **open PRs are crowded out entirely.** That is byte-for-byte what the adapter measured in 2026-08-18: *"50 PRs, all MERGED, with the 3 open ones gone. No error, a plausible list."*
-
-**The slice must pass an explicit limit through to `bb_paginate`**, or state the truncation as an accepted trade. It must not let a diff against a small fixture certify it.
-
-**A second loss in the same place:** `pr_list_states` runs truncation detection per state. One call means one check over a union, so the adapter can no longer say *which* state came back short — the hazard it warns about 30 lines up (`plot-host.sh:3717`): *"dropping it silently would serve a short page as if it were the whole set."*
-
-### The partial-failure question is ANSWERED: a partial is unreachable
-
-The loop exists so one state failing still prints the others (`PR_LIST_PARTIAL_RC=7`). **This was deferred to the slice and did not need to be** — `bb` is a shell script, and reading it settles the question with zero API calls.
-
-`bin/bb:446-460` builds ONE url with repeated `state=` params and Bitbucket returns the union server-side. There is no client-side fan-out, so no per-state outcome can differ: one request succeeds or fails whole.
-
-**So `PR_LIST_PARTIAL_RC` becomes unreachable on this path**, and the Bitbucket multi-state partial test (`test/reconcile/host.test.mjs:1040-1144`) must be **retired deliberately** rather than left passing against a stub that no longer models reality. The single-state test already covers the new shape. `plot-fleet-scan.sh:675` reads rc 7 directly and is unaffected — GitHub's single call could never produce it either.
-
-### GitHub is untouched
-
-`--state all` is native there and never reaches this arm. The fix is Bitbucket-only, and the comment that says GitHub *"can never reach this shape"* stays true.
+The one-call union loses 17 of 67 rows, 12 of 14 declined PRs among them, and keeps its 3 open PRs only because all 3 were updated after 2026-09-17. That is the 2026-08-18 failure reached through the shared 50-row budget. The exact union costs more requests than the loop it replaces. Asking `pagelen=50` per state keeps every row and cuts 8 requests to 3, re-measured 2026-09-30.
 
 ### What this does NOT do
 
-- **It does not change `bb_states_for`'s vocabulary.** Three states in, three states asked for.
-- **It does not remove `PR_LIST_PARTIAL_RC`.** The code stays for GitHub and single-state calls; only the Bitbucket multi-state path stops producing it.
-
-### The capability is PROBED, never version-compared
-
-**Two products share the name `bb`,** and `plot-host.sh:1896` records why that settles the method:
-
-> `TWO TOOLS SHARE THE NAME bb.` craftamap/bb is a Go binary that does NOT support `--json` … craftamap 0.6.0 is not "older than" Quatico 1.0.0 — they are unrelated.
-
-So *"an older `bb` may not have it"* is the wrong frame: it may be a **different `bb`**. The precedent is `bb_require_json` / `bb_identify` (`:1923-2021`), which probe behaviourally through `--help` and cache the answer as `BB_CAP_*`. `bb_require_json` already runs on this exact path (`:3727`), so the probe point exists.
-
-**Detect, following that precedent.** This is decided here rather than left to the slice.
-- **It does not touch the three call sites**, which differ only in their jq program.
-- **It does not change GitHub's path.**
+- **It does not collapse the states.** Three states in, three requests out.
+- **It does not probe `bb` for the repeatable `--state`.** No path depends on it.
+- **It does not remove `PR_LIST_PARTIAL_RC`.** One state can still fail while the others answer, and the partial-answer test stays.
+- **It does not change `bb pr list`.** The change is in Plot's adapter, not in Quatico's `bb`.
+- **It does not touch the sweep, the window, `pr-state`'s own loop, or GitHub's path.**
 
 ## Done when
 
-- A Bitbucket `pr-list --state all` makes **one** `bb` invocation, asserted by counting calls against a stub — not by timing.
-- **The payload is identical to today's three-call result on a fixture of MORE THAN 50 PRs, merge-heavy.** A diff against a small repository passes whatever the limit does, and the cap is the only regime where this can fail.
-- **An explicit limit reaches `bb_paginate`, or the truncation is recorded as an accepted trade.** One call shares one 50-row budget where three calls had 50 each.
-- **The capability is probed through `--help` and cached**, following `bb_require_json` / `bb_identify` (`plot-host.sh:1923-2021`). Never a version comparison: two products share the name `bb`.
-- The Bitbucket multi-state partial test (`test/reconcile/host.test.mjs:1040-1144`) is **retired deliberately**, with the reason recorded — a partial is unreachable once the call is one request.
+- A Bitbucket `pr-list --state all` with no branch and no window makes **three** `bb api` requests, one per state, each carrying exactly one `state=` and `pagelen=50`, asserted by counting calls against a stub.
+- **On a fixture of more than 50 PRs, merge-heavy** (60 merged, 3 open and 2 declined older than the 50th merged), the payload holds all 3 open, both declined and 50 merged rows, against a stub that models Bitbucket's paging and would crowd a union out.
+- A full merged page is still reported as possibly truncated, naming `state=merged`.
+- The partial-answer test and the single-state failure tests pass unedited.
+- `--state all --branch x` still makes one query per state per branch.
 - GitHub's `--state all` path is unchanged, asserted by a test that still exercises it.
-- `bb --version` is recorded in the PR alongside the probe's answer.
+- `bb --version` and the request counts are recorded in the PR.
 
 ## Slices
 
 ### A state sweep is one request (Branch: bug/a-state-sweep-is-one-request)
 
-Collapse the per-state loop to one repeated-flag call, answer the partial-failure question, and assert the call count against a stub.
+Ask each state one page of 50 through `bb api`, and assert the request count and the merge-heavy payload against a stub.
 
 ## Notes
 
