@@ -115,7 +115,7 @@ So *"an older `bb` may not have it"* is the wrong frame: it may be a **different
 
 ## Slices
 
-### A state sweep is one request (Branch: bug/a-state-sweep-is-one-request)
+### A state sweep is one request (Branch: bug/a-state-sweep-is-one-request, PR: #1096)
 
 Collapse the per-state loop to one repeated-flag call, answer the partial-failure question, and assert the call count against a stub.
 
