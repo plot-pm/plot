@@ -1,5 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
+import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
@@ -32,6 +33,7 @@ import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js'
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
 import { handleImplement, implementAvailability, implementStatus } from './implement.js';
 import { dropAvailability, handleDrop } from './drop.js';
+import { logDir, processLog, truncateInherited } from './process-log.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -71,6 +73,33 @@ const opts: BuildBoardOptions = {
   // settle under the other.
   repairEnabled: repairEnabledFromEnv(),
 };
+
+// ── The board's own log ──────────────────────────────────────────────────────
+//
+// THE BOARD OPENS ITS OWN LOG, because only the opener can rotate it.
+// `plot-boardctl.sh` opens `board.log` with `>>` before it `exec`s this process,
+// and a writer that inherited that descriptor follows the inode across a rename
+// and never creates the new name — so `mv`, `newsyslog` and `logrotate` all
+// leave the board writing into the renamed file.
+//
+// THE INHERITED PAIR IS TRUNCATED AT START where it has passed the bound, which
+// is safe because every opener uses `O_APPEND` (`lsof +fg` reported `AP` on all
+// four live descriptors). It still catches whatever is printed before this line
+// and any crash trace, which is why `plot-boardctl.sh` keeps its redirect.
+//
+// `console` IS REDIRECTED RATHER THAN ITS TWENTY CALL SITES REWRITTEN. Every
+// line this server logs goes through `console.log` or `console.error`, and one
+// seam here is both the smaller diff and the harder thing to forget: a route
+// added later logs through the rotating writer without knowing it exists.
+truncateInherited(1);
+truncateInherited(2);
+const boardLog = processLog(path.join(logDir(opts.repoRoot), 'board.log'));
+const toLog = (parts: readonly unknown[]): void => {
+  boardLog.write(`${parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ')}\n`);
+};
+console.log = (...parts: unknown[]): void => toLog(parts);
+console.error = (...parts: unknown[]): void => toLog(parts);
+console.warn = (...parts: unknown[]): void => toLog(parts);
 
 /**
  * The driven side this process serves, chosen ONCE at start.
