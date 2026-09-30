@@ -2143,7 +2143,9 @@ test('processes: the Linux arm reads a live process cwd through /proc', { skip: 
   const sleeper = spawn('sleep', ['30'], { cwd: dir, stdio: 'ignore' });
   try {
     const r = status({
-      ps: [[sleeper.pid, 1, 501, `node /i/${BOARD}`], [1, 0, 0, `node /j/${BOARD}`]],
+      // The sleeper's parent is no Plot process: under pid 1 listed as a board,
+      // the top-level rule would fold it into that board.
+      ps: [[sleeper.pid, 40, 501, `node /i/${BOARD}`], [1, 0, 0, `node /j/${BOARD}`]],
     });
     assert.ok(r.block.includes(row('board', sleeper.pid, { serves: dir, installed: '/i' })), r.out);
     // Pid 1 is root's, and the runner is not root.
