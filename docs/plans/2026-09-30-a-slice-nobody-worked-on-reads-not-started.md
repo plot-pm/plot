@@ -106,7 +106,7 @@ The prerequisite is the branch the slice's `waits:` annotation names; `blocked` 
 
 `classifyGroup`'s arms for `blocked`, `waiting` and `unknown` after the worker block, the `waits_on` parameter, the tail guarded on `wip`, `rowsFromPulse`'s closed-PR arm yielding to a live worker, and `classifier-is-total.test.ts`.
 
-### Zero ahead is not merged (Branch: bug/zero-ahead-is-not-merged)
+### Zero ahead is not merged (Branch: bug/zero-ahead-is-not-merged, PR: #1108)
 
 `branchState`'s zero-ahead table, the `prListComplete` reading, the scan and the bundle carrying it as an eleventh field, the corpus fixtures, the rewritten tests named above, and the three measured rows as fixtures.
 
