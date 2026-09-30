@@ -12,9 +12,27 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. Measured 2026-09-30: this file left 21 directories behind. One
+// `process.on('exit')` rather than a cleanup per case, so a new case is covered
+// without remembering to add one. Never a glob over the shared temp directory.
+// A FUNCTION DECLARATION HOLDING ITS OWN STATE, because `before()` hooks and
+// helpers ABOVE this point call it. A function declaration is hoisted whole,
+// but a `const` it closes over stays in the temporal dead zone until the
+// module reaches it — measured here as `ReferenceError: Cannot access
+// 'tempPaths' before initialization`. The list hangs off the function object,
+// which exists from the first line of the module.
+function trackTemp(dir) {
+  (trackTemp.paths ??= []).push(dir);
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of trackTemp.paths ?? []) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -26,7 +44,7 @@ const sprint = (state) => `# S\n\n## Status\n\n- **State:** ${state}\n- **Releas
 
 // A repo carrying one committed plan, plus whatever the case stages on top.
 function repo({ files = {}, committed = {} } = {}) {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-state-gate-'));
+  const tmp = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-state-gate-')));
   const dir = path.join(tmp, 'repo');
   mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
@@ -217,7 +235,7 @@ test('state gate: a deleted State line is not a transition', () => {
 // Fail-open on its own machinery: outside a git repository the gate can see no
 // diff at all, so it allows rather than refusing every commit anywhere.
 test('state gate: outside a git repository it allows', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-state-gate-nogit-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-state-gate-nogit-')));
   const r = run(dir);
   assert.equal(r.status, 0);
 });
