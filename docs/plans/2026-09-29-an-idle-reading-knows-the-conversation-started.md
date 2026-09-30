@@ -10,11 +10,11 @@
 - **Issue:** #1074
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
-- The idle verdict no longer fires on a conversation that has not written yet: a desk whose newest transcript predates the current worker's start reads as `unstarted`, not as silence.
+- The idle verdict no longer fires on a conversation that has not written yet: a worker whose own conversation has no transcript file reads as `unspoken`, not as silence, and the monitor publishes nothing for it.
 
 Board impact: none. This is the worker monitor's verdict, which the board renders but does not compute.
 
@@ -54,79 +54,104 @@ The `-- .` keeps only commits that TOUCHED A FILE, and `plot-dispatch.sh:2074` w
 
 ### Why #1067 does not remove it
 
-#1067 (`bug/a-slice-starts-its-own-conversation`, PR #1077) makes a hop to a new branch start a fresh conversation with `--session-id`. That removes the measured *cause* of the 2 770 s silence — the first prompt no longer reloads the previous slice's transcript.
+#1067 (`bug/a-slice-starts-its-own-conversation`, PR #1077, merged as `1427ccc2`) makes a hop to a new branch mint a fresh `resumeId` (`update_manifest_on_hop`, `plot-worker-loop.sh:301-306`), so the first prompt on the new slice runs with `--session-id` and writes a new `<resumeId>.jsonl`. That removes the measured *cause* of the 2 770 s silence: the first prompt no longer reloads the previous slice's transcript.
 
-**It changes nothing this rule reads.** A fresh conversation still writes nothing until it loads, and the reader still takes the directory's newest file. #1067 makes the defect rarer and leaves it reachable by any slow start: a cold model, a long `--resume`, a machine under load. **A defect that is only reachable under load is the one that fires when the fleet is busiest.**
+**It also makes this defect reachable, and it leaves the reader unchanged.** The transcript directory now holds one file per slice, and `plot_transcript_quiet_seconds` still takes the newest mtime across all of them. Until the new conversation writes its first line, the newest file is the previous slice's. Any slow start reaches that state: a cold model, a machine under load. **A defect that is only reachable under load fires when the fleet is busiest.**
 
 ## Design
 
 ### The rule
 
-**An idle verdict requires evidence that THIS worker's conversation produced output.** A desk whose newest transcript is older than the worker's own start has not been silent — it has not spoken yet, and those are different facts.
+**An idle verdict requires evidence that THIS worker's conversation has written.** The conversation has written when a transcript file named for its handle exists: `$(plot_transcript_dir "$worktree")/<handle>.jsonl`. Where that file does not exist, the conversation has not spoken yet, and a desk-wide silence says nothing about it.
 
-### The word is `unstarted`, and it is not a fifth finding
+**The instrument is the probe the loop already uses.** `session_transcript_exists` (`plot-worker-loop.sh:698-705`) asks exactly this question to choose between `--session-id` and `--resume` (`session_flag`, `:749`). The monitor asks the same probe with the same handle. One probe with two readers cannot disagree about whether a conversation exists.
 
-`plot-transcript-quiet.sh` already answers `unavailable` as a WORD rather than a number, for the reason its header gives: a caller reading an absent capability as *quiet for 0 seconds* would report every unreadable agent healthy.
+**The quiet NUMBER stays desk-wide.** `plot_transcript_quiet_seconds` is unchanged: it still takes the newest mtime across every non-`agent-` file in the desk's directory, for the reason its header gives at `plot-transcript-quiet.sh:27-35`. An operator typing at the desk is activity at the desk. The handle enters only as an existence test, and only after the number is past the window.
 
-**This needs the same treatment and the same shape.** A desk whose every transcript predates the worker's start answers `unstarted`. It is not `0` (which claims output just happened) and not `unavailable` (which claims the reading could not be made — it was made, and it says the conversation has not begun).
+### The rule against every writer of the manifest
 
-`plot-worker-monitor.sh` matches on the word and publishes NOTHING: `busy` and `unknown` are already non-findings there, and this joins them. **No new finding is added** — an unstarted worker is not a state an operator acts on, it is the absence of grounds for the one finding this plan constrains.
+The handle is the manifest's `resumeId`, and seven writers touch the manifest. The rule reads the field, not the file's mtime, so only a writer that changes `resumeId` can change the answer:
 
-### The instrument is the MANIFEST's mtime, not the pid file's
+| writer | where | changes `resumeId`? | answer after it |
+|---|---|---|---|
+| launch pid stamp | `plot-dispatch.sh:1438-1471` | no | `unspoken` until the first line, then a number |
+| `performerShell.assignSlice` | `performer-shell.ts:71` | no | as before the write |
+| `update_manifest_on_hop` to a new branch | `plot-worker-loop.sh:301`, called `:2314` | **yes**, a fresh id | `unspoken` until the new conversation writes |
+| `update_manifest_on_hop` to the same branch | same | no | a number — the file exists |
+| `raise_manifest_attempts` | `plot-worker-loop.sh:398`, called `:2015` | no | `unspoken` if the prompt never ran, else a number |
+| `raise_manifest_corrections` | `plot-worker-loop.sh:465`, called `:2080` | no | a number — the resumed conversation's file exists |
+| `clear_manifest_branch` | `plot-agent-manifest.sh:47`, called `:2133` | no | a number — the slice's file exists |
+| `writeManifestStamp` | `continue.ts:566` | no | no reader: `/api/continue` starts no WorkerMonitor (`continue.ts:558`) |
 
-**Round 1 refuted the plan's original instrument by measurement.** It proposed `.plot-worker.pid`'s mtime as *when this worker started*. It is when the **wrapper loop** launched, and the loop never rewrites it across a hop.
+A same-second tie does not arise, because the rule compares no timestamps. A transcript file created in the same second as the hop exists, and the conversation reads as started.
 
-Measured 2026-09-29 on this machine's live, working desks:
+### The word is `unspoken`, and it is not a finding
 
-| desk | pid file age | transcripts older than it |
-|---|---|---|
-| `free-c7b58b4f` | **8h 00m** | 0 of 9 |
-| `free-dfdc5491` | **3h 29m** | 0 of 4 |
-| `free-02487045` | 2h 48m | 0 of 4 |
+`plot-transcript-quiet.sh` already answers `unavailable` as a WORD rather than a number: a caller that reads an absent capability as *quiet for 0 seconds* would report every unreadable agent healthy. This needs the same treatment. `unspoken` is not `0`, which claims output just happened, and not `unavailable`, which claims the reading could not be made. The reading was made, and it says this conversation has not written.
 
-**0 of 17 transcripts predate their pid file**, so the proposed rule fires on none of them — including the reused-desk case the Motivation is written about, where the pid file is hours older than every transcript by construction. The fix as first drafted is inert on 100% of this estate.
+**`unstarted` is not available.** It is an `EndingReason` (`packages/domain/src/entities/ending.ts:55`), written at `plot-worker-loop.sh:2021` when the prompt exited without running on every start attempt, and `agent.ts:390` gives it its own actor rules. One word for an ending and for a non-finding would make a log grep ambiguous. `unspoken` names the observed fact (no line written), and `git grep -w unspoken` finds no other use in `skills/`, `packages/` or `docs/`.
 
-**`update_manifest_on_hop` rewrites the manifest on every hop**, so its mtime moves with the slice where the pid file's does not — measured +10108 s, +6257 s and +3704 s ahead of the pid file on the three live desks. It also bumps `wavesCount`, and all three desks here have hopped (5, 4 and 3 waves).
+`sample_verdict` returns `unspoken` and `monitor_pass` publishes NOTHING on it, exactly as it does for `busy` and `unknown` (`plot-worker-monitor.sh:560-562`). `prev_verdict` records it, so the two-sample rule needs two `quiet` passes after the first line before `idle` can fire. **No new finding is added.**
 
-**So the reading is: the newest transcript against the MANIFEST's mtime.** Same instrument class the quiet reader already defends at `:87-91` — comparing two mtimes the machine keeps — applied to the file that actually marks this slice's start.
+### How the monitor reaches the handle
 
-**The operator-at-the-desk case still holds**, and it was measured: an operator typing after the slice started writes a newer mtime and reads as activity, whoever's session wrote it. The comparison is against a time, never a session id, which is what preserves the quiet reader's own argument. An operator who typed *before* the slice started now reads as `unstarted` — that is a real narrowing and it is stated rather than implied.
+**The monitor reads the environment it already inherits, and never the worktree finder.** `plot-dispatch.sh` sets `PLOT_SESSION_ID` (`:1426`) and `PLOT_MANIFEST_FILE` (`:1431`) on the wrapper `sh -c`, and the wrapper starts the monitor as its child (`:1438`). Neither variable is read by the monitor today.
 
-### This plan DEPENDS on #1067, and that is a reversal
+- `manifest_resume_id` (`plot-worker-loop.sh:648`) and `session_handle` (`:720`) move into `plot-agent-manifest.sh`, which the loop already sources (`:333`). The monitor sources the same file. The handle is the manifest's `resumeId`, else `PLOT_SESSION_ID`, which is the order the prompt uses.
+- `session_transcript_exists` moves into `plot-transcript-quiet.sh` as `plot_transcript_exists`, which both the loop (`:92`) and the monitor (`:254-256`) already source. The loop's `session_flag` calls it under the new name.
+- **`plot_manifest_for_worktree` is not used.** It resolves `git rev-parse --show-toplevel` from the worktree (`plot-worker-state.sh:129-131`), which returns the DESK, not the main repository, and it ignores the `Agent registry` key. Measured on `free-c7b58b4f`: it names `.worktrees/free-c7b58b4f/.plot/agents`, which does not exist. Its comment is wrong, and that is filed as its own finding.
+- `usage()` (`plot-worker-monitor.sh:175-187`) lists `PLOT_SESSION_ID` and `PLOT_MANIFEST_FILE`.
+- The probe runs only when the desk-wide number is past `PLOT_MONITOR_QUIET_SECONDS`. `manifest_resume_id` starts one `node` (about 35 ms), so a busy worker pays nothing and a quiet one pays one start per 30 s pass.
 
-The plan first argued #1067 only reduces the defect's frequency. **Measured, it is a precondition.**
+### A missing handle cannot disable the fix silently
 
-Today `.plot/worker-prompt.sh:19-21` passes `--session-id` on the first prompt and `--resume` after, and all three live manifests confirm `resumeId == session`. So a hop writes into the **same** `.jsonl` the previous slice wrote: one file, one mtime, and no second file that could be older. **`unstarted` is unreachable on a hop as `main` stands.**
+A wrapper-started monitor always holds a handle: `PLOT_SESSION_ID` is set on every launch, and a pre-`resumeId` manifest falls back to it. **So the only monitor with no handle is one started by hand**, outside `start_worker`. That monitor behaves as today and writes one line to stderr at start: `plot-worker-monitor: no session handle (PLOT_SESSION_ID and PLOT_MANIFEST_FILE unset) — idle is judged on the desk alone`.
 
-#1067 (PR #1077, merged) makes each slice mint its own conversation, so the directory holds a file per slice and the state becomes reachable. **This plan must land after it**, and the earlier "it changes nothing this rule reads" — true of the quiet reader's code — was the wrong question.
+The fix is proved engaged, not assumed: a test launches the monitor through the environment `start_worker` builds and asserts `unspoken` on a hop fixture. A fixture that sets the variables by hand does not prove that the wrapper passes them.
+
+### The cost, and why no bound is added
+
+**Until the conversation writes its first line, `idle` cannot fire, and only `Worker bound` (28 800 s) ends a start that hangs.** This is accepted, and no bound is added.
+
+- It is the cost the monitor already accepts for `unavailable` (`plot-worker-monitor.sh:487-493`: *"a genuinely stuck agent then holds a desk for up to 8 hours"*). A first slice on a fresh desk pays it today, because an absent or empty transcript directory reads as `unavailable`. This rule gives a hop the same answer a first start already gets.
+- A prompt that exits without running is not covered by this path: the loop's start-attempt budget ends it and writes the `unstarted` ending (`plot-worker-loop.sh:2013-2021`).
+- A bound on the file's absence across N passes is N × `PLOT_MONITOR_INTERVAL` seconds, which is the grace-period timer this plan refuses below. It would also end the slow `--resume` start of up to 2 770 s that #1074 measured.
+
+### Out of scope, filed separately
+
+- **A hop that creates a desk leaves the monitor on the old one.** When the reset is refused, the loop cuts `plot-wt-<suffix>` (`plot-worker-loop.sh:2233`, `:2247`), and the monitor's `worktree` is fixed at launch (`plot-worker-monitor.sh:212`). From then on the monitor reads the old desk's transcripts and commits. With this rule the old desk has no file for the new handle, so the monitor answers `unspoken` until `Worker bound`; today it can publish a false `idle`. The cause is a stale subject, not an unstarted conversation, and it is filed as its own finding against the monitor's subject.
+- **`plot_manifest_for_worktree` resolves to the desk**, as measured above. Two readers call it (`plot-worker-state.sh:779`, `:986`). It is filed as its own finding.
 
 ### What this does NOT do
 
-- **It does not change `plot-transcript-quiet.sh`'s question.** The reader still answers about the desk. It gains one more word for one more true state of the desk.
-- **It does not add a grace period.** A fixed start-up window is a timer where a measurement is available, and it would be wrong in both directions: too short for a loaded machine, too long for a worker that really did stall after speaking once.
-- **It does not touch `monitor_has_commits`.** If the sandbox finds reading (1), that is a separate finding against `reset_desk` and it is filed, not folded in.
+- **It does not change `plot_transcript_quiet_seconds`.** The reader still answers about the desk. The new function beside it answers about one conversation.
+- **It does not add a grace period**, for the reasons in the cost section.
+- **It does not touch `monitor_has_commits`.** If the sandbox finds that the reset fell through, that is a separate finding against `reset_desk`.
 - **It does not change `gone`.** A dead pid is unaffected by whether its conversation started.
 
 ## Done when
 
-- **A desk whose newest transcript predates its MANIFEST's mtime answers `unstarted`**, asserted against a sandbox built with `touch -t`. Not the pid file: measured, 0 of 17 live transcripts predate their pid file, so a rule keyed on it fires on nothing.
-- **A desk whose newest transcript is NEWER than the manifest still answers a number**, including when that transcript belongs to another session — the operator-at-the-desk case, asserted explicitly.
-- **The hop case is asserted**: a desk carrying a previous slice's transcript and a freshly rewritten manifest answers `unstarted`. This is the shape #1074 was filed from, and the plan's first instrument missed it.
-- **`plot-worker-monitor.sh` publishes no finding on `unstarted`**, asserted across two consecutive passes with an unchanged tree and commits present — the four-condition conjunction that fires today.
-- **A desk with no manifest answers as it does today.** An unreadable start time is not evidence the conversation has not begun.
-- **The ewz-leg reading is named.** Round 1 refuted one of the two: a correctly reset desk returns `has_commits rc=1` and `idle` cannot fire, measured. So the desk either carried pushed work from an earlier attempt, or the reset fell through — the slice says which and files the other.
-- **Both copies of the script are changed**: `skills/plot/scripts/plot-worker-monitor.sh` and `packages/board/plot-worker-monitor.sh`, byte-identical today and shipped through the board's `files` list. The slice says how they stay in sync.
-- `node --test test/reconcile/workermonitor.test.mjs` stays green — **note the path has no hyphen**; it runs 36 tests today.
+- **A hop answers `unspoken`**: a desk that holds the previous slice's transcript, 3 000 s old, and a manifest whose `resumeId` names no file, answers `unspoken`, and two consecutive passes with an unchanged tree and commits present publish no finding.
+- **The first line ends `unspoken`**: once `<resumeId>.jsonl` exists, the verdict is the desk-wide number again, and `idle` fires after two further quiet passes, as it does today.
+- **The same-second tie reads as started**: a transcript file created in the same epoch second as the manifest rewrite answers a number, asserted with `touch -t`.
+- **The correction case answers a number**: after `raise_manifest_corrections`, with the resumed conversation's file 1 200 s old, the monitor still reaches `idle` across two passes. This is the negative case that the manifest-mtime instrument failed.
+- **The end-of-slice case answers a number**: after `clear_manifest_branch`, with the slice's file present, the answer is unchanged.
+- **The operator-at-the-desk case is decided by the handle**: after the worker's own file exists, a newer file from another session sets the desk-wide number and reads as activity. Before the worker's own file exists, an operator's file written inside the window reads `busy` as today, and one written 1 000 s ago reads `unspoken`, not `quiet`. All three readings are asserted.
+- **The fix engages through the real launch**: a monitor started with the environment `start_worker` builds reads the manifest's `resumeId` and answers `unspoken` on a hop fixture. A hand-started monitor with no handle writes the stderr line above and behaves as today.
+- **The loop and the monitor share one probe and one handle**: `session_flag` calls `plot_transcript_exists`, and both scripts call `session_handle` from `plot-agent-manifest.sh`. `grep -n 'session_transcript_exists\|^manifest_resume_id' skills/plot/scripts/plot-worker-loop.sh` returns 0 lines.
+- **The ewz-leg reading is named.** A correctly reset desk returns `has_commits rc=1` and `idle` cannot fire, measured in round 1. So the desk either carried pushed work from an earlier attempt, or the reset fell through. The slice reproduces the shape in a sandbox, says which, and files the other.
+- **One source file per script is changed.** `packages/board/plot-worker-monitor.sh` and `packages/board/plot-transcript-quiet.sh` are build outputs: `packages/board/build.mjs:961-966` copies them from `skills/plot/scripts/`, and `packages/board/.gitignore:22-24` ignores them. `plot-agent-manifest.sh` is already on the vendored list (`build.mjs:960`), so the monitor's new source line resolves in the npm layout. The slice edits `skills/plot/scripts/` and runs `pnpm build:board`.
+- `node --test test/reconcile/workermonitor.test.mjs` stays green. The path has no hyphen, and it runs 36 tests, 36 passing under Node 24 on 2026-09-30.
 
 ## Slices
 
 ### An idle reading knows the conversation started (Branch: bug/an-idle-reading-knows-the-conversation-started)
 
-Add the `unstarted` word, match it in the monitor, and reproduce the ewz-leg shape.
+Move the handle and the transcript probe into the two shared helpers, add the `unspoken` verdict to the monitor, and reproduce the ewz-leg shape.
 
 ## Notes
 
-**The two joins are now three questions, and the header should say so.** `plot-transcript-quiet.sh:36-41` already contrasts *is anything happening at this desk* (per worktree) with *what has THIS agent spent* (per session). This plan adds a third: *has this worker's conversation started* — per worktree, and per worker's start time. It is neither of the first two, and a reader of that header should not have to derive it.
+**The two joins are now three questions, and the header should say so.** `plot-transcript-quiet.sh:36-41` already contrasts *is anything happening at this desk* (per worktree) with *what has THIS agent spent* (per session). This plan adds a third: *has this worker's conversation written* — per worktree, and per conversation handle, asked as a file's existence. It is neither of the first two, and a reader of that header should not have to derive it.
 
 ### Round 1, 2026-09-29
 
@@ -139,3 +164,13 @@ Two jurors, both **amend**, both **executed**. Verdicts: `.plot/panels/2026-09-2
 **The relationship to #1067 is reversed from what the plan claimed.** Today a hop `--resume`s one session id into one file, so there is no second file to be older and `unstarted` is unreachable. #1067 mints a fresh conversation per slice and makes the state reachable — it is a precondition, not a frequency reduction.
 
 Also folded in: the ewz-leg commit reading is half-settled by measurement (a correctly reset desk refuses `idle`); the script has two byte-identical copies and the plan named one; and the test file is `workermonitor.test.mjs`, without the hyphen.
+
+### Round 2, 2026-09-30
+
+One juror, **amend**, **executed**. Verdict: `.plot/panels/2026-09-29-an-idle-reading-knows-the-conversation-started/round2.md`.
+
+**The juror refuted the manifest-mtime instrument by measurement.** The manifest has seven writers, not one. Two of them rewrite it after the conversation has spoken: `raise_manifest_corrections` mid-slice, before the same conversation is resumed, and `clear_manifest_branch` at the end of the slice. A sandbox that drove the real functions read both cases as `unstarted`. `writeManifestStamp` in `continue.ts` is a seventh writer.
+
+**The design is rebuilt on the juror's proposed rule**, verified here: the conversation has not spoken while no `<resumeId>.jsonl` exists, which is the probe `session_transcript_exists` already answers for the loop. The quiet number stays desk-wide.
+
+Also changed: the word is `unspoken`, because `unstarted` is an `EndingReason`; the monitor reads `PLOT_SESSION_ID` and `PLOT_MANIFEST_FILE` from its inherited environment, because `plot_manifest_for_worktree` resolves to the desk; the "no manifest behaves as today" clause is replaced by an engagement test through the real launch environment; the cost of no bound is stated and accepted; the created-desk hop is scoped out as its own finding. **"Both copies of the script" was wrong**: the `packages/board/` copy is a gitignored build output of `build.mjs`, so the slice edits one file per script.
