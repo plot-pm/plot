@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Issue:** #1073
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -178,3 +178,7 @@ One juror, **amend**, **executed**. Verdict: `round2.md` in the same directory. 
 ### Round 3, 2026-09-30
 
 One juror, **amend**, **executed**. Verdict: `round3.md` in the same directory. The juror built the slice and all five Done-when tests passed, but the build contradicted the plan: `MergeReading` is declared at `reapable.ts:13`, so widening it there fails the empty-`reapable.ts`-diff criterion. The juror's proven fix is adopted. `DeskMergeReading` is declared in `gates.ts`, the two board imports switch to it, and `tsc` refuses `not-asked` into the reap rules with `TS2322`. The juror also found three more things, all now folded in. The producer test must call the world's `merge`. The `supervise` verdict depends on `madeProgress` (`defer` without progress, `correct` with it), so both cases are asserted. Two citations needed correcting: the `plot-release-refs.sh` skip is at `:202`, and the `reapProblems` caller list now includes `transitions/worktree.ts:294`.
+
+### Round 4, 2026-09-30
+
+One juror, **proceed**, **executed**. Verdict: `.plot/panels/2026-09-29-a-question-nobody-asked-has-its-own-word/round4.md`. The juror built the Slices line literally at `824f778c`: both typechecks exit 0, `git diff --quiet` on `reapable.ts` exits 0, the TS2322 probe fires, all 9 Done-when tests pass and each fails without its change, the domain suite passes 2772/2772 and the affected board unit files 162/162. The changeset is `'@plot-pm/board': patch`.
