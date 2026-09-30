@@ -1,0 +1,1 @@
+../2026-09-29-a-question-nobody-asked-has-its-own-word.md

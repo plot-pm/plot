@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 4
 - **Started:** 2026-09-30, jwloka, `bug/a-question-nobody-asked-has-its-own-word`
+- **Delivered:** 2026-09-30
 
 ## Changelog
 
