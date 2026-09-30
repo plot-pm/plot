@@ -153,7 +153,7 @@ Each bullet is a test unless it says otherwise.
 
 ## Slices
 
-### A question nobody asked has its own word (Branch: bug/a-question-nobody-asked-has-its-own-word)
+### A question nobody asked has its own word (Branch: bug/a-question-nobody-asked-has-its-own-word, PR: #1092)
 
 Declare `DeskMergeReading = MergeReading | 'not-asked'` in `gates.ts`, type `DeskReadings.merge` with it, and give `prGate` an arm above its fallthrough. Switch the `MergeReading` imports at `supervisor.ts:18` and `registryd-main.ts:22` to `DeskMergeReading`. In `registryd-main.ts:398`, return `not-asked` for `branch === ''` before `tally.calls += 1` and the host call. `reapable.ts`, `plot-reap.sh` and `plot-pr-merged.sh` stay unchanged.
 
