@@ -964,6 +964,51 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
   printf '%s' "$_rows"
 }
 
+# List the pull requests in ONE state, one page of 50, as one array.
+#
+# THE PLAIN LISTING, and the fourth command in `pr_list_states`' slot. It takes
+# the same trailing `--state <s> --json` as `bb_branch_sweep` and
+# `bb_window_listing` and prints the same JSON array, so the states loop, the
+# truncation report and the partial-answer rule stay in that helper.
+#
+#   /repositories/{ws}/{repo}/pullrequests?state=MERGED&pagelen=50
+#
+# ONE REQUEST PER STATE, WHERE `bb pr list` SPENDS UP TO FIVE. `bb pr list`
+# sends no `pagelen`, Bitbucket answers 10 rows a page, and `bb_paginate` walks
+# pages until it holds 50. Asking `pagelen=50` returns the same 50 rows in one
+# request. Measured 2026-09-30 on `quatico/quaweb-website` with bb 1.9.0: the
+# three states cost 8 requests through `bb pr list` (open 1, merged 5,
+# declined 2) and 3 through this path, and both return the same 67 rows
+# (3 open, 50 merged, 14 declined).
+#
+# THE STATES STAY SEPARATE CALLS. One `state=` union over the three returns the
+# 50 most recently updated rows across all of them: measured on the same
+# repository, 50 of 67 rows, 12 of 14 declined PRs lost, and an open PR survives
+# only if it was updated recently. That is the 2026-08-18 failure
+# `bb_states_for` records, reached through the page cap instead of through a
+# flag.
+#
+# ONE PAGE, AS BEFORE. 50 is the endpoint's `pagelen` ceiling and the limit
+# `bb_paginate` applied, so a state holding more than 50 rows answers with its
+# 50 most recent here too, and `pr_list_report_truncation` still says so.
+#
+# THE HOST'S FAILURE TEXT AND EXIT CODE LEAVE UNTOUCHED, as in
+# `bb_branch_query`: `pr_list_call` classifies once, so a `429` still reads as
+# a rate limit.
+bb_state_listing() { # global bb args… --state <s> --json → one JSON array
+  local _st="" _args=() _out
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --state) _st="${2:?}"; shift 2 ;;
+      --json)  shift ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  [ -n "$_st" ] || die "bb_state_listing: no --state"
+  _out="$(bb ${_args[@]+"${_args[@]}"} api "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=50")" || return $?
+  printf '%s' "$_out" | jq -c '.values // []'
+}
+
 # The branches a sweep asks about, newline-or-space separated. Empty means the
 # caller named none, and the arm keeps the bulk listing it has always used.
 #
@@ -1893,6 +1938,13 @@ rest_pr_to_state() {
 # gone. No error, a plausible list. One call per state avoids depending on a
 # `bb` fix, and the three states partition the set (74 PRs, 74 unique ids,
 # 0 duplicates on the repo measured).
+#
+# bb 1.9.0 honours repeated `--state` and sends one union request, and the
+# states still stay separate. The union returns the 50 most recently updated
+# rows across all three states: measured 2026-09-29 on
+# `quatico/quaweb-website`, 50 of 67 rows, 12 of 14 declined PRs lost. The cost
+# is cut per state instead, by `bb_state_listing`'s `pagelen=50`: 8 requests
+# become 3 there, with all 67 rows kept.
 #
 # `superseded` is deliberately NOT part of `all`: such a PR is replaced by a
 # newer one for the same branch, and a board with one row per branch would
@@ -3802,8 +3854,9 @@ case "$op" in
       # integration GitHub uses, which is why it is ABOVE the backend branch.
       # Bitbucket's `unknown` becomes a real value.
       #
-      # `bb pr list` has no --limit: it returns a fixed page (50 at 1.0.0).
-      # Forwarding it errors with `unknown flag`, and dropping it silently
+      # The listing has no --limit: it returns one page of 50 per state
+      # (`bb_state_listing`). `bb pr list` refuses the flag with `unknown flag`,
+      # and the page size is the endpoint's ceiling. Dropping it silently
       # would serve a short page as if it were the whole set — the quiet wrong
       # answer this adapter refuses elsewhere. So it is dropped AND said.
       # A SWEEP IS NOT A PAGE AND OWES NO SUCH WARNING. `--limit` bounds a
@@ -3811,7 +3864,7 @@ case "$op" in
       # nothing was capped, so the notice would describe a truncation that did
       # not happen. Said only for the listing it is about.
       if [ -n "$limit" ] && [ -z "$branches" ] && [ -z "$since" ]; then
-        echo "plot-host: bitbucket ignores --limit $limit; bb returns a fixed page (50 at 1.0.0)" >&2
+        echo "plot-host: bitbucket ignores --limit $limit; the listing returns one page of 50 per state" >&2
       fi
       # Establish that bb supports --json BEFORE calling it — Done-when 5.
       bb_require_json
@@ -3841,7 +3894,10 @@ case "$op" in
       # answer as a delta.
       PR_LIST_SINCE="$since"
       PR_SWEEP_ASKED=0
-      bb_cmd=(bb ${repo_args[@]+"${repo_args[@]}"} pr list)
+      # THE PLAIN LISTING IS `bb_state_listing`, one request per state at
+      # `pagelen=50`, where `bb pr list` walks 10-row pages. Its header has the
+      # measurement.
+      bb_cmd=(bb_state_listing ${repo_args[@]+"${repo_args[@]}"})
       if [ -n "$branches" ]; then
         # A SWEEP'S COST IS THE CALLER'S WORKING SET, and it is reported so the
         # caller can check the claim it is about to be handed. Branches × states
