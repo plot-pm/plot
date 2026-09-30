@@ -818,6 +818,40 @@ await esbuild.build({
 fs.copyFileSync(prIndexLookupArtifact, shippedPrIndexLookup);
 fs.chmodSync(shippedPrIndexLookup, 0o755);
 
+// Whether a project's `Agent settings` file may reach a fleet agent, for
+// plot-agent-settings.sh.
+//
+// Its own bundle for the reason the ones above give: plot-ask.mjs answers by
+// RUNNING plot-fleet-scan.sh, so a script asking whether one settings file is
+// safe would start an 18.3 s fleet scan to read one file. This asks
+// agentSettingsRefusal, spawns nothing and opens nothing — the file arrives on
+// stdin from the shell that owns the read.
+//
+// The cost rule permits it: this runs once per AGENT START, not once per agent
+// per pass.
+const agentSettingsArtifact = path.join(here, 'dist/plot-agent-settings.mjs');
+// ONE LINE, like every declaration above it. The bundle-set derivation at the
+// top of this file matches `shipped<Name> = path.join(…'../../<path>')`, and a
+// line-wrapped form does not: measured while writing this, the wrapped version
+// built the artifact and left it out of `bundles.generated.ts` — the drift the
+// derivation exists to end, reproduced by a newline.
+const shippedAgentSettings = path.join(here, '../../skills/plot/scripts/board/plot-agent-settings.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/agent-settings.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: agentSettingsArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(agentSettingsArtifact, shippedAgentSettings);
+fs.chmodSync(shippedAgentSettings, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -999,6 +1033,7 @@ const sliceSpendKb = (fs.statSync(shippedSliceSpend).size / 1024).toFixed(1);
 const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
 const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
 const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(1);
+const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1024,4 +1059,5 @@ console.log(`Built plot-slice-spend.mjs (${sliceSpendKb} KB) → skills/plot/scr
 console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
