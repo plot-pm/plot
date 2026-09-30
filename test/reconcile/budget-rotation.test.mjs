@@ -146,6 +146,40 @@ test('budget-rotation: the missing-file fallback is never reached', () => {
   assert.equal(answer.read, 2);
 });
 
+test('budget-rotation: the reader answers ONE object under pipefail', () => {
+  // THE CALLER'S SHELL OPTIONS ARE PART OF THE CONTRACT. `plot-host.sh` runs
+  // under `set -euo pipefail`, and a missing generation makes one `cat` in the
+  // reader's pipe fail — which under `pipefail` fails the WHOLE pipeline however
+  // well `awk` answered. The `|| echo` fallback then fires beside a good answer
+  // and the caller reads TWO JSON objects.
+  //
+  // MEASURED: `plot-host.sh spend-rate` printed the same object twice and
+  // `JSON.parse` refused it with *"Unexpected non-whitespace character after
+  // JSON at position 193"*. The redirection silences the message; only `|| true`
+  // on each `cat` silences the status.
+  //
+  // Every other test in this file runs without `pipefail` and passes either way,
+  // which is exactly why this one names the option.
+  const home = makeHome();
+  const now = nowMs();
+  writeGeneration(home, 'budget.tsv', [line(now - 100, { spent: 3 })]);
+
+  const res = spawnSync(
+    'bash',
+    ['-c', `set -euo pipefail\n. "${budget}"\nbudget_rate_read github jwloka graphql ${now}`],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PLOT_BUDGET_HOME: home, HOME: path.join(home, 'home') },
+    },
+  );
+  assert.equal(res.status, 0, res.stderr);
+
+  const lines = res.stdout.split('\n').filter((l) => l.trim() !== '');
+  assert.equal(lines.length, 1, `the reader printed ${lines.length} objects under pipefail`);
+  // AND IT PARSES, which is the assertion the caller actually makes.
+  assert.equal(JSON.parse(lines[0]).spent, 3);
+});
+
 test('budget-rotation: the reader reads both generations', () => {
   const home = makeHome();
   const now = nowMs();

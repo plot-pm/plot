@@ -581,7 +581,15 @@ budget_rate_pass() {
   local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
   local path="${5:-}" prev="${6:-}"
 
-  { cat -- "$path"; cat -- "$prev"; } 2>/dev/null | LC_ALL=C awk -v want_c="$connector" -v want_a="$account" -v want_b="$bucket" \
+  # `|| true` ON EACH `cat`, AND `pipefail` IS WHY. A missing generation is the
+  # normal state — `.1` until the first rotation, `budget.tsv` between a rotation
+  # and the next append — and under `set -o pipefail`, which `plot-host.sh` sets,
+  # a failing `cat` fails the WHOLE pipeline however well `awk` answered. The
+  # `|| echo` fallback below then fires beside a perfectly good answer and the
+  # caller reads TWO JSON objects: measured, `plot-host.sh spend-rate` printed
+  # the same object twice and `JSON.parse` refused it. The redirection silences
+  # the message; only this silences the status.
+  { cat -- "$path" || true; cat -- "$prev" || true; } 2>/dev/null | LC_ALL=C awk -v want_c="$connector" -v want_a="$account" -v want_b="$bucket" \
       -v now="$now" -v fallback="$BUDGET_FALLBACK_WINDOW_MS" '
     BEGIN { FS = "\t"; unreadable = 0; n = 0; passed = -1; total = 0 }
     {

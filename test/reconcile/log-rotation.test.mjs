@@ -226,16 +226,23 @@ test('log-rotation: an inherited descriptor under the bound is left alone', () =
   assert.match(readFileSync(inherited, 'utf8'), /kept/, 'a small inherited log was emptied');
 });
 
-test('log-rotation: a pipe is never truncated', () => {
-  // ONLY A REGULAR FILE HAS A SIZE THIS BOUND DESCRIBES. Truncating a pipe or a
-  // terminal is meaningless, and attempting it must not end the process.
+test('log-rotation: a process whose stdout is a pipe starts anyway', () => {
+  // ONLY A REGULAR FILE HAS A SIZE THIS BOUND DESCRIBES, so a pipe or a terminal
+  // is left alone.
+  //
+  // THIS ASSERTS THE OUTCOME AND NOT THE GUARD, and the difference is measured:
+  // `ftruncateSync` on a pipe throws `EINVAL`, which the `catch` swallows, so a
+  // build with the `isFile()` test removed behaves identically here. The guard
+  // is defence in depth — it states the intent where the `catch` only survives
+  // it — and no test in this file can separate the two. What IS asserted is the
+  // property a daemon depends on: an inherited pipe never stops it starting.
   const res = driver(`
     import { truncateInherited } from '${MODULE}';
     truncateInherited(1, 1);
     process.stderr.write('survived\\n');
   `);
   assert.equal(res.code, 0, res.stderr);
-  assert.match(res.stderr, /survived/, 'truncating a pipe ended the process');
+  assert.match(res.stderr, /survived/, 'an inherited pipe stopped the process starting');
 });
 
 test('log-rotation: the daemon and the board both open their own log', () => {
