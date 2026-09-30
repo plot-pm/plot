@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 3
+- **Started:** 2026-09-30, jwloka, `bug/a-fleet-agent-starts-without-the-operators-plugins`
 
 ## Changelog
 
