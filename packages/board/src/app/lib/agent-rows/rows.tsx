@@ -1039,6 +1039,12 @@ export function SliceRow({
    * `conflicts`, `checks failing` — is a fact the verdict cannot carry and there
    * would be no second row to read it from. Measured: all 12 slices in WAITING ON
    * YOU hold one branch, so this is the ordinary case rather than an edge.
+   *
+   * SO THIS ROW MAY SAY THE BRANCH'S WORD INSTEAD OF THE VERDICT, and the plan
+   * row above it reads the same fact the other way round: where this states a
+   * word of its own, the verdict is the plan row's to print
+   * (`planRowShowsSoleVerdict`). Where the word is empty — a PR state of
+   * `unknown` — this falls back to the verdict and the plan row yields it.
    */
   soleRow?: AgentRow;
   continueWith?: DispatchInfo;
