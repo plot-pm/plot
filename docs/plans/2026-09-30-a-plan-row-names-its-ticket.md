@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-09-30, jwloka, in-session
+- **Started:** 2026-09-30, jwloka, `feature/a-plan-row-names-its-ticket`
 - **Type:** feature
 - **Issue:** #1104
 - **Review:** in-session
