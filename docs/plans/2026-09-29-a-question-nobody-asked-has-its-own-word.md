@@ -12,6 +12,7 @@
 - **Issue:** #1073
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 4
+- **Started:** 2026-09-30, jwloka, `bug/a-question-nobody-asked-has-its-own-word`
 
 ## Changelog
 
