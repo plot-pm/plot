@@ -472,6 +472,16 @@ jobs:
       - name: One place talks to the host
         run: ./scripts/check-host-cli-callers.sh
 
+      # ONE HELPER CREATES A SCRIPT'S TEMP PATHS, and it is `plot-tmp.sh`.
+      # Measured 2026-09-30: five template-less `mktemp` sites wrote outside
+      # `TMPDIR` on macOS, nine fixed-name `/tmp` paths bypassed it, and the
+      # fleet scan's second `trap … EXIT` replaced its first, leaving one
+      # ~955-file directory per scan. The gate also refuses a delete by glob in
+      # a shared temp directory: that day `rm -rf "$(getconf
+      # DARWIN_USER_TEMP_DIR)"tmp.*` removed every `tmp.*` entry on a machine.
+      - name: One place creates temp paths
+        run: ./scripts/check-temp-paths.sh
+
       # A SHIPPED BUNDLE RESOLVES BESIDE ITS SCRIPT. `$repo_root` is the
       # consumer's checkout, which has no skills/plot/ when Plot is a plugin;
       # one site against 26 built a bundle path from it and refused there (#969).

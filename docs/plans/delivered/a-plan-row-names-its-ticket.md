@@ -1,0 +1,1 @@
+../2026-09-30-a-plan-row-names-its-ticket.md

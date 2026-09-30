@@ -734,7 +734,7 @@ test('the filled systemd unit is well-formed', () => {
   for (const section of ['[Unit]', '[Service]', '[Install]']) {
     assert.ok(filled.includes(section), `the unit has no ${section} section`);
   }
-  assert.match(filled, /^ExecStart=\/tmp\/node \/tmp\/registryd\.mjs --start-agents$/m);
+  assert.match(filled, /^ExecStart=\/tmp\/node \/tmp\/registryd\.mjs --start-agents --sweep-temp$/m);
   assert.match(filled, /^Restart=always$/m);
   assert.match(filled, /^WantedBy=default\.target$/m);
   // Every non-comment, non-blank, non-section line is `Key=Value`.
@@ -765,7 +765,7 @@ test('both units start the daemon with --start-agents', () => {
   // the `__REGISTRYD__` string would reach the daemon as part of a path.
   assert.match(plist, /<string>--start-agents<\/string>/,
     'the launchd unit does not pass --start-agents, so its supervisor hands nothing over');
-  assert.match(service, /^ExecStart=.* --start-agents$/m,
+  assert.match(service, /^ExecStart=.* --start-agents(\s|$)/m,
     'the systemd unit does not pass --start-agents, so its supervisor hands nothing over');
 });
 

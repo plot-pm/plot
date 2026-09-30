@@ -178,6 +178,7 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/plot-tmp.sh"
 
 # The shared worker classifier. Sourced by both this script and
 # plot-fleet-scan.sh so a worker has ONE state, not one per reader.
@@ -2640,18 +2641,18 @@ fi
 # materialised into a temp file rather than parsed here — the parser stays the
 # one place that knows what a plan file looks like.
 #
-# The template's X's must TRAIL: BSD mktemp (macOS) rejects a template with a
-# suffix after them, while GNU accepts it. The first version wrote
-# `plot-gate-XXXXXX.md` and failed on macOS — and because the failure fell back
-# to the working tree, the gate silently went back to reading the exact surface
-# this fix exists to stop reading. Hence also: NO working-tree fallback below.
-# If the shared blob cannot be materialised, the gate refuses.
+# `plot-tmp.sh` puts the template's X's last: BSD mktemp (macOS) rejects a
+# template with a suffix after them, while GNU accepts it. The first version
+# wrote `plot-gate-XXXXXX.md` and failed on macOS — and because the failure fell
+# back to the working tree, the gate silently went back to reading the exact
+# surface this fix exists to stop reading. Hence also: NO working-tree fallback
+# below. If the shared blob cannot be materialised, the gate refuses.
 plan_file="$plan_path"
 gate_blob=""
 if [ -n "$gate_sha" ]; then
-  gate_dir=$(mktemp -d "${TMPDIR:-/tmp}/plot-gate-XXXXXX") || gate_dir=""
+  gate_dir=""
+  plot_tmpdir gate_dir gate || gate_dir=""
   if [ -n "$gate_dir" ]; then
-    trap 'rm -rf "$gate_dir"' EXIT
     gate_blob="$gate_dir/$(basename "$plan_path")"
     git show "$gate_ref:$plan_path" >"$gate_blob" 2>/dev/null || gate_blob=""
   fi

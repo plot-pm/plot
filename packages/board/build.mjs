@@ -959,6 +959,13 @@ const vendoredScripts = [
   // abandoned claim can be released in the npm layout. Listed by hand for the
   // reason every sourced file above is.
   'plot-agent-manifest.sh',
+  // Sourced BY plot-approve.sh, plot-deliver.sh, plot-dispatch.sh,
+  // plot-fleet-scan.sh, plot-host.sh and plot-resolve-artifact.sh as a
+  // `$script_dir` sibling: it creates their temp paths and owns their EXIT,
+  // INT and TERM traps. Missing, the source prints one line to stderr and the
+  // first `plot_tmpdir`/`plot_tmpfile` call is an undefined function. Listed by
+  // hand for the reason every sourced file above is.
+  'plot-tmp.sh',
 ];
 for (const name of vendoredScripts) {
   const src = path.join(here, '../../skills/plot/scripts', name);

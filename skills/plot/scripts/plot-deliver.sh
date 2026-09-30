@@ -51,6 +51,7 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/plot-tmp.sh"
 
 # The receipt this script leaves for plot-state-gate.sh, which refuses every
 # other writer of a `State:` line. Sourced rather than run: the gate and the
@@ -660,7 +661,8 @@ git -C "$tmpwt" add -- "${DELIVERED_DIR#/}" >/dev/null 2>&1 || true
 # THE BOOKED PLAN, KEPT FOR THE TRACKER. The booking worktree is removed on
 # every exit below, and the working tree may still read `Approved`; the issue
 # status is decided from the file that reached the default branch.
-booked_plan=$(mktemp "${TMPDIR:-/tmp}/plot-deliver-plan.XXXXXX")
+booked_plan=""
+plot_tmpfile booked_plan deliver-plan
 cp "$tmpwt/$rel" "$booked_plan" 2>/dev/null || : > "$booked_plan"
 
 if git -C "$tmpwt" diff --cached --quiet 2>/dev/null; then

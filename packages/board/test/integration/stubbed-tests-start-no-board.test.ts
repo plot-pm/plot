@@ -433,7 +433,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 53 → 54 on 2026-09-29: `sprint-exempt.browser.test.ts`, for the row mark and
 // the counts «Sprint only» reports. A plain addition; it serves its own state
 // through the catalogue and starts no board.
-const EXPECTED_FILES = 54;
+//
+// 54 → 55 on 2026-09-30: `plan-row-names-its-ticket.browser.test.ts`, for the
+// tracker keys a plan row prints before its slug. A plain addition; it serves
+// its own state through the catalogue and starts no board.
+const EXPECTED_FILES = 55;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -597,7 +601,10 @@ const EXPECTED_FILES = 54;
 // for the Plans tab's filter. Added, not moved; no file was added.
 // 518 → 524 on 2026-09-29: the six `it(` in `sprint-exempt.browser.test.ts`.
 // Added, not moved — `EXPECTED_FILES` counts the new file.
-const EXPECTED_TESTS = 524;
+// 524 → 527 on 2026-09-30: the three `it(` in
+// `plan-row-names-its-ticket.browser.test.ts`. Added, not moved —
+// `EXPECTED_FILES` counts the new file.
+const EXPECTED_TESTS = 527;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
