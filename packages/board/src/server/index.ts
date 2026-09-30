@@ -91,11 +91,26 @@ const opts: BuildBoardOptions = {
 // line this server logs goes through `console.log` or `console.error`, and one
 // seam here is both the smaller diff and the harder thing to forget: a route
 // added later logs through the rotating writer without knowing it exists.
+//
+// THE STARTUP BANNER STILL GOES TO STDOUT, AND IT IS A PROTOCOL RATHER THAN A
+// LOG LINE. `packages/board/test/helpers.mjs:88` waits for
+// `Plot board: http://localhost:<port>` on the child's stdout to know the server
+// is up, and `plot-boardctl.sh` reads the same line. Measured: redirecting it
+// into `board.log` timed out 40 browser and integration tests at *"server did
+// not start in 5s"* — the server was up and nothing could tell. So a line that
+// ANNOUNCES THE BOARD is written to both, and everything else is logged.
 truncateInherited(1);
 truncateInherited(2);
 const boardLog = processLog(path.join(logDir(opts.repoRoot), 'board.log'));
+const render = (parts: readonly unknown[]): string =>
+  parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
+/** Whether a line is the readiness announcement a caller waits for. */
+const announces = (text: string): boolean =>
+  text.startsWith('Plot board:') || text.trimStart().startsWith('tailscale:');
 const toLog = (parts: readonly unknown[]): void => {
-  boardLog.write(`${parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ')}\n`);
+  const text = render(parts);
+  if (announces(text)) process.stdout.write(`${text}\n`);
+  boardLog.write(`${text}\n`);
 };
 console.log = (...parts: unknown[]): void => toLog(parts);
 console.error = (...parts: unknown[]): void => toLog(parts);
