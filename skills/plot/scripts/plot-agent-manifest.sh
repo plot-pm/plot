@@ -13,9 +13,11 @@
 # arrived. The loop is a script, not a library, so sourcing it would run it; the
 # body moved here unchanged and the loop sources this file instead.
 #
-# Defines two functions and does nothing else on load: `clear_manifest_branch`,
-# and `plot_session_id`, which `plot-dispatch.sh` calls to launch an agent and
-# `plot-worker-loop.sh` calls when a hop moves the agent to a new branch.
+# Defines four functions and does nothing else on load: `clear_manifest_branch`;
+# `plot_session_id`, which `plot-dispatch.sh` calls to launch an agent and
+# `plot-worker-loop.sh` calls when a hop moves the agent to a new branch; and
+# `manifest_resume_id` with `session_handle`, the conversation handle that the
+# loop passes to the prompt and `plot-worker-monitor.sh` probes for a transcript.
 
 # Clear `branch` when a slice finishes, so the window before the next one is
 # observable.
@@ -80,4 +82,56 @@ plot_session_id() {
          | sed -E 's/(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/')
   fi
   printf '%s' "$id"
+}
+
+# The resume handle the manifest carries, or nothing while it carries none.
+#
+# A SECOND FIELD, NOT AN ALIAS FOR `session`. A dispatch writes the same value
+# into both, and they part at the first hop to a new branch: `session` names the
+# agent and its manifest file for the agent's whole life, while `resumeId` names
+# the current slice's conversation and is what the board joins the transcript
+# on. Reading this field rather than `$PLOT_SESSION_ID` is what makes the
+# hop's write (`update_manifest_on_hop` in `plot-worker-loop.sh`) mean anything:
+# a reader asks for the handle, and gets the one the hop last wrote.
+#
+# A PARSE FAILURE AND AN ABSENT MANIFEST ARE ONE ANSWER, the shape
+# `assigned_branch` in `plot-worker-loop.sh` already takes: no handle. A hand-started loop has no
+# manifest, and a manifest nobody can read is not a handle.
+manifest_resume_id() { # $1=manifest → prints the handle, or nothing
+  local manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
+  local id
+  id=$(node -e '
+    const fs = require("fs");
+    try {
+      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(typeof manifest.resumeId === "string" ? manifest.resumeId : "");
+    } catch { process.stdout.write(""); }
+  ' "$manifest" 2>/dev/null) || return 1
+  [ -n "$id" ] || return 1
+  printf '%s' "$id"
+}
+
+# THE HANDLE THE PROMPT CARRIES — the manifest's `resumeId`, or the launch id.
+#
+# `resumeId` IS ASKED FIRST BECAUSE IT IS THE FIELD THE HOP WRITES. A dispatch
+# writes the launch id into both `session` and `resumeId`, so on a first slice
+# the two answers are the same string and this reads as a no-op. It stops being
+# one the moment the handle diverges from the join key — which is what the two
+# fields exist to allow, and what a later `--fork-session` would do. The loop
+# and `plot-worker-monitor.sh` both call this, so the prompt and the idle
+# verdict ask about one conversation.
+#
+# `$PLOT_SESSION_ID` IS THE FALLBACK, NOT THE SOURCE. A hand-started loop has no
+# manifest and a pre-`resumeId` manifest carries no handle; both are the launch
+# id, which is what the prompt passed before this function existed. An absent
+# manifest is not an absent session.
+session_handle() { # → the handle, or nothing
+  local id
+  if id=$(manifest_resume_id "${PLOT_MANIFEST_FILE:-}"); then
+    printf '%s' "$id"
+    return 0
+  fi
+  [ -n "${PLOT_SESSION_ID:-}" ] || return 1
+  printf '%s' "$PLOT_SESSION_ID"
 }

@@ -329,6 +329,8 @@ update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree $4=resume
 # `plot-agent-manifest.sh` rather than defined here, because
 # `plot-dispatch.sh --release` clears the same field for an abandoned slice and
 # two writers of one field drift. The body and its argument are unchanged.
+# The same file defines `manifest_resume_id` and `session_handle`, which the
+# worker monitor reads too.
 # shellcheck source=plot-agent-manifest.sh
 . "$script_dir/plot-agent-manifest.sh"
 
@@ -632,34 +634,6 @@ assigned_branch() { # $1=manifest → prints the branch, or nothing
   printf '%s' "$branch"
 }
 
-# The resume handle the manifest carries, or nothing while it carries none.
-#
-# A SECOND FIELD, NOT AN ALIAS FOR `session`. A dispatch writes the same value
-# into both, and they part at the first hop to a new branch: `session` names the
-# agent and its manifest file for the agent's whole life, while `resumeId` names
-# the current slice's conversation and is what the board joins the transcript
-# on. Reading this
-# field rather than `$PLOT_SESSION_ID` is what makes the hop's write below mean
-# anything — the loop asks for the handle, and gets the one the hop last wrote.
-#
-# A PARSE FAILURE AND AN ABSENT MANIFEST ARE ONE ANSWER, the shape
-# `assigned_branch` already takes: no handle. A hand-started loop has no
-# manifest, and a manifest nobody can read is not a handle.
-manifest_resume_id() { # $1=manifest → prints the handle, or nothing
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
-  local id
-  id=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      process.stdout.write(typeof manifest.resumeId === "string" ? manifest.resumeId : "");
-    } catch { process.stdout.write(""); }
-  ' "$manifest" 2>/dev/null) || return 1
-  [ -n "$id" ] || return 1
-  printf '%s' "$id"
-}
-
 # ---------------------------------------------------------------------------
 # WHICH SESSION FLAG THIS PROMPT CARRIES — `--session-id` or `--resume`
 # ---------------------------------------------------------------------------
@@ -695,37 +669,12 @@ manifest_resume_id() { # $1=manifest → prints the handle, or nothing
 # a new branch mints a new handle, so on either desk the first prompt of the
 # new slice finds no transcript and creates one. A same-branch hop onto a
 # created desk still reads *no transcript* under a handle the runtime holds.
-session_transcript_exists() { # $1=worktree $2=id → 0 found | 1 not
-  local wt="$1" id="$2" dir
-  [ -n "$wt" ] && [ -n "$id" ] || return 1
-  command -v plot_transcript_dir >/dev/null 2>&1 || return 1
-  dir=$(plot_transcript_dir "$wt" 2>/dev/null) || return 1
-  [ -n "$dir" ] || return 1
-  [ -f "$dir/$id.jsonl" ]
-}
-
-# THE HANDLE THE PROMPT CARRIES — the manifest's `resumeId`, or the launch id.
 #
-# `resumeId` IS ASKED FIRST BECAUSE IT IS THE FIELD THE HOP WRITES. A dispatch
-# writes the launch id into both `session` and `resumeId`, so on a first slice
-# the two answers are the same string and this reads as a no-op. It stops being
-# one the moment the handle diverges from the join key — which is what the two
-# fields exist to allow, and what a later `--fork-session` would do — and this
-# is the only reader, so nothing else has to learn about it.
-#
-# `$PLOT_SESSION_ID` IS THE FALLBACK, NOT THE SOURCE. A hand-started loop has no
-# manifest and a pre-`resumeId` manifest carries no handle; both are the launch
-# id, which is what the prompt passed before this function existed. An absent
-# manifest is not an absent session.
-session_handle() { # → the handle, or nothing
-  local id
-  if id=$(manifest_resume_id "${PLOT_MANIFEST_FILE:-}"); then
-    printf '%s' "$id"
-    return 0
-  fi
-  [ -n "${PLOT_SESSION_ID:-}" ] || return 1
-  printf '%s' "$PLOT_SESSION_ID"
-}
+# ONE PROBE, TWO READERS. `plot_transcript_exists` lives in
+# `plot-transcript-quiet.sh` and `session_handle` in `plot-agent-manifest.sh`,
+# because `plot-worker-monitor.sh` asks the same question with the same handle
+# before it calls a quiet desk idle. Two copies could disagree about whether a
+# conversation exists.
 
 # The flag the prompt must carry for this invocation.
 #
@@ -746,7 +695,10 @@ session_handle() { # → the handle, or nothing
 # asserting an id that turns out to be taken fails loudly in one second, where
 # resuming one that does not exist is the failure this slice is about.
 session_flag() { # → --session-id | --resume
-  if session_transcript_exists "${PLOT_WORKTREE:-$PWD}" "$(session_handle)"; then
+  local handle
+  handle=$(session_handle) || handle=''
+  if [ -n "$handle" ] && command -v plot_transcript_exists >/dev/null 2>&1 \
+     && plot_transcript_exists "${PLOT_WORKTREE:-$PWD}" "$handle"; then
     printf -- '--resume'
   else
     printf -- '--session-id'
