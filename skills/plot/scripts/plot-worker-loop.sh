@@ -1330,8 +1330,11 @@ fi
 # UNSET, NEVER EMPTY, when there is no path to pass. `${VAR:+…}` treats both the
 # same, but an exported empty variable is a value a prompt could test for and
 # find, and the honest state is that Plot resolved nothing.
+# THROUGH `plot-tmp.sh`, like every other temp path this estate creates. The
+# helper registers the removal with the one exit registry, so the reason file
+# cannot outlive the loop even if it exits between the read and the cleanup.
 unset PLOT_AGENT_SETTINGS
-_settings_reason_file="$(mktemp)"
+plot_tmpfile _settings_reason_file agent-settings
 if _settings_path=$(bash "$(dirname "${BASH_SOURCE[0]}")/plot-agent-settings.sh" \
       2>"$_settings_reason_file"); then
   [ -n "$_settings_path" ] && export PLOT_AGENT_SETTINGS="$_settings_path"
@@ -1340,8 +1343,7 @@ else
   # without the flag.
   sed 's/^/plot-worker-loop: /' "$_settings_reason_file" >&2 || true
 fi
-rm -f "$_settings_reason_file"
-unset _settings_reason_file _settings_path
+unset _settings_path
 
 # Determine the main branch for worktree creation.
 main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
