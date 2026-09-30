@@ -4352,6 +4352,18 @@ function classifyGroup(
    * record. This one is the outage itself.
    */
   hostUnasked = false,
+  /**
+   * The branch this one waits for — `BranchSchema.waits_on`, the name in the
+   * plan's `waits:` annotation, or "".
+   *
+   * LAST, BECAUSE IT IS THE NEWEST, by the rule `prUnknown` records above.
+   *
+   * Named in the note of a `blocked` or `waiting` branch and read for nothing
+   * else. Both states arise only from a `waits:` annotation, so the scan always
+   * has a name for them; "" on such a row is a stated unknown and the note says
+   * *an unnamed prerequisite* rather than inventing one.
+   */
+  waitsOn = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -5069,6 +5081,37 @@ function classifyGroup(
     return verdict === 'complete'
       ? { group: 'done', note: 'merged' }
       : { group: 'done', note: 'merged — slice still open' };
+  }
+  // A BRANCH NOBODY WORKED ON WAITS IN NOT STARTED, whatever its state says.
+  //
+  // `blocked`, `waiting` and `unknown` reached the `wip` tail below until
+  // 2026-09-30, and the tail read them as `abandoned`: `bug/every-state-file-
+  // declares-its-bound` had no ref anywhere and sat in WAITING ON YOU as
+  // *commits, no PR ever opened, age unknown*. None of the three carries a
+  // commit to abandon.
+  //
+  // AFTER THE WORKER BLOCK, NOT BEFORE IT. A live agent outranks every branch
+  // state, and all three already pass through that block — so a running agent
+  // on a `waiting` branch reads WORKING, and these arms answer only for a branch
+  // no worker holds.
+  //
+  // NOT `BLOCKED_NOTE`. That sentence answers the slice verdict — the wave's
+  // eligibility — and this answers the branch's own state.
+  const prerequisite = waitsOn || 'an unnamed prerequisite';
+  if (state === 'blocked') {
+    return { group: 'not-started', note: `waits for ${prerequisite}, which has no pull request` };
+  }
+  if (state === 'waiting') {
+    return { group: 'not-started', note: `waits for ${prerequisite}` };
+  }
+  if (state === 'unknown') {
+    return { group: 'not-started', note: "state unknown — the host's answer is incomplete" };
+  }
+  // A STATE THIS FUNCTION DOES NOT RECOGNISE NEVER REACHES THE TAIL. The tail
+  // reads real commits into its sentence, and a word the scan added after this
+  // arm list was written has no commits this function knows about.
+  if (state !== 'wip') {
+    return { group: 'not-started', note: `state ${String(state)} not recognised` };
   }
   // state === 'wip'
   //
@@ -6509,7 +6552,10 @@ export function rowsFromPulse(
           // from, so an outage that reaches one and not the other leaves the
           // row captioned *"commits, no PR ever opened"* under a kind that
           // declines to claim it.
-          hostUnasked);
+          hostUnasked,
+          // WHAT A `blocked` OR `waiting` BRANCH WAITS FOR, so its NOT STARTED
+          // row names the prerequisite rather than only that there is one.
+          b.waits_on);
         // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
         //
         // That function states the rule twice and records the mistake being
@@ -6544,7 +6590,16 @@ export function rowsFromPulse(
         // `placed` line: a closed PR is a decision somebody took, and the slice
         // is finished whichever way it went. Quiet asks the reader to go and
         // look; there is nothing left to look at.
-        const group = closedPr ? 'done' : openGroup;
+        //
+        // THAT HOLDS UNTIL AN AGENT IS ON THE BRANCH. A closed PR is terminal
+        // for the PR, not for the branch: `bug/a-state-sweep-is-one-request`
+        // opened #1089 from its claim commit, closed it 38 s later, and sat in
+        // DONE with a live marker while its agent kept committing — measured
+        // 2026-09-30. So `running` and `waiting` keep the row in `openGroup`,
+        // and the closed PR travels as a second fact in the note.
+        const liveAgent = b.worker === 'running' || b.worker === 'waiting';
+        const declined = closedPr && !liveAgent;
+        const group = declined ? 'done' : openGroup;
         // THE SENTENCE WITHOUT A `PR #n` PREFIX, deliberately, and this is the
         // one arm where that matters. `noteWithoutPr` strips everything from
         // `PR #n` up to the first ` · ` — on the reasoning that a prefix states
@@ -6558,7 +6613,11 @@ export function rowsFromPulse(
         // decision was to decline rather than that the artifact is shut. The
         // number is not lost either — it is an artifact link in slot 4, on
         // every kind that has one.
-        const note = closedPr ? withNote(quietNote(closedReadings()), reviewNote(held)) : openNote;
+        const note = declined
+          ? withNote(quietNote(closedReadings()), reviewNote(held))
+          : closedPr
+            ? withNote(openNote, quietNote(closedReadings()))
+            : openNote;
         // WHICH KIND OF QUIET, carried onto the row so the client renders it
         // instead of deriving a word from `state`. See `AgentRow.quietKind`:
         // `stateStatus` maps `wip` to *in progress*, which is what the board
@@ -6572,7 +6631,7 @@ export function rowsFromPulse(
         // answer rather than one re-derived from the PR here. `closedPr` above
         // already trusts it for the same reason.
         const kind = rowQuietKind(
-          closedPr ? 'closed' : null, b.state, group, b.worker, pr, b.state === 'merged',
+          declined ? 'closed' : null, b.state, group, b.worker, pr, b.state === 'merged',
           // THE OUTAGE, per entry rather than per branch. Without it a failed
           // fetch reads as *no PR was ever opened* — the same absence the
           // constructors were inventing, and the word that tells a person the
