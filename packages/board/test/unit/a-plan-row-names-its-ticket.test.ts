@@ -8,6 +8,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { buildBoard, planEstate } from '../../src/server/board.js';
 import { type Card } from '../../src/contract/schema.js';
 import { planNameLabel, tupleFromPlan } from '../../src/app/lib/tuple-row.js';
+import { rmTree } from '../helpers.mjs';
 
 /**
  * A PLAN ROW NAMES ITS TICKET — the server half and the label rule.
@@ -39,7 +40,7 @@ const savedRoot = process.env.PLOT_REPO_ROOT;
 afterEach(() => {
   if (savedRoot === undefined) delete process.env.PLOT_REPO_ROOT;
   else process.env.PLOT_REPO_ROOT = savedRoot;
-  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of made.splice(0)) rmTree(dir);
 });
 
 const cardsOf = (board: { columns: readonly { cards: readonly Card[] }[] }): readonly Card[] =>
