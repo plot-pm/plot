@@ -36,7 +36,7 @@ give the old behaviour to somebody asking for fleet control.
 
 | Verb | What it does |
 |------|--------------|
-| `--status` | Is the supervisor alive, which agents run, how long each has been quiet. **Starts nothing.** |
+| `--status` | Is the supervisor alive, which agents run, how long each has been quiet, and which other Plot processes run on this machine. **Starts nothing.** |
 | `--once` | One supervisor tick against the live estate, then exit. **The gate.** |
 | `--start [N]` | Probe, fill the unit, load it, then bring up N free agents. |
 | `--stop` | Stop every dispatched agent through `/plot-dispatch --stop`, then unload the supervisor. |
@@ -60,7 +60,7 @@ however large the fleet.
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1. Run the verb | Small | One script call; the script owns every refusal |
-| 2. Report what it said | Small | Print the output; it is already shaped for reading |
+| 2. Report what it said | Small | Print the output; it is already shaped for reading, the machine block included |
 | 3. Read a refusal to the user | Small | Each refusal names its own repair |
 | 4. Decide whether a stop is wanted | Mid | Stopping a fleet discards nothing but ends work in flight |
 
@@ -100,6 +100,33 @@ tick is a crash loop with a restart policy.
 **It starts nothing** — a status that started what it was asked about could
 never report an absence. Exit 0 means the supervisor is loaded, 1 means it is
 not, so a caller can gate on it without parsing prose.
+
+**A second block follows the `summary:` line when another checkout is involved.**
+It lists every Plot supervisor, board and top-level scan on this machine, found
+by process rather than by label, each with the checkout it serves (its cwd) and
+the installation it runs from (its argv). Scans are grouped by that pair, and a
+scan whose parent has exited is counted as orphaned. The block prints only when
+a process serves another checkout or a scan is orphaned. A board from a plugin
+installation serving this checkout is the normal shape of an adopting
+repository and prints nothing. The block changes neither the exit code nor the
+`summary:` line:
+
+```
+plot processes on this machine:
+  supervisor  pid 10931  com.plot-pm.registryd.ewz-kus-portal
+    serves:     /Users/jwloka/Quatico/ewz/ewz-kus-portal
+    installed:  ~/.claude/plugins/cache/plot-marketplace/plot/2.21.0
+  board       pid 35248
+    serves:     THIS repository
+    installed:  ~/.claude/plugins/marketplaces/plot-marketplace
+  scans       1 in flight, 0 orphaned
+    serves:     /Users/jwloka/Quatico/ewz/ewz-kus-portal
+    installed:  ~/.claude/plugins/marketplaces/plot-marketplace
+```
+
+A row whose cwd cannot be read prints `serves:     cannot determine (owner <user>)`
+and is never omitted. The block reports and signals nothing: orphaned scans are
+[#1084](https://github.com/plot-pm/plot/issues/1084)'s to remove.
 
 ### 3. Start the fleet
 
