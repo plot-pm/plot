@@ -4,8 +4,8 @@ import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
-import { planStoreFor, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
-import { repairEnabledFromEnv } from './resolver.js';
+import { planStoreFor, scriptsFor, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
+import { primeAgentSettings, repairEnabledFromEnv } from './resolver.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { estateFromEnv } from './estate.js';
 import { buildAttention } from './attention.js';
@@ -155,6 +155,20 @@ primeWorktreeRoot(opts.repoRoot, (key, fallback) =>
 ).catch((err: unknown) => {
   console.warn(`[board] could not pre-read the worktree root: ${String(err)}`);
 });
+
+/**
+ * The settings file every agent this board starts receives, resolved ONCE here.
+ *
+ * `primeAgentSettings` holds the reasoning and the reading; this is the
+ * assignment. It is not awaited and needs no `.catch`, because that function
+ * never rejects — a failed resolve leaves the variable unset and the agents
+ * start exactly as they did before it existed.
+ *
+ * **A KEY CHANGE TAKES EFFECT AT THE NEXT BOARD START**, which is
+ * `repairEnabled`'s bargain above for the same reason: a fleet started under one
+ * answer must not have half its agents settle under the other.
+ */
+void primeAgentSettings(scriptsFor(opts));
 
 /**
  * The markdown-viewer routes, which differ ONLY in which allowlist they consult.

@@ -41,10 +41,11 @@ describe('a failed scan keeps the last sections', () => {
 
   it('THE ARM: a claim-only branch reads `claimed` fresh and `merged` stale', () => {
     // The #995 mechanism, driven through the real domain rule rather than
-    // described. A claim-only branch — a ref, one empty claim commit, no PR —
-    // is `claimed` while the pulse can see that commit.
+    // described. A claim-only branch — a ref, one empty claim commit — is
+    // `claimed` while the pulse can see that commit. Its PR reads MERGED: that
+    // is the reading under which a zero-ahead ref answers `merged`.
     const fresh = branchState({
-      refTip: 'aaa111', mainTip: 'main999', pr: 'none', waits: null,
+      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: null,
       mergeSubjectFound: false, hostReach: 'ok',
       commitsAhead: 1, realCommitsAhead: 0,
     } as never);
@@ -53,7 +54,7 @@ describe('a failed scan keeps the last sections', () => {
     // The SAME branch, read from a pulse taken before the claim was pushed:
     // `commitsAhead` is 0, so `:215` is never reached and `:264` answers.
     const stale = branchState({
-      refTip: 'aaa111', mainTip: 'main999', pr: 'none', waits: null,
+      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: null,
       mergeSubjectFound: false, hostReach: 'ok',
       commitsAhead: 0, realCommitsAhead: 0,
     } as never);
@@ -84,7 +85,7 @@ describe('a failed scan keeps the last sections', () => {
     // classify sends to `done`; the row was `not-started` when last seen, and
     // that is what it keeps.
     const stale = branchState({
-      refTip: 'aaa111', mainTip: 'main999', pr: 'none', waits: null,
+      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: null,
       mergeSubjectFound: false, hostReach: 'ok',
       commitsAhead: 0, realCommitsAhead: 0,
     } as never);

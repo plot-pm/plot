@@ -5628,3 +5628,77 @@ test('fleet: a listing that made no sweep claim keeps the row-count heuristic', 
   h.cleanup();
   f.cleanup();
 });
+
+// A REF ZERO AHEAD AND BEHIND MAIN IS DECIDED BY THE HOST. The ref is pushed at
+// main's tip and main then moves on, so the ref carries no commit of its own
+// and is a strict ancestor of main — the shape landed work also takes.
+const ZERO_AHEAD_HOST = `#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo '{"number":1,"title":"w","state":"MERGED","head":"feature/first"}' ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`;
+
+const makeZeroAheadRepo = (prefix, secondLine) => {
+  const f = makeRepo(prefix,
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/first` — merged, ref kept\n\n### Two\n' + secondLine);
+  f.work('feature/first', 'first.txt');
+  f.push('-u', 'origin', 'feature/first');
+  f.prMerge('feature/first');
+  f.push('origin', 'main');
+  // The empty ref: pushed at main's tip, then main moves on.
+  git(f.dir, 'push', '-q', 'origin', 'main:refs/heads/feature/second');
+  fs.writeFileSync(path.join(f.dir, 'later.txt'), 'later\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'main moves on');
+  git(f.dir, 'push', '-q', 'origin', 'main');
+  return f;
+};
+
+const scanWithHost = (f, env = {}) => {
+  const h = hostShim(ZERO_AHEAD_HOST);
+  try {
+    return execFileSync('bash', [h.scan, 'p'],
+      { encoding: 'utf8', cwd: f.dir, env: { ...process.env, ...env } });
+  } finally {
+    h.cleanup();
+  }
+};
+
+test('fleet: a zero-ahead ref behind main with no PR in a complete list is open', () => {
+  const f = makeZeroAheadRepo('plot-fleet-zeroahead-complete-',
+    '- `feature/second` — nobody wrote this\n');
+  const out = scanWithHost(f);
+  assert.match(branchLine(out, 'feature/first'), / — merged$/);
+  assert.match(branchLine(out, 'feature/second'), / — open$/,
+    'a ref the host never saw a PR for holds no landed work');
+  assert.doesNotMatch(waveLine(out, 'Two'), / — complete$/,
+    'a slice nobody wrote must not complete its wave');
+  f.cleanup();
+});
+
+test('fleet: a zero-ahead ref behind main reads unknown when the PR list is incomplete', () => {
+  // One row at a limit of one: the list may be cut, so NONE is not evidence.
+  const f = makeZeroAheadRepo('plot-fleet-zeroahead-incomplete-',
+    '- `feature/second` — nobody wrote this\n');
+  const out = scanWithHost(f, { PLOT_PR_LIST_LIMIT: '1' });
+  assert.match(branchLine(out, 'feature/second'), / — unknown( — |$)/);
+  assert.doesNotMatch(waveLine(out, 'Two'), / — complete$/);
+  f.cleanup();
+});
+
+test('fleet: the prerequisite refill carries the list completeness', () => {
+  // The only path that rebuilds a readings line. The slice reads `open`, its
+  // `waits:` prerequisite is asked, and the refilled line must still carry
+  // field 11 — without it the bundle exits 2 and the scan refuses.
+  const f = makeZeroAheadRepo('plot-fleet-zeroahead-refill-',
+    '- `feature/second` <!-- waits: feature/first --> — waits on first\n');
+  const out = scanWithHost(f);
+  assert.match(branchLine(out, 'feature/second'), / — open$/,
+    'a merged prerequisite leaves the slice its own open');
+  f.cleanup();
+});

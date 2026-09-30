@@ -143,6 +143,22 @@ model_args=()
 effort_args=()
 [ -n "${PLOT_EFFORT:-}" ] && effort_args=(--reasoning-effort "$PLOT_EFFORT")
 
+# THE SETTINGS FILE THIS PROJECT STARTS ITS AGENTS WITH, resolved once per agent
+# start by `plot-worker-loop.sh` and named by the `Agent settings` config key.
+#
+# Every dispatched agent is a `claude -p` session and inherits every
+# `SessionStart` hook the operator's plugins declare. Measured 2026-09-30, one
+# plugin's lockless sync ran three times at once, the 1-minute load reached 195,
+# and the supervisor did not tick for 12 minutes.
+#
+# GUARDED ON TWO THINGS, and the harness is the second. `--settings` is THIS
+# harness's flag: a project running something else gets its argv unchanged rather
+# than an argument its harness would reject. The loop leaves the variable UNSET
+# when it resolved nothing or refused the file, so `[ -n ... ]` is the whole test.
+settings_args=()
+[ -n "${PLOT_AGENT_SETTINGS:-}" ] && [ "$harness" = "claude" ] &&
+  settings_args=(--settings "$PLOT_AGENT_SETTINGS")
+
 # WHAT IT BUILT, ON REQUEST — a debug hook, and deliberately not a contract.
 #
 # THE CHAIN IS OTHERWISE UNOBSERVABLE. A worker launches detached, Plot never
@@ -161,9 +177,10 @@ if [ -n "${PLOT_PRINT_INVOCATION:-}" ]; then
   printf '%s\n' "$harness" \
     ${model_args[@]+"${model_args[@]}"} \
     ${effort_args[@]+"${effort_args[@]}"} \
+    ${settings_args[@]+"${settings_args[@]}"} \
     ${cap_args[@]+"${cap_args[@]}"} \
     ${session_args[@]+"${session_args[@]}"}
   exit 0
 fi
 
-"$harness" ${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification, and its decisions were settled during plan interrogation: do not re-derive them, do not widen the scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write your question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit — start the first line with PLOT-BLOCKED: followed by the question. The fleet scan looks for a PLOT-BLOCKED* file in the tree, not for the marker string inside your log or your work, so a stopped worker is distinguishable from a finished one only if the file exists; without it a stopped worker is restarted into the same question. Delete the PLOT-BLOCKED.md file once it is answered. Follow CLAUDE.md: pnpm install if node_modules is missing, never skip tests, run pnpm build:board in THIS worktree and commit the artifact, add a changeset with its bumps block, never edit versions by hand, use trash not rm. Run every test in the FOREGROUND and never end a turn waiting to be notified: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted — measured three times on 2026-08-23, each losing a finished branch to an exit that looked like success. COMMIT AND PUSH BEFORE YOU VERIFY: push your first real commit as soon as it exists, and push again immediately after any rebase. Work that is committed survives a stall; work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. Then append the PR number to this branch's line in the plan's Branches section on main — check git branch --show-current is main before that edit. GitHub's API has returned 503 intermittently; if a push or merge appears to fail, verify the result via gh api rather than trusting the error. End your run with a report: the PR number, the judgement calls you made, and anything the plan did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions
+"$harness" ${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} ${settings_args[@]+"${settings_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification, and its decisions were settled during plan interrogation: do not re-derive them, do not widen the scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write your question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit — start the first line with PLOT-BLOCKED: followed by the question. The fleet scan looks for a PLOT-BLOCKED* file in the tree, not for the marker string inside your log or your work, so a stopped worker is distinguishable from a finished one only if the file exists; without it a stopped worker is restarted into the same question. Delete the PLOT-BLOCKED.md file once it is answered. Follow CLAUDE.md: pnpm install if node_modules is missing, never skip tests, run pnpm build:board in THIS worktree and commit the artifact, add a changeset with its bumps block, never edit versions by hand, use trash not rm. Run every test in the FOREGROUND and never end a turn waiting to be notified: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted — measured three times on 2026-08-23, each losing a finished branch to an exit that looked like success. COMMIT AND PUSH BEFORE YOU VERIFY: push your first real commit as soon as it exists, and push again immediately after any rebase. Work that is committed survives a stall; work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. Then append the PR number to this branch's line in the plan's Branches section on main — check git branch --show-current is main before that edit. GitHub's API has returned 503 intermittently; if a push or merge appears to fail, verify the result via gh api rather than trusting the error. End your run with a report: the PR number, the judgement calls you made, and anything the plan did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions

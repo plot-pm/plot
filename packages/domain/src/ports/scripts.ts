@@ -147,6 +147,27 @@ export interface Scripts {
   configSync(key: string, fallback: string, options?: ScriptOptions): PortResult<string>;
 
   /**
+   * Resolves the settings file every agent this project starts receives.
+   *
+   * The `Agent settings` config key names a JSON file that says which plugins a
+   * fleet agent starts WITHOUT. Every dispatched agent is a `claude -p` session
+   * inheriting every `SessionStart` hook the operator installed; measured
+   * 2026-09-30, one plugin's lockless sync took the 1-minute load to 195 and
+   * stopped the supervisor ticking for 12 minutes.
+   *
+   * THE THREE ANSWERS ARE DISTINGUISHED BY THE EXIT CODE, not by stdout being
+   * empty. Exit 0 with a path means the file may travel; exit 0 with none means
+   * the key is absent, which is a project behaving as it always has; exit 3
+   * means a missing, unparseable or gate-disabling file, and only that one
+   * belongs in a log. A caller reading only the string cannot tell the last two
+   * apart.
+   *
+   * @param options - how to run it.
+   * @returns the resolver's stdout, stderr and exit code.
+   */
+  agentSettings(options?: ScriptOptions): Promise<{ stdout: string; stderr: string; code: number }>;
+
+  /**
    * Asks `plot-host.sh` one question.
    *
    * The host is the one connector, and exit 4 is its standing answer that this
