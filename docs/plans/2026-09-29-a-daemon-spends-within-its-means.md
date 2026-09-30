@@ -17,7 +17,7 @@
 
 ## Changelog
 
-- The supervisor backs off when the host rate-limits it, instead of asking again every 60 seconds.
+- The supervisor's tick line reports the account's request rate (`account=<N>/hr`) and this tick's own host calls (`mine=<N>/hr`). Backing off under a 429 is not part of this change; it is #1065.
 
 Board impact: none directly — this is the daemon. Less contention for the account the board shares.
 
