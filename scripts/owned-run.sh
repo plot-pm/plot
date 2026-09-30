@@ -243,9 +243,31 @@ if [ -f scripts/check-registry-not-leaked.mjs ]; then
   fi
 fi
 
+# A RUN THAT WAS KILLED DID NOT FAIL THE LEAK GATE — IT NEVER REACHED IT.
+#
+# `bounded.sh` bounds the suite with `timeout -k 30s`, which SIGKILLs the test
+# processes, and SIGKILL cannot be trapped: every `process.on('exit')` and every
+# `t.after` is skipped by definition. Measured 2026-09-30 at load average 19.35,
+# `test:contracts` hit its 1500 s bound and the gate reported **807 entries** —
+# 117 of them `plot-host-`, from a file that leaves ZERO when it runs to the end.
+#
+# So a 124 is reported as what it is. The entries are still listed, because they
+# are the evidence of where the run was when it was killed, and the run still
+# fails — on the timeout, which is the true cause. Reporting a bound as a
+# migration gap would send the next reader to fix tests that are not broken.
+timed_out=''
+[ "$status" = 124 ] && timed_out=1
+
 listing=$(leak_listing)
 find_status=$?
-if [ "$find_status" != 0 ]; then
+if [ -n "$timed_out" ]; then
+  count=$(printf '%s\n' "$listing" | grep -c . )
+  if [ -n "$listing" ]; then
+    echo "owned-run.sh: the run was KILLED at its bound (exit 124), leaving ${count} entr$( [ "$count" = 1 ] && echo y || echo ies ) in its TMPDIR." >&2
+    echo "owned-run.sh: SIGKILL skips every cleanup, so this is the bound firing and NOT a leaked test." >&2
+    report_leaks
+  fi
+elif [ "$find_status" != 0 ]; then
   echo "owned-run.sh: could not list ${root} — the leak gate could not run (exit $find_status)" >&2
   status=1
 elif [ -n "$listing" ]; then

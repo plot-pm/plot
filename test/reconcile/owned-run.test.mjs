@@ -105,6 +105,27 @@ test('writes under HOME and the budget home are not reported as leaks', (t) => {
   assert.equal(res.status, 0, res.stderr);
 });
 
+// A RUN KILLED AT ITS BOUND IS NOT A LEAKED TEST. `bounded.sh` uses
+// `timeout -k`, which SIGKILLs the suite, and SIGKILL skips every cleanup by
+// definition. Measured 2026-09-30 at load average 19.35: `test:contracts` hit
+// its 1500 s bound and the gate reported 807 entries, 117 of them from a file
+// that leaves zero when it runs to the end.
+test('a run killed at its bound reports the bound, not a leak', (t) => {
+  const tmp = privateTmp(t);
+  // Exit 124 is what `timeout` reports when it fires; the command also leaves an
+  // entry, which is exactly the shape a SIGKILLed suite leaves.
+  const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/plot-killed-abc123"; exit 124']);
+  assert.equal(res.status, 124, 'the timeout exit code survives');
+  assert.match(res.stderr, /KILLED at its bound/, 'the report names the bound');
+  assert.match(res.stderr, /NOT a leaked test/, 'and says what it is not');
+  assert.doesNotMatch(
+    res.stderr,
+    /a test created these and did not remove them/,
+    'a killed run must not be reported as a test that forgot',
+  );
+  assert.deepEqual(readdirSync(tmp), [], 'the root is still removed');
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SIGNALS — spawned from node so the disposition is DEFAULT, not inherited IGN
 // ═══════════════════════════════════════════════════════════════════════════
