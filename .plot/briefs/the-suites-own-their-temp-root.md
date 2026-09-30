@@ -74,7 +74,7 @@ Other branches in flight, verified on 2026-09-30:
 - `bug/a-state-sweep-is-one-request` (4 commits, no PR) edits `test/reconcile/host.test.mjs` and `scan.test.mjs`. `host.test.mjs` is the largest migration target here (39 `mkdtempSync` sites, 10 `rmSync`), so expect a rebase conflict with whichever branch lands second.
 - `bug/an-idle-reading-knows-the-conversation-started` (3 commits, no PR) edits `test/reconcile/workermonitor.test.mjs`.
 - PR #1095 `bug/fleet-status-sees-every-supervisor` edits `test/reconcile/fleetctl.test.mjs`.
-- PR #1092 `bug/a-question-nobody-asked-has-its-own-word` edits `packages/board/test/unit/registryd-main.test.ts`.
+- PR #1092 `bug/a-question-nobody-asked-has-its-own-word` merged on 2026-09-30 as `14542377` and changed `packages/board/test/unit/registryd-main.test.ts`. It is on your base, not in flight.
 - PR #1047 `changeset-release/main` edits both `package.json` files' versions, not their scripts.
 - Slice 1 adds its own tests under `test/reconcile/`; rebase onto it after it merges.
 
