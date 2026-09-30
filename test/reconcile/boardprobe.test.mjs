@@ -23,13 +23,23 @@ function git(cwd, ...args) {
   return execFileSync('git', args, { encoding: 'utf8', cwd });
 }
 
-/** Run the probe in `cwd`, optionally with a stub dir prepended to PATH. */
+/** Run the probe in `cwd`, optionally with a stub dir prepended to PATH.
+ *
+ * PLOT_REPO_ROOT IS DROPPED, ALWAYS. `plot-config.sh:174` prefers it over
+ * `git rev-parse`, and a dispatched worker exports it pointing at the main
+ * checkout — so a fixture's `## Plot Config` would go unread and every config
+ * key would answer from this repository instead of the sandbox. Measured
+ * 2026-09-29: with it set, a fixture declaring `Board artifact` resolved the
+ * plugin, because the key was never seen. Inherited environment that silently
+ * redirects a read must not reach a test that exists to measure that read.
+ */
 function probe(cwd, { stubDir, env = {} } = {}) {
+  const { PLOT_REPO_ROOT: _drop, ...clean } = process.env;
   const out = execFileSync('bash', [probeScript], {
     encoding: 'utf8',
     cwd,
     env: {
-      ...process.env,
+      ...clean,
       ...(stubDir ? { PATH: `${stubDir}:${process.env.PATH}` } : {}),
       ...env,
     },
@@ -199,6 +209,99 @@ test('probe: prefers the plugin artifact over a checkout one', () => {
   const plugins = fakePlugin();
   const p = probe(r, { env: { PLOT_PLUGIN_ROOT: plugins } });
   assert.equal(p.artifact_source, 'plugin');
+});
+
+// --- `Board artifact`: a repository that builds the artifact runs it -------
+//
+// The defect: resolution was plugin, npm, then checkout, so a checkout that
+// builds board-server.mjs ran the plugin's copy whenever a plugin existed.
+// Byte-identical today, so the failure is LATENT — the day the plugin copy
+// lags, `pnpm build:board` writes a file the board never reads.
+
+test('probe: a declared Board artifact wins over an available plugin', () => {
+  // THE PLUGIN MUST BE PRESENT, or this passes for the wrong reason: without
+  // it the old last-resort fallback answers `checkout` too, and the test
+  // proves nothing about precedence.
+  const r = repoWith({
+    'skills/plot/scripts/board/board-server.mjs': '// checkout artifact\n',
+  }, {
+    config: '- **Plan directory:** docs/plans/\n'
+      + '- **Board artifact:** skills/plot/scripts/board/board-server.mjs\n',
+  });
+  const plugins = fakePlugin();
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: plugins } });
+  assert.equal(p.artifact_source, 'checkout');
+  assert.equal(fs.readFileSync(p.artifact, 'utf8').trim(), '// checkout artifact');
+});
+
+test('probe: a declared Board artifact that is missing refuses, never falls back', () => {
+  // The key says WHICH artifact this repository runs. Answering `plugin`
+  // because that file is absent is the quiet wrong answer the key removes —
+  // so it reports `none`, which plot-boardctl.sh already refuses on.
+  const r = repoWith({}, {
+    config: '- **Plan directory:** docs/plans/\n'
+      + '- **Board artifact:** skills/plot/scripts/board/board-server.mjs\n',
+  });
+  const plugins = fakePlugin();
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: plugins } });
+  assert.equal(p.artifact_source, 'none');
+  assert.equal(p.artifact, '');
+});
+
+test('probe: an absolute Board artifact value is taken as given', () => {
+  // As `Worktree root` and `Agent registry` treat theirs.
+  const elsewhere = fs.mkdtempSync(path.join(tmp, 'elsewhere-'));
+  const target = path.join(elsewhere, 'board-server.mjs');
+  fs.writeFileSync(target, '// an artifact outside the repo\n');
+  const r = repoWith({
+    'skills/plot/scripts/board/board-server.mjs': '// checkout artifact\n',
+  }, {
+    config: `- **Plan directory:** docs/plans/\n- **Board artifact:** ${target}\n`,
+  });
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: fakePlugin() } });
+  assert.equal(p.artifact_source, 'checkout');
+  assert.equal(fs.readFileSync(p.artifact, 'utf8').trim(), '// an artifact outside the repo');
+});
+
+test('probe: a dispatch desk resolves the MAIN checkout artifact, not its own', () => {
+  // THE ASSERTION IS THE PATH, NOT THE SOURCE WORD. A desk is a worktree, so
+  // `git rev-parse --show-toplevel` there is the DESK: under that reading every
+  // desk gets its own copy and `artifact_source` still reads `checkout`, so a
+  // test comparing only the source word passes while the defect stands.
+  //
+  // Measured 2026-09-29: five trees on this machine carry an artifact and they
+  // already disagree. The desk below holds DIFFERENT BYTES at the same relative
+  // path — the probe must still answer the main checkout's file.
+  const main = repoWith({
+    'skills/plot/scripts/board/board-server.mjs': '// main checkout artifact\n',
+  }, {
+    config: '- **Plan directory:** docs/plans/\n'
+      + '- **Board artifact:** skills/plot/scripts/board/board-server.mjs\n',
+  });
+  const desk = path.join(tmp, 'desk-' + path.basename(main));
+  git(main, 'worktree', 'add', '-q', '-b', 'deskbranch', desk);
+
+  const deskCopy = path.join(desk, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs');
+  fs.mkdirSync(path.dirname(deskCopy), { recursive: true });
+  fs.writeFileSync(deskCopy, '// DIVERGENT desk-local artifact\n');
+
+  const plugins = fakePlugin();
+  const fromMain = probe(main, { env: { PLOT_PLUGIN_ROOT: plugins } });
+  const fromDesk = probe(desk, { env: { PLOT_PLUGIN_ROOT: plugins } });
+
+  assert.equal(
+    fs.realpathSync(fromDesk.artifact), fs.realpathSync(fromMain.artifact),
+    'a desk must resolve the same artifact file as the main checkout',
+  );
+  assert.equal(
+    fs.readFileSync(fromDesk.artifact, 'utf8').trim(), '// main checkout artifact',
+    'the desk must not resolve its own divergent copy',
+  );
+  // The desk's own copy really did differ, so the assertions above had
+  // something to distinguish.
+  assert.equal(fs.readFileSync(deskCopy, 'utf8').trim(), '// DIVERGENT desk-local artifact');
+
+  git(main, 'worktree', 'remove', '--force', desk);
 });
 
 test('probe: picks the live marketplaces copy over stale cached versions', () => {
