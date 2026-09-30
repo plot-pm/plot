@@ -39,7 +39,11 @@
 #                       Non-numeric or empty falls back to the default. It bounds
 #                       a HUNG agent — one whose CLI crashed without exiting — so
 #                       one dead worker cannot hold a slot for hours.
-#   Agent registry      the directory the dispatcher writes agent manifests to,
+#   Temp sweep after    hours before `plot-reap.sh --sweep-temp` removes an
+#                       owned `$TMPDIR/plot-*` entry or a dead pid's budget
+#                       memo that a SIGKILL left behind. Default 24; a value
+#                       that is not a whole number is refused by the sweep.
+#   Agent registry     the directory the dispatcher writes agent manifests to,
 #                       read by the board's registry. Default `.plot/agents`
 #                       (repo-relative, gitignored, hence per-worktree). A board
 #                       served from a worktree the dispatcher never wrote to

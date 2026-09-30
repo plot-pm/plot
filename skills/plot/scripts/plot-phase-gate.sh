@@ -59,6 +59,7 @@ case "$CMD" in
 esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/plot-tmp.sh"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || exit 0
 PLAN_DIR="$(bash "$HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
 PLAN_DIR="${PLAN_DIR%/}"
@@ -234,9 +235,9 @@ if [[ "$BRANCH" =~ ^(${PREFIX_ALT})/ ]]; then
   [ -n "$PLAN_FILE" ] || exit 0   # unplanned quick work is legitimate
 
   # plot-plan-meta.sh is the format contract and takes a PATH, so the blob is
-  # materialised. The X's must TRAIL the template: BSD mktemp (macOS) rejects a
-  # suffix after them where GNU accepts it.
-  GATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/plot-phase-gate-XXXXXX")" || exit 0
+  # materialised through `plot-tmp.sh`, which removes it on every exit path.
+  GATE_DIR=""
+  plot_tmpdir GATE_DIR phase-gate || exit 0
   GATE_BLOB="$GATE_DIR/${PLAN_FILE##*/}"
   if ! git show "$GATE_REF:$PLAN_FILE" >"$GATE_BLOB" 2>/dev/null; then
     rm -rf "$GATE_DIR"

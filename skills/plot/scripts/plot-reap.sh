@@ -146,12 +146,36 @@
 # words and lives INSIDE the tree, so it goes when the tree does and is not
 # swept here. This is the dispatcher's record of what it started. Two files,
 # two lifetimes, and CLAUDE.md already distinguishes them.
+#
+# `--sweep-temp` IS A SEPARATE MODE, and it runs INSTEAD of the four kinds. A
+# trap does not run on SIGKILL — the board ends a scan at its timeout,
+# `bounded.sh` escalates to SIGKILL, a person kills a hung script — so some temp
+# paths outlive every trap. It removes two populations, each owned by this user
+# and older than `Temp sweep after` hours (default 24), by the entry's own
+# modification time:
+#
+#   - `$TMPDIR/plot-?*` entries directly under `$TMPDIR` — `plot-` and at least
+#     one more character, any separator: `mkdtempSync` appends six characters
+#     with no dot, so `plot-host-pTFuyG` is the common shape. Never `plot`,
+#     `plotter-old` or any `tmp.*`: that is every template-less `mktemp` on the
+#     machine, and neither owner nor age separates Plot's from another
+#     program's. A `plot-reg.<pid>` exit registry is kept while its pid lives,
+#     because a worker loop registers its exit command and runs for days.
+#   - `$PLOT_BUDGET_HOME/memo/<pid>` directories (default `~/.plot/state/memo`)
+#     whose pid is not alive.
+#
+# It lists each candidate with `find` and removes it by the full path it
+# listed; it never passes a glob to `rm`, and it never reads `/tmp` or
+# `/var/folders` when `$TMPDIR` points elsewhere. The age bound is safe because
+# every Plot temp path belongs to one script call, one scan or one board
+# request, and 24 h is about 1,000 times the scan's 90 s timeout.
 set -u
 
-DRY=1; MAX=0
+DRY=1; MAX=0; SWEEP_TEMP=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) DRY=0 ;;
+    --sweep-temp) SWEEP_TEMP=1 ;;
     --dry-run) DRY=1 ;;
     --max) MAX="${2:-0}"; shift ;;
     # The header, however long it has become. A hardcoded last line silently
@@ -162,6 +186,65 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Is a pid alive? `ps -p` answers for another user's process too, where
+# `kill -0` reports EPERM, so a reused pid always keeps its entry.
+pid_alive() { ps -p "$1" >/dev/null 2>&1; }
+
+# One entry: report it, and remove it by the exact path unless this is a dry run.
+sweep_one() { # $1=path $2=why
+  temp_swept=$((temp_swept + 1))
+  if [ "$DRY" = 1 ]; then
+    echo "temp: would remove $1 ($2)"
+  elif rm -rf -- "$1" 2>/dev/null; then
+    echo "temp: removed $1 ($2)"
+    temp_removed=$((temp_removed + 1))
+  else
+    echo "temp: could not remove $1 ($2)"
+  fi
+}
+
+sweep_temp() {
+  local hours root me memo entry name
+  hours=$("$(dirname "${BASH_SOURCE[0]}")/plot-config.sh" get "Temp sweep after" 24 2>/dev/null) || hours=24
+  case "$hours" in
+    ''|*[!0-9]*) echo "plot-reap: 'Temp sweep after' must be a whole number of hours, not '$hours'" >&2; return 2 ;;
+  esac
+  root="${TMPDIR:-/tmp}"; root="${root%/}"
+  me=$(id -un)
+  temp_swept=0; temp_removed=0; temp_live=0
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    [ "$MAX" -gt 0 ] && [ "$temp_swept" -ge "$MAX" ] && break
+    name=${entry##*/}
+    case "$name" in
+      plot-reg.*)
+        if pid_alive "${name#plot-reg.}"; then temp_live=$((temp_live + 1)); continue; fi ;;
+    esac
+    sweep_one "$entry" "older than ${hours}h"
+  done <<LIST
+$(find "$root" -mindepth 1 -maxdepth 1 -user "$me" -name 'plot-?*' -mmin +$((hours * 60)) -print 2>/dev/null)
+LIST
+  memo="${PLOT_BUDGET_HOME:-${HOME:-}/.plot/state}/memo"
+  if [ -d "$memo" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      [ "$MAX" -gt 0 ] && [ "$temp_swept" -ge "$MAX" ] && break
+      name=${entry##*/}
+      case "$name" in ''|*[!0-9]*) continue ;; esac
+      if pid_alive "$name"; then temp_live=$((temp_live + 1)); continue; fi
+      sweep_one "$entry" "memo of dead pid $name, older than ${hours}h"
+    done <<LIST
+$(find "$memo" -mindepth 1 -maxdepth 1 -type d -user "$me" -mmin +$((hours * 60)) -print 2>/dev/null)
+LIST
+  fi
+  echo "temp-summary: swept=$temp_swept removed=$temp_removed kept_live=$temp_live bound_hours=$hours root=$root dry_run=$DRY"
+}
+
+if [ "$SWEEP_TEMP" = 1 ]; then
+  sweep_temp
+  exit $?
+fi
 
 command -v git >/dev/null 2>&1 || { echo "plot-reap: git not found" >&2; exit 2; }
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {

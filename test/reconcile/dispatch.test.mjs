@@ -3461,7 +3461,11 @@ test('dispatch: a started agent holds NO branch', () => {
   try {
     runDetached(['--start', '1'], checkout);
     const dir = path.join(checkout, '.plot', 'agents');
-    const files = fs.readdirSync(dir);
+    // A MANIFEST IS A `.json` FILE, the definition both registry readers use
+    // (`agents-fs.ts`, `registry.ts`). The detached launcher fills the pids in
+    // through `<session>.json.plot-pid-tmp` and renames it over the manifest,
+    // so that sibling can exist for a moment after `--start` returns.
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
     assert.equal(files.length, 1, `one manifest, found ${files.length}`);
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
     assert.equal(manifest.branch, '', 'the manifest names no branch');

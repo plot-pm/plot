@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-09-30, jwloka, in-session
+- **Started:** 2026-09-30, jwloka, `feature/a-plan-row-names-its-ticket`
 - **Type:** feature
 - **Issue:** #1104
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -53,10 +55,12 @@ Every caller of `tupleFromPlan` passes the issues it has: the plan row in `rows.
 
 ## Slices
 
-### A plan row names its ticket (Branch: feature/a-plan-row-names-its-ticket)
+### A plan row names its ticket (Branch: feature/a-plan-row-names-its-ticket, PR: #1105)
 
 `PlanMetaSchema`, the two payload schema fields, the two server builders, `tupleFromPlan` and its two callers, and the browser tests. <!-- builds: the plan row's ticket prefix -->
 
 ## Notes
+
+**Implementation note from round 2.** `test/unit/draft-plan-row.test.ts:27` compares the whole draft entry with `toEqual` and changes when `draftPlanOf` adds `issues: []`; update it in this slice.
 
 Requested by the operator on 2026-09-30, with the format `1089:` and `EWZKUS-3430:`.

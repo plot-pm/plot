@@ -28,6 +28,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$script_dir/plot-tmp.sh"
 bundle="$script_dir/board/plot-adopt.mjs"
 
 usage() {
@@ -80,6 +81,11 @@ unattended=false
 # concatenation: an answers file holds a Definition of Done and a tracker URL
 # written by a person, and a quote in either would break a hand-built JSON
 # document in the direction that silently changes what is asked.
+req_err=""
+bundle_err=""
+plot_tmpfile req_err write-config-req
+plot_tmpfile bundle_err write-config-err
+
 # A PARSE FAILURE IS NAMED, not a stack trace. The answers file is written by a
 # person or by whatever asked them, and an unreadable one is the most likely bad
 # input this script sees — `node`'s own `SyntaxError` dump names a line inside an
@@ -101,21 +107,18 @@ process.stdout.write(JSON.stringify({
   answers,
   unattended: process.env.UNATTENDED === "true",
 }));
-' 2>/tmp/plot-write-config.$$.req)
+' 2>"$req_err")
 req_rc=$?
 set -e
 if [ "$req_rc" != 0 ]; then
-  echo "plot-write-config: $(cat /tmp/plot-write-config.$$.req)" >&2
-  rm -f /tmp/plot-write-config.$$.req
+  echo "plot-write-config: $(cat "$req_err")" >&2
   exit 2
 fi
-rm -f /tmp/plot-write-config.$$.req
 
 set +e
-answer=$(printf '%s' "$request" | node "$bundle" 2>/tmp/plot-write-config.$$.err)
+answer=$(printf '%s' "$request" | node "$bundle" 2>"$bundle_err")
 rc=$?
-said=$(cat /tmp/plot-write-config.$$.err 2>/dev/null || true)
-rm -f /tmp/plot-write-config.$$.err
+said=$(cat "$bundle_err" 2>/dev/null || true)
 set -e
 
 # Exit 1 is the domain's refusal: the rule that fired, a tab, and its sentence.

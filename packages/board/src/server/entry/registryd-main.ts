@@ -12,7 +12,10 @@ import {
   machineSystem,
   planStoreShell,
   supervisionReportFile,
+  tempSweepShell,
 } from '@plot-pm/domain/adapters';
+import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
+import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
 import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
@@ -56,6 +59,7 @@ import { logDir, processLog, truncateInherited } from '../process-log.js';
  * node skills/plot/scripts/board/plot-registryd.mjs --once    # one tick
  * node skills/plot/scripts/board/plot-registryd.mjs --dry-run # decide, write nothing
  * node skills/plot/scripts/board/plot-registryd.mjs --start-agents  # and start them
+ * node skills/plot/scripts/board/plot-registryd.mjs --sweep-temp    # and sweep temp paths hourly
  * ```
  *
  * **A FIFTH artifact rather than a flag on the board's.** `index.ts` binds a
@@ -118,6 +122,13 @@ export interface DaemonArgs {
    * what the supervisor thinks.
    */
   startAgents: boolean;
+  /**
+   * Whether this daemon may run the temp sweep, at most once an hour.
+   *
+   * Off by default, like `startAgents`: it removes files, so a run that did
+   * not ask for it still decides and performs nothing.
+   */
+  sweepTemp: boolean;
 }
 
 /**
@@ -143,11 +154,13 @@ export const argsFrom = (argv: readonly string[]): DaemonArgs | null => {
     max: 0,
     intervalMs: TICK_INTERVAL_MS,
     startAgents: false,
+    sweepTemp: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--once') args.once = true;
     else if (arg === '--start-agents') args.startAgents = true;
+    else if (arg === '--sweep-temp') args.sweepTemp = true;
     else if (arg === '--dry-run') continue;
     else if (arg === '--max') {
       const value = Number(argv[++i]);
@@ -981,6 +994,31 @@ export const writeSupervisionReport = async (
   }
 };
 
+/**
+ * Runs the temp sweep when an hour has passed since the last one.
+ *
+ * A failed sweep is reported on stderr and never ends the daemon: the sweep is
+ * a backstop for temp paths a SIGKILL left, and the next hour asks again.
+ *
+ * @param sweep - the temp sweep port.
+ * @param now - the current time, in epoch ms.
+ * @param write - where the summary line goes.
+ * @param warn - where a failure goes.
+ * @returns true when a sweep ran.
+ */
+export const sweepTempIfDue = async (
+  sweep: TempSweep,
+  now: number,
+  write: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<boolean> => {
+  if (!tempSweepDue(await sweep.lastAt(), now)) return false;
+  const result = await sweep.sweep();
+  if (result.ok) write(`plot-registryd: ${result.value}\n`);
+  else warn('plot-registryd: the temp sweep did not run (plot-reap.sh --sweep-temp)\n');
+  return true;
+};
+
 export const run = async (
   argv: readonly string[],
   here: string,
@@ -993,7 +1031,7 @@ export const run = async (
   const args = argsFrom(argv);
   if (args === null) {
     process.stderr.write(
-      'usage: plot-registryd.mjs [--once] [--dry-run] [--start-agents] [--max N] [--interval SECONDS]\n',
+      'usage: plot-registryd.mjs [--once] [--dry-run] [--start-agents] [--sweep-temp] [--max N] [--interval SECONDS]\n',
     );
     return 2;
   }
@@ -1020,6 +1058,7 @@ export const run = async (
   // it; the `rename` is atomic but the decide-then-write sequence around it is
   // not, so a second writer would race.
   const reportStore = supervisionReportFile({ cwd: repoRoot });
+  const tempSweep = tempSweepShell({ repoRoot, scriptDir: scriptsDir });
 
   write(`plot-registryd: supervising ${registryDir}\n`);
 
@@ -1105,6 +1144,7 @@ export const run = async (
     // AFTER `reportTick`, so a tick whose report cannot be written still logs.
     await writeSupervisionReport(report, reportStore, warn);
     if (args.startAgents) await startAgents(report, performer, write, warn);
+    if (args.sweepTemp) await sweepTempIfDue(tempSweep, Date.now(), write, warn);
 
     // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.
     // There is nothing to resume: the next tick re-reads the registry and the

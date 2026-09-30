@@ -6,8 +6,9 @@
 # THE TEARDOWN IS WHY THIS IS A SCRIPT. The sequence is short enough to write
 # into a skill as prose, and CLAUDE.md's `Gates Over Rules` explains why that
 # would be wrong: "always stop the server" is a rule an agent can believe it
-# followed. `trap cleanup EXIT` is a gate — the shell reaps the process on
-# every exit path, including the assertion failures that prose forgets.
+# followed. An exit handler is a gate — the shell reaps the process on every
+# exit path, including the assertion failures that prose forgets. The handler
+# is `plot-tmp.sh`'s, which also stops the script on INT and TERM.
 #
 # PORT=0 asks the OS for a free port, so a verification run can never collide
 # with a board the user already has open on 7777.
@@ -16,16 +17,18 @@ set -uo pipefail
 artifact="${1:?Usage: plot-board-verify.sh <artifact path>}"
 [ -f "$artifact" ] || { echo "plot-board-verify: no artifact at $artifact" >&2; exit 1; }
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/plot-tmp.sh"
+
 pid=""
-tmpout=""
 cleanup() {
   [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null
-  [ -n "${tmpout:-}" ] && rm -f "$tmpout"
   return 0
 }
-trap cleanup EXIT INT TERM
+plot_on_exit cleanup
 
-tmpout=$(mktemp)
+tmpout=""
+plot_tmpfile tmpout board-verify || { echo "plot-board-verify: no temp file could be made" >&2; exit 1; }
 PORT=0 node "$artifact" > "$tmpout" 2>&1 &
 pid=$!
 
