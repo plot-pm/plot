@@ -181,7 +181,7 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
 ```
-summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 unread_headings=0 pr_source=gh main=main
+summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 unread_headings=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=gh main=main
 ```
 
 `uncut_slices` is the count from section 7 — slices carrying more than one
@@ -194,6 +194,8 @@ label. Non-blocking for the same reason: the fix is to rename the heading in
 the plan, and a cosmetic name must not gate a delivery.
 
 `unread_headings` is the count from section 24 — a slice heading that carries `Branch:` and whose wave holds no branch, so no consumer ever sees that slice. Each finding names its repair: `#1042` where the value is a readable branch, and a rewrite to `Branch: <prefix>/<name>` otherwise. **The first arm reports nothing on this estate since 2026-09-28**: it named the 5 slices the first-heading latch lost, and #1042 removed the latch, so a readable value now reads. It stays because the shape can recur — a heading whose branch is readable and unread is still the finding, and the arm names the fix rather than asserting a count. An empty wave whose heading carries no `Branch:` is narrative and is not counted. Non-blocking: the plan is not broken, its slice is invisible, and the repair is one edit.
+
+`temp_sweepable`, `legacy_tmp_caches` and `broken_locks` are the three counts from section 25, the temp paths and ledger locks a killed process left behind. `temp_sweepable` is what `plot-reap.sh --sweep-temp --yes` would remove: `$TMPDIR/plot-*` entries and dead-pid budget memos older than `Temp sweep after` hours (default 24). `legacy_tmp_caches` counts fleet-scan caches that releases before `plot-tmp.sh` left as `tmp.*` directories; the scan prints no removal command for them, because `tmp.*` is every template-less `mktemp` on the machine, and a person removes each by its exact path. `broken_locks` is the line count of `budget-lock-broken.tsv`; an absent file is zero. All three are non-blocking.
 
 `index_drift` is the convenience count from section 9. It is reported so the
 gap is visible, and it must never be read as a blocker: `attention=0` with
@@ -274,6 +276,9 @@ When the conversation context indicates automation (see `/plot` for detection ru
     "uncut_slices": 0,
     "prose_slice_names": 0,
     "unread_headings": 0,
+    "temp_sweepable": 0,
+    "legacy_tmp_caches": 0,
+    "broken_locks": 0,
     "index_drift": 0
   },
   "actions_taken": [],

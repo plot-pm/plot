@@ -185,9 +185,14 @@ test('manifest survives SIGKILL (trap cannot catch it)', () => {
       'utf8',
     );
 
-    // The manifest removal must be in a trap (which SIGKILL bypasses)
-    assert.match(loopScript, /trap\s+_cleanup_on_exit\s+EXIT/,
-      'manifest cleanup must be via EXIT trap (which SIGKILL cannot trigger)');
+    // The manifest removal must run from an EXIT trap (which SIGKILL
+    // bypasses). The loop registers it with `plot_on_exit`, and `plot-tmp.sh`
+    // owns the one EXIT trap that runs every registered command.
+    assert.match(loopScript, /^\s*plot_on_exit\s+_cleanup_on_exit\s*$/m,
+      'the loop must register its manifest cleanup with plot_on_exit');
+    const tmpHelper = fs.readFileSync(path.join(SCRIPTS, 'plot-tmp.sh'), 'utf8');
+    assert.match(tmpHelper, /^trap\s+_plot_tmp_on_exit\s+EXIT\s*$/m,
+      'plot-tmp.sh must run the registered commands from an EXIT trap (which SIGKILL cannot trigger)');
 
     // The cleanup function must remove the manifest
     assert.match(loopScript, /_cleanup_on_exit\(\)\s*\{[^}]*PLOT_MANIFEST_FILE/,

@@ -98,6 +98,7 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/plot-tmp.sh"
 
 # The receipt this script leaves for plot-state-gate.sh, which refuses every
 # other writer of a `State:` line. Sourced rather than run: the gate and the
@@ -233,7 +234,8 @@ fi
 # (a rate limit included), 4 for a backend with no answer at all. Only the
 # first is an absence. The other two stop here with the host's own words and
 # name no repair to the branch, because nothing about the branch was read.
-pr_err_file=$(mktemp "${TMPDIR:-/tmp}/plot-approve-pr.XXXXXX")
+pr_err_file=""
+plot_tmpfile pr_err_file approve-pr
 pr_rc=0
 pr_json=$(bash "$script_dir/plot-host.sh" pr-state "$pr_branch" 2>"$pr_err_file") || pr_rc=$?
 pr_err=$(cat "$pr_err_file" 2>/dev/null); rm -f "$pr_err_file"

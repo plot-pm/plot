@@ -24,3 +24,4 @@ dist/
 /plot-transcript-quiet.sh
 /plot-state-receipt.sh
 /plot-agent-manifest.sh
+/plot-tmp.sh

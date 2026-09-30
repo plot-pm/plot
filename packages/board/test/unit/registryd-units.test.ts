@@ -136,7 +136,7 @@ describe('both units start the daemon with --start-agents', () => {
   });
 
   it('systemd passes the flag', () => {
-    expect(read(SERVICE)).toMatch(/^ExecStart=.*--start-agents\s*$/m);
+    expect(read(SERVICE)).toMatch(/^ExecStart=.*--start-agents(\s|$)/m);
   });
 
   /**
@@ -147,6 +147,21 @@ describe('both units start the daemon with --start-agents', () => {
   it('neither unit is left behind', () => {
     const both = [read(PLIST), read(SERVICE)].filter((u) => u.includes('--start-agents'));
     expect(both).toHaveLength(2);
+  });
+});
+
+describe('both units run the temp sweep', () => {
+  /**
+   * Nothing else schedules the backstop for temp paths a SIGKILL left behind:
+   * no script runs `plot-reap.sh --yes`, and `crontab -l` was empty on
+   * 2026-09-30. The flag is opt-in in the parser, so the unit is what turns it on.
+   */
+  it('launchd passes --sweep-temp', () => {
+    expect(read(PLIST)).toMatch(/<string>--sweep-temp<\/string>/);
+  });
+
+  it('systemd passes --sweep-temp', () => {
+    expect(read(SERVICE)).toMatch(/^ExecStart=.*--sweep-temp(\s|$)/m);
   });
 });
 
