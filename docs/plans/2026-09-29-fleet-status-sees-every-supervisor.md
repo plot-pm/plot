@@ -10,7 +10,7 @@
 - **Issue:** #1080
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 5
+- **Rounds:** 6
 
 ## Changelog
 
@@ -292,3 +292,9 @@ One juror, **amend**, **executed** on macOS; the Linux arms were read and not ru
 - **`-x` admits a directory.** The check is now `-f && -x`, with a fixture.
 - **The artifact name could be followed by anything.** It must now be followed by a space or end the args. `-pe`, `--eval=` and `--print=` join the node exclusions, with fixtures.
 - **Bullet 5 named `/Users/u/…`, which the runner cannot create, and the installation of a bare `bash plot-fleet-scan.sh` was undefined.** The bullet now uses `<box>/Library/…`. A path without the full suffix prints `installed:  cannot determine`. The test-harness additions (a `launchctl list` answer, `lsof` and `id` stubs) are named.
+
+### Round 6, 2026-09-30
+
+One juror, **proceed**, **executed**. Verdict: `.plot/panels/2026-09-29-fleet-status-sees-every-supervisor/round6.md`. The Safety rule held against 8 real decoy processes whose argv held `$( )`, `;`, backticks, `$(( $( ) ))`, nested quotes and `x[$( )]`: no marker file appeared. The forbidden awk `system()` form created markers for the backtick and `$(( ))` shapes. Every Done-when fixture and the live snapshot classified as written, with no false positive.
+
+Two non-blocking additions for the implementer: apply the Safety rule to every string read from another process, the `lsof` cwd included, with an `lsof`-stub fixture whose cwd holds `$(touch <box>/pwned)`; and build without `declare -A`, since macOS `/bin/bash` is 3.2 (a second awk pass does the fold). Scans started by a test harness are top-level scans, so the block prints during a `pnpm test` run, as the silence rule intends.
