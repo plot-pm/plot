@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 4
+- **Started:** 2026-09-30, jwloka, `bug/a-slice-with-no-work-waits-in-not-started`
 
 ## Changelog
 
