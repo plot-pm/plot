@@ -10,11 +10,11 @@
 - **Issue:** #1080
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
-- `/plot-fleet --status` names every Plot supervisor, board and top-level scan running on this machine, with the checkout each one serves and the installation it runs from, and names scans whose board no longer owns them.
+- `/plot-fleet --status` names every Plot supervisor, board and top-level scan running on this machine, with the checkout each one serves and the installation it runs from, and counts separately the scans whose parent process has exited.
 
 Board impact: none. This is fleet control's status output.
 
@@ -61,7 +61,7 @@ Measured again 2026-09-30 09:58, 38 minutes after a reboot, load `7.68 10.72 56.
 | 10931 | supervisor `com.plot-pm.registryd.ewz-kus-portal` | `~/.claude/plugins/cache/plot-marketplace/plot/2.21.0` | `/Users/jwloka/Quatico/ewz/ewz-kus-portal` | 0 |
 | 35248 | board | `~/.claude/plugins/marketplaces/plot-marketplace` | this checkout | 2, one a scan |
 
-**The scope is supervisors AND boards, and the reboot confirms it rather than weakening it.** The three-board count was a transient. Two facts held across both readings: the supervisors spawn no scans, and every scan descends from a board or from nothing. A supervisor-only status names 2 of today's 3 Plot processes and omits the one that spawns scans. Today's board also runs from an installation other than the checkout it serves, and that pair (installation and checkout) is invisible to every existing reading.
+**The scope is supervisors AND boards, and the reboot confirms it rather than weakening it.** The three-board count was a transient. Two facts held across both readings: the supervisors spawn no scans, and every scan descends from a board or from nothing. A supervisor-only status names 2 of today's 3 Plot processes and omits the one that spawns scans. Today's board also runs from an installation other than the checkout it serves, and no existing reading shows that pair (installation and checkout). This plan shows it on every row it prints, and does not print a row for that pair alone (see *The rule*).
 
 ### The upstream cause belongs to #1084
 
@@ -87,6 +87,8 @@ All three answer *about my supervisor*. `serves_line` is called at `plot-fleetct
 
 **Nothing to report** means: every Plot process found serves THIS checkout (its cwd is this repository's root), and no scan is orphaned. In that case the output is byte-identical to today's. A normal single-checkout machine — one supervisor and one board for this checkout, the board's scans in flight — is this case.
 
+**A foreign installation that serves THIS checkout is silent, by decision.** Today's board 35248 is that case: it runs from `~/.claude/plugins/marketplaces/plot-marketplace` with cwd this repository. In an adopting repository that is the normal shape, because the board and the supervisor always run from a plugin installation and the checkout holds no artifact of its own. Printing on it would print the block on every adopting machine, which is the noise the silence rule exists to prevent. The installation is shown whenever the block prints for another reason. Version skew between an installation and a checkout is not something this plan reports.
+
 Otherwise a second block follows the existing output, after the `summary:` line. It lists every Plot process except the supervisor the first block already names. Every row carries both paths. The mockup is today's machine (2026-09-30 09:58):
 
 ```
@@ -111,33 +113,35 @@ A process whose cwd cannot be read prints `serves:     cannot determine (owner <
 
 ### One snapshot, one classifier
 
-Enumeration is ONE call: `ps axww -o pid=,ppid=,user=,args=`. One snapshot keeps the parent relations consistent, `axww` is accepted by both BSD `ps` and procps, and it lists every user's processes. An `awk` pass classifies each row:
+Enumeration is ONE call: `ps axww -o pid=,ppid=,uid=,args=`. One snapshot keeps the parent relations consistent, `axww` is accepted by both BSD `ps` and procps, and it lists every user's processes. **The owner is read as a numeric `uid`, not `user=`**, because procps truncates `user=` to 8 columns. The name is resolved with `id -un <uid>` only for a row that prints `cannot determine`. An `awk` pass classifies each row:
 
-| kind | argv[0] basename | first non-option argument |
+| kind | argv[0] basename | the argument string after argv[0] and its leading options |
 |---|---|---|
-| supervisor | `node` | a path ending `/board/plot-registryd.mjs` |
-| board | `node` | a path ending `/board/board-server.mjs` |
-| scan | `bash` or `sh` | a path whose basename is `plot-fleet-scan.sh` |
+| supervisor | `node` | starts with a path ending `/board/plot-registryd.mjs` |
+| board | `node` | starts with a path ending `/board/board-server.mjs` |
+| scan | `bash` or `sh` | starts with a path whose basename is `plot-fleet-scan.sh` |
 
-**Matching the interpreter and the argument position excludes every shell that only holds the string.** `bash -c '…board/board-server.mjs…'` and `zsh -c '…'` have argv[0] `bash`/`zsh` and argv[1] `-c`; `grep board-server.mjs` has argv[0] `grep`. `pgrep -f` matches all three and is not used.
+**Matching the interpreter and the argument position excludes every shell that only holds the string.** `zsh -c '…'` and `grep board-server.mjs` fail on argv[0]. **A `bash` or `sh` row whose leading options include one containing `c` (`-c`, `-lc`, `-ec`) is never a scan**, because the rest of that row is a command string and not a script path. **A `node` row whose leading options include `-e`, `-p`, `--eval` or `--print` is never a board or supervisor**, for the same reason. `pgrep -f` matches every one of these shapes and is not used.
+
+**An installation path can hold a space** (`~/Library/Application Support/…`), and `ps` prints it unquoted. So the artifact path is the argument string after argv[0] and its options, up to the end of the artifact name — not one whitespace-split field. The `-c` rule above is what keeps this from re-admitting `bash -c 'sleep 45; : /opt/App Support/skills/plot/scripts/plot-fleet-scan.sh'`, whose command string also ends in a scan path.
+
+**A relative artifact path is resolved against the process's cwd before the installation is named.** `pnpm board` starts this repository's own board as `node --watch skills/plot/scripts/board/board-server.mjs` (`package.json:14`), and a harness scan runs as `bash skills/plot/scripts/plot-fleet-scan.sh`. Without the cwd the suffix removal leaves an empty installation. When the resolved installation is this repository's root, the row prints `installed:  THIS repository`. When the cwd cannot be read, a relative path prints `installed:  cannot determine`.
 
 **A process is reported only at top level: its parent is not a process of the same kind.** This one rule does two jobs:
 
 - it folds a `node --watch` board and the child it supervises into one row, and the row keeps the watcher's pid — `plot-boardctl.sh --stop` already treats the pair as one board;
 - it counts one scan as one process, not as the four its subshells show.
 
-**A scan is attributed by cwd and installation, never by parentage.** cwd is inherited and survives reparenting; the installation is the scan's argv path minus `/skills/plot/scripts/plot-fleet-scan.sh`. Scans are grouped by the pair (checkout, installation) into one `scans` row per group. **A top-level scan whose ppid is 1 is orphaned**, and the row counts it separately. A board's installation is its argv path minus `/skills/plot/scripts/board/board-server.mjs`, and a supervisor's minus `/skills/plot/scripts/board/plot-registryd.mjs`. Paths under `$HOME` print with `~`.
-
-**An installation path can hold a space** (`~/Library/Application Support/…`), so the shipped classifier matches the artifact path against the args string after argv[0] and its options, not against one whitespace-split field. The sandbox prototype below split on whitespace and does not prove this case; a Done-when fixture does.
+**A scan is attributed by cwd and installation, never by parentage.** cwd is inherited and survives reparenting; the installation is the scan's argv path minus `/skills/plot/scripts/plot-fleet-scan.sh`. Scans are grouped by the pair (checkout, installation) into one `scans` row per group. **A top-level scan whose ppid is 1 is orphaned: its parent has exited.** The row counts it separately. The reading does not say why the parent exited: a scan left behind by a board's timeout (#1084) and a manual scan started with `nohup` both read ppid 1. A board's installation is its resolved artifact path minus `/skills/plot/scripts/board/board-server.mjs`, and a supervisor's minus `/skills/plot/scripts/board/plot-registryd.mjs`. Paths under `$HOME` print with `~`.
 
 A scan with no board above it and a live parent (a test, a manual run) is top-level, not orphaned, and is counted in its group like any other.
 
 ### Checkout, label, and the platform arms
 
 - **Checkout (macOS):** `lsof -a -p <pid> -d cwd -Fn`, the `n` line. **Empty output means cannot determine**, whatever the exit code: for another user's process `lsof` prints nothing and exits 1, with no error text to parse. It needs no sudo for this user's launchd jobs (measured on 10931 and 10942). 0.053 s per call.
-- **Checkout (Linux):** `readlink /proc/<pid>/cwd`. A failed read means cannot determine.
+- **Checkout (Linux):** `readlink "$PLOT_PROC_ROOT/<pid>/cwd"`, where `PLOT_PROC_ROOT` defaults to `/proc` and exists so a test can supply a fixture tree. A failed read means cannot determine.
 - **Label (macOS):** `launchctl list`, the row whose pid column equals the supervisor's pid. A pid with no row prints no label. The label is a detail about a found process, never the way one is found.
-- **Label (Linux):** the unit named in `/proc/<pid>/cgroup`; no unit prints no label. Not measured on a Linux machine yet.
+- **Label (Linux):** read `$PLOT_PROC_ROOT/<pid>/cgroup` and take the line that starts with `0::` (the cgroup v2 entry). The label is the last `/`-separated segment of that line when the segment ends in `.service`, with `.service` removed. A missing `0::` line (cgroup v1), a segment that does not end in `.service`, or an unreadable file prints no label. Example: `0::/user.slice/user-1001.slice/user@1001.service/app.slice/plot-registryd-ewz.service` gives `plot-registryd-ewz`.
 
 ### Measured in a sandbox, 2026-09-30
 
@@ -154,26 +158,31 @@ scan        5089  ppid=1  orphaned   (the killed scan's subshell; its child 5090
 
 Both decoys were excluded. `lsof` read the sandbox checkout as the cwd of all four, orphan included. The `ps` plus `awk` pass took 0.045 s over the whole machine. The same pass also found a real scan (23245) run by another session's test harness, top-level with a live non-board parent — the case the previous paragraph names.
 
+A second pass, over ten synthetic `ps` rows, checked the option and path rules. It classified `node --watch skills/plot/scripts/board/board-server.mjs` and `bash skills/plot/scripts/plot-fleet-scan.sh --json` (relative), `node /opt/App Support/inst/…/board-server.mjs` and `/bin/bash /opt/App Support/inst/…/plot-fleet-scan.sh --stream` (space), and a full-path `node …/plot-registryd.mjs --start-agents`. It excluded `bash -c 'sleep 45; : /opt/App Support/skills/plot/scripts/plot-fleet-scan.sh'`, `bash -lc '…plot-fleet-scan.sh'`, `/bin/zsh -c eval 'board/board-server.mjs'`, `node -e require('/x/board/board-server.mjs')` and `grep board-server.mjs`.
+
 ### What this does NOT do
 
 - **It does not fix orphaned scans.** #1084 owns `scripts-shell.ts`; this plan reads the result.
 - **It does not coordinate spend.** Two supervisors sharing a budget is #1069's question.
-- **It does not change `--start`'s refusal**, which names an already-loaded label and its checkout (`plot-fleetctl.sh:681-696`) for `$LABEL`.
+- **It does not change `--start`'s refusal**, which names an already-loaded label and its checkout (REFUSAL 4, `plot-fleetctl.sh:722-742`) for `$LABEL`.
 - **It does not touch `--stop`, and it signals no process.** One stop rule, one label.
 - **It does not change the `summary:` line.** The second block follows it.
 
 ## Done when
 
-All assertions run in `test/reconcile/fleetctl.test.mjs` with `ps`, `lsof` and `launchctl` stubbed through `guardBin` (`:211`), unless a bullet says otherwise.
+All assertions run in `test/reconcile/fleetctl.test.mjs` with `ps`, `lsof`, `launchctl` and `id` stubbed through `guardBin` (defined at `:130`, put first on `PATH` at `:211`), unless a bullet says otherwise.
 
 - **With two supervisors, one `node --watch` board and one plain board running, `--status` names all four**, each row with its `serves:` (from cwd) and its `installed:` (from argv). The `--watch` pair is one row carrying the watcher's pid.
-- **A stubbed `bash -c '… board/board-server.mjs …'` row, a `zsh -c '… board/plot-registryd.mjs …'` row and a `grep board-server.mjs` row are NOT reported.**
+- **A stubbed `bash -c '… board/board-server.mjs …'` row, a `zsh -c '… board/plot-registryd.mjs …'` row, a `node -e "…board/board-server.mjs…"` row and a `grep board-server.mjs` row are NOT reported.**
+- **`bash -c 'sleep 45; : /opt/App Support/skills/plot/scripts/plot-fleet-scan.sh'` and `bash -lc '…/plot-fleet-scan.sh'` are NOT counted as scans**, although each command string ends in a scan path and the first holds a space.
 - **A board whose installation path holds a space is found**, and its `installed:` line prints the whole path.
-- **One scan with three subshells counts as 1 in flight.** A scan-named process with ppid 1 counts as orphaned, in the group of its cwd and installation.
+- **A relative artifact path resolves against the cwd**: `node --watch skills/plot/scripts/board/board-server.mjs` with cwd this checkout prints `installed:  THIS repository`, and `bash skills/plot/scripts/plot-fleet-scan.sh` with cwd another checkout names that checkout as its installation. With an empty `lsof` answer the relative row prints `installed:  cannot determine`.
+- **One scan with three subshells counts as 1 in flight.** A top-level scan with ppid 1 counts as orphaned (parent exited), in the group of its cwd and installation; the output makes no claim about which process was its parent.
 - **A supervisor labelled `com.quatico.ewz.registryd` is found and its label printed**, because enumeration reads no label.
-- **A process whose `lsof` output is empty prints `cannot determine (owner <user>)`**, with the stub exiting 1 and printing nothing — the shape measured for root's `syslogd`.
-- **When every Plot process serves this checkout and none is orphaned, the output is byte-identical to today's**, asserted for two fixtures: this checkout's supervisor alone, and this checkout's supervisor plus a board and one in-flight scan for this checkout.
+- **A process whose `lsof` output is empty prints `cannot determine (owner <user>)`**, with the stub exiting 1 and printing nothing — the shape measured for root's `syslogd`. The stubbed `ps` gives a numeric `uid`, and the owner name is the one the stubbed `id -un` returns for it, printed whole for a 12-character user name.
+- **When every Plot process serves this checkout and none is orphaned, the output is byte-identical to today's**, asserted for three fixtures: this checkout's supervisor alone; this checkout's supervisor plus a board and one in-flight scan for this checkout; and this checkout's supervisor plus a board from a foreign installation (`~/.claude/plugins/marketplaces/plot-marketplace`) whose cwd is this checkout — the decided silent case.
 - **The Linux arm reads `/proc/<pid>/cwd` on the ubuntu runner against a real process**: the test starts a `sleep` in a temporary directory and the stubbed `ps` lists its pid as a board, so the cwd read is real. Pid 1 is the unreadable case there, since the runner is not root.
+- **The Linux label arm is asserted on the ubuntu runner through `PLOT_PROC_ROOT`**: a fixture `<root>/<pid>/cgroup` holding `0::/user.slice/user-1001.slice/user@1001.service/app.slice/plot-registryd-ewz.service` prints the label `plot-registryd-ewz`; a fixture with only cgroup v1 lines, and one whose last segment is `app.slice`, print no label.
 - `node --test test/reconcile/fleetctl.test.mjs` stays green — 72 tests on 2026-09-30. An assertion that changes is named rather than renumbered.
 
 ## Slices
@@ -211,3 +220,14 @@ One juror, **amend**, **executed**. Verdict: `.plot/panels/2026-09-29-fleet-stat
 - **The silence rule fired on every machine with a board.** Redefined as: every Plot process serves this checkout and no scan is orphaned. The byte-identical assertion now covers the supervisor-plus-board fixture.
 - **`lsof` on another user's process returns empty with rc 1.** The row prints `cannot determine`, decided by empty output.
 - **The test count was 72, not 67**, and `serves_line` moved to `:476` and `:498`.
+
+### Round 3, 2026-09-30
+
+One juror, **amend**, **executed**. Verdict: `.plot/panels/2026-09-29-fleet-status-sees-every-supervisor/round3.md`. The whitespace-split classifier held on 960 live rows with no false positive; every finding was a matcher detail or a missing decision, and each is now a sentence plus a Done-when fixture.
+
+- **The space-tolerant matcher re-admitted a `-c` decoy.** `bash -c 'sleep 45; : /opt/App Support/…/plot-fleet-scan.sh'` classified as a scan once options were stripped. A `bash`/`sh` option containing `c`, and a `node` `-e`/`-p`/`--eval`/`--print`, now disqualify the row; the writer checked this on ten synthetic rows.
+- **A relative argv path gave an empty installation.** `pnpm board` is that case. The path is now resolved against the process's cwd.
+- **The silence rule did not say what a foreign installation serving this checkout does.** Decided: silent, because that is the normal adoption shape, and asserted as a third byte-identical fixture.
+- **"No longer owned by a board" claimed a cause the reading cannot see.** ppid 1 now means only that the parent exited.
+- **The Linux label parse was vague and unasserted, and procps truncates `user=`.** The parse is now the `0::` line's last `.service` segment, asserted through `PLOT_PROC_ROOT`; the owner is read as `uid=` and resolved with `id -un`.
+- **Citations:** the label refusal is REFUSAL 4 at `plot-fleetctl.sh:722-742` (`:681-696` is REFUSAL 2b), and `guardBin` is defined at `:130`.
