@@ -1304,6 +1304,45 @@ if [ ! -f "$prompt_file" ]; then
   exit 1
 fi
 
+# THE SETTINGS FILE EVERY AGENT THIS LOOP STARTS RECEIVES.
+#
+# ONCE PER AGENT START, here rather than inside `run_bounded`, which runs once
+# per PASS. The answer cannot change between a first prompt and its correction:
+# the key is a line in CLAUDE.md and the file it names is committed, so asking
+# again per pass would buy nothing and spend a `node` start each time.
+#
+# EXPORTED BEFORE THE PROMPT IS SOURCED, which is what makes this cover every
+# prompt `resolve_prompt_file` returns — a charter-declared one included — and
+# every launch path that reaches this loop: a dispatch, a `--restart`,
+# `/api/continue` and the supervisor's `--start-agents`. The prompt interpolates
+# `${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"}` itself, so nothing
+# here rewrites a configured command.
+#
+# A REFUSAL IS ONE LINE AND THE AGENT STILL STARTS. `plot-agent-settings.sh`
+# exits 3 for a missing, unparseable or gate-disabling file, and the worker runs
+# without the flag: a typo in a config key must not stop every agent on the
+# machine. The variable is left UNSET in that case, which is what the prompt's
+# `:+` guard reads.
+# ASKED ONCE, BOTH STREAMS KEPT. A second call to read the reason would spend
+# another `node` start and could answer differently from the first, so the
+# refusal's text is captured alongside the path in one reading.
+#
+# UNSET, NEVER EMPTY, when there is no path to pass. `${VAR:+…}` treats both the
+# same, but an exported empty variable is a value a prompt could test for and
+# find, and the honest state is that Plot resolved nothing.
+unset PLOT_AGENT_SETTINGS
+_settings_reason_file="$(mktemp)"
+if _settings_path=$(bash "$(dirname "${BASH_SOURCE[0]}")/plot-agent-settings.sh" \
+      2>"$_settings_reason_file"); then
+  [ -n "$_settings_path" ] && export PLOT_AGENT_SETTINGS="$_settings_path"
+else
+  # The reason goes where an operator triages this worker, and the agent starts
+  # without the flag.
+  sed 's/^/plot-worker-loop: /' "$_settings_reason_file" >&2 || true
+fi
+rm -f "$_settings_reason_file"
+unset _settings_reason_file _settings_path
+
 # Determine the main branch for worktree creation.
 main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 [ -z "$main_branch" ] && main_branch=main
