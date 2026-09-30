@@ -10,7 +10,7 @@
 - **Issue:** #1099
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -47,22 +47,27 @@ So `--settings` overrides the user-level `enabledPlugins` value for the named ke
 
 ### One key, one resolver
 
-`Agent settings` in `## Plot Config` names a JSON file. Absent or empty means no change: an adopting project that sets nothing behaves as today.
+`Agent settings` in `## Plot Config` names a JSON file. The key is read from the `CLAUDE.md` of the tree that asks, so a desk cut from an older main that does not carry the key starts as today. Absent or empty means no change: an adopting project that sets nothing behaves as today.
 
 **One script resolves it: `plot-agent-settings.sh`.** It prints the absolute path on stdout and exits 0, or prints nothing, names the reason on stderr and exits 3. Every caller acts on its answer and none re-derives it.
 
-- **A relative value resolves against the main checkout** — the parent of `git rev-parse --git-common-dir` — the rule `Board artifact` already follows (`plot-config.sh:60`). `--show-toplevel` names the desk, and a desk cut from an older main may not hold the file.
-- **A missing or unparseable file answers 3** with the path it looked for. The caller starts the agent without the flag, so a typo cannot stop the fleet, and writes the reason where the agent's own start is recorded (below). Plot never passes `claude` a path that does not exist.
-- **A file that switches Plot's gates off answers 3**: `enabledPlugins` naming any `plot@…` key `false`, or `disableAllHooks: true`. The reason names the key. This is the rule's second half, and it is a refusal rather than advice.
+- **A relative value resolves against the main checkout**, the parent of `git rev-parse --git-common-dir`, the rule `Board artifact` already follows (`plot-config.sh:60`). `--show-toplevel` names the desk, and a desk cut from an older main may not hold the file.
+- **A missing or unparseable file answers 3** with the path it looked for. The caller starts the agent without the flag, so a typo cannot stop the fleet, and writes the reason where the agent's start is recorded (below). Plot never passes `claude` a path that does not exist.
+- **A file that switches Plot's gates off answers 3**, naming the key: `enabledPlugins` setting any `plot@…` key `false`, `disableAllHooks: true`, or any `env` key. `env` is refused whole because a settings `PATH` that hides the gates' tools makes them fail open: measured 2026-09-30, origin/main's `plot-state-gate.sh` run with a `PATH` lacking its tools allowed a `State:` change (exit 0).
+
+**The refusal is a domain rule**, `agentSettingsRefusal`, in `packages/domain/src/rules/`. It takes the parsed file and answers the refused key or none. The script asks it through a bundle, `board/plot-agent-settings.mjs`, per *A Shell Script Asks The Domain*: the script runs once per agent start, not once per pass, so the bundle's start-up cost is the cost rule's permitted case.
+
+**It is a check against a switch-off by accident, not a boundary.** The file is project-owned and reviewed like `CLAUDE.md`, and a project that wants its gates off can edit `CLAUDE.md` as easily. `hooks` and `permissions` are out of scope for that reason: a settings `hooks` block adds hooks and `permissions.deny` restricts tools, and neither was measured to unregister a plugin's hooks.
 
 ### Where it reaches
 
-**The path travels as `PLOT_AGENT_SETTINGS`, an absolute path in the environment.** Nothing rewrites a configured command. The command keys are project-owned text, and a project interpolates the variable where its harness takes the flag. This removes the question of recognising a `claude` invocation in `PLOT_UNATTENDED=1 claude -p …` run through `sh -c`.
+**The path travels as `PLOT_AGENT_SETTINGS`, an absolute path in the environment.** Nothing rewrites a configured command. The command keys are project-owned text, and a project interpolates the variable where its harness takes the flag. This removes the question of recognising a `claude` invocation in `PLOT_UNATTENDED=1 claude -p …` run through `sh -c`. Measured 2026-09-30 with a stub harness, `${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"}` delivers `--settings` and a path containing a space as two arguments under `sh`, `dash`, `bash` and `ksh`, and nothing when the variable is unset or empty.
 
-- **The worker loop** calls the resolver once per agent start and exports the answer before it sources the prompt file (`plot-worker-loop.sh:1631`). This covers every prompt file the loop resolves, a charter-declared one included (`resolve_prompt_file`, `plot-worker-loop.sh:1099-1138`). A refusal is one line in `.plot-worker.log`.
+- **The worker loop** calls the resolver once per agent start and exports the answer before it sources the prompt file (`plot-worker-loop.sh:1631`). This covers every prompt file the loop resolves, a charter-declared one included (`resolve_prompt_file`, `plot-worker-loop.sh:1099-1138`), and every launch path that reaches the loop: a dispatch, a `--restart`, `/api/continue` and the supervisor's `--start-agents`. A refusal is one line in `.plot-worker.log`.
 - **The shipped template** (`skills/plot/templates/worker-prompt.sh`) adds `--settings "$PLOT_AGENT_SETTINGS"` when the variable is set **and** `harness` is `claude` (`:136` reads `PLOT_HARNESS`). This repository's `.plot/worker-prompt.sh` gets the same lines.
-- **The board's seven agent-runner spawns** set the variable through one helper: `Idea` (`idea.ts:713`), `Implement` (`implement.ts:225`), `Interrogate` (`interrogate.ts:323`), `Brief` (`brief-ask.ts:104`), `Story` (`story.ts:506`), `Approve` (`approve.ts:297`) and `Deliver` (`auto-deliver.ts:424`). The helper asks the resolver through an adapter, per the layering rule, and returns the environment each `spawn` receives. A refusal is written to the board's server log once per spawn.
-- **This repository's seven command keys** interpolate it: `… claude -p ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions`.
+- **The board sets the variable once, in its own environment, at startup.** `index.ts` asks the resolver through the `Scripts` port's `awaited` call and assigns `process.env.PLOT_AGENT_SETTINGS`. Its ten agent-runner spawns all start from `process.env`, so none is edited: `idea.ts:713`, `implement.ts:225`, `interrogate.ts:323`, `story.ts:506`, `auto-deliver.ts:424`, `commission.ts:409`, `deliver.ts:531` and `reslice.ts:466` spread `process.env` into their `env`, and `brief-ask.ts:104` and `approve.ts:297` pass no `env` and inherit it. The synchronous sites (`askForBrief`, `startImplement`) therefore need no new port operation. A refusal is written to the server log at startup. Changing the key takes effect at the next board start.
+- **`plot-dispatch.sh:792`** starts `Brief command` detached from the shell. It calls the resolver and exports the answer on that command line.
+- **This repository's five `claude -p` command keys** (`Idea`, `Story`, `Brief`, `Implement`, `Interrogate`) interpolate it: `… claude -p ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions`. It sets no `Approve command` or `Deliver command`.
 
 ### A prompt that ignores the key
 
@@ -74,7 +79,7 @@ So `--settings` overrides the user-level `enabledPlugins` value for the named ke
 
 ### Why not rewrite the commands
 
-A board that appends `--settings` to a command it recognises as `claude` needs a recognition rule for `VAR=value` prefixes, `env`, absolute paths, wrapper scripts and `npx`, applied at seven sites. An exported variable needs none of it and leaves each command readable as written.
+A board that appends `--settings` to a command it recognises as `claude` needs a recognition rule for `VAR=value` prefixes, `env`, absolute paths, wrapper scripts and `npx`, applied at every spawn site. An exported variable needs none of it, edits no spawn site, and leaves each command readable as written.
 
 ### What this does NOT do
 
@@ -85,18 +90,19 @@ A board that appends `--settings` to a command it recognises as `claude` needs a
 ## Done when
 
 - **The measurement, first:** a `claude -p` run given the settings file is refused by `plot-state-gate.sh` when it commits a hand-written `State:` change. The plugin half is measured above. If the refusal does not fire, the slice stops and reports it.
-- `plot-agent-settings.sh` answers an absolute path for a relative value asked from a desk, resolved against the main checkout; 3 with the path for a missing file; 3 naming the key for `plot@…: false` and for `disableAllHooks: true`; and nothing, exit 0, for an absent key.
-- The shipped template, run with `PLOT_PRINT_INVOCATION`, prints `--settings <path>` when `PLOT_AGENT_SETTINGS` is set and `harness` is `claude`; prints the unchanged argv when the variable is unset or `PLOT_HARNESS` names another harness.
+- `agentSettingsRefusal` answers the key for `plot@…: false`, `disableAllHooks: true` and any `env`, and none for a file that only disables other plugins; its tests live beside the rule.
+- `plot-agent-settings.sh`, asked from a desk, answers an absolute path for a relative value resolved against the main checkout; 3 with the path for a missing file; 3 with the refused key through the bundle; and nothing, exit 0, for an absent key or a desk whose `CLAUDE.md` carries none.
+- The shipped template, run with `PLOT_PRINT_INVOCATION`, prints `--settings <path>` when `PLOT_AGENT_SETTINGS` is set and `harness` is `claude`; it prints the unchanged argv when the variable is unset or `PLOT_HARNESS` names another harness.
 - The worker loop exports the variable before sourcing a charter-declared prompt file, and writes the resolver's reason to `.plot-worker.log` on a refusal.
-- Each of the seven board spawns receives `PLOT_AGENT_SETTINGS` through the one helper, asserted by a test over all seven; a refusal reaches the server log.
+- A board started with the key set has `PLOT_AGENT_SETTINGS` in its environment, and a stub command run through each of the ten spawn sites receives it; a refusal reaches the server log. `plot-dispatch.sh`'s detached `Brief command` receives it too.
 - `plot-install-prompt.sh` reports `settings-unread` (exit 3) for a prompt that interpolates `PLOT_SESSION_FLAG` but not `PLOT_AGENT_SETTINGS` while the key is set, and `current` once it does.
-- `Agent settings` is documented in `plot-config.sh`'s key list and in `CLAUDE.md`'s helper-script table; this repository sets it, tracks the settings file, and its seven command keys interpolate the variable.
+- `Agent settings` is documented in `plot-config.sh`'s key list and in `CLAUDE.md`'s helper-script table; this repository sets it, tracks the settings file, and its five `claude -p` command keys interpolate the variable.
 
 ## Slices
 
 ### A fleet agent starts without the operator's plugins (Branch: bug/a-fleet-agent-starts-without-the-operators-plugins) <!-- builds: plot-agent-settings.sh, the Agent settings resolver -->
 
-The refusal measurement first, then the resolver, the worker loop and template, the board helper and its seven spawns, the install-prompt report, and this repository's settings file and keys.
+The refusal measurement first, then the refusal rule and the resolver, the worker loop and template, the board's startup export, the dispatch brief spawn, the install-prompt report, and this repository's settings file and keys.
 
 ## Notes
 
