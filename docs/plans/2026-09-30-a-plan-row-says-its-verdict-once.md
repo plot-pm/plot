@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-09-30, jwloka, in-session
+- **Started:** 2026-09-30, jwloka, `bug/a-plan-row-says-its-verdict-once`
 - **Type:** bug
 - **Issue:** #1103
 - **Review:** in-session
