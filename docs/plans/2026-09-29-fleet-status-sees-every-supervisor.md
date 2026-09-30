@@ -229,7 +229,7 @@ Unless a bullet says otherwise, all assertions run in `test/reconcile/fleetctl.t
 
 ## Slices
 
-### Fleet status sees every Plot process on the machine (Branch: bug/fleet-status-sees-every-supervisor)
+### Fleet status sees every Plot process on the machine (Branch: bug/fleet-status-sees-every-supervisor, PR: #1095)
 
 Classify one `ps` snapshot into supervisors, boards and top-level scans; read each checkout from cwd and each installation from argv; group scans by the pair and name orphans; print a second block only when a process serves another checkout or a scan is orphaned.
 
