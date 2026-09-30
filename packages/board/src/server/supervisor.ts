@@ -15,7 +15,7 @@ import {
   type Gate,
   type PlanBranchLine,
 } from '@plot-pm/domain/rules/gates';
-import type { MergeReading } from '@plot-pm/domain/rules/reapable';
+import type { DeskMergeReading } from '@plot-pm/domain/rules/gates';
 import type { SupervisionReadings } from '@plot-pm/domain/rules/supervision';
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import type { SuperviseReadings } from '@plot-pm/domain/workflows/supervise';
@@ -53,7 +53,7 @@ export interface SupervisorWorld {
   /** Whether a worker process is alive in this desk. */
   workerAlive(worktree: string): Promise<boolean>;
   /** What the host said about any PR for this branch. */
-  merge(branch: string): Promise<MergeReading>;
+  merge(branch: string): Promise<DeskMergeReading>;
   /** The first uncommitted path in the desk, or `''` when it is clean. */
   dirtyPath(worktree: string): Promise<string>;
   /** The `PLOT-BLOCKED*` marker's filename, or `''` when the desk carries none. */
@@ -275,7 +275,7 @@ export interface WorldOptions {
   /** Whether a pid is alive. */
   isAlive(pid: number): Promise<boolean>;
   /** What the host says about a branch. */
-  prMerged(branch: string): Promise<MergeReading>;
+  prMerged(branch: string): Promise<DeskMergeReading>;
   /** The uncommitted paths in a desk. */
   dirtyPaths(worktree: string): Promise<readonly string[]>;
   /** The `PLOT-BLOCKED*` markers in a desk. */

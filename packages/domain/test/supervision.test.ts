@@ -6,7 +6,7 @@ import {
   MAX_ATTEMPTS,
   type SupervisionReadings,
 } from '../src/rules/supervision.js';
-import type { DeskReadings } from '../src/rules/gates.js';
+import { prGate, type DeskReadings } from '../src/rules/gates.js';
 
 /**
  * The marker is assembled rather than written literally, the same reason
@@ -142,6 +142,44 @@ describe('the tick — branch three: the envelope is ok and a gate fails', () =>
 
   it('raises the supervisor’s own counter by one', () => {
     expect(supervise(finished({ desk: cleanDesk({ merge: 'not-merged' }) })).nextAttempts).toBe(1);
+  });
+});
+
+describe('a free agent — no branch, so no merge question was asked', () => {
+  // A FREE AGENT HOLDS NO SLICE and declared nothing: its desk was cut at
+  // `origin/<main>`, and the supervisor never asked the host about `''`.
+  const free = (over: Partial<SupervisionReadings> = {}): SupervisionReadings =>
+    finished({
+      branch: '',
+      declaration: { read: 'absent' },
+      desk: cleanDesk({ branch: '', merge: 'not-asked', changesets: [], planLine: null }),
+      headroom: 'clear',
+      ...over,
+    });
+  const notAsked = prGate(cleanDesk({ branch: '', merge: 'not-asked' }));
+
+  it('defers a dead one that made no progress, naming the absence', () => {
+    const result = supervise(free({ madeProgress: false }));
+    expect(result.verdict).toBe('defer');
+    expect(result.cause).toBe('no-progress');
+    expect(notAsked).toContain('holds no branch');
+    expect(result.failures).toContain(notAsked);
+    expect(result.failures.join('\n')).not.toContain('No merged PR for');
+  });
+
+  it('corrects a dead one that made progress, and the prompt names the absence', () => {
+    const result = supervise(free({ madeProgress: true }));
+    expect(result.verdict).toBe('correct');
+    expect(notAsked).toContain('holds no branch');
+    expect(result.correction).toContain(notAsked!);
+    expect(result.correction).not.toContain('No merged PR for');
+  });
+
+  it('leaves a live one before any gate runs', () => {
+    const result = supervise(free({ workerAlive: true, madeProgress: false }));
+    expect(result.verdict).toBe('leave');
+    expect(result.cause).toBe('worker-alive');
+    expect(result.failures).toEqual([]);
   });
 });
 

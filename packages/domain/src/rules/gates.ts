@@ -2,6 +2,15 @@ import { checkChangeset } from './changeset.js';
 import type { MergeReading } from './reapable.js';
 
 /**
+ * What a desk's merge reading can say: one of the host's three answers, or
+ * `not-asked` when the desk holds no branch and no question was put to the host.
+ *
+ * A separate type from {@link MergeReading}, so the reap rules refuse
+ * `not-asked` at compile time.
+ */
+export type DeskMergeReading = MergeReading | 'not-asked';
+
+/**
  * What was measured of ONE desk after its agent stopped.
  *
  * Every field is a reading taken from what the agent LEFT BEHIND — a ref on the
@@ -16,8 +25,8 @@ import type { MergeReading } from './reapable.js';
 export interface DeskReadings {
   /** The branch this desk worked, as the plan names it. */
   branch: string;
-  /** What the host said about any PR for this branch. */
-  merge: MergeReading;
+  /** What the host said about any PR for this branch, or `not-asked` when there is no branch. */
+  merge: DeskMergeReading;
   /**
    * The changeset files the desk added, as `path` and full `text`.
    *
@@ -98,6 +107,9 @@ export type Gate = (readings: DeskReadings) => string | null;
  * and a correction prompt that confuses them tells an agent to open a PR it may
  * already have opened. Silence is never permission.
  *
+ * A desk with no branch (`not-asked`) FAILS with a message that says no
+ * question was asked, and names neither a branch nor the host.
+ *
  * @param readings What was measured of the desk.
  * @returns null when a PR merged; otherwise what to do about it.
  */
@@ -105,6 +117,9 @@ export const prGate: Gate = (readings) => {
   if (readings.merge === 'merged') return null;
   if (readings.merge === 'unreachable') {
     return `The git host could not be asked whether a PR for \`${readings.branch}\` merged. This is not a report that no PR exists — the question failed. Check the host is reachable and you are authenticated, then confirm the branch has a merged PR.`;
+  }
+  if (readings.merge === 'not-asked') {
+    return 'This desk holds no branch, so the git host was not asked about a PR. This is not a report that no PR merged — there was no branch to ask about. Take a slice before opening a PR.';
   }
   return `No merged PR for \`${readings.branch}\`. The host holds no PR for this branch that has merged. Push the branch and open a PR to the default branch; if a PR is already open, get it merged.`;
 };

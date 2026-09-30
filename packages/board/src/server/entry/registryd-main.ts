@@ -19,8 +19,7 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
 import { landed } from '@plot-pm/domain/rules/landed';
-import type { MergeReading } from '@plot-pm/domain/rules/reapable';
-import type { PlanBranchLine } from '@plot-pm/domain/rules/gates';
+import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
 import { readFleetSettings } from '../fleet-settings.js';
@@ -395,7 +394,10 @@ export const worldForRepo = (
       // the one mistake this daemon must never make.
       return answer.ok ? answer.value : true;
     },
-    prMerged: async (branch): Promise<MergeReading> => {
+    prMerged: async (branch): Promise<DeskMergeReading> => {
+      // A FREE AGENT HOLDS NO BRANCH: there is no question to ask, so none is
+      // spent. Guarded before the call, as `queue-reading.ts` guards.
+      if (branch === '') return 'not-asked';
       tally.calls += 1;
       const answer = await merges.ask(branch);
       if (!answer.ok) return 'unreachable';
