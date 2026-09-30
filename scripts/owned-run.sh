@@ -115,10 +115,33 @@ on_exit() {
   exit "$status"
 }
 
-# $1 is the signal name, $2 its number. `kill` re-raises with the default
-# disposition; the `exit` is reached only if the shell defers delivery.
+# $1 is the signal name, $2 its number.
+#
+# THE CHILD IS SIGNALLED FIRST, and that is not a nicety. Bash defers a trap
+# until the foreground child is reaped, so a signal sent to the wrapper alone
+# does nothing until the command finishes on its own: measured 2026-09-30, a
+# SIGTERM to the wrapper over a `sleep 30` child was acted on after 30.3 s. On a
+# real suite that is an operator pressing Ctrl-C and watching the run continue
+# for its full twenty minutes before the root is removed.
+#
+# THE CHILD IS SENT TERM EVEN FOR AN INT, because a non-interactive shell that
+# starts a job with `&` sets that job's SIGINT to IGNORED, and the disposition
+# survives `exec`. Measured 2026-09-30: a forwarded SIGINT was discarded by the
+# child and the wrapper waited the full 30 s, while SIGTERM — which is never
+# ignored this way — was acted on in 90 ms. This wrapper still re-raises the
+# ORIGINAL signal on itself below, so it exits 130 for an INT and 143 for a
+# TERM; only what the child is told differs.
+#
+# `child_pid` is empty until the command starts, and the kill is guarded on it;
+# a signal arriving before then has nothing to forward to and the cleanup below
+# still runs.
+#
+# `kill` then re-raises with the default disposition; the `exit` is reached only
+# if the shell defers delivery.
 on_signal() {
   trap - EXIT "$1"
+  [ -n "${child_pid:-}" ] && kill -TERM "$child_pid" 2>/dev/null
+  wait "${child_pid:-$$}" 2>/dev/null
   report_leaks
   cleanup
   kill -"$1" "$$"
@@ -164,12 +187,46 @@ trap on_exit EXIT
 trap 'on_signal INT 2' INT
 trap 'on_signal TERM 15' TERM
 
+# A SIGNAL THAT ARRIVES WHILE THE CHILD RUNS IS THE CHILD'S FIRST. The command
+# runs in the foreground, so bash defers this script's own INT/TERM trap until
+# the child is reaped — and the child, sharing the terminal's process group, is
+# signalled too. It then reports 130 or 143 through `$status`, and a wrapper
+# that only inspected its own trap would run on to the gates and exit 0 on a
+# run somebody cancelled. Measured 2026-09-30: the isolated case re-raised
+# correctly and the same case under `node --test` load exited 0.
+#
+# So the child's death BY a signal is read here and re-raised directly, which
+# also makes the two paths — signal to the wrapper, signal to the group — end
+# the same way.
+# RUN IN THE BACKGROUND AND `wait`, so the trap is reached while the command is
+# still alive. A foreground child makes bash defer every trap until it is
+# reaped, which is exactly the 30 s delay measured above. `wait` returns the
+# child's status, and returns early when a signal interrupts it.
 TMPDIR="$root" \
 HOME="$root/home" \
 PLOT_BUDGET_HOME="$root/budget" \
 PLOT_PR_INDEX_HOME="$root/pr-index" \
-  "$@"
+  "$@" &
+child_pid=$!
+wait "$child_pid"
 status=$?
+
+case "$status" in
+  130)
+    report_leaks
+    trap - EXIT INT
+    cleanup
+    kill -INT "$$"
+    exit 130
+    ;;
+  143)
+    report_leaks
+    trap - EXIT TERM
+    cleanup
+    kill -TERM "$$"
+    exit 143
+    ;;
+esac
 
 # THE SUITE'S EXIT CODE SURVIVES BOTH CHECKS. `test:contracts` chained the
 # registry check with `;` rather than `&&` so that a FAILING suite still ran it;
