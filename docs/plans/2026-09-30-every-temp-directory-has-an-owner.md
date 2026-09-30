@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Started:** 2026-09-30, jwloka, `bug/scripts-share-one-temp-helper`
+- **Started:** 2026-09-30, Jan Wloka, `bug/the-suites-own-their-temp-root`
 
 ## Changelog
 
