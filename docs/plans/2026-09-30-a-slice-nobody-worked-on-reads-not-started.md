@@ -10,7 +10,7 @@
 - **Issue:** #1090, #1091
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -46,7 +46,7 @@ This slice lands first. Slice 2 turns a zero-ahead ref from `merged` into `open`
 | `waiting` | a prerequisite with a wait that ends | *waits for `<prerequisite>`* |
 | `unknown` | the readings do not determine the state | *state unknown — the host could not be asked* |
 
-The prerequisite is the branch the slice's `waits:` or wave order names, which the row already carries. `BLOCKED_NOTE` stays the slice-verdict sentence (*blocked by an earlier slice*) and is not reused for the branch state. A state the classifier does not recognise returns NOT STARTED with *state `<word>` not recognised*, never the `wip` tail. `classifier-is-total.test.ts` adds `blocked`, `waiting` and `unknown` to its `STATES` (`:77`).
+The prerequisite is the branch the slice's `waits:` annotation names; `blocked` and `waiting` arise only from that annotation. The pulse carries it as `waits_on`, and `classifyGroup` gains it as a new trailing parameter, passed from `rowsFromPulse`. `BLOCKED_NOTE` stays the slice-verdict sentence (*blocked by an earlier slice*) and is not reused for the branch state. A state the classifier does not recognise returns NOT STARTED with *state `<word>` not recognised*, never the `wip` tail. **The three arms sit after the worker block, not before it.** `blocked`, `waiting` and `unknown` reach the worker block today, so a running agent on such a branch reads WORKING; the new arms only replace the `wip` tail those rows fall to when no worker holds them, and a live agent still outranks every branch state. `classifier-is-total.test.ts` adds `blocked`, `waiting` and `unknown` to its `STATES` (`:77`).
 
 **A live agent outranks a closed PR.** `rowsFromPulse` sets `group = closedPr ? 'done' : openGroup` (`fleet.ts:6542-6547`) without reading the worker. While `worker` is `running` or `waiting`, the row stays in `openGroup` and keeps *PR closed without merging* as a second fact in the note, and `rowQuietKind` (`fleet.ts:5257`) receives `closed = null` for that row, so the WORKING row carries no `closed-pr` kind. A closed PR is terminal for the PR, not for the branch.
 
@@ -59,18 +59,23 @@ The prerequisite is the branch the slice's `waits:` or wave order names, which t
 | `mainTip` null (main unreadable) | `unknown` |
 | `pr === 'MERGED'` | `merged` |
 | `hostReach` `unasked` (offline, or no git host) | `merged`, as today |
-| `hostReach` `throttled`, `secondary`, `failed` or `partial` | `unknown` |
+| `hostReach` `throttled`, `secondary` or `failed` (the bundle's `reachFrom` reads the scan's `partial` as `failed`) | `unknown` |
+| host asked, `pr` `unreadable` | `unknown` |
 | host asked, `pr` `OPEN` | `wip` |
 | host asked, `pr` `none` or `CLOSED`, PR list complete | `open` |
 | host asked, `pr` `none` or `CLOSED`, PR list not complete | `unknown` |
 
 **`unasked` keeps `merged`.** A repository with no git host, or a scan run `--offline`, has zero-ahead-behind as its only merge signal, and a branch merged by merge commit with its ref kept reads that way. Measured by the round-1 juror: the literal *open without evidence* rule failed 8 of 163 `fleet.test.mjs` tests, one of them `--next` offering the merged `feature/tracer` as the next branch to start; keeping `merged` for `unasked` passed 163 of 163.
 
-**`open` needs a complete PR list.** `host_pr_state` answers `NONE` from a list capped at `PR_LIST_LIMIT` (1000; this repository has 1010 PRs), so a merged PR outside the window reads `NONE`. `BranchReadings` gains `prListComplete`, which the scan fills from `.list-complete` (`plot-fleet-scan.sh:1075-1080`); without it the answer is `unknown`, which holds its wave instead of reopening landed work.
+**`open` needs a complete PR list.** `host_pr_state` answers `NONE` from a list capped at `PR_LIST_LIMIT` (1000; this repository has 1010 PRs), so a merged PR outside the window reads `NONE`. `BranchReadings` gains `prListComplete`, which the scan fills from `.list-complete` (`plot-fleet-scan.sh:1075-1080`, one path for GitHub and Bitbucket); without it the answer is `unknown`, which holds its wave instead of reopening landed work. It reaches `board/plot-branch-state.mjs` as an eleventh positional field: the bundle refuses an 11-field line today (exit 2) and accepts 10 or 11 after this slice, reading an absent field as `false`. The corpus's `readingsFor` passes it too.
 
 `mergeSubjectFound` is not zero-ahead evidence: the scan reports it only on the no-ref arm.
 
-**This reverses a recorded decision, on purpose.** `branch-state.test.ts:306-319` says the arm is *"NOT fixed by answering `open` instead"* and that *"the discriminator is the PR index"*. The host's PR answer, bounded by the list's completeness, is that discriminator. The seven `branch-state.test.ts` assertions that pin `merged` for this arm are rewritten to the table above, with that note replaced.
+**This reverses a recorded decision, on purpose.** `branch-state.test.ts:306-319` says the arm is *"NOT fixed by answering `open` instead"* and that *"the discriminator is the PR index"*. The host's PR answer, bounded by the list's completeness, is that discriminator. The tests that change, each on purpose:
+
+- `branch-state.test.ts`: the eight cases (six assertion lines) that pin `merged` for this arm are rewritten to the table, with the note at `:306-319` replaced.
+- `branch-state.test.ts:188`: a ref behind main whose `waits:` prerequisite has an OPEN PR reads `merged` today; once the zero-ahead arm answers `open`, the wait verdict applies as it does to every `open` branch, and the case reads `waiting`.
+- `a-failed-scan-keeps-the-last-sections.test.ts:57` and `:89-92` (the #995 guard) build their `done` row from exactly this reading. The guard's subject is that a failed scan does not move a remembered row to DONE, not the reading; the fixture is rebuilt from a reading that still answers `merged` (`pr: 'MERGED'`), so the guard keeps testing what it tests.
 
 **Who reads the new `open`.** `plot-fleet-scan.sh --next` offers an `open` branch as claimable. The supervisor's queue treats every existing ref as claimed (`registryd-main.ts:534`), so it still does not hand such a slice to an agent until the ref is released. The operator's hold, an empty ref pushed to keep a slice from the queue, therefore still holds against the supervisor, and reads `open` rather than `merged` to a reader and to `--next`.
 
@@ -82,22 +87,23 @@ The prerequisite is the branch the slice's `waits:` or wave order names, which t
 
 ## Done when
 
-- Slice 1: a `blocked`, `waiting` or `unknown` row with no ref classifies to `not-started` with its own sentence, never *commits, no PR ever opened*; `classifier-is-total.test.ts` covers all eight states; a `wip` row with real commits, no PR and no worker still reads `abandoned`.
+- Slice 1: a `blocked`, `waiting` or `unknown` row with no ref and no live worker classifies to `not-started` with its own sentence naming `waits_on` where it applies, never *commits, no PR ever opened*; the same row with a running worker classifies to `working`; `classifier-is-total.test.ts` covers all eight states; a `wip` row with real commits, no PR and no worker still reads `abandoned`.
 - Slice 1: a row with a closed PR and `worker` `running` or `waiting` classifies to its open group with no `closed-pr` quiet kind; with no live worker it stays in DONE as today.
-- Slice 2: `branch-state.test.ts` asserts every row of the table, and `fleet.test.mjs` passes whole, run `--offline` as it is.
+- Slice 2: `branch-state.test.ts` asserts every row of the table, `:188` reads `waiting`, and `test/reconcile/fleet.test.mjs` passes whole, run `--offline` as it is.
 - Slice 2: under a host shim answering `NONE` with a complete list, a plan whose second slice is a zero-ahead ref behind main does not complete that slice's wave; with the list incomplete the slice reads `unknown`.
-- Slice 2: the branch-state corpus's readings for these shapes match between the rule and `board/plot-branch-state.mjs`.
+- Slice 2: the corpus test gains fixture readings for every table row and asserts the rule and `board/plot-branch-state.mjs` answer the same state for each, with the eleventh field present and absent.
+- Slice 2: the #995 guard passes with its rebuilt fixture.
 - Slice 2, landing second: the three measured rows, rebuilt as fixtures, land in NOT STARTED, NOT STARTED and WORKING.
 
 ## Slices
 
 ### No work waits in not started (Branch: bug/a-slice-with-no-work-waits-in-not-started)
 
-`classifyGroup`'s arms for `blocked`, `waiting` and `unknown`, the tail guarded on `wip`, `rowsFromPulse`'s closed-PR arm yielding to a live worker, and `classifier-is-total.test.ts`.
+`classifyGroup`'s arms for `blocked`, `waiting` and `unknown` after the worker block, the `waits_on` parameter, the tail guarded on `wip`, `rowsFromPulse`'s closed-PR arm yielding to a live worker, and `classifier-is-total.test.ts`.
 
 ### Zero ahead is not merged (Branch: bug/zero-ahead-is-not-merged)
 
-`branchState`'s zero-ahead table, the `prListComplete` reading and the scan filling it, the rewritten `branch-state.test.ts` assertions, and the three measured rows as fixtures.
+`branchState`'s zero-ahead table, the `prListComplete` reading, the scan and the bundle carrying it as an eleventh field, the corpus fixtures, the rewritten tests named above, and the three measured rows as fixtures.
 
 ## Notes
 
