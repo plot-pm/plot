@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 6
+- **Started:** 2026-09-30, jwloka, `bug/fleet-status-sees-every-supervisor`
 
 ## Changelog
 
