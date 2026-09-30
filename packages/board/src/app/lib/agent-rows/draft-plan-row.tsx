@@ -21,7 +21,15 @@ export const DraftPlanRowView = (
   const recorded = draft.rounds !== undefined;
   return (
     <TupleRowView
-      tuple={tupleFromPlan({ plan: draft.plan, planFile: draft.planFile, phase: 'Draft', waitingDays: null })}
+      tuple={tupleFromPlan({
+        plan: draft.plan,
+        planFile: draft.planFile,
+        // `?? []`: the client casts the payload, and an older server sends no
+        // `issues` field.
+        issues: draft.issues ?? [],
+        phase: 'Draft',
+        waitingDays: null,
+      })}
       onOpenPlan={onOpenPlan}
       rowAttr={{ 'data-draft-plan-row': draft.plan }}
       statusExtra={<>
