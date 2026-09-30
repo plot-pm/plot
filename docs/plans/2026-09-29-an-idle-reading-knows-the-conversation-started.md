@@ -149,7 +149,7 @@ The fix is proved engaged, not assumed, in `test/e2e/worker-monitor-samples.test
 
 ## Slices
 
-### An idle reading knows the conversation started (Branch: bug/an-idle-reading-knows-the-conversation-started)
+### An idle reading knows the conversation started (Branch: bug/an-idle-reading-knows-the-conversation-started, PR: #1097)
 
 Move the handle and the transcript probe into the two shared helpers, add the `unspoken` verdict to the monitor, and reproduce the ewz-leg shape.
 
