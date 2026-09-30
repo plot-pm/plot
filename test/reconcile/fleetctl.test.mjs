@@ -53,6 +53,53 @@ const units = path.join(repo, 'skills', 'plot', 'units');
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
 /**
+ * `ps`, `lsof` and `id` stubs that answer from fixture files, for the second
+ * `--status` block, and pass every other call through to the real binary.
+ *
+ * THEY GO INTO EVERY STUB DIRECTORY, not only the cases about the block.
+ * `--status` now reads the machine's process table, and a case that ran the
+ * real `ps` would read the developer's own boards and scans and print a block
+ * nobody asked about. With no `PLOT_TEST_PROCS` the snapshot is empty, which is
+ * the machine with no Plot process on it.
+ *
+ * Only the exact snapshot call is answered from the fixture: the worker-state
+ * probes call `ps -o lstart= -p <pid>` and `ps -o pid=,ppid=,time= -ax`, and
+ * those still reach the real `ps`. `lsof` answers `-p <pid>` from
+ * `<procs>/cwd/<pid>` and otherwise prints nothing and exits 1, which is the
+ * shape measured for another user's process. `id -un <uid>` answers from
+ * `<procs>/users/<uid>`.
+ *
+ * @param bin - the stub directory to write into
+ */
+const writeProcStubs = (bin) => {
+  const write = (name, body) => {
+    const p = path.join(bin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('ps', [
+    'if [ "$*" = "axww -o pid=,ppid=,uid=,args=" ]; then',
+    '  [ -n "${PLOT_TEST_PROCS:-}" ] && cat "$PLOT_TEST_PROCS/ps" 2>/dev/null',
+    '  exit 0',
+    'fi',
+    'for p in /bin/ps /usr/bin/ps; do [ -x "$p" ] && exec "$p" "$@"; done',
+    'exit 127',
+  ].join('\n'));
+  write('lsof', [
+    'f="${PLOT_TEST_PROCS:-/nonexistent}/cwd/$3"',
+    '[ -f "$f" ] || exit 1',
+    'printf \'p%s\\nfcwd\\nn%s\\n\' "$3" "$(cat "$f")"',
+  ].join('\n'));
+  write('id', [
+    'if [ "${1:-}" = -un ] && [ -n "${2:-}" ] && [ -f "${PLOT_TEST_PROCS:-/nonexistent}/users/$2" ]; then',
+    '  cat "$PLOT_TEST_PROCS/users/$2"; exit 0',
+    'fi',
+    'for p in /usr/bin/id /bin/id; do [ -x "$p" ] && exec "$p" "$@"; done',
+    'exit 127',
+  ].join('\n'));
+};
+
+/**
  * A repository shaped like an adopting project: a git root, a `.nvmrc`, and
  * `skills/plot/scripts/` holding copies of the scripts under test.
  *
@@ -140,6 +187,7 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
     fs.writeFileSync(f, `#!/bin/sh\n${body}\n`);
     fs.chmodSync(f, 0o755);
   }
+  writeProcStubs(guardBin);
 
   // A DEFAULT HARNESS, IN ITS OWN DIRECTORY AND NOT IN `guardBin`.
   //
@@ -1021,15 +1069,19 @@ function stubPlatform(box, { kernel = 'Darwin', loaded = false } = {}) {
   // second parses `pid = N` out of it, so one stub serves both and the
   // pid-bearing case has to name the subcommand to stay honest about which
   // call sees what.
-  write('launchctl', loaded
+  // `list` ANSWERS FROM THE FIXTURE, for the second block's label reading,
+  // which finds a supervisor's row by its pid. Every other subcommand is
+  // unchanged.
+  write('launchctl', `[ "$1" = list ] && { cat "\${PLOT_TEST_PROCS:-/nonexistent}/launchctl-list" 2>/dev/null; exit 0; }\n${loaded
     ? `[ "$1" = print ] && [ "${loaded === 'no-pid' ? 'no' : 'yes'}" = yes ] && echo "	pid = 4242"\nexit 0`
-    : 'exit 113');
+    : 'exit 113'}`);
   // `systemctl show -p MainPID --value` answers 0 for a unit with no process,
   // and `supervisor_pid` greps that zero out. So the dead-but-loaded case is
   // the init system's own way of saying the same thing launchd's `-` does.
   write('systemctl', loaded
     ? `[ "$1" = show ] && echo ${loaded === 'no-pid' ? 0 : 4242}\nexit 0`
     : 'exit 3');
+  writeProcStubs(bin);
   return bin;
 }
 
@@ -1802,4 +1854,371 @@ test('gate: no systemctl call or systemd unit path in plot-fleetctl.sh hardcodes
   assert.deepEqual(offenders, [], `hardcoded unit name:\n${offenders.map(([n, l]) => `${n}: ${l}`).join('\n')}`);
   // The template line survives and stays hardcoded.
   assert.ok(lines.some((line) => line.includes('template="$UNIT_DIR/plot-registryd.service"')));
+});
+
+// ── Every Plot process on this machine ────────────────────────────────────────
+//
+// `--status` answered about ONE label. Measured 2026-09-29: it printed one
+// healthy supervisor while 17 scan processes from five installations loaded the
+// machine, every one spawned by a board. The second block finds supervisors,
+// boards and top-level scans by process, and prints only when one serves
+// another checkout or a scan is orphaned.
+//
+// EVERY macOS CASE RUNS UNDER A DARWIN KERNEL STUB. CI is `ubuntu-latest`, and
+// without the stub these cases take the `readlink` arm, print `cannot
+// determine`, and pass for the wrong reason.
+
+const SCAN = 'skills/plot/scripts/plot-fleet-scan.sh';
+const BOARD = 'skills/plot/scripts/board/board-server.mjs';
+const REGD = 'skills/plot/scripts/board/plot-registryd.mjs';
+
+/**
+ * Writes one process-table fixture for the stubs `writeProcStubs` installs.
+ *
+ * @param dir - a fresh directory to hold the fixture
+ * @param spec.ps - rows of `[pid, ppid, uid, args]`
+ * @param spec.cwd - pid → the working directory `lsof` answers
+ * @param spec.users - uid → the name `id -un` answers
+ * @param spec.list - rows of `[pid, label]` for `launchctl list`
+ * @returns the directory, for `PLOT_TEST_PROCS`
+ */
+const writeProcs = (dir, { ps = [], cwd = {}, users = {}, list = [] } = {}) => {
+  fs.mkdirSync(path.join(dir, 'cwd'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'users'), { recursive: true });
+  const pad = (v) => String(v).padStart(5);
+  fs.writeFileSync(path.join(dir, 'ps'),
+    ps.map(([pid, ppid, uid, args]) => `${pad(pid)} ${pad(ppid)} ${pad(uid)} ${args}\n`).join(''));
+  for (const [pid, d] of Object.entries(cwd)) fs.writeFileSync(path.join(dir, 'cwd', pid), d);
+  for (const [uid, name] of Object.entries(users)) fs.writeFileSync(path.join(dir, 'users', uid), name);
+  fs.writeFileSync(path.join(dir, 'launchctl-list'),
+    `PID\tStatus\tLabel\n${list.map(([pid, label]) => `${pid}\t0\t${label}\n`).join('')}`);
+  return dir;
+};
+
+/**
+ * A sandbox whose `--status` can be run against several process tables. The
+ * supervisor the first block names is loaded at pid 4242.
+ *
+ * @param label - the sandbox's name
+ * @param opts.kernel - what `uname -s` answers
+ * @returns `{ root, box, home, status(spec, env) }`, where `status` answers
+ *   `{ status, out, block }` and `block` is the text after the block's heading
+ */
+const procSandbox = (label, { kernel = 'Darwin' } = {}) => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox(label);
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const bin = stubPlatform(box, { kernel, loaded: true });
+  const status = (spec = {}, env = {}) => {
+    const dir = writeProcs(fs.mkdtempSync(path.join(box, 'procs-')), spec);
+    const r = run(ctl, ['--status'], root, guardBin, {
+      HOME: home,
+      PLOT_FLEET_LABEL: fleetLabel,
+      PLOT_TEST_PROCS: dir,
+      PATH: withHarness(box, bin, process.env.PATH),
+      ...env,
+    });
+    const at = r.out.indexOf('\nplot processes on this machine:\n');
+    return { ...r, block: at < 0 ? '' : r.out.slice(at) };
+  };
+  return { root, box, home, status };
+};
+
+// A board serving another checkout, so a case asserting what is NOT reported
+// reads a block that printed rather than one that stayed silent.
+const SENTINEL = [900, 1, 501, `node /inst/${BOARD}`];
+const SENTINEL_CWD = { 900: '/repos/other' };
+
+const row = (kind, pid, lines) => `  ${kind.padEnd(10)}  pid ${pid}${lines.label ? `  ${lines.label}` : ''}\n`
+  + `    serves:     ${lines.serves}\n    installed:  ${lines.installed}\n`;
+
+test('processes: two supervisors, a --watch board and a plain board are all named', () => {
+  const { root, home, status } = procSandbox('procs-four');
+  const cache = `${home}/.claude/plugins/cache/plot-marketplace/plot/2.21.0`;
+  const r = status({
+    ps: [
+      [501, 1, 501, `/usr/local/bin/node /inst/a/${REGD} --start-agents`],
+      [502, 1, 501, `node ${cache}/${REGD}`],
+      [601, 40, 501, `node --watch ${BOARD}`],
+      [602, 601, 501, `/usr/local/bin/node ${BOARD}`],
+      [603, 1, 501, `node /opt/App Support/inst/${BOARD} --port 7778`],
+    ],
+    cwd: { 501: '/repos/a', 502: '/repos/b', 601: root, 602: root, 603: '/repos/b' },
+    list: [[501, 'com.plot-pm.registryd.a'], [502, 'com.quatico.ewz.registryd']],
+  });
+  assert.equal(r.status, 0, 'the block changed the exit code');
+  assert.ok(r.block.includes(row('supervisor', 501, { label: 'com.plot-pm.registryd.a', serves: '/repos/a', installed: '/inst/a' })), r.out);
+  // A label nobody told the enumeration about is found, because it reads none.
+  assert.ok(r.block.includes(row('supervisor', 502, {
+    label: 'com.quatico.ewz.registryd', serves: '/repos/b', installed: '~/.claude/plugins/cache/plot-marketplace/plot/2.21.0',
+  })), r.out);
+  // The --watch pair is one row, and it carries the watcher's pid. The
+  // relative artifact path resolves against the cwd.
+  assert.ok(r.block.includes(row('board', 601, { serves: 'THIS repository', installed: 'THIS repository' })), r.out);
+  assert.doesNotMatch(r.block, /pid 602/, 'the --watch child was reported beside its watcher');
+  // An installation path holding a space prints whole.
+  assert.ok(r.block.includes(row('board', 603, { serves: '/repos/b', installed: '/opt/App Support/inst' })), r.out);
+  // The summary line stays first-of-its-kind and ahead of the block.
+  assert.ok(r.out.indexOf('\nsummary:') < r.out.indexOf('plot processes on this machine:'));
+  assert.doesNotMatch(r.block, /^summary:/m, 'a block line starts with summary:');
+});
+
+test('processes: a command string that names an artifact is not a Plot process', () => {
+  const { status } = procSandbox('procs-decoys');
+  const cwd = { ...SENTINEL_CWD };
+  const decoys = [
+    `bash -c 'sleep 45; : /x/${BOARD} x'`,
+    `zsh -c 'sleep 45; : /x/${REGD}'`,
+    `node -e "require('/x/${BOARD}')"`,
+    `grep ${BOARD.split('/').pop()}`,
+    `bash -c 'sleep 45; : /opt/App Support/${SCAN}'`,
+    `bash -lc 'sleep 45; /x/${SCAN}'`,
+    `/bin/bash -ec : /x/${SCAN}`,
+    `sh -xc : /x/${SCAN}`,
+    `node -pe require('/x/${BOARD}')`,
+    `node --eval=require('/x/${BOARD}') x`,
+    `node --print /x/${BOARD}`,
+    `node /x/${BOARD}.bak`,
+    `node -e require('/x/${BOARD}')`,
+    `node /x/${BOARD}')`,
+    `sudo bash /x/${SCAN}`,
+    // Only the `-e`/`-p` rule excludes these: the artifact name ends the args.
+    `node -e 1 /x/${BOARD}`,
+    `node -pe 1 /x/${BOARD}`,
+    `node --eval 1 /x/${BOARD}`,
+  ];
+  const ps = [SENTINEL, ...decoys.map((args, i) => [700 + i, 40, 501, args])];
+  decoys.forEach((_, i) => { cwd[700 + i] = '/repos/x'; });
+  const r = status({ ps, cwd });
+  assert.match(r.block, /pid 900/, 'the sentinel board is missing, so the block proves nothing');
+  assert.doesNotMatch(r.block, /pid 7\d\d/, r.out);
+  assert.doesNotMatch(r.block, /scans/, `a decoy counted as a scan:\n${r.out}`);
+});
+
+test('processes: options are read as options, never as the artifact path', () => {
+  const { status } = procSandbox('procs-options');
+  const r = status({
+    ps: [
+      [801, 1, 501, `node --max-old-space-size 4096 /x/${BOARD}`],
+      [802, 40, 501, `bash -o pipefail /y/${SCAN}`],
+      [803, 40, 501, `bash --norc /z/${SCAN}`],
+    ],
+    cwd: { 801: '/repos/o', 802: '/repos/o', 803: '/repos/o' },
+  });
+  assert.ok(r.block.includes(row('board', 801, { serves: '/repos/o', installed: '/x' })), r.out);
+  assert.ok(r.block.includes('  scans       1 in flight, 0 orphaned\n    serves:     /repos/o\n    installed:  /y\n'), r.out);
+  // A long option does not trip the single-dash `c` rule.
+  assert.ok(r.block.includes('  scans       1 in flight, 0 orphaned\n    serves:     /repos/o\n    installed:  /z\n'), r.out);
+});
+
+test('processes: an interpreter path holding a space must name an executable file', () => {
+  const { box, status } = procSandbox('procs-spaced-node');
+  const interp = path.join(box, 'Library', 'Application Support', 'fnm', 'node-versions', 'v24', 'installation', 'bin', 'node');
+  const spec = () => ({
+    ps: [SENTINEL, [810, 1, 501, `${interp} /x/${REGD} --start-agents`],
+      [811, 40, 501, `/bin/zsh -c cd x; /bin/bash /x/${SCAN} --json`]],
+    cwd: { ...SENTINEL_CWD, 810: '/repos/s', 811: '/repos/s' },
+    list: [[810, 'com.plot-pm.registryd.fnm']],
+  });
+  fs.mkdirSync(path.dirname(interp), { recursive: true });
+  fs.writeFileSync(interp, '#!/bin/sh\n');
+  fs.chmodSync(interp, 0o755);
+  const found = status(spec());
+  assert.ok(found.block.includes(row('supervisor', 810, { label: 'com.plot-pm.registryd.fnm', serves: '/repos/s', installed: '/x' })), found.out);
+  // The widened argv[0] match lands inside the zsh command string, which names no file.
+  assert.doesNotMatch(found.block, /pid 811|scans/, found.out);
+
+  fs.rmSync(interp);
+  const gone = status(spec());
+  assert.match(gone.block, /pid 900/);
+  assert.doesNotMatch(gone.block, /pid 810/, 'a deleted spaced interpreter was found — the stated limit moved');
+
+  fs.mkdirSync(interp);
+  const dir = status(spec());
+  assert.match(dir.block, /pid 900/);
+  assert.doesNotMatch(dir.block, /pid 810/, 'a directory at the interpreter path passed the check');
+
+  const nowhere = status({ ...spec(), ps: [SENTINEL, [810, 1, 501, `/no such/dir/bin/node /x/${REGD}`]] });
+  assert.match(nowhere.block, /pid 900/);
+  assert.doesNotMatch(nowhere.block, /pid 810/, 'an interpreter path naming no file was found');
+});
+
+test('processes: --status executes nothing read from another process', () => {
+  const { box, status } = procSandbox('procs-safety');
+  const pwned = path.join(box, 'pwned');
+  const r = status({
+    ps: [
+      [820, 40, 501, `/bin/zsh -c x$(touch ${pwned}) /bin/bash /x/${SCAN}`],
+      [821, 40, 501, `/bin/zsh -c x;touch ${pwned}; /bin/bash /x/${SCAN}`],
+      [822, 40, 501, `/bin/zsh -c x\`touch ${pwned}\` /bin/bash /x/${SCAN}`],
+      [823, 40, 501, `/bin/zsh -c x$(( $(touch ${pwned}) )) /bin/bash /x/${SCAN}`],
+      [824, 1, 501, `node /x/${BOARD}`],
+    ],
+    // The cwd is read from another process too, and is data like the argv.
+    cwd: { 820: '/r', 821: '/r', 822: '/r', 823: '/r', 824: `/r/$(touch ${pwned})` },
+  });
+  assert.equal(fs.existsSync(pwned), false, `--status ran text from another process:\n${r.out}`);
+  assert.doesNotMatch(r.block, /pid 82[0-3]|scans/, r.out);
+  assert.ok(r.block.includes(`    serves:     /r/$(touch ${pwned})\n`), r.out);
+});
+
+test('processes: a scan is attributed by its cwd and its resolved installation', () => {
+  const { box, status } = procSandbox('procs-install');
+  const scripts = path.join(box, 'inst', 'skills', 'plot', 'scripts');
+  const r = status({
+    ps: [
+      [830, 40, 501, 'bash plot-fleet-scan.sh'],
+      [831, 40, 501, 'bash plot-fleet-scan.sh --json'],
+      [832, 40, 501, `bash ${SCAN} --json`],
+      [833, 40, 501, `node ${BOARD}`],
+    ],
+    cwd: { 830: '/c', 831: scripts, 832: '/repos/other' },
+    users: { 501: 'op' },
+  });
+  // A bare name resolves to a file, not an installation.
+  assert.ok(r.block.includes('  scans       1 in flight, 0 orphaned\n    serves:     /c\n    installed:  cannot determine\n'), r.out);
+  assert.ok(r.block.includes(`  scans       1 in flight, 0 orphaned\n    serves:     ${scripts}\n    installed:  ${path.join(box, 'inst')}\n`), r.out);
+  assert.ok(r.block.includes('  scans       1 in flight, 0 orphaned\n    serves:     /repos/other\n    installed:  /repos/other\n'), r.out);
+  // A relative path with no readable cwd names no installation.
+  assert.ok(r.block.includes(row('board', 833, { serves: 'cannot determine (owner op)', installed: 'cannot determine' })), r.out);
+});
+
+test('processes: one scan is one scan, and a scan whose parent exited is orphaned', () => {
+  const { root, status } = procSandbox('procs-orphans');
+  const r = status({
+    ps: [
+      [840, 1, 501, `node /i/${BOARD}`],
+      [841, 840, 501, `bash /i/${SCAN} --stream`],
+      [842, 841, 501, `bash /i/${SCAN} --stream`],
+      [843, 841, 501, `bash /i/${SCAN} --stream`],
+      [844, 843, 501, `bash /i/${SCAN} --stream`],
+      [845, 1, 501, `bash /i/${SCAN} --stream`],
+      [846, 845, 501, `bash /i/${SCAN} --stream`],
+    ],
+    cwd: { 840: root, 841: root, 845: root },
+  });
+  assert.equal(r.status, 0);
+  assert.ok(r.block.includes('  scans       1 in flight, 1 orphaned\n    serves:     THIS repository\n    installed:  /i\n'), r.out);
+  assert.doesNotMatch(r.block, /parent|timed out|board died/i, 'the block claims why a parent exited');
+});
+
+test('processes: an unreadable cwd prints cannot determine with the owner', () => {
+  const { status } = procSandbox('procs-owner');
+  const r = status({
+    ps: [[850, 1, 1234, `node /i/${BOARD}`]],
+    users: { 1234: 'twelvecharsx' },
+  });
+  assert.ok(r.block.includes(row('board', 850, { serves: 'cannot determine (owner twelvecharsx)', installed: '/i' })), r.out);
+});
+
+test('processes: nothing to report leaves the output byte-identical', () => {
+  const { root, home, status } = procSandbox('procs-silent');
+  const baseline = status();
+  const own = [4242, 1, 501, `node ${root}/${REGD}`];
+  const market = `${home}/.claude/plugins/marketplaces/plot-marketplace`;
+  for (const [name, spec] of Object.entries({
+    'the supervisor alone': { ps: [own], cwd: { 4242: root } },
+    'a board and one in-flight scan': {
+      ps: [own, [860, 40, 501, `node --watch ${BOARD}`], [861, 860, 501, `node ${BOARD}`],
+        [862, 861, 501, `bash ${SCAN} --stream`], [863, 862, 501, `bash ${SCAN} --stream`]],
+      cwd: { 4242: root, 860: root, 861: root, 862: root, 863: root },
+    },
+    // THE DECIDED SILENT CASE: an adopting repository's board always runs from
+    // a plugin installation, so keying silence on the installation would print
+    // on every adopting machine.
+    'a foreign installation serving this checkout': {
+      ps: [own, [870, 1, 501, `node ${market}/${BOARD}`]],
+      cwd: { 4242: root, 870: root },
+    },
+  })) {
+    const r = status(spec);
+    assert.equal(r.out, baseline.out, `${name}: the output changed`);
+    assert.equal(r.status, baseline.status, `${name}: the exit code changed`);
+  }
+});
+
+test('processes: the Linux arm reads a live process cwd through /proc', { skip: process.platform !== 'linux' }, async () => {
+  const { box, status } = procSandbox('procs-proc', { kernel: 'Linux' });
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(box, 'cwd-')));
+  const { spawn } = await import('node:child_process');
+  const sleeper = spawn('sleep', ['30'], { cwd: dir, stdio: 'ignore' });
+  try {
+    const r = status({
+      ps: [[sleeper.pid, 1, 501, `node /i/${BOARD}`], [1, 0, 0, `node /j/${BOARD}`]],
+    });
+    assert.ok(r.block.includes(row('board', sleeper.pid, { serves: dir, installed: '/i' })), r.out);
+    // Pid 1 is root's, and the runner is not root.
+    assert.ok(r.block.includes(row('board', 1, { serves: 'cannot determine (owner root)', installed: '/j' })), r.out);
+  } finally {
+    sleeper.kill();
+  }
+});
+
+/**
+ * A `/proc`-shaped fixture for `PLOT_PROC_ROOT`: `<root>/<pid>/cwd` as a
+ * symlink and `<root>/<pid>/cgroup` as a file.
+ */
+const procRoot = (box, entries) => {
+  const root = fs.mkdtempSync(path.join(box, 'proc-'));
+  for (const [pid, { cwd, cgroup }] of Object.entries(entries)) {
+    fs.mkdirSync(path.join(root, pid));
+    if (cwd) fs.symlinkSync(cwd, path.join(root, pid, 'cwd'));
+    if (cgroup !== undefined) fs.writeFileSync(path.join(root, pid, 'cgroup'), cgroup);
+  }
+  return root;
+};
+
+test('processes: the Linux arm names a unit from the cgroup v2 line, and orphans under systemd --user', () => {
+  const { box, status } = procSandbox('procs-unit', { kernel: 'Linux' });
+  const proc = procRoot(box, {
+    880: { cwd: '/repos/e', cgroup: '0::/user.slice/user-1001.slice/user@1001.service/app.slice/plot-registryd-ewz.service\n' },
+    881: { cwd: '/repos/e', cgroup: '12:pids:/user.slice\n1:name=systemd:/user.slice/plot-registryd-v1.service\n' },
+    882: { cwd: '/repos/e', cgroup: '0::/user.slice/user-1001.slice/user@1001.service/app.slice\n' },
+    884: { cwd: '/repos/e' },
+  });
+  const r = status({
+    ps: [
+      [880, 1, 1001, `node /i/${REGD}`],
+      [881, 1, 1001, `node /i/${REGD}`],
+      [882, 1, 1001, `node /i/${REGD}`],
+      [883, 1, 1001, '/usr/lib/systemd/systemd --user'],
+      [884, 883, 1001, `bash /i/${SCAN}`],
+    ],
+  }, { PLOT_PROC_ROOT: proc });
+  assert.ok(r.block.includes(row('supervisor', 880, { label: 'unit plot-registryd-ewz', serves: '/repos/e', installed: '/i' })), r.out);
+  assert.ok(r.block.includes(row('supervisor', 881, { serves: '/repos/e', installed: '/i' })), 'a cgroup v1 line named a unit');
+  assert.ok(r.block.includes(row('supervisor', 882, { serves: '/repos/e', installed: '/i' })), 'a non-.service segment named a unit');
+  assert.ok(r.block.includes('  scans       0 in flight, 1 orphaned\n    serves:     /repos/e\n'), r.out);
+});
+
+test('processes: the arm follows uname, not platform(), so a host with no init system still prints', () => {
+  // `platform()` answers `none` on a Linux host with no `systemctl`, and a
+  // board runs there. A PATH is built that holds every command but the two
+  // init systems, because the runner's own `/usr/bin/systemctl` would
+  // otherwise answer.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('procs-uname');
+  const only = path.join(box, 'only-bin');
+  fs.mkdirSync(only);
+  const uname = stubPlatform(box, { kernel: 'Linux' });
+  for (const name of ['uname', 'ps', 'lsof', 'id']) fs.copyFileSync(path.join(uname, name), path.join(only, name));
+  for (const name of ['uname', 'ps', 'lsof', 'id']) fs.chmodSync(path.join(only, name), 0o755);
+  for (const d of process.env.PATH.split(':')) {
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { continue; }
+    for (const n of names) {
+      if (n === 'systemctl' || n === 'launchctl' || fs.existsSync(path.join(only, n))) continue;
+      try { fs.symlinkSync(path.join(d, n), path.join(only, n)); } catch { /* a name seen twice */ }
+    }
+  }
+  const proc = procRoot(box, { 890: { cwd: '/repos/n' } });
+  const procs = writeProcs(fs.mkdtempSync(path.join(box, 'procs-')), { ps: [[890, 1, 501, `node /i/${BOARD}`]] });
+  const r = run(ctl, ['--status'], root, guardBin, {
+    HOME: fakeHome(box, { label: fleetLabel }),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PLOT_TEST_PROCS: procs,
+    PLOT_PROC_ROOT: proc,
+    PATH: withHarness(box, only),
+  });
+  assert.match(r.out, /^platform: none$/m, r.out);
+  assert.equal(r.status, 1, 'the block changed the exit code');
+  assert.ok(r.out.includes(row('board', 890, { serves: '/repos/n', installed: '/i' })), r.out);
 });
