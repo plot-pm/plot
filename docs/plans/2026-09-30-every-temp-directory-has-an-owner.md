@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 3
+- **Started:** 2026-09-30, jwloka, `bug/scripts-share-one-temp-helper`
 
 ## Changelog
 
