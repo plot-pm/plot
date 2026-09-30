@@ -309,7 +309,7 @@ export function repairEnabledFromEnv(
  * **It never throws.** A failed resolve is not fatal: the agents start without
  * the flag, exactly as they did before this existed.
  *
- * @param scripts - the runner for `plot-agent-settings.sh`.
+ * @param scripts - the Scripts port; its `agentSettings` operation names the resolver.
  * @param env - the environment to assign into; defaults to this process's.
  * @param log - where a resolved path is announced.
  * @param warn - where a refusal or a failure is named.
@@ -322,7 +322,7 @@ export async function primeAgentSettings(
   warn: (s: string) => void = (s) => console.warn(s),
 ): Promise<string | undefined> {
   try {
-    const { stdout, stderr, code } = await scripts.awaited('plot-agent-settings.sh', []);
+    const { stdout, stderr, code } = await scripts.agentSettings();
     const resolved = stdout.trim();
     // EXIT 3 IS A REFUSAL; EXIT 0 WITH NO PATH IS AN ABSENT KEY. Reading stdout's
     // emptiness alone cannot tell them apart, and only the first belongs in a log.

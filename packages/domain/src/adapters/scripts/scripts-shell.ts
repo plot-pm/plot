@@ -15,6 +15,9 @@ const CONFIG = 'plot-config.sh';
 /** The one connector — every `gh`/`bb` call in Plot goes through it. */
 const HOST = 'plot-host.sh';
 
+/** The settings file every fleet agent starts with, and the refusal in front of it. */
+const AGENT_SETTINGS = 'plot-agent-settings.sh';
+
 /** Stdout verbatim, because the scripts ARE the contracts and a parse here would be a second one. */
 const verbatim = (stdout: string): string => stdout;
 
@@ -74,6 +77,13 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       ),
 
     host: (args, options) => ask(HOST, args, options),
+
+    // THE RAW EXIT CODE TRAVELS, unlike `host` above. This script's 0-with-a-path,
+    // 0-with-nothing and 3 are three answers a caller acts on differently, and a
+    // PortResult would collapse the two zeroes into one.
+    agentSettings: (options) =>
+      runProcess('bash', [scriptPath(context, AGENT_SETTINGS)], withRepo(options)),
+
 
     hostSaid: async (args, options): Promise<HostAnswer> => {
       const run = await runProcess(
