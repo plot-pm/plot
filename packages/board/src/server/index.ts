@@ -104,9 +104,19 @@ truncateInherited(2);
 const boardLog = processLog(path.join(logDir(opts.repoRoot), 'board.log'));
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
-/** Whether a line is the readiness announcement a caller waits for. */
+/**
+ * Whether a line reports the board's own status to whoever launched it.
+ *
+ * EVERY `Plot board…` LINE, NOT ONLY THE READY ONE. Two callers read this
+ * process's stdout and act on what they find: `packages/board/test/helpers.mjs`
+ * waits for `Plot board: http://localhost:<port>` to know the server is up, and
+ * a second board prints `Plot board already running at …` and exits 0, which
+ * `port.test.mjs` asserts by regex. Measured: a predicate matching only
+ * `Plot board:` sent the already-running line to `board.log` and that test failed
+ * in CI. The `tailscale:` line is the same announcement's second address.
+ */
 const announces = (text: string): boolean =>
-  text.startsWith('Plot board:') || text.trimStart().startsWith('tailscale:');
+  text.startsWith('Plot board') || text.trimStart().startsWith('tailscale:');
 const toLog = (parts: readonly unknown[]): void => {
   const text = render(parts);
   if (announces(text)) process.stdout.write(`${text}\n`);
