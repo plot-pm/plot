@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1050,6 +1050,55 @@ describe('the worlds count the host calls a tick makes', () => {
       expect(tally.calls).toBe(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a desk with no branch asks the host nothing', () => {
+  // A STUB HOST THAT LOGS every call, so a guard placed after the call fails
+  // here even though it returns the right word.
+  const stubbed = (body: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-not-asked-'));
+    const log = join(dir, 'calls.log');
+    writeFileSync(
+      join(dir, 'plot-host.sh'),
+      `#!/usr/bin/env bash\necho "$*" >> '${log}'\n${body}\n`,
+    );
+    chmodSync(join(dir, 'plot-host.sh'), 0o755);
+    const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []);
+    return { dir, calls };
+  };
+
+  it('answers not-asked for an empty branch, calls no host and spends nothing', async () => {
+    const { dir, calls } = stubbed('echo merged; exit 0');
+    try {
+      const tally = { calls: 0 };
+      const world = worldForRepo(dir, dir, tally);
+      expect(await world.merge('')).toBe('not-asked');
+      expect(calls()).toEqual([]);
+      expect(tally.calls).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the three answers a named branch gets, each spending one call', async () => {
+    const cases = [
+      ['echo merged; exit 0', 'merged'],
+      ['echo not-merged; exit 0', 'not-merged'],
+      ['exit 1', 'unreachable'],
+    ] as const;
+    for (const [body, expected] of cases) {
+      const { dir, calls } = stubbed(body);
+      try {
+        const tally = { calls: 0 };
+        const world = worldForRepo(dir, dir, tally);
+        expect(await world.merge('feature/a')).toBe(expected);
+        expect(calls()).toHaveLength(1);
+        expect(tally.calls).toBe(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   });
 });

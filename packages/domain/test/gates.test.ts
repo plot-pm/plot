@@ -97,6 +97,31 @@ describe('prGate — the host is asked, and its silence is not permission', () =
   });
 });
 
+describe('prGate — a desk with no branch was not asked about', () => {
+  it('says no branch was asked about, and that this is not a no-PR report', () => {
+    const failure = prGate(finished({ branch: '', merge: 'not-asked' }));
+    expect(failure).toContain('holds no branch');
+    expect(failure).toContain('was not asked');
+    expect(failure).toContain('not a report that no PR merged');
+  });
+
+  it('borrows neither of the two words it replaces', () => {
+    const failure = prGate(finished({ branch: '', merge: 'not-asked' }));
+    expect(failure).not.toContain('No merged PR for');
+    expect(failure).not.toContain('could not be asked');
+  });
+
+  it('leaves each of the three existing words as it was', () => {
+    expect(prGate(finished({ merge: 'merged' }))).toBeNull();
+    expect(prGate(finished({ merge: 'not-merged' }))).toBe(
+      'No merged PR for `feature/one`. The host holds no PR for this branch that has merged. Push the branch and open a PR to the default branch; if a PR is already open, get it merged.',
+    );
+    expect(prGate(finished({ merge: 'unreachable' }))).toBe(
+      'The git host could not be asked whether a PR for `feature/one` merged. This is not a report that no PR exists — the question failed. Check the host is reachable and you are authenticated, then confirm the branch has a merged PR.',
+    );
+  });
+});
+
 describe('changesetGate — every problem the rule returns, not the first', () => {
   it('passes a changeset whose description is prose and whose package exists', () => {
     expect(changesetGate(finished())).toBeNull();
