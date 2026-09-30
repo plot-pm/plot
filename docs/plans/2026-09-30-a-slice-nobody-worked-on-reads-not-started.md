@@ -10,7 +10,7 @@
 - **Issue:** #1090, #1091
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -44,7 +44,7 @@ This slice lands first. Slice 2 turns a zero-ahead ref from `merged` into `open`
 |---|---|---|
 | `blocked` | a prerequisite branch the host has never seen a PR for | *waits for `<prerequisite>`, which has no pull request* |
 | `waiting` | a prerequisite with a wait that ends | *waits for `<prerequisite>`* |
-| `unknown` | the readings do not determine the state | *state unknown — the host could not be asked* |
+| `unknown` | the readings do not determine the state | *state unknown — the host's answer is incomplete* |
 
 The prerequisite is the branch the slice's `waits:` annotation names; `blocked` and `waiting` arise only from that annotation. The pulse carries it as `waits_on`, and `classifyGroup` gains it as a new trailing parameter, passed from `rowsFromPulse`. `BLOCKED_NOTE` stays the slice-verdict sentence (*blocked by an earlier slice*) and is not reused for the branch state. A state the classifier does not recognise returns NOT STARTED with *state `<word>` not recognised*, never the `wip` tail. **The three arms sit after the worker block, not before it.** `blocked`, `waiting` and `unknown` reach the worker block today, so a running agent on such a branch reads WORKING; the new arms only replace the `wip` tail those rows fall to when no worker holds them, and a live agent still outranks every branch state. `classifier-is-total.test.ts` adds `blocked`, `waiting` and `unknown` to its `STATES` (`:77`).
 
@@ -67,7 +67,9 @@ The prerequisite is the branch the slice's `waits:` annotation names; `blocked` 
 
 **`unasked` keeps `merged`.** A repository with no git host, or a scan run `--offline`, has zero-ahead-behind as its only merge signal, and a branch merged by merge commit with its ref kept reads that way. Measured by the round-1 juror: the literal *open without evidence* rule failed 8 of 163 `fleet.test.mjs` tests, one of them `--next` offering the merged `feature/tracer` as the next branch to start; keeping `merged` for `unasked` passed 163 of 163.
 
-**`open` needs a complete PR list.** `host_pr_state` answers `NONE` from a list capped at `PR_LIST_LIMIT` (1000; this repository has 1010 PRs), so a merged PR outside the window reads `NONE`. `BranchReadings` gains `prListComplete`, which the scan fills from `.list-complete` (`plot-fleet-scan.sh:1075-1080`, one path for GitHub and Bitbucket); without it the answer is `unknown`, which holds its wave instead of reopening landed work. It reaches `board/plot-branch-state.mjs` as an eleventh positional field: the bundle refuses an 11-field line today (exit 2) and accepts 10 or 11 after this slice, reading an absent field as `false`. The corpus's `readingsFor` passes it too.
+**`open` needs a complete PR list.** `host_pr_state` answers `NONE` from a list capped at `PR_LIST_LIMIT` (1000; this repository has 1010 PRs), so a merged PR outside the window reads `NONE`. `BranchReadings` gains `prListComplete`, which the scan fills from `.list-complete` (`plot-fleet-scan.sh:1075-1080`, one path for GitHub and Bitbucket); without it the answer is `unknown`, which holds its wave instead of reopening landed work. It reaches `board/plot-branch-state.mjs` as an eleventh positional field, and the bundle requires exactly 11 after this slice, refusing any other count with exit 2 as it refuses 11 today. The scan is the only caller that sends lines, and the bundle and the scan ship in the same slice, so no 10-field line can arrive. Every path that builds a line carries the field, including the prerequisite refill at `plot-fleet-scan.sh:3923`, which rebuilds the line with `cut -f1-9` plus the prerequisite's word and would otherwise drop it. The corpus's `readingsFor` passes it too.
+
+**On this repository the list is never complete** (1011 PRs against `PR_LIST_LIMIT` 1000), so an empty claim here reads `unknown`, not `open`, until the limit is raised. `unknown` still holds its wave and renders in NOT STARTED, which is what the measured rows need; `merged` was the harm.
 
 `mergeSubjectFound` is not zero-ahead evidence: the scan reports it only on the no-ref arm.
 
@@ -87,11 +89,12 @@ The prerequisite is the branch the slice's `waits:` annotation names; `blocked` 
 
 ## Done when
 
-- Slice 1: a `blocked`, `waiting` or `unknown` row with no ref and no live worker classifies to `not-started` with its own sentence naming `waits_on` where it applies, never *commits, no PR ever opened*; the same row with a running worker classifies to `working`; `classifier-is-total.test.ts` covers all eight states; a `wip` row with real commits, no PR and no worker still reads `abandoned`.
+- Slice 1: a `blocked`, `waiting` or `unknown` row with no ref and worker `none` or `elsewhere` classifies to `not-started` with its own sentence naming `waits_on` where it applies, never *commits, no PR ever opened*; the same row with a running worker classifies to `working`; `classifier-is-total.test.ts` covers all eight states; a `wip` row with real commits, no PR and no worker still reads `abandoned`.
 - Slice 1: a row with a closed PR and `worker` `running` or `waiting` classifies to its open group with no `closed-pr` quiet kind; with no live worker it stays in DONE as today.
 - Slice 2: `branch-state.test.ts` asserts every row of the table, `:188` reads `waiting`, and `test/reconcile/fleet.test.mjs` passes whole, run `--offline` as it is.
 - Slice 2: under a host shim answering `NONE` with a complete list, a plan whose second slice is a zero-ahead ref behind main does not complete that slice's wave; with the list incomplete the slice reads `unknown`.
-- Slice 2: the corpus test gains fixture readings for every table row and asserts the rule and `board/plot-branch-state.mjs` answer the same state for each, with the eleventh field present and absent.
+- Slice 2: under the same shim, a zero-ahead ref behind main whose `waits:` prerequisite has MERGED reads `open` through the scan's prerequisite refill path, proving the eleventh field survives `plot-fleet-scan.sh:3923`.
+- Slice 2: the corpus test gains fixture readings for every table row and asserts the rule and `board/plot-branch-state.mjs` answer the same state for each, and the bundle refuses a 10-field line with exit 2.
 - Slice 2: the #995 guard passes with its rebuilt fixture.
 - Slice 2, landing second: the three measured rows, rebuilt as fixtures, land in NOT STARTED, NOT STARTED and WORKING.
 
