@@ -123,6 +123,14 @@ Measured 2026-09-30:
 
 **A run owns one temp root, removes it when the run ends, and fails when anything it created is still present. Every temp path a script creates lies under `TMPDIR` and carries a `plot-` name. Every file Plot writes outside a temp root declares its bound.**
 
+### Safety
+
+**Nothing in Plot deletes by glob in a shared temp directory.** `$TMPDIR`, `/tmp` and `/var/folders/.../T` hold every program's files, and a glob there matches what Plot did not create. On 2026-09-30 a round-2 juror ran `rm -rf "$(getconf DARWIN_USER_TEMP_DIR)"tmp.*` to remove one probe directory, and it removed every `tmp.*` entry in the operator's real temp directory. So:
+
+- **A script or test removes only a path it created**, by the exact name `mktemp`, `mkdtempSync` or the helper returned, or by the name recorded in the helper's registry.
+- **The sweep matches Plot's own name shape only**: entries whose name is `plot-<prefix>.<suffix>` or `plot-run.<suffix>`, directly under `$TMPDIR`, owned by this user and past the age bound, plus `memo/<pid>` directories under `$PLOT_BUDGET_HOME`. It lists candidates with `find -maxdepth 1 -user … -name 'plot-*'`, reports each by its full path, and removes each by that path. It never passes a glob to `rm`, and it never reads `/tmp` or `/var/folders` when `$TMPDIR` points elsewhere.
+- **The Layer 1 gate also refuses an `rm` whose argument holds a glob character under `$TMPDIR`, `${TMPDIR`, `/tmp`, `/var/folders` or `$(getconf`**, in `skills/plot/scripts/*.sh` and in `scripts/`. Test files use `rmSync` on a path they hold, and the leak gate's migration adds no pattern delete.
+
 ### Layer 1: scripts create every temp path through one helper
 
 A sourced helper, `plot-tmp.sh`, gives a script three functions:
@@ -237,6 +245,7 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 - **A script sent TERM mid-run exits 143 and runs no command after the signal**, and one sent INT exits 130, with every registered path removed.
 - **A `mktemp` call, a `/tmp/` write, `$(plot_tmpdir`, or a raw EXIT/INT/TERM trap added to a script fails CI** by name, and the gate passes on the slice's own branch.
 - **The sweep removes an owned `plot-*` directory and a dead-pid memo directory older than the bound, and keeps a younger one, a live-pid one, and every `tmp.*` entry**, with `--dry-run` as the default. A registryd tick with `--sweep-temp` runs it at most once an hour; a tick without the flag runs nothing.
+- **An `rm` with a glob under a shared temp directory fails the gate**, asserted by a fixture script holding `rm -rf "$TMPDIR"/tmp.*`, and the sweep's test asserts that a non-Plot entry of the same age and owner survives, `tmp.*` and `plot` without a dot included.
 - **`plot-reconcile-scan.sh` reports** the sweepable count, the legacy fleet-scan `tmp.*` cache count, and the broken-lock count, below its blocking marker.
 - **One run of `test/reconcile/host.test.mjs` leaves zero entries in its `TMPDIR`**, measured the same way as the 365 above, on macOS and with GNU `mktemp`. The four scan files `fleet`, `fleetrefplans`, `fleetclaimable` and `fleetderived` leave zero with GNU `mktemp`.
 - **One run of `host.test.mjs` adds zero lines to the operator's `budget.tsv`** and creates nothing under the operator's `~/.plot/state/slots/`.
@@ -287,6 +296,7 @@ Two jurors, `suites` and `state`, both `amend` on executed evidence. The round c
 One juror, `r2-1083`, `amend` on executed evidence. The round changed the plan in these places:
 
 - The sweep matched `tmp.*`, which is the default name of every template-less macOS `mktemp` from any program. It now removes only `plot-*` entries and dead-pid memo directories; legacy `tmp.*` caches are counted and reported, never removed. The juror's own cleanup command, `rm -rf "$(getconf DARWIN_USER_TEMP_DIR)"tmp.*`, removed every `tmp.*` entry in the operator's temp directory, which shows the hazard directly.
+- A Safety paragraph was added: no script, test or sweep deletes by glob in a shared temp directory, and the gate refuses such an `rm`.
 - The ledger reader read `.1` before the current file and skipped the live generation when a rotation fell between the two reads. It now reads current first under a generation counter and retries on a change.
 - The rotation lock had no recovery: after a SIGKILL of the rotator, rotation stopped for good. A stale lock is now broken, recorded and reported.
 - The draft named `plot-fleetctl.sh --once` as a scheduled caller of the sweep. Nothing schedules it, and `--once` performs nothing by contract. The supervisor now runs the sweep behind an opt-in `--sweep-temp` flag, and the reconcile scan reports what a sweep would remove.
