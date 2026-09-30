@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Issue:** #1099
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -105,5 +106,7 @@ A board that appends `--settings` to a command it recognises as `claude` needs a
 The refusal measurement first, then the refusal rule and the resolver, the worker loop and template, the board's startup export, the dispatch brief spawn, the install-prompt report, and this repository's settings file and keys.
 
 ## Notes
+
+**Implementation notes from round 3.** `plot-ask.mjs fleet` runs `maybeAutoDispatch` and `maybeAutoDeliver` in its own node process, which the board's `process.env` does not reach; set the variable in `entry/main.ts` too, or name that path out of scope in the PR. Refusing all of `env` removes settings-level environment variables for fleet agents; a project that needs one, such as `ANTHROPIC_MODEL`, sets it in its command key.
 
 **Found while recovering the fleet on 2026-09-30.** The supervisor was alive and idle, waiting on a child that could not finish a `kill -0` for over a minute; the cause was three indexers, not Plot. Three sessions starting within a minute of each other was enough.
