@@ -24,6 +24,8 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [an-open-board-follows-a-sprint-change](../plans/2026-10-01-an-open-board-follows-a-sprint-change.md) — [#1145](https://github.com/plot-pm/plot/issues/1145) — **An open board follows a sprint change.** A page loaded under the previous sprint kept filtering on it after the sprint closed, hid the new sprint's six slice rows, and showed «Sprint only» unchecked until a reload. Measured 2026-10-01.
 - [ ] [waiting-on-you-counts-tickets-as-tickets](../plans/2026-10-01-waiting-on-you-counts-tickets-as-tickets.md) — [#1146](https://github.com/plot-pm/plot/issues/1146) — **WAITING ON YOU counts tickets as tickets.** `sectionTally` adds each ticket to both the plan and the slice figure, so 3 plans, 6 slices and 15 tickets read `(18 plans · 21 slices)`.
 
+- [ ] [#1150](https://github.com/plot-pm/plot/issues/1150) — **A held empty claim reads as taken.** A slice whose claim a live agent holds reads `nobody has taken it` in NOT STARTED until its first commit, with the agent's activity dot beside it. Measured on this sprint's own slices, 2026-10-01.
+
 ### Should Have
 
 ### Could Have
@@ -41,3 +43,4 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 - 2026-10-01: Added #1145 and #1146 to Must — two board defects found while reading this sprint on the board; the operator asked for both in 2.22.3. Neither has a plan yet.
+- 2026-10-01: Added #1150 to Must — found while the fleet started this sprint's slices; the operator asked for it in 2.22.3. No plan yet.
