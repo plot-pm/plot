@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-09-29, jwloka, `bug/the-board-runs-the-artifact-its-repo-built`
 - **Delivered:** 2026-09-30
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 

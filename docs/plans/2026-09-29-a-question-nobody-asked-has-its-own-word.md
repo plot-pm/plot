@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Rounds:** 4
 - **Started:** 2026-09-30, jwloka, `bug/a-question-nobody-asked-has-its-own-word`
 - **Delivered:** 2026-09-30
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-28, jwloka, in-session after panel (round 1)
 - **Started:** 2026-09-28, jwloka, `bug/a-post-merge-commit-is-not-merged-work`
 - **Type:** bug
@@ -14,6 +14,7 @@
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
 - **Rounds:** 1
 - **Delivered:** 2026-09-28
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 

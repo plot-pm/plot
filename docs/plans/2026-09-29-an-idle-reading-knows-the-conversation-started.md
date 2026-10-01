@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
@@ -14,6 +14,7 @@
 - **Rounds:** 4
 - **Started:** 2026-09-30, jwloka, `bug/an-idle-reading-knows-the-conversation-started`
 - **Delivered:** 2026-09-30
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 

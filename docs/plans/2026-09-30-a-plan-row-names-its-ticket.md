@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-30, jwloka, in-session
 - **Started:** 2026-09-30, jwloka, `feature/a-plan-row-names-its-ticket`
 - **Type:** feature
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Delivered:** 2026-09-30
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 

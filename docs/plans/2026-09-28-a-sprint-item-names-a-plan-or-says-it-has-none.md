@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-29, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-09-29, Jan Wloka, `bug/a-sprint-item-names-a-plan-or-says-it-has-none`
 - **Delivered:** 2026-09-29
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 

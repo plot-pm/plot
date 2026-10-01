@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-30, jwloka, in-session
 - **Type:** bug
 - **Sprint:** plot-observes-and-recovers-its-own-fleet
@@ -16,6 +16,7 @@
 - **Started:** 2026-09-30, Jan Wloka, `bug/the-suites-own-their-temp-root`
 - **Started:** 2026-09-30, jwloka, `bug/every-state-file-declares-its-bound`
 - **Delivered:** 2026-10-01
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 
