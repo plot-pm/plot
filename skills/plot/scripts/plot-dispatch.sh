@@ -14,6 +14,8 @@
 #               hand each a queued slice with nobody touching a desk. The count
 #               is a REQUEST: a machine at its bound answers with fewer and says
 #               so, and the shortfall is reported rather than remembered.
+#               Refuses (exit 1, `worker=no-loop`) when a configured `Worker
+#               command` does not run plot-worker-loop.sh: only the loop waits.
 #   --restart <br>
 #               start a worker on <br>, which already holds a claim — the
 #               counterpart to --stop, and the only way to hand a stopped
@@ -342,7 +344,7 @@ while [ $# -gt 0 ]; do
     # `--release` pushed it from 78 to 91. Two records
     # of one fact, and nothing compares them — a stale number here silently
     # truncates the help rather than failing, so it is checked by a test.
-    -h|--help)  sed -n '2,91p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,93p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -2232,6 +2234,37 @@ EOF
   start_rest=${start_answer#*$'\t'}
   start_headroom=${start_rest%%$'\t'*}
   start_why=${start_rest#*$'\t'}
+
+  # A FREE AGENT NEEDS THE LOOP, so a configured command that does not run it
+  # refuses here, before any desk is cut. A free agent starts with an empty
+  # `PLOT_BRANCH`, and only `plot-worker-loop.sh` waits for the registry to hand
+  # it a slice; any other command runs its prompt at once and exits. Measured
+  # 2026-10-01 (#1124): a plain `claude -p "… $PLOT_BRANCH …"` received
+  # "Implementiere den Branch in  nach dem Plan", exited within 30 s, and
+  # `--start` reported `agents=1`. A branch dispatch is not affected: a worker
+  # given a branch works on any command.
+  #
+  # THE MATCH IS THE SCRIPT'S BASENAME AS A WORD, so a repo-relative path, a
+  # plugin path and `bash …/plot-worker-loop.sh` all match, and a name that only
+  # contains it (`my-plot-worker-loop.sh.bak`) does not. `worker=no-loop` is the
+  # footer word the performer reads, the way it reads `unconfigured`.
+  start_cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
+  case "$start_cmd" in
+    ''|none|NONE|None) ;;
+    *)
+      start_loop_re='(^|[/[:space:]"'"'"'=])plot-worker-loop\.sh($|[[:space:]"'"'"';&|)])'
+      if ! [[ "$start_cmd" =~ $start_loop_re ]]; then
+        echo "plot-dispatch: --start refuses — the 'Worker command' does not run plot-worker-loop.sh, and a free agent needs its wait loop." >&2
+        echo "  configured: $start_cmd" >&2
+        echo "  A free agent starts with an empty PLOT_BRANCH; any command but the loop runs at once and exits." >&2
+        echo "  Repair: set 'Worker command' to 'PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh' (this install: $script_dir/plot-worker-loop.sh)," >&2
+        echo "          and move the harness call into .plot/worker-prompt.sh — '$script_dir/plot-install-prompt.sh' writes one from the template." >&2
+        echo "  A branch dispatch is unaffected: plot-dispatch.sh --restart <branch> starts a worker on any command." >&2
+        echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=no-loop"
+        exit 1
+      fi
+      ;;
+  esac
 
   echo "starting $start_n agent(s) — machine $start_headroom, $start_running already running"
 
