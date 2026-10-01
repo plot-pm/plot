@@ -40,13 +40,13 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [a-start-step-leaves-no-claim-and-no-desk](../plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md) — [#1090](https://github.com/plot-pm/plot/issues/1090) — A dispatch that runs /plot-implement leaves an empty claimed branch and no worker, and the board shows it delivered — the board half shipped in v2.22.0; /plot-implement still leaves an empty claim (measured again 2026-10-01).
 - [ ] [#1093](https://github.com/plot-pm/plot/issues/1093) — plot-open-pr.sh refuses a branch whose only PR was closed unmerged, though that PR carries no work
 - [ ] [a-hold-names-the-landing-nobody-could-answer](../plans/2026-10-01-a-hold-names-the-landing-nobody-could-answer.md) — [#1094](https://github.com/plot-pm/plot/issues/1094) — An unaskable merged set holds every slice as not-claimable: a 429 reads as 'the plan blocks this'
-- [ ] [#1100](https://github.com/plot-pm/plot/issues/1100) — The supervisor's queue ignores waits:, so it hands out a slice the scan reports blocked
+- [ ] [the-queue-reads-the-order-the-scan-reads](../plans/2026-10-01-the-queue-reads-the-order-the-scan-reads.md) — [#1100](https://github.com/plot-pm/plot/issues/1100) — The supervisor's queue ignores waits:, so it hands out a slice the scan reports blocked
 - [ ] [#1101](https://github.com/plot-pm/plot/issues/1101) — A worker loop runs on a desk no manifest names, and the board labels it with the branch the desk has checked out
 - [ ] [#1112](https://github.com/plot-pm/plot/issues/1112) — streaming-scan.test reads the machine's real PR index, so plot-resolve-artifact.sh never pushes on a machine with open PRs
 - [ ] [#1113](https://github.com/plot-pm/plot/issues/1113) — /api/deliver answers scan-incomplete for 20 minutes while /api/fleet reports the scan complete
 - [ ] [#1133](https://github.com/plot-pm/plot/issues/1133) — plot-host.sh issue ops fall through to the git host for a Tracker scheme no connector lists
 - [ ] [#1148](https://github.com/plot-pm/plot/issues/1148) — On Linux, stopping the supervisor unit ends every agent it started: plot-registryd.service sets no KillMode
-- [ ] [#1149](https://github.com/plot-pm/plot/issues/1149) — A long supervisor tick hands out a slice merged during the tick; the agent then reports a lock violation that did not happen
+- [ ] [the-queue-reads-the-order-the-scan-reads](../plans/2026-10-01-the-queue-reads-the-order-the-scan-reads.md) — [#1149](https://github.com/plot-pm/plot/issues/1149) — A long supervisor tick hands out a slice merged during the tick; the agent then reports a lock violation that did not happen
 - [ ] [a-start-step-leaves-no-claim-and-no-desk](../plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md) — [#1151](https://github.com/plot-pm/plot/issues/1151) — A worker-less checkout holding a slice's branch stops the agent it is handed to
 - [ ] [#1152](https://github.com/plot-pm/plot/issues/1152) — --release races the supervisor's hand-over and produces a false REGISTRY LOCK VIOLATION
 
