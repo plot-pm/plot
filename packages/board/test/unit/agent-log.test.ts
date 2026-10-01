@@ -30,28 +30,30 @@ import { rmTree } from '../helpers.mjs';
  * times — and moving the logs meant editing 22 call sites, or moving the
  * decision to one. Slice 1 moved the decision; this slice changes it.
  *
- * SO THE `beside` ASSERTIONS BELOW ARE REWRITTEN, DELIBERATELY. Slice 1 asserted
- * the literal `<parent>/plot-…` form precisely so that a reviewer could tell a
- * missed call site from an intended path change — and this is the intended path
- * change. What survives is the SHAPE of that assertion: every helper is still
- * checked against a literal expectation rather than against `agentLogPath`,
- * which would pass against any shared mistake.
+ * SO THE `inDeskRoot` ASSERTIONS BELOW ARE REWRITTEN, DELIBERATELY — twice now.
+ * Slice 1 asserted the literal `<parent>/plot-…` form precisely so that a
+ * reviewer could tell a missed call site from an intended path change, and on
+ * 2026-10-01 the default moved from the checkout's parent to `<repo>/.worktrees`
+ * — the intended path change, a second time. What survives both rewrites is the
+ * SHAPE of the assertion: every helper is checked against a literal expectation
+ * rather than against `agentLogPath`, which would pass against any shared
+ * mistake.
  *
- * The fallback keeps the old form and keeps testing it, because a repository
- * with no `Worktree root` key must not move.
+ * The parent is now asserted ABSENT rather than expected, because a directory
+ * the repository does not own is what this change stopped writing to.
  */
 
 const repoRoot = '/tmp/plot-agent-log-fixture/repo';
 
 /**
- * The fallback expression — today's location for a repo with no `Worktree root`.
+ * The default expression — `<repo>/.worktrees` for a repo with no `Worktree root`.
  *
  * The fixture root does not exist on disk and never gets a `CLAUDE.md`, so
  * `plot-config.sh` finds no key and every helper below resolves through the
- * fallback. That is what makes these the FALLBACK tests: the configured case is
+ * default. That is what makes these the DEFAULT tests: the configured case is
  * exercised against a real fixture repo further down.
  */
-const beside = (name: string) => path.join(path.resolve(repoRoot, '..'), name);
+const inDeskRoot = (name: string) => path.join(repoRoot, '.worktrees', name);
 
 beforeEach(forgetWorktreeRoot);
 afterEach(forgetWorktreeRoot);
@@ -59,18 +61,18 @@ afterEach(forgetWorktreeRoot);
 describe('agentLogPath', () => {
   it('places a run outside the repository, in the fallback location', () => {
     expect(agentLogPath(repoRoot, 'dispatch', 'my-slug', 'log')).toBe(
-      beside('plot-dispatch-my-slug.log'),
+      inDeskRoot('plot-dispatch-my-slug.log'),
     );
   });
 
   it('gives a run its three files one name and three extensions', () => {
-    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'log')).toBe(beside('plot-deliver-my-slug.log'));
-    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'state')).toBe(beside('plot-deliver-my-slug.state'));
-    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'prompt')).toBe(beside('plot-deliver-my-slug.prompt.md'));
+    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'log')).toBe(inDeskRoot('plot-deliver-my-slug.log'));
+    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'state')).toBe(inDeskRoot('plot-deliver-my-slug.state'));
+    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'prompt')).toBe(inDeskRoot('plot-deliver-my-slug.prompt.md'));
   });
 
   it('takes a number as readily as a slug, because two kinds are keyed by issue', () => {
-    expect(agentLogPath(repoRoot, 'idea-issue', 333, 'log')).toBe(beside('plot-idea-issue-333.log'));
+    expect(agentLogPath(repoRoot, 'idea-issue', 333, 'log')).toBe(inDeskRoot('plot-idea-issue-333.log'));
   });
 
   it('returns an absolute path for a relative repoRoot, so a caller cannot inherit its cwd', () => {
@@ -81,7 +83,15 @@ describe('agentLogPath', () => {
     // `idea.ts` builds `plot-idea-issue-<n>` as a WORKTREE, not a log file.
     // Without this export it would have to fake a filename to get the
     // directory — which is how a call site drifts back to hard-coding.
-    expect(agentLogDir(repoRoot)).toBe(path.resolve(repoRoot, '..'));
+    expect(agentLogDir(repoRoot)).toBe(path.join(repoRoot, '.worktrees'));
+  });
+
+  it('never answers the checkout\'s parent, which the repository does not own', () => {
+    // The defect this change fixed: with no key configured, every one of the
+    // nine modules wrote `plot-<kind>-*` into the directory holding the
+    // developer's other checkouts. 190 logs totalling 2.6 MB accumulated there
+    // since 2026-08-17 with nothing that would ever remove one.
+    expect(agentLogDir(repoRoot)).not.toBe(path.resolve(repoRoot, '..'));
   });
 });
 
@@ -104,14 +114,14 @@ describe('the nine modules ask the resolver', () => {
     ['storyLogPath', storyLogPath(repoRoot, 333), 'plot-story-issue-333.log'],
     ['storyPromptPath', storyPromptPath(repoRoot, 333), 'plot-story-issue-333.prompt.md'],
   ])('%s resolves through the one resolver', (_name, actual, expected) => {
-    expect(actual).toBe(beside(expected));
+    expect(actual).toBe(inDeskRoot(expected));
   });
 
   it('repairLogPath keys by branch with its slashes flattened', () => {
     // The one caller whose id is not a slug or a number: a branch name would
     // otherwise create directories.
     expect(repairLogPath(repoRoot, 'infra/one-place-decides')).toBe(
-      beside('plot-resolve-infra-one-place-decides.log'),
+      inDeskRoot('plot-resolve-infra-one-place-decides.log'),
     );
   });
 });
@@ -189,13 +199,14 @@ describe('the configured worktree root', () => {
     );
   });
 
-  it('leaves a repository with no key writing beside itself', () => {
-    // The plan's second `Done when`, and the reason the fallback is a fallback
-    // rather than an error: a repo with no key has no `.worktrees/`, and
-    // creating one because a log needs somewhere to go invents a directory
-    // nobody asked for.
+  it('puts a repository with no key under its own .worktrees', () => {
+    // The plan's second `Done when`. This asserted the checkout's PARENT until
+    // 2026-10-01: nine sites computed the default and two of them already
+    // answered `.worktrees`, so one of the two was always writing somewhere the
+    // others did not read. The default is now the one `/plot-init` writes.
     const repo = makeRepo(null);
-    expect(agentLogDir(repo)).toBe(path.resolve(repo, '..'));
+    expect(agentLogDir(repo)).toBe(path.join(repo, '.worktrees'));
+    expect(agentLogDir(repo)).not.toBe(path.resolve(repo, '..'));
   });
 
   it('takes an absolute root as given and a relative one against the repo', () => {

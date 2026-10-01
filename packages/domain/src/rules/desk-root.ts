@@ -25,7 +25,13 @@ export const DEFAULT_DESK_ROOT = '.worktrees';
 export interface DeskRootReading {
   /** The `Worktree root` value as configured; empty when the key is absent. */
   readonly configured: string;
-  /** Absolute path to the repository's MAIN checkout. */
+  /**
+   * Absolute path to the repository's MAIN checkout.
+   *
+   * The caller resolves it. This composes strings and reaches no working
+   * directory, so a relative root composes a relative answer — which a caller
+   * would then resolve against its own cwd rather than the repository's.
+   */
   readonly repoRoot: string;
 }
 
