@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1150
 - **Sprint:** the-fleet-runs-through-its-limits
