@@ -3491,6 +3491,53 @@ test('dispatch: a started agent holds NO branch', () => {
   }
 });
 
+test('dispatch: a clone with no info/exclude still gets a clean free desk', () => {
+  // #1130, MEASURED 2026-10-01: a clone whose `.git/info/` held only `refs`
+  // kept `?? .metadata_never_index` in every free desk, because the writer
+  // skipped an exclude file that did not exist, and the AgentMonitor reported
+  // each waiting agent as `holds unlanded work`.
+  const { root, checkout } = repoForStart('noexclude');
+  try {
+    fs.rmSync(path.join(checkout, '.git', 'info'), { recursive: true, force: true });
+    const out = runDetached(['--start', '1'], checkout);
+    assert.match(out, /summary: agents=1 /, out);
+    const desk = path.join(checkout, '.worktrees',
+      fs.readdirSync(path.join(checkout, '.worktrees'))[0]);
+    assert.ok(fs.existsSync(path.join(desk, '.metadata_never_index')), 'the marker is written');
+    // The worker's own `.plot-worker.*` records are untracked too, and every
+    // reader drops them by name; the marker is the one that must not appear.
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: desk, encoding: 'utf8' });
+    assert.doesNotMatch(status, /\.metadata_never_index/, `the marker is excluded:\n${status}`);
+    // What the AgentMonitor reads: `plot_worker_dirty`, which was
+    // `.metadata_never_index` before the fix.
+    const helper = path.join(path.dirname(dispatch), 'plot-worker-state.sh');
+    const dirty = execFileSync('bash', ['-c', '. "$1"; plot_worker_dirty "$2"', '_', helper, desk],
+      { encoding: 'utf8' });
+    assert.equal(dirty, '', `the desk holds no unlanded work:\n${dirty}`);
+    const exclude = fs.readFileSync(path.join(checkout, '.git', 'info', 'exclude'), 'utf8');
+    assert.equal(exclude.split('\n').filter((l) => l === '.metadata_never_index').length, 1, exclude);
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: the exclude helper adds its line once, whatever ran before', () => {
+  // `plot_desk_exclude` is shared by `--start` and the loop's hop; a second
+  // call must not add a second line.
+  const { root, checkout } = repoForStart('excludeonce');
+  try {
+    fs.rmSync(path.join(checkout, '.git', 'info'), { recursive: true, force: true });
+    const helper = path.join(path.dirname(dispatch), 'plot-worker-state.sh');
+    for (let i = 0; i < 2; i += 1) {
+      execFileSync('bash', ['-c', '. "$1"; plot_desk_exclude "$2" .metadata_never_index', '_', helper, checkout]);
+    }
+    const exclude = fs.readFileSync(path.join(checkout, '.git', 'info', 'exclude'), 'utf8');
+    assert.equal(exclude, '.metadata_never_index\n');
+  } finally {
+    removeSandbox(root);
+  }
+});
+
 test('dispatch: a free desk is DETACHED, never on the default branch', () => {
   // A tree sitting on the default branch is one of `plot-reap.sh`'s five
   // refusals, and that refusal describes a tree whose dispatched branch was
