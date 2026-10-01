@@ -9,6 +9,29 @@ import {
 import { stuckState } from '../../src/server/stuck.js';
 import { BOARD_ARTIFACT_PATHS, type Stuck } from '../../src/contract/schema.js';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. This file created sandboxes and removed none, so each run left them
+// in `TMPDIR`; `scripts/owned-run.sh` now fails a run that does.
+//
+// `rmTree` rather than a raw recursive `fs.rmSync`: CI's *A teardown does not
+// race a child* step allows exactly ONE such call under `packages/board/test/`,
+// and it is `rmTree`'s own body. `rmTree` also retries ENOTEMPTY/EBUSY/EPERM,
+// which is what a teardown racing a still-running child throws.
+//
+// Never a glob and never a prefix sweep over the shared temp directory.
+import { rmTree } from '../helpers.mjs';
+const trackTemp = <T extends string>(dir: T): T => {
+  trackedTempPaths.push(dir);
+  return dir;
+};
+const trackedTempPaths: string[] = [];
+process.on('exit', () => {
+  for (const dir of trackedTempPaths) {
+    try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
+  }
+});
+
+
 // THE ENTRY CONDITION IS THE PERMISSION, so these tests are mostly refusals.
 //
 // The one automatic write this system grants exists because of three verified
@@ -154,7 +177,7 @@ describe('startRepair — what is started, and what is refused', () => {
   beforeEach(() => {
     resetRepairs();
     started = [];
-    repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -200,7 +223,7 @@ describe('every repair is reported — running, pushed and abandoned alike', () 
   beforeEach(() => {
     resetRepairs();
     exit = null;
-    repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -295,7 +318,7 @@ describe('a not-observed refusal does not repeat on unchanged input', () => {
     resetRepairs();
     started = [];
     exit = null;
-    repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -402,7 +425,7 @@ describe('PLOT_BOARD_REPAIR — the repair is refusable, and only ever downward'
   beforeEach(() => {
     resetRepairs();
     started = [];
-    repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -527,7 +550,7 @@ describe('repairEnabledFromEnv — unset is on, and only "0" is off', () => {
   // existed — still repairs.
   it('an options object with no repairEnabled still repairs', () => {
     resetRepairs();
-    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    const repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
     const started: string[] = [];
     const bare = { repoRoot, scriptsDir: '/scripts', spawnRepair: ({ branch }: { branch: string }) => { started.push(branch); } };
     expect('repairEnabled' in bare).toBe(false);

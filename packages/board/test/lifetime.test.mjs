@@ -239,6 +239,11 @@ describe('no orphan survives a killed test run', () => {
         path.join(REPO_ROOT, 'packages/board/test/helpers.mjs'),
       )};
       const repo = makeRepo({ plans: [{ name: 'p.md', content: ${JSON.stringify(APPROVED)} }] });
+      // The runner reports the sandbox it made, because it is about to be
+      // SIGKILLed and nothing inside it will ever run again. The parent removes
+      // this path by the exact name it was given — the tree is the runner's, and
+      // only the runner knows it.
+      process.stdout.write('REPO ' + repo + '\\n');
       const a = await startServer(repo);
       const b = await startServer(repo);
       process.stdout.write('SERVERS ' + a.port + ' ' + b.port + '\\n');
@@ -249,6 +254,7 @@ describe('no orphan survives a killed test run', () => {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let ports;
+    let runnerRepo = '';
     try {
       ports = await new Promise((resolve, reject) => {
         let out = '';
@@ -259,6 +265,8 @@ describe('no orphan survives a killed test run', () => {
         );
         proc.stdout.on('data', (c) => {
           out += c.toString();
+          const repoLine = /REPO (.+)/.exec(out);
+          if (repoLine) runnerRepo = repoLine[1].trim();
           const m = /SERVERS (\d+) (\d+)/.exec(out);
           if (!m) return;
           clearTimeout(timer);
@@ -273,6 +281,11 @@ describe('no orphan survives a killed test run', () => {
     } finally {
       // Whatever happened, do not leave the runner behind.
       reap(proc.pid);
+      // Nor its sandbox. The runner is SIGKILLed below, so no cleanup of its own
+      // can ever fire; this removes the one path it named, through `rmTree`
+      // because a raw recursive `fs.rmSync` here fails CI's *A teardown does not
+      // race a child* step, which allows exactly one and it is `rmTree`'s body.
+      if (runnerRepo) rmTree(runnerRepo);
     }
 
     // Kill the runner outright — no `after()`, no teardown, nothing runs. A

@@ -19,7 +19,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -27,6 +27,33 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const adapter = path.join(scripts, 'plot-host.sh');
 const budget = path.join(scripts, 'plot-budget.sh');
+
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. Measured 2026-09-30: this file has five `mkdtempSync` SITES and left
+// **64** directories behind, because `makeHome` and `makeGh` are factories that
+// run once per case. Counting the sites would have fixed five of sixty-four, so
+// the cleanup registers the created PATH rather than guarding the call site.
+//
+// One `process.on('exit')` rather than 64 `t.after` calls: a new case that calls
+// a factory is covered without remembering to add anything, which is the way
+// this file leaked in the first place.
+//
+// Never a glob and never a prefix sweep over the shared temp directory — on
+// 2026-09-30 a probe's `rm -rf "$(getconf DARWIN_USER_TEMP_DIR)"tmp.*` removed
+// every `tmp.*` entry an operator had.
+// A FUNCTION DECLARATION HOLDING ITS OWN STATE, because `before()` hooks and
+// helpers ABOVE this point call it. A function declaration is hoisted whole,
+// but a `const` it closes over stays in the temporal dead zone until the
+// module reaches it — measured here as `ReferenceError: Cannot access
+// 'tempPaths' before initialization`. The list hangs off the function object,
+// which exists from the first line of the module.
+function trackTemp(dir) {
+  (trackTemp.paths ??= []).push(dir);
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of trackTemp.paths ?? []) rmSync(dir, { recursive: true, force: true });
+});
 
 // The format's own constant, mirrored from
 // `packages/domain/src/entities/budget.ts`. Named here rather than imported
@@ -43,12 +70,12 @@ const MAX_LINE_BYTES = 512;
  * budget.
  */
 function makeHome() {
-  return mkdtempSync(path.join(tmpdir(), 'plot-budget-sh-'));
+  return trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-budget-sh-')));
 }
 
 /** A `gh` stub that records its argv and can be made to fail with chosen stderr. */
 function makeGh({ json = '{}', fail = null, stderr = '' } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-budget-stub-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-budget-stub-')));
   const calls = path.join(dir, 'gh.calls');
   const body = fail
     ? `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${calls}"\n` +
@@ -330,8 +357,8 @@ test('budget: two worktrees of one account write to one record', () => {
   // other spent it — the over-spend this plan exists to prevent, reproduced by
   // storing the record in the wrong place.
   const home = makeHome();
-  const first = mkdtempSync(path.join(tmpdir(), 'plot-wt-one-'));
-  const second = mkdtempSync(path.join(tmpdir(), 'plot-wt-two-'));
+  const first = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-wt-one-')));
+  const second = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-wt-two-')));
   for (const cwd of [first, second]) {
     const res = spawnSync('bash', ['-c', `. "${budget}"\nbudget_append github jwloka api 1 - - - unknown`], {
       cwd,

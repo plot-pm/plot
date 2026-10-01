@@ -10,6 +10,35 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsS
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. Measured 2026-09-30: one clean run of this file, 266 of 266 green,
+// left **365 entries** in an empty TMPDIR — 40 creation sites against 10
+// cleanups, and the ten that existed ran only on the paths their own case
+// happened to hold.
+//
+// One `process.on('exit')` rather than 40 `t.after` calls: a new case that
+// builds a sandbox is covered without remembering to add anything, which is the
+// way this file came to leak. It is idempotent with the cleanups already here —
+// `force: true` makes a second removal a no-op — so those stay where they are
+// and keep naming their own case's intent.
+//
+// Never a glob and never a prefix sweep over the shared temp directory: on
+// 2026-09-30 a probe's `rm -rf "$(getconf DARWIN_USER_TEMP_DIR)"tmp.*` removed
+// every `tmp.*` entry an operator had.
+// A FUNCTION DECLARATION HOLDING ITS OWN STATE, because `before()` hooks and
+// helpers ABOVE this point call it. A function declaration is hoisted whole,
+// but a `const` it closes over stays in the temporal dead zone until the
+// module reaches it — measured here as `ReferenceError: Cannot access
+// 'tempPaths' before initialization`. The list hangs off the function object,
+// which exists from the first line of the module.
+function trackTemp(dir) {
+  (trackTemp.paths ??= []).push(dir);
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of trackTemp.paths ?? []) rmSync(dir, { recursive: true, force: true });
+});
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
 
@@ -26,7 +55,7 @@ const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-h
 // error. This is because the adapter now checks bb's --json capability before
 // any PR call, and the old stub shape failed that check silently.
 function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-')));
   const ghStub = (json, fail) => {
     const argvFile = path.join(dir, 'gh.argv');
     const body = fail != null
@@ -91,7 +120,7 @@ printf '%s' '${json.replace(/'/g, `'\\''`)}'
 // `{ fail: '<stderr text>', code: N }`, so a test can say *this state throttled
 // and the others answered* without a second stub.
 function makeStrictBbStub({ json = '[]', perState = null } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bb-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bb-')));
   const callsFile = path.join(dir, 'bb.calls');
   const quote = (s) => s.replace(/'/g, `'\\''`);
   const cases = perState
@@ -175,7 +204,7 @@ function makeStubsRateAware({
   rateFail = null,
   restFail = null,
 } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-rate-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-rate-')));
   const callsFile = path.join(dir, 'gh.calls');
   // The record lives beside the stubs and is passed through `PLOT_BUDGET_HOME`,
   // the one override both the shell appender and `budget-file.ts` read.
@@ -284,7 +313,7 @@ test('host: backend infers the host from the remote when nothing declares one', 
   // this covers only the case where nobody said, which answered `github`
   // unconditionally until 2026-09-11 — so a Bitbucket repository that forgot
   // the key got GitHub's answer.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-remote-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-remote-')));
   execFileSync('git', ['init', '-q', '.'], { cwd: dir });
   execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:x/y.git'], { cwd: dir });
   const out = execFileSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8' });
@@ -302,7 +331,7 @@ test('host: backend says so when nothing names a host', () => {
   //
   // WHAT CHANGES IS THAT THE GUESS STOPS BEING SILENT. The value is still
   // usable so the exit stays 0; the provenance is not certain, so it is said.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-noremote-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-noremote-')));
   execFileSync('git', ['init', '-q', '.'], { cwd: dir });
   const res = spawnSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8' });
   assert.equal(res.status, 0, 'a caller that needs a host still gets one');
@@ -500,7 +529,7 @@ test('host: pr-list bitbucket flattens to number/title/state/head', () => {
 });
 
 test('host: pr-state lookup miss yields state NONE, exit 0', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-')));
   writeFileSync(path.join(dir, 'gh'), '#!/usr/bin/env bash\nexit 1\n');
   chmodSync(path.join(dir, 'gh'), 0o755);
   const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/nope'], {
@@ -521,7 +550,7 @@ test('host: invalid PLOT_HOST exits nonzero without calling either CLI', () => {
 test('host: Git host config key resolves the backend (bb alias too)', () => {
   const stubs = makeStubs();
   // config comes from a CLAUDE.md ## Plot Config in cwd
-  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-cfg-'));
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-cfg-')));
   writeFileSync(path.join(repo, 'CLAUDE.md'),
     '## Plot Config\n\n- **Git host:** bitbucket\n');
   const out = execFileSync('bash', [adapter, 'backend'], {
@@ -920,7 +949,7 @@ test('host: runs declaring github-actions on a bitbucket remote exits 4, never e
 // and then read `github-actions` from the checkout they were running in. The
 // absence has to be a real repository saying nothing.
 function makeNoCiRepo() {
-  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-nocI-'));
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-nocI-')));
   writeFileSync(path.join(repo, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** github\n');
   execFileSync('git', ['init', '-q'], { cwd: repo });
   return repo;
@@ -1039,7 +1068,7 @@ test('host: pr-list --state all issues one bb call per real state', () => {
 // the rows are merge-heavy and the open and declined ones are older than the
 // 50th merged: one union request would return 50 merged rows and nothing else.
 const makeBitbucketPagesStub = (prs) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bb-pages-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bb-pages-')));
   const callsFile = path.join(dir, 'bb.calls');
   const rowsFile = path.join(dir, 'rows.json');
   writeFileSync(rowsFile, JSON.stringify(prs));
@@ -1537,7 +1566,7 @@ test('host: issue-view treats a missing issue as a failure, not an empty body', 
 // `--version`. The parse is exercised against fixture text, never a live call —
 // this repo is on GitHub and bb refuses it outright.
 function makeBbIssueStub({ out = '', code = 0, version = 'bb version 0.6.0 (deadbeef)' } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbissue-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bbissue-')));
   const body = `#!/usr/bin/env bash
 if [ "$1" = "--version" ]; then printf '%s\\n' '${version.replace(/'/g, `'\\''`)}'; exit 0; fi
 # issue list / issue view both print the fixture on STDOUT (where bb puts both
@@ -1720,7 +1749,7 @@ test('host: bitbucket issue ops never write to the tracker', () => {
   // deliberately uses none of them — a plan referencing an issue is Plot's
   // record, not the tracker's. The stub records its argv so the assertion is on
   // what was actually invoked.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbwrite-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bbwrite-')));
   const argvFile = path.join(dir, 'bb.argv');
   writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
 if [ "$1" = "--version" ]; then printf 'bb version 0.6.0\\n'; exit 0; fi
@@ -1768,7 +1797,7 @@ printf '%b' '${BB_LIST_ANSI.replace(/'/g, `'\\''`)}'
 // (`-I <slug>`, `job list <job/path>`). A bare-host instance lists at root. This
 // is the open point resolved without a new key — see the PR.
 function makeJenkinsRepo({ instance = 'ci.test/webbloqs/continuous-build-multi', gitHost = 'github' } = {}) {
-  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-jen-'));
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jen-')));
   writeFileSync(path.join(repo, 'CLAUDE.md'),
     `## Plot Config\n\n- **Git host:** ${gitHost}\n- **CI:** jenkins\n- **Jenkins instance:** ${instance}\n`);
   execFileSync('git', ['init', '-q'], { cwd: repo });
@@ -1802,7 +1831,7 @@ function makeJenStub({
     name: 'continuous-build-multi',
   }),
 } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-jenbin-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenbin-')));
   const callsFile = path.join(dir, 'jen.calls');
   const authLine = authReachable
     ? 'Jenkins auth:  OK — someone@example.test'
@@ -2055,7 +2084,7 @@ test('host: CI jenkins but no instance configured exits 3 — the op cannot proc
   // run. A `CI: jenkins` repo with no `Jenkins instance` is a misconfiguration,
   // not a transient outage — there is no instance to ask, and degrading rows to
   // `unknown` would hide a config error that only a person can fix.
-  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-jen-noinst-'));
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jen-noinst-')));
   writeFileSync(path.join(repo, 'CLAUDE.md'),
     '## Plot Config\n\n- **Git host:** github\n- **CI:** jenkins\n');
   execFileSync('git', ['init', '-q'], { cwd: repo });
@@ -2070,7 +2099,7 @@ test('host: a repo without CI jenkins reads its GitHub rollup exactly as today',
   // Done-when 3: the arm is inert unless `CI: jenkins` is declared. A GitHub
   // repo with a real rollup still collapses it the same way, and `jen` is never
   // called.
-  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-nojen-'));
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-nojen-')));
   writeFileSync(path.join(repo, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** github\n');
   execFileSync('git', ['init', '-q'], { cwd: repo });
   const hostStubs = makeStubs({
@@ -2326,7 +2355,7 @@ test('host: the multibranch branch map is byte-identical to origin/main', () => 
     . "$2/fn.sh"
     jenkins_build_map "$3"
   `;
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-golden-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-golden-')));
   const jen = makeJenStub({ jobsJson: JEN_JOBS, viewJson: JEN_VIEW_MULTI });
   const out = execFileSync('bash',
     ['-c', fnRunner, '_', adapter, dir, 'ci.test/webbloqs/continuous-build-multi'],
@@ -2490,7 +2519,7 @@ test('host: run-for-sha on Jenkins without a credential exits 4, never empty', (
 // records argv one line per arg. `status` is the HTTP code; `curlExit` lets a
 // test simulate a transport failure (curl itself failing: DNS, TLS, refused).
 function makeJiraCurlStub({ body = '{}', status = 200, curlExit = 0 } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-jira-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jira-')));
   const argvFile = path.join(dir, 'curl.argv');
   // The body is base64'd into the stub so an arbitrary JSON payload (quotes,
   // newlines, unicode) survives the shell heredoc without escaping games.
@@ -2737,7 +2766,7 @@ const JQL_UNSCOPED = 'assignee = currentUser() AND resolution = EMPTY ORDER BY c
 // trap `makeNoCiRepo` was written for, one key along: the absence has to be a
 // real repository saying nothing.
 function makeTicketPrefixRepo(prefixLine) {
-  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-prefixes-'));
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-prefixes-')));
   const config = `## Plot Config\n\n- **Git host:** github\n${prefixLine ?? ''}`;
   writeFileSync(path.join(repo, 'CLAUDE.md'), config);
   execFileSync('git', ['init', '-q'], { cwd: repo });
@@ -2874,7 +2903,7 @@ test('host: an absent Tracker leaves the GitHub issue arm exactly as it was', ()
   // Done-when 2 / Done-when 7: the Jira arm is opt-in. With no Tracker key, a
   // GitHub repo resolves through `gh issue list` unchanged, and curl is never
   // called. Proven by a gh stub answering while the curl stub records nothing.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-notracker-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-notracker-')));
   writeFileSync(path.join(dir, 'gh'),
     '#!/usr/bin/env bash\nprintf \'%s\' \'[{"number":7,"title":"gh issue","url":"https://gh.test/7","createdAt":"2026-08-01T00:00:00Z"}]\'\n');
   chmodSync(path.join(dir, 'gh'), 0o755);
@@ -2902,7 +2931,7 @@ test('host: an absent Tracker leaves the GitHub issue arm exactly as it was', ()
 
 // Make a bb stub that behaves like craftamap 0.6.0 — rejects --json
 function makeCraftamapBbStub() {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-craftamap-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-craftamap-')));
   // Rejects --json with the craftamap error message
   const body = `#!/usr/bin/env bash
 if [[ "\$*" == *"--version"* ]]; then
@@ -2922,7 +2951,7 @@ echo "[]"
 
 // Make a bb stub that behaves like Quatico's bb — supports --json
 function makeQuaticoBbStub({ json = '[]' } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-quatico-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-quatico-')));
   const body = `#!/usr/bin/env bash
 if [[ "\$*" == *"--version"* ]]; then
   echo "bb version 1.9.0"
@@ -2943,7 +2972,7 @@ printf '%s' '${json.replace(/'/g, `'\\''`)}'
 
 // Make a bb stub that segfaults — simulates craftamap under 429
 function makeSegfaultingBbStub() {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-segfault-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-segfault-')));
   // kill -11 sends SIGSEGV to self
   const body = `#!/usr/bin/env bash
 if [[ "\$*" == *"--version"* ]]; then
@@ -3023,7 +3052,7 @@ test('host: the capability check is per-CAPABILITY, not per-version', () => {
   // check must test the FLAG, not compare numbers.
   //
   // Proven by: a "high version" bb that still rejects --json is rejected.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-highver-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-highver-')));
   const body = `#!/usr/bin/env bash
 if [[ "\$*" == *"--version"* ]]; then
   echo "bb version 99.0.0"  # High version number
@@ -3050,7 +3079,7 @@ test('host: the capability is established once per run, not per call', () => {
   // ONCE, then caches the result.
   //
   // Proven by: a stub that counts --help invocations, called for two PR ops.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-once-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-once-')));
   const countFile = path.join(dir, 'help.count');
   writeFileSync(countFile, '0');
   // This stub counts how many times --help is passed (the capability probe)
@@ -3747,7 +3776,7 @@ test('host: pr-list gives the two limits DIFFERENT exit codes', () => {
 // to catch: a case-sensitive match reads a present header as absent, and the
 // op then reports `unknown` against a host that answered perfectly.
 function makeHeaderStub({ headers = {}, fail = null } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-limit-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-limit-')));
   const callsFile = path.join(dir, 'gh.calls');
   const lines = Object.entries(headers)
     .map(([k, v]) => `${k}: ${v}`)
@@ -4218,7 +4247,7 @@ const recordOf = (stubs) => {
 // them — a body split on a bare `\n` blank line would take the first blank line
 // inside a pretty-printed payload instead.
 function makeRestHeaderStub({ headers = {}, restJson = '{}', fail = null } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-rest-hdr-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-rest-hdr-')));
   const callsFile = path.join(dir, 'gh.calls');
   const budgetHome = path.join(dir, 'budget-home');
   mkdirSync(budgetHome, { recursive: true });
@@ -4515,7 +4544,7 @@ test('host: an unreadable call does not erase the reading before it', () => {
  * @param bodies - one `{body, status}` per call, in order; the last repeats.
  */
 function makeJiraSequenceStub(bodies) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-jira-seq-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jira-seq-')));
   const argvFile = path.join(dir, 'curl.argv');
   const countFile = path.join(dir, 'curl.count');
   const encoded = bodies
@@ -4655,7 +4684,7 @@ test('host: issue-status reports a failed lookup as a failure, never as no-targe
 
 /** A git repo whose `.env` holds whatever a test needs it to. */
 function jiraEnvRepo(envBody) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-dotenv-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-dotenv-')));
   execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: dir });
   execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir });
   execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
@@ -4806,14 +4835,21 @@ test('host: nothing but the two named variables is imported', () => {
 
 // --- the ledger, which is what the widening owns -----------------------------
 
+// THESE THREE CASES NAME `PLOT_BUDGET_HOME` BESIDE `HOME`, and must.
+// `plot-budget.sh:74` reads `${PLOT_BUDGET_HOME:-}` FIRST and falls back to
+// `$HOME/.plot/state`, so `HOME` alone decides where the record lands only while
+// nothing exports the override. `scripts/owned-run.sh` now exports one for the
+// whole run, which is what keeps a suite out of the operator's real ledger — so
+// a case that sets `HOME` and then reads the ledger under it must say which
+// ledger it means.
 test('host: the budget ledger records no email, and reads it from the file', () => {
   // THE GATE READS THE LEDGER, not the code. Every other gate here reads what
   // the adapter PRINTS, and what it WRITES is the half that was missed — a
   // reading of stdout and stderr says nothing about a file.
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
-  const home = mkdtempSync(path.join(tmpdir(), 'plot-host-ledger-'));
-  const res = runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ledger-')));
+  const res = runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
   assert.equal(res.status, 0, `the call must proceed (stderr: ${res.stderr})`);
 
   const ledger = path.join(home, '.plot', 'state', 'budget.tsv');
@@ -4830,10 +4866,10 @@ test('host: two accounts stay distinguishable in the ledger', () => {
   // CONSTANT redaction would merge distinct accounts' rate windows, and one
   // machine's ledger holds three. So the redaction must be one-to-one.
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
-  const home = mkdtempSync(path.join(tmpdir(), 'plot-host-ledger2-'));
+  const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ledger2-')));
   const accountsFor = (email) => {
     const dir = jiraEnvRepo(`JIRA_EMAIL=${email}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
-    runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+    runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
   };
   accountsFor('one@acme.test');
   accountsFor('two@acme.test');
@@ -4850,10 +4886,10 @@ test('host: the same account keys the same way across calls', () => {
   // A key that changed per call would defeat the rate window as surely as a
   // constant would merge it — `sameKey` matches on this field.
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
-  const home = mkdtempSync(path.join(tmpdir(), 'plot-host-ledger3-'));
+  const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ledger3-')));
   const dir = jiraEnvRepo(`JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`);
-  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
-  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_OFF: '' });
+  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
+  runJiraNoCreds(['issue-list'], stub, dir, { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state'), PLOT_BUDGET_OFF: '' });
   const lines = readFileSync(path.join(home, '.plot', 'state', 'budget.tsv'), 'utf8')
     .split('\n').filter((l) => l.includes('\tjira\t'));
   assert.equal(lines.length, 2, 'both calls recorded');
@@ -4878,7 +4914,7 @@ test('host: the same account keys the same way across calls', () => {
 // calls were made and only their output was lost. Measured 2026-09-20 against
 // run 35533420716. A file has no such ceiling and the stub stays one process.
 function makeSweepBbStub({ prs = {}, fail = {} } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-sweep-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-sweep-')));
   const callsFile = path.join(dir, 'bb.calls');
   const payloadFor = (key, rows) => {
     const f = path.join(dir, `payload-${Buffer.from(key).toString('hex').slice(0, 40)}.json`);
@@ -5386,7 +5422,7 @@ test('host: the sweep encodes the stamp, so a colon cannot end the filter', () =
 // `makeSweepBbStub`'s `MAX_ARG_STRLEN` reason.
 const BB_BASE = 'https://api.bitbucket.org/2.0';
 function makeWindowBbStub({ size, pages, next = (n) => `${BB_BASE}/repositories/w/r/pullrequests?q=x&pagelen=50&page=${n}` }) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-window-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-window-')));
   const callsFile = path.join(dir, 'bb.calls');
   const files = pages.map((rows, i) => {
     const f = path.join(dir, `page-${i + 1}.json`);
@@ -5501,7 +5537,7 @@ test('host: a windowed state the host refuses keeps the host\'s own words', () =
   // The raw stderr travels to `pr_list_call`, which classifies once — so a
   // Bitbucket rate limit keeps its burst code (6), as it does through the
   // sweep, and never reads as a generic failure (3).
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-window-429-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-window-429-')));
   writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
 if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
@@ -5544,7 +5580,7 @@ test('host: a bitbucket listing with no window asks one page per state', () => {
 
 /** A repo with a real `origin/HEAD`, so a cache-first implementation has something to find. */
 function repoWithOriginHead(cacheSays) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-defbr-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-defbr-')));
   execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: dir });
   execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:acme/thing.git'], { cwd: dir });
   // A symbolic ref may be set without the remote branch existing.
@@ -5554,7 +5590,7 @@ function repoWithOriginHead(cacheSays) {
 
 /** A `bb` that answers `repo view --json` and records every call. */
 function bbRepoStub(mainbranch, { fail = false } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbrepo-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bbrepo-')));
   const calls = path.join(dir, 'bb.calls');
   writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
 if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
@@ -5606,7 +5642,7 @@ test('host: default-branch prints nothing when neither the host nor the cache ca
   // AND IT EXITS 0 DOING IT, which is why `plot-detect-repo.sh` checks the VALUE
   // as well as the status: a reader testing the exit code alone reads this empty
   // line as an answer.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-nohead-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-nohead-')));
   execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: dir });
   execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:acme/thing.git'], { cwd: dir });
   const stub = bbRepoStub('', { fail: true });
@@ -5624,7 +5660,7 @@ test('host: default-branch reads a null mainbranch as no answer, never as a bran
   // accepts it, and a branch named `null` reaches five callers that would then
   // push, merge and delete against it.
   const repo = repoWithOriginHead('trunk');
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbnull-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bbnull-')));
   writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
 if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
@@ -5641,11 +5677,11 @@ printf '%s' '{"slug":"thing"}'
 });
 
 test('host: default-branch asks the host on github too, over a stale cache', () => {
-  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-ghdefbr-'));
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ghdefbr-')));
   execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: repo });
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/thing.git'], { cwd: repo });
   execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], { cwd: repo });
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-ghstub-'));
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ghstub-')));
   writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s' develop\n`);
   chmodSync(path.join(dir, 'gh'), 0o755);
   const res = spawnSync('bash', [adapter, 'default-branch'], {

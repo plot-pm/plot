@@ -4,6 +4,29 @@ import os from 'node:os';
 import path from 'node:path';
 import { runStreaming } from '../../src/server/fleet.js';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. This file created sandboxes and removed none, so each run left them
+// in `TMPDIR`; `scripts/owned-run.sh` now fails a run that does.
+//
+// `rmTree` rather than a raw recursive `fs.rmSync`: CI's *A teardown does not
+// race a child* step allows exactly ONE such call under `packages/board/test/`,
+// and it is `rmTree`'s own body. `rmTree` also retries ENOTEMPTY/EBUSY/EPERM,
+// which is what a teardown racing a still-running child throws.
+//
+// Never a glob and never a prefix sweep over the shared temp directory.
+import { rmTree } from '../helpers.mjs';
+const trackTemp = <T extends string>(dir: T): T => {
+  trackedTempPaths.push(dir);
+  return dir;
+};
+const trackedTempPaths: string[] = [];
+process.on('exit', () => {
+  for (const dir of trackedTempPaths) {
+    try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
+  }
+});
+
+
 // The measurement this file exists for, taken on this repo 2026-08-19 after the
 // join (#232) landed: 26 of 54 branches are terminal — merged or deferred — and
 // a terminal fact cannot change. A merged branch stays merged. The board pulses
@@ -31,7 +54,7 @@ import { runStreaming } from '../../src/server/fleet.js';
  * mid-line, which is the failure the line buffering exists to survive.
  */
 function fakeScan(notes: string[], { exitCode = 0, splitWrites = false } = {}): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-termcache-'));
+  const dir = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-termcache-')));
   // Echoed to stdout so the test can prove what the child RECEIVED, and the
   // notes to stderr the way the real scan reports them.
   //

@@ -104,7 +104,7 @@ function staff(repoRoot, branch, wt) {
 }
 
 before(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-dispatch-'));
+  tmp = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-dispatch-')));
   const origin = path.join(tmp, 'origin.git');
   repo = path.join(tmp, 'repo');
   git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
@@ -261,7 +261,7 @@ function pluginRegistry(dir, { reach, version = '1.2.0' } = {}) {
 
 /** A repo whose plan has a real `Worker command`, with control over the brief. */
 function repoForBrief(label, { brief, briefCommand, pluginReach = true } = {}) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-brief-${label}-`));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-brief-${label}-`)));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -498,7 +498,7 @@ test('dispatch: a refused dispatch calls the configured Brief command', () => {
   // no worker runs — and the run then SAYS what it did next, naming the command
   // it called. The stand-in command drops a sentinel, so the test can tell
   // "asked" from "said it asked".
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefcmd-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefcmd-')));
   const ran = path.join(t, 'brief-ran');
   const f = repoForBrief('ask', { briefCommand: `sh -c 'touch ${ran}' plot-brief` });
   const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
@@ -571,7 +571,7 @@ test('dispatch: a brief written by the callback lands where the gate reads it', 
   // second dispatch starts. It also asserts the PROMPT arrived whole: a prompt
   // that word-split would make `$1` a fragment, and this test would otherwise
   // pass while the real command received garbage.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-brieflands-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-brieflands-')));
   const writer = path.join(t, 'write-brief.sh');
   // The writer takes NO repo path: `request_brief` runs it with the repository
   // root as its cwd, and relying on that is the point — a command configured by
@@ -643,7 +643,7 @@ test('dispatch: it refuses to spawn a brief the agent cannot reach the skill fro
   // two empty logs and a session writing nine briefs by hand without asking why
   // the arm was silent. A refusal printed by the dispatch run is read by
   // whoever ran it; a 33-byte log is not.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-noskill-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-noskill-')));
   const ran = path.join(t, 'brief-ran');
   const f = repoForBrief('noskill', {
     briefCommand: `sh -c 'touch ${ran}' plot-brief`,
@@ -901,7 +901,7 @@ test('dispatch: a branch it cannot hand over is refused once, not forever', () =
   // THE UNHANDABLE BRANCH IS NOW A BRIEFLESS ONE. That is the live refusal —
   // an occupied worktree path used to be the cheapest way to make the fan-out
   // fail, and there is no worktree to occupy.
-  const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-blocked-'));
+  const blocked = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-blocked-')));
   const o = path.join(blocked, 'origin.git');
   const r = path.join(blocked, 'repo');
   git(blocked, 'init', '--bare', '-q', '-b', 'main', o);
@@ -931,7 +931,7 @@ test('dispatch: a branch it cannot hand over is refused once, not forever', () =
 
 // A plan in a given phase, in its own throwaway repo. Returns { repo, run }.
 function repoWithPlan(statusBlock, label) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-gate-${label}-`));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-gate-${label}-`)));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -1055,7 +1055,7 @@ test('dispatch: a pre-Plot-2 plan with no Impl answer still dispatches', () => {
 });
 
 test('dispatch: refuses to run outside a git repository', () => {
-  const notRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-not-repo-'));
+  const notRepo = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-not-repo-')));
   let failed = false;
   try {
     run(['--dry-run', 'fan'], notRepo);
@@ -1144,7 +1144,7 @@ test('dispatch: branches sharing a last segment are two slices, handed over sepa
   // branches read `.plot/briefs/api.md` — `brief_path` has always been the
   // branch after its last `/`, and `/plot-implement` writes to the same rule.
   // It is a real collision, older than the hand-over gate and untouched by it.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-suffix-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-suffix-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -1258,7 +1258,7 @@ test('dispatch: --status tells a finished worker from a crashed one', () => {
 
 /** A repo whose bare remote refuses (or accepts) pushes to main. */
 function repoForBooking(label, { refuseMain = false } = {}) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-started-${label}-`));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-started-${label}-`)));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -1415,7 +1415,7 @@ test('dispatch: a plan with no ## Status section is refused, not appended to', (
   //
   // Reachable in practice: the phase gate reads the phase from front matter
   // too, so a front-matter plan passes the gate with no `## Status` heading.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nostatus-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nostatus-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -1459,7 +1459,7 @@ test('dispatch: a real worker that exits records its status', () => {
   // Two traps this pins: a `Worker command` ending in `exit N` would kill the
   // wrapper shell before the code was written (hence the subshell), and the
   // exit-file path travels as an env var so no quoting level mangles it.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-realworker-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-realworker-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -1517,7 +1517,7 @@ test('dispatch: .plot-worker.pid records the AGENT process, not the wrapper', ()
   // check does not depend on the detached process surviving into the assertion
   // (under a test harness it is reaped when the dispatcher exits). The record
   // must equal that sentinel and differ from the wrapper's pid.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-agentpid-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-agentpid-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -1604,7 +1604,7 @@ test('dispatch: .plot-worker.wrapper.pid names the agent\'s ACTUAL parent', () =
   // Why it matters beyond tidiness: a process group built on a wrong wrapper
   // would signal `plot-dispatch.sh` while the wrapper and its monitors carried
   // on — which is why this lands before anything is built on the record.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wrappid-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wrappid-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -1695,7 +1695,7 @@ test('dispatch: .plot-worker.wrapper.pid names the agent\'s ACTUAL parent', () =
  * branch of any name (including one from a different plan entirely).
  */
 function repoWithInFlight(label) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-inflight-${label}-`));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-inflight-${label}-`)));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -2092,7 +2092,7 @@ test('dispatch: a report under both caps is never truncated', () => {
 
 /** A repo with a one-branch approved plan and whatever Plot Config you pass. */
 function repoWithConfig(label, extraConfig = '') {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-worker-${label}-`));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-worker-${label}-`)));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -2318,7 +2318,7 @@ test('plot-init: never raises the worker question', () => {
 // is committed to a branch that is checked out and never pushed — the
 // local-only edit the gate must ignore. `noRemote` drops the remote entirely.
 function repoWithSharedPlan({ sharedPhase, localPhase = null, label, noRemote = false }) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-shared-${label}-`));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-shared-${label}-`)));
   const r = path.join(t, 'repo');
   const plan = (phase) =>
     `# G\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n- **Impl:** own branches\n\n## Branches\n\n- \`feature/g\` — one\n`;
@@ -2448,7 +2448,7 @@ test('dispatch: --allow-local is the explicit escape, and says it took it', () =
  * the three states that matter: unmerged work, merged work, or none at all.
  */
 function repoWithHeldBranch(label) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-held-${label}-`));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-held-${label}-`)));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -2756,7 +2756,7 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   // Asserted from a REAL launch rather than by calling the helper, because the
   // ordering is half the contract: the manifest must exist before the worker
   // could have done anything, and only a real run proves that.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-manifest-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-manifest-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -2841,7 +2841,7 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   // `exec sleep` replaces the shell without changing the pid, so `$$` captured a
   // line earlier IS the running agent's pid — stable even when the detached
   // process is reaped as the dispatcher exits under the test harness.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-mpid-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-mpid-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -2912,7 +2912,7 @@ test('dispatch: the manifest names the wrapper and all three monitors, at spawn'
   // command pattern, which is how `plot-reap.sh:162` came to recognise no
   // worktree at all. This test kills the agent and then reads the manifest: if
   // the record depended on the processes still being there, it would be gone.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-group-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-group-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -2983,7 +2983,7 @@ test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
   // the runtime is told which session it is. The dispatcher mints the id — this
   // repo's Worker command carries no `--session-id` — so the ONE thing that
   // makes the join possible is that a command can read it back.
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sessenv-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sessenv-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   const seen = path.join(t, 'seen-session');
@@ -3047,7 +3047,7 @@ test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
  * the file appearing, and a refusal by it never appearing.
  */
 function gateRepo() {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gate-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gate-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   const sentinel = path.join(t, 'worker-ran');
@@ -3168,7 +3168,7 @@ test('dispatch: the ordinary path says nothing new about the manifest', () => {
  * session-env test above; kept local so each root test gets a clean estate.
  */
 function rootRepo(extraConfig = '') {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wtroot-'));
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wtroot-')));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
   git(t, 'init', '--bare', '-q', '-b', 'main', o);
@@ -3228,7 +3228,7 @@ test('dispatch: a relative Worktree root nests the worktrees and drops the prefi
 
 // AN ABSOLUTE ROOT IS TAKEN AS GIVEN, not appended to the repo root.
 test('dispatch: an absolute Worktree root is honoured as given', () => {
-  const abs = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-absroot-'));
+  const abs = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-absroot-')));
   const { tmp: t, repo: r } = rootRepo(`- **Worktree root:** ${abs}\n`);
   try {
     const out = execFileSync('bash', [dispatch, '--dry-run', '--offline', 'root'],
@@ -3424,7 +3424,7 @@ function removeSandbox(root) {
 }
 
 function repoForStart(label, workerCommand = 'true') {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `plot-start-${label}-`));
+  const root = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-start-${label}-`)));
   const origin = path.join(root, 'origin.git');
   const checkout = path.join(root, 'repo');
   git(root, 'init', '--bare', '-q', '-b', 'main', origin);
@@ -3609,6 +3609,25 @@ test('dispatch: `Worker command: none` is an answer, and --start reports it as o
 // `entities/machine.ts` as `file://` sources; Node 24 strips types, so the
 // TypeScript was never the obstacle — the SECOND import is. `machine.ts` opens
 // with `import { z } from 'zod'`, which an install carrying no `node_modules`
+
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. Measured 2026-09-30: this file left 4 entries behind. One
+// `process.on('exit')` rather than a cleanup per case, so a new case is covered
+// without remembering to add one, and it is idempotent with the `rmSync` calls
+// already here. Never a glob over the shared temp directory.
+// A FUNCTION DECLARATION HOLDING ITS OWN STATE, because `before()` hooks and
+// helpers ABOVE this point call it. A function declaration is hoisted whole,
+// but a `const` it closes over stays in the temporal dead zone until the
+// module reaches it — measured here as `ReferenceError: Cannot access
+// 'tempPaths' before initialization`. The list hangs off the function object,
+// which exists from the first line of the module.
+function trackTemp(dir) {
+  (trackTemp.paths ??= []).push(dir);
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of trackTemp.paths ?? []) fs.rmSync(dir, { recursive: true, force: true });
+});
 // cannot find. Reported 2026-09-17 from an install that could start no agents.
 //
 // THE CONDITION IS REPRODUCED RATHER THAN MOCKED. A plugin ships a skill's own
@@ -3629,7 +3648,7 @@ const scriptsDir = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
  * @returns the sandbox root and the scripts directory inside it.
  */
 function pluginInstall(label) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `plot-plugin-${label}-`));
+  const root = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-plugin-${label}-`)));
   const scripts = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.dirname(scripts), { recursive: true });
   fs.cpSync(scriptsDir, scripts, { recursive: true });

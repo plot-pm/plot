@@ -622,6 +622,8 @@ pnpm run test:e2e         # lifecycle choreography in sandbox repos — CI's job
                           # NOT part of a local run. See below.
 ```
 
+**`test:contracts` and `test:board` run in a private `TMPDIR` and `HOME`, and fail on a leaked entry.** `scripts/owned-run.sh` wraps both: it creates one `plot-run.*` root, points `TMPDIR`, `HOME`, `PLOT_BUDGET_HOME` and `PLOT_PR_INDEX_HOME` inside it for the whole process tree, and removes it whatever the exit code. An entry still in that root when the run ends came from the run — nothing else writes there — so the run fails and each entry is named with its prefix. Remove yours by the exact name `mkdtempSync` returned, never by a glob over the shared temp directory. Measured 2026-09-30: one clean run of `test/reconcile/host.test.mjs`, 266 of 266 green, left 365 entries in an empty `TMPDIR` and wrote 430 lines into the operator's `~/.plot/state/budget.tsv`.
+
 **`test:e2e` IS CI'S GATE, NOT A LOCAL ONE.** Run it when you are changing the
 lifecycle itself and want the feedback; do not run it as a matter of course, and
 do not put it in a brief's list of repo gates.

@@ -6,6 +6,29 @@ import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { openCatalogue, fleet, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. This file created sandboxes and removed none, so each run left them
+// in `TMPDIR`; `scripts/owned-run.sh` now fails a run that does.
+//
+// `rmTree` rather than a raw recursive `fs.rmSync`: CI's *A teardown does not
+// race a child* step allows exactly ONE such call under `packages/board/test/`,
+// and it is `rmTree`'s own body. `rmTree` also retries ENOTEMPTY/EBUSY/EPERM,
+// which is what a teardown racing a still-running child throws.
+//
+// Never a glob and never a prefix sweep over the shared temp directory.
+import { rmTree } from '../helpers.mjs';
+const trackTemp = <T extends string>(dir: T): T => {
+  trackedTempPaths.push(dir);
+  return dir;
+};
+const trackedTempPaths: string[] = [];
+process.on('exit', () => {
+  for (const dir of trackedTempPaths) {
+    try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
+  }
+});
+
+
 /**
  * WHAT THE START BUTTON SAYS BEFORE THE CLICK, IN A REAL BROWSER.
  *
@@ -62,7 +85,7 @@ const SLICED_PLAN = `# ${SLICED_TITLE}
  * for one file's question should not make every other file re-count.
  */
 function gardenWithSlices(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-waves-'));
+  const dir = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-waves-')));
   fs.cpSync(FIXTURE, dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'docs/plans/2026-08-17-raised-beds.md'), SLICED_PLAN, 'utf8');
   return dir;

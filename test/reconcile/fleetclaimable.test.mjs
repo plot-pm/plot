@@ -28,6 +28,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
+// RETURNED. Measured 2026-09-30 with GNU `mktemp` first on PATH: the four scan
+// files left 66 `plot-fleet-*` sandboxes between them. Those are the TESTS' own
+// directories — the 98 `tmp.*` entries the scripts used to leave are gone, which
+// is what `bug/scripts-share-one-temp-helper` fixed.
+//
+// One `process.on('exit')` rather than a cleanup per case, so a new case is
+// covered without remembering to add one, and it is idempotent with the `rmSync`
+// calls already here. Never a glob over the shared temp directory.
+//
+// A FUNCTION DECLARATION HOLDING ITS OWN STATE, because `before()` hooks above
+// this point call it: a function declaration is hoisted whole, while a `const`
+// it closed over would stay in the temporal dead zone until the module reached
+// it.
+function trackTemp(dir) {
+  (trackTemp.paths ??= []).push(dir);
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of trackTemp.paths ?? []) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scan = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-fleet-scan.sh');
 
@@ -69,7 +91,7 @@ const config = `# Fixture project
 `;
 
 before(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-claimable-'));
+  tmp = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-claimable-')));
   const origin = path.join(tmp, 'origin.git');
   repo = path.join(tmp, 'repo');
   git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
