@@ -27,12 +27,7 @@
 #   Project board | Branch prefixes | Plan directory | Active index |
 #   Delivered index | Sprint directory | Story directory | Story index |
 #   Plan template | Worker prompt template | Main branch | Board command
-#   Worktree root       where /plot-dispatch puts its worktrees. Read by
-#                       plot-dispatch.sh; default is the repo's PARENT, which
-#                       scatters `plot-wt-*` beside the checkout. An absolute
-#                       path is taken as given; a relative one resolves against
-#                       the repo root, so `.worktrees` gathers them inside it.
-#                       The default is kept for repos that never set it.
+#   Worktree root       the desk root; see its entry under the agent keys below.
 #   Worker bound        seconds a single prompt run may take in the worker loop
 #                       before it is ended and the worker exits (no hop). Read by
 #                       plot-worker-loop.sh; default 3600 (~1h), `0` disables it.
