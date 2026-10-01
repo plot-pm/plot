@@ -2785,7 +2785,28 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   const names = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
   assert.equal(names.length, 1, `one manifest per launched worker, got ${names.join(',')}`);
 
-  const m = JSON.parse(fs.readFileSync(path.join(dir, names[0]), 'utf8'));
+  // THE FIVE PID FIELDS ARE THE WRAPPER'S, AND THE DISPATCHER DOES NOT WAIT FOR
+  // THEM. `start_worker` writes the manifest, then the wrapper stamps `pid`,
+  // `wrapperPid` and the three monitor pids into it through a `.plot-pid-tmp`
+  // rename — so a read taken the instant the dispatch returns can land before
+  // that rename, and the key list below is short by five.
+  //
+  // THIS WAIT WAS NOT NEEDED UNTIL 2026-10-01, AND THE REASON IS WORTH KEEPING:
+  // the launch used to hold the caller's stdout until the agent exited, so
+  // `staff()` could not return before the stamp had long landed. The hold was
+  // synchronising this test by accident. Once the launch gave the caller its
+  // streams back, the race it had been hiding became reachable — and CI found
+  // it on Linux at 1 failure in 2287 while every local run passed.
+  const stamped = path.join(dir, names[0]);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      if (JSON.parse(fs.readFileSync(stamped, 'utf8')).wrapperPid) break;
+    } catch { /* mid-rename, or not yet valid JSON — read again */ }
+    execFileSync('sleep', ['0.05']);
+  }
+
+  const m = JSON.parse(fs.readFileSync(stamped, 'utf8'));
 
   // The filename IS the session id: that is how the board finds a transcript.
   assert.equal(`${m.session}.json`, names[0],
