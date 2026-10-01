@@ -134,33 +134,27 @@ prints is a line nobody reads on the run where it matters. Only `worker=` travel
 The defect was never that dispatch obeyed the flag; it was that nothing
 downstream noticed the result.
 
-## The question belongs to the skill, and to the first dispatch
+## The worker loop is written at adoption, and offered at the first dispatch
 
-`Worker command` is deliberately unset by default — Plot hardcodes no agent
-tooling (Principle 5). What was missing is that **nothing told the operator they
-were one config line away** from an automatic fan-out.
-
-Three placements, and only one survives:
+`/plot-init` writes `Worker command: PLOT_UNATTENDED=1 plot-worker-loop.sh`, and
+`/plot-dispatch` step 3 offers the same value where the key is absent (#1124).
+The value names Plot's own script and no harness: the harness call lives in the
+project's `.plot/worker-prompt.sh`, so Plot still hardcodes no agent tooling
+(Principle 5). The bare name resolves because `plot-dispatch.sh` puts its own
+directory first on `PATH` for the command it launches; a plugin path would carry
+a version and an absolute path a machine.
 
 - **Not in `plot-dispatch.sh`.** A bash script cannot put a question to a human
   inside an agent session, and this repo's direction is that scripts collect and
-  report while skills interpret. The plan's own first draft had it here; round 1
-  corrected it. `test/reconcile/dispatch.test.mjs` pins that the script neither
-  invokes a skill nor prompts.
-- **Not at `/plot-init`.** Adoption runs long before anyone fans out work, often
-  before the repo has a second branch, so the question arrives about a need the
-  answerer does not have. It gets a shrug, the key is written empty, and nobody
-  revisits it — **an answered-and-wrong config is harder to fix than a missing
-  one**, because nothing later notices it was never really decided. A test
-  asserts `plot-init/SKILL.md` never mentions the key.
-- **At the first dispatch**, where the consequence is concrete: *these branches
-  are about to be prepared and nobody will start them.*
+  report while skills interpret. `test/reconcile/dispatch.test.mjs` pins that the
+  script neither invokes a skill nor prompts.
+- **At the first dispatch, for a repository adopted before the key was written.**
+  A yes writes the loop; a no writes `none`, which means asked-and-declined.
+  Unattended, the skill stops and writes nothing.
 
-**It asks; it never suggests.** No example command in the prompt — an example
+**It never suggests a harness command.** No example in the prompt — an example
 becomes a template, and then Plot has effectively hardcoded a tool it is not
-supposed to know. The problem was never *which* command. The `Configuration`
-section of `SKILL.md` still documents the format, and that is a different
-audience: someone reading it came looking, someone being asked did not.
+supposed to know.
 
 ## Eligibility is not decided here
 
@@ -513,7 +507,8 @@ grepping the full output would have passed against the defect. Each was seen to
 fail: moving the prose out of `print_summary`, collapsing `declined` into
 `unconfigured`, and printing the prose on `--dry-run` each turn exactly one test
 red. Two more pin the layering — the script must contain no prompt and no skill
-invocation, and `plot-init/SKILL.md` must never mention `Worker command`.
+invocation, and `plot-init/SKILL.md` must write the worker loop as the
+`Worker command` and name no harness.
 
 The **cap** tests came the other way round: from running the real thing rather
 than a fixture. The wide branch there is named `bug/aaa-wide` so it sorts first

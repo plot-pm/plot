@@ -292,9 +292,19 @@ describe('composeAdoption — the keys', () => {
       'Git host',
       'Tracker',
       'Worktree root',
+      'Worker command',
     ]);
     expect(valueOf(result, 'Definition of Done')).toBe('test, lint');
     expect(valueOf(result, 'Git host')).toBe('github');
+  });
+
+  it('writes the worker loop as the Worker command, by its bare name', () => {
+    // A plugin path carries a version and an absolute path carries a machine;
+    // the dispatch script resolves the bare name beside itself (#1124).
+    const result = composeAdoption(input());
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(valueOf(result, 'Worker command')).toBe('PLOT_UNATTENDED=1 plot-worker-loop.sh');
+    expect(result.keys.find((k) => k.key === 'Worker command')?.evidence).toBe('');
   });
 
   it('creates CLAUDE.md where no hub doc exists', () => {

@@ -450,3 +450,17 @@ test('--restart refuses a branch with no worktree, naming the branch', () => {
   assert.match(res.stdout, /feature\/never-dispatched/);
   assert.match(res.stdout, /worktree/i);
 });
+
+// ---------------------------------------------------------------------------
+// An absent `Worker command` names the value to set (#1124)
+// ---------------------------------------------------------------------------
+
+test('--restart with no Worker command starts nothing and names the value to set', () => {
+  const { repo } = makeRepo({ workerCommand: '' });
+  const wt = claimedWorktree(repo);
+  const res = run(repo, ['--restart', 'feature/stopped'], { gh: ghShim(), expectFail: true });
+  assert.match(res.stdout, /no 'Worker command' is configured, so nothing started/, res.stdout);
+  assert.match(res.stdout, /set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop\.sh', which \/plot-dispatch offers to write/,
+    res.stdout);
+  assert.equal(fs.existsSync(path.join(wt, '.plot-worker.pid')), false, 'no worker was launched');
+});
