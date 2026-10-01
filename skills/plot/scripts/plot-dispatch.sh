@@ -801,9 +801,9 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
   ( cd "$repo_root" \
     && PLOT_UNATTENDED=1 PLOT_PLAN_SLUG="$bslug" PLOT_BRIEF_BRANCH="$branch" \
        PLOT_AGENT_SETTINGS="$_brief_settings" \
-       nohup sh -c "$cmd \"\$@\"" plot-brief \
+       exec nohup sh -c "$cmd \"\$@\"" plot-brief \
        "$(brief_prompt "$branch" "$bslug")" \
-       >"$log" 2>&1 </dev/null & ) 2>/dev/null
+       >"$log" 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null
   echo "      asked the \`Brief command\` to write it — log: $log"
   # SAYS WHAT WAS MEASURED, WHICH IS THE START AND NOT THE RESULT. The command
   # is detached and never waited on, so this returns 0 the moment it is spawned
@@ -1280,11 +1280,17 @@ start_worker() {
   # measured that day recorded a pid one process above the agent's real parent
   # (7357 against 7358, 71953 against 71954, 92947 against 92949).
   #
-  # The cause is that `$!` names the last job THIS shell backgrounded, and with
-  # an env-var prefix in front of `nohup` bash cannot collapse the AND-list into
-  # one child — it forks a subshell, and that subshell is what `$!` reports.
-  # (Without the prefix bash `exec`s the command in place and `$!` is correct,
-  # which is why the shape matters and a smaller repro does not show it.)
+  # THE LAUNCH NOW ENDS IN `exec`, so the forked bash IS the wrapper: `$$`
+  # inside the `sh -c` and the pid bash forked name one process, and no process
+  # carrying the dispatcher's command line survives the launch. The wrapper
+  # reparents to init — measured 2026-10-01, its PPID is 1.
+  #
+  # `exec` is also what gives the caller its streams back. The outer subshell
+  # inherited the dispatcher's stdout, and the inner redirect applies to the
+  # backgrounded job alone, so a reader on a pipe waited for an EOF the forked
+  # bash held for as long as the agent lived: measured 2026-10-01, `--start 1`
+  # took 20.39 s through `| cat` against 1.12 s with `exec`. The subshell is
+  # redirected too, because `exec` alone leaves the wrapper holding that pipe.
   #
   # So the same rule the agent pid already follows applies here: THE PROCESS
   # THAT KNOWS A PID IS THE ONE THAT WRITES IT. The wrapper knows `$$`; no
@@ -1499,7 +1505,7 @@ start_worker() {
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
+      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -1533,7 +1539,7 @@ start_worker() {
         relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
         { print }
       '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
-      >"$log" 2>&1 </dev/null & )
+      >"$log" 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null
   echo "    started worker (log: $log)"
   return 0
 }
