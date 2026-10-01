@@ -340,3 +340,89 @@ describe('the request names a plan; it does not carry one', () => {
     assert.match(prompt, /plot-deliver/);
   });
 });
+
+// THE DELIVER CONTROL DOES NOT OFFER A DELIVERY ONLY A MERGE SUBJECT PROVES.
+//
+// The boundary's half that a person meets: `deliverability` is what decides
+// whether the board's Deliver control is offered, and a control that offers a
+// delivery the re-gate behind it refuses teaches an operator to click through
+// a refusal. `/plot-deliver` asks the host, where a throttled answer counts as
+// not merged, so the control must read the same confirmation the automatic
+// path does.
+//
+// THE PULSE ARRIVES THROUGH THE BRIDGE, not through a stub. `deliverability`
+// reads `pulseFor`, which on a cold cache loads `.plot/state/last-pulse.json`
+// and RE-VALIDATES it through `FleetReadingSchema` — the same parse the board
+// performs on a restart. So this test exercises the production path and, like
+// the tick tests, fails if the schema strips the field it asserts on.
+describe('the Deliver control reads a confirmed landing, not a merge subject', () => {
+  /**
+   * Seeds the bridge with one approved plan whose only branch is `merged`.
+   *
+   * @param dir - the repository root.
+   * @param evidence - `'subject'` to mark the landing as proved by a merge
+   *   commit's subject alone, `undefined` for a host-confirmed one.
+   */
+  function bridge(dir: string, evidence?: 'subject'): void {
+    const file = path.join(dir, '.plot', 'state', 'last-pulse.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({
+      version: 1,
+      at: Date.now(),
+      pulse: {
+        main: 'main',
+        head: 'abc1234',
+        plans: [{
+          file: `2026-08-21-${SLUG}.md`,
+          phase: 'approved',
+          slices: [{
+            name: 'Implementation',
+            verdict: 'complete',
+            branches: [{
+              branch: 'feature/one',
+              state: 'merged',
+              deferred: false,
+              claimed: '',
+              ...(evidence === undefined ? {} : { evidence }),
+            }],
+          }],
+        }],
+        summary: {
+          plans: 1, waves: 1, branches: 1,
+          claimed: 0, eligible: 0, blocked: 0, deferred: 0,
+        },
+      },
+      ages: [],
+      branchUrlBase: '',
+      approvedAt: [],
+      ideaPlans: [],
+    }), 'utf8');
+  }
+
+  it('answers scan-incomplete while only a merge subject proves the landing', () => {
+    const dir = repo();
+    mergedPlan(dir);
+    bridge(dir, 'subject');
+    // NOT `deliverable`, and not `not-merged` either: the work is probably in
+    // and unconfirmed, so the honest answer is that the board cannot say yet —
+    // which is the word an operator already reads for a scan that has not
+    // finished.
+    assert.equal(
+      deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).verdict,
+      'scan-incomplete',
+    );
+  });
+
+  it('answers deliverable once the host has confirmed the same landing', () => {
+    // THE DISCRIMINATING HALF. Identical pulse but for the one field, so a
+    // rule that ignored it would answer `deliverable` above too and this pair
+    // would not separate.
+    const dir = repo();
+    mergedPlan(dir);
+    bridge(dir);
+    assert.equal(
+      deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).verdict,
+      'deliverable',
+    );
+  });
+});
