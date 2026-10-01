@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-10-01, jwloka, in-session
+- **Started:** 2026-10-01, jwloka, `bug/a-closed-sprint-stops-filtering`
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Issue:** #1145
