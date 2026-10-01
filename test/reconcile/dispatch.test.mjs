@@ -3363,9 +3363,9 @@ function reapFixtureWorkers(checkout) {
  * every test below, rather than passing while the operator's own shell blocks —
  * the workaround is what breaks if the hold returns.
  *
- * The timeout is the assertion's teeth: `spawnSync` kills the run at 30 s, so a
- * returned-to-the-caller hold fails the match on an empty read rather than
- * stalling the suite until `node --test` gives up.
+ * The timeout is the assertion's teeth: `spawnSync` kills a run that never
+ * returns, so a hold fails on a killed run rather than stalling the suite until
+ * `node --test` gives up. `runDetachedFully` is what reads that kill.
  *
  * @param args the arguments after the script name.
  * @param cwd the checkout to run in.
@@ -3373,6 +3373,42 @@ function reapFixtureWorkers(checkout) {
  * @returns what the run printed.
  */
 function runDetached(args, cwd, env = {}) {
+  return runDetachedFully(args, cwd, env).out;
+}
+
+/**
+ * The timeout `runDetached` gives a run, and the hold's own signature.
+ *
+ * 120 s IS THE GAP BETWEEN THE TWO OUTCOMES, NOT SLACK. A held stream waits for
+ * an agent told to `sleep 600`, so anything short of ten minutes catches it;
+ * what the budget must clear is the sandbox work a slow machine does before the
+ * launch. Measured 2026-10-01 at load 38 with 19 sibling test processes, a
+ * released `--start 1` took 23.3 s — so a 30 s budget measures the machine and
+ * this one measures the defect.
+ */
+const DETACHED_TIMEOUT_MS = 120_000;
+
+/**
+ * `runDetached`, with the evidence a held stream leaves behind.
+ *
+ * **THE SIGNAL IS THE TIMEOUT, NOT THE CLOCK.** A held stream does not make a
+ * run slow — it makes it unbounded: the caller waits for the agent, and these
+ * fixtures give the agent `sleep 600`, so a hold always runs into the 30 s kill
+ * and `spawnSync` reports `signal`. A released stream returns in dispatcher
+ * time, whatever the machine is doing.
+ *
+ * Measured 2026-10-01 at load 34, with 19 sibling test processes: a released
+ * `--start 1` took 21.5 s and a held one on `origin/main` took the full 30 s
+ * and was killed. An elapsed-time threshold cannot separate those two — it
+ * measures how loaded the machine is. `signal` separates them exactly, because
+ * nothing but the hold can reach it while the agent sleeps for ten minutes.
+ *
+ * @param args the arguments after the script name.
+ * @param cwd the checkout to run in.
+ * @param env extra environment for the run.
+ * @returns `out` — what it printed; `killed` — whether it hit the timeout.
+ */
+function runDetachedFully(args, cwd, env = {}) {
   // PLOT_REPO_ROOT IS SCRUBBED — see the `dispatch:` helper above for why. The
   // delete follows the caller's spread for the same reason it does there.
   const childEnv = { ...process.env, ...env };
@@ -3381,9 +3417,12 @@ function runDetached(args, cwd, env = {}) {
     cwd,
     env: childEnv,
     encoding: 'utf8',
-    timeout: 30_000,
+    timeout: DETACHED_TIMEOUT_MS,
   });
-  return `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  return {
+    out: `${run.stdout ?? ''}${run.stderr ?? ''}`,
+    killed: run.signal !== null && run.signal !== undefined,
+  };
 }
 
 /**
@@ -3887,13 +3926,13 @@ test('dispatch: --start returns through a pipe while its agent runs', () => {
   const { root, checkout } = repoForLiveStart('pipe');
   let pids = {};
   try {
-    const started = Date.now();
-    const out = runDetached(['--start', '1'], checkout);
-    const elapsed = Date.now() - started;
+    const { out, killed } = runDetachedFully(['--start', '1'], checkout);
 
+    // THE RUN ENDED ITSELF. A held stream waits on an agent sleeping for ten
+    // minutes, so it can only end by the timeout's kill.
+    assert.equal(killed, false,
+      `the run must return while the agent lives, not be killed at ${DETACHED_TIMEOUT_MS} ms:\n${out}`);
     assert.match(out, /summary: agents=1 /, out);
-    assert.ok(elapsed < 5_000,
-      `the run must return while the agent lives, took ${elapsed} ms:\n${out}`);
 
     // AND THE AGENT IS STILL THERE, which is what separates "returned" from
     // "the launch failed and the stream closed because nothing was spawned".
@@ -3936,15 +3975,15 @@ test('dispatch: --restart returns through a pipe while its agent runs', () => {
     git(checkout, 'branch', branch, 'main');
     git(checkout, 'worktree', 'add', '-q', desk, branch);
 
-    const started = Date.now();
-    const out = runDetached(['--offline', '--restart', branch], checkout);
-    const elapsed = Date.now() - started;
+    const { out, killed } = runDetachedFully(['--offline', '--restart', branch], checkout);
 
-    // IT REALLY LAUNCHED, which is what makes the timing meaningful.
+    assert.equal(killed, false,
+      `--restart must return while the agent lives, not be killed at ${DETACHED_TIMEOUT_MS} ms:\n${out}`);
+    // IT REALLY LAUNCHED, which is what makes the reading meaningful — a verb
+    // that refused before `start_worker` would return promptly and prove
+    // nothing about the launch.
     assert.match(out, /restarting feature\/restarted/, `the verb must reach its launch:\n${out}`);
     assert.match(out, /started worker/, `a worker must actually start:\n${out}`);
-    assert.ok(elapsed < 5_000,
-      `--restart must return while the agent lives, took ${elapsed} ms:\n${out}`);
 
     // And the agent it started is alive, with no dispatcher between it and init.
     const deadline = Date.now() + 5_000;
@@ -3981,13 +4020,24 @@ test('dispatch: a claim whose Brief command never exits returns through a pipe',
   const f = repoForBrief('briefpipe', { briefCommand: `sh -c 'sleep 600' plot-brief` });
   let brief;
   try {
-    const started = Date.now();
-    const out = f.dispatch(['--offline', '--no-start', 'b'], { timeout: 30_000 });
-    const elapsed = Date.now() - started;
-
+    // `execFileSync` THROWS on its timeout, which is the signal rather than a
+    // clock: the stand-in session sleeps for TEN MINUTES, so a held stream ends
+    // only by that kill while a released one returns in claim time.
+    //
+    // THE BUDGET IS 120 s AND THAT IS NOT SLACK — it is the gap between the two
+    // outcomes. A claim pushes refs and cuts a worktree before it ever reaches
+    // the brief launch, and measured 2026-10-01 at load 38 the neighbouring
+    // `a refused dispatch calls the configured Brief command`, whose brief
+    // command exits at once and which this slice did not touch, took 36 s and
+    // blew a 30 s budget of its own. So 30 s measures the machine; anything
+    // short of 600 s measures the hold.
+    let out;
+    try {
+      out = f.dispatch(['--offline', '--no-start', 'b'], { timeout: 120_000 });
+    } catch (err) {
+      assert.fail(`the claim must return while the brief session lives, it was killed: ${err.message}`);
+    }
     assert.match(out, /Brief command/, `the run must name what it called:\n${out}`);
-    assert.ok(elapsed < 15_000,
-      `the claim must return while the brief session lives, took ${elapsed} ms:\n${out}`);
   } finally {
     // The spawned session is not recorded in any pid file, so it is found by
     // the command line this fixture gave it — a sandbox-specific string, never
