@@ -72,7 +72,12 @@ plot_desk_root() {
     # Read from the TARGET repository, never the ambient one: `plot-config.sh`
     # walks up from its cwd, so a caller asking about another checkout would
     # otherwise get this one's key.
-    configured=$(cd -- "$repo" 2>/dev/null && bash "$_plot_desk_root_config" get "Worktree root" "" 2>/dev/null) || configured=''
+    # A read that fails is a refusal, never the absent row: reading it as empty
+    # would answer the default for a repository that configured another root.
+    configured=$(cd -- "$repo" 2>/dev/null && bash "$_plot_desk_root_config" get "Worktree root" "" 2>/dev/null) || {
+      printf 'plot: cannot resolve the desk root: the Worktree root key in %s could not be read\n' "$repo" >&2
+      return 3
+    }
   fi
   answer=$(node "$bundle" "$repo" "$configured" 2>&1) || {
     printf 'plot: cannot resolve the desk root: %s\n' "$answer" >&2
