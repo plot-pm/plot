@@ -1,0 +1,1 @@
+../2026-10-01-plot-keeps-its-files-inside-the-repository.md
