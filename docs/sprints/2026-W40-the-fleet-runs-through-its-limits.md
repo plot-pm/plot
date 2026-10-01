@@ -27,7 +27,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [a-handed-slice-reads-as-taken](../plans/2026-10-01-a-handed-slice-reads-as-taken.md) — [#1150](https://github.com/plot-pm/plot/issues/1150) — **A held empty claim reads as taken.** A slice whose claim a live agent holds reads `nobody has taken it` in NOT STARTED until its first commit, with the agent's activity dot beside it. Measured on this sprint's own slices, 2026-10-01.
 
 - [ ] [#1017](https://github.com/plot-pm/plot/issues/1017) — A scan takes 21-37s on 27 plans, and ~19s of it is the script's own bash — its plan a-parsed-plan-joins-the-index was rejected by a panel; it needs a rephrased plan.
-- [ ] [#1039](https://github.com/plot-pm/plot/issues/1039) — The only cross-tick assignment lock is the claim ref, and the queue never reads manifests
+- [ ] [an-assignment-is-read-where-it-is-recorded](../plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md) — [#1039](https://github.com/plot-pm/plot/issues/1039) — The only cross-tick assignment lock is the claim ref, and the queue never reads manifests
 - [ ] [the-release-pr-is-checked-before-it-merges](../plans/2026-10-01-the-release-pr-is-checked-before-it-merges.md) — [#1040](https://github.com/plot-pm/plot/issues/1040) — The release PR's push-triggered validate never reports, so every release merges with --admin
 - [ ] [#1041](https://github.com/plot-pm/plot/issues/1041) — Reporting idle from the supervisor's tick needs persistent state the daemon does not have
 - [ ] [#1057](https://github.com/plot-pm/plot/issues/1057) — Board shows a slice as (unnamed): the ### heading lives on the slice branch, the board reads the main branch — its plan a-slice-row-finds-its-pr-by-head was rejected; it needs a rephrased plan.
@@ -48,7 +48,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [#1148](https://github.com/plot-pm/plot/issues/1148) — On Linux, stopping the supervisor unit ends every agent it started: plot-registryd.service sets no KillMode
 - [ ] [the-queue-reads-the-order-the-scan-reads](../plans/2026-10-01-the-queue-reads-the-order-the-scan-reads.md) — [#1149](https://github.com/plot-pm/plot/issues/1149) — A long supervisor tick hands out a slice merged during the tick; the agent then reports a lock violation that did not happen
 - [ ] [a-start-step-leaves-no-claim-and-no-desk](../plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md) — [#1151](https://github.com/plot-pm/plot/issues/1151) — A worker-less checkout holding a slice's branch stops the agent it is handed to
-- [ ] [#1152](https://github.com/plot-pm/plot/issues/1152) — --release races the supervisor's hand-over and produces a false REGISTRY LOCK VIOLATION
+- [ ] [an-assignment-is-read-where-it-is-recorded](../plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md) — [#1152](https://github.com/plot-pm/plot/issues/1152) — --release races the supervisor's hand-over and produces a false REGISTRY LOCK VIOLATION
 
 ### Should Have
 
