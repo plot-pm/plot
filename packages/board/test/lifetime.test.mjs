@@ -256,58 +256,63 @@ describe('no orphan survives a killed test run', () => {
     let ports;
     let runnerRepo = '';
     try {
-      ports = await new Promise((resolve, reject) => {
-        let out = '';
-        let err = '';
-        const timer = setTimeout(
-          () => reject(new Error(`runner never started its servers in 15s: ${out}${err}`)),
-          15_000,
-        );
-        proc.stdout.on('data', (c) => {
-          out += c.toString();
-          const repoLine = /REPO (.+)/.exec(out);
-          if (repoLine) runnerRepo = repoLine[1].trim();
-          const m = /SERVERS (\d+) (\d+)/.exec(out);
-          if (!m) return;
-          clearTimeout(timer);
-          resolve([Number(m[1]), Number(m[2])]);
+      try {
+        ports = await new Promise((resolve, reject) => {
+          let out = '';
+          let err = '';
+          const timer = setTimeout(
+            () => reject(new Error(`runner never started its servers in 15s: ${out}${err}`)),
+            15_000,
+          );
+          proc.stdout.on('data', (c) => {
+            out += c.toString();
+            const repoLine = /REPO (.+)/.exec(out);
+            if (repoLine) runnerRepo = repoLine[1].trim();
+            const m = /SERVERS (\d+) (\d+)/.exec(out);
+            if (!m) return;
+            clearTimeout(timer);
+            resolve([Number(m[1]), Number(m[2])]);
+          });
+          proc.stderr.on('data', (c) => (err += c.toString()));
+          proc.on('exit', (code) => {
+            clearTimeout(timer);
+            reject(new Error(`runner exited (${code}) before starting servers: ${out}${err}`));
+          });
         });
-        proc.stderr.on('data', (c) => (err += c.toString()));
-        proc.on('exit', (code) => {
-          clearTimeout(timer);
-          reject(new Error(`runner exited (${code}) before starting servers: ${out}${err}`));
-        });
-      });
+      } finally {
+        // Whatever happened, do not leave the runner behind.
+        reap(proc.pid);
+      }
+
+      // Kill the runner outright — no `after()`, no teardown, nothing runs. A
+      // global teardown is NOT the mechanism and could not be: it runs only when
+      // the suite ends in order, which is the case the per-suite `after()` hooks
+      // already cover. The measured orphans came from a run that did not end in
+      // order, and a teardown would have missed both.
+      const gone = await Promise.all(
+        ports.map(async (port) => {
+          const pids = pidsListeningOn(port);
+          for (const pid of pids) await waitForExit(pid, 8000);
+          return pidsListeningOn(port).length === 0;
+        }),
+      );
+      for (const [i, clean] of gone.entries()) {
+        assert.ok(clean, `a board server is still listening on port ${ports[i]} after its run was killed`);
+      }
     } finally {
-      // Whatever happened, do not leave the runner behind.
-      reap(proc.pid);
-      // Nor its sandbox. The runner is SIGKILLed below, so no cleanup of its own
-      // can ever fire; this removes the one path it named, through `rmTree`
-      // because a raw recursive `fs.rmSync` here fails CI's *A teardown does not
-      // race a child* step, which allows exactly one and it is `rmTree`'s body.
-      // The runner's `makeRepo` put the repo in a box of its own, and this
-      // process cannot look that box up, so it removes the parent by name —
-      // only when the parent carries the repo's basename, as `boxedDir` makes it.
+      // Nor its sandbox, and only once its servers are gone: they outlive the
+      // runner until they notice, and a write in that window recreates the
+      // tree. The runner is SIGKILLed, so no cleanup of its own can ever fire;
+      // this removes the one path it named, through `rmTree` because a raw
+      // recursive `fs.rmSync` here fails CI's *A teardown does not race a
+      // child* step. The runner's `makeRepo` put the repo in a box of its own,
+      // and this process cannot look that box up, so it removes the parent by
+      // name — only when the parent carries the repo's basename, as `boxedDir`
+      // makes it.
       if (runnerRepo) {
         const box = path.dirname(runnerRepo);
         rmTree(path.basename(box) === path.basename(runnerRepo) ? box : runnerRepo);
       }
-    }
-
-    // Kill the runner outright — no `after()`, no teardown, nothing runs. A
-    // global teardown is NOT the mechanism and could not be: it runs only when
-    // the suite ends in order, which is the case the per-suite `after()` hooks
-    // already cover. The measured orphans came from a run that did not end in
-    // order, and a teardown would have missed both.
-    const gone = await Promise.all(
-      ports.map(async (port) => {
-        const pids = pidsListeningOn(port);
-        for (const pid of pids) await waitForExit(pid, 8000);
-        return pidsListeningOn(port).length === 0;
-      }),
-    );
-    for (const [i, clean] of gone.entries()) {
-      assert.ok(clean, `a board server is still listening on port ${ports[i]} after its run was killed`);
     }
   });
 });
