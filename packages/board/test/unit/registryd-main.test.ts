@@ -733,6 +733,9 @@ describe('starting agents is the one write this daemon performs', () => {
     const started = await startAgents(withStarts(1), performer, () => {}, (s) => err.push(s));
     expect(started).toBe(0);
     expect(err.join('')).toContain('Worker command');
+    // A command that is not the loop answers `unaskable` too (#1124), so the
+    // line names the loop as the repair rather than only the key.
+    expect(err.join('')).toContain('to run the worker loop');
   });
 
   it('reports a failed start and lets the next tick re-derive it', async () => {

@@ -113,50 +113,6 @@ export function soleRowStatus(
 }
 
 /**
- * Does the plan row of a ONE-SLICE plan print that slice's verdict?
- *
- * Within one section, a one-slice plan's verdict appears exactly once among the
- * rows a reader can see. The plan row prints it only where the slice row beneath
- * it does not — and the slice row prints it in two cases: when it holds several
- * branches (so it prints `N <verdict>` or `<verdict> · N left`), or when it
- * holds one branch whose own status word is empty.
- *
- * So this answers `true` in exactly two situations: the slice row is not on the
- * page at all, or it is and prints a word of its own instead of the verdict.
- *
- * @param sliceRowVisible Whether the section renders a slice row beneath this
- *   plan row. False where the head is collapsed, or where the section's rows
- *   yield no slice group — an all-deferred plan in NOT STARTED.
- * @param soleRowStatus {@link soleRowStatus} for a slice of ONE branch; `null`
- *   where the slice holds several, because there is no single row to ask.
- * @returns `true` where the plan row prints the verdict and no PR fold; `false`
- *   where it prints the PR fold and no verdict.
- *
- * `null` AND `''` BOTH MEAN THE SLICE ROW SAYS THE VERDICT, by two different
- * routes, and the distinction is why this takes `string | null` rather than a
- * boolean. `''` is a slice of one whose PR state is `unknown`: `prStatus`
- * returns the empty string deliberately there, so the slice row falls back to
- * the verdict. `null` is a slice of several, which prints the verdict with a
- * count. Every other one-branch row prints `green`, `checks failing`,
- * `deferred`, `delivered`, `open`, `working` or `stalled` — a word of its own,
- * and then the verdict is this row's to print.
- *
- * Exported for test: an implementation reading `soleRowStatus !== null` prints
- * the verdict twice for the `unknown` PR that is the measured defect, and one
- * reading it as truthy is right by accident with nothing saying why.
- */
-export function planRowShowsSoleVerdict({
-  sliceRowVisible,
-  soleRowStatus,
-}: {
-  sliceRowVisible: boolean;
-  soleRowStatus: string | null;
-}): boolean {
-  if (!sliceRowVisible) return true;
-  return typeof soleRowStatus === 'string' && soleRowStatus !== '';
-}
-
-/**
  * The four stuck states as WORDS, one apiece.
  *
  * FOUR LABELS, NOT ONE. *Stuck* as a single word is the one-label-many-states

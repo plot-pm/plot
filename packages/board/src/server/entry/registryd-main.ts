@@ -884,11 +884,12 @@ export const startAgents = async (
     if (!answer.ok) {
       // `unaskable` IS A FIRST-CLASS ANSWER AND NOT A FAILURE. It means the
       // repository has no `Worker command` — asked, and answered *we start them
-      // by hand* — so the line says what to configure rather than reading as an
-      // error to chase every sixty seconds.
+      // by hand* — or one that does not run `plot-worker-loop.sh`, which a free
+      // agent needs to wait (#1124). The line says what to configure rather than
+      // reading as an error to chase every sixty seconds.
       warn(
         answer.why === 'unaskable'
-          ? 'plot-registryd: nothing starts agents in this repository — set a `Worker command` in Plot Config, or start them with `plot-dispatch.sh --start`\n'
+          ? 'plot-registryd: nothing starts free agents in this repository — set `Worker command` in Plot Config to run the worker loop; `/plot-fleet --start 1` names what is configured now\n'
           : 'plot-registryd: an agent could not be started; the next tick re-derives the queue and tries again\n',
       );
       continue;

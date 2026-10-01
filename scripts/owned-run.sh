@@ -97,9 +97,22 @@ root=$(mktemp -d "${TMPDIR:-/tmp}/plot-run.XXXXXX") || {
 
 # `TMPDIR` is the root itself, so the leak listing IS the root's listing and a
 # stray entry has nowhere to hide. The other three are named subdirectories:
-# they are inspected by name after a failure, and slice 3's inventory gate reads
-# them.
+# they are inspected by name after a failure, and `check-state-inventory.mjs`
+# reads them.
 mkdir -p "$root/home" "$root/budget" "$root/pr-index" || exit 2
+
+# PLAYWRIGHT'S BROWSERS STAY WHERE THEY ARE INSTALLED. Playwright finds them
+# under `HOME`, which moves into the root below, so every browser test would
+# fail at `browserType.launch`. The suite reads the cache and never writes it,
+# so pointing at the caller's cache reopens no leak. A caller's own
+# `PLAYWRIGHT_BROWSERS_PATH` wins.
+if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+  case "$(uname -s)" in
+    Darwin) PLAYWRIGHT_BROWSERS_PATH="$ORIG_HOME/Library/Caches/ms-playwright" ;;
+    *) PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$ORIG_HOME/.cache}/ms-playwright" ;;
+  esac
+  export PLAYWRIGHT_BROWSERS_PATH
+fi
 
 cleanup() {
   # `${root:?}` refuses an empty expansion, so a cleanup reached with `root`
@@ -239,6 +252,14 @@ esac
 #
 # The registry check runs with the CALLER's `TMPDIR` and `HOME`, for the reason
 # in the header: inside the root it cannot see `/var/folders/.../T` at all.
+#
+# The inventory check reads the root's `home/.plot`, `budget` and `pr-index`
+# before cleanup, and fails the run on a state file `scripts/state-inventory.json`
+# does not declare. It is skipped on a 124: a run killed at its bound stopped
+# mid-write, and its files say where it was killed, not what it writes.
+if [ -f scripts/check-state-inventory.mjs ] && [ "$status" != 124 ]; then
+  node scripts/check-state-inventory.mjs "$root" || status=1
+fi
 if [ -f scripts/check-registry-not-leaked.mjs ]; then
   if [ -n "$ORIG_TMPDIR_SET" ]; then
     TMPDIR="$ORIG_TMPDIR" HOME="$ORIG_HOME" node scripts/check-registry-not-leaked.mjs || status=1
