@@ -2263,10 +2263,7 @@ while true; do
   # unreapable. `info/exclude` is per-REPOSITORY and shared by every worktree.
   #
   # Best-effort throughout: a desk that cannot take the marker still works.
-  _excl="$(git -C "$hop_wt" rev-parse --git-common-dir 2>/dev/null)/info/exclude"
-  if [ -f "$_excl" ] && ! grep -qxF '.metadata_never_index' "$_excl" 2>/dev/null; then
-    printf '%s\n' '.metadata_never_index' >> "$_excl" 2>/dev/null || true
-  fi
+  plot_desk_exclude "$hop_wt" '.metadata_never_index'
   : > "$hop_wt/.metadata_never_index" 2>/dev/null || true
 
   # Claim the branch with an empty commit.
