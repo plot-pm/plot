@@ -78,10 +78,14 @@ It answers, tested in this order: `stale` where `ageMs > HAND_OVER_MAX_AGE_MS` (
 
 ### The other hand-over paths
 
-Two other paths start work on a slice, and neither hands one out from its own reading:
+Four other paths start work on a slice, and none hands one out from an aged reading:
 
 - **The board's auto-dispatch** (`packages/board/src/server/auto-dispatch.ts`) counts only slices whose pulse verdict is `eligible` (`:547`, `:593`, `:808`). That verdict comes from the scan, which already reads a claimed first slice as outstanding, so auto-dispatch keeps the order. It runs `plot-dispatch.sh --max <n> <slug>` (`:915-917`), which queues the slice for the registry and pushes no claim (`:921-926`). The hand-over is the supervisor's, and slice 2 checks it.
 - **`/api/claim`** (`packages/board/src/server/claim.ts:163`) runs `plot-dispatch.sh --no-start --max <n> <slug>`. That also selects from the scan's eligible list and starts no worker, so it hands nothing to an agent either.
+- **The loop's hop** (`skills/plot/scripts/plot-worker-loop.sh:9-11`) asks the scan's `--next` when a slice completes and then pushes the claim (`:2290`). Its reading is seconds old, and a rejected push is the lock. Slice 2's message change applies to that push.
+- **`plot-dispatch.sh --restart <branch>`** gives a branch that a person names to a new worker. It decides from no reading.
+
+Both `plot-dispatch.sh` paths take their branches from `plot-fleet-scan.sh --list-eligible` (`plot-dispatch.sh:3850`, `:3898`). Outside tests, only `registryd-main.ts` and the performer port and adapter name `assignSlice`, so `startAgents` is the one place that gives a queued slice to an agent.
 
 A pulse can be minutes old, so auto-dispatch can queue a slice that merged after the scan. The queue then drops it on the next tick (`already-merged`), and slice 2 withholds it if it merged during the tick. No third check is needed.
 
