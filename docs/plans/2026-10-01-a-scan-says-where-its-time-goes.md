@@ -105,5 +105,11 @@ Removes the one cost slice 1 names, if it holds 30% of the median or the median 
 
 ## Notes
 
+### Slice 1 measurement — in progress
+
+Runs are on `origin/main` at `03fd1c8b`, which **includes** `bug/the-merge-subject-is-one-rule` (merged as PR #1159, commit `86b66628`). The brief recorded that branch as in flight and unmerged; it had merged by the time the runs started.
+
+Run 1 (cold cache, `PLOT_TERMINAL_CACHE=''`, untraced): wall 398.38 s, user 67.62 s, sys 42.95 s, load 22.51 before and 15.95 after, 26 plans. Host time 238.72 s over 42 calls, of which **226.65 s is 39 `pr-state` calls** (`plot-fleet-scan.sh:1167`), 11.61 s is the two `pr-list` calls, and 0.46 s is one `backend`. The table and the verdict follow the warm runs.
+
 - **Replaces the rejected `a-parsed-plan-joins-the-index`** (`docs/plans/2026-09-26-a-parsed-plan-joins-the-index.md`). That plan proposed a content-keyed parse cache against a 32 s parse cost. The panel measured the batched parse at 481 ms (`plot-fleet-scan.sh:2851`, one invocation for all plans) and found most of an `--offline` scan in the script's own bash. This plan proposes no mechanism. It measures the board's own call shape, with the host, and makes the second slice conditional on that result.
 - The two readings in Motivation are one run each, at load 22-30, on two commits 30 minutes apart. They show the size of the gap between `--offline` and `--stream`, not its cause.
