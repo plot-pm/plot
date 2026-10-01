@@ -21,7 +21,11 @@ It settles the estate's existing practice. `plot-pr-merged.sh` is sourced by fou
 
 **The boundary is the frequency, not the caller's language and not the rule's importance.** `plot-reap.sh` runs once per sweep and calls `rules/reapable.ts` for the most destructive decision Plot makes. `plot-pr-merged.sh` answers the same class of question and is duplicated, because it is sourced inside loops.
 
+**And the frequency is per CALL SITE, not per script.** `plot-worker-loop.sh` is in the table above as the second case, and that line is about its idle pass. The same script asks the domain once per PROMPT EXIT, through `board/plot-prompt-exit.mjs`: a prompt runs for minutes or hours, so one 39 ms hop after it adds nothing measurable, where a hop on the idle pass is paid by every agent on every pass. A shell copy of that rule would need a corpus test to hold the pair together and would save no cost — and the rule it would copy reads a wall-clock time in an IANA zone, which bash has no way to resolve. So one script sits on both rows of the table, and which row applies follows from the call site's frequency.
+
 **A rule that cannot be asked refuses.** Where a script calls the domain, `node` missing, an import failing, or the module throwing must leave the script refusing, not proceeding. `plot-reap.sh:451` states it: silence is never permission.
+
+**Refusing means not taking the action the rule would have licensed, which is not always stopping.** `plot-reap.sh` removes a worktree, so the action it withholds is the removal and withholding it is doing nothing. The prompt-exit call is the other shape: the action the rule licenses is the WAIT, so an unaskable rule means no wait — and a non-zero prompt exit then takes the retry path it took before the rule existed. That path ends the worker after three attempts, so the unaskable case is strictly less permissive than the answer it replaces, never more. The test is what the refusal WITHHOLDS, not whether the script continues.
 
 ## 2. Where the call goes
 
