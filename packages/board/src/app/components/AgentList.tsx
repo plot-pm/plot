@@ -30,7 +30,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { SprintFilter } from './SprintFilter.js';
-import { rowIsSprintExempt, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
+import { rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
@@ -566,8 +566,53 @@ export function AgentList({
   // Applied BEFORE `rowsBySection`: the filter is about WHICH plans a reader
   // wants to see, and the sections are about WHERE those rows belong. Filtering
   // after sectioning would have the same effect but re-filter per section.
-  const selectedSprints = useMemo(() => [...sprintFilter], [sprintFilter]);
-  const filteredRows = sprintFilter.size === 0
+  // THE SELECTION THAT STILL FILTERS — #1145. The stored `Set` holds whatever
+  // the reader has ever checked; `activeSprints` holds the sprints that exist
+  // now. A sprint that closes leaves the second and stays in the first, and the
+  // filter then asks `membership` about a slug it has no entry for, which fails
+  // EVERY plan row — the closed sprint's own members included, because the
+  // membership map is built from active sprints only.
+  //
+  // So the filter reads a DERIVATION rather than the stored `Set`, with the rule
+  // the Plans tab already applies to its URL selection (`App.tsx:937`): keep the
+  // selected values that are still options, and let an all-stale selection
+  // collapse to no filter. No new rule, and the control and the filter can no
+  // longer answer from two different sprint sets.
+  //
+  // DERIVED, NOT ONLY PRUNED. The effect below runs after the render that read
+  // the new `activeSprints`, so a frame would filter on a dropped slug if the
+  // derivation were not here too.
+  const selectedSprints = useMemo(
+    () => sanitizeSelection([...sprintFilter], activeSprints.map((s) => ({ value: s.slug, label: s.title }))),
+    [sprintFilter, activeSprints],
+  );
+  // The derived selection as a `Set`, for the control, which reads `has`.
+  const selectedSprintSet = useMemo(() => new Set(selectedSprints), [selectedSprints]);
+  // Is any sprint selected? Asked of the DERIVED list at every site below: a
+  // `sprintFilter.size` read would turn the filter on for a slug that no longer
+  // filters anything, which is the defect wearing a different number.
+  const sprintFilterOn = selectedSprints.length > 0;
+
+  // PRUNE THE STORED SELECTION, so a dropped sprint cannot come back. A branch
+  // switch to a tree where the closed sprint is still Active returns it to
+  // `fleet.sprints` (`workingTreeSprints` reads the checked-out tree), and a
+  // slug kept in the `Set` would filter again with its box checked — a selection
+  // this reader never made in this view.
+  //
+  // ONLY WHEN THE LIST IS NON-EMPTY. `workingTreeSprints` answers `[]` when the
+  // sprint directory is missing or unreadable, which a checkout or a
+  // fast-forward can cause for one poll. Pruning on that answer would delete a
+  // live selection the next poll cannot restore. While the list is empty the
+  // derived selection is empty anyway, so the filter is off for that poll and
+  // comes back unchanged on the next one.
+  useEffect(() => {
+    if (activeSprints.length === 0) return;
+    setSprintFilter((prev) => {
+      if (selectedSprints.length >= prev.size) return prev;
+      return new Set(selectedSprints);
+    });
+  }, [activeSprints, selectedSprints]);
+  const filteredRows = !sprintFilterOn
     ? fleet.rows
     : fleet.rows.filter((r) =>
       rowIsSprintExempt(r) || slugPassesSprintFilter(r.plan, selectedSprints, membership));
@@ -576,7 +621,7 @@ export function AgentList({
   // screen and carry a mark); `hidden` counts the rows it removed. Two numbers
   // because they are two facts: a reader told `4 hidden` must not have to work
   // out how many unrelated rows were shown anyway.
-  const sprintReport = sprintFilter.size === 0
+  const sprintReport = !sprintFilterOn
     ? null
     : {
       hidden: fleet.rows.length - filteredRows.length,
@@ -621,14 +666,14 @@ export function AgentList({
   // no plan to filter by and is never hidden. Only workers whose plan exists
   // and would NOT pass the sprint filter are counted.
   const workersHiddenByFilter = useMemo(() => {
-    if (sprintFilter.size === 0) return 0;
+    if (!sprintFilterOn) return 0;
     return workingRows.filter(({ row }) => {
       // No plan → not hidden (would pass any filter)
       if (!row?.plan) return false;
       // Check if this plan FAILS the sprint filter
       return !slugPassesSprintFilter(row.plan, selectedSprints, membership);
     }).length;
-  }, [workingRows, sprintFilter, selectedSprints, membership]);
+  }, [workingRows, sprintFilterOn, selectedSprints, membership]);
 
   // HOW MANY AGENTS THE REGISTRY HOLDS THAT ARE NOT WORKING — the figure the
   // section's own tally cannot give, and the only one of the two worth a word.
@@ -837,7 +882,7 @@ export function AgentList({
         <div className="min-w-0 flex-1">
           <SprintFilter
             sprints={activeSprints}
-            selected={sprintFilter}
+            selected={selectedSprintSet}
             onToggle={toggleSprintFilter}
             estateTotals={fleet.estateTotals}
             report={sprintReport}
@@ -981,7 +1026,7 @@ export function AgentList({
         // what the SPRINT filter alone withheld. Against bare `fleet.rows` a row
         // hidden by «Only my work» was counted a second time under the label
         // `hidden by Sprint only`.
-        const unfilteredSectionedRows = sprintFilter.size > 0
+        const unfilteredSectionedRows = sprintFilterOn
           ? rowsBySection(rowsForReader(fleet.rows, reader, mineOnly))
           : sectionedRows;
         // THE SERVER-DERIVED SLICES, bound once beside the rows so every
@@ -1175,7 +1220,7 @@ export function AgentList({
         // no sprint, and the other two are joined to unfiltered rows — so the
         // tally beside them is not a sprint-filtered number, and the header says
         // so rather than letting `hidden by Sprint only` imply it.
-        const unfilteredCount = sprintFilter.size > 0
+        const unfilteredCount = sprintFilterOn
           ? issues.length + drafts.length + broken.length
           : 0;
         const unfilteredSuffix = unfilteredCount > 0
@@ -2222,7 +2267,7 @@ export function AgentList({
                           // wears a mark, so it reads as exempt rather than as a
                           // sprint member. Only here: a row in a plan group names
                           // a plan, and `rowIsSprintExempt` never holds for it.
-                          sprintExempt={sprintFilter.size > 0 && rowIsSprintExempt(r)}
+                          sprintExempt={sprintFilterOn && rowIsSprintExempt(r)}
                           // Looked up per row rather than per group: a row's
                           // plan is what dispatch takes, and only the rows that
                           // are startable ever use it.
