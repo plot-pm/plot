@@ -919,6 +919,33 @@ await esbuild.build({
 fs.copyFileSync(reconcileArtifact, shippedReconcile);
 fs.chmodSync(shippedReconcile, 0o755);
 
+// Where Plot creates desks and writes its action records, for the nine shell
+// sites that each resolved it privately and disagreed on the default.
+//
+// Its own bundle for the reason the ones above give: plot-ask.mjs runs the
+// fleet scan to answer anything, so a script asking where one directory lives
+// would start an 18 s scan. This asks deskRoot, spawns nothing and opens
+// nothing — both readings arrive as arguments. It runs once per operator
+// command, which the cost rule permits.
+const deskRootArtifact = path.join(here, 'dist/plot-desk-root.mjs');
+// ONE LINE, for the bundle-set derivation's reason above.
+const shippedDeskRoot = path.join(here, '../../skills/plot/scripts/board/plot-desk-root.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/desk-root.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: deskRootArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(deskRootArtifact, shippedDeskRoot);
+fs.chmodSync(shippedDeskRoot, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -1057,6 +1084,7 @@ const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
 const sliceSpendKb = (fs.statSync(shippedSliceSpend).size / 1024).toFixed(1);
 const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
+const deskRootKb = (fs.statSync(shippedDeskRoot).size / 1024).toFixed(1);
 const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
 const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(1);
 const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
@@ -1084,6 +1112,7 @@ console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/
 console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-spend.mjs (${sliceSpendKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-desk-root.mjs (${deskRootKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
