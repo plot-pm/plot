@@ -70,7 +70,7 @@ Read on `7206c9d8`:
 
 ## Slices
 
-### The tally names its tickets (Branch: bug/the-tally-names-its-tickets)
+### The tally names its tickets (Branch: bug/the-tally-names-its-tickets, PR: #1156)
 
 `sectionTally` with the new argument and result, `tallyLabel`, `unfilteredNote`, and the call site. A `'@plot-pm/board': patch` changeset. <!-- builds: tallyLabel, unfilteredNote, the section header wording -->
 

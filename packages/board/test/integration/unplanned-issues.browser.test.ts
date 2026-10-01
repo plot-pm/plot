@@ -325,14 +325,31 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     }
   });
 
-  it('counts issue rows in the section tally', async () => {
-    // One branch row plus two issues: a heading reading (1) above three lines
-    // is the mismatch NOT STARTED already had to fix once.
+
+  it('names its tickets as tickets in the section tally', async () => {
+    // One plan over its single slice, plus two tickets. It read `(3)`: the
+    // tickets were added to the plan and slice figures alike, which kept the two
+    // equal so the single-number branch fired, and a heading reading `(3)` above
+    // three lines said nothing about two of them being tickets.
     const page = await open();
     try {
       await expect.poll(async () =>
-        (await page.getByRole('button', { name: /Waiting on you/ }).first().textContent())?.includes('(3)'))
-        .toBe(true);
+        (await page.getByRole('button', { name: /Waiting on you/ }).first().textContent()))
+        .toContain('(1 plan · 2 tickets)');
+      // THE INVARIANT, against the render rather than against the function: the
+      // top-level lines a reader sees equal `plans + branches + tickets +
+      // agents`. Counted from the rendered rows, because a unit test has only
+      // `sectionTally`'s own figures to compare with and would be comparing the
+      // function with itself.
+      const heading = page.getByRole('button', { name: /Waiting on you/ }).first();
+      // One plan group and two ticket rows — the `sr-only` legend is not a row.
+      const rendered = await section(page).locator('> li:not(.sr-only)').count();
+      const label = (await heading.textContent()) ?? '';
+      const figures = [...label.matchAll(/(\d+) (?:plan|branch|branche|ticket|stopped agent)/g)]
+        .map((m) => Number(m[1]));
+      expect(figures).toEqual([1, 2]);
+      expect(figures.reduce((a, b) => a + b, 0)).toBe(rendered);
+      expect(rendered).toBe(3);
     } finally {
       await page.close();
     }

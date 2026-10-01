@@ -1,0 +1,1 @@
+../2026-10-01-an-assignment-is-read-where-it-is-recorded.md

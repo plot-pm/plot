@@ -66,7 +66,7 @@ The form is measured on the real script in a sandbox repository (macOS, bash 5.3
 
 ## Slices
 
-### The launch gives back the caller's streams (Branch: bug/the-launch-gives-back-the-callers-streams)
+### The launch gives back the caller's streams (Branch: bug/the-launch-gives-back-the-callers-streams, PR: #1154)
 
 `exec` before `nohup` and the outer redirect at both launch sites, and the comment at `:1283-1287` rewritten. A contract test runs the real script: it starts a free agent in a sandbox repository whose loop never exits, reads `--start 1`'s output through a pipe, and asserts end-of-file within 5 s, `summary: agents=1`, the agent still alive, and the wrapper's parent not a process with the dispatcher's command line. The same test for `--restart`. A claim (`--no-start`) on a slice with no brief and a `Brief command` that never exits returns through a pipe before the 60 s timeout. `runDetached` and its docstring are rewritten so they describe the fixed behaviour, and one existing `--start` test reads through a pipe, so the old workaround is what breaks if the hold returns.
 

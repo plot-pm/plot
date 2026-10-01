@@ -1,0 +1,1 @@
+../2026-10-01-an-empty-branch-never-reads-as-merged.md

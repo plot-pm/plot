@@ -1,0 +1,1 @@
+../2026-10-01-delivery-reads-the-last-finished-scan.md

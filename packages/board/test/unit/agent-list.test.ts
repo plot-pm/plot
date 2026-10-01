@@ -20,7 +20,7 @@ import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writ
 import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
-import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, type PlanGroup, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
+import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
@@ -408,7 +408,11 @@ describe('groupByPlan with unplanned rows', () => {
     expect(nameless?.rows).toHaveLength(2);
     expect(groups.filter((g) => g.plan === '')).toHaveLength(1);
     expect(showPlanHeading(nameless!)).toBe(false);
-    expect(sectionTally(nameless!.rows, 'not-started', [], 0).plans).toBe(2);
+    // And it is not slices either: the bucket counts under `branches`, its own
+    // name, while `plans` stays at zero for a section holding no plan.
+    const bucket = sectionTally(nameless!.rows, 'not-started', [], NONE);
+    expect(bucket.branches).toBe(2);
+    expect(bucket.plans).toBe(0);
   });
 });
 
@@ -3829,6 +3833,12 @@ describe('runLinkLabel — Show failure only where a failure is present', () => 
   });
 });
 
+// A section holding none of the three unfolded kinds. Named rather than written
+// out at each call site: the figures a tally takes are now a record, and `{
+// tickets: 0, drafts: 0, agents: 0 }` repeated nine times says nothing the name
+// does not.
+const NONE = { tickets: 0, drafts: 0, agents: 0 };
+
 describe('sectionTally — a header counts the things rendered beneath it', () => {
   // A server-derived wave, keyed on (plan, name), carrying the ONE section the
   // server placed it in. `section` is what a grouped header must count against,
@@ -3852,19 +3862,19 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       slice({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
       slice({ plan: 'beta', name: 'One', branches: ['b1'] }),
     ];
-    const tally = sectionTally(rows, 'done', slices, 0);
+    const tally = sectionTally(rows, 'done', slices, NONE);
     expect(tally.plans).toBe(2);
     expect(tally.slices).toBe(3);
-    expect(tally.differ).toBe(true);
+    expect(tallyLabel(tally)).toBe('(2 plans · 3 slices)');
   });
 
   it('renders one number for QUIET at 0/0 — agreement grows no redundant clause', () => {
     // The degenerate case the plan names: an empty section whose two counts
     // agree must not read `0 plans · 0 waves`.
-    const tally = sectionTally([], 'quiet', [], 0);
+    const tally = sectionTally([], 'quiet', [], NONE);
     expect(tally.plans).toBe(0);
     expect(tally.slices).toBe(0);
-    expect(tally.differ).toBe(false);
+    expect(tallyLabel(tally)).toBe('(0)');
   });
 
   it('renders one number where plan heads and waves agree', () => {
@@ -3878,15 +3888,17 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       slice({ plan: 'alpha', name: 'One', branches: ['a1'] }),
       slice({ plan: 'beta', name: 'One', branches: ['b1'] }),
     ];
-    const tally = sectionTally(rows, 'done', slices, 0);
+    const tally = sectionTally(rows, 'done', slices, NONE);
     expect(tally.plans).toBe(2);
     expect(tally.slices).toBe(2);
-    expect(tally.differ).toBe(false);
+    expect(tallyLabel(tally)).toBe('(2)');
   });
 
-  it('folds issue rows into the visible count', () => {
-    // A grouped section's issue rows are lines the reader sees, so they count
-    // toward the plan (visible-line) figure — the NOT STARTED lesson, applied.
+  it('counts issue rows as tickets, under their own name', () => {
+    // They are lines the reader sees, so they are counted — but a ticket is not
+    // a plan and not a slice of one. Added to BOTH figures they kept the two
+    // equal, which printed `(4)` above four lines and said nothing about two of
+    // them being tickets.
     const rows = [
       row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
       row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'merged', group: 'done' }),
@@ -3895,12 +3907,26 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       slice({ plan: 'alpha', name: 'One', branches: ['a1'] }),
       slice({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
     ];
-    const tally = sectionTally(rows, 'done', slices, 2);
-    // One plan head plus two issue rows visible → three; two waves in scope plus
-    // the two issues → four.
+    const tally = sectionTally(rows, 'done', slices, { ...NONE, tickets: 2 });
+    // One plan head, two waves in its scope, two tickets beside it. Three
+    // figures, three names, and the collapsed lines are 1 + 2 = 3.
+    expect(tally.plans).toBe(1);
+    expect(tally.slices).toBe(2);
+    expect(tally.tickets).toBe(2);
+    expect(tallyLabel(tally)).toBe('(1 plan · 2 slices · 2 tickets)');
+  });
+
+  it('counts a draft plan under plans, never under slices', () => {
+    // A draft plan has no branch yet, so it is a plan line with nothing to
+    // expand. Counting it as a slice would claim a branch the plan has not named.
+    const rows = [
+      row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
+    ];
+    const slices: Slice[] = [slice({ plan: 'alpha', name: 'One', branches: ['a1'] })];
+    const tally = sectionTally(rows, 'done', slices, { ...NONE, drafts: 2 });
     expect(tally.plans).toBe(3);
-    expect(tally.slices).toBe(4);
-    expect(tally.differ).toBe(true);
+    expect(tally.slices).toBe(1);
+    expect(tallyLabel(tally)).toBe('(3 plans · 1 slice)');
   });
 
   it('never counts two plan-less branches as one plan, in any section', () => {
@@ -3919,16 +3945,22 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
     ];
     const notStarted = sectionTally(
       [...real, planless('b/one', 'not-started'), planless('b/two', 'not-started')],
-      'not-started', slices, 0);
-    // One plan head for alpha, plus each plan-less row as its own line.
-    expect(notStarted.plans).toBe(3);
-    expect(notStarted.slices).toBe(4);
+      'not-started', slices, NONE);
+    // One plan head for alpha over its two slices, plus each plan-less row
+    // counted as a branch — its own kind, under its own name.
+    expect(notStarted.plans).toBe(1);
+    expect(notStarted.slices).toBe(2);
+    expect(notStarted.branches).toBe(2);
+    expect(tallyLabel(notStarted)).toBe('(1 plan · 2 slices · 2 branches)');
     // The real plan alone: unchanged by its plan-less neighbours.
-    expect(sectionTally(real, 'not-started', slices, 0).plans).toBe(1);
+    expect(sectionTally(real, 'not-started', slices, NONE).plans).toBe(1);
     for (const section of ['waiting-on-you', 'quiet', 'done'] as const) {
       const tally = sectionTally(
-        [planless('b/one', section), planless('b/two', section)], section, [], 0);
-      expect(tally.plans, section).toBe(2);
+        [planless('b/one', section), planless('b/two', section)], section, [], NONE);
+      // Branches in every section, and a plan in none of them.
+      expect(tally.branches, section).toBe(2);
+      expect(tally.plans, section).toBe(0);
+      expect(tallyLabel(tally), section).toBe('(2 branches)');
     }
   });
 });
@@ -3942,6 +3974,91 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
 // why it could never render and why it is deleted rather than repaired. The
 // plan head's Commission design item is covered by
 // `plan-head-controls.browser.test.ts`.
+
+describe('tallyLabel — each kind under its own name', () => {
+  const tally = (over: Partial<SectionTally> = {}): SectionTally =>
+    ({ plans: 0, slices: 0, branches: 0, tickets: 0, agents: 0, ...over });
+
+  it('names plans, slices and tickets where a section holds all three', () => {
+    // The board the plan measured: three plans over six slices, with fifteen
+    // open tickets beside them. `(3)` was the old answer and `(24)` would be the
+    // naive fix; neither tells a reader what the lines are.
+    expect(tallyLabel(tally({ plans: 3, slices: 6, tickets: 15 })))
+      .toBe('(3 plans · 6 slices · 15 tickets)');
+  });
+
+  it('prints one kind alone where a section holds only tickets', () => {
+    // No plan, no branch — so no plan figure, and no `0 plans` either. A zero
+    // names a kind the section does not hold.
+    expect(tallyLabel(tally({ tickets: 15 }))).toBe('(15 tickets)');
+  });
+
+  it('is singular at one, per unit', () => {
+    expect(tallyLabel(tally({ agents: 1 }))).toBe('(1 stopped agent)');
+    expect(tallyLabel(tally({ branches: 1, tickets: 2 }))).toBe('(1 branch · 2 tickets)');
+    expect(tallyLabel(tally({ plans: 1, slices: 2 }))).toBe('(1 plan · 2 slices)');
+  });
+
+  it('pluralises branches as branches', () => {
+    // The one unit an `s` suffix gets wrong.
+    expect(tallyLabel(tally({ branches: 2 }))).toBe('(2 branches)');
+  });
+
+  it('prints plans, slices and branches together — NOT STARTED mixed', () => {
+    // One plan head over two slices, beside two branches no plan names. The
+    // defect read the plan-less pair as a plan with slices of its own.
+    expect(tallyLabel(tally({ plans: 1, slices: 2, branches: 2 })))
+      .toBe('(1 plan · 2 slices · 2 branches)');
+  });
+
+  it('suppresses the slice figure where it equals the plan figure', () => {
+    // Two plans, one slice each: `2 plans · 2 slices` states one fact twice.
+    expect(tallyLabel(tally({ plans: 2, slices: 2, tickets: 1 })))
+      .toBe('(2 plans · 1 ticket)');
+  });
+
+  it('renders one number for QUIET at zero', () => {
+    // The degenerate case: nothing of any kind, and `(0 plans)` would be worse
+    // than `(0)` at saying so.
+    expect(tallyLabel(tally())).toBe('(0)');
+  });
+
+  it('renders one number where plans and slices agree and nothing else is present', () => {
+    // An ungrouped section gains no clause it does not need.
+    expect(tallyLabel(tally({ plans: 4, slices: 4 }))).toBe('(4)');
+  });
+});
+
+describe('unfilteredNote — names the kinds the sprint filter never saw', () => {
+  const some = { tickets: 2, drafts: 1, agents: 1 };
+
+  it('is empty where the filter is off', () => {
+    // Nothing was withheld, so there is nothing to disclaim.
+    expect(unfilteredNote(some, false)).toBe('');
+  });
+
+  it('is empty where the filter is on and none of the three is present', () => {
+    expect(unfilteredNote({ tickets: 0, drafts: 0, agents: 0 }, true)).toBe('');
+  });
+
+  it('names all three where all three are present', () => {
+    expect(unfilteredNote(some, true))
+      .toBe(' · tickets, draft plans and stopped agents are not sprint-filtered');
+  });
+
+  it('names only the kinds present', () => {
+    expect(unfilteredNote({ tickets: 3, drafts: 0, agents: 0 }, true))
+      .toBe(' · tickets are not sprint-filtered');
+    expect(unfilteredNote({ tickets: 3, drafts: 0, agents: 2 }, true))
+      .toBe(' · tickets and stopped agents are not sprint-filtered');
+  });
+
+  it('carries no number', () => {
+    // The figures are in the header already, each under its own name. A sum here
+    // asks the reader to reconcile two counts of the same rows.
+    expect(unfilteredNote(some, true)).not.toMatch(/[0-9]/);
+  });
+});
 
 describe('a board that never scanned says so', () => {
   // THREE CASES, AND TWO OF THEM USED TO PRODUCE THE SAME SCREEN. The render

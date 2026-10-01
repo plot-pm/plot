@@ -380,7 +380,21 @@ export function showPlanHeading(group: PlanGroup): boolean {
 }
 
 /**
- * What a section's header must say beneath itself — `{ plans, slices, differ }`.
+ * A section's tally, one figure per kind of line it holds.
+ *
+ * `plans`, `branches`, `tickets` and `agents` are the top-level lines a reader
+ * sees while the section is collapsed; `slices` is the scope one level down.
+ */
+export interface SectionTally {
+  plans: number;
+  slices: number;
+  branches: number;
+  tickets: number;
+  agents: number;
+}
+
+/**
+ * What a section's header must say beneath itself — one figure per kind.
  *
  * **THE RULE:** any count the board renders beside a section is derivable from
  * that section's rows, or says what else it counts. The defect this closes was
@@ -395,21 +409,29 @@ export function showPlanHeading(group: PlanGroup): boolean {
  * every row is slice-grouped, or when a plan heading earns its place), and as its
  * own top-level lines otherwise — a slice row per grouped slice plus each loose
  * row. Summing the per-group render keeps the header equal to the section BY
- * CONSTRUCTION, so a section that only partly folds cannot drift.
+ * CONSTRUCTION, so a section that only partly folds cannot drift. A draft plan
+ * counts here too: it is a plan line, with no branch to be a slice of.
  *
  * **`slices` IS THE SCOPE THE BARE NUMBER WAS REACHING FOR** — the count of
  * top-level rows a reader reaches by expanding every head: one row per slice the
  * section groups, plus each loose branch (a deferred branch is its own row, not
- * a slice nobody reached). Derivable from the same rows, one level down.
+ * a slice nobody reached). Derivable from the same rows, one level down. Counted
+ * for plan-carrying groups only, since a plan-less branch is a slice of nothing.
  *
- * **`differ`** is the whole point of returning both. Where the two agree — an
- * ungrouped section, or an empty one — the caller renders a single number, so
- * `QUIET (0)` never grows into `QUIET (0 plans · 0 slices)`. Where they diverge,
- * the header states each and says which: `DONE (10 plans · 19 slices)`.
+ * **`branches` IS THE PLAN-LESS BUCKET.** The rows of the nameless group
+ * (`plan === ''`) — branches no plan names. They are neither plans nor slices of
+ * one, so they are counted and named as themselves.
  *
- * `issues` are rows the reader sees and reaches (unplanned tickets in WAITING ON
- * YOU), so they count toward BOTH figures — the NOT STARTED lesson, that a tally
- * reading `(2)` above four lines is the mismatch this rule exists to forbid.
+ * **`tickets` AND `agents` ARE COUNTED, NEVER FOLDED.** A ticket is not a plan
+ * and a stopped agent is not a slice. They used to be added to BOTH figures,
+ * which kept the two equal and so hid them inside a single number that looked
+ * reconcilable: one branch row beside two tickets read `(3)`, and nothing in the
+ * header said two of those three lines were tickets.
+ *
+ * **THE INVARIANT:** the top-level lines a reader sees while the section is
+ * collapsed equal `plans + branches + tickets + agents`. `slices` is the scope
+ * one level down — what expanding every head reaches — and is deliberately not
+ * part of that sum.
  *
  * WORKING is not passed here: it renders the registry, one row per agent, and
  * its count is `agents.length` — `the-working-section-shows-every-worker`, slice
@@ -419,38 +441,120 @@ export function showPlanHeading(group: PlanGroup): boolean {
  * naive `groupByPlan(...).length` gets wrong while looking right on a fully
  * folded DONE.
  */
-export function sectionTally(
+export const sectionTally = (
   rows: AgentRow[],
   section: WaitingGroup,
   slices: Slice[] | undefined,
-  issueCount: number,
-): { plans: number; slices: number; differ: boolean } {
+  unplanned: { tickets: number; drafts: number; agents: number },
+): SectionTally => {
   const countsPlans = section === 'not-started';
   let planLines = 0;
   let sliceLines = 0;
+  let branchLines = 0;
   for (const group of groupByPlan(rows)) {
     const grouped = sliceGroupsFor(group.rows, section, slices);
     const loose = ungroupedRows(group.rows, section, slices);
     // The top-level rows a reader reaches by expanding this group's head: one
     // per grouped slice, plus every row no slice claimed.
     const groupSlices = grouped.length + loose.length;
+    // A nameless group is branches, not a plan and not slices of one. Its rows
+    // reach no head and expand into nothing, so they are counted once, here.
+    if (!group.plan) {
+      branchLines += group.rows.length;
+      continue;
+    }
     sliceLines += groupSlices;
     // Does this group RENDER AS ONE HEAD, or as its own lines? The three
     // predicates the component decides with, read here so the count cannot
     // disagree with the render.
-    const planHeads = !countsPlans && Boolean(group.plan)
-      && loose.length === 0 && grouped.length > 0;
+    const planHeads = !countsPlans && loose.length === 0 && grouped.length > 0;
     const headed = !countsPlans && section !== 'waiting-on-you'
       && showPlanHeading(group);
-    // A plan-less group heads nothing in NOT STARTED either, so it counts as
-    // the lines it renders — the component's `countsPlans && group.plan`.
-    const planRow = countsPlans && Boolean(group.plan);
-    planLines += planRow || planHeads || headed ? 1 : groupSlices;
+    planLines += countsPlans || planHeads || headed ? 1 : groupSlices;
   }
-  const plans = planLines + issueCount;
-  const slicesCount = sliceLines + issueCount;
-  return { plans, slices: slicesCount, differ: plans !== slicesCount };
-}
+  return {
+    plans: planLines + unplanned.drafts,
+    slices: sliceLines,
+    branches: branchLines,
+    tickets: unplanned.tickets,
+    agents: unplanned.agents,
+  };
+};
+
+/**
+ * The header text for a section's tally — `(3 plans · 6 slices · 15 tickets)`.
+ *
+ * **ONE NUMBER WHERE THERE IS ONE KIND AND NOTHING DIVERGES.** Plan lines whose
+ * slice count agrees, with no branches, tickets or agents beside them, print
+ * `(N)` — so `QUIET (0)` stays `(0)` and never grows into `(0 plans)`.
+ *
+ * **OTHERWISE EVERY NON-ZERO FIGURE, EACH WITH ITS UNIT**, in reading order:
+ * plans, slices, branches, tickets, stopped agents. A zero prints nothing, so a
+ * section of only tickets reads `(15 tickets)` rather than naming four kinds it
+ * does not hold.
+ *
+ * **THE SLICE FIGURE PRINTS ONLY WHERE IT DIFFERS FROM THE PLAN FIGURE.** Equal
+ * counts make the second clause redundant — `(2 plans · 2 slices)` states one
+ * fact twice — and that redundancy is what `differ` used to guard.
+ *
+ * Here rather than in the component because every rendered state is a domain
+ * property: the wording was built inline in the heading's JSX, where the only
+ * way to assert it was to render a page.
+ */
+export const tallyLabel = (tally: SectionTally): string => {
+  const { plans, slices, branches, tickets, agents } = tally;
+  const unit = (n: number, singular: string, plural = `${singular}s`) =>
+    `${n} ${n === 1 ? singular : plural}`;
+  // The degenerate case, and it is the common one: plan lines alone, agreeing
+  // with their slice scope. Nothing to name, because there is only one kind.
+  if (branches === 0 && tickets === 0 && agents === 0 && plans === slices) {
+    return `(${plans})`;
+  }
+  const parts = [
+    plans > 0 ? unit(plans, 'plan') : '',
+    slices > 0 && slices !== plans ? unit(slices, 'slice') : '',
+    branches > 0 ? unit(branches, 'branch', 'branches') : '',
+    tickets > 0 ? unit(tickets, 'ticket') : '',
+    agents > 0 ? unit(agents, 'stopped agent') : '',
+  ].filter(Boolean);
+  return `(${parts.join(' · ')})`;
+};
+
+/**
+ * What the sprint filter never saw — ` · tickets, draft plans and stopped agents
+ * are not sprint-filtered`, naming only the kinds actually present.
+ *
+ * Tickets, draft plans and stopped agents reach WAITING ON YOU from the fleet
+ * directly: a ticket carries no sprint, and the other two are joined to
+ * unfiltered rows. So the tally beside them is not a sprint-filtered number, and
+ * the header says which kinds that applies to rather than letting `hidden by
+ * Sprint only` imply it covers everything.
+ *
+ * **IT CARRIES NO NUMBER.** The figures are already in the header, each under
+ * its own name, so repeating their sum here states the same facts a third time
+ * and invites the reader to reconcile two numbers that count the same rows.
+ *
+ * Empty where the filter is off, or where none of the three kinds is present.
+ */
+export const unfilteredNote = (
+  unplanned: { tickets: number; drafts: number; agents: number },
+  filterActive: boolean,
+): string => {
+  if (!filterActive) return '';
+  const kinds = [
+    unplanned.tickets > 0 ? 'tickets' : '',
+    unplanned.drafts > 0 ? 'draft plans' : '',
+    unplanned.agents > 0 ? 'stopped agents' : '',
+  ].filter(Boolean);
+  if (kinds.length === 0) return '';
+  // Every kind name is plural, so the verb is `are` even where one kind is
+  // named: `tickets is not sprint-filtered` would be the agreement error a
+  // naive one-or-many branch makes here.
+  const named = kinds.length === 1
+    ? kinds[0]
+    : `${kinds.slice(0, -1).join(', ')} and ${kinds[kinds.length - 1]}`;
+  return ` · ${named} are not sprint-filtered`;
+};
 
 /**
  * How long this PLAN has been waiting, in days — the clock that ticks in NOT
