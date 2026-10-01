@@ -1019,7 +1019,7 @@ bb_state_listing() { # global bb args… --state <s> --json → one JSON array
     esac
   done
   [ -n "$_st" ] || die "bb_state_listing: no --state"
-  _out="$(bb ${_args[@]+"${_args[@]}"} api "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=50")" || return $?
+  _out="$(bb ${_args[@]+"${_args[@]}"} api "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN")" || return $?
   printf '%s' "$_out" | jq -c '.values // []'
 }
 
@@ -2543,27 +2543,36 @@ jira_check() {
 # `bb` returned 50 merged PRs (ids 836→787) against a repo numbering to 836, so
 # ~780 older merged PRs were invisible to the join.
 #
-# THE DETECTOR IS AGAINST THE REQUESTED LIMIT, NEVER THE CONSTANT 50. A future
-# `bb` page size of 100 must not make a truncated 100-row list report complete —
-# this plan's own defect restored. So the rule names no page size:
+# THE RULE IS `rules/listing-page.ts`'s `pagePossiblyTruncated`, and this is
+# its shell copy. `pr-list` runs on every board refresh, so the shell keeps the
+# rule rather than asking a bundle (docs/shell-and-domain.md), and
+# `packages/domain/corpus/listing-page.corpus.test.ts` holds the pair:
 #
 #   github (HONOURS --limit)  : a state is possibly truncated when it returned
-#                               AT LEAST the requested limit — the host may have
-#                               had more that the limit hid. Fewer rows than the
-#                               limit PROVES completeness.
-#   bitbucket (IGNORES --limit): `bb pr list` has no --limit and reports neither
-#                               a total nor a cursor, so it can NEVER prove
-#                               completeness for a --limit call. Any non-empty
-#                               page is therefore possibly truncated. An empty
-#                               page had nothing to truncate.
+#                               AT LEAST the requested limit. Fewer rows than
+#                               the limit PROVES completeness.
+#   bitbucket (ONE FIXED PAGE): the listing ignores --limit and returns one page
+#                               per state. A page SHORTER than the page length
+#                               is the last page, so it is complete. A page AT
+#                               the length stays possibly truncated.
 #
-# THE PREMISE ABOVE IS ABOUT `bb pr list`, AND IT WAS ONCE WRITTEN ABOUT
-# BITBUCKET. It said the host "cannot report a total or a cursor" — true of the
-# CLI's listing and false of the REST endpoint behind it, which carries both a
-# `size` and a `next`. That mattered the moment a path existed that could ask:
-# the per-branch sweep (#333) proves completeness exactly, per branch, and this
-# detector is deliberately not asked about it (`pr_list_states`). The rule below
-# is unchanged and still governs every listing call.
+# THE PAGE LENGTH IS A READING, NEVER A CONSTANT THE RULE NAMES. The listing
+# asks `pagelen=$BB_LIST_PAGELEN` through `bb api`, and the length holds only
+# where that `bb` passes the query through unchanged, so it is read per version
+# from `BB_LIST_PAGE_VERSIONS` — pinned like `BB_ISSUE_VERSION`. A version
+# nobody measured has no length, and every non-empty page under it stays
+# possibly truncated: the rule never calls a page complete it cannot prove. A
+# future length of 100 is a new table entry, never a page of 50 read as short.
+#
+# Measured on `quatico/quaweb-website`: bb 1.9.0 returned 50 merged rows in one
+# request on 2026-09-30, and on 2026-10-01 answered `pagelen: 50` with 50 rows,
+# a `next` and `size: 895`. Before
+# 2026-10-01 every non-empty Bitbucket page was reported, so 20 open PRs read as
+# truncated on every refresh (#1137).
+#
+# THE PER-BRANCH SWEEP AND THE WINDOWED LISTING MAKE NO PAGE CLAIM. The sweep
+# proves completeness per branch and the window refuses a short read, so this
+# detector is not asked about either (`pr_list_states`).
 #
 # No --limit was requested → the caller accepted the host's default page and is
 # owed no report, so no existing no-limit caller's behaviour changes.
@@ -2582,18 +2591,40 @@ jira_check() {
 # future diff that teaches the scan to fall back, without moving the failure
 # into a minutes-long pulse. See the plan's Done-when item 3.
 #
+# The page length Bitbucket's plain listing asks for. `bb_state_listing` sends
+# it, and `pr_list_report_truncation` reads it as the page length only for a
+# `bb` in BB_LIST_PAGE_VERSIONS.
+BB_LIST_PAGELEN=50
+
+# The `bb` versions measured to pass `pagelen` through `bb api` unchanged,
+# space-separated. `adapters/host/listing-paging.ts` holds the same table.
+BB_LIST_PAGE_VERSIONS="1.9.0"
+
+# The page length the answering `bb` lists by, or nothing where its version is
+# not in BB_LIST_PAGE_VERSIONS. Reads the version `bb_require_json` recorded,
+# so it costs no `bb` call; a skipped capability check records no version.
+bb_list_page_length() {
+  local v="${BB_CAP_IDENTITY#*/}"
+  case " $BB_LIST_PAGE_VERSIONS " in
+    *" $v "*) printf '%s\n' "$BB_LIST_PAGELEN" ;;
+  esac
+}
+
 # $1 backend  $2 requested limit (may be "")  $3 state word  $4 row count
 pr_list_report_truncation() {
-  local be="$1" limit="$2" state="$3" count="$4"
+  local be="$1" limit="$2" state="$3" count="$4" len=""
   [ -n "$limit" ] || return 0            # no --limit → no completeness claim owed
   [ "$count" -gt 0 ] 2>/dev/null || return 0   # an empty page had nothing to hide
   if [ "$be" = "github" ]; then
     # github honours the limit: complete unless the page came back AT the limit.
     [ "$count" -ge "$limit" ] 2>/dev/null || return 0
+  else
+    # A fixed page: complete below a measured page length, unprovable otherwise.
+    [ "$be" = "bitbucket" ] && len="$(bb_list_page_length)"
+    if [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; then return 0; fi
   fi
-  # bitbucket: any non-empty page for a --limit call is unprovable, so it falls
-  # through to the report. Named per state so a future caller can resolve exactly
-  # the states that were capped, not a whole-call flag that over-reports.
+  # Named per state so a caller can resolve exactly the states that were
+  # capped, not a whole-call flag that over-reports.
   echo "plot-host: $be pr-list state=$state possibly truncated ($count rows, requested limit $limit unprovable) — a join against this page may read older branches as 'no PR' (#333)" >&2
 }
 
