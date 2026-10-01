@@ -88,7 +88,7 @@ A desk root inside the repository must not appear as untracked files. When the a
 
 `deskRoot`, its Concept file, the bundle, `agentLogDir`, the nine callers, the ignore line, and the tests.
 
-### Action records move into the repository (Branch: bug/action-records-move-into-the-repository)
+### Action records move into the repository (Branch: bug/action-records-move-into-the-repository, PR: #1142)
 
 The once-only migration of existing action records from the checkout's parent, and its fixture test.
 
