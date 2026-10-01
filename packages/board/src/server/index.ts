@@ -10,7 +10,7 @@ import { boardState, fleetState } from './controllers/fleet-state.js';
 import { estateFromEnv } from './estate.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
-import { isUnderAgentLogDir, primeWorktreeRoot } from './agent-log.js';
+import { agentLogDir, isUnderAgentLogDir, migrateAgentLogs, primeWorktreeRoot } from './agent-log.js';
 import { continueAvailability, handleContinue } from './continue.js';
 import { handleClaim } from './claim.js';
 import { handleFleetSettings } from './fleet-settings.js';
@@ -149,12 +149,22 @@ const estate = estateFromEnv(opts);
  * a `.catch` rather than a `void` because an unhandled rejection ends the
  * process. A failed prime is not fatal — the synchronous read survives as the
  * fallback for exactly this case, and it lands on the same answer.
+ *
+ * ONCE THE ROOT IS KNOWN, the action records an older Plot wrote beside the
+ * checkout move into it, before any action writes a new one. `migrateAgentLogs`
+ * moves only names Plot wrote, never overwrites, and marks the destination, so
+ * every later start is a stat of the marker.
  */
 primeWorktreeRoot(opts.repoRoot, (key, fallback) =>
   planStoreFor(opts).config(key, fallback),
-).catch((err: unknown) => {
-  console.warn(`[board] could not pre-read the worktree root: ${String(err)}`);
-});
+)
+  .catch((err: unknown) => {
+    console.warn(`[board] could not pre-read the worktree root: ${String(err)}`);
+  })
+  .then(() => {
+    const moved = migrateAgentLogs(opts.repoRoot);
+    if (moved > 0) console.log(`[board] moved ${moved} action record(s) into ${agentLogDir(opts.repoRoot)}`);
+  });
 
 /**
  * The settings file every agent this board starts receives, resolved ONCE here.
