@@ -3348,19 +3348,24 @@ function reapFixtureWorkers(checkout) {
 }
 
 /**
- * Run `--start` without holding a pipe open on the detached worker.
+ * Run `--start` and read what it printed through a pipe.
  *
- * **THE PIPE IS WHAT BLOCKS, NOT THE SCRIPT.** A worker is spawned detached with
- * its own log redirection, but it inherits the process group's stdout, so a
- * PARENT reading through a pipe waits for EOF that the grandchild holds — for
- * as long as the agent lives. Measured 2026-09-05: `--start 1` with a
- * `Worker command: sleep 300` returned in 4 ms to a file and blocked for the
- * full 300 s to `| tail`.
+ * **THE READING IS THROUGH A PIPE DELIBERATELY, AND IT IS THE REGRESSION LOCK.**
+ * Both launch sites end in `exec nohup sh -c` and redirect the outer subshell,
+ * so the dispatcher's streams close when the dispatcher returns rather than when
+ * the agent exits. Until 2026-10-01 they did not: the forked bash held the
+ * caller's stdout for the agent's whole life, because the inner redirect covers
+ * the backgrounded job alone. Measured that day, `--start 1` with a loop that
+ * never exits took 20.39 s through `| cat` against 1.12 s with `exec`.
  *
- * That is the fan-out's own spawn shape and predates this verb; what changes
- * here is only that a fixture may now keep a worker alive across two calls, so
- * the reading has to be taken the way a real operator's shell takes it — to a
- * terminal or a file, never through a pipe that outlives the read.
+ * This helper read to a FILE to work around that hold. Reading through a pipe
+ * instead means a launch site that loses its `exec` or its outer redirect hangs
+ * every test below, rather than passing while the operator's own shell blocks —
+ * the workaround is what breaks if the hold returns.
+ *
+ * The timeout is the assertion's teeth: `spawnSync` kills the run at 30 s, so a
+ * returned-to-the-caller hold fails the match on an empty read rather than
+ * stalling the suite until `node --test` gives up.
  *
  * @param args the arguments after the script name.
  * @param cwd the checkout to run in.
@@ -3368,17 +3373,17 @@ function reapFixtureWorkers(checkout) {
  * @returns what the run printed.
  */
 function runDetached(args, cwd, env = {}) {
-  const log = path.join(cwd, '.plot-start-test.out');
   // PLOT_REPO_ROOT IS SCRUBBED — see the `dispatch:` helper above for why. The
   // delete follows the caller's spread for the same reason it does there.
   const childEnv = { ...process.env, ...env };
   delete childEnv.PLOT_REPO_ROOT;
-  spawnSync('bash', [dispatch, ...args], {
+  const run = spawnSync('bash', [dispatch, ...args], {
     cwd,
     env: childEnv,
-    stdio: ['ignore', fs.openSync(log, 'w'), fs.openSync(log, 'a')],
+    encoding: 'utf8',
+    timeout: 30_000,
   });
-  return fs.readFileSync(log, 'utf8');
+  return `${run.stdout ?? ''}${run.stderr ?? ''}`;
 }
 
 /**
@@ -3781,6 +3786,217 @@ test('dispatch: --start does not take a name that only contains the loop for the
     assert.match(out, /worker=no-loop/, out);
   } finally {
     removeSandbox(root);
+  }
+});
+
+// The launch gives back the caller's streams
+// ---------------------------------------------------------------------------
+//
+// THE TESTS ABOVE READ THROUGH A PIPE AND THESE READ THROUGH ONE WITH A LIVE
+// AGENT, which is the case that blocked. `runDetached`'s own worker command
+// exits at once, so a launch site that held the caller's stdout released it a
+// millisecond later and every test above passed anyway. The hold lasts as long
+// as the AGENT lives, so proving it needs a loop that never exits — and then
+// the reading is the assertion: end-of-file arrives when the dispatcher
+// returns, not when the agent does.
+//
+// Measured 2026-10-01 on `origin/main`: `--start 1` with such a loop took
+// 20.39 s through `| cat` and 1.12 s once both sites ended in `exec`.
+
+/**
+ * A sandbox whose worker loop runs until it is killed.
+ *
+ * The command is `sleep 600` through the loop stub, so the agent is alive for
+ * the whole assertion and the pid files name a process that still exists. A
+ * test using this MUST kill what it started: nothing else will, and a sandbox
+ * cannot be removed under a live worker.
+ *
+ * @param label names the sandbox directory.
+ * @returns the sandbox root and the checkout inside it.
+ */
+function repoForLiveStart(label) {
+  return repoForStart(label, 'sleep 600');
+}
+
+/**
+ * Every pid a desk recorded, with the ones already gone dropped.
+ *
+ * @param checkout the sandbox checkout.
+ * @returns `{ wrapper, agent }` pid numbers, either possibly undefined.
+ */
+function deskPids(checkout) {
+  const desks = path.join(checkout, '.worktrees');
+  const found = {};
+  for (const desk of fs.existsSync(desks) ? fs.readdirSync(desks) : []) {
+    for (const [key, name] of [['wrapper', '.plot-worker.wrapper.pid'], ['agent', '.plot-worker.pid']]) {
+      const file = path.join(desks, desk, name);
+      if (!fs.existsSync(file)) continue;
+      const pid = Number(fs.readFileSync(file, 'utf8').trim());
+      if (Number.isInteger(pid) && pid > 0) found[key] = pid;
+    }
+  }
+  return found;
+}
+
+/**
+ * Waits for a desk to record a pid, then answers it.
+ *
+ * The wrapper writes `$$` as its first act, so the file appears within a
+ * millisecond of the launch — but `--start` returns without waiting for it, by
+ * design, so a read taken the instant it returns can land in that window.
+ *
+ * @param checkout the sandbox checkout.
+ * @param key `wrapper` or `agent`.
+ * @returns the pid, or undefined if none appeared within five seconds.
+ */
+function waitForPid(checkout, key) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const pid = deskPids(checkout)[key];
+    if (pid !== undefined) return pid;
+    execFileSync('sleep', ['0.05']);
+  }
+  return undefined;
+}
+
+/** The command line of a pid, or '' when it is gone. */
+function commandOf(pid) {
+  const ps = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+  return (ps.stdout ?? '').trim();
+}
+
+/** The parent pid of a pid, or undefined when it is gone. */
+function parentOf(pid) {
+  const ps = spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' });
+  const ppid = Number((ps.stdout ?? '').trim());
+  return Number.isInteger(ppid) && ppid > 0 ? ppid : undefined;
+}
+
+/** SIGKILLs each pid given, ignoring the ones already gone. */
+function killPids(...pids) {
+  for (const pid of pids) {
+    if (pid === undefined) continue;
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
+test('dispatch: --start returns through a pipe while its agent runs', () => {
+  // THE DONE-WHEN, END TO END, AGAINST THE REAL SCRIPT. `runDetached` reads
+  // through a pipe, so the elapsed time IS the hold: a launch site that keeps
+  // the caller's stdout cannot reach the assertion inside five seconds.
+  const { root, checkout } = repoForLiveStart('pipe');
+  let pids = {};
+  try {
+    const started = Date.now();
+    const out = runDetached(['--start', '1'], checkout);
+    const elapsed = Date.now() - started;
+
+    assert.match(out, /summary: agents=1 /, out);
+    assert.ok(elapsed < 5_000,
+      `the run must return while the agent lives, took ${elapsed} ms:\n${out}`);
+
+    // AND THE AGENT IS STILL THERE, which is what separates "returned" from
+    // "the launch failed and the stream closed because nothing was spawned".
+    const wrapper = waitForPid(checkout, 'wrapper');
+    pids = deskPids(checkout);
+    assert.ok(wrapper !== undefined, 'the wrapper must have recorded its pid');
+    assert.notEqual(commandOf(wrapper), '', 'the wrapper must still be alive');
+
+    // THE WRAPPER'S PARENT IS NOT A DISPATCHER. `exec` replaced the forked
+    // bash, so nothing carrying the dispatcher's command line remains between
+    // the wrapper and init — measured 2026-10-01, the PPID is 1.
+    const ppid = parentOf(wrapper);
+    const parent = ppid === undefined ? '' : commandOf(ppid);
+    assert.doesNotMatch(parent, /plot-dispatch\.sh/,
+      `the wrapper's parent must not be a dispatcher, found: ${parent}`);
+  } finally {
+    killPids(pids.agent, pids.wrapper, ...Object.values(deskPids(checkout)));
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --restart returns through a pipe while its agent runs', () => {
+  // THE SAME READING FOR THE OTHER VERB THAT LAUNCHES, AND IT MUST REACH THE
+  // LAUNCH. `--restart` hands an already-claimed branch to a new worker through
+  // the same `start_worker`, so it shares the property — but only if the
+  // fixture gets past the verb's own guards. Measured 2026-10-01 while writing
+  // this: `--restart free` refused at the argument (`:299` takes a branch only
+  // when it contains `/`) and the test passed on `origin/main`, where the hold
+  // was still in place. A test that cannot fail proves nothing, so this one
+  // builds the worktree the verb requires.
+  const { root, checkout } = repoForLiveStart('restartpipe');
+  const branch = 'feature/restarted';
+  const desk = path.join(root, 'desk');
+  let pids = {};
+  try {
+    // A worktree holding a prefix/name branch, which is what `--restart`
+    // resolves through `git worktree list`. No PR exists (`--offline` asks no
+    // host), no worker has run, and the tree is clean — so `handover_refusal`
+    // passes and the run reaches `start_worker`.
+    git(checkout, 'branch', branch, 'main');
+    git(checkout, 'worktree', 'add', '-q', desk, branch);
+
+    const started = Date.now();
+    const out = runDetached(['--offline', '--restart', branch], checkout);
+    const elapsed = Date.now() - started;
+
+    // IT REALLY LAUNCHED, which is what makes the timing meaningful.
+    assert.match(out, /restarting feature\/restarted/, `the verb must reach its launch:\n${out}`);
+    assert.match(out, /started worker/, `a worker must actually start:\n${out}`);
+    assert.ok(elapsed < 5_000,
+      `--restart must return while the agent lives, took ${elapsed} ms:\n${out}`);
+
+    // And the agent it started is alive, with no dispatcher between it and init.
+    const deadline = Date.now() + 5_000;
+    let wrapper;
+    while (Date.now() < deadline && wrapper === undefined) {
+      const file = path.join(desk, '.plot-worker.wrapper.pid');
+      if (fs.existsSync(file)) {
+        const pid = Number(fs.readFileSync(file, 'utf8').trim());
+        if (Number.isInteger(pid) && pid > 0) wrapper = pid;
+      }
+      if (wrapper === undefined) execFileSync('sleep', ['0.05']);
+    }
+    assert.ok(wrapper !== undefined, 'the restarted wrapper must record its pid');
+    const ppid = parentOf(wrapper);
+    const parent = ppid === undefined ? '' : commandOf(ppid);
+    assert.doesNotMatch(parent, /plot-dispatch\.sh/,
+      `the wrapper's parent must not be a dispatcher, found: ${parent}`);
+    pids.wrapper = wrapper;
+    const agentFile = path.join(desk, '.plot-worker.pid');
+    if (fs.existsSync(agentFile)) pids.agent = Number(fs.readFileSync(agentFile, 'utf8').trim());
+  } finally {
+    killPids(pids.agent, pids.wrapper, ...Object.values(deskPids(checkout)));
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: a claim whose Brief command never exits returns through a pipe', () => {
+  // THE SECOND LAUNCH SITE. `request_brief` spawns the `Brief command` the same
+  // way, and `--no-start` runs it too, so a claim on a slice with no brief held
+  // the caller's stdout for as long as that `claude -p` session lived. The
+  // stand-in never exits, which is the shape a real session has; the 60 s
+  // timeouts in `performer-shell.ts` and `claim.ts` are what this would spend.
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefpipe-')));
+  const f = repoForBrief('briefpipe', { briefCommand: `sh -c 'sleep 600' plot-brief` });
+  let brief;
+  try {
+    const started = Date.now();
+    const out = f.dispatch(['--offline', '--no-start', 'b'], { timeout: 30_000 });
+    const elapsed = Date.now() - started;
+
+    assert.match(out, /Brief command/, `the run must name what it called:\n${out}`);
+    assert.ok(elapsed < 15_000,
+      `the claim must return while the brief session lives, took ${elapsed} ms:\n${out}`);
+  } finally {
+    // The spawned session is not recorded in any pid file, so it is found by
+    // the command line this fixture gave it — a sandbox-specific string, never
+    // a bare `sleep`, which would reach another test's worker.
+    const ps = spawnSync('pgrep', ['-f', 'plot-brief'], { encoding: 'utf8' });
+    brief = (ps.stdout ?? '').trim().split('\n').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    killPids(...brief);
+    f.cleanup();
+    fs.rmSync(t, { recursive: true, force: true });
   }
 });
 
