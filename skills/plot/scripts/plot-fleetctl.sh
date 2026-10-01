@@ -581,6 +581,8 @@ fleet_install_state() {
 # worker with `plot-dispatch --stop <branch>`, which asks `git worktree list`.
 # shellcheck source=plot-desk-root.sh
 . "$script_dir/plot-desk-root.sh"
+# Asked only by the two verbs that enumerate desks, so the probes and their
+# refusals answer first and a sourced test reaches them without a desk root.
 resolve_wt_root() { # sets wt_root, wt_prefix; exits 3 when unaskable
   wt_root=$(plot_desk_root "$(plot_repo_root)") || {
     echo "plot-fleetctl: cannot resolve where the fleet's worktrees are — nothing was done." >&2
@@ -588,7 +590,6 @@ resolve_wt_root() { # sets wt_root, wt_prefix; exits 3 when unaskable
   }
   wt_prefix=""
 }
-resolve_wt_root
 
 # SOURCEABLE, so a test can take the probes and the fill without an init system.
 # The same guard `plot-worker-loop.sh` uses, and for the same reason: the
@@ -763,6 +764,7 @@ if [ "$mode" = "status" ]; then
     esac
   fi
 
+  resolve_wt_root
   n_run=0 n_other=0
   for wt in "$wt_root"/"$wt_prefix"*; do
     [ -d "$wt" ] || continue
@@ -1089,6 +1091,7 @@ fi
 # --stop: every agent through dispatch's rule, then the supervisor
 # ---------------------------------------------------------------------------
 if [ "$mode" = "stop" ]; then
+  resolve_wt_root
   branches=""
   detached=""
   n=0

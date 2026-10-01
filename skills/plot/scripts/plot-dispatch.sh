@@ -1642,9 +1642,13 @@ charter_file_for() { # $1 = agent name → prints the path it would read
 # inspectable and stoppable even if the plan was since delivered or rejected.
 # Refusing to show a running worker because of a phase change would strand it.
 repo_root_early=$(git rev-parse --show-toplevel)
-resolve_wt_root "$repo_root_early"
-wt_root_early="$wt_root"
-wt_prefix_early="$wt_prefix"
+# Only the two verbs that enumerate desks ask for the root here; every other
+# path asks where it composes one, so its own refusals answer first.
+if [ "$mode" = status ] || [ "$mode" = stop ]; then
+  resolve_wt_root
+  wt_root_early="$wt_root"
+  wt_prefix_early="$wt_prefix"
+fi
 
 # States: "running <pid>" | "finished <pid>" | "waiting <pid> (answer it)"
 #       | "stalled <pid> (work unfinished)" | "failed <pid> (exit N)"
@@ -2157,7 +2161,6 @@ if [ "$mode" = "start" ]; then
   # about any plan, so there is no plan whose phase could refuse it. A gate on a
   # slug this verb never takes would refuse every call.
   repo_root="$repo_root_early"
-  resolve_wt_root "$repo_root"
 
   # THE DEFAULT BRANCH, by the same three steps the fan-out takes below — the
   # config key, then origin's own HEAD, then `main`. Resolved here because the
@@ -2367,6 +2370,9 @@ EOF
   # `wait_for_work` skips the outlook scan for an agent that holds none.
   slug=""
 
+  # Where the desks go, asked only now: every refusal above answers first, and
+  # a broken runtime is named by the start-command check rather than here.
+  resolve_wt_root
   start_made=0
   start_i=0
   while [ "$start_i" -lt "$start_n" ]; do
@@ -3043,13 +3049,12 @@ run_waits_preflight() { # → prints refusals; fills waits_held, adds to n_skipp
 }
 
 # Where the worktrees live and what their names carry — see resolve_wt_root.
-# The default is beside the repo with the `plot-wt-` prefix; a `Worktree root:`
-# key relocates them (and drops the prefix, which was only earning its keep
-# among unrelated sibling directories). A nested root is made invisible to
-# `git status` and the marker grep by a `.gitignore` line, not by living
-# outside the repo.
+# The default is `<main checkout>/.worktrees` with no prefix; a `Worktree root:`
+# key relocates them. A root inside the repository is kept out of `git status`
+# by the `info/exclude` line `plot_exclude_desk_root` writes when a desk is
+# created.
 repo_root=$(git rev-parse --show-toplevel)
-resolve_wt_root "$repo_root"
+resolve_wt_root
 
 n_dispatched=0 n_reused=0 n_skipped=0 n_started=0
 n_brief_asked=0

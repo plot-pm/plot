@@ -1072,24 +1072,24 @@ test('dispatch: --status reports each worktree, its pid, and whether it lives', 
   // read .plot-worker.log and the pid file by hand, and could not tell a
   // working worker from a dead one at all.
   const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'status');
-  desk(r, 'feature/g', path.join(path.dirname(r), 'plot-wt-feature-g'));
+  desk(r, 'feature/g', path.join(r, '.worktrees', 'feature-g'));
 
   const out = execFileSync('bash', [dispatch, '--status', 'g'],
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
   assert.match(out, /feature\/g/);
-  assert.match(out, /plot-wt-feature-g/);
+  assert.match(out, /\.worktrees\/feature-g/);
   // Nothing was ever started here; that must read as "no worker", not as a
   // dead one — the difference matters when deciding to reap.
   assert.match(out, /no worker/i);
   assert.match(out, /summary: /);
 
   fs.rmSync(tmp, { recursive: true, force: true });
-  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-g'), { recursive: true, force: true });
+  fs.rmSync(path.join(r, '.worktrees', 'feature-g'), { recursive: true, force: true });
 });
 
 test('dispatch: --status distinguishes a live worker from a dead one', () => {
   const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'alive');
-  const wt = desk(r, 'feature/g', path.join(path.dirname(r), 'plot-wt-feature-g'));
+  const wt = desk(r, 'feature/g', path.join(r, '.worktrees', 'feature-g'));
 
   // An impossible-but-well-formed pid. Not 0: `kill -0 0` signals the caller's
   // whole process group and succeeds, so 0 reads as running.
@@ -1205,7 +1205,7 @@ test('dispatch: --status tells a finished worker from a crashed one', () => {
   // exit status has to be recorded when the process ends or the information
   // is gone.
   const { tmp: t, repo: r } = repoWithPlan('- **Phase:** Approved', 'exit');
-  const wt = desk(r, 'feature/g', path.join(path.dirname(r), 'plot-wt-feature-g'));
+  const wt = desk(r, 'feature/g', path.join(r, '.worktrees', 'feature-g'));
 
   // Assert on the branch's OWN line. The summary footer contains every state
   // word ("finished=0 failed=0 …"), so a regex over the whole report matches
@@ -1484,7 +1484,7 @@ test('dispatch: a real worker that exits records its status', () => {
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  const wt = path.join(path.dirname(r), 'plot-wt-feature-real');
+  const wt = path.join(r, '.worktrees', 'feature-real');
   staff(r, 'feature/real', wt);
 
   // Give the detached worker a moment; it only echoes and exits.
@@ -1723,7 +1723,7 @@ function repoWithInFlight(label) {
 
   /** A branch with a worktree, holding `files` in a COMMIT that is never pushed. */
   function committedWork(branch, files) {
-    const wt = path.join(path.dirname(r), `plot-wt-${branch.replace(/\//g, '-')}`);
+    const wt = path.join(r, '.worktrees', branch.replace(/\//g, '-'));
     git(r, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
     git(wt, 'config', 'user.email', 'test@example.invalid');
     git(wt, 'config', 'user.name', 'Plot Test');
@@ -1740,7 +1740,7 @@ function repoWithInFlight(label) {
 
   /** A branch with a worktree holding `files` UNCOMMITTED — no ref carries these. */
   function uncommittedWork(branch, files) {
-    const wt = path.join(path.dirname(r), `plot-wt-${branch.replace(/\//g, '-')}`);
+    const wt = path.join(r, '.worktrees', branch.replace(/\//g, '-'));
     git(r, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
     for (const [f, body] of Object.entries(files)) {
       fs.mkdirSync(path.dirname(path.join(wt, f)), { recursive: true });
@@ -1781,7 +1781,7 @@ function repoWithInFlight(label) {
 
   /** A branch claimed but holding nothing: an EMPTY commit, like a real claim. */
   function bareClaim(branch) {
-    const wt = path.join(path.dirname(r), `plot-wt-${branch.replace(/\//g, '-')}`);
+    const wt = path.join(r, '.worktrees', branch.replace(/\//g, '-'));
     git(r, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
     git(wt, 'config', 'user.email', 'test@example.invalid');
     git(wt, 'config', 'user.name', 'Plot Test');
@@ -1793,7 +1793,7 @@ function repoWithInFlight(label) {
 
   function cleanup() {
     for (const wt of worktrees) fs.rmSync(wt, { recursive: true, force: true });
-    fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-candidate'),
+    fs.rmSync(path.join(r, '.worktrees', 'feature-candidate'),
       { recursive: true, force: true });
     fs.rmSync(t, { recursive: true, force: true });
   }
@@ -3154,12 +3154,11 @@ test('dispatch: the ordinary path says nothing new about the manifest', () => {
 // WHERE THE WORKTREES LIVE — the `Worktree root:` config key
 // ---------------------------------------------------------------------------
 //
-// The root is a `## Plot Config` key, and the `plot-wt-` prefix is a PROPERTY
-// OF THE ROOT rather than a constant: a shared root (the default, beside the
-// repo) prefixes because it shares a directory with unrelated projects; a
-// dedicated root does not, because the directory already says what these are.
-// Two conventions coexist permanently, by design. These tests hold both halves,
-// and the one that matters most: a repo declaring NOTHING is untouched.
+// The root is the desk root: `deskRoot`'s answer for the `Worktree root` key,
+// `<repo>/.worktrees` when nothing is declared. Desks carry no prefix under any
+// root, because the directory already says what they are. `plot-wt-*` desks an
+// older dispatch made beside the repo stay where they are and are found through
+// `git worktree list`.
 
 /**
  * A self-contained repo with a one-branch plan, whose CLAUDE.md carries the
@@ -3192,17 +3191,15 @@ function rootRepo(extraConfig = '') {
 // key dispatches exactly where it does today, prefix intact. An implementation
 // that silently relocates them passes every other assertion in this file, so
 // this is asserted directly and first.
-test('dispatch: a repo declaring nothing keeps the legacy root and prefix', () => {
+test('dispatch: a repo declaring nothing nests the worktrees in .worktrees with no prefix', () => {
   const { tmp: t, repo: r } = rootRepo();
   try {
     const out = execFileSync('bash', [dispatch, '--dry-run', '--offline', 'root'],
       { encoding: 'utf8', cwd: r });
-    // Beside the repo, with the prefix.
-    const beside = path.join(path.dirname(r), 'plot-wt-feature-one');
-    assert.match(out, new RegExp(`would dispatch feature/one → \\S*/plot-wt-feature-one`),
-      `default dispatch must be beside the repo with the prefix:\n${out}`);
-    assert.doesNotMatch(out, /\.worktrees/, 'nothing configured must not invent a nested root');
-    void beside;
+    // The desk root's default: under the repo, in .worktrees/, no prefix.
+    assert.match(out, /would dispatch feature\/one → \S*\/repo\/\.worktrees\/feature-one\b/,
+      `default dispatch must nest under <repo>/.worktrees:\n${out}`);
+    assert.doesNotMatch(out, /plot-wt-/, 'the prefix went with the parent default');
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }

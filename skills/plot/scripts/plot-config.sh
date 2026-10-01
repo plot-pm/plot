@@ -99,14 +99,15 @@
 #                       project-owned and reviewed like this one.
 #                       Absent or empty = no change, so an adopting project that
 #                       sets nothing behaves exactly as today.
-#   Worktree root       where /plot-dispatch creates fleet worktrees. A relative
-#                       value resolves against the repo root, an absolute one is
-#                       taken as given. Absent = the default `repo_root/..` with
-#                       the `plot-wt-` prefix — today's behaviour, so no existing
-#                       checkout moves. Under a dedicated root the prefix is
-#                       dropped: the directory already says these are Plot's. Read
-#                       only by the CREATION path; every "which worktree holds this
-#                       branch" read asks `git worktree list` instead.
+#   Worktree root       the desk root: where /plot-dispatch creates fleet
+#                       worktrees and the board writes its action records. A
+#                       relative value resolves against the MAIN checkout, an
+#                       absolute one is taken as given. Absent or empty =
+#                       `<repo>/.worktrees`. The rule is `deskRoot`, asked through
+#                       `plot-desk-root.sh`; no script resolves it itself. Desks
+#                       carry no prefix; `plot-wt-*` desks an older dispatch made
+#                       beside the repo stay there. Every "which worktree holds
+#                       this branch" read asks `git worktree list` instead.
 # Agent-runner keys (optional; Plot hardcodes no agent tooling, Principle 5):
 #   Worker command      how /plot-dispatch runs an agent headless on a worktree.
 #                       /plot-init writes `PLOT_UNATTENDED=1 plot-worker-loop.sh`;
