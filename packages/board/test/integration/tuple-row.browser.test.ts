@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import esbuild from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
+import { type Browser, type Page } from 'playwright';
+import { launchBrowser } from '../catalogue/index.js';
 import {
   tupleFromAgent, tupleFromBuild, tupleFromIssue, tupleFromPlan, tupleFromRow,
   type TupleRow,
@@ -198,7 +199,7 @@ describe('a row is a tuple — what a rendered page settles', () => {
       absWorkingDir: path.resolve(here, '../..'),
     });
     bundle = built.outputFiles[0].text;
-    browser = await chromium.launch();
+    browser = await launchBrowser();
     const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
     page = await context.newPage();
     await page.setContent('<div id="root"></div>');
@@ -424,7 +425,7 @@ createRoot(document.getElementById('root')).render(
       bundle: true, format: 'esm', write: false, jsx: 'automatic',
       absWorkingDir: path.resolve(here, '../..'),
     });
-    browser = await chromium.launch();
+    browser = await launchBrowser();
     const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
     page = await context.newPage();
     await page.setContent('<div id="root"></div>');
@@ -529,7 +530,7 @@ describe('the name track holds the name (A: a long plan slug renders in full)', 
       absWorkingDir: path.resolve(here, '../..'),
     });
     const bundle = built.outputFiles[0].text;
-    browser = await chromium.launch();
+    browser = await launchBrowser();
     // 1400px — the wide viewport the plan states its A assertion at, where the
     // row has visible free space and a fixed 12rem track would still clip.
     const context = await browser.newContext({ viewport: { width: 1400, height: 600 } });
@@ -678,7 +679,7 @@ createRoot(document.getElementById('root')).render(
       bundle: true, format: 'esm', write: false, jsx: 'automatic',
       absWorkingDir: path.resolve(here, '../..'),
     });
-    browser = await chromium.launch();
+    browser = await launchBrowser();
     const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
     page = await context.newPage();
     await page.setContent('<div id="root"></div>');
