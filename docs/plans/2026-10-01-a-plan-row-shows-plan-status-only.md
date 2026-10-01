@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-01, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1115
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Delivered:** 2026-10-01
+- **Released:** 2026-10-01, v2.22.1
 
 ## Changelog
 
@@ -50,7 +51,7 @@ Measured 2026-10-01 on the DONE section with every plan head collapsed, after #1
 
 ## Slices
 
-### A plan row shows plan status only (Branch: bug/a-plan-row-shows-plan-status-only)
+### A plan row shows plan status only (Branch: bug/a-plan-row-shows-plan-status-only, PR: #1122)
 
 `PlanRow`'s status cell, the removal of `planRowShowsSoleVerdict` and the prop, the two call sites, the comments, and the three test files.
 
