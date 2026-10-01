@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   agentLogDir,
   agentLogPath,
+  ensureAgentLogDir,
   forgetWorktreeRoot,
   isUnderAgentLogDir,
   migrateAgentLogs,
@@ -59,7 +61,7 @@ beforeEach(forgetWorktreeRoot);
 afterEach(forgetWorktreeRoot);
 
 describe('agentLogPath', () => {
-  it('places a run outside the repository, in the fallback location', () => {
+  it('places a run in the desk root, the default location', () => {
     expect(agentLogPath(repoRoot, 'dispatch', 'my-slug', 'log')).toBe(
       inDeskRoot('plot-dispatch-my-slug.log'),
     );
@@ -219,6 +221,29 @@ describe('the configured worktree root', () => {
     expect(agentLogDir(repo)).toBe(path.join(repo, 'nested/trees'));
   });
 
+  it('keeps the desk root out of git status after the first log write', () => {
+    // The board can create `.worktrees/` before any dispatch does, so the
+    // writer must add the ignore line itself. It goes into the COMMON git
+    // directory's `info/exclude`, the only one git reads it from, and once.
+    const repo = makeRepo(null);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(repo, 'tracked.txt'), 'x\n');
+    git('add', '-A');
+    git('-c', 'user.email=t@example.invalid', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'init');
+
+    const dir = ensureAgentLogDir(repo);
+    fs.writeFileSync(agentLogPath(repo, 'dispatch', 'my-slug', 'log'), 'started\n');
+    forgetWorktreeRoot();
+    ensureAgentLogDir(repo);
+
+    expect(dir).toBe(path.join(repo, '.worktrees'));
+    expect(fs.existsSync(path.join(dir, 'plot-dispatch-my-slug.log'))).toBe(true);
+    expect(git('status', '--porcelain')).not.toMatch(/\.worktrees/);
+    const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude.split('\n').filter((l) => l === '/.worktrees/')).toHaveLength(1);
+  });
+
   it('normalises a trailing slash without touching the filesystem', () => {
     // The directory need not exist — a first dispatch is entitled to create it —
     // so this is pure string work, exactly as `resolve_wt_root()` documents.
@@ -366,10 +391,17 @@ describe('migrateAgentLogs', () => {
     expect(fs.readFileSync(path.join(parent, 'plot-dispatch-a-slug.log'), 'utf8')).toBe('old');
   });
 
-  it('does nothing at all for a repository with no configured root', () => {
+  it('does nothing at all when the desk root is the parent itself', () => {
     // Source and destination are the same directory: nothing moved, so there is
     // nothing to move and no marker to write into a directory Plot does not own.
-    fs.rmSync(path.join(repo, 'CLAUDE.md'));
+    // A repository with NO key reached this case until 2026-10-01, when the
+    // default became `<repo>/.worktrees`; a root configured as `..` is the one
+    // left, and moving an unconfigured repository's records is the next
+    // slice's migration test.
+    fs.writeFileSync(
+      path.join(repo, 'CLAUDE.md'),
+      '# Fixture\n\n## Plot Config\n\n- **Worktree root:** ..\n',
+    );
     forgetWorktreeRoot();
     write(parent, 'plot-dispatch-a-slug.log');
 

@@ -184,14 +184,16 @@ export const forgetWorktreeRoot = (): void => {
  * `repoRoot` is resolved HERE rather than in the rule. The rule composes
  * strings and cannot reach a working directory, so a relative root handed
  * straight to it would compose a relative answer and a caller would inherit its
- * cwd. Resolving at the boundary keeps the rule pure and the contract absolute.
+ * cwd. Resolving at the boundary keeps the rule pure and the contract absolute;
+ * the answer is resolved again so a configured `..` compares equal to the
+ * directory it names.
  *
  * @concept desk-root
  * @param repoRoot path to the repository this board serves
  * @returns an absolute directory path with no trailing slash; it need not exist
  */
 export const agentLogDir = (repoRoot: string): string =>
-  deskRoot({ configured: readWorktreeRoot(repoRoot), repoRoot: path.resolve(repoRoot) });
+  path.resolve(deskRoot({ configured: readWorktreeRoot(repoRoot), repoRoot: path.resolve(repoRoot) }));
 /**
  * Create the desk root, and keep it out of `git status`.
  *

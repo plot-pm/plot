@@ -1054,6 +1054,13 @@ const vendoredScripts = [
   // first `plot_tmpdir`/`plot_tmpfile` call is an undefined function. Listed by
   // hand for the reason every sourced file above is.
   'plot-tmp.sh',
+  // Sourced BY plot-approve.sh, plot-deliver.sh, plot-dispatch.sh,
+  // plot-reap.sh and plot-resolve-artifact.sh as a `$script_dir` sibling: it
+  // answers where desks and action records go. Missing, the source prints one
+  // line to stderr and `plot_desk_root` is then undefined, so each caller stops
+  // with its "cannot resolve" refusal. Listed by hand for the reason every
+  // sourced file above is.
+  'plot-desk-root.sh',
 ];
 for (const name of vendoredScripts) {
   const src = path.join(here, '../../skills/plot/scripts', name);
