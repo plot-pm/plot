@@ -10,6 +10,7 @@
 - **Issue:** #1087
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -117,3 +118,5 @@ Tests:
 ## Notes
 
 Written 2026-10-01 from #1087 (filed 2026-09-30). The four listing calls above are the plan's whole host spend.
+
+Panel round 1 (2026-10-01, three lenses: skeptic, operator, domain): unanimous `amend`. The moderation is `.plot/panels/2026-10-01-a-pr-refresh-reads-the-history-once-a-day/round1.md`. It requires: `fleet.ts:3039` keyed on the answer kind; the kind decided in the domain; every version-2 reader and bundle named; the Bitbucket claim corrected (a windowed Bitbucket listing narrows); a failed due full read that does not repeat every minute; slice 2 fields, absent forms and two-call answer defined; three-run and GraphQL-spend measurement.
