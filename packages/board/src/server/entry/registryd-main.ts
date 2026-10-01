@@ -889,7 +889,7 @@ export const startAgents = async (
       // reading as an error to chase every sixty seconds.
       warn(
         answer.why === 'unaskable'
-          ? 'plot-registryd: nothing starts free agents in this repository — set `Worker command` in Plot Config to run `plot-worker-loop.sh`; `plot-dispatch.sh --start 1` names what is configured now\n'
+          ? 'plot-registryd: nothing starts free agents in this repository — set `Worker command` in Plot Config to run the worker loop; `/plot-fleet --start 1` names what is configured now\n'
           : 'plot-registryd: an agent could not be started; the next tick re-derives the queue and tries again\n',
       );
       continue;

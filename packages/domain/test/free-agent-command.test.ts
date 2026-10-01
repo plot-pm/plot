@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { freeAgentCommandRefusal, LOOP_COMMAND } from '../src/rules/free-agent-command.js';
+import { freeAgentCommandRefusal, type WorkerLoop } from '../src/rules/free-agent-command.js';
+
+/** The loop as `plot-dispatch.sh` names it; the rule itself names no script. */
+const LOOP: WorkerLoop = {
+  name: 'plot-worker-loop.sh',
+  command: 'PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh',
+};
+const LOOP_COMMAND = LOOP.command;
 
 /**
  * The refusal in front of every free agent's `Worker command` (#1124).
@@ -18,20 +25,27 @@ describe('freeAgentCommandRefusal', () => {
       ['a path followed by a separator', '/a/plot-worker-loop.sh; echo done'],
       ['a subshell', '(skills/plot/scripts/plot-worker-loop.sh)'],
     ])('answers none for %s', (_label, command) => {
-      expect(freeAgentCommandRefusal(command)).toBeUndefined();
+      expect(freeAgentCommandRefusal(command, LOOP)).toBeUndefined();
     });
   });
 
   describe('answers the caller reports itself', () => {
     it.each([[''], ['   '], ['none'], ['NONE'], ['None']])('answers none for %j', (command) => {
-      expect(freeAgentCommandRefusal(command)).toBeUndefined();
+      expect(freeAgentCommandRefusal(command, LOOP)).toBeUndefined();
     });
+  });
+
+  it('judges by the loop name it is given, not a name it knows', () => {
+    const other: WorkerLoop = { name: 'run-agent.sh', command: 'run-agent.sh' };
+    expect(freeAgentCommandRefusal('bin/run-agent.sh', other)).toBeUndefined();
+    expect(freeAgentCommandRefusal('plot-worker-loop.sh', other)?.why).toContain('run-agent.sh');
   });
 
   describe('commands that cannot wait', () => {
     it('refuses the measured plain harness call', () => {
       const refusal = freeAgentCommandRefusal(
         'claude -p "Implementiere den Branch in $PLOT_BRANCH nach dem Plan" --session-id "$PLOT_SESSION_ID"',
+        LOOP,
       );
       expect(refusal?.why).toContain('does not run plot-worker-loop.sh');
       expect(refusal?.why).toContain('empty PLOT_BRANCH');
@@ -46,7 +60,7 @@ describe('freeAgentCommandRefusal', () => {
       ['a prefixed name', 'old-plot-worker-loop.sh'],
       ['a different script', 'skills/plot/scripts/plot-worker-loop.bash'],
     ])('refuses %s', (_label, command) => {
-      expect(freeAgentCommandRefusal(command)).toBeDefined();
+      expect(freeAgentCommandRefusal(command, LOOP)).toBeDefined();
     });
   });
 });

@@ -2270,7 +2270,10 @@ EOF
   # word the performer reads, the way it reads `unconfigured`.
   start_cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
   start_cmd_bundle="$script_dir/board/plot-free-agent-command.mjs"
-  start_cmd_answer=$(printf '%s' "$start_cmd" | node "$start_cmd_bundle" 2>/dev/null)
+  # The loop's basename and the command that runs it are this script's to
+  # name: the rule receives them as readings and names no script itself.
+  start_cmd_answer=$(printf '%s' "$start_cmd" | node "$start_cmd_bundle" \
+    plot-worker-loop.sh "PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh" 2>/dev/null)
   start_cmd_rc=$?
   case "$start_cmd_rc" in
     0) ;;
