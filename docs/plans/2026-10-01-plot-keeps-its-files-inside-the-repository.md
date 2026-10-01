@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-10-01, jwloka, in-session
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
