@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { readConfig, allSlicesMerged, type BuildBoardOptions } from './board.js';
+import { readConfig, allSlicesConfirmed, allSlicesMerged, type BuildBoardOptions } from './board.js';
 import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
 import type { PlanMeta, FleetReading } from '../contract/schema.js';
@@ -263,14 +263,24 @@ export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] 
     if (plan.phase.toLowerCase() !== 'approved') continue;
     const slug = planSlug(plan.file);
     if (inFlight.has(slug)) continue;
-    // The measurement. `allSlicesMerged` answers `not-merged` for a plan the
-    // pulse does not know and for any unmerged non-deferred branch.
+    // The measurement. It answers `not-merged` for a plan the pulse does not
+    // know and for any unmerged non-deferred branch.
     //
     // THE WORD, not truthiness: since #491 this returns
     // 'merged' | 'not-merged' | 'unknown', and 'unknown' means the scan could
     // not answer. Auto-delivery acts only on a definite yes — delivering on an
     // unanswered question is the defect #491 removes, one layer up.
-    if (allSlicesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
+    //
+    // `allSlicesConfirmed` RATHER THAN `allSlicesMerged`, so a landing only a
+    // merge subject proves reads `unknown` here and no tick starts a delivery.
+    // THAT IS WHAT KEEPS THIS PATH FROM STICKING: without it, a subject-proven
+    // plan reads merged during a throttle, the first tick starts
+    // `plot-deliver.sh`, which asks the host and refuses, and
+    // `pruneDelivering` keeps the slug in `inFlight` while the plan still
+    // reads approved and merged — so no later tick delivers until the board
+    // restarts. With it, nothing enters `inFlight` and the first tick after
+    // the host confirms the merge delivers.
+    if (allSlicesConfirmed(joinKey(plan.file), pulse, complete) !== 'merged') continue;
 
     // AND AT LEAST ONE BRANCH MUST HAVE LANDED HERE. This gate is narrower
     // than the rule above on purpose, and the asymmetry is the whole point.
