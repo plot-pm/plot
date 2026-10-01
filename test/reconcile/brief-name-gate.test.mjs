@@ -6,13 +6,25 @@
 // THE PASS CASES CARRY AS MUCH WEIGHT AS THE REFUSALS. Every agent in the fleet
 // commits through this hook, so a false refusal blocks the fleet. Each pass
 // case below names the naive implementation it catches.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -23,7 +35,7 @@ const brief = '# Implementation brief\n';
 // A repo with `committed` in HEAD, then `files` written and staged on top
 // (unless `stage` is false).
 const repo = ({ committed = {}, files = {}, stage = true, config } = {}) => {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-brief-name-gate-'));
+  const tmp = scratch('plot-brief-name-gate-');
   const dir = path.join(tmp, 'repo');
   mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
@@ -199,7 +211,7 @@ test('brief-name gate: fails open on invalid hook JSON', () => {
 });
 
 test('brief-name gate: fails open outside a git repository', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-brief-name-gate-nogit-'));
+  const dir = scratch('plot-brief-name-gate-nogit-');
   mkdirSync(path.join(dir, '.plot', 'briefs'), { recursive: true });
   writeFileSync(path.join(dir, '.plot', 'briefs', 'feature-x.md'), brief);
   const r = run(dir, 'git add -A && git commit -m x');

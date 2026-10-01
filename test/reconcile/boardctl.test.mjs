@@ -18,7 +18,7 @@
 // child that binds the port, measured on the live board as 9518 → 27674, so the
 // port answers with a DESCENDANT of the recorded pid. An equality check would
 // refuse every healthy board of that shape.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,18 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, '..', '..');
@@ -42,7 +54,7 @@ const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd 
  * sandbox is what keeps `.plot/state/board.pid` out of the real checkout.
  */
 function sandbox(label) {
-  const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `plot-boardctl-${label}-`)));
+  const box = fs.realpathSync(scratch(`plot-boardctl-${label}-`));
   const root = path.join(box, 'repo');
   fs.mkdirSync(root);
   git(root, 'init', '-q', '-b', 'main');

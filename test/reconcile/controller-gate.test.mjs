@@ -10,13 +10,25 @@
 // that wrote the file itself would pin the gate's reader against a fixture
 // rather than against its writers, which is the drift `plot-pr-merged.sh` was
 // extracted to prevent — and here there are two writers that must agree.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -25,7 +37,7 @@ const receipt = path.join(scripts, 'plot-state-receipt.sh');
 
 /** A repository root — the master agent's position, where the gate bites. */
 function repo() {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-controller-gate-'));
+  const tmp = scratch('plot-controller-gate-');
   const dir = path.join(tmp, 'repo');
   mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
@@ -179,7 +191,7 @@ test('controller gate: it fails OPEN with no .plot/state, and says so', () => {
 });
 
 test('controller gate: it fails open outside a git repository, and says so', () => {
-  const bare = mkdtempSync(path.join(tmpdir(), 'plot-controller-gate-nogit-'));
+  const bare = scratch('plot-controller-gate-nogit-');
   const r = run(bare, DISPATCH);
   assert.equal(r.status, 0);
   assert.match(r.stderr, /UNVERIFIED/);
@@ -390,7 +402,7 @@ test('controller gate: the `bash <script>` form its own callers use still refuse
 
 /** The gate and its receipt script, copied beside each other outside any repo. */
 function pluginCopy() {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-controller-gate-plugin-'));
+  const tmp = scratch('plot-controller-gate-plugin-');
   const dir = path.join(tmp, 'plugin cache', 'plot', '9.9.9', 'scripts');
   mkdirSync(dir, { recursive: true });
   for (const f of [gate, receipt]) copyFileSync(f, path.join(dir, path.basename(f)));

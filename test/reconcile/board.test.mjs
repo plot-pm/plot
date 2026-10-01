@@ -15,13 +15,25 @@
 //
 // Assert per line, never with a whole-output regex: this suite has been fooled
 // three times by patterns matching across report lines.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
@@ -35,7 +47,7 @@ const ARGS = ['https://example.test/pr/1', 'Ready', 'acme', '7'];
 // JSON good enough for the step that consumes it. Each invocation appends its
 // argv to a log, so tests can assert which steps were reached.
 function sandbox({ fail = [], statusOptions = [{ name: 'Ready', id: 'opt-ready' }] } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-board-'));
+  const dir = scratch('plot-board-');
   const bin = path.join(dir, 'bin');
   const repo = path.join(dir, 'repo');
   const log = path.join(dir, 'gh.log');

@@ -72,8 +72,7 @@ test('the run gets a TMPDIR, HOME, budget home and PR index home inside one root
 // when a test leaves an entry". The command creates one on purpose.
 test('an entry left behind fails the run and is named with its prefix', (t) => {
   const tmp = privateTmp(t);
-  const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/plot-leaky-abc123"; exit 0'],
-    { PLOT_LEAK_CEILING: '0' });
+  const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/plot-leaky-abc123"; exit 0']);
   assert.equal(res.status, 1, 'a leaked entry must fail the run');
   assert.match(res.stderr, /plot-leaky-abc123/, 'the gate names the entry');
   assert.match(res.stderr, /prefix plot-leaky-/, 'the gate names the prefix');
@@ -82,16 +81,14 @@ test('an entry left behind fails the run and is named with its prefix', (t) => {
 
 test('a leaked file is caught, not only a leaked directory', (t) => {
   const tmp = privateTmp(t);
-  const res = runWrapped(tmp, ['sh', '-c', ': > "$TMPDIR/plot-stray-file"; exit 0'],
-    { PLOT_LEAK_CEILING: '0' });
+  const res = runWrapped(tmp, ['sh', '-c', ': > "$TMPDIR/plot-stray-file"; exit 0']);
   assert.equal(res.status, 1);
   assert.match(res.stderr, /plot-stray-file/);
 });
 
 test('a leak fails the run even when the command already failed', (t) => {
   const tmp = privateTmp(t);
-  const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/plot-leaky-xyz789"; exit 3'],
-    { PLOT_LEAK_CEILING: '0' });
+  const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/plot-leaky-xyz789"; exit 3']);
   assert.equal(res.status, 1, 'the leak verdict wins over the suite failure');
   assert.match(res.stderr, /plot-leaky-xyz789/);
 });
@@ -108,27 +105,16 @@ test('writes under HOME and the budget home are not reported as leaks', (t) => {
   assert.equal(res.status, 0, res.stderr);
 });
 
-// THE CEILING IS A RATCHET. It exists because the plan measured 11 of the 94
-// files here and a full run then leaked 390 entries from about 23 others. The
-// gate must not be off while those wait for their own slice, so it fails on
-// GROWTH and names the target as 0.
-test('a leak at or under the ceiling reports without failing the run', (t) => {
+// THERE IS NO CEILING. One entry fails the run whatever the caller's
+// environment says, so an old `PLOT_LEAK_CEILING` cannot switch the gate off.
+test('one entry fails the run even with PLOT_LEAK_CEILING set', (t) => {
   const tmp = privateTmp(t);
   const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/plot-under-abc123"; exit 0'],
     { PLOT_LEAK_CEILING: '5' });
-  assert.equal(res.status, 0, 'one entry under a ceiling of five must not fail the run');
-  assert.match(res.stderr, /ceiling 5, target 0/, 'the report names the ceiling and the target');
-  assert.match(res.stderr, /plot-under-abc123/, 'and still names the entry');
+  assert.equal(res.status, 1, 'one entry must fail the run');
+  assert.match(res.stderr, /plot-under-abc123\t\(prefix plot-under-\)/, 'the gate names the entry and its prefix');
+  assert.doesNotMatch(res.stderr, /ceiling/, 'the report names no ceiling');
   assert.deepEqual(readdirSync(tmp), [], 'the root is removed');
-});
-
-test('a leak above the ceiling fails the run', (t) => {
-  const tmp = privateTmp(t);
-  const res = runWrapped(tmp,
-    ['sh', '-c', 'mkdir -p "$TMPDIR/plot-over-a" "$TMPDIR/plot-over-b"; exit 0'],
-    { PLOT_LEAK_CEILING: '1' });
-  assert.equal(res.status, 1, 'two entries over a ceiling of one must fail');
-  assert.match(res.stderr, /above the ceiling of 1/, 'the report says the ceiling was exceeded');
 });
 
 // A RUN KILLED AT ITS BOUND IS NOT A LEAKED TEST. `bounded.sh` uses

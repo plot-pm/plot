@@ -13,6 +13,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scan = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-reconcile-scan.sh');
 
@@ -365,8 +377,9 @@ test('scan: refuses to run (exit 1) when jq is missing — never a silent false-
   // `command -v jq` fails. A missing jq must abort loudly, not report drift=0.
   const cleanBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-nojq-'));
   try {
+    // `rm` stays: the scan's exit trap removes its temp files with it.
     for (const tool of ['git', 'dirname', 'basename', 'sed', 'grep', 'awk',
-                        'readlink', 'cat', 'env', 'tr', 'bash']) {
+                        'readlink', 'cat', 'env', 'tr', 'bash', 'rm']) {
       let resolved;
       try {
         resolved = execFileSync('/usr/bin/env', ['which', tool], { encoding: 'utf8' }).trim();
@@ -446,7 +459,7 @@ exit 0
 }
 
 function runSinglePrScan(mergedLines, extraArgs = []) {
-  sprBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-gh-'));
+  sprBin = scratch('plot-scan-gh-');
   const argvLog = makeGhStub(sprBin, mergedLines);
   const out = execFileSync('bash', [scan, '--no-fetch', ...extraArgs], {
     encoding: 'utf8',
@@ -691,7 +704,7 @@ test('scan: a delivered plan with no PR annotation is unresolvable, not silent',
 let cipTmp, cipRepo, cipBin;
 
 function runContainedScan(openLines, extraArgs = []) {
-  cipBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-cip-'));
+  cipBin = scratch('plot-scan-cip-');
   makeGhStub(cipBin, '', { openLines });
   return execFileSync('bash', [scan, '--no-fetch', ...extraArgs], {
     encoding: 'utf8',
@@ -712,7 +725,7 @@ function section3(out) {
 }
 
 before(() => {
-  cipTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-cip-repo-'));
+  cipTmp = scratch('plot-scan-cip-repo-');
   const origin = path.join(cipTmp, 'origin.git');
   cipRepo = path.join(cipTmp, 'repo');
   git(cipTmp, 'init', '--bare', '-q', '-b', 'main', origin);
@@ -875,7 +888,7 @@ test('scan: with no open PRs, containment invents nothing and the stack is orpha
 test('scan: open-PR heads are fetched with their numbers, in one bundled call', () => {
   // The number is what lets section 3 name the PR. Fetching it must not cost a
   // second host call — the field rides along on the call already being made.
-  cipBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-cip-'));
+  cipBin = scratch('plot-scan-cip-');
   const argvLog = makeGhStub(cipBin, '', { openLines: OPEN_PRS });
   execFileSync('bash', [scan, '--no-fetch'], {
     encoding: 'utf8', cwd: cipRepo,
@@ -1433,8 +1446,9 @@ test('scan: an absent gh reports pr_source=absent', () => {
     // Create a PATH with NO gh command.
     psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
     // Stub for all commands EXCEPT gh.
+    // `rm` stays: the scan's exit trap removes its temp files with it.
     for (const tool of ['git', 'dirname', 'basename', 'sed', 'grep', 'awk',
-                        'readlink', 'cat', 'env', 'tr', 'bash', 'jq', 'head', 'mktemp', 'date']) {
+                        'readlink', 'cat', 'env', 'tr', 'bash', 'jq', 'head', 'mktemp', 'date', 'rm']) {
       let resolved;
       try {
         resolved = execFileSync('/usr/bin/env', ['which', tool], { encoding: 'utf8' }).trim();
@@ -1520,8 +1534,9 @@ test('scan: an absent bb reports pr_source=absent', () => {
   try {
     // Create a PATH with NO bb command.
     psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    // `rm` stays: the scan's exit trap removes its temp files with it.
     for (const tool of ['git', 'dirname', 'basename', 'sed', 'grep', 'awk',
-                        'readlink', 'cat', 'env', 'tr', 'bash', 'jq', 'head', 'mktemp', 'date']) {
+                        'readlink', 'cat', 'env', 'tr', 'bash', 'jq', 'head', 'mktemp', 'date', 'rm']) {
       let resolved;
       try {
         resolved = execFileSync('/usr/bin/env', ['which', tool], { encoding: 'utf8' }).trim();
@@ -3592,7 +3607,7 @@ exit 0
 }
 
 function runSection6Scan(extraArgs = []) {
-  s6Bin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-gh-'));
+  s6Bin = scratch('plot-scan-s6-gh-');
   const argvLog = makeSection6Stub(s6Bin, s6Sha);
   const out = execFileSync('bash', [scan, '--no-fetch', ...extraArgs], {
     encoding: 'utf8',
@@ -3800,7 +3815,7 @@ test('scan: an online section 6 is unchanged by the guard', () => {
 
 test('scan: a merge commit this clone lacks is reported, not skipped', () => {
   const absent = '0'.repeat(39) + '1';
-  s6Bin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-gh-'));
+  s6Bin = scratch('plot-scan-s6-gh-');
   makeSection6Stub(s6Bin, absent);
   const out = execFileSync('bash', [scan, '--no-fetch'], {
     encoding: 'utf8',

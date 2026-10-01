@@ -20,13 +20,25 @@
 // regression surface for the bare-word contract and this slice must not edit
 // it. It keeps passing untouched, which is what proves the spelling that
 // already worked still works.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
@@ -42,7 +54,7 @@ const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-h
  * have to come from a repository saying so.
  */
 const repoWith = (keys) => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ci-scheme-'));
+  const repo = scratch('plot-ci-scheme-');
   const lines = Object.entries(keys).map(([k, v]) => `- **${k}:** ${v}`).join('\n');
   fs.writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n${lines}\n`);
   execFileSync('git', ['init', '-q'], { cwd: repo });

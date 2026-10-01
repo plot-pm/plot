@@ -15,13 +15,25 @@
 // repository's main on 2026-08-16 — not a paraphrase. A fixture written from
 // memory of what the message looks like would only test the matcher against
 // its own author's recollection.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const helper = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-push-main.sh');
@@ -51,7 +63,7 @@ const git = (cwd, ...args) =>
 
 /** A bare remote plus a working clone, both with `main` in place. */
 function makeRepo() {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-pushmain-'));
+  const dir = scratch('plot-pushmain-');
   const bare = path.join(dir, 'b.git');
   const work = path.join(dir, 'w');
   execFileSync('git', ['init', '-q', '--bare', bare]);

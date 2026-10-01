@@ -20,13 +20,25 @@
 //
 // The bound is on BYTES, not ticks or days: tick size ranged from 290 bytes to
 // 10 KB with the estate.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..', '..');
@@ -34,7 +46,7 @@ const artifact = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-reg
 
 /** A sandbox nothing else writes to. */
 function sandbox() {
-  return mkdtempSync(path.join(tmpdir(), 'plot-log-rot-'));
+  return scratch('plot-log-rot-');
 }
 
 /**

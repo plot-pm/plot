@@ -18,7 +18,7 @@
 // Every test sets `PLOT_BUDGET_HOME` and `HOME` to a scratch directory: a suite
 // writing the operator's own ledger would be measuring their GitHub budget, and
 // the ledger this slice bounds is the one it must not grow.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -28,10 +28,21 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
-  writeFileSync,
-} from 'node:fs';
+  writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..', '..');
@@ -50,7 +61,7 @@ const GENERATION_MS = Number(
 
 /** A ledger directory nothing else writes to, and a `HOME` beside it. */
 function makeHome() {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-budget-rot-'));
+  const dir = scratch('plot-budget-rot-');
   mkdirSync(path.join(dir, 'home'), { recursive: true });
   return dir;
 }
@@ -363,7 +374,7 @@ test('budget-rotation: a reader is exact with a rotation forced between its two 
   // reversed both answered 4. Renaming between the reads separates them: the
   // correct order answers 8, having read the live generation twice, and the
   // reversed order answers 3, the live generation gone.
-  const stub = mkdtempSync(path.join(tmpdir(), 'plot-budget-cat-'));
+  const stub = scratch('plot-budget-cat-');
   const marker = path.join(stub, 'fired');
   writeFileSync(
     path.join(stub, 'cat'),

@@ -2,13 +2,25 @@
 // Builds throwaway git repos to pin: blocks impl commits on Draft plans,
 // allows plan-only commits, approved plans, unplanned branches, and
 // fails open on malformed input.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const gate = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-phase-gate.sh');
@@ -25,7 +37,7 @@ function repoWith({
   branch, planPhase, stage, unstaged = [], extraPlans = {},
   localPhase = null, noRemote = false,
 }) {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-gate-'));
+  const tmp = scratch('plot-gate-');
   const dir = path.join(tmp, 'repo');
   mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
@@ -261,7 +273,7 @@ test('gate: offline — allows the commit AND says the phase went unverified', (
 // shared default branch; this flow is the case it did not anticipate. For it,
 // "approved where everyone can see it" means the shared copy of THIS branch.
 function repoSameBranch({ branch, sharedPhase, localPhase = null, push = true }) {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-gate-sb-'));
+  const tmp = scratch('plot-gate-sb-');
   const dir = path.join(tmp, 'repo');
   mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
