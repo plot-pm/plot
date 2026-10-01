@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import type { PortResult } from '../../port-result.js';
 import type { HostAnswer, ScriptOptions, Scripts, StartedRun } from '../../ports/scripts.js';
 import { EXIT_OK, EXIT_PARTIAL, EXIT_UNASKABLE } from '../host-exit.js';
-import { runProcess, runScript, runScriptSync } from '../run-script.js';
+import { killGroup, runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** The plan-format contract. */
@@ -151,8 +151,11 @@ export const scriptsShell = (context: ShellContext): Scripts => {
 
     stream: (script, args, onLine, options = {}) =>
       new Promise<void>((resolve, reject) => {
+        // DETACHED, so the script leads its own process group and a timeout
+        // can end the subshells and children it started, not only `bash`.
         const child = spawn('bash', [scriptPath(context, script), ...args], {
           cwd: context.repoRoot,
+          detached: true,
           ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
         });
         let buffered = '';
@@ -162,10 +165,11 @@ export const scriptsShell = (context: ShellContext): Scripts => {
           timeoutMs === undefined
             ? undefined
             : setTimeout(() => {
-                // SIGKILL rather than SIGTERM: these are bash scripts that
-                // spawn git, and a TERM one of them traps would leave this
-                // promise pending past the timeout it exists to enforce.
-                child.kill('SIGKILL');
+                // THE WHOLE GROUP, BY SIGKILL. Signalling `bash` alone left
+                // its subshells and `plot-host.sh` children running under
+                // pid 1, and bash defers a TERM until its foreground child
+                // exits (#1084).
+                killGroup(child);
                 if (!settled) {
                   settled = true;
                   reject(new Error(`timed out after ${timeoutMs}ms`));
