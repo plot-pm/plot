@@ -3376,16 +3376,17 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
   if [ -n "$SUBJECT_PLAN_SECTIONS" ]; then
     # CALL 1: which pairs need an ancestry test.
     _sp_pairs=$(subject_readings | ask_merge_subject pairs || echo "")
-    # THE READING, one per matched pair.
-    #
-    # plot-ancestry: evidence  — the rule decides; a wrong "contained" answer
-    #                            sends the branch to the host, a wrong "not
-    #                            contained" answer is the reused-name case this
-    #                            narrows. `mergedBySubject`'s caller in
-    #                            plot-merge-subject.mjs is what decides.
+    # THE READING, one per matched pair. The age rule in
+    # plot-merge-subject.mjs is what decides what it means.
     _sp_answers=""
     while IFS=$'\t' read -r _sp_pplan _sp_pbr _sp_merge _sp_added2; do
       [ -n "$_sp_merge" ] || continue
+      # A wrong "contained" sends the branch to the host; a wrong "not
+      # contained" is the reused-name case this narrows.
+      #
+      # plot-ancestry: evidence  — handed to `proofOf` in
+      #                            plot-merge-subject.mjs, which decides and
+      #                            reads `unknown` as proving nothing.
       if git merge-base --is-ancestor "$_sp_merge" "$_sp_added2" </dev/null 2>/dev/null; then
         _sp_answers+="@ancestry $_sp_merge $_sp_added2 yes"$'\n'
       elif git cat-file -e "$_sp_merge^{commit}" </dev/null 2>/dev/null \
