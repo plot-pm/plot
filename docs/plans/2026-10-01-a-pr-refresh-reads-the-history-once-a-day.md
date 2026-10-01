@@ -12,12 +12,14 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Started:** 2026-10-02, Jan Wloka, `bug/a-delta-keeps-the-store-whole`
 
 ## Changelog
 
 - The board asks the host for its whole PR history once a day, and asks only for changed PRs between those reads. It made the whole read on every second refresh before.
 - A git host that times out on a PR listing is reported as *the host timed out*, without the advice to log in again.
 - A failed daily full read no longer repeats every minute: the board asks for changed PRs and retries the full read an hour later.
+- On GitHub, the board's PR data is at most 120 s old while the host answers, so a new PR shows on the board within two minutes.
 
 ## Motivation
 
@@ -37,6 +39,10 @@ Four listing calls through `skills/plot/scripts/plot-host.sh pr-list`, in the bo
 - **The field set is most of the cost.** The same 1000 rows take 7.3 s without `--rich` and 43.0 s with it, so the `--rich` fields cost about 36 s.
 - **The cost grows with the row count.** 100 rich rows take 3.4 s and 1000 take 43.0 s. `gh pr list` pages internally and has no page-size flag, so this plan does not change the page size.
 - **The full read is already truncated.** It returned PRs #41 to #1143, and the adapter warned `state=all possibly truncated (1000 rows …) (#333)`. All 1000 rows were terminal: 964 `MERGED`, 36 `CLOSED`, 0 `OPEN`.
+
+### How old the board's PR data gets
+
+On 2026-10-02 the board's `/api/board` reported `prAgeSeconds` 340 to 387 while PR #1163 was open on GitHub and had no row on the board. CI-running PRs #1157 and #1159 showed stale rows in the same window. The next completed refresh brought the age to 5 s and showed #1163. `PR_REFRESH_MS` is 60 s on GitHub (`fleet.ts:134`), so a refresh that completes every cycle keeps the age near 60 s plus the call's duration. The plan states no freshness target before this amendment.
 
 ### What the PR index already answers
 
@@ -118,6 +124,7 @@ Tests:
 - `pr-store.test.ts`: a full read sends one `pr-list --rich-open` call; a non-zero exit from it leaves the store untouched.
 - `test/reconcile/host.test.mjs`: on GitHub `--rich-open` sends `--state open` with the rich fields and `--state all` with the plain fields, and each terminal row carries `draft`, `url`, `updatedAt`, `checks: "unknown"`, `mergeable: "unknown"`, `review: ""` and `failing_checks: []`; a failing open call and a failing all call each exit non-zero and print no rows; on Bitbucket `--rich-open` emits the same rows as `--rich`.
 - A measurement in the PR body: at least three runs each of the old full read and the new one on this repository, with the time and the GraphQL `used` delta from `gh api rate_limit` for each run.
+- A freshness measurement in the PR body: `prAgeSeconds` from `/api/board`, sampled every 10 s for one hour on a running board with both slices built, and the largest value seen. The sample hour holds at least one full read, forced by aging `wholeAt`.
 
 ### A host timeout names no login (Branch: bug/a-host-timeout-names-no-login)
 
@@ -132,6 +139,7 @@ Tests:
 - On this repository a board with a whole store sends one full listing per 24 h and `--since` listings between them, proved by `pr-store.test.ts` and by the store reading `complete: true` after a delta.
 - The full read on this repository takes at most 15 s over at least three runs, and spends fewer GraphQL points than the old full read, measured in slice 2's PR body.
 - A failed due full read is followed by a delta, not by the full read, on the next refresh.
+- On GitHub, while the host answers, `prAgeSeconds` stays at or below 120 s for one hour on a running board, including the refresh that makes the full read, measured in slice 2's PR body.
 - A 504 from `pr-list` prints `host timed out` and no login advice.
 - No new `plot-*.sh` script; every host call goes through `plot-host.sh`.
 - `pnpm test`, `pnpm run test:contracts`, `pnpm run test:board`, `pnpm run typecheck` and the domain coverage gate pass. Each slice carries a changeset.
@@ -141,3 +149,5 @@ Tests:
 Written 2026-10-01 from #1087 (filed 2026-09-30). The four listing calls above are the plan's whole host spend.
 
 Panel round 1 (2026-10-01, three lenses: skeptic, operator, domain): unanimous `amend`. The moderation is `.plot/panels/2026-10-01-a-pr-refresh-reads-the-history-once-a-day/round1.md`. This plan applies its eight changes. The disagreement on where slice 2's split lives is resolved by taking both halves: the adapter makes the two GitHub calls, and the domain fold carries the held verdicts. The shared blind spot is answered by the call-sequence evidence in slice 1's PR and by the section *Why slice 2 stays after slice 1 and the fallback*.
+
+Amended 2026-10-02 at the operator's request: the 120 s freshness target, its measurement in slice 2's PR body, and the observation of 387 s that prompted it. Slice 1 was already started and its scope is unchanged.
