@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./adapters": "./src/adapters/index.ts",
     "./adapters/host/*": "./src/adapters/host/*.ts",
+    "./adapters/*": "./src/adapters/*.ts",
     "./entities/*": "./src/entities/*.ts",
     "./ports/*": "./src/ports/*.ts",
     "./rules/*": "./src/rules/*.ts",

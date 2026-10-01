@@ -17,7 +17,7 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
 /**
  * Why a worker stopped.
  *
- * FIVE REASONS, AND `bound` IS NOT THE OTHERS. Until this record existed a
+ * SIX REASONS, AND `bound` IS NOT THE OTHERS. Until this record existed a
  * worker ended for two reasons and both were time — the bound expired or the
  * monitor reported idle — so an operator reading a desk could not tell a clock
  * from a finding.
@@ -39,10 +39,24 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   diagnosis: measured 2026-09-05, three agents handed a second slice were
  *   refused with *"Session ID … is already in use"* and the loop read each
  *   sub-second exit as a completed slice.
+ * - `limited` — the harness stopped on the account's usage limit, and no wait
+ *   was allowed: the limit named no reset the rule could read, the reset lay
+ *   past the `Worker bound`, or the limit returned without the desk gaining a
+ *   commit. The slice stays claimed and the work stays in the desk; a
+ *   `--restart` after the limit lifts resumes it. Measured 2026-10-01 in #1141,
+ *   this exit read as `unstarted` and its marker told a person to fix a prompt
+ *   file that worked.
  *
- * `unstarted` IS THE ONLY REASON NO WATCHER PRODUCED. The other four are the
- * floor firing or the monitor publishing; this one is the agent's own process
- * reporting its command's exit code, which is why its actor is `agent`.
+ * `unstarted` AND `limited` ARE THE REASONS NO WATCHER PRODUCED. The other four
+ * are the floor firing or the monitor publishing; these two are the agent's own
+ * process reporting its command's exit code, which is why their actor is
+ * `agent`.
+ *
+ * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
+ * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
+ * says the invocation is broken and asks for a prompt fix, while `limited` says
+ * the invocation worked and asks for time. One is an adopter's prompt file to
+ * repair; the other needs nothing repaired at all.
  *
  * `unreadable` IS KEPT APART FROM `bound` DELIBERATELY. Both are the floor
  * firing, and they differ in what was known WHILE the worker ran rather than in
@@ -52,7 +66,14 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
 // plot-state: classification — WHY one worker ended, recorded once at the end.
 //                              An ending is terminal by construction, so no
 //                              reason follows another.
-export const EndingReasonSchema = z.enum(['bound', 'quiet', 'unreadable', 'spent', 'unstarted']);
+export const EndingReasonSchema = z.enum([
+  'bound',
+  'quiet',
+  'unreadable',
+  'spent',
+  'unstarted',
+  'limited',
+]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 
 /**

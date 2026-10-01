@@ -41,8 +41,26 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the five reasons apart', () => {
-    expect(EndingReasonSchema.options).toEqual(['bound', 'quiet', 'unreadable', 'spent', 'unstarted']);
+  it('reads the six reasons apart', () => {
+    expect(EndingReasonSchema.options).toEqual([
+      'bound',
+      'quiet',
+      'unreadable',
+      'spent',
+      'unstarted',
+      'limited',
+    ]);
+  });
+
+  it('keeps a usage limit apart from a prompt that never started', () => {
+    // #1141: both are a non-zero prompt exit, and the repair differs —
+    // `unstarted` asks for a prompt fix, `limited` asks for time.
+    const unstarted = readEnding(ended({ reason: 'unstarted', actor: 'agent' }));
+    const limited = readEnding(ended({ reason: 'limited', actor: 'agent' }));
+
+    expect(unstarted.read).toBe('ended');
+    expect(limited.read).toBe('ended');
+    expect(unstarted).not.toEqual(limited);
   });
 
   it('does not collapse spent into bound', () => {

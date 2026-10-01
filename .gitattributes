@@ -58,6 +58,7 @@ skills/plot/scripts/board/plot-merge-subject.mjs -merge
 skills/plot/scripts/board/plot-movable.mjs -merge
 skills/plot/scripts/board/plot-panel.mjs -merge
 skills/plot/scripts/board/plot-prompt.mjs -merge
+skills/plot/scripts/board/plot-prompt-exit.mjs -merge
 skills/plot/scripts/board/plot-propose-stack.mjs -merge
 skills/plot/scripts/board/plot-pr-index-lookup.mjs -merge
 skills/plot/scripts/board/plot-reconcile.mjs -merge
