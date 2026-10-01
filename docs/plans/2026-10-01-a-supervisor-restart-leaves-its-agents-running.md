@@ -11,6 +11,7 @@
 - **Issue:** #1148
 - **Review:** in-session
 - **Impl:** own branches
+- **Started:** 2026-10-02, Jan Wloka, `infra/the-unit-stops-only-its-daemon`
 
 ## Changelog
 

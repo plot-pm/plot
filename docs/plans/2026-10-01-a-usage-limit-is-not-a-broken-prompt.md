@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Started:** 2026-10-01, jwloka, `bug/the-rule-names-a-usage-limit`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-loop-waits-out-a-usage-limit`
 
 ## Changelog
 
