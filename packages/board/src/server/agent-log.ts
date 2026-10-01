@@ -260,8 +260,12 @@ const excludeDeskRoot = (repoRoot: string): void => {
   const line = deskRootPlacement({ configured: readWorktreeRoot(repoRoot), repoRoot }).excludeLine;
   if (line === undefined) return;
   try {
+    // stderr is IGNORED, never inherited: `execFileSync` copies a child's
+    // stderr into this process's own, and the priming read finishes after the
+    // banner, so a launcher that has already gone turns git's `fatal:` into an
+    // EPIPE that ends the board.
     const git = (args: readonly string[]): string =>
-      execFileSync('git', [...args], { cwd: repoRoot, encoding: 'utf8' }).trim();
+      execFileSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     // Already ignored — by `.gitignore` for an adopter /plot-init set up, or by
     // a line written on an earlier run. Appending a second rule for a path
     // already ignored is noise in a file a person reads.

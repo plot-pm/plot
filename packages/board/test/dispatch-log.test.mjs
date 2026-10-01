@@ -21,10 +21,8 @@ const PLAN = `# Ship the widget
 - **Type:** feature
 `;
 
-/** Where the server will look for a slug's dispatcher log — beside the repo. */
-function logPathFor(repoRoot, slug) {
-  return path.join(path.resolve(repoRoot, '..'), `plot-dispatch-${slug}.log`);
-}
+/** Where the server will look for a slug's dispatcher log — the desk root. */
+const logPathFor = (repoRoot, slug) => path.join(repoRoot, '.worktrees', `plot-dispatch-${slug}.log`);
 
 describe('GET /api/dispatch-log: the dispatcher log, keyed by slug', () => {
   let tmp, server;
@@ -61,6 +59,7 @@ describe('GET /api/dispatch-log: the dispatcher log, keyed by slug', () => {
   it('returns the dispatcher log once one exists', async () => {
     const p = logPathFor(tmp, 'dispatch-log-fixture-widget');
     written.push(p);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, 'dispatched=1 started=1\n');
     const res = await request(server.port, { path: '/api/dispatch-log?slug=dispatch-log-fixture-widget' });
     assert.equal(res.status, 200);
@@ -73,6 +72,7 @@ describe('GET /api/dispatch-log: the dispatcher log, keyed by slug', () => {
   it('an empty dispatcher log is a SUCCESS, distinct from no-log', async () => {
     const p = logPathFor(tmp, 'just-opened');
     written.push(p);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, '');
     const res = await request(server.port, { path: '/api/dispatch-log?slug=just-opened' });
     assert.equal(res.status, 200);
