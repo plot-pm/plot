@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 3
+- **Started:** 2026-10-01, Jan Wloka, `bug/the-launch-gives-back-the-callers-streams`
 
 ## Changelog
 
