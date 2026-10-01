@@ -38,7 +38,7 @@ The `Released` write is already decided in the domain. `release` (`workflows/rel
 
 ### The transition takes the reviewer
 
-`approve` in `transitions/plan.ts` reads a new optional field, `ApproveInput.reviewer`: the name of the person who approved in the session. For `Review: in-session`, a non-empty `reviewer` turns the `review-human` refusal into a decision: `plan-phase Approved` and the record `Approved: <on>, <reviewer>, in-session`. An empty or absent `reviewer` still refuses with `review-human`, with the text naming the flag that supplies it. `Review: ballot` still refuses: a tally is not a name, and this plan does not read ballots.
+`approve` adds no field. Both `ApproveInput` types already carry the approver: `who` in `transitions/plan.ts:186-195`, and `who` beside `on` in `workflows/approve.ts:65-70`, which the record at `:215` writes as `Approved: <on>, <who>, <channel>`. For an in-session approval the caller passes `who: <reviewer>` and `channel: "in-session"`. The case arm splits: `transitions/plan.ts:257-262` handles `in-session` and `ballot` in one arm today, and `in-session` gets its own arm that proceeds when `who` is non-empty and refuses with `review-human` when it is empty, the text naming the flag that supplies it. `ballot` keeps its refusal. `workflows/approve.ts:155-161` already has a separate `in-session` arm; it applies the same rule. `Review: ballot` still refuses in both: a tally is not a name, and this plan does not read ballots.
 
 `workflows/approve.ts` takes the same field and gives the same answer, so the two approve implementations stay one rule. A corpus case in `packages/domain/corpus/` holds the shell's answer against both.
 
@@ -60,13 +60,13 @@ The `Released` write is already decided in the domain. `release` (`workflows/rel
 
 - `plot-approve.sh --reviewer jwloka <slug>` on an in-session Draft plan writes `State: Approved` and `Approved: <date>, jwloka, in-session`, commits, and adds no row to `unowned-state-writes.tsv`; without `--reviewer` it refuses and names the flag.
 - `plot-deliver.sh --release 2.22.3 <slug>` on a Delivered plan writes `State: Released` and `Released: <date>, v2.22.3`, and adds no row to `unowned-state-writes.tsv`; it refuses a version with no tag and a plan that is not Delivered.
-- `transitions/plan.ts` and `workflows/approve.ts` answer the same for in-session with and without a reviewer, at 100% branch coverage, and a corpus case holds the shell's answer.
+- `transitions/plan.ts` and `workflows/approve.ts` answer the same for in-session with a non-empty and with an empty `who`, at 100% branch coverage, and a corpus case holds the shell's answer.
 - `/plot-approve` step 3b and `/plot-release` step 5 call the scripts; neither SKILL.md tells an agent to write `--unowned` for these two writes.
 
 Tests that fail on `origin/main` today:
 
-- `packages/domain/test/transitions.test.ts`: a new case *approves an in-session plan with a reviewer* fails, because `:132-140` asserts `review-human` for every in-session input. The `:132` case is rewritten to pass no reviewer and keeps its refusal.
-- `packages/domain/test/workflows-approve.test.ts`: the `it.each` at `:61` splits; *approves in-session with a reviewer* fails today, and `ballot` keeps the refusal.
+- `packages/domain/test/transitions.test.ts`: a new case *approves an in-session plan with a non-empty `who`* fails, because `:132-140` asserts `review-human` for every in-session input. The `:132` case is rewritten to pass an empty `who` and keeps its refusal.
+- `packages/domain/test/workflows-approve.test.ts`: the `it.each` at `:61` splits; *approves in-session with a non-empty `who`* fails today, and `ballot` keeps the refusal.
 - `test/reconcile/approve.test.mjs`: a new case *--reviewer approves Review: in-session with no unowned row* fails, because `:238-242` asserts the refusal. The `:238` case keeps the refusal without the flag and asserts the message names `--reviewer`.
 - A new case in `test/reconcile/deliver-phase-takes-effect.test.mjs`: *--release writes Released and its record with no unowned row* fails, because `plot-deliver.sh` takes no `--release` today.
 
@@ -74,11 +74,11 @@ Tests that fail on `origin/main` today:
 
 ### The transition takes the reviewer (Branch: bug/the-transition-takes-the-reviewer)
 
-`ApproveInput.reviewer` in `transitions/plan.ts` and `workflows/approve.ts`, the unit cases, the corpus case, the transition bundle's input column, and the changeset.
+The `in-session` arm split in `transitions/plan.ts` and the `who` rule in `workflows/approve.ts`, with one unit case per arm in each: in-session with a non-empty `who` approves, in-session with an empty `who` refuses with `review-human`, and `ballot` refuses with `review-human`. Also the corpus case, the transition bundle input column, and the changeset.
 
 ### The scripts own the approval and the release (Branch: bug/the-scripts-own-the-approval-and-the-release) <!-- waits: bug/the-transition-takes-the-reviewer -->
 
-`plot-approve.sh --reviewer`, `plot-deliver.sh --release`, `POST /api/approve` with `reviewer`, the contract tests in `test/reconcile/`, and the two SKILL.md steps.
+`plot-approve.sh --reviewer`, `plot-deliver.sh --release`, `POST /api/approve` with a `reviewer` body field that becomes `who`, the contract tests in `test/reconcile/`, and the two SKILL.md steps.
 
 ## Notes
 
