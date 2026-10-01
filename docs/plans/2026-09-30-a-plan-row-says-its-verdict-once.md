@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-09-30, jwloka, in-session
 - **Started:** 2026-09-30, jwloka, `bug/a-plan-row-says-its-verdict-once`
 - **Type:** bug
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 4
 - **Delivered:** 2026-10-01
+- **Released:** 2026-10-01, v2.22.0
 
 ## Changelog
 
