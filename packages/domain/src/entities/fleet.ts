@@ -576,6 +576,51 @@ export const BranchSchema = z.object({
    * 5 s poll costs without buying.
    */
   changed_paths: z.array(z.string()).default([]),
+  /**
+   * What proved this branch merged, where the proof is weaker than the host's.
+   *
+   * `'subject'` means a merge commit on the default branch names the branch,
+   * and the host has not confirmed it. `undefined` means the state needs no
+   * qualifier: the host answered, or the branch did not read `merged` at all.
+   *
+   * DECLARED HERE OR THE RULE READS NOTHING. {@link BranchSchema} is a plain
+   * `z.object`, which STRIPS a key it does not declare. A scan emitting this
+   * field against a schema without it would reach
+   * {@link ../rules/deliverable.js}'s `allSlicesConfirmed` with the field gone,
+   * the rule would answer as `allSlicesMerged` does, and a test building its
+   * pulse as a typed literal would stay green while the refusal never fired.
+   *
+   * NOT A STATE. The branch still reads `merged`, and the wave arithmetic is
+   * unchanged — a subject settles a slice and opens the next one, which is
+   * reversible work. What reads this is the confirmation rule in front of
+   * delivery, which is not.
+   *
+   * Optional rather than defaulted, because absence is the ordinary answer and
+   * a default word would make every branch carry a qualifier it does not need.
+   */
+// plot-state: reading — what proved the landing, re-read every scan. A branch
+//                        does not progress from `subject` to another word: the
+//                        field is simply absent once the host confirms, which
+//                        is the ordinary answer and not a later state.
+  evidence: z.enum(['subject']).optional(),
+  /**
+   * Why a merge subject naming this branch proved nothing.
+   *
+   * `'predates-plan'` means a subject names the branch and its merge is
+   * contained in the commit that added the plan file — a branch name reused by
+   * a later plan, whose earlier merge says nothing about work this plan names.
+   * The branch then reads as it would with no subject at all.
+   *
+   * Reported so `--why-nothing` and an operator can tell the two cases apart:
+   * a slice with no subject and a slice whose subject was refused for age both
+   * read `unknown` under a refused host, and only the second has an
+   * explanation.
+   */
+// plot-state: reading — why a measurement was refused, re-read every scan.
+//                        Nothing transitions: the branch reads as it would
+//                        with no subject at all, and this explains that
+//                        reading rather than naming a position in an order.
+  subjectIgnored: z.enum(['predates-plan']).optional(),
 });
 export type Branch = z.infer<typeof BranchSchema>;
 

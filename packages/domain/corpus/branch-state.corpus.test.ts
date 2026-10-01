@@ -3,12 +3,14 @@ import { spawnSync } from 'node:child_process';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
+import { mergeSubjectForms } from '../src/adapters/host/merge-subjects.js';
 import {
   branchState,
   type BranchReadings,
   type HostReach,
   type PrReading,
 } from '../src/rules/branch-state.js';
+import { mergedBySubject } from '../src/rules/merge-subject.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
 import {
   readCommitsBeyond,
@@ -214,20 +216,41 @@ const prFor = (branch: string): PrReading => {
 /**
  * Whether the default branch carries a conforming merge commit naming a branch.
  *
- * `merged_by_subject()`, with the same escaping problem answered the same way:
- * a branch name may hold `+`, `.` or `(`, and an unescaped pattern makes
- * `feature/v.1` match `feature/vX1` while `bug/a+b` fails to match its own
- * subject. Compared as a STRING here rather than as a pattern, which cannot
- * have that fault at all.
+ * THE RULE, NOT A THIRD COPY OF THE PATTERN. This held its own regex until
+ * 2026-10-01 — the shell had one, `rules/branch-state.ts`'s caller had one, and
+ * this was the third — and all three read one host's form only, so a Bitbucket
+ * estate's 1723 proofs were invisible to every one of them. `mergedBySubject`
+ * takes the forms as data, so this comparison reads whatever the estate's own
+ * backend writes.
+ *
+ * ANY OWNER, which is what this corpus can honestly ask. The production side
+ * reads the owner from the `origin` URL; this file compares READINGS against
+ * the shell's answer for the same estate, and narrowing by owner here would
+ * make the comparison about which owner each side resolved rather than about
+ * the subject. `owner: null` matches any, which is the question *does a
+ * conforming subject name this branch*.
  *
  * @param branch - the branch to look for.
  * @returns true when a conforming subject names it.
  */
 const mergeSubjectNames = (branch: string): boolean =>
-  mergeSubjects.some((subject) => {
-    const match = /^Merge pull request #\d+ from ([^/]+)\/(.+)$/.exec(subject);
-    return match !== null && match[2] === branch;
-  });
+  mergedBySubject({
+    // The hash is not read here — this asks whether any subject names the
+    // branch, and the age rule's ancestry test belongs to the scan.
+    subjects: mergeSubjects.map((subject) => ({ sha: '', subject })),
+    branches: [branch],
+    forms: mergeSubjectForms(backendOfEstate()),
+    owner: null,
+  }).length > 0;
+
+/**
+ * The backend whose merge subjects this estate writes.
+ *
+ * Read from the adapter by the same word `plot-host.sh backend` answers, so the
+ * corpus compares against the forms production would use. Defaults to the host
+ * this repository is on, which is what every corpus run so far has measured.
+ */
+const backendOfEstate = (): string => process.env.PLOT_HOST ?? 'github';
 
 /**
  * Everything read of one branch, assembled from the sources the scan reads.
