@@ -159,10 +159,18 @@ plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
 # empty key means `.plot/agents`. The trailing slash is trimmed, the way
 # `plot-dispatch.sh:agent_registry_dir` trims one and `path.join` normalises
 # one — two answers to *where is the registry* is what this removes.
+# `PLOT_REPO_ROOT` IS PASSED AND NEVER INHERITED, which is this function's one
+# trap. `plot-config.sh:222` takes an exported `PLOT_REPO_ROOT` in preference to
+# asking git, and the fleet wrapper exports the DISPATCHING repository's root
+# into every agent — so a lookup about a desk in another checkout read this
+# repository's `CLAUDE.md`. Measured 2026-10-02 while building this slice: a
+# fixture repo with its own `Agent registry` key answered the surrounding repo's
+# `.plot/agents`. Its own fallback is `--show-toplevel`, which answers the DESK,
+# so leaving the variable unset would reintroduce #1086 one layer down.
 plot_manifest_dir_for() { # $1=main checkout → prints the directory
   local root="$1" dir=''
   if [ -x "$_plot_wstate_config" ] || [ -r "$_plot_wstate_config" ]; then
-    dir=$(bash "$_plot_wstate_config" get "Agent registry" "" 2>/dev/null) || dir=''
+    dir=$(PLOT_REPO_ROOT="$root" bash "$_plot_wstate_config" get "Agent registry" "" 2>/dev/null) || dir=''
   fi
   # Whitespace alone is a key nobody filled in.
   dir=$(printf '%s' "$dir" | tr -d '[:space:]')

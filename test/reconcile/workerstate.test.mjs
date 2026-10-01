@@ -959,3 +959,149 @@ test('worker-state: a desk Plot never launched a worker into is not asked about 
     f.cleanup?.();
   }
 });
+
+// THE MANIFEST LOOKUP, ASKED FROM INSIDE A DESK — #1086.
+//
+// `plot_manifest_for_worktree` derived its directory as the desk's
+// `--show-toplevel`/.plot/agents. A linked worktree IS a git working tree, so
+// that answers the DESK and not the main checkout, and the lookup read a
+// directory that does not exist. Every worker-state reading taken from inside a
+// dispatched desk therefore read its agent as unregistered — and the comment on
+// the function claimed the opposite, which is why it survived.
+//
+// THE `cd` HAPPENS BEFORE THE `source`, AND THAT IS THE TEST. The old code only
+// misbehaves when `--show-toplevel` answers the desk, which it does only when
+// git is asked from inside one. A `git -C` added here would ask about the desk
+// from the main checkout and the bug would not reproduce.
+
+/** Writes the manifest the dispatcher writes, naming one desk. */
+function plantManifest(dir, worktree, { name = 'agent.json', pid, started } = {}) {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, name);
+  const fields = [`  "worktree": "${worktree}"`];
+  if (pid !== undefined) fields.push(`  "pid": "${pid}"`);
+  if (started !== undefined) fields.push(`  "startedAt": "${started}"`);
+  fs.writeFileSync(file, `{\n${fields.join(',\n')}\n}\n`);
+  return file;
+}
+
+/**
+ * Ask `plot_manifest_for_worktree` for a desk, with the cwd INSIDE that desk.
+ *
+ * `PLOT_MANIFEST_DIR` is cleared, because a caller-set value is the arm that
+ * already worked and the derivation is the subject. The exit code is reported
+ * rather than thrown on: *no manifest* is an answer this function gives.
+ */
+/**
+ * The same file, whichever form each side names it in.
+ *
+ * The lookup composes its directory from `pwd -P`, so it answers a PHYSICAL
+ * path, while a fixture built with `path.join` holds the logical one. On macOS
+ * `/var` is a symlink to `/private/var` and the two differ for every temp
+ * fixture — the same asymmetry the lookup itself has to match across, so the
+ * assertion resolves rather than requiring one form.
+ */
+function sameFile(actual, expected, message) {
+  assert.equal(fs.realpathSync(actual), fs.realpathSync(expected), message);
+}
+
+function askFromInside(desk, env = {}) {
+  const out = execFileSync('bash', ['-c',
+    'cd "$1" || exit 9\n' +
+    '. "$2"\n' +
+    'plot_manifest_for_worktree "$1" || exit 1\n',
+    'bash', desk, shared],
+    {
+      encoding: 'utf8',
+      // `PLOT_REPO_ROOT` IS CLEARED WITH IT. `plot-config.sh:222` prefers an
+      // exported one over asking git, and the fleet wrapper exports the
+      // dispatching repository's root into every agent — so a run inside a
+      // worker read THIS repository's config for a fixture's desk and the
+      // registry case passed for the wrong reason.
+      env: { ...process.env, PLOT_MANIFEST_DIR: '', PLOT_REPO_ROOT: '', ...env },
+      cwd: desk,
+      timeout: 60_000,
+    });
+  return out.trim();
+}
+
+test('worker-state: the manifest lookup finds a desk\'s manifest from INSIDE the desk', () => {
+  const f = fixture('manifest-desk');
+  try {
+    // The manifest sits where the dispatcher puts it: the MAIN checkout's
+    // `.plot/agents/`. The desk has no such directory, which is the point.
+    const dir = path.join(f.repo, '.plot', 'agents');
+    const file = plantManifest(dir, f.wt);
+    assert.ok(!fs.existsSync(path.join(f.wt, '.plot', 'agents')),
+      'the desk must NOT hold a registry of its own, or the old derivation would pass');
+
+    sameFile(askFromInside(f.wt), file,
+      'the lookup must resolve the main checkout through --git-common-dir, not the desk');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('worker-state: the manifest lookup reads the `Agent registry` key', () => {
+  const f = fixture('manifest-registry');
+  try {
+    // OUTSIDE BOTH CHECKOUTS, so no fallback can reach it by accident: a
+    // registry inside the repo would also be found by the default `.plot/agents`.
+    const registry = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-registry-'));
+    const file = plantManifest(registry, f.wt);
+    fs.appendFileSync(path.join(f.repo, 'CLAUDE.md'),
+      `- **Agent registry:** ${registry}\n`);
+    assert.ok(!fs.existsSync(path.join(f.repo, '.plot', 'agents')),
+      'the default directory must not exist, or the key would not be the reason');
+
+    try {
+      sameFile(askFromInside(f.wt), file,
+        'a configured registry must be read, from inside the desk as from the checkout');
+    } finally {
+      fs.rmSync(registry, { recursive: true, force: true });
+    }
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('worker-state: TWO manifests naming one desk answer `several`, not the first', () => {
+  const f = fixture('manifest-several');
+  try {
+    // Two agents on one desk is an estate DEFECT. Returning the first hides it,
+    // so the lookup declines — the answer `deskManifest` gives as `several`, and
+    // the one every caller in this slice reads as *no manifest*.
+    const dir = path.join(f.repo, '.plot', 'agents');
+    plantManifest(dir, f.wt, { name: 'one.json' });
+    plantManifest(dir, f.wt, { name: 'two.json' });
+
+    // The EXIT CODE is the contract, not the message: `execFileSync` words its
+    // error differently across Node versions, and `1` is what the callers read.
+    assert.throws(
+      () => askFromInside(f.wt),
+      (err) => err.status === 1,
+      'two manifests on one desk must not resolve to either of them',
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('worker-state: a manifest naming a SYMLINKED desk is found by the real path', () => {
+  const f = fixture('manifest-symlink');
+  try {
+    // The dispatcher records a resolved path and git may report either, but a
+    // manifest may have been written against a symlinked one. Both sides carry
+    // both forms, so either matches either. An explicit symlink, because
+    // /tmp-against-/private/tmp is macOS's gift and CI runs Linux.
+    const link = path.join(path.dirname(f.wt), 'desk-link');
+    fs.symlinkSync(f.wt, link);
+    const dir = path.join(f.repo, '.plot', 'agents');
+    const file = plantManifest(dir, link);
+
+    sameFile(askFromInside(f.wt), file,
+      "a manifest naming the symlink must be found when asked by the desk's real path");
+  } finally {
+    f.cleanup();
+  }
+});
