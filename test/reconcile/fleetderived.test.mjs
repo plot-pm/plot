@@ -209,15 +209,15 @@ test('a symlink pointing at a delivered plan does not resurrect it', () => {
   // any say, this plan would read as live work — and it would be eligible,
   // because its branch is open.
   //
-  // The `Delivered:` record is deliberately OUTSIDE the 24 h window, so the
-  // only thing that could put this plan on the pulse is the stale link.
+  // The plan is RELEASED, which the pulse never admits, so the only thing that
+  // could put it there is the stale link.
   const { tmp, repo } = makeRepo([
     {
       name: '2026-08-19-live.md', title: 'Live plan', phase: 'Approved',
       branch: 'feature/live-work', link: 'active',
     },
     {
-      name: '2026-08-19-finished.md', title: 'Finished plan', phase: 'Delivered',
+      name: '2026-08-19-finished.md', title: 'Finished plan', phase: 'Released',
       branch: 'feature/finished-work', link: 'active',
       delivered: stampHoursAgo(72),
     },
@@ -236,7 +236,7 @@ test('a symlink pointing at a delivered plan does not resurrect it', () => {
     assert.deepEqual(
       out.plans.map((p) => p.file),
       ['2026-08-19-live.md'],
-      'a stale active link must not put a delivered plan back on the pulse',
+      'a stale active link must not put a released plan back on the pulse',
     );
     assert.equal(out.summary.plans, 1);
 
@@ -252,12 +252,11 @@ test('a symlink pointing at a delivered plan does not resurrect it', () => {
   }
 });
 
-test('a delivered plan inside the window still appears, with no symlink at all', () => {
-  // The window itself is unchanged — this pins that deriving the GROUP did not
-  // quietly change WHICH delivered plans are in it. The plan has no link in
-  // either index, so the old enumeration could not have found it by any path,
-  // and the mtime pre-filter that used to gate the delivered group is gone with
-  // the directory it read.
+test('every delivered plan appears, with no symlink at all, whatever its age', () => {
+  // Neither plan has a link in either index, so the old enumeration could not
+  // have found them by any path. The phase decides, not the `Delivered:` date:
+  // a plan delivered three days ago and not released is part of the release
+  // scope as much as one delivered three hours ago.
   const { tmp, repo } = makeRepo([
     {
       name: '2026-08-19-recent.md', title: 'Recently delivered', phase: 'Delivered',
@@ -273,9 +272,9 @@ test('a delivered plan inside the window still appears, with no symlink at all',
   try {
     const out = scanJson(repo);
     assert.deepEqual(
-      out.plans.map((p) => p.file),
-      ['2026-08-19-recent.md'],
-      'the rolling 24 h window must still decide which delivered plans show',
+      out.plans.map((p) => p.file).sort(),
+      ['2026-08-19-old.md', '2026-08-19-recent.md'],
+      'every delivered, unreleased plan must show, whatever its age',
     );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -537,7 +536,7 @@ test('the worktree fallback derives the same way', () => {
     fs.writeFileSync(
       path.join(dir, '2026-08-19-gone.md'),
       planBody({
-        title: 'Gone plan', phase: 'Delivered', branch: 'feature/gone-work',
+        title: 'Gone plan', phase: 'Released', branch: 'feature/gone-work',
         delivered: stampHoursAgo(72),
       }),
     );

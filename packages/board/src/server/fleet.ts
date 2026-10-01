@@ -2295,12 +2295,11 @@ export async function refreshRuns(
  * Every issue number any plan in the repo references, from the `Issue:` field.
  *
  * READS EVERY PLAN FILE, deliberately, and not `pulse.plans`. The pulse carries
- * active plans plus a rolling 24 hours of delivered ones — the right window for
- * BRANCHES, whose work stops being actionable once it lands, and the wrong one
- * for REFERENCES. A plan delivered last week is still the decision that was
- * made about its issue, and reading the pulse would drop it from this set and
- * put the issue back on the board a day later, under a heading that says nobody
- * has decided about it. The reference is what makes the row disappear, so it has
+ * active plans plus every delivered, unreleased one — the release scope, which
+ * is the right set for BRANCHES and the wrong one for REFERENCES. A released
+ * plan is still the decision that was made about its issue, and reading the
+ * pulse would drop it from this set and put the issue back on the board once
+ * its release ships, under a heading that says nobody has decided about it. The reference is what makes the row disappear, so it has
  * to outlive the branch.
  *
  * Affordable because it is ONE parser invocation over the whole directory:
@@ -6396,10 +6395,10 @@ export function rowsFromPulse(
     // The asymmetry is the design: every slice being complete is a MEASUREMENT,
     // releasing is a DECISION, and only the decision drains the queue.
     //
-    // The rolling window is why this fires at all: the scan admits plans
-    // delivered or released inside the last 24 h, so a freshly-released plan
-    // reaches this loop and would otherwise crowd DONE with shipped work — 41 of
-    // 61 DONE rows, measured 2026-08-23.
+    // The scan admits no `released` plan since 2026-10-01, when its 24-hour
+    // window gave way to the phase rule; this guard stays for a pulse written
+    // by an older scan, where a freshly-released plan would otherwise crowd
+    // DONE with shipped work — 41 of 61 DONE rows, measured 2026-08-23.
     if (plan.phase === 'released') continue;
     // WHICH earlier slice is blocking — the plan's FIRST incomplete one, read
     // once per plan rather than searched per row.
