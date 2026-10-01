@@ -65,7 +65,7 @@ import {
   writeMineOnly,
 } from '../lib/agent-rows/mine-filter.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
-import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, showPlanHeading, showsSliceFold, sortByWaiting, ungroupedRows, sliceGroupsFor, slicesElsewhere, sliceKeyOf } from '../lib/agent-rows/sections.js';
+import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, ungroupedRows, sliceGroupsFor, slicesElsewhere, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
@@ -1154,15 +1154,15 @@ export function AgentList({
         // the REGISTRY, one row per agent, and its number is `agents.length` —
         // `the-working-section-shows-every-worker`, slice Counted (#403). It has
         // no plan grouping to fold, so it keeps the single figure.
+        const unplanned = { tickets: issues.length, drafts: drafts.length, agents: broken.length };
         const tallyOf = workingSection
-          ? { plans: countOf, slices: countOf, differ: false }
-          : sectionTally(rows, key, slices, issues.length + drafts.length);
-        // WHERE THE TWO AGREE, ONE NUMBER — an ungrouped or empty section gains
-        // no redundant clause, so QUIET at 0/0 stays `(0)` and never
-        // `(0 plans · 0 slices)` (Done when #3). Where they differ, both, named.
-        const shownLabel = tallyOf.differ
-          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.slices} slice${tallyOf.slices === 1 ? '' : 's'})`
-          : `(${tallyOf.plans})`;
+          ? { plans: countOf, slices: countOf, branches: 0, tickets: 0, agents: 0 }
+          : sectionTally(rows, key, slices, unplanned);
+        // EACH KIND UNDER ITS OWN NAME — and the wording is `tallyLabel`'s, not
+        // this component's: a label built here could only be asserted by
+        // rendering a page. One number where there is one kind and nothing
+        // diverges, so QUIET at 0/0 still reads `(0)`.
+        const shownLabel = tallyLabel(tallyOf);
         // THE HIDDEN SUFFIX. A filtered section says what it withheld, so
         // `none` is never the whole answer when rows exist and the reader has
         // forgotten the toggle is on. ONLY PRINTED WHERE HIDING HAPPENED:
@@ -1170,17 +1170,15 @@ export function AgentList({
         const hiddenSuffix = hiddenCount > 0
           ? ` — ${hiddenCount} hidden by Sprint only`
           : '';
-        // WHAT THE SPRINT FILTER NEVER SAW. Issues, draft plans and stopped
-        // agents reach WAITING ON YOU from the fleet directly — an issue carries
-        // no sprint, and the other two are joined to unfiltered rows — so the
-        // tally beside them is not a sprint-filtered number, and the header says
-        // so rather than letting `hidden by Sprint only` imply it.
+        // WHAT THE SPRINT FILTER NEVER SAW — named, and without a number. The
+        // figures are already in the header under their own names, so a sum here
+        // would state the same rows a second time and ask the reader to
+        // reconcile two counts of one thing. `unfilteredNote` names only the
+        // kinds present. `data-sprint-unfiltered` keeps its number for the test.
         const unfilteredCount = sprintFilter.size > 0
           ? issues.length + drafts.length + broken.length
           : 0;
-        const unfilteredSuffix = unfilteredCount > 0
-          ? ` · ${unfilteredCount} not sprint-filtered (issues, draft plans, stopped agents)`
-          : '';
+        const unfilteredSuffix = unfilteredNote(unplanned, sprintFilter.size > 0);
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
             {countOf + issues.length > 0 ? shownLabel : emptyHint}{hiddenSuffix}
