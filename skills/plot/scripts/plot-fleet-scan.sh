@@ -3325,9 +3325,25 @@ ask_merge_subject() { # $1=verb; stdin=readings → the rule's answer
   node "$script_dir/board/plot-merge-subject.mjs" "$1" 2>/dev/null
 }
 
-# Only where a walk gave something to read. `--offline` and `--no-pr` do not
-# gate this: the walks are LOCAL, they cost no host call, and a subject is the
-# one proof an offline scan can still have.
+# AN EMPTY WALK IS A MEASUREMENT, AND IT ANSWERS `none`.
+#
+# A squash or rebase estate leaves no merge commit at all, so `$MERGE_SUBJECTS`
+# is empty — and that is the walk having run and found nothing, which is exactly
+# what `none` says. `unaskable` must mean only *the rule could not be asked*, or
+# the footer stops telling a reader the two apart; the asking side of that
+# distinction is this script's and the found/not-found side is the bundle's.
+#
+# Measured by CI on the first run of this slice: the guard below read
+# `[ -n "$MERGE_SUBJECTS" ]` and a fixture with no merges reported
+# `merge_detect=unaskable`, which claims the question was never put about an
+# estate the walk had just examined.
+if [ -z "$MERGE_SUBJECTS" ]; then
+  MERGE_DETECT=none
+fi
+
+# Only where there is something for the rule to match. `--offline` and `--no-pr`
+# do not gate this: the walks are LOCAL, they cost no host call, and a subject is
+# the one proof an offline scan can still have.
 if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
   # The origin URL, read once. The rule parses it — this script never does, so
   # the owner is read one way by the scan and the supervisor alike.
