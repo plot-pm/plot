@@ -3593,17 +3593,32 @@ test('dispatch: --start --dry-run names the desks and creates none', () => {
   }
 });
 
-test('dispatch: with no Worker command --start says so and starts nothing', () => {
-  // `worker=unconfigured` is what the performer reads to answer `unaskable` —
-  // asked, and this repo has no answer — rather than reporting a failure it
-  // should retry every sixty seconds.
+test('dispatch: with no Worker command --start starts the loop', () => {
+  // AN ABSENT KEY MEANS THE LOOP (#1124). The loop is this install's own
+  // `plot-worker-loop.sh`, so the run uses a copy of the scripts directory whose
+  // loop is a stub that records how it was started, and nothing real waits.
   const { root, checkout } = repoForStart('nocommand', '');
+  const { root: install, scripts } = pluginInstall('defaultloop');
   try {
-    const out = runDetached(['--start', '1'], checkout);
-    assert.match(out, /worker=unconfigured/, out);
-    assert.match(out, /summary: agents=0 /, out);
+    fs.writeFileSync(path.join(scripts, 'plot-worker-loop.sh'),
+      '#!/usr/bin/env bash\nprintf \'%s|%s\\n\' "${PLOT_BRANCH-unset}" "${PLOT_UNATTENDED-unset}" > "$PLOT_WORKTREE/.stub-loop-ran"\n');
+    fs.chmodSync(path.join(scripts, 'plot-worker-loop.sh'), 0o755);
+    const log = path.join(root, 'start.out');
+    const childEnv = { ...process.env };
+    delete childEnv.PLOT_REPO_ROOT;
+    spawnSync('bash', [path.join(scripts, 'plot-dispatch.sh'), '--start', '1'],
+      { cwd: checkout, env: childEnv, stdio: ['ignore', fs.openSync(log, 'w'), fs.openSync(log, 'a')] });
+    const out = fs.readFileSync(log, 'utf8');
+    assert.match(out, /summary: agents=1 .*worker=default/, out);
+    const desks = fs.readdirSync(path.join(checkout, '.worktrees'));
+    assert.equal(desks.length, 1, out);
+    const marker = path.join(checkout, '.worktrees', desks[0], '.stub-loop-ran');
+    for (let i = 0; i < 200 && !fs.existsSync(marker); i += 1) spawnSync('sleep', ['0.05']);
+    assert.equal(fs.readFileSync(marker, 'utf8'), '|1\n',
+      'the stub loop ran with an empty PLOT_BRANCH and PLOT_UNATTENDED=1');
   } finally {
     removeSandbox(root);
+    fs.rmSync(install, { recursive: true, force: true });
   }
 });
 
@@ -3633,7 +3648,8 @@ test('dispatch: --start refuses a Worker command that does not run the loop', ()
     assert.match(res.stdout, /summary: agents=0 .*worker=no-loop/, res.stdout);
     assert.match(res.stderr, /does not run plot-worker-loop\.sh/, res.stderr);
     assert.ok(res.stderr.includes(`configured: ${command}`), res.stderr);
-    assert.match(res.stderr, /PLOT_UNATTENDED=1 skills\/plot\/scripts\/plot-worker-loop\.sh/, res.stderr);
+    assert.match(res.stderr, /Repair: delete the 'Worker command' key to use the default loop; or set it to/, res.stderr);
+    assert.ok(res.stderr.includes(`PLOT_UNATTENDED=1 '${path.dirname(dispatch)}/plot-worker-loop.sh'`), res.stderr);
     assert.match(res.stderr, /\.plot\/worker-prompt\.sh/, res.stderr);
     assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
     assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');

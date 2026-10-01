@@ -12,10 +12,11 @@ export const FALLBACK_PROMPT = '.plot/worker-prompt.sh';
 /**
  * Which prompt an agent runs, and on whose authority.
  *
- * THREE OUTCOMES, AND THE THIRD REFUSES. `declared` is a charter naming its own
+ * FOUR OUTCOMES, AND THE LAST REFUSES. `declared` is a charter naming its own
  * prompt; `fallback` is the repo's one prompt, for an agent that named no
- * charter or whose charter is not on this clone; `refused` is a charter that
- * exists and cannot be believed.
+ * charter or whose charter is not on this clone; `shipped` is Plot's own
+ * template, where `fallback` would apply and the repo holds no prompt file;
+ * `refused` is a charter that exists and cannot be believed.
  *
  * The refusal is the point. A charter with a typo in it must not resolve to the
  * fallback, because the fallback runs — successfully — under a prompt the
@@ -24,7 +25,19 @@ export const FALLBACK_PROMPT = '.plot/worker-prompt.sh';
 export type PromptResolution =
   | { resolve: 'declared'; prompt: string; charter: string }
   | { resolve: 'fallback'; prompt: string; why: string }
+  | { resolve: 'shipped'; prompt: string; why: string }
   | { resolve: 'refused'; why: string };
+
+/**
+ * What the caller read about the repo's own prompt file.
+ *
+ * `exists` is whether {@link FALLBACK_PROMPT} is present in the repo, and
+ * `shipped` is the path of the template the installation ships beside the loop.
+ */
+export interface RepoPromptReading {
+  readonly exists: boolean;
+  readonly shipped: string;
+}
 
 /**
  * Resolves which prompt file an agent's loop should source.
@@ -34,21 +47,26 @@ export type PromptResolution =
  * here reads a plan, ranks a candidate or chooses among agents; choosing is a
  * question declaring makes askable and does not answer.
  *
+ * A DECLARED PROMPT IS NEVER REPLACED by the shipped template: a charter naming
+ * a file nobody wrote is the charter's defect, and the caller reports it.
+ *
  * @param reading - what the caller read at the named charter's path.
+ * @param repoPrompt - what the caller read about {@link FALLBACK_PROMPT}; when
+ *   omitted, the fallback is answered whether or not the file exists.
  * @returns the prompt to source, or the refusal that stops the launch.
  */
-export const resolvePrompt = (reading: CharterReading): PromptResolution => {
+export const resolvePrompt = (reading: CharterReading, repoPrompt?: RepoPromptReading): PromptResolution => {
+  const fallback = (why: string): PromptResolution =>
+    repoPrompt !== undefined && !repoPrompt.exists
+      ? { resolve: 'shipped', prompt: repoPrompt.shipped, why: `${why}, and no ${FALLBACK_PROMPT} in this repo` }
+      : { resolve: 'fallback', prompt: FALLBACK_PROMPT, why };
   switch (reading.read) {
     case 'declared':
       return { resolve: 'declared', prompt: reading.charter.prompt, charter: reading.charter.name };
     case 'unnamed':
-      return { resolve: 'fallback', prompt: FALLBACK_PROMPT, why: 'no agent named' };
+      return fallback('no agent named');
     case 'absent':
-      return {
-        resolve: 'fallback',
-        prompt: FALLBACK_PROMPT,
-        why: `no charter for '${reading.name}'`,
-      };
+      return fallback(`no charter for '${reading.name}'`);
     case 'unreadable':
       return { resolve: 'refused', why: `charter '${reading.name}' ${reading.why}` };
   }

@@ -324,8 +324,12 @@ them, and nothing in the last line saying so.
 
 ## Configuration
 
-Starting workers requires the adopting project to say how (Principle 5 — Plot
-hardcodes no tooling):
+**An absent or empty `Worker command` starts the loop:** this install's
+`plot-worker-loop.sh`, run with `PLOT_UNATTENDED=1`. The loop runs the project's
+`.plot/worker-prompt.sh`, and where the repository has none it runs the template
+Plot ships (`skills/plot/templates/worker-prompt.sh`) and logs one line saying
+so. A project that wants another command says so (Principle 5 — Plot hardcodes
+no agent tooling; the template's harness call is the project's to replace):
 
 ```markdown
 ## Plot Config
@@ -339,8 +343,9 @@ runs the project's `.plot/worker-prompt.sh` once per slice, and that file holds
 the harness call (`claude -p "…"`); `plot-install-prompt.sh` writes one from the
 shipped template. In a plugin install, name the plugin's copy of the script.
 
-**Free agents need the loop.** `--start` refuses any `Worker command` that does
-not run `plot-worker-loop.sh`, before it cuts a desk: a free agent starts with an
+**Free agents need the loop.** `--start` refuses any configured `Worker command`
+that does not run `plot-worker-loop.sh`, before it cuts a desk, and its repair
+names deleting the key first: a free agent starts with an
 empty `PLOT_BRANCH`, only the loop waits for the registry to hand it a slice,
 and any other command runs its prompt at once and exits. A worker given a branch
 — a fan-out or `--restart <branch>` — works with any command, for example a
@@ -365,8 +370,7 @@ portable form, since `--session-id ""` is worse than passing nothing. The **agen
 process the command names, not the shell that wraps it — is recorded in
 `.plot-worker.pid`, so the panel describes the process doing the work; the
 wrapper's own pid is kept in `.plot-worker.wrapper.pid`, where it records the
-run's exit code. Without the key, worktrees are prepared and the user starts
-them.
+run's exit code. Without the key, the loop starts.
 
 `- **Worker command:** none` records that the question was asked and the answer
 was *we start them by hand*. It is never run as a command, and it stops step 3
@@ -453,9 +457,9 @@ exists there is nobody to match. Measured 2026-09-05: a dispatch reported
 ```
 
 Each agent gets a desk, a manifest naming **no branch**, and a loop that waits.
-The `Worker command` must therefore run `plot-worker-loop.sh`; any other command
-is refused with `worker=no-loop` in the summary and the repair on stderr, and no
-desk is cut.
+The `Worker command` must therefore run `plot-worker-loop.sh` or be absent, which
+means the loop and reports `worker=default`; any other command is refused with
+`worker=no-loop` in the summary and the repair on stderr, and no desk is cut.
 `isAgentFree` already reads that state as available, so the supervisor's next
 tick can hand each one a queued slice with nobody touching a desk.
 

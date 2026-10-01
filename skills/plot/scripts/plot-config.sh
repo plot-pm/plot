@@ -116,7 +116,10 @@
 #                       the first dispatch asks (never /plot-init: at adoption
 #                       the question meets a need the answerer does not have,
 #                       gets a shrug, and an answered-and-wrong key is harder
-#                       to fix than a missing one).
+#                       to fix than a missing one). An absent or empty key
+#                       starts agents on plot-worker-loop.sh beside this
+#                       script; a free agent (`--start`) refuses any other
+#                       command, because only the loop waits for a slice.
 #   Approve command     how the board runs `/plot-approve <slug>`; the prompt is
 #                       appended as one argument. Absent = the board's Approve
 #                       button renders disabled, naming this key as the fix.

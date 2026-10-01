@@ -198,6 +198,43 @@ describe('the prompt resolves through the declaration', () => {
   it('refuses a charter carrying a run fact, rather than running the fallback', () => {
     expect(resolvePrompt(readCharter('reviewer', charter({ pid: '4242' }))).resolve).toBe('refused');
   });
+
+  describe('a repo with no prompt file runs the shipped template', () => {
+    const SHIPPED = '/install/skills/plot/templates/worker-prompt.sh';
+    const missing = { exists: false, shipped: SHIPPED };
+    const present = { exists: true, shipped: SHIPPED };
+
+    it('answers shipped when no agent is named and the repo holds no prompt', () => {
+      const resolution = resolvePrompt(readCharter('', null), missing);
+      expect(resolution.resolve).toBe('shipped');
+      if (resolution.resolve !== 'shipped') throw new Error('unreachable');
+      expect(resolution.prompt).toBe(SHIPPED);
+      expect(resolution.why).toContain(FALLBACK_PROMPT);
+    });
+
+    it('answers shipped when the named charter is absent and the repo holds no prompt', () => {
+      const resolution = resolvePrompt(readCharter('reviewer', null), missing);
+      expect(resolution.resolve).toBe('shipped');
+      if (resolution.resolve !== 'shipped') throw new Error('unreachable');
+      expect(resolution.why).toContain('reviewer');
+    });
+
+    it('keeps the repo prompt when it exists', () => {
+      expect(resolvePrompt(readCharter('', null), present)).toEqual({
+        resolve: 'fallback',
+        prompt: FALLBACK_PROMPT,
+        why: 'no agent named',
+      });
+    });
+
+    it('never replaces a declared prompt', () => {
+      expect(resolvePrompt(readCharter('reviewer', charter()), missing).resolve).toBe('declared');
+    });
+
+    it('still refuses a charter that cannot be believed', () => {
+      expect(resolvePrompt(readCharter('reviewer', 'not json {'), missing).resolve).toBe('refused');
+    });
+  });
 });
 
 describe('the launch resolves through the declaration', () => {
