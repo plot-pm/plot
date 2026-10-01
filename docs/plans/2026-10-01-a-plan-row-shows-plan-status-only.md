@@ -4,11 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-10-01, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1115
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
