@@ -47,9 +47,13 @@ The Plans tab already solved the same shape with the same rule. `App.tsx:932-937
 
 **The existing rule decides which selected sprints still filter.** `sanitizeSelection(selected, options)` (`lib/filters.ts:165`) keeps the selected values that match a current option and collapses an all-invalid selection to no filter. The Plans tab calls it for the same shape (`App.tsx:937`). `AgentList` derives the effective selection once, with `sanitizeSelection([...sprintFilter], activeSprints.map((s) => ({ value: s.slug, label: s.title })))`, and no new rule is added.
 
-Every consumer reads the derived selection: the filtered rows (`:570`), `sprintReport` (`:579`), `workersHiddenByFilter` (`:624`) and its dependency array (`:631`), `unfilteredSectionedRows` (`:984`), `unfilteredCount` (`:1178`), the exempt mark (`:2225`), and the `selected` prop of `SprintFilter` (`:840`). No consumer reads `sprintFilter.size` after this slice.
+Every consumer reads the derived selection. `selectedSprints` (`:569`), today `[...sprintFilter]`, becomes the derived list, and the other sites read it: the filtered rows (`:570`), `sprintReport` (`:579`), `workersHiddenByFilter` (`:624`) and its dependency array (`:631`), `unfilteredSectionedRows` (`:984`), `unfilteredCount` (`:1178`), the exempt mark (`:2225`), and the `selected` prop of `SprintFilter` (`:840`). No consumer reads `sprintFilter.size` after this slice.
 
 **The stored selection is pruned, so a dropped sprint cannot come back.** `activeSprints` comes from the sprint files in the checked-out tree (`workingTreeSprints`, `fleet.ts:7597-7606`), so a branch switch to a tree where the closed sprint is still Active returns it to `fleet.sprints`. A slug kept in the `Set` would then filter again with its box checked, a selection the reader did not make in this view. When the derived selection is shorter than the stored `Set`, `AgentList` replaces the `Set` with the derived one in an effect keyed on `activeSprints`. The derivation covers the render before the effect runs, so no frame filters on a dropped slug.
+
+**An empty sprint list prunes nothing.** `workingTreeSprints` (`board.ts`) answers `[]` when the sprint directory is missing or cannot be read, which a checkout or a fast-forward of the main checkout can cause for one poll. A prune on that answer would delete a live selection that the next poll cannot restore. So the effect prunes only when `activeSprints` holds at least one sprint. While the list is empty, the stored `Set` stays as it is, and the derived selection is empty, so the filter is off for that poll and comes back unchanged on the next one.
+
+**Two selected sprints, one closed, keep the other.** `sanitizeSelection` keeps every selected value that is still an option, so the derived selection and the pruned `Set` hold the sprint that is still active, and the filter keeps filtering on it.
 
 **A new active sprint is not selected automatically.** The reader selected a sprint, not "the current sprint". When the selection empties, the filter is off and the control says so with an unchecked box, which is what it already shows.
 
@@ -64,16 +68,19 @@ Every consumer reads the derived selection: the filtered rows (`:570`), `sprintR
 
 ### A closed sprint stops filtering (Branch: bug/a-closed-sprint-stops-filtering)
 
-Unit tests in the existing `describe('sanitizeSelection')` block of `test/unit/filters.test.ts`, with sprint options: a selected active sprint is kept; a selected slug absent from the options is dropped; two selected sprints where one closed keep the other; an empty selection stays empty. `AgentList` derives the selection with `sanitizeSelection`, reads it at every site named above, and prunes the stored `Set` in an effect.
+One unit case in the existing `describe('sanitizeSelection')` block of `test/unit/filters.test.ts`, with sprint-shaped options: two selected sprints where one closed keep the other. The block's generic cases already cover a kept value, a dropped value and an empty selection. `AgentList` derives the selection with `sanitizeSelection`, reads it at every site named above, and prunes the stored `Set` in an effect.
 
-A browser test uses the catalogue's `route` option (`test/catalogue/index.ts:77`) with a mutable flag, not a second stub server. The first `/api/fleet` carries sprint A active with member row `bug/a`; the test checks A's box; the next poll carries sprint B active with rows `bug/a` and `bug/b`, and A is gone. Without a reload, the test asserts: both rows are visible, `data-sprint-hidden` is absent, no `hidden by Sprint only` text renders, and B's box is unchecked. It then flips the flag back so A is active again and asserts A's box is unchecked and both rows stay visible, which proves the prune.
+A browser test uses the catalogue's `route` option (`test/catalogue/index.ts:77`) with a mutable flag, not a second stub server. The first `/api/fleet` carries sprint A active with member row `bug/a`; the test checks A's box; the next poll carries sprint B active with rows `bug/a` and `bug/b`, and A is gone. Without a reload, the test asserts: both rows are visible, `data-sprint-hidden` is absent, no `hidden by Sprint only` text renders, and B's box is unchecked. The test opens with an empty-list step before the switch: with A checked, one poll serves `sprints: []`, as a missing sprint directory does, and the next serves A active again with member row `bug/a` and a row `bug/b` in no sprint. A's box is still checked, `bug/a` is visible and `bug/b` is hidden, so the empty poll pruned nothing. After the switch to B described above, the flag moves back to A active with member rows `bug/a` and `bug/b`: A's box is unchecked and `bug/b` stays visible, which proves the prune. On `origin/main` this last assertion fails, because the retained slug filters `bug/b` out again.
 
-The browser-test count pin `EXPECTED_TESTS` in `packages/board/test/integration/stubbed-tests-start-no-board.test.ts` (536 on `origin/main`) rises by the number of browser tests the slice adds. A `'@plot-pm/board': patch` changeset.
+A second browser test covers two Active sprints: the first payload carries A and B, each with one member row, and the test checks both boxes; the next poll carries B only, with a row of each plus a row in no sprint. The test asserts B's box stays checked, B's member row is visible, and the row in no sprint is hidden, so the filter still runs on B.
+
+The browser-test count pin `EXPECTED_TESTS` in `packages/board/test/integration/stubbed-tests-start-no-board.test.ts` (536 on `origin/main`) rises by 2, the two browser tests this slice adds, to 538. A `'@plot-pm/board': patch` changeset.
 
 ## Done when
 
-- `sanitizeSelection` is unit-tested for the four sprint cases above, and `AgentList.tsx` contains no read of `sprintFilter.size`.
-- The browser test passes on the built artifact and fails on `origin/main`, both at the first assertion and at the re-engagement assertion.
+- The sprint-shaped `sanitizeSelection` case passes, `selectedSprints` is the derived list, and `AgentList.tsx` contains no read of `sprintFilter.size`.
+- An empty sprint list leaves the stored selection untouched, and the browser test proves it across a `sprints: []` poll.
+- Both browser tests pass on the built artifact. The first fails on `origin/main` at the first assertion and at the re-engagement assertion. `EXPECTED_TESTS` reads 538.
 - `pnpm run test:board` and `pnpm run typecheck` pass.
 
 ## Notes
