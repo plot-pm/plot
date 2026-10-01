@@ -22,7 +22,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [a-start-returns-while-its-agent-runs](../plans/2026-10-01-a-start-returns-while-its-agent-runs.md) — [#1144](https://github.com/plot-pm/plot/issues/1144) — **`--start` returns while its agent runs.** Two dispatchers measured asleep with their wrapper as child, for 4 h and 10 min, from two installs. `/plot-fleet --start` and `--start-agents` both go through it.
 
 - [ ] [an-open-board-follows-a-sprint-change](../plans/2026-10-01-an-open-board-follows-a-sprint-change.md) — [#1145](https://github.com/plot-pm/plot/issues/1145) — **An open board follows a sprint change.** A page loaded under the previous sprint kept filtering on it after the sprint closed, hid the new sprint's six slice rows, and showed «Sprint only» unchecked until a reload. Measured 2026-10-01.
-- [ ] [waiting-on-you-counts-tickets-as-tickets](../plans/2026-10-01-waiting-on-you-counts-tickets-as-tickets.md) — [#1146](https://github.com/plot-pm/plot/issues/1146) — **WAITING ON YOU counts tickets as tickets.** `sectionTally` adds each ticket to both the plan and the slice figure, so 3 plans, 6 slices and 15 tickets read `(18 plans · 21 slices)`.
+- [x] [waiting-on-you-counts-tickets-as-tickets](../plans/2026-10-01-waiting-on-you-counts-tickets-as-tickets.md) — [#1146](https://github.com/plot-pm/plot/issues/1146) — **WAITING ON YOU counts tickets as tickets.** `sectionTally` adds each ticket to both the plan and the slice figure, so 3 plans, 6 slices and 15 tickets read `(18 plans · 21 slices)`.
 
 - [ ] [a-handed-slice-reads-as-taken](../plans/2026-10-01-a-handed-slice-reads-as-taken.md) — [#1150](https://github.com/plot-pm/plot/issues/1150) — **A held empty claim reads as taken.** A slice whose claim a live agent holds reads `nobody has taken it` in NOT STARTED until its first commit, with the agent's activity dot beside it. Measured on this sprint's own slices, 2026-10-01.
 
@@ -50,6 +50,10 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [a-start-step-leaves-no-claim-and-no-desk](../plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md) — [#1151](https://github.com/plot-pm/plot/issues/1151) — A worker-less checkout holding a slice's branch stops the agent it is handed to
 - [ ] [an-assignment-is-read-where-it-is-recorded](../plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md) — [#1152](https://github.com/plot-pm/plot/issues/1152) — --release races the supervisor's hand-over and produces a false REGISTRY LOCK VIOLATION
 
+- [ ] [a-draft-slice-waits-on-its-approval](../plans/2026-10-02-a-draft-slice-waits-on-its-approval.md) — [#1161](https://github.com/plot-pm/plot/issues/1161) — A Draft plan's waiting slice renders in NOT STARTED as approved — nobody has taken it.
+
+- [ ] [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
+
 ### Should Have
 
 ### Could Have
@@ -69,3 +73,5 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - 2026-10-01: Added #1145 and #1146 to Must — two board defects found while reading this sprint on the board; the operator asked for both in 2.22.3. Neither has a plan yet.
 - 2026-10-01: Added #1150 to Must — found while the fleet started this sprint's slices; the operator asked for it in 2.22.3. No plan yet.
 - 2026-10-01: Added 23 open issues to Must (#1017, #1039, #1040, #1041, #1057, #1069, #1082, #1085, #1086, #1087, #1088, #1090, #1093, #1094, #1100, #1101, #1112, #1113, #1133, #1148, #1149, #1151, #1152) — the operator asked for every open ticket in 2.22.3; none has an approved plan yet. GitHub milestone `2.22.3` holds the same set.
+- 2026-10-02: Added #1161 to Must — found on the board while this sprint's Draft plans declared `waits:`; the operator asked for it in 2.22.3.
+- 2026-10-02: Added #1153 to Must — found while correcting a plan whose slice waits on two branches; the operator asked for it in 2.22.3.
