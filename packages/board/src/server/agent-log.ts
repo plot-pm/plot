@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -197,11 +196,9 @@ export const agentLogDir = (repoRoot: string): string =>
 /**
  * Create the desk root, and keep it out of `git status`.
  *
- * The WRITERS call this, never {@link agentLogPath}: that resolver is asked
- * once per card on every pulse by `dispatchLogExists`, so creating the
- * directory there would put a `mkdir` and a `git check-ignore` spawn per plan
- * per pulse on a single-threaded server — the cost the pulse exists not to pay.
- * A path resolver stays a read.
+ * {@link agentLogPath} calls this, so every writer finds the directory there.
+ * It is memoised per desk root, and it reaches no process, so the resolver a
+ * pulse asks once per card stays a `Set` lookup after the first call.
  *
  * @concept desk-root
  * @param repoRoot absolute path to the repository this board serves
@@ -225,8 +222,8 @@ export const ensureAgentLogDir = (repoRoot: string): string => {
 /**
  * The desk roots this process has already created.
  *
- * Once per directory per process, not once per write. The work is a `mkdir`,
- * a `git check-ignore` spawn and a read of `info/exclude`; the board writes a
+ * Once per directory per process, not once per write. The work is a `mkdir`
+ * and reads of `.gitignore` and `info/exclude`; the board writes a
  * run's three files and appends to the log repeatedly, so paying it per write
  * would put a spawn on a path that is otherwise one `write` syscall.
  *
@@ -234,6 +231,40 @@ export const ensureAgentLogDir = (repoRoot: string): string => {
  * that rebuilds a fixture repository under a path it already used.
  */
 const ensured = new Set<string>();
+
+/**
+ * The repository's COMMON git directory, read from disk without running git.
+ *
+ * A main checkout holds `.git` as a directory, which is the common one. A
+ * linked worktree holds a `.git` FILE naming its private gitdir, and that
+ * gitdir's `commondir` file names the shared one. No `.git` at all answers
+ * `undefined`: the directory is not a repository and needs no line.
+ *
+ * Read rather than asked of `git rev-parse`, because a read route reaches this
+ * through {@link agentLogPath}, and a read route spawns nothing
+ * (`a-read-route-spawns-nothing.test.ts`).
+ */
+const commonGitDir = (repoRoot: string): string | undefined => {
+  const dotGit = path.join(repoRoot, '.git');
+  const stat = fs.statSync(dotGit, { throwIfNoEntry: false });
+  if (stat === undefined) return undefined;
+  if (stat.isDirectory()) return dotGit;
+  const named = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+  if (named === null) return undefined;
+  const gitDir = path.resolve(repoRoot, named[1].trim());
+  const commonFile = path.join(gitDir, 'commondir');
+  return fs.existsSync(commonFile)
+    ? path.resolve(gitDir, fs.readFileSync(commonFile, 'utf8').trim())
+    : gitDir;
+};
+
+/** Whether a rules file holds a line naming exactly this repo-relative directory. */
+const namesDirectory = (file: string, relative: string): boolean =>
+  fs.existsSync(file) &&
+  fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .some((l) => l.trim().replace(/^\/+|\/+$/g, '') === relative);
 
 /**
  * Keep the desk root out of `git status`, when it lies inside the repository.
@@ -244,10 +275,11 @@ const ensured = new Set<string>();
  * idempotent — the line is appended only when absent — and `info/exclude` is
  * never committed, so this changes no contributor's checkout but this one.
  *
- * A root outside the repository needs no line, and a repository whose
- * `.gitignore` already covers the path gets none either: `git check-ignore`
- * answers that, and appending a second rule for a path already ignored is noise
- * in a file a person reads.
+ * A root outside the repository needs no line, and neither does one the
+ * repository's root `.gitignore` already names — the line `/plot-init` writes.
+ * That is a read of the two files rather than `git check-ignore`: a pattern
+ * that ignores the directory some other way gets a second, redundant rule,
+ * which is untidy and changes nothing git does.
  *
  * It is best-effort. Every failure here leaves untracked files in a listing,
  * which is untidy; refusing to write a log over it would lose the agent's own
@@ -260,25 +292,13 @@ const excludeDeskRoot = (repoRoot: string): void => {
   const line = deskRootPlacement({ configured: readWorktreeRoot(repoRoot), repoRoot }).excludeLine;
   if (line === undefined) return;
   try {
-    // stderr is IGNORED, never inherited: `execFileSync` copies a child's
-    // stderr into this process's own, and the priming read finishes after the
-    // banner, so a launcher that has already gone turns git's `fatal:` into an
-    // EPIPE that ends the board.
-    const git = (args: readonly string[]): string =>
-      execFileSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    // Already ignored — by `.gitignore` for an adopter /plot-init set up, or by
-    // a line written on an earlier run. Appending a second rule for a path
-    // already ignored is noise in a file a person reads.
-    try {
-      execFileSync('git', ['check-ignore', '-q', `.${line}`], { cwd: repoRoot, stdio: 'ignore' });
-      return;
-    } catch {
-      // Exit 1 is "not ignored", which is the case this function exists for.
-    }
-    const common = path.resolve(repoRoot, git(['rev-parse', '--git-common-dir']));
+    const relative = line.replace(/^\/+|\/+$/g, '');
+    if (namesDirectory(path.join(repoRoot, '.gitignore'), relative)) return;
+    const common = commonGitDir(repoRoot);
+    if (common === undefined) return;
     const exclude = path.join(common, 'info', 'exclude');
+    if (namesDirectory(exclude, relative)) return;
     const held = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
-    if (held.split('\n').some((l) => l.trim() === line)) return;
     fs.mkdirSync(path.dirname(exclude), { recursive: true });
     fs.appendFileSync(exclude, held === '' || held.endsWith('\n') ? `${line}\n` : `\n${line}\n`);
   } catch {

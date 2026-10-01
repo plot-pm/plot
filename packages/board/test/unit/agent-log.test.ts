@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -45,15 +45,23 @@ import { rmTree } from '../helpers.mjs';
  * the repository does not own is what this change stopped writing to.
  */
 
-const repoRoot = '/tmp/plot-agent-log-fixture/repo';
+/**
+ * A fixture root of this run's own, removed after the file.
+ *
+ * Under the run's temp directory rather than a fixed `/tmp` path: resolving a
+ * log path creates the desk root, so a fixed path outlives every run.
+ */
+const fixtureParent = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'plot-agent-log-fixture-'));
+const repoRoot = path.join(fixtureParent, 'repo');
+afterAll(() => rmTree(fixtureParent));
 
 /**
  * The default expression — `<repo>/.worktrees` for a repo with no `Worktree root`.
  *
- * The fixture root does not exist on disk and never gets a `CLAUDE.md`, so
- * `plot-config.sh` finds no key and every helper below resolves through the
- * default. That is what makes these the DEFAULT tests: the configured case is
- * exercised against a real fixture repo further down.
+ * The fixture root never gets a `CLAUDE.md`, so `plot-config.sh` finds no key
+ * and every helper below resolves through the default. That is what makes
+ * these the DEFAULT tests: the configured case is exercised against a real
+ * fixture repo further down.
  */
 const inDeskRoot = (name: string) => path.join(repoRoot, '.worktrees', name);
 
@@ -244,6 +252,22 @@ describe('the configured worktree root', () => {
     expect(exclude.split('\n').filter((l) => l === '/.worktrees/')).toHaveLength(1);
   });
 
+  it('writes the ignore line into the COMMON git dir when served from a linked worktree', () => {
+    const repo = makeRepo(null);
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' });
+    git(repo, 'init', '-q', '-b', 'main');
+    git(repo, '-c', 'user.email=t@example.invalid', '-c', 'user.name=T', '-c', 'commit.gpgsign=false',
+      'commit', '-q', '--allow-empty', '-m', 'init');
+    const linked = path.join(tmp, 'linked');
+    git(repo, 'worktree', 'add', '-q', '--detach', linked);
+
+    ensureAgentLogDir(linked);
+
+    const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude.split('\n')).toContain('/.worktrees/');
+    expect(git(linked, 'status', '--porcelain')).not.toMatch(/\.worktrees/);
+  });
+
   it('normalises a trailing slash without touching the filesystem', () => {
     // The directory need not exist — a first dispatch is entitled to create it —
     // so this is pure string work, exactly as `resolve_wt_root()` documents.
@@ -271,7 +295,7 @@ describe('isUnderAgentLogDir', () => {
   });
 
   it('rejects a sibling directory sharing the root as a prefix', () => {
-    // `/tmp/plot-agent-log-fixture-elsewhere` starts with the root's string and
+    // `<desk root>-elsewhere` starts with the root's string and
     // is not inside it. Compared with a trailing separator for exactly this.
     expect(isUnderAgentLogDir(repoRoot, `${agentLogDir(repoRoot)}-elsewhere/plot-dispatch-x.log`)).toBe(
       false,
