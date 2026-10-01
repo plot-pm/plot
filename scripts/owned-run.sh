@@ -114,6 +114,15 @@ if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
   export PLAYWRIGHT_BROWSERS_PATH
 fi
 
+# NODE'S COMPILE CACHE GOES INTO THE RUN'S HOME. vite, vitest and typescript
+# call `module.enableCompileCache()`, which writes to `NODE_COMPILE_CACHE` and,
+# when that is unset, to `$TMPDIR/node-compile-cache` — an entry in the root
+# that no test made. Setting the variable also enables the cache for every node
+# process in the run. A caller's own `NODE_COMPILE_CACHE` wins.
+if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+  export NODE_COMPILE_CACHE="$root/home/.node-compile-cache"
+fi
+
 cleanup() {
   # `${root:?}` refuses an empty expansion, so a cleanup reached with `root`
   # unset can never become `rm -rf /`. The path is the exact name `mktemp`
@@ -170,14 +179,10 @@ on_signal() {
 # once, whatever its type, and does not descend into it.
 #
 # The three named subdirectories are the wrapper's own and are excluded by exact
-# name. So is `node-compile-cache`: vite, vitest and typescript call
-# `module.enableCompileCache()`, whose default directory is
-# `$TMPDIR/node-compile-cache`. It is the toolchain's cache, not an entry a test
-# made, and it is removed with the root. Everything else in the root was created
-# by the run.
+# name. Everything else in the root was created by the run.
 leak_listing() {
   find "$root" -mindepth 1 -maxdepth 1 \
-    ! -name home ! -name budget ! -name pr-index ! -name node-compile-cache 2>/dev/null
+    ! -name home ! -name budget ! -name pr-index 2>/dev/null
 }
 
 # Prints the leak listing and the tail of any worker log, for a person reading a

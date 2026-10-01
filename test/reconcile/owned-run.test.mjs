@@ -126,13 +126,31 @@ test('writes under HOME and the budget home are not reported as leaks', (t) => {
   assert.equal(res.status, 0, res.stderr);
 });
 
-// NODE'S COMPILE CACHE IS THE TOOLCHAIN'S. vite, vitest and typescript enable
-// it, and its default directory is `$TMPDIR/node-compile-cache`.
-test('the node compile cache is not reported as a leak', (t) => {
+// NODE'S COMPILE CACHE GOES INTO THE RUN'S HOME. vite, vitest and typescript
+// enable it, and unset it writes `$TMPDIR/node-compile-cache` into the root.
+test('the node compile cache is pointed into the run HOME', (t) => {
+  const tmp = privateTmp(t);
+  const res = runWrapped(tmp, ['sh', '-c', 'printf "%s\\n%s\\n" "$NODE_COMPILE_CACHE" "$HOME"'],
+    { NODE_COMPILE_CACHE: '' });
+  assert.equal(res.status, 0, res.stderr);
+  const [cache, home] = res.stdout.trim().split('\n');
+  assert.equal(cache, path.join(home, '.node-compile-cache'));
+  assert.deepEqual(readdirSync(tmp), [], 'the root is removed, the cache with it');
+});
+
+test("a caller's NODE_COMPILE_CACHE wins", (t) => {
+  const tmp = privateTmp(t);
+  const res = runWrapped(tmp, ['sh', '-c', 'printf "%s\\n" "$NODE_COMPILE_CACHE"'],
+    { NODE_COMPILE_CACHE: path.join(tmp, 'caller-cache') });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.split('\n')[0], path.join(tmp, 'caller-cache'));
+});
+
+test('a compile cache written at the default path is a leak', (t) => {
   const tmp = privateTmp(t);
   const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/node-compile-cache/v24"; exit 0']);
-  assert.equal(res.status, 0, res.stderr);
-  assert.deepEqual(readdirSync(tmp), [], 'the root is removed, the cache with it');
+  assert.equal(res.status, 1, 'no name is excluded');
+  assert.match(res.stderr, /node-compile-cache/);
 });
 
 // THERE IS NO CEILING. One entry fails the run whatever the caller's
