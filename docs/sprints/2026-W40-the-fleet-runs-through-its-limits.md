@@ -32,7 +32,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [idle-is-read-from-what-the-desk-recorded](../plans/2026-10-01-idle-is-read-from-what-the-desk-recorded.md) — [#1041](https://github.com/plot-pm/plot/issues/1041) — Reporting idle from the supervisor's tick needs persistent state the daemon does not have
 - [ ] [#1057](https://github.com/plot-pm/plot/issues/1057) — Board shows a slice as (unnamed): the ### heading lives on the slice branch, the board reads the main branch — its plan a-slice-row-finds-its-pr-by-head was rejected; it needs a rephrased plan.
 - [ ] [#1069](https://github.com/plot-pm/plot/issues/1069) — A shared Bitbucket workspace is at 2200 req/hr from another checkout, and Plot has no view of it — its plan a-spend-line-names-its-caller was rejected; it needs a rephrased plan.
-- [ ] [#1082](https://github.com/plot-pm/plot/issues/1082) — pr_merged "" exits 0 (merged) where the TS side answers unreachable, and no corpus test covers the pair
+- [ ] [an-empty-branch-never-reads-as-merged](../plans/2026-10-01-an-empty-branch-never-reads-as-merged.md) — [#1082](https://github.com/plot-pm/plot/issues/1082) — pr_merged "" exits 0 (merged) where the TS side answers unreachable, and no corpus test covers the pair
 - [ ] [#1085](https://github.com/plot-pm/plot/issues/1085) — A hop that creates a new desk leaves the worker monitor watching the old one
 - [ ] [#1086](https://github.com/plot-pm/plot/issues/1086) — plot_manifest_for_worktree resolves to the desk, not the main checkout, against its own comment
 - [ ] [#1087](https://github.com/plot-pm/plot/issues/1087) — The board's rich merged and closed PR listings take 46-68 s and intermittently 504 on GitHub GraphQL
