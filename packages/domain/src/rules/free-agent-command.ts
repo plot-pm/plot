@@ -11,7 +11,7 @@
  */
 
 /** The worker loop as the caller knows it. */
-export interface WorkerLoop {
+export interface LoopScript {
   /** The loop script's basename. */
   readonly name: string;
   /** The `Worker command` value that runs it, proposed in the repair. */
@@ -48,7 +48,7 @@ const loopWord = (name: string): RegExp =>
  */
 export const freeAgentCommandRefusal = (
   command: string,
-  loop: WorkerLoop,
+  loop: LoopScript,
 ): FreeAgentCommandRefusal | undefined => {
   const value = command.trim();
   if (value === '' || value.toLowerCase() === 'none') return undefined;

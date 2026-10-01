@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { freeAgentCommandRefusal, type WorkerLoop } from '../src/rules/free-agent-command.js';
+import { freeAgentCommandRefusal, type LoopScript } from '../src/rules/free-agent-command.js';
 
 /** The loop as `plot-dispatch.sh` names it; the rule itself names no script. */
-const LOOP: WorkerLoop = {
+const LOOP: LoopScript = {
   name: 'plot-worker-loop.sh',
   command: 'PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh',
 };
@@ -36,7 +36,7 @@ describe('freeAgentCommandRefusal', () => {
   });
 
   it('judges by the loop name it is given, not a name it knows', () => {
-    const other: WorkerLoop = { name: 'run-agent.sh', command: 'run-agent.sh' };
+    const other: LoopScript = { name: 'run-agent.sh', command: 'run-agent.sh' };
     expect(freeAgentCommandRefusal('bin/run-agent.sh', other)).toBeUndefined();
     expect(freeAgentCommandRefusal('plot-worker-loop.sh', other)?.why).toContain('run-agent.sh');
   });
