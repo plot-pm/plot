@@ -1727,11 +1727,30 @@ if [ "$mode" = "stop" ]; then
   case "$st" in
     running*)
       pid=${st#running }
-      kill "$pid" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
+      # THE WHOLE PROCESS GROUP, NOT ONE PID. Measured 2026-09-30 (#1084):
+      # `--stop` signalled the wrapper, the group leader, and the loop, the
+      # prompt shell, `claude` and its children survived reparented to pid 1;
+      # `kill -TERM -<pgid>` ended all of them. The pid is the fallback when the
+      # group cannot be read, or is this script's own group: a worker started
+      # without job control shares its starter's group, and signalling that
+      # group would stop the caller with it.
+      stop_pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+      stop_own_pgid=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+      stop_target="$pid"
+      case "$stop_pgid" in
+        ''|*[!0-9]*|0|1) ;;
+        *) [ "$stop_pgid" != "$stop_own_pgid" ] && stop_target="-$stop_pgid" ;;
+      esac
+      kill -TERM -- "$stop_target" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
         || { echo "plot-dispatch: could not stop pid $pid — it may have exited between the read and the signal, or belong to another user." >&2
              echo "  Check it: ps -p $pid -o pid=,stat=,command=" >&2
              echo "  Nothing else was written; the worktree and the claim stand." >&2
              exit 1; }
+      if [ "$stop_target" = "$pid" ]; then
+        echo "  signalled pid $pid alone — its process group is unreadable or is this run's own"
+      else
+        echo "  signalled its whole process group $stop_pgid"
+      fi
       # The worktree and its claim are left in place: the branch is still taken,
       # and deleting either would be the kind of write this design avoids.
       echo "  worktree kept at $wt — the claim stands until you release it:"
