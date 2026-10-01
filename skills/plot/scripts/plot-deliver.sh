@@ -81,7 +81,13 @@ git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository — run thi
 cfg() { bash "$script_dir/plot-config.sh" get "$1" "$2"; }
 
 repo_root=$(git rev-parse --show-toplevel)
-wt_root=$(cd "$repo_root/.." && pwd)
+# The booking worktree goes under the desk root of the MAIN checkout, never of
+# this tree: inside a desk `--show-toplevel` answers the desk, and the default
+# `.worktrees` would resolve beneath it. No fallback — `plot-desk-root.sh`.
+# shellcheck source=plot-desk-root.sh
+. "$script_dir/plot-desk-root.sh"
+main_root=$(plot_repo_root)
+wt_root=$(plot_desk_root "$main_root") || die "cannot resolve where the booking worktree goes (see above)"
 
 PLAN_DIR=$(cfg "Plan directory" "docs/plans/")
 ACTIVE_DIR=$(cfg "Active index" "docs/plans/active/")
@@ -635,6 +641,9 @@ git fetch -q origin "$MAIN" 2>/dev/null
 
 bookbr="plot/deliver-$slug"
 tmpwt="$wt_root/.plot-deliver-$slug.$$"
+# `git worktree add` creates the desk root when it is missing, so exclude it
+# first: a booking run must not leave `.worktrees/` untracked in `git status`.
+plot_exclude_desk_root "$main_root"
 # -B: a leftover branch from an earlier failed run must not block this one.
 git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null \
   || die "could not prepare a booking worktree at $tmpwt.

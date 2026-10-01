@@ -31,6 +31,7 @@
     "plot-config.sh",
     "plot-default-branch.sh",
     "plot-deliver.sh",
+    "plot-desk-root.sh",
     "plot-dispatch.sh",
     "plot-fleet-scan.sh",
     "plot-host.sh",

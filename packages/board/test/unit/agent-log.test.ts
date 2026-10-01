@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   agentLogDir,
   agentLogPath,
+  ensureAgentLogDir,
   forgetWorktreeRoot,
   isUnderAgentLogDir,
   migrateAgentLogs,
@@ -30,47 +32,57 @@ import { rmTree } from '../helpers.mjs';
  * times — and moving the logs meant editing 22 call sites, or moving the
  * decision to one. Slice 1 moved the decision; this slice changes it.
  *
- * SO THE `beside` ASSERTIONS BELOW ARE REWRITTEN, DELIBERATELY. Slice 1 asserted
- * the literal `<parent>/plot-…` form precisely so that a reviewer could tell a
- * missed call site from an intended path change — and this is the intended path
- * change. What survives is the SHAPE of that assertion: every helper is still
- * checked against a literal expectation rather than against `agentLogPath`,
- * which would pass against any shared mistake.
+ * SO THE `inDeskRoot` ASSERTIONS BELOW ARE REWRITTEN, DELIBERATELY — twice now.
+ * Slice 1 asserted the literal `<parent>/plot-…` form precisely so that a
+ * reviewer could tell a missed call site from an intended path change, and on
+ * 2026-10-01 the default moved from the checkout's parent to `<repo>/.worktrees`
+ * — the intended path change, a second time. What survives both rewrites is the
+ * SHAPE of the assertion: every helper is checked against a literal expectation
+ * rather than against `agentLogPath`, which would pass against any shared
+ * mistake.
  *
- * The fallback keeps the old form and keeps testing it, because a repository
- * with no `Worktree root` key must not move.
+ * The parent is now asserted ABSENT rather than expected, because a directory
+ * the repository does not own is what this change stopped writing to.
  */
-
-const repoRoot = '/tmp/plot-agent-log-fixture/repo';
 
 /**
- * The fallback expression — today's location for a repo with no `Worktree root`.
+ * A fixture root of this run's own, removed after the file.
  *
- * The fixture root does not exist on disk and never gets a `CLAUDE.md`, so
- * `plot-config.sh` finds no key and every helper below resolves through the
- * fallback. That is what makes these the FALLBACK tests: the configured case is
- * exercised against a real fixture repo further down.
+ * Under the run's temp directory rather than a fixed `/tmp` path: resolving a
+ * log path creates the desk root, so a fixed path outlives every run.
  */
-const beside = (name: string) => path.join(path.resolve(repoRoot, '..'), name);
+const fixtureParent = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'plot-agent-log-fixture-'));
+const repoRoot = path.join(fixtureParent, 'repo');
+afterAll(() => rmTree(fixtureParent));
+
+/**
+ * The default expression — `<repo>/.worktrees` for a repo with no `Worktree root`.
+ *
+ * The fixture root never gets a `CLAUDE.md`, so `plot-config.sh` finds no key
+ * and every helper below resolves through the default. That is what makes
+ * these the DEFAULT tests: the configured case is exercised against a real
+ * fixture repo further down.
+ */
+const inDeskRoot = (name: string) => path.join(repoRoot, '.worktrees', name);
 
 beforeEach(forgetWorktreeRoot);
 afterEach(forgetWorktreeRoot);
 
 describe('agentLogPath', () => {
-  it('places a run outside the repository, in the fallback location', () => {
+  it('places a run in the desk root, the default location', () => {
     expect(agentLogPath(repoRoot, 'dispatch', 'my-slug', 'log')).toBe(
-      beside('plot-dispatch-my-slug.log'),
+      inDeskRoot('plot-dispatch-my-slug.log'),
     );
   });
 
   it('gives a run its three files one name and three extensions', () => {
-    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'log')).toBe(beside('plot-deliver-my-slug.log'));
-    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'state')).toBe(beside('plot-deliver-my-slug.state'));
-    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'prompt')).toBe(beside('plot-deliver-my-slug.prompt.md'));
+    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'log')).toBe(inDeskRoot('plot-deliver-my-slug.log'));
+    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'state')).toBe(inDeskRoot('plot-deliver-my-slug.state'));
+    expect(agentLogPath(repoRoot, 'deliver', 'my-slug', 'prompt')).toBe(inDeskRoot('plot-deliver-my-slug.prompt.md'));
   });
 
   it('takes a number as readily as a slug, because two kinds are keyed by issue', () => {
-    expect(agentLogPath(repoRoot, 'idea-issue', 333, 'log')).toBe(beside('plot-idea-issue-333.log'));
+    expect(agentLogPath(repoRoot, 'idea-issue', 333, 'log')).toBe(inDeskRoot('plot-idea-issue-333.log'));
   });
 
   it('returns an absolute path for a relative repoRoot, so a caller cannot inherit its cwd', () => {
@@ -81,7 +93,15 @@ describe('agentLogPath', () => {
     // `idea.ts` builds `plot-idea-issue-<n>` as a WORKTREE, not a log file.
     // Without this export it would have to fake a filename to get the
     // directory — which is how a call site drifts back to hard-coding.
-    expect(agentLogDir(repoRoot)).toBe(path.resolve(repoRoot, '..'));
+    expect(agentLogDir(repoRoot)).toBe(path.join(repoRoot, '.worktrees'));
+  });
+
+  it('never answers the checkout\'s parent, which the repository does not own', () => {
+    // The defect this change fixed: with no key configured, every one of the
+    // nine modules wrote `plot-<kind>-*` into the directory holding the
+    // developer's other checkouts. 190 logs totalling 2.6 MB accumulated there
+    // since 2026-08-17 with nothing that would ever remove one.
+    expect(agentLogDir(repoRoot)).not.toBe(path.resolve(repoRoot, '..'));
   });
 });
 
@@ -104,14 +124,14 @@ describe('the nine modules ask the resolver', () => {
     ['storyLogPath', storyLogPath(repoRoot, 333), 'plot-story-issue-333.log'],
     ['storyPromptPath', storyPromptPath(repoRoot, 333), 'plot-story-issue-333.prompt.md'],
   ])('%s resolves through the one resolver', (_name, actual, expected) => {
-    expect(actual).toBe(beside(expected));
+    expect(actual).toBe(inDeskRoot(expected));
   });
 
   it('repairLogPath keys by branch with its slashes flattened', () => {
     // The one caller whose id is not a slug or a number: a branch name would
     // otherwise create directories.
     expect(repairLogPath(repoRoot, 'infra/one-place-decides')).toBe(
-      beside('plot-resolve-infra-one-place-decides.log'),
+      inDeskRoot('plot-resolve-infra-one-place-decides.log'),
     );
   });
 });
@@ -189,13 +209,14 @@ describe('the configured worktree root', () => {
     );
   });
 
-  it('leaves a repository with no key writing beside itself', () => {
-    // The plan's second `Done when`, and the reason the fallback is a fallback
-    // rather than an error: a repo with no key has no `.worktrees/`, and
-    // creating one because a log needs somewhere to go invents a directory
-    // nobody asked for.
+  it('puts a repository with no key under its own .worktrees', () => {
+    // The plan's second `Done when`. This asserted the checkout's PARENT until
+    // 2026-10-01: nine sites computed the default and two of them already
+    // answered `.worktrees`, so one of the two was always writing somewhere the
+    // others did not read. The default is now the one `/plot-init` writes.
     const repo = makeRepo(null);
-    expect(agentLogDir(repo)).toBe(path.resolve(repo, '..'));
+    expect(agentLogDir(repo)).toBe(path.join(repo, '.worktrees'));
+    expect(agentLogDir(repo)).not.toBe(path.resolve(repo, '..'));
   });
 
   it('takes an absolute root as given and a relative one against the repo', () => {
@@ -206,6 +227,45 @@ describe('the configured worktree root', () => {
     expect(agentLogDir(makeRepo('/var/tmp/plot-elsewhere'))).toBe('/var/tmp/plot-elsewhere');
     const repo = makeRepo('nested/trees');
     expect(agentLogDir(repo)).toBe(path.join(repo, 'nested/trees'));
+  });
+
+  it('keeps the desk root out of git status after the first log write', () => {
+    // The board can create `.worktrees/` before any dispatch does, so the
+    // writer must add the ignore line itself. It goes into the COMMON git
+    // directory's `info/exclude`, the only one git reads it from, and once.
+    const repo = makeRepo(null);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(repo, 'tracked.txt'), 'x\n');
+    git('add', '-A');
+    git('-c', 'user.email=t@example.invalid', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'init');
+
+    const dir = ensureAgentLogDir(repo);
+    fs.writeFileSync(agentLogPath(repo, 'dispatch', 'my-slug', 'log'), 'started\n');
+    forgetWorktreeRoot();
+    ensureAgentLogDir(repo);
+
+    expect(dir).toBe(path.join(repo, '.worktrees'));
+    expect(fs.existsSync(path.join(dir, 'plot-dispatch-my-slug.log'))).toBe(true);
+    expect(git('status', '--porcelain')).not.toMatch(/\.worktrees/);
+    const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude.split('\n').filter((l) => l === '/.worktrees/')).toHaveLength(1);
+  });
+
+  it('writes the ignore line into the COMMON git dir when served from a linked worktree', () => {
+    const repo = makeRepo(null);
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' });
+    git(repo, 'init', '-q', '-b', 'main');
+    git(repo, '-c', 'user.email=t@example.invalid', '-c', 'user.name=T', '-c', 'commit.gpgsign=false',
+      'commit', '-q', '--allow-empty', '-m', 'init');
+    const linked = path.join(tmp, 'linked');
+    git(repo, 'worktree', 'add', '-q', '--detach', linked);
+
+    ensureAgentLogDir(linked);
+
+    const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude.split('\n')).toContain('/.worktrees/');
+    expect(git(linked, 'status', '--porcelain')).not.toMatch(/\.worktrees/);
   });
 
   it('normalises a trailing slash without touching the filesystem', () => {
@@ -235,7 +295,7 @@ describe('isUnderAgentLogDir', () => {
   });
 
   it('rejects a sibling directory sharing the root as a prefix', () => {
-    // `/tmp/plot-agent-log-fixture-elsewhere` starts with the root's string and
+    // `<desk root>-elsewhere` starts with the root's string and
     // is not inside it. Compared with a trailing separator for exactly this.
     expect(isUnderAgentLogDir(repoRoot, `${agentLogDir(repoRoot)}-elsewhere/plot-dispatch-x.log`)).toBe(
       false,
@@ -355,10 +415,17 @@ describe('migrateAgentLogs', () => {
     expect(fs.readFileSync(path.join(parent, 'plot-dispatch-a-slug.log'), 'utf8')).toBe('old');
   });
 
-  it('does nothing at all for a repository with no configured root', () => {
+  it('does nothing at all when the desk root is the parent itself', () => {
     // Source and destination are the same directory: nothing moved, so there is
     // nothing to move and no marker to write into a directory Plot does not own.
-    fs.rmSync(path.join(repo, 'CLAUDE.md'));
+    // A repository with NO key reached this case until 2026-10-01, when the
+    // default became `<repo>/.worktrees`; a root configured as `..` is the one
+    // left, and moving an unconfigured repository's records is the next
+    // slice's migration test.
+    fs.writeFileSync(
+      path.join(repo, 'CLAUDE.md'),
+      '# Fixture\n\n## Plot Config\n\n- **Worktree root:** ..\n',
+    );
     forgetWorktreeRoot();
     write(parent, 'plot-dispatch-a-slug.log');
 

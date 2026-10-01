@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { PortResult } from '@plot-pm/domain';
 import { scriptsShell } from '@plot-pm/domain/adapters';
+import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 
 /**
  * Where the board's agent logs live — the ONE place that decides it.
@@ -12,23 +13,31 @@ import { scriptsShell } from '@plot-pm/domain/adapters';
  * itself, so one decision was written 22 times; this module is that decision,
  * and the nine ask it.
  *
- * WHY THE FILES SIT OUTSIDE THE REPOSITORY, since this is now the only place
- * that knows: `pnpm board` runs under `node --watch`, which watches the whole
- * tree and does not read `.gitignore`. A file written INSIDE the repo restarts
- * the very server that just spawned the agent, and the restart can take the
- * agent with it. Measured 2026-08-25 walking the v2.9.0 endgame: clicking
- * *Create plan* on issue #333 wrote `.plot/idea-issue-333.md`, the board log
- * recorded `Restarting 'board-server.mjs'` in the same second, and the agent's
- * log sat at 0 bytes. It recovered on a later attempt, which is worse than a
- * clean failure: the defect is a race, so it disappears when looked at.
+ * WHY THE FILES SIT IN `.worktrees/`, since this is now the only place that
+ * knows. Two properties are required of the location, and the directory Plot
+ * owns is what satisfies both.
  *
- * The second reason is the same one in different words — a log inside the repo
- * is an untracked file every `git status` reports and every worktree inherits,
- * so a repair that dirties its own worktree cannot be verified by the suite it
- * then runs.
+ * It must not be WATCHED. `pnpm board` runs under `node --watch`, which walks
+ * the tree and does not read `.gitignore`. A file written into a watched path
+ * restarts the very server that just spawned the agent, and the restart can
+ * take the agent with it. Measured 2026-08-25 walking the v2.9.0 endgame:
+ * clicking *Create plan* on issue #333 wrote `.plot/idea-issue-333.md`, the
+ * board log recorded `Restarting 'board-server.mjs'` in the same second, and
+ * the agent's log sat at 0 bytes. It recovered on a later attempt, which is
+ * worse than a clean failure: the defect is a race, so it disappears when
+ * looked at. `node --watch` does not descend into `.worktrees/`.
  *
- * `.worktrees/` satisfies both and is a directory Plot owns: it is ignored by
- * git, so it is not untracked-noise, and it is not watched into a restart.
+ * It must not be UNTRACKED NOISE. A log every `git status` reports and every
+ * worktree inherits means a repair that dirties its own worktree cannot be
+ * verified by the suite it then runs. {@link excludeDeskRoot} writes the path
+ * into `info/exclude`, so the directory is ignored even where no adopter wrote
+ * a `.gitignore` line.
+ *
+ * It must be a directory PLOT OWNS, and that is what changed on 2026-10-01.
+ * "Not in the repo" used to be implemented as "the directory beside it", where
+ * 190 logs totalling 2.6 MB accumulated since 2026-08-17 with nothing that
+ * would ever remove one — into a directory holding a person's other checkouts.
+ * The answer is now the desk root, inside the repository.
  */
 
 /**
@@ -134,6 +143,11 @@ export const primeWorktreeRoot = async (
   const read = await config(WORKTREE_ROOT_KEY, '');
   if (!read.ok) return;
   worktreeRootCache.set(repoRoot, read.value.trim());
+  // The desk root now resolves, so create it and exclude it once, here, rather
+  // than at each of the fourteen `openSync` sites that would otherwise each
+  // have to remember. A board that never spawns an agent creates one empty
+  // directory; a board that spawns one would have created it anyway.
+  ensureAgentLogDir(repoRoot);
 };
 
 /**
@@ -143,38 +157,153 @@ export const primeWorktreeRoot = async (
  * inside one process — the only caller for whom the per-process read is a
  * limitation rather than the point.
  */
-export const forgetWorktreeRoot = (): void => worktreeRootCache.clear();
+export const forgetWorktreeRoot = (): void => {
+  worktreeRootCache.clear();
+  // The created-directory memo is keyed by the ANSWER, and clearing the cache
+  // is how a test changes that answer. A memo surviving it would report a
+  // directory as created under a configuration that never created one.
+  ensured.clear();
+};
 
 /**
  * The directory the board's agent logs, prompts and state files live in.
  *
- * Under the configured {@link WORKTREE_ROOT_KEY}: a log belongs beside the
- * checkout it describes, and `.worktrees/` is Plot's own directory holding
- * exactly the things a dispatch creates. Before 2026-08-30 there was nowhere
- * of the sort, so "not in the repo" was implemented as "the directory beside
- * it" — which Plot does not own, and where 190 logs totalling 2.6 MB had
- * accumulated since 2026-08-17 with nothing that would ever remove one.
+ * The desk root: `<repoRoot>/.worktrees` unless {@link WORKTREE_ROOT_KEY} is
+ * configured, in which case an absolute value is taken as given and a relative
+ * one resolves against `repoRoot`. The rule is `deskRoot`, which every shell
+ * site asks through `board/plot-desk-root.mjs`, so the board and the scripts
+ * cannot disagree about where one desk lives.
  *
- * THE FALLBACK IS TODAY'S LOCATION, NOT AN ERROR. A repository with no
- * `Worktree root` key has no `.worktrees/`, and creating one because a log
- * needs somewhere to go invents a directory nobody asked for. That is the same
- * precedence `resolve_wt_root()` applies, and it is read from the same key so
- * the two cannot disagree.
+ * A log belongs beside the checkout it describes, and `.worktrees/` is Plot's
+ * own directory holding exactly the things a dispatch creates. The result is
+ * pure string work: the directory need not exist, because a first write is
+ * entitled to create it — and the caller that does calls
+ * {@link excludeDeskRoot}, so it never appears as untracked files.
  *
- * Relative values resolve against `repoRoot`, absolute ones are taken as given
- * — again `resolve_wt_root()`'s rule. The result is pure string work: the
- * directory need not exist, because a first dispatch is entitled to create it.
+ * `repoRoot` is resolved HERE rather than in the rule. The rule composes
+ * strings and cannot reach a working directory, so a relative root handed
+ * straight to it would compose a relative answer and a caller would inherit its
+ * cwd. Resolving at the boundary keeps the rule pure and the contract absolute;
+ * the answer is resolved again so a configured `..` compares equal to the
+ * directory it names.
  *
- * @param repoRoot absolute path to the repository this board serves
- * @returns an absolute directory path; it need not exist
+ * @concept desk-root
+ * @param repoRoot path to the repository this board serves
+ * @returns an absolute directory path with no trailing slash; it need not exist
  */
-export const agentLogDir = (repoRoot: string): string => {
-  const configured = readWorktreeRoot(repoRoot);
-  if (configured === '') return path.resolve(repoRoot, '..');
-  const root = path.isAbsolute(configured) ? configured : path.resolve(repoRoot, configured);
-  // Normalise a trailing slash away so composed paths never double it —
-  // `resolve` does this, and does it without touching the filesystem.
-  return path.resolve(root);
+export const agentLogDir = (repoRoot: string): string =>
+  path.resolve(deskRoot({ configured: readWorktreeRoot(repoRoot), repoRoot: path.resolve(repoRoot) }));
+/**
+ * Create the desk root, and keep it out of `git status`.
+ *
+ * {@link agentLogPath} calls this, so every writer finds the directory there.
+ * It is memoised per desk root, and it reaches no process, so the resolver a
+ * pulse asks once per card stays a `Set` lookup after the first call.
+ *
+ * @concept desk-root
+ * @param repoRoot absolute path to the repository this board serves
+ * @returns the directory, now existing
+ */
+export const ensureAgentLogDir = (repoRoot: string): string => {
+  const dir = agentLogDir(repoRoot);
+  if (ensured.has(dir)) return dir;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    excludeDeskRoot(repoRoot);
+    ensured.add(dir);
+  } catch {
+    // Not memoised on failure, so a later write tries again. The write itself
+    // reports: a caller that could not open its log has a better sentence than
+    // one that could not create a directory.
+  }
+  return dir;
+};
+
+/**
+ * The desk roots this process has already created.
+ *
+ * Once per directory per process, not once per write. The work is a `mkdir`
+ * and reads of `.gitignore` and `info/exclude`; the board writes a
+ * run's three files and appends to the log repeatedly, so paying it per write
+ * would put a spawn on a path that is otherwise one `write` syscall.
+ *
+ * Cleared by {@link forgetWorktreeRoot}, for the caller that clears it: a test
+ * that rebuilds a fixture repository under a path it already used.
+ */
+const ensured = new Set<string>();
+
+/**
+ * The repository's COMMON git directory, read from disk without running git.
+ *
+ * A main checkout holds `.git` as a directory, which is the common one. A
+ * linked worktree holds a `.git` FILE naming its private gitdir, and that
+ * gitdir's `commondir` file names the shared one. No `.git` at all answers
+ * `undefined`: the directory is not a repository and needs no line.
+ *
+ * Read rather than asked of `git rev-parse`, because a read route reaches this
+ * through {@link agentLogPath}, and a read route spawns nothing
+ * (`a-read-route-spawns-nothing.test.ts`).
+ */
+const commonGitDir = (repoRoot: string): string | undefined => {
+  const dotGit = path.join(repoRoot, '.git');
+  const stat = fs.statSync(dotGit, { throwIfNoEntry: false });
+  if (stat === undefined) return undefined;
+  if (stat.isDirectory()) return dotGit;
+  const named = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+  if (named === null) return undefined;
+  const gitDir = path.resolve(repoRoot, named[1].trim());
+  const commonFile = path.join(gitDir, 'commondir');
+  return fs.existsSync(commonFile)
+    ? path.resolve(gitDir, fs.readFileSync(commonFile, 'utf8').trim())
+    : gitDir;
+};
+
+/** Whether a rules file holds a line naming exactly this repo-relative directory. */
+const namesDirectory = (file: string, relative: string): boolean =>
+  fs.existsSync(file) &&
+  fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .some((l) => l.trim().replace(/^\/+|\/+$/g, '') === relative);
+
+/**
+ * Keep the desk root out of `git status`, when it lies inside the repository.
+ *
+ * The line goes into the COMMON git directory's `info/exclude`: git reads that
+ * file from the common directory only, so a linked worktree's private gitdir is
+ * the wrong place and a desk writing there would exclude nothing. The write is
+ * idempotent — the line is appended only when absent — and `info/exclude` is
+ * never committed, so this changes no contributor's checkout but this one.
+ *
+ * A root outside the repository needs no line, and neither does one the
+ * repository's root `.gitignore` already names — the line `/plot-init` writes.
+ * That is a read of the two files rather than `git check-ignore`: a pattern
+ * that ignores the directory some other way gets a second, redundant rule,
+ * which is untidy and changes nothing git does.
+ *
+ * It is best-effort. Every failure here leaves untracked files in a listing,
+ * which is untidy; refusing to write a log over it would lose the agent's own
+ * words, which is the greater harm.
+ *
+ * @concept desk-root
+ * @param repoRoot absolute path to the repository this board serves
+ */
+const excludeDeskRoot = (repoRoot: string): void => {
+  const line = deskRootPlacement({ configured: readWorktreeRoot(repoRoot), repoRoot }).excludeLine;
+  if (line === undefined) return;
+  try {
+    const relative = line.replace(/^\/+|\/+$/g, '');
+    if (namesDirectory(path.join(repoRoot, '.gitignore'), relative)) return;
+    const common = commonGitDir(repoRoot);
+    if (common === undefined) return;
+    const exclude = path.join(common, 'info', 'exclude');
+    if (namesDirectory(exclude, relative)) return;
+    const held = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
+    fs.mkdirSync(path.dirname(exclude), { recursive: true });
+    fs.appendFileSync(exclude, held === '' || held.endsWith('\n') ? `${line}\n` : `\n${line}\n`);
+  } catch {
+    // Best-effort, for the reason the block above gives.
+  }
 };
 
 /**
@@ -234,6 +363,11 @@ const EXTENSIONS: Record<AgentLogFile, string> = {
  * module that spawned the agent knows what identifies its run, and a resolver
  * that second-guessed that would need to know all nine.
  *
+ * It creates the directory through {@link ensureAgentLogDir}, which is memoised
+ * per desk root, so the `mkdir` and the `info/exclude` write happen once per
+ * process and every later call is a `Set` lookup. `dispatchLogExists` asks this
+ * once per card on every pulse and stays one `stat`.
+ *
  * @param repoRoot absolute path to the repository this board serves
  * @param kind which command spawned the run
  * @param id what names the run within that kind
@@ -245,7 +379,7 @@ export const agentLogPath = (
   kind: AgentLogKind,
   id: string | number,
   file: AgentLogFile,
-): string => path.join(agentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
+): string => path.join(ensureAgentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
 
 /**
  * Whether a resolved path sits inside {@link agentLogDir} for this repository.

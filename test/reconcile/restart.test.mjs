@@ -89,10 +89,10 @@ function makeRepo({ workerCommand } = {}) {
   return { tmp, repo };
 }
 
-// A claimed branch with a worktree beside the repo — the shape dispatch creates:
-// branch pushed (the claim), worktree checked out, no live worker.
+// A claimed branch with a worktree under the desk root — the shape dispatch
+// creates: branch pushed (the claim), worktree checked out, no live worker.
 function claimedWorktree(repo, branch = 'feature/stopped') {
-  const wt = path.join(path.dirname(repo), 'plot-wt-' + branch.replace(/\//g, '-'));
+  const wt = path.join(repo, '.worktrees', branch.replace(/\//g, '-'));
   git(repo, 'branch', branch);
   git(repo, 'worktree', 'add', '-q', wt, branch);
   git(wt, 'push', '-q', '-u', 'origin', branch);

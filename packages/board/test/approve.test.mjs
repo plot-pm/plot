@@ -90,12 +90,12 @@ describe('POST /api/approve: allow-listed ahead of the 405, and only then', () =
     assert.equal(res.status, 202);
     const body = JSON.parse(res.body);
     assert.equal(body.slug, 'ship-the-widget');
-    // Beside the repo, next to the dispatcher's own logs, and named for the
+    // In the desk root, next to the dispatcher's own logs, and named for the
     // ACT rather than the tool — `plot-approve-<slug>.log` sits beside
     // `plot-dispatch-<slug>.log` and neither can be mistaken for the other.
     assert.equal(
       fs.realpathSync(path.dirname(body.log)),
-      fs.realpathSync(path.resolve(tmp, '..')),
+      fs.realpathSync(path.join(tmp, '.worktrees')),
     );
     assert.equal(path.basename(body.log), 'plot-approve-ship-the-widget.log');
   });
@@ -257,7 +257,7 @@ describe('a board with NO `Approve command` can approve', () => {
     // ONE implementation of the mechanics behind both entrances. Without an
     // `Approve command` the board goes straight to the script; with one it goes
     // through the agent, whose skill calls the same script.
-    const log = path.join(path.resolve(tmp, '..'), 'plot-approve-ship-the-widget.log');
+    const log = path.join(tmp, '.worktrees', 'plot-approve-ship-the-widget.log');
     const text = await until(() =>
       fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim() || null : null,
     );
@@ -288,7 +288,7 @@ describe('`Approve command`, when declared, still wins', () => {
     await approve(server.port, 'ship-the-widget');
     await until(() => ran.runs());
     assert.deepEqual(ran.runs(), ['/plot-approve ship-the-widget']);
-    const log = path.join(path.resolve(tmp, '..'), 'plot-approve-ship-the-widget.log');
+    const log = path.join(tmp, '.worktrees', 'plot-approve-ship-the-widget.log');
     const text = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
     assert.doesNotMatch(text, /plot-approve\.sh/);
   });
