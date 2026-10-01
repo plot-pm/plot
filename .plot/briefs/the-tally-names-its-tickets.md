@@ -65,3 +65,20 @@ Unchanged: `sprint-exempt.browser.test.ts:214-218`. **`EXPECTED_TESTS` stays at 
 - Rebuild `skills/plot/scripts/board/board-server.mjs` and commit it; on a conflict in it, take either side and rebuild.
 - Never touch the running boards on :7777.
 - Use `trash`, never `rm`. Never `git stash`.
+
+### Bookkeeping
+
+- The claim ref `bug/the-tally-names-its-tickets` exists on `origin` at `origin/main` (pushed 2026-10-01). Fetch it; do not recreate it. Push the first real commit as soon as it exists.
+- Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work still moves). Never `gh pr create`.
+- When the PR exists, append `→ #<number>` to the slice heading's annotation in the plan, in the heading form `(Branch: bug/the-tally-names-its-tickets, PR: #<number>)`. Commit that edit on `main` through a detached scratch worktree, not the shared main checkout.
+
+### Scope guard
+
+This branch owns `packages/board/src/app/lib/agent-rows/sections.ts`, the tally call site and suffix in `packages/board/src/app/components/AgentList.tsx` (`:1157-1187`), the eight `sectionTally` call sites in `test/unit/agent-list.test.ts`, `test/integration/unplanned-issues.browser.test.ts:328`, `test/integration/a-plan-less-row-is-not-a-plan.browser.test.ts:108`, a changeset, and the rebuilt `board-server.mjs`.
+
+Branches in flight, verified against `origin` on 2026-10-01:
+
+- **`bug/a-closed-sprint-stops-filtering`** (claimed, no commits yet) rewrites the `sprintFilter` reads in `AgentList.tsx`, **including `unfilteredCount` at `:1178`**, the line this slice replaces with `unfilteredNote`. Whichever merges second rebases: keep that branch's derived selection as the `filterActive` input to `unfilteredNote`, and keep this branch's note wording. It also raises `EXPECTED_TESTS` to 538; this slice adds no test, so take whatever value `main` holds after the rebase.
+- **`bug/the-merge-subject-is-one-rule`** touches none of these files.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope.

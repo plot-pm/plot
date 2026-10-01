@@ -1,0 +1,1 @@
+../2026-10-01-the-release-pr-is-checked-before-it-merges.md
