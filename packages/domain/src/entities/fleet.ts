@@ -598,6 +598,10 @@ export const BranchSchema = z.object({
    * Optional rather than defaulted, because absence is the ordinary answer and
    * a default word would make every branch carry a qualifier it does not need.
    */
+// plot-state: reading — what proved the landing, re-read every scan. A branch
+//                        does not progress from `subject` to another word: the
+//                        field is simply absent once the host confirms, which
+//                        is the ordinary answer and not a later state.
   evidence: z.enum(['subject']).optional(),
   /**
    * Why a merge subject naming this branch proved nothing.
@@ -612,6 +616,10 @@ export const BranchSchema = z.object({
    * read `unknown` under a refused host, and only the second has an
    * explanation.
    */
+// plot-state: reading — why a measurement was refused, re-read every scan.
+//                        Nothing transitions: the branch reads as it would
+//                        with no subject at all, and this explains that
+//                        reading rather than naming a position in an order.
   subjectIgnored: z.enum(['predates-plan']).optional(),
 });
 export type Branch = z.infer<typeof BranchSchema>;
