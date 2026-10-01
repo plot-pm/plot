@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-01, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1118
 - **Review:** in-session
 - **Impl:** own branches
 - **Delivered:** 2026-10-01
+- **Released:** 2026-10-01, v2.22.2
 
 ## Changelog
 
@@ -56,15 +57,15 @@ Every file that leaves an entry in the root is fixed at its call site: each `mkd
 
 ## Slices
 
-### The sandbox reaches the browsers and CI (Branch: bug/the-sandbox-reaches-the-browsers-and-ci)
+### The sandbox reaches the browsers and CI (Branch: bug/the-sandbox-reaches-the-browsers-and-ci, PR: #1123)
 
 `PLAYWRIGHT_BROWSERS_PATH` in `owned-run.sh`, and CI's board job through `owned-run.sh`.
 
-### No entry is left behind (Branch: bug/no-entry-is-left-behind)
+### No entry is left behind (Branch: bug/no-entry-is-left-behind, PR: #1126)
 
 The per-file fixes, the ceiling's removal, and the fixture test.
 
-### Every state path is declared (Branch: bug/every-state-path-is-declared)
+### Every state path is declared (Branch: bug/every-state-path-is-declared, PR: #1125)
 
 `scripts/state-inventory.json`, `scripts/check-state-inventory.mjs`, the call from `owned-run.sh`, and the fixture test.
 

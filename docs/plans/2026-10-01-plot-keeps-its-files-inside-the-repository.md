@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-01, jwloka, in-session
 - **Started:** 2026-10-01, jwloka, `bug/the-desk-root-is-one-rule`
 - **Type:** bug
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Concepts:** desk-root
 - **Delivered:** 2026-10-01
+- **Released:** 2026-10-01, v2.22.2
 
 ## Changelog
 
