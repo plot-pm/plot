@@ -52,6 +52,8 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 
 - [ ] [a-draft-slice-waits-on-its-approval](../plans/2026-10-02-a-draft-slice-waits-on-its-approval.md) — [#1161](https://github.com/plot-pm/plot/issues/1161) — A Draft plan's waiting slice renders in NOT STARTED as approved — nobody has taken it.
 
+- [ ] [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
+
 ### Should Have
 
 ### Could Have
@@ -72,3 +74,4 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - 2026-10-01: Added #1150 to Must — found while the fleet started this sprint's slices; the operator asked for it in 2.22.3. No plan yet.
 - 2026-10-01: Added 23 open issues to Must (#1017, #1039, #1040, #1041, #1057, #1069, #1082, #1085, #1086, #1087, #1088, #1090, #1093, #1094, #1100, #1101, #1112, #1113, #1133, #1148, #1149, #1151, #1152) — the operator asked for every open ticket in 2.22.3; none has an approved plan yet. GitHub milestone `2.22.3` holds the same set.
 - 2026-10-02: Added #1161 to Must — found on the board while this sprint's Draft plans declared `waits:`; the operator asked for it in 2.22.3.
+- 2026-10-02: Added #1153 to Must — found while correcting a plan whose slice waits on two branches; the operator asked for it in 2.22.3.
