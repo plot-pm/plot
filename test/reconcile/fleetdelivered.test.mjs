@@ -90,7 +90,7 @@ function makeRepo(delivered = []) {
 ## Status
 
 - **Phase:** ${d.phase ?? 'Delivered'}
-- **Type:** feature
+- **Type:** ${d.type ?? 'feature'}
 - **Delivered:** ${d.delivered}
 
 ## Branches
@@ -147,6 +147,23 @@ test('release scope: a released plan never appears, however recent', (t) => {
   const got = files(pulse(repo));
   assert.ok(!got.includes('2026-01-01-shipped.md'), `a released plan must leave: ${got}`);
   assert.ok(got.includes('2026-01-01-pending.md'), `a delivered one must stay: ${got}`);
+});
+
+test('release scope: a delivered docs or infra plan never appears, because it never ships', (t) => {
+  // /plot-release records `Released` only for feature and bug plans: a docs or
+  // infra plan is live when it merges, so `Delivered` is its last phase. Held
+  // to the release scope, the six such plans on this estate stayed in DONE
+  // after the release they shipped in (measured 2026-10-01, v2.22.0).
+  const { tmp, repo } = makeRepo([
+    { slug: 'manual', delivered: dateHoursAgo(1), type: 'docs' },
+    { slug: 'pipeline', delivered: dateHoursAgo(1), type: 'infra' },
+    { slug: 'fix', delivered: dateHoursAgo(1), type: 'bug' },
+  ]);
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const got = files(pulse(repo));
+  assert.ok(!got.includes('2026-01-01-manual.md'), `a delivered docs plan must leave: ${got}`);
+  assert.ok(!got.includes('2026-01-01-pipeline.md'), `a delivered infra plan must leave: ${got}`);
+  assert.ok(got.includes('2026-01-01-fix.md'), `a delivered bug plan must stay: ${got}`);
 });
 
 test('release scope: a delivered plan with an EMPTY Delivered: record appears', (t) => {
