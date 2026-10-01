@@ -471,8 +471,13 @@ fi
 # seam, not a knob: nothing in Plot sets it, and lowering it in real use buys
 # nothing but the silent misses described above.
 MERGE_SCAN_LIMIT=${PLOT_MERGE_SCAN_LIMIT:-2000}
+# `%H %s` RATHER THAN `%s`, because the age rule needs the merge COMMIT and not
+# only its sentence: a subject proves a branch for a plan only when its merge is
+# not contained in the commit that added the plan file, and that is an ancestry
+# question about this hash. One walk still, and the hash costs nothing — the
+# same `git log`, one more format placeholder.
 MERGE_SUBJECTS=$(git log "origin/$MAIN" --merges \
-  --max-count="$MERGE_SCAN_LIMIT" --pretty=%s </dev/null 2>/dev/null || true)
+  --max-count="$MERGE_SCAN_LIMIT" --pretty='%H %s' </dev/null 2>/dev/null || true)
 MERGE_SCAN_TRUNCATED=0
 if [ -n "$MERGE_SUBJECTS" ] \
    && [ "$(printf '%s\n' "$MERGE_SUBJECTS" | grep -c .)" -ge "$MERGE_SCAN_LIMIT" ]; then
@@ -489,11 +494,22 @@ fi
 #               capped walk detected, but not exhaustively.
 #   none      — the default branch carries no conforming merge commits at all
 #               (a squash/rebase repo), so `open` says nothing about merging.
-if printf '%s\n' "$MERGE_SUBJECTS" | grep -qE '^Merge pull request #[0-9]+ from [^/]+/.+$'; then
-  MERGE_DETECT=$([ "$MERGE_SCAN_TRUNCATED" = 1 ] && echo truncated || echo pr-merge)
-else
-  MERGE_DETECT=none
-fi
+#   unaskable — the rule could not be asked at all, so NO branch got a subject
+#               reading and every refless branch went to the host. A missing or
+#               silent bundle is the case; it is not the same answer as `none`,
+#               which is a measurement of this estate's history.
+#
+# THE WORD IS THE BUNDLE'S, and this is why no regex decides it here. The regex
+# that stood on this line read GitHub's form only, so a Bitbucket estate — whose
+# every merge carries `Merged in <branch> (pull request #N)` — reported
+# `merge_detect=none` and said its own 1723 proofs did not exist. The forms are
+# data in the host adapter now, and a second copy in shell is exactly what
+# `a-merge-subject-proves-a-landing-the-host-cannot` removes.
+#
+# SET AFTER THE PLANS ARE PARSED, because the bundle is asked then — the plan
+# branches and their adding commits are known only then. Until that point the
+# word is `unaskable`, which is the honest answer for a scan that has not asked.
+MERGE_DETECT=unaskable
 
 # ---------------------------------------------------------------------------
 # Squash merges: the case where no local evidence survives at all
@@ -2170,19 +2186,42 @@ changed_paths_of() { # $1=branch → changed paths, one per line (may be empty)
     | head -n "$CHANGED_PATHS_LIMIT"
 }
 
-# Did this branch land on the default branch? Positive evidence only — absence
-# keeps today's answer.
+# Did this branch land on the default branch, for THIS plan? A lookup in what
+# the rule already proved — positive evidence only, and absence keeps today's
+# answer.
 #
-# The branch name is INTERPOLATED INTO AN ERE, so every metacharacter it may
-# legally contain is escaped first. Git allows `+`, `(`, `)`, `?`, `{`, `}` and
-# `.` in ref names, and unescaped each one changes what the pattern means —
-# `feature/v.1` would match `feature/vX1`, and `bug/a+b` would fail to match
-# its OWN merge subject. Both directions are wrong, and the second is the
-# quieter one: a branch that silently never matches simply keeps reading
-# `open`, which is this plan's own bug wearing a different hat.
-merged_by_subject() { # $1=branch → 0 when a conforming merge names it
-  printf '%s\n' "$MERGE_SUBJECTS" \
-    | grep -qE "^Merge pull request #[0-9]+ from [^/]+/$(printf '%s' "$1" | sed 's/[][\.*^$+?(){}|\/]/\\&/g')\$"
+# A LOOKUP, NOT A MATCH. The matching is `mergedBySubject`'s, asked once per
+# scan through `plot-merge-subject.mjs`; this reads the answer. The regex that
+# stood here read GitHub's form only and was one of three copies of it on the
+# estate — and being a regex it carried its own fault: a branch name may
+# legally hold `+`, `(` or `.`, and unescaped each one changes what the pattern
+# means, so `feature/v.1` matched `feature/vX1` while `bug/a+b` failed to match
+# its own subject. The rule matches the branch as literal text and cannot have
+# that fault at all.
+#
+# KEYED BY PLAN AND BRANCH, which the regex could not be. A later plan may
+# reuse a merged branch name — a reopened ticket does it, and one measured
+# estate holds 87 reused names — so one plan's proof must never settle
+# another's. `$SUBJECT_PROVEN` holds `<plan>\t<branch>` lines and this tests the
+# pair.
+merged_by_subject() { # $1=plan-base $2=branch → 0 when the rule proved the pair
+  case "$SUBJECT_PROVEN" in
+    *$'\n'"$1"$'\t'"$2"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
+# Was a subject naming this branch REFUSED because its merge predates the plan?
+#
+# A SEPARATE QUESTION FROM THE ONE ABOVE, and the footer and the branch JSON
+# both report it: a slice with no subject and a slice whose subject was refused
+# for age both read `unknown` under a refused host, and only the second has an
+# explanation a reader can act on.
+subject_predates_plan() { # $1=plan-base $2=branch → 0 when a subject was refused
+  case "$SUBJECT_IGNORED" in
+    *$'\n'"$1"$'\t'"$2"$'\n'*) return 0 ;;
+  esac
+  return 1
 }
 
 # Is this branch's PR ready to merge — open, not draft, AND checks green?
@@ -3195,6 +3234,191 @@ if [ ${#plans[@]} -eq 0 ]; then
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# The merge subjects, asked of the rule once the plans are known
+# ---------------------------------------------------------------------------
+#
+# WHY HERE AND NOT WITH THE WALK ABOVE. The rule is asked per plan, with that
+# plan's own refless branches and the commit that added its file — and neither
+# is known until the estate is parsed. The walk itself still happens once, up
+# at `MERGE_SUBJECTS`; this is where its lines are USED.
+#
+# THREE READINGS PER SCAN, NONE PER PLAN. The per-plan lookup this replaces
+# cost 6 to 37 ms per plan, 5.23 s for 140 plans here; the batched walk below
+# costs 0.10 s for 392 plan files, 0.02 s on the estate that reported #1139.
+#
+#   1. one `git log --diff-filter=AR --name-status` for every plan file's
+#      adding commit (here)
+#   2. the merges walk, already run above with `%H %s`
+#   3. one `git merge-base --is-ancestor` per MATCHED PAIR, which is a few calls
+#      per scan rather than one per plan
+#
+# THE BUNDLE IS ASKED TWICE, with reading 3 between the calls: the age rule
+# needs an ancestry answer and the domain may not run git, so the first call
+# names the pairs needing a test and the second applies the rule to the
+# answers. The decision stays in the bundle; this shell only reads git.
+SUBJECT_PROVEN=$'\n'
+SUBJECT_IGNORED=$'\n'
+SUBJECT_PREDATES_PLAN=0
+
+# The commit that first added each plan file, as `<path>\t<sha>` lines.
+#
+# `--diff-filter=AR` AND THE RENAME FOLLOW. With git's default rename
+# detection a renamed dated file is listed `R` and never `A`, so an `A`-only
+# walk leaves the current path out of the answer and the plan gets no subjects
+# — measured on `origin/main`, 4 of 392 dated plans have no `A` entry for their
+# current path, all renamed while Draft. Each `R` is followed back to the old
+# path's `A` in the SAME call, at no extra cost, so a retitled plan keeps the
+# commit that first added it.
+#
+# ON `origin/<main>`, NEVER `HEAD`. This runs in desks and on feature branches,
+# where `HEAD` holds another history — and the merges walk reads the same ref,
+# so a mismatch would compare an age from one history with a merge from
+# another.
+#
+# THE DATED FILE, NEVER THE SYMLINK under `active/` or `delivered/`. A delivery
+# moves the symlink as a git rename, so the symlink's adding commit is the
+# delivery commit: measured on the estate that reported #1139, one delivered
+# plan keeps 4 of 4 subjects through its target and 0 of 4 through its symlink,
+# because one bulk move re-added 13 symlinks at once.
+plan_adding_commits() { # → <path>\t<sha> per plan file
+  git log "origin/$MAIN" --diff-filter=AR --name-status --format=@%H \
+    -- "$PLAN_DIR" </dev/null 2>/dev/null \
+    | awk '
+      /^@/ { commit = substr($0, 2); next }
+      # An A line gives a path and the commit that added it. The walk runs
+      # newest-first, so the LAST A seen for a path is the oldest — which is the
+      # first add, and the age the rule wants.
+      /^A\t/ { add[$2] = commit; next }
+      # An R line maps an old path (field 2) to a new one (field 3). Recorded as
+      # a chain and resolved after the walk: a rename may be seen before the add
+      # of the path it renames from.
+      /^R/ { from[$3] = $2; next }
+      END {
+        for (path in add) resolved[path] = add[path]
+        # Follow each chain to a path with an A line. Bounded by the chain
+        # length, and a cycle cannot form — a rename always names an earlier
+        # path, and `seen` stops one anyway.
+        for (path in from) {
+          cur = path
+          delete seen
+          while (cur in from && !(cur in seen)) { seen[cur] = 1; cur = from[cur] }
+          if (cur in add) resolved[path] = add[cur]
+          # A chain ending in no A line inside this walk leaves the path
+          # unresolved, so its plan gets no subjects and its branches go to the
+          # host — stated in the plan as the limit it is.
+        }
+        for (path in resolved) printf "%s\t%s\n", path, resolved[path]
+      }'
+}
+
+# What the rule was asked, assembled once and reused for both calls.
+subject_readings() {
+  printf '@backend %s\n' "$HOST_BACKEND"
+  printf '@origin %s\n' "$ORIGIN_URL"
+  printf '@merges\n'
+  [ -n "$MERGE_SUBJECTS" ] && printf '%s\n' "$MERGE_SUBJECTS"
+  printf '%s' "$SUBJECT_PLAN_SECTIONS"
+}
+
+ask_merge_subject() { # $1=verb; stdin=readings → the rule's answer
+  node "$script_dir/board/plot-merge-subject.mjs" "$1" 2>/dev/null
+}
+
+# Only where a walk gave something to read. `--offline` and `--no-pr` do not
+# gate this: the walks are LOCAL, they cost no host call, and a subject is the
+# one proof an offline scan can still have.
+if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
+  # The origin URL, read once. The rule parses it — this script never does, so
+  # the owner is read one way by the scan and the supervisor alike.
+  ORIGIN_URL=$(git config --get remote.origin.url 2>/dev/null || echo "")
+  HOST_BACKEND=$("$script_dir/plot-host.sh" backend 2>/dev/null || echo "")
+
+  SUBJECT_ADDING=$'\n'"$(plan_adding_commits)"$'\n'
+
+  # One section per plan: its dated file, its adding commit, and its refless
+  # branches. A branch WITH a ref is never offered — the ref check stays in
+  # front, and a recreated branch carrying new work must not be settled by the
+  # first attempt's subject.
+  SUBJECT_PLAN_SECTIONS=""
+  for _sp_i in "${!plans[@]}"; do
+    _sp_plan="${plans[$_sp_i]}"
+    _sp_base=$(basename "$(readlink "$_sp_plan" 2>/dev/null || echo "$_sp_plan")")
+    _sp_path="$PLAN_DIR$_sp_base"
+    _sp_added=""
+    case "$SUBJECT_ADDING" in
+      *$'\n'"$_sp_path"$'\t'*)
+        _sp_added=$(printf '%s' "$SUBJECT_ADDING" \
+          | awk -F'\t' -v p="$_sp_path" '$1 == p { print $2; exit }') ;;
+    esac
+    # KEYED ON THE FILE THAT WAS PARSED, which is what `plan_meta_files` holds
+    # — `$plan_reads[i]`, the same key the row loop uses at pass 1a. In ref mode
+    # that is a materialized blob under a temp path and not `$PLAN_DIR` at all,
+    # so a reconstructed path finds nothing.
+    _sp_meta_i=$(plan_meta_index_of "${plan_reads[$_sp_i]}" 2>/dev/null || echo "")
+    [ -n "$_sp_meta_i" ] || continue
+    _sp_branches=""
+    while IFS=$'\t' read -r _sp_idx _sp_br _sp_rest; do
+      [ -n "$_sp_br" ] || continue
+      remote_ref_exists "$_sp_br" && continue
+      _sp_branches+="$_sp_br"$'\n'
+    done <<< "${plan_meta_waves[$_sp_meta_i]}"
+    [ -n "$_sp_branches" ] || continue
+    # THE BASENAME IS THE KEY, because that is what the row loop holds as
+    # `$plan_base` and what the lookup tests. The adding-commit walk keys on
+    # the full path, which is what git reports — the two are joined here, once,
+    # rather than at every lookup.
+    SUBJECT_PLAN_SECTIONS+="@plan $_sp_base"$'\n'
+    SUBJECT_PLAN_SECTIONS+="@added ${_sp_added:--}"$'\n'
+    SUBJECT_PLAN_SECTIONS+="$_sp_branches"
+  done
+
+  if [ -n "$SUBJECT_PLAN_SECTIONS" ]; then
+    # CALL 1: which pairs need an ancestry test.
+    _sp_pairs=$(subject_readings | ask_merge_subject pairs || echo "")
+    # THE READING, one per matched pair.
+    #
+    # plot-ancestry: evidence  — the rule decides; a wrong "contained" answer
+    #                            sends the branch to the host, a wrong "not
+    #                            contained" answer is the reused-name case this
+    #                            narrows. `mergedBySubject`'s caller in
+    #                            plot-merge-subject.mjs is what decides.
+    _sp_answers=""
+    while IFS=$'\t' read -r _sp_pplan _sp_pbr _sp_merge _sp_added2; do
+      [ -n "$_sp_merge" ] || continue
+      if git merge-base --is-ancestor "$_sp_merge" "$_sp_added2" </dev/null 2>/dev/null; then
+        _sp_answers+="@ancestry $_sp_merge $_sp_added2 yes"$'\n'
+      elif git cat-file -e "$_sp_merge^{commit}" </dev/null 2>/dev/null \
+           && git cat-file -e "$_sp_added2^{commit}" </dev/null 2>/dev/null; then
+        _sp_answers+="@ancestry $_sp_merge $_sp_added2 no"$'\n'
+      else
+        # A commit this checkout cannot read answers neither way, and the rule
+        # reads `unknown` as proving nothing.
+        _sp_answers+="@ancestry $_sp_merge $_sp_added2 unknown"$'\n'
+      fi
+    done <<< "$_sp_pairs"
+
+    # CALL 2: the proof, given the answers.
+    while IFS=$'\t' read -r _sp_word _sp_a _sp_b _sp_c; do
+      case "$_sp_word" in
+        proven)  SUBJECT_PROVEN+="$_sp_a"$'\t'"$_sp_b"$'\n' ;;
+        ignored)
+          SUBJECT_IGNORED+="$_sp_a"$'\t'"$_sp_b"$'\n'
+          SUBJECT_PREDATES_PLAN=$((SUBJECT_PREDATES_PLAN + 1)) ;;
+        detect)
+          # `truncated` is THIS script's reading and outranks `pr-merge`: the
+          # bundle cannot see the cap, and a capped walk detected but did not
+          # examine exhaustively.
+          if [ "$_sp_a" = "pr-merge" ] && [ "$MERGE_SCAN_TRUNCATED" = 1 ]; then
+            MERGE_DETECT=truncated
+          else
+            MERGE_DETECT="$_sp_a"
+          fi ;;
+      esac
+    done <<< "$(printf '%s\n%s' "$(subject_readings)" "$_sp_answers" | ask_merge_subject proven || echo "")"
+  fi
+fi
+
 # A branch is merged when its remote ref is an ancestor of origin/<main>, or —
 # once the ref is gone — when the default branch carries a conforming PR-merge
 # commit naming it (see "the evidence that survives the ref" above). An absent
@@ -3316,8 +3540,9 @@ EOF
 MAIN_TIP=$(remote_ref_oid "$MAIN")
 [ -n "$MAIN_TIP" ] || MAIN_TIP="-"
 
-branch_readings() { # $1=branch $2=deferred → eight tab-separated readings
-  local br="$1" _bs_deferred="$2" _bs_subject=false _bs_ahead=0 _bs_real=0 _bs_tip
+branch_readings() { # $1=branch $2=deferred $3=plan-base → readings
+  local br="$1" _bs_deferred="$2" _bs_plan="${3:-}" _bs_subject=false
+  local _bs_ahead=0 _bs_real=0 _bs_tip
   local _bs_main="$MAIN_TIP"
   # THE REF CHECK STAYS IN FRONT. DO NOT HOIST THE MERGE LOOKUP ABOVE IT.
   #
@@ -3350,7 +3575,17 @@ branch_readings() { # $1=branch $2=deferred → eight tab-separated readings
     # exists — squash merges, a hand-rewritten subject, a branch genuinely
     # never started — today's `open` stands. The evidence may only move a branch
     # from `open` to `merged`, and only when it is positive.
-    merged_by_subject "$br" && _bs_subject=true
+    # THE PAIR, not the branch alone. `$_bs_plan` is what stops one plan's
+    # proof settling another plan's reused name — the case round 1 executed,
+    # where an unstarted reused name read `merged`, its slice read complete,
+    # the next slice opened, and the reused slice was never offered.
+    merged_by_subject "$_bs_plan" "$br" && _bs_subject=true
+    # A subject the age rule refused is reported apart from one that never
+    # existed: both read `unknown` under a refused host, and only this one has
+    # an explanation.
+    _bs_predates=false
+    [ "$_bs_subject" = false ] && subject_predates_plan "$_bs_plan" "$br" \
+      && _bs_predates=true
     # No merge commit names it — which is the ordinary case under a squash
     # merge, not an exotic one. The local walk is now out of evidence, so the
     # host is asked. It may only ever move this branch from `open` to `merged`:
@@ -3375,7 +3610,31 @@ branch_readings() { # $1=branch $2=deferred → eight tab-separated readings
     # what travels: the rule tells `CLOSED` from `NONE` from `-`, and a boolean
     # cannot. `|| true` because a not-merged answer is an ordinary reading and
     # `set -e` must not read it as a failure.
-    merged_by_host "$br" || true
+    #
+    # NOT ASKED FOR A BRANCH THE SUBJECT ALREADY PROVED. For the wave gate the
+    # subject IS enough — settling a slice and opening the next is reversible
+    # work — and asking anyway is the spend #1139 reports: a host refusing
+    # every question, asked again on a 5-second pulse about a branch already
+    # proven.
+    #
+    # THE ONE EXCEPTION IS A DELIVERY CANDIDATE, decided by the caller and
+    # passed in as `$4`: an Approved plan whose every non-deferred branch reads
+    # `merged` is about to be offered for delivery, and a delivery wants the
+    # host's own answer. Even then the question is put only under `HOST_VERDICT`
+    # `ok` or `partial` — a question the host is refusing is new spend in
+    # exactly the condition this plan exists for, and the branch keeps
+    # `evidence: subject` until the host confirms it.
+    #
+    # The terminal cache bounds the candidate's cost: it keeps a merged answer
+    # per tip of `origin/<main>`, so a candidate is asked once per tip rather
+    # than once per pulse.
+    if [ "$_bs_subject" = true ]; then
+      case "${4:-}:$HOST_VERDICT" in
+        candidate:ok|candidate:partial) merged_by_host "$br" || true ;;
+      esac
+    else
+      merged_by_host "$br" || true
+    fi
     # `open` IS A CLAIM ABOUT A PR: that one was looked for and none was found.
     # With no ref, the host is the only remaining source, so when it could not
     # be asked that claim was never earned — and the branch measured on
@@ -3765,6 +4024,13 @@ for plan in "${plans[@]}"; do
   # deciding it — see pass 1c.
   readings=""
   order=""
+  # WHICH BRANCHES THE HOST ITSELF CALLED MERGED, recorded here because
+  # `_merged_by_host_state` is a single variable that pass 1a overwrites per
+  # branch — by the time the JSON emitter runs it holds the LAST branch's
+  # answer. The `evidence` field needs to know, per branch, whether the host
+  # confirmed the landing, so the answer is kept while it is still the right
+  # one.
+  host_merged_branches=$'\n'
   # THE ELEVENTH FIELD: whether the PR list held every PR (`.list-complete`,
   # written by `prefill_pr_states`). The rule reads a `NONE` for a ref behind
   # main as `open` only when it is true; a capped list may omit a merged PR.
@@ -3775,7 +4041,15 @@ for plan in "${plans[@]}"; do
     # "-" is the absent marker the shim writes, for the tab-collapse reason
     # above. Normalized here so everything downstream tests emptiness.
     [ "$waits" = "-" ] && waits=""
-    readings+="$(branch_readings "$br" "$deferred")	${waits:--}	?	$list_complete"$'\n'
+    readings+="$(branch_readings "$br" "$deferred" "$plan_base")	${waits:--}	?	$list_complete"$'\n'
+    # Read from the readings line just built rather than from the variable: the
+    # subshell `branch_readings` runs in cannot export it back.
+    # FIELD 6 is the host's own word, in both arms of `branch_readings`:
+    # `$_merged_by_host_state` for a refless branch and `host_pr_state` for one
+    # with a ref. Field 9 is `waits`, appended by this loop.
+    case "$(printf '%s' "$readings" | tail -n1 | cut -f6)" in
+      MERGED) host_merged_branches+="$br"$'\n' ;;
+    esac
     order+="$idx	$br	$deferred	$why	${waits:--}	$wname	$claim"$'\n'
   done <<< "$wave_lines"
 
@@ -4033,6 +4307,29 @@ for plan in "${plans[@]}"; do
         # must not parse a string that exists for humans to read.
         json_branches+="${json_branches:+,}{\"branch\":\"$(json_str "$br")\""
         json_branches+=",\"state\":\"$st\",\"deferred\":$deferred"
+        # WHAT PROVED THE LANDING, where the proof is weaker than the host's.
+        #
+        # EMITTED ONLY WHERE THE BRANCH READS `merged` AND THE HOST HAS NOT
+        # CONFIRMED IT. `merged_by_host` leaves its own word in
+        # `_merged_by_host_state`, and the scan does not even ask for a proven
+        # branch that is not a delivery candidate — so the absence of a host
+        # `MERGED` is what the field reports. The branch loses the field the
+        # moment the host answers merged.
+        #
+        # A QUALIFIER, NOT A STATE. The state stays `merged`, the wave
+        # arithmetic is unmoved and the next slice still opens; what reads this
+        # is `allSlicesConfirmed`, in front of a delivery, which is the one
+        # decision here that cannot be undone.
+        if [ "$st" = merged ] && merged_by_subject "$plan_base" "$br" \
+           && [ "${host_merged_branches#*$'\n'"$br"$'\n'}" = "$host_merged_branches" ]; then
+          json_branches+=",\"evidence\":\"subject\""
+        fi
+        # WHY A SUBJECT NAMING THIS BRANCH PROVED NOTHING. A reused name whose
+        # merge predates the plan: the slice reads as it would with no subject
+        # at all, and this is what tells a reader the two cases apart.
+        if subject_predates_plan "$plan_base" "$br"; then
+          json_branches+=",\"subjectIgnored\":\"predates-plan\""
+        fi
         # WHY it was deferred, straight from the plan's annotation. "" where the
         # branch is not deferred, and "" where it is deferred with nothing
         # recorded — the flag says which of those two a reader is looking at.
@@ -4674,4 +4971,9 @@ if [ "$build_doc" = 1 ] && [ "$record" = 1 ] && [ -n "$reading_doc" ]; then
 fi
 write_bridge
 echo "Pulse complete. This report is derived — nothing was changed."
-echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed claimable=$n_eligible eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
+# `subject_predates_plan` NAMES A SUBJECT THE AGE RULE REFUSED, and it is its
+# own counter rather than a silence. A slice whose subject was refused reads
+# `unknown` under a refused host, exactly as a slice with no subject does — and
+# only this one has an explanation an operator can act on, which is that a
+# later plan reused a merged branch name.
+echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed claimable=$n_eligible eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT subject_predates_plan=$SUBJECT_PREDATES_PLAN host=$HOST_VERDICT main=$MAIN"
