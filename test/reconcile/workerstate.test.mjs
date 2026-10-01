@@ -76,7 +76,7 @@ function fixture(label) {
   // The push sets the branch's UPSTREAM, and that is not incidental: the
   // `stalled` rule reads `@{upstream}..HEAD` and nothing else, so a desk on a
   // branch that tracks nothing can never report work only this machine holds.
-  const wt = path.join(path.dirname(r), `plot-wt-${BRANCH.replace('/', '-')}`);
+  const wt = path.join(r, '.worktrees', BRANCH.replace('/', '-'));
   git(r, 'branch', BRANCH);
   git(r, 'push', '-q', '-u', 'origin', BRANCH);
   git(r, 'worktree', 'add', '-q', wt, BRANCH);
