@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-10-01
 - **Start:** 2026-09-28
 - **End:** 2026-10-12
 - **Release:** 2.21.1
@@ -33,9 +34,6 @@ Three conditions, and all must hold.
 - [x] [every-temp-directory-has-an-owner](../plans/2026-09-30-every-temp-directory-has-an-owner.md) — [#1083](https://github.com/plot-pm/plot/issues/1083). **A clean contract run leaves 365 temp directories, and the budget ledger grows 1.7 MB a day.** A run owns its temp root, scripts share one templated helper, and every state file declares its bound.
 
 ### Should Have
-- [ ] **The cross-tick assignment lock** — [#1039](https://github.com/plot-pm/plot/issues/1039). **The only cross-tick assignment lock is the claim ref, and the queue never reads manifests.** `matchQueue` is airtight within a pass and `isAgentFree` closes the window on the agent side, so the remaining candidate needs the manifest write to be slow or to have failed — which is not measured. The structural fact stands: between decision and push, the assignment lives in a manifest nothing in the queue path reads. **Should rather than Must because the measurement that would size it does not exist yet**, and the issue names the two that would settle it.
-- [ ] **The release PR's validate check** — [#1040](https://github.com/plot-pm/plot/issues/1040). **The release PR's push-triggered `validate` never reports.** All four runs on `changeset-release/main` sit at `action_required`, so the remedy in `ci.yml:16-21` does not work and every release to date has merged with `--admin`. v2.21.0 included, knowingly. It did not bite because the branch was 0 commits behind main and CI was green on the identical tree — luck, not design, and nothing enforces that property. **A required check that has never gated a release is a gate in name only.**
-- [ ] **The `idle` finding and the stateless tick** — [#1041](https://github.com/plot-pm/plot/issues/1041). **Reporting `idle` from the supervisor's tick needs persistent state the daemon does not have.** The merged half shipped in v2.21.0 (#741), taking a dispatched agent from four resident processes to three. The second half is a design question the brief does not settle: three options, each breaking something the design states explicitly. **This one needs a decision before it needs a plan**, which is why it is not a Must.
 
 - [x] [a-label-override-reaches-the-unit](../plans/2026-09-28-a-label-override-reaches-the-unit.md) — [#1051](https://github.com/plot-pm/plot/issues/1051). **`PLOT_FLEET_LABEL` names the plist file and not the `Label` inside it.** `plot-fleetctl.sh:84` reads the override; the template hardcodes `com.plot-pm.registryd` at `:15-16`, and launchd keys by that string. Where the default is free the unit loads under it anyway, so an operator believes they run two supervisors and runs one. Every other field in the template is a filled placeholder; the label is the one that is not.
 - [x] [a-supervisor-says-which-checkout-it-serves](../plans/2026-09-28-a-supervisor-says-which-checkout-it-serves.md) — [#1048](https://github.com/plot-pm/plot/issues/1048). **A refusal names a label, not a repository.** `--start` correctly refuses a loaded label and cannot say whose it is — while the loaded unit already carries `WorkingDirectory` (`:39-40`). Nothing needs adding; it needs reading. `plot-boardctl.sh --status` is the precedent, which learned on 2026-09-04 that a pid and a port do not identify a board.
@@ -60,11 +58,47 @@ Three conditions, and all must hold.
 - [x] [a-slice-nobody-worked-on-reads-not-started](../plans/2026-09-30-a-slice-nobody-worked-on-reads-not-started.md) — [#1090](https://github.com/plot-pm/plot/issues/1090), [#1091](https://github.com/plot-pm/plot/issues/1091). **An empty claim reads merged, a missing branch reads abandoned, and a live agent with a closed PR sits in DONE.** Zero-ahead reads merged only on positive evidence, and a slice with no work waits in NOT STARTED.
 
 ### Could Have
-- [ ] **Declare a `Tracker` in Plot Config**, so a released plan closes its own issue. Found while scoping this sprint: **7 of 15 open issues had already shipped** — six in v2.21.0 — and stayed open because `plot-issue-status.sh` answers `tracker=none` with no tracker declared. `a-released-plan-tells-its-tracker` is Released and the write path exists; it was never pointed at GitHub. One config key, and the seven were closed by hand on 2026-09-28. **Could rather than Should because it is a configuration change whose blast radius on a live tracker is worth thinking about first.**
 
 ### Deferred
+- [ ] **The cross-tick assignment lock** — [#1039](https://github.com/plot-pm/plot/issues/1039). **The only cross-tick assignment lock is the claim ref, and the queue never reads manifests.** `matchQueue` is airtight within a pass and `isAgentFree` closes the window on the agent side, so the remaining candidate needs the manifest write to be slow or to have failed — which is not measured. The structural fact stands: between decision and push, the assignment lives in a manifest nothing in the queue path reads. **Should rather than Must because the measurement that would size it does not exist yet**, and the issue names the two that would settle it.
+- [ ] **The release PR's validate check** — [#1040](https://github.com/plot-pm/plot/issues/1040). **The release PR's push-triggered `validate` never reports.** All four runs on `changeset-release/main` sit at `action_required`, so the remedy in `ci.yml:16-21` does not work and every release to date has merged with `--admin`. v2.21.0 included, knowingly. It did not bite because the branch was 0 commits behind main and CI was green on the identical tree — luck, not design, and nothing enforces that property. **A required check that has never gated a release is a gate in name only.**
+- [ ] **The `idle` finding and the stateless tick** — [#1041](https://github.com/plot-pm/plot/issues/1041). **Reporting `idle` from the supervisor's tick needs persistent state the daemon does not have.** The merged half shipped in v2.21.0 (#741), taking a dispatched agent from four resident processes to three. The second half is a design question the brief does not settle: three options, each breaking something the design states explicitly. **This one needs a decision before it needs a plan**, which is why it is not a Must.
+- [ ] **Declare a `Tracker` in Plot Config**, so a released plan closes its own issue. Found while scoping this sprint: **7 of 15 open issues had already shipped** — six in v2.21.0 — and stayed open because `plot-issue-status.sh` answers `tracker=none` with no tracker declared. `a-released-plan-tells-its-tracker` is Released and the write path exists; it was never pointed at GitHub. One config key, and the seven were closed by hand on 2026-09-28. **Could rather than Should because it is a configuration change whose blast radius on a live tracker is worth thinking about first.**
 - [#1027](https://github.com/plot-pm/plot/issues/1027) — **A dispatch says what it started.** Its plan is Draft, panelled twice, and its own amended text says what remains of it may be a field on #1030 rather than a plan of its own. #1030 shipped in v2.21.0. **Deferred until someone checks whether anything is left**, which the plan's slice is already instructed to do.
 - [#1017](https://github.com/plot-pm/plot/issues/1017) — **A scan takes 21-37s on 27 plans.** Its plan (`a-parsed-plan-joins-the-index`) was **rejected** by a panel: the batching it proposed already exists at `plot-fleet-scan.sh:2916`. The symptom was measured correctly and the mechanism was not. **Deferred pending a diagnosis that opens the file.**
+
+## Retrospective
+
+### What went well
+
+- All six Must Haves and 19 of 22 Should Haves shipped, across v2.22.0, v2.22.1 and v2.22.2.
+- Two bugfix releases in one day unblocked the Bitbucket team: v2.22.1 carried the `--start` and paging fixes (#1124, #1084), and v2.22.2 carried #1130, #1131 and #1137.
+- The temp-root leak gate went from a ceiling of 390 entries to strict zero (#1126), and every state path Plot writes now declares its bound (#1125).
+- The script-name, vendor, actor-name and domain-coverage gates refused six slips before merge, each in CI rather than in review.
+
+### What could improve
+
+- The sprint declared `Release: 2.21.1`, and that version was never cut: the train moved to 2.22.0 and nobody updated the field. Section 17 of the reconcile scan caught the same shape on `a-refusal-names-what-it-cannot-see`.
+- The release PR's `validate` check still never reports (#1040, deferred), so all three releases merged with `--admin`.
+- Agents added new decisions as shell (#1117, #1127) where the domain should hold them. That drove the gate design in `docs/superpowers/specs/2026-10-01-the-domain-grows-with-every-change-design.md`.
+- Every `Released` write needed an `--unowned` receipt, because `/plot-release` has no controller for the phase.
+- A worker that hit the usage limit sat free with unpushed commits, and a waiting loop does not read `PLOT-CORRECTION.md`; a person recovered the desk by hand.
+
+### Action items
+
+- [ ] Plan and roll out step 1 of the domain gate: the outside-domain size budget.
+- [ ] Give the `Released` write a controller, so a release needs no `--unowned` receipt.
+- [ ] Update a sprint's `Release:` field when the target version moves.
+- [ ] Decide #1139 (Bitbucket merge subject for the wave gate) and #1040 (release-PR `validate`).
+
+### Metrics
+
+- **Must-haves completed:** 6/6
+- **Should-haves completed:** 19/22 (3 more withdrawn: one superseded, two rejected)
+- **Could-haves completed:** 0/1
+- **Deferred items:** 6 (4 moved at close, 2 deferred at planning)
+- **Scope changes during sprint:** 3, plus the close-time deferral
+- **Duration:** planned 14 days, actual 3 days
 
 ## Notes
 
@@ -80,3 +114,4 @@ Three conditions, and all must hold.
 - 2026-09-30: Added four plans as Shoulds — #1073, #1074, #1080, #1083. All four were filed during the sprint from findings made while operating the fleet; #1073 is approved, the other three are with the jury.
 - 2026-09-30: Promoted #1083 (`every-temp-directory-has-an-owner`) from Should to Must at the operator's call: it is the sprint's most important plan. The leaks it bounds filled this machine's temp directory with 141,249 Plot directories and its budget ledger with 46 MB. The release gate now refuses 2.21.1 until its three slices deliver.
 - 2026-09-30: Added two plans as Shoulds — #1099 (`a-fleet-agent-starts-without-the-operators-plugins`) and #1090/#1091 (`a-slice-nobody-worked-on-reads-not-started`). Both were found while recovering the fleet on 2026-09-30.
+- 2026-10-01: Deferred #1039, #1040 and #1041 from Should and the `Tracker` item from Could — the sprint closed with every Must delivered; the four carry to the next sprint.
