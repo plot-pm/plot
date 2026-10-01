@@ -31,7 +31,7 @@ import type { ActingPorts } from '../../src/server/controllers/acting.js';
 // which is what a teardown racing a still-running child throws.
 //
 // Never a glob and never a prefix sweep over the shared temp directory.
-import { rmTree } from '../../helpers.mjs';
+import { rmTree } from '../helpers.mjs';
 const trackTemp = <T extends string>(dir: T): T => {
   trackedTempPaths.push(dir);
   return dir;
