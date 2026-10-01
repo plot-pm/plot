@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 3
+- **Started:** 2026-10-01, jwloka, `bug/the-rule-names-a-usage-limit`
 
 ## Changelog
 
