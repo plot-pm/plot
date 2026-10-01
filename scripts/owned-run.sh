@@ -97,8 +97,8 @@ root=$(mktemp -d "${TMPDIR:-/tmp}/plot-run.XXXXXX") || {
 
 # `TMPDIR` is the root itself, so the leak listing IS the root's listing and a
 # stray entry has nowhere to hide. The other three are named subdirectories:
-# they are inspected by name after a failure, and slice 3's inventory gate reads
-# them.
+# they are inspected by name after a failure, and `check-state-inventory.mjs`
+# reads them.
 mkdir -p "$root/home" "$root/budget" "$root/pr-index" || exit 2
 
 # PLAYWRIGHT'S BROWSERS STAY WHERE THEY ARE INSTALLED. Playwright finds them
@@ -248,6 +248,14 @@ esac
 #
 # The registry check runs with the CALLER's `TMPDIR` and `HOME`, for the reason
 # in the header: inside the root it cannot see `/var/folders/.../T` at all.
+#
+# The inventory check reads the root's `home/.plot`, `budget` and `pr-index`
+# before cleanup, and fails the run on a state file `scripts/state-inventory.json`
+# does not declare. It is skipped on a 124: a run killed at its bound stopped
+# mid-write, and its files say where it was killed, not what it writes.
+if [ -f scripts/check-state-inventory.mjs ] && [ "$status" != 124 ]; then
+  node scripts/check-state-inventory.mjs "$root" || status=1
+fi
 if [ -f scripts/check-registry-not-leaked.mjs ]; then
   if [ -n "$ORIG_TMPDIR_SET" ]; then
     TMPDIR="$ORIG_TMPDIR" HOME="$ORIG_HOME" node scripts/check-registry-not-leaked.mjs || status=1

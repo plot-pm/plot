@@ -1,0 +1,17 @@
+{
+  "coverage": "Read by scripts/check-state-inventory.mjs after a contract run. It lists the files the run left under its HOME/.plot, PLOT_BUDGET_HOME and PLOT_PR_INDEX_HOME, so it sees only the write paths the suites execute; a write path no test reaches is not seen. Scratch repositories' .plot/ and the git common dir's .plot/ are not listed. Measured 2026-10-01: one full run left budget/budget.tsv and no other file.",
+  "entries": [
+    { "base": "budget", "glob": "budget.tsv", "bound": "rotated", "writer": "skills/plot/scripts/plot-budget.sh (budget_append, budget_rotate)" },
+    { "base": "budget", "glob": "budget.tsv.1", "bound": "rotated", "writer": "skills/plot/scripts/plot-budget.sh (budget_rotate)" },
+    { "base": "budget", "glob": "budget.gen", "bound": "overwritten", "writer": "skills/plot/scripts/plot-budget.sh (budget_gen_write)" },
+    { "base": "budget", "glob": "budget.gen.*.tmp", "bound": "spent", "writer": "skills/plot/scripts/plot-budget.sh (budget_gen_write)" },
+    { "base": "budget", "glob": "budget.lock/owner", "bound": "spent", "writer": "skills/plot/scripts/plot-budget.sh (budget_rotate)" },
+    { "base": "budget", "glob": "budget.lock.broken.*/owner", "bound": "spent", "writer": "skills/plot/scripts/plot-budget.sh (budget_lock_break)" },
+    { "base": "budget", "glob": "budget-lock-broken.tsv", "bound": "kept on purpose", "writer": "skills/plot/scripts/plot-budget.sh (budget_lock_break)" },
+    { "base": "budget", "glob": "memo/*/*", "bound": "removed on exit", "writer": "skills/plot/scripts/plot-budget.sh (budget_rate memo, budget_memo_clear)" },
+    { "base": "budget", "glob": "slots/*/*", "bound": "spent", "writer": "skills/plot/scripts/plot-budget.sh (budget_slot_claim and its scratch file, budget_slot_release);packages/domain/src/adapters/slots/slots-file.ts" },
+    { "base": "pr-index", "glob": "*.json", "bound": "overwritten", "writer": "packages/domain/src/adapters/pr-index/pr-index-file.ts" },
+    { "base": "pr-index", "glob": "*.json.*.tmp", "bound": "spent", "writer": "packages/domain/src/adapters/pr-index/pr-index-file.ts" },
+    { "base": "home/.plot", "glob": "state/board-cache/*.json", "bound": "overwritten", "writer": "skills/plot/scripts/plot-update-board.sh" }
+  ]
+}

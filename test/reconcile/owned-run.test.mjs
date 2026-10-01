@@ -124,7 +124,7 @@ test('writes under HOME and the budget home are not reported as leaks', (t) => {
   const res = runWrapped(tmp, [
     'sh',
     '-c',
-    'mkdir -p "$HOME/.plot/state" && echo line > "$HOME/.plot/state/budget.tsv" && echo x > "$PLOT_BUDGET_HOME/spent" && exit 0',
+    'mkdir -p "$HOME/.plot/state/board-cache" && echo x > "$HOME/.plot/state/board-cache/o-1.json" && echo line > "$PLOT_BUDGET_HOME/budget.tsv" && exit 0',
   ]);
   assert.equal(res.status, 0, res.stderr);
 });
