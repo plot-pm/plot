@@ -26,17 +26,22 @@ Measured 2026-10-01 on the DONE section with every plan head collapsed, after #1
 
 **A plan row's status cell carries plan facts only**: the phase, the rounds badge, and the PR fold. A one-slice plan's row is built exactly as a multi-slice plan's row is: `statusExtra` in `PlanRow` (`rows.tsx:816`) loses the `soleSlice?.verdict && showsSoleVerdict` branch and always takes the `prFold` branch.
 
-**The rule from #1109 goes.** `planRowShowsSoleVerdict` (`stuck.ts:148`) and its unit tests are removed; `PlanRow` loses the `showsSoleVerdict` prop (`rows.tsx:458`, `:534`, `:561`, `:780`); the two call sites in `AgentList.tsx` (`:1642`, `:1999`) stop computing it; the comments that describe it (`AgentList.tsx:2121`, `rows.tsx:550`, `:1049`) state the new rule.
+**The rule from #1109 goes.** `planRowShowsSoleVerdict` (`stuck.ts:148`) and its unit tests are removed; `PlanRow` loses the `showsSoleVerdict` prop (`rows.tsx:458`, `:534`, `:561`, `:780`); the two call sites in `AgentList.tsx` (`:1642`, `:1999`) stop computing it, and the import at `AgentList.tsx:80` drops both `planRowShowsSoleVerdict` and `soleRowStatus`, which has no other reader in that file and fails `noUnusedLocals`. `soleRowStatus` stays exported for `rows.tsx:1176`. The comments that describe the old rule state the new one: `AgentList.tsx:1626-1641`, `:1947-1950`, `:1977-1998`, `:2121`, `rows.tsx:528-545`, `:550`, `:776-792`, `:1046-1050`, and the docstring at `plan-rounds-badge.browser.test.ts:26-31`.
+
+**A green, merged or absent PR folds to nothing.** `planPrAggregate` (`tuple-row.ts:458`) ranks only `conflicts`, `failing` and `pending`, so a one-slice plan whose PR is green, merged or absent shows its phase and its rounds badge and nothing else.
 
 **`soleSlice` keeps one job**: carrying an eligible one-slice plan's *Start work* action onto the plan row (`soleSlice?.verdict === 'eligible' && card && dispatch`). That is an action, not a status, and it is unchanged.
 
-**A collapsed head shows no slice facts.** A reader who wants the slice's verdict opens the head; the slice row prints it, as it does today.
+**Where the verdict still appears.** A slice row of several branches, or of one branch whose `soleRowStatus` is empty (PR state `unknown`), prints the verdict. A slice row of one branch with a worker, PR or state word prints that word, so that plan's verdict appears on no row. The operator's rule accepts this: the slice row states the slice's own status, and the plan row states the plan's.
+
+**The slice summary stays.** `[data-slice-summary]` (`rows.tsx:853-862`, from `sliceSummaryFor`, `sections.ts:585-598`) reads `1 slice, first eligible` on a one-slice plan. It stays, because it is labelled as a slice fact and counts the plan's slices; a reader does not take it for the plan's phase.
 
 ## Done when
 
-- `planRowShowsSoleVerdict` and the `showsSoleVerdict` prop no longer exist, and `grep -r showsSoleVerdict packages/board/src` returns nothing.
-- A browser test over a one-slice plan in DONE with its head collapsed renders the phase and no `data-sole-wave-verdict`; with the head open, the slice row renders the verdict once.
-- A one-slice plan in WAITING ON YOU with an open PR renders the PR fold on the plan row and no verdict there.
+- `planRowShowsSoleVerdict` and the `showsSoleVerdict` prop no longer exist: `grep -rE 'showsSoleVerdict|planRowShowsSoleVerdict' packages/board` returns nothing.
+- A browser test over a one-slice plan in DONE whose one branch has PR state `unknown` renders the phase and no `data-sole-wave-verdict` with its head collapsed; with the head open, the slice row renders the verdict once.
+- A one-slice plan whose one branch has a `green` PR shows no verdict on the plan row, with the head collapsed or open.
+- A one-slice plan in WAITING ON YOU whose open PR is `pending`, `failing` or `conflicts` renders that fold word on the plan row and no verdict.
 - An eligible one-slice plan in NOT STARTED still carries *Start work* on its plan row.
 - `plan-row-verdict-once.browser.test.ts`, `plan-rounds-badge.browser.test.ts` and `stuck-display.test.ts` are rewritten to the new rule, not deleted blind: each assertion that expected a plan-row verdict now expects none.
 
