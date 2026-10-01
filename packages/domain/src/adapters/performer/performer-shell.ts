@@ -96,6 +96,12 @@ export const performerShell = (context: ShellContext): Performer => ({
       timeoutMs: START_TIMEOUT_MS,
     });
 
+    // A `Worker command` THAT IS NOT THE LOOP IS `unaskable` TOO. The script
+    // refuses with exit 1 and `worker=no-loop` (#1124): a free agent on any
+    // other command runs at once with an empty branch and exits, so this
+    // repository has no way to start one until a person changes the config.
+    if (/(?:^|\n)summary: .*worker=no-loop/.test(run.stdout)) return unaskable<number>();
+
     if (run.code !== 0) return failed<number>();
 
     // THE SUMMARY LINE IS THE ANSWER, not the exit code. The script exits 0

@@ -14,6 +14,8 @@
 #               hand each a queued slice with nobody touching a desk. The count
 #               is a REQUEST: a machine at its bound answers with fewer and says
 #               so, and the shortfall is reported rather than remembered.
+#               Refuses (exit 1, `worker=no-loop`) when a configured `Worker
+#               command` does not run plot-worker-loop.sh: only the loop waits.
 #   --restart <br>
 #               start a worker on <br>, which already holds a claim — the
 #               counterpart to --stop, and the only way to hand a stopped
@@ -342,7 +344,7 @@ while [ $# -gt 0 ]; do
     # `--release` pushed it from 78 to 91. Two records
     # of one fact, and nothing compares them — a stale number here silently
     # truncates the help rather than failing, so it is checked by a test.
-    -h|--help)  sed -n '2,91p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,93p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -1725,11 +1727,30 @@ if [ "$mode" = "stop" ]; then
   case "$st" in
     running*)
       pid=${st#running }
-      kill "$pid" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
+      # THE WHOLE PROCESS GROUP, NOT ONE PID. Measured 2026-09-30 (#1084):
+      # `--stop` signalled the wrapper, the group leader, and the loop, the
+      # prompt shell, `claude` and its children survived reparented to pid 1;
+      # `kill -TERM -<pgid>` ended all of them. The pid is the fallback when the
+      # group cannot be read, or is this script's own group: a worker started
+      # without job control shares its starter's group, and signalling that
+      # group would stop the caller with it.
+      stop_pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+      stop_own_pgid=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+      stop_target="$pid"
+      case "$stop_pgid" in
+        ''|*[!0-9]*|0|1) ;;
+        *) [ "$stop_pgid" != "$stop_own_pgid" ] && stop_target="-$stop_pgid" ;;
+      esac
+      kill -TERM -- "$stop_target" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
         || { echo "plot-dispatch: could not stop pid $pid — it may have exited between the read and the signal, or belong to another user." >&2
              echo "  Check it: ps -p $pid -o pid=,stat=,command=" >&2
              echo "  Nothing else was written; the worktree and the claim stand." >&2
              exit 1; }
+      if [ "$stop_target" = "$pid" ]; then
+        echo "  signalled pid $pid alone — its process group is unreadable or is this run's own"
+      else
+        echo "  signalled its whole process group $stop_pgid"
+      fi
       # The worktree and its claim are left in place: the branch is still taken,
       # and deleting either would be the kind of write this design avoids.
       echo "  worktree kept at $wt — the claim stands until you release it:"
@@ -2232,6 +2253,44 @@ EOF
   start_rest=${start_answer#*$'\t'}
   start_headroom=${start_rest%%$'\t'*}
   start_why=${start_rest#*$'\t'}
+
+  # A FREE AGENT NEEDS THE LOOP, so a configured command that does not run it
+  # refuses here, before any desk is cut. A free agent starts with an empty
+  # `PLOT_BRANCH`, and only `plot-worker-loop.sh` waits for the registry to hand
+  # it a slice; any other command runs its prompt at once and exits. Measured
+  # 2026-10-01 (#1124): a plain `claude -p "… $PLOT_BRANCH …"` received
+  # "Implementiere den Branch in  nach dem Plan", exited within 30 s, and
+  # `--start` reported `agents=1`. A branch dispatch is not affected: a worker
+  # given a branch works on any command.
+  #
+  # THE DECISION IS THE DOMAIN'S: `freeAgentCommandRefusal`, asked through its
+  # bundle, answers 0 (may start), or 3 with the defect and the repair as two
+  # lines. Any other answer is a rule that could not be asked, which starts
+  # nothing, as the fleet-size ask above does. `worker=no-loop` is the footer
+  # word the performer reads, the way it reads `unconfigured`.
+  start_cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
+  start_cmd_bundle="$script_dir/board/plot-free-agent-command.mjs"
+  # The loop's basename and the command that runs it are this script's to
+  # name: the rule receives them as readings and names no script itself.
+  start_cmd_answer=$(printf '%s' "$start_cmd" | node "$start_cmd_bundle" \
+    plot-worker-loop.sh "PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh" 2>/dev/null)
+  start_cmd_rc=$?
+  case "$start_cmd_rc" in
+    0) ;;
+    3)
+      echo "plot-dispatch: --start refuses — ${start_cmd_answer%%$'\n'*}." >&2
+      echo "  configured: $start_cmd" >&2
+      echo "  Repair: ${start_cmd_answer#*$'\n'}." >&2
+      echo "  This install's loop is $script_dir/plot-worker-loop.sh. A branch dispatch (--restart <branch>) starts a worker on any command." >&2
+      echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=no-loop"
+      exit 1
+      ;;
+    *)
+      echo "plot-dispatch: --start could not ask whether the 'Worker command' runs the loop — starting none." >&2
+      echo "  The rule's bundle is $start_cmd_bundle (exit $start_cmd_rc)." >&2
+      exit 1
+      ;;
+  esac
 
   echo "starting $start_n agent(s) — machine $start_headroom, $start_running already running"
 

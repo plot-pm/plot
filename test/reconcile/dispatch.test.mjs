@@ -3386,14 +3386,6 @@ function runDetached(args, cwd, env = {}) {
 }
 
 /**
- * A checkout with a remote and a `Worker command` that returns at once.
- *
- * `true` is the command deliberately: these tests assert what the SCRIPT writes
- * — desks, manifests, the summary — and a real agent would only add minutes and
- * a process to reap. `plot-worker-loop.sh`'s own behaviour on an empty branch is
- * `workerloop.test.mjs`'s, where the prompt is the witness.
- */
-/**
  * Removes a `repoForStart` sandbox, waiting out the workers it launched.
  *
  * `--start` LEAVES PROCESSES BEHIND, WHICH IS THE POINT OF THE TESTS BELOW —
@@ -3423,10 +3415,35 @@ function removeSandbox(root) {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-function repoForStart(label, workerCommand = 'true') {
+/**
+ * A checkout with a remote and a `Worker command` that returns at once.
+ *
+ * `true` is the command deliberately: these tests assert what the SCRIPT writes
+ * — desks, manifests, the summary — and a real agent would only add minutes and
+ * a process to reap. `plot-worker-loop.sh`'s own behaviour on an empty branch is
+ * `workerloop.test.mjs`'s, where the prompt is the witness.
+ *
+ * THE COMMAND RUNS THROUGH A STUB NAMED `plot-worker-loop.sh`, because `--start`
+ * refuses any `Worker command` that does not run the loop (#1124). The stub
+ * `exec`s the given command, so the recorded pid is still the command's own.
+ * `asLoop: false` writes the command as it is, for the refusal's own tests.
+ *
+ * @param label names the sandbox directory.
+ * @param workerCommand what the worker runs; '' writes no key.
+ * @param options `asLoop` — wrap the command in the loop stub (default true).
+ * @returns the sandbox root and the checkout inside it.
+ */
+function repoForStart(label, workerCommand = 'true', { asLoop = true } = {}) {
   const root = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-start-${label}-`)));
   const origin = path.join(root, 'origin.git');
   const checkout = path.join(root, 'repo');
+  if (asLoop && workerCommand !== '' && workerCommand !== 'none') {
+    const stub = path.join(root, 'loop', 'plot-worker-loop.sh');
+    fs.mkdirSync(path.dirname(stub));
+    fs.writeFileSync(stub, `#!/usr/bin/env bash\nexec ${workerCommand}\n`);
+    fs.chmodSync(stub, 0o755);
+    workerCommand = `bash ${stub}`;
+  }
   git(root, 'init', '--bare', '-q', '-b', 'main', origin);
   git(root, 'clone', '-q', origin, checkout);
   git(checkout, 'config', 'user.email', 'test@example.invalid');
@@ -3596,6 +3613,70 @@ test('dispatch: `Worker command: none` is an answer, and --start reports it as o
     const out = runDetached(['--start', '1'], checkout);
     assert.match(out, /worker=declined/, out);
     assert.match(out, /summary: agents=0 /, out);
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --start refuses a Worker command that does not run the loop', () => {
+  // #1124, MEASURED 2026-10-01: a plain `claude -p "… $PLOT_BRANCH …"` started
+  // as a free agent received an empty branch, exited within 30 s, and `--start`
+  // reported `agents=1`. Only the loop waits for a slice.
+  const command = 'claude -p "Implement the branch in $PLOT_BRANCH"';
+  const { root, checkout } = repoForStart('noloop', command, { asLoop: false });
+  try {
+    const childEnv = { ...process.env };
+    delete childEnv.PLOT_REPO_ROOT;
+    const res = spawnSync('bash', [dispatch, '--start', '1'],
+      { cwd: checkout, env: childEnv, encoding: 'utf8' });
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stdout, /summary: agents=0 .*worker=no-loop/, res.stdout);
+    assert.match(res.stderr, /does not run plot-worker-loop\.sh/, res.stderr);
+    assert.ok(res.stderr.includes(`configured: ${command}`), res.stderr);
+    assert.match(res.stderr, /PLOT_UNATTENDED=1 skills\/plot\/scripts\/plot-worker-loop\.sh/, res.stderr);
+    assert.match(res.stderr, /\.plot\/worker-prompt\.sh/, res.stderr);
+    assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
+    assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');
+    assert.equal(fs.existsSync(path.join(checkout, '.plot', 'agents')), false, 'no manifest is written');
+    const trees = execFileSync('git', ['worktree', 'list', '--porcelain'],
+      { cwd: checkout, encoding: 'utf8' }).match(/^worktree /gm) ?? [];
+    assert.equal(trees.length, 1, 'git knows only the checkout itself');
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --start --dry-run refuses a Worker command that does not run the loop', () => {
+  // A dry run that answered `would create` would promise an agent that cannot wait.
+  const { root, checkout } = repoForStart('noloopdry', 'true', { asLoop: false });
+  try {
+    const out = runDetached(['--start', '--dry-run'], checkout);
+    assert.match(out, /worker=no-loop/, out);
+    assert.doesNotMatch(out, /would create/, out);
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --start accepts the loop by its basename, on any path', () => {
+  // The repo-relative form this repository configures, written literally: the
+  // match is the basename as a word, so the directory does not matter.
+  const { root, checkout } = repoForStart('loopword',
+    'PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh', { asLoop: false });
+  try {
+    const out = runDetached(['--start', '--dry-run'], checkout);
+    assert.match(out, /would create/, out);
+    assert.doesNotMatch(out, /worker=no-loop/, out);
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --start does not take a name that only contains the loop for the loop', () => {
+  const { root, checkout } = repoForStart('loopbak', 'bash my-plot-worker-loop.sh.bak', { asLoop: false });
+  try {
+    const out = runDetached(['--start', '--dry-run'], checkout);
+    assert.match(out, /worker=no-loop/, out);
   } finally {
     removeSandbox(root);
   }

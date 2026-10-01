@@ -75,6 +75,11 @@ python3 --version    # fleet-scan and merge-queue parse JSON with it
 > **`Worker command` is the part most likely to need tuning.** Plot hardcodes
 > no agent tooling, so this string is yours. Getting it wrong is itself a
 > finding worth recording — note what you had to change.
+>
+> This one-shot form serves `/plot-dispatch <slug>`, which gives each worker a
+> branch. Free agents (`--start`, `/plot-fleet --start`) need
+> `plot-worker-loop.sh` as the `Worker command`, and `--start` refuses any
+> other command.
 
 ---
 

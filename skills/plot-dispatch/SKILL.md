@@ -330,19 +330,27 @@ hardcodes no tooling):
 ```markdown
 ## Plot Config
 
-- **Worker command:** claude -p "Implement the branch named in $PLOT_BRANCH per the plan. Follow the DoD. Open a PR. Do not merge." --session-id "$PLOT_SESSION_ID"
+- **Worker command:** PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh
 ```
 
 The command runs inside the worktree with `PLOT_BRANCH`, `PLOT_WORKTREE` and
-`PLOT_SESSION_ID` set, detached, with output to `.plot-worker.log`.
+`PLOT_SESSION_ID` set, detached, with output to `.plot-worker.log`. The loop
+runs the project's `.plot/worker-prompt.sh` once per slice, and that file holds
+the harness call (`claude -p "…"`); `plot-install-prompt.sh` writes one from the
+shipped template. In a plugin install, name the plugin's copy of the script.
 
-**`--session-id` IS RIGHT HERE AND WRONG IN A LOOPING PROMPT.** This command is
-dispatch's, it runs once, and one prompt CREATES one session. A `Worker command`
-that starts `plot-worker-loop.sh` instead is a different case: that loop hops
-between slices and runs the project's `.plot/worker-prompt.sh` once per slice,
-so the flag is the loop's decision and the prompt file interpolates
-`$PLOT_SESSION_FLAG`. See *`PLOT_SESSION_ID`, and the one line an adopting
-project must add* below.
+**Free agents need the loop.** `--start` refuses any `Worker command` that does
+not run `plot-worker-loop.sh`, before it cuts a desk: a free agent starts with an
+empty `PLOT_BRANCH`, only the loop waits for the registry to hand it a slice,
+and any other command runs its prompt at once and exits. A worker given a branch
+— a fan-out or `--restart <branch>` — works with any command, for example a
+plain `claude -p "Implement the branch named in $PLOT_BRANCH …" --session-id "$PLOT_SESSION_ID"`.
+
+**`--session-id` IS RIGHT IN A ONE-SHOT COMMAND AND WRONG IN A LOOPING PROMPT.**
+A plain command runs once, and one prompt CREATES one session. The loop hops
+between slices and runs the prompt file once per slice, so the flag is the
+loop's decision and the prompt file interpolates `$PLOT_SESSION_FLAG`. See
+*`PLOT_SESSION_ID`, and the one line an adopting project must add* below.
 
 `--session-id` is shown because the command is the one place a person writes
 the invocation, and passing the id is the only half of the contract Plot cannot
@@ -445,6 +453,9 @@ exists there is nobody to match. Measured 2026-09-05: a dispatch reported
 ```
 
 Each agent gets a desk, a manifest naming **no branch**, and a loop that waits.
+The `Worker command` must therefore run `plot-worker-loop.sh`; any other command
+is refused with `worker=no-loop` in the summary and the repair on stderr, and no
+desk is cut.
 `isAgentFree` already reads that state as available, so the supervisor's next
 tick can hand each one a queued slice with nobody touching a desk.
 

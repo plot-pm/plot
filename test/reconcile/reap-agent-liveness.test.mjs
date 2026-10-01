@@ -24,7 +24,8 @@
 // `PLOT_AGENT_GRACE_SECONDS=0` makes a milliseconds-old wrapper askable.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -214,6 +215,40 @@ test('the reaper and --stop agree, and the agent-descendant reading is why', () 
   assert.doesNotThrow(() => process.kill(Number(fs.readFileSync(
     path.join(goneDesk.wt, '.plot-worker.pid'), 'utf8').trim()), 0),
   '--stop killed nothing on the agent-less desk');
+});
+
+/** Whether a pid names a process that has not exited; a zombie has exited. */
+const alive = (pid) => {
+  const r = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+  return r.status === 0 && r.stdout.trim() !== '' && !r.stdout.trim().startsWith('Z');
+};
+
+test('--stop signals the worker\'s whole process group, so its child is gone too', async () => {
+  // #1084, MEASURED 2026-09-30: `--stop` signalled the wrapper, the group
+  // leader, and the loop, `claude` and its children survived reparented to
+  // pid 1. The wrapper here leads its own group (`detached` is `setsid`), the
+  // way a worker started by the board does, and its child is the agent.
+  const { repo } = makeRepo();
+  const branch = 'feature/stop-the-group';
+  const marker = path.join(path.dirname(repo), 'child.pid');
+  const wrapper = spawn('sh', ['-c', `sleep 300 & echo $! > ${JSON.stringify(marker)}; exec sleep 300`],
+    { detached: true, stdio: 'ignore' });
+  wrapper.unref();
+  wrappers.push(String(wrapper.pid));
+  for (let i = 0; i < 100 && !fs.existsSync(marker); i += 1) await sleep(50);
+  const child = Number(fs.readFileSync(marker, 'utf8').trim());
+  wrappers.push(String(child));
+  desk(repo, branch, String(wrapper.pid));
+  assert.ok(alive(child), 'precondition: the child runs');
+
+  const res = spawnSync('bash', [dispatch, '--stop', branch],
+    { encoding: 'utf8', cwd: repo, env: agentEnv('') });
+  assert.match(res.stdout, new RegExp(`stopped ${branch} \\(pid ${wrapper.pid}\\)`), res.stdout + res.stderr);
+  assert.match(res.stdout, new RegExp(`whole process group ${wrapper.pid}`), res.stdout);
+
+  for (let i = 0; i < 100 && (alive(child) || alive(wrapper.pid)); i += 1) await sleep(50);
+  assert.ok(!alive(wrapper.pid), 'the wrapper is stopped');
+  assert.ok(!alive(child), 'and so is the child the wrapper started');
 });
 
 test('a desk with a live agent is kept, and the refusal names the pid', () => {

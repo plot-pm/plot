@@ -154,6 +154,8 @@ Starting workers needs one line of config, because Plot does not assume which ag
 
 Without it, `/plot-dispatch` still prepares and claims the worktrees and you start them yourself — which is a perfectly good way to work.
 
+This one-shot form serves a fan-out, where each worker is given a branch. Free agents — `/plot-dispatch --start` and `/plot-fleet --start` — hold no branch until the registry hands them one, so they need `plot-worker-loop.sh` as the `Worker command`, with the harness call in `.plot/worker-prompt.sh`. `--start` refuses any other command and names that repair.
+
 `--session-id` passes on the id dispatch minted, so the runtime writes its transcript under the id the manifest records. That is what lets the board show an agent's transcript and lets a correction resume the same conversation. Leave it out and the worker still runs; only the attribution is lost.
 
 Workers run **detached**, so the fleet outlives your session: start it, close the laptop, come back later. Check on them with:
