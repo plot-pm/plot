@@ -55,6 +55,24 @@ Environment=PATH=__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/u
 # nothing else schedules the backstop for temp paths a SIGKILL left behind.
 ExecStart=__NODE__ __REGISTRYD__ --start-agents --sweep-temp
 
+# THE UNIT STOPS ONLY ITS DAEMON. An agent is not part of the daemon's
+# lifecycle: the supervisor starts agents with `--start-agents` and they outlive
+# any tick, so systemd's default `KillMode=control-group` — which signals every
+# process in the cgroup on stop, restart or crash — ends work that is nobody's
+# intent to end. systemd.kill(5) does not recommend `process` because processes
+# then outlive the unit; here that is the point.
+#
+# THE AGENTS STAY IN THE UNIT'S CGROUP after a restart, so
+# `systemctl --user status plot-registryd` lists them under the unit. They are
+# the previous daemon's children and the new daemon finds them through the
+# registry and their desks, as a tick does today.
+#
+# STOPPING AN AGENT IS `/plot-fleet --stop`, not a unit stop. It calls
+# `plot-dispatch.sh --stop` once per dispatched agent and unloads the supervisor
+# last; with this directive its *kept* report is true on Linux rather than a
+# sentence about agents the next command ends.
+KillMode=process
+
 # RESTART ALWAYS, and the reason is the same one the plist gives: every
 # recoverable failure is now a tick that reports and continues, so a process
 # that exited is a process that is gone and restarting it is always right.
