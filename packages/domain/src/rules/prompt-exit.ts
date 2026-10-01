@@ -146,23 +146,24 @@ const zoneFields = (epochMs: number, zone: string): { readonly [k: string]: numb
  * falling on a DST transition, where the first offset read is the wrong side of
  * the change.
  *
- * Returns `undefined` for a zone `Intl` does not know, which is the rule
- * refusing to guess rather than falling back to UTC.
+ * **TWO PASSES AND NO MORE, WHICH DECIDES A WALL CLOCK THAT NEVER HAPPENED.**
+ * A time inside a spring-forward gap — 02:30 on 2026-03-29 in `Europe/Zurich`,
+ * where the clocks jump 02:00 to 03:00 — corresponds to no instant, and the
+ * correction oscillates: measured over every minute of both 2026 transition
+ * days, 2820 of 2880 readings converge after one correction and 60 never
+ * converge at all. The cap resolves those to the instant one hour after the
+ * stated time, which is the hour the zone skipped. It takes the zone as known,
+ * because `resolveReset` has already asked it for the date of now.
  */
 const instantInZone = (
   parts: { year: number; month: number; day: number; hour: number; minute: number },
   zone: string,
-): number | undefined => {
+): number => {
   const wanted = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, 0);
 
   let candidate = wanted;
   for (let pass = 0; pass < 2; pass += 1) {
-    let shown: { readonly [k: string]: number };
-    try {
-      shown = zoneFields(candidate, zone);
-    } catch {
-      return undefined;
-    }
+    const shown = zoneFields(candidate, zone);
     const asUtc = Date.UTC(
       shown.year,
       shown.month - 1,
@@ -223,9 +224,6 @@ const resolveReset = (text: string, now: number): number | undefined => {
     { year: today.year, month: today.month, day: today.day, hour, minute },
     zone,
   );
-  if (resolved === undefined) {
-    return undefined;
-  }
 
   const epoch = Math.floor(resolved / 1000);
   if (epoch >= now) {
