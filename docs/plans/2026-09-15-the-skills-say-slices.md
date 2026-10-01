@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** docs
 - **Issue:** #914
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -15,6 +15,7 @@
 - **Approved:** 2026-09-15, jwloka, in-session
 - **Started:** 2026-09-15, jwloka, `docs/the-skills-say-slices`
 - **Delivered:** 2026-09-16
+- **Released:** 2026-09-16, v2.18.0
 
 ## Changelog
 

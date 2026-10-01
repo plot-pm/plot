@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** docs
 - **Issue:** #928
 - **Sprint:** a-declared-agent-costs-what-it-costs
@@ -15,6 +15,7 @@
 - **Approved:** 2026-09-17, jwloka, in-session
 - **Started:** 2026-09-17, Jan Wloka, `docs/the-inbox-says-what-it-is-showing`
 - **Delivered:** 2026-09-17
+- **Released:** 2026-09-20, v2.19.0
 
 ## Changelog
 

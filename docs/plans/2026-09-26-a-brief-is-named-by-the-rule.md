@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Review:** in-session
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-26, Jan Wloka, in-session after panel (round 1)
 - **Started:** 2026-09-27, Jan Wloka, `infra/a-brief-is-named-by-the-rule`
 - **Delivered:** 2026-09-27
+- **Released:** 2026-09-28, v2.21.0
 
 ## Changelog
 
