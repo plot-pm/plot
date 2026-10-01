@@ -5,7 +5,7 @@ import { startCommand, type LoopScript } from '../src/rules/start-command.js';
 /** The loop as `plot-dispatch.sh` names it; the rule itself names no script. */
 const LOOP: LoopScript = {
   name: 'plot-worker-loop.sh',
-  command: "PLOT_UNATTENDED=1 '/install/skills/plot/scripts/plot-worker-loop.sh'",
+  command: 'PLOT_UNATTENDED=1 plot-worker-loop.sh',
 };
 
 /** The measured command from #1124. */
@@ -18,10 +18,13 @@ const PLAIN = 'claude -p "Implementiere den Branch in $PLOT_BRANCH nach dem Plan
  * started as a free agent received an empty branch and exited.
  */
 describe('startCommand', () => {
-  describe('an absent key means the loop', () => {
-    it.each([[''], ['   ']])('runs the loop for %j, free or assigned', (configured) => {
+  describe('an absent key is not set up', () => {
+    it.each([[''], ['   ']])('answers unconfigured for %j, free or assigned, naming the value to set', (configured) => {
       for (const agent of ['free', 'assigned'] as const) {
-        expect(startCommand(configured, LOOP, agent)).toEqual({ start: 'run', command: LOOP.command, from: 'default' });
+        expect(startCommand(configured, LOOP, agent)).toEqual({
+          start: 'unconfigured',
+          repair: "set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop.sh', which /plot-dispatch offers to write",
+        });
       }
     });
   });
@@ -35,6 +38,7 @@ describe('startCommand', () => {
 
   describe('commands that run the loop', () => {
     it.each([
+      ['the bare value /plot-init writes', 'PLOT_UNATTENDED=1 plot-worker-loop.sh'],
       ['the repo-relative form', 'PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh'],
       ['the bare name', 'plot-worker-loop.sh'],
       ['a plugin path', 'PLOT_UNATTENDED=1 /Users/x/.claude/plugins/cache/plot/2.22.0/skills/plot/scripts/plot-worker-loop.sh'],
@@ -42,7 +46,7 @@ describe('startCommand', () => {
       ['a path followed by a separator', '/a/plot-worker-loop.sh; echo done'],
       ['a subshell', '(skills/plot/scripts/plot-worker-loop.sh)'],
     ])('runs %s as configured for a free agent', (_label, configured) => {
-      expect(startCommand(configured, LOOP, 'free')).toEqual({ start: 'run', command: configured, from: 'configured' });
+      expect(startCommand(configured, LOOP, 'free')).toEqual({ start: 'run', command: configured });
     });
   });
 
@@ -55,17 +59,16 @@ describe('startCommand', () => {
 
   describe('a command that is not the loop', () => {
     it('runs as configured for an agent given a branch', () => {
-      expect(startCommand(PLAIN, LOOP, 'assigned')).toEqual({ start: 'run', command: PLAIN, from: 'configured' });
+      expect(startCommand(PLAIN, LOOP, 'assigned')).toEqual({ start: 'run', command: PLAIN });
     });
 
-    it('refuses the measured plain harness call for a free agent, deletion first in the repair', () => {
+    it('refuses the measured plain harness call for a free agent, the bare value first in the repair', () => {
       const answer = startCommand(PLAIN, LOOP, 'free');
       expect(answer.start).toBe('refused');
       if (answer.start !== 'refused') return;
       expect(answer.why).toContain('does not run plot-worker-loop.sh');
       expect(answer.why).toContain('empty PLOT_BRANCH');
-      expect(answer.repair.startsWith("delete the 'Worker command' key to use the default loop")).toBe(true);
-      expect(answer.repair).toContain(LOOP.command);
+      expect(answer.repair.startsWith("set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop.sh'")).toBe(true);
       expect(answer.repair).toContain('.plot/worker-prompt.sh');
       expect(answer.repair).toContain('plot-install-prompt.sh');
     });

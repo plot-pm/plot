@@ -2271,40 +2271,39 @@ test('dispatch: the script asks no interactive question', () => {
     'plot-dispatch.sh must not prompt — the skill asks');
 });
 
-test('plot-dispatch skill: asks at the first dispatch, and suggests nothing', () => {
+test('plot-dispatch skill: offers the worker loop at the first dispatch, and no harness', () => {
   const skill = fs.readFileSync(path.join(here, '..', '..', 'skills',
     'plot-dispatch', 'SKILL.md'), 'utf8');
 
-  // It asks, and it asks HERE.
-  assert.match(skill, /How does this project run an agent headless\?/,
-    'the skill must carry the question');
-  assert.match(skill, /Never ask this at `\/plot-init`/,
-    'the skill must say where the question does NOT belong');
+  // It asks, and it offers Plot's own loop.
+  const question = "Start agents with Plot's worker loop?";
+  assert.ok(skill.includes(question), 'the skill must carry the question');
+  assert.match(skill, /\| yes \| `- \*\*Worker command:\*\* PLOT_UNATTENDED=1 plot-worker-loop\.sh` \|/,
+    'a yes writes the bare loop value');
 
-  // It asks rather than suggests. An example becomes a template, and then Plot
-  // has hardcoded agent tooling it is not supposed to know (Principle 5). The
-  // prompt block is checked rather than the whole file: the Configuration
+  // It never offers a harness command. An example becomes a template, and then
+  // Plot has hardcoded agent tooling it is not supposed to know (Principle 5).
+  // The prompt block is checked rather than the whole file: the Configuration
   // section legitimately documents the format for someone who came looking.
-  const prompt = skill.slice(
-    skill.indexOf('How does this project run an agent headless?') - 400,
-    skill.indexOf('How does this project run an agent headless?') + 200);
+  const at = skill.indexOf(question);
+  const prompt = skill.slice(at - 400, at + 200);
   assert.doesNotMatch(prompt, /claude |codex |aider |cursor |-p "/i,
-    `no example command may appear in the prompt:\n${prompt}`);
+    `no harness command may appear in the prompt:\n${prompt}`);
 
-  // Empty is first-class, and recorded so it is not re-asked.
-  assert.match(skill, /\*\*Worker command:\*\* none/,
-    'an empty answer must be recorded as `none`');
+  // A no is first-class, and recorded so it is not re-asked.
+  assert.match(skill, /\| no \| `- \*\*Worker command:\*\* none` \|/,
+    'a no must be recorded as `none`');
 });
 
-test('plot-init: never raises the worker question', () => {
-  // At adoption the question meets a need the answerer does not have. It gets a
-  // shrug, the key is written empty, and nobody revisits it — an
-  // answered-and-wrong config is harder to fix than a missing one, because
-  // nothing later notices it was never really decided.
+test('plot-init: writes the worker loop and names no harness', () => {
+  // `composeAdoption` writes the key (#1124); the skill says so, and the value
+  // names Plot's own script rather than any agent tooling.
   const init = fs.readFileSync(path.join(here, '..', '..', 'skills',
     'plot-init', 'SKILL.md'), 'utf8');
-  assert.doesNotMatch(init, /Worker command/,
-    'adoption must not ask how this project runs an agent headless');
+  assert.match(init, /`Worker command` is written with it: `PLOT_UNATTENDED=1 plot-worker-loop\.sh`/,
+    'adoption must say it writes the worker loop');
+  assert.doesNotMatch(init, /Worker command[^\n]*(claude|codex|aider|cursor) /i,
+    'adoption must not name a harness for the key');
 });
 
 // --- The phase gate reads what was SHARED, not the working tree -------------
@@ -3593,15 +3592,31 @@ test('dispatch: --start --dry-run names the desks and creates none', () => {
   }
 });
 
-test('dispatch: with no Worker command --start starts the loop', () => {
-  // AN ABSENT KEY MEANS THE LOOP (#1124). The loop is this install's own
-  // `plot-worker-loop.sh`, so the run uses a copy of the scripts directory whose
-  // loop is a stub that records how it was started, and nothing real waits.
+test('dispatch: with no Worker command --start says so and starts nothing', () => {
+  // `worker=unconfigured` is what the performer reads to answer `unaskable` —
+  // asked, and this repo has no answer — rather than reporting a failure it
+  // should retry every sixty seconds. The line names the value to set.
   const { root, checkout } = repoForStart('nocommand', '');
-  const { root: install, scripts } = pluginInstall('defaultloop');
+  try {
+    const out = runDetached(['--start', '1'], checkout);
+    assert.match(out, /worker=unconfigured/, out);
+    assert.match(out, /summary: agents=0 /, out);
+    assert.match(out, /set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop\.sh', which \/plot-dispatch offers to write/, out);
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: the bare value /plot-init writes starts the loop beside the script', () => {
+  // `PLOT_UNATTENDED=1 plot-worker-loop.sh` names no path: the launch puts the
+  // script's own directory first on PATH. The run uses a copy of the scripts
+  // directory whose loop is a stub that records how it was started, so the
+  // name can only resolve to that copy.
+  const { root, checkout } = repoForStart('bareloop', 'PLOT_UNATTENDED=1 plot-worker-loop.sh', { asLoop: false });
+  const { root: install, scripts } = pluginInstall('bareloop');
   try {
     fs.writeFileSync(path.join(scripts, 'plot-worker-loop.sh'),
-      '#!/usr/bin/env bash\nprintf \'%s|%s\\n\' "${PLOT_BRANCH-unset}" "${PLOT_UNATTENDED-unset}" > "$PLOT_WORKTREE/.stub-loop-ran"\n');
+      '#!/usr/bin/env bash\nprintf \'%s|%s|%s\\n\' "${PLOT_BRANCH-unset}" "${PLOT_UNATTENDED-unset}" "$0" > "$PLOT_WORKTREE/.stub-loop-ran"\n');
     fs.chmodSync(path.join(scripts, 'plot-worker-loop.sh'), 0o755);
     const log = path.join(root, 'start.out');
     const childEnv = { ...process.env };
@@ -3609,13 +3624,16 @@ test('dispatch: with no Worker command --start starts the loop', () => {
     spawnSync('bash', [path.join(scripts, 'plot-dispatch.sh'), '--start', '1'],
       { cwd: checkout, env: childEnv, stdio: ['ignore', fs.openSync(log, 'w'), fs.openSync(log, 'a')] });
     const out = fs.readFileSync(log, 'utf8');
-    assert.match(out, /summary: agents=1 .*worker=default/, out);
+    assert.match(out, /summary: agents=1 .*worker=configured/, out);
     const desks = fs.readdirSync(path.join(checkout, '.worktrees'));
     assert.equal(desks.length, 1, out);
     const marker = path.join(checkout, '.worktrees', desks[0], '.stub-loop-ran');
     for (let i = 0; i < 200 && !fs.existsSync(marker); i += 1) spawnSync('sleep', ['0.05']);
-    assert.equal(fs.readFileSync(marker, 'utf8'), '|1\n',
-      'the stub loop ran with an empty PLOT_BRANCH and PLOT_UNATTENDED=1');
+    const [branch, unattended, loop] = fs.readFileSync(marker, 'utf8').trim().split('|');
+    assert.equal(branch, '', 'a free agent starts with an empty PLOT_BRANCH');
+    assert.equal(unattended, '1');
+    assert.equal(fs.realpathSync(loop), fs.realpathSync(path.join(scripts, 'plot-worker-loop.sh')),
+      'the bare name resolved to the loop beside the script');
   } finally {
     removeSandbox(root);
     fs.rmSync(install, { recursive: true, force: true });
@@ -3648,8 +3666,7 @@ test('dispatch: --start refuses a Worker command that does not run the loop', ()
     assert.match(res.stdout, /summary: agents=0 .*worker=no-loop/, res.stdout);
     assert.match(res.stderr, /does not run plot-worker-loop\.sh/, res.stderr);
     assert.ok(res.stderr.includes(`configured: ${command}`), res.stderr);
-    assert.match(res.stderr, /Repair: delete the 'Worker command' key to use the default loop; or set it to/, res.stderr);
-    assert.ok(res.stderr.includes(`PLOT_UNATTENDED=1 '${path.dirname(dispatch)}/plot-worker-loop.sh'`), res.stderr);
+    assert.match(res.stderr, /Repair: set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop\.sh', and move the harness call into \.plot\/worker-prompt\.sh/, res.stderr);
     assert.match(res.stderr, /\.plot\/worker-prompt\.sh/, res.stderr);
     assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
     assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');

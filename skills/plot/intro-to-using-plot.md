@@ -146,15 +146,15 @@ If your branches are independent enough to hand to agents:
 
 creates one git worktree per eligible branch — as siblings of your repo, `../plot-wt-<name>` — claims each one, and starts a worker in it. It shows you a dry run and asks how many to start first; starting four agents means four pull requests someone has to review.
 
-Starting workers needs one line of config, because Plot does not assume which agent you use:
+Starting workers needs one line of config. `/plot-init` writes it, and `/plot-dispatch` offers it where it is missing:
 
 ```markdown
-- **Worker command:** claude -p "Implement the branch in $PLOT_BRANCH per the plan. Open a PR. Do not merge." --session-id "$PLOT_SESSION_ID"
+- **Worker command:** PLOT_UNATTENDED=1 plot-worker-loop.sh
 ```
 
-Without it, `/plot-dispatch` still prepares and claims the worktrees and you start them yourself — which is a perfectly good way to work.
+The loop is Plot's own script, and it runs your `.plot/worker-prompt.sh` once per slice. That file holds the call to your agent, because Plot does not assume which agent you use; `/plot-init` writes it from a template. Without the key, `/plot-dispatch` still prepares and claims the worktrees and you start them yourself — which is a perfectly good way to work.
 
-This one-shot form serves a fan-out, where each worker is given a branch. Free agents — `/plot-dispatch --start` and `/plot-fleet --start` — hold no branch until the registry hands them one, so they need `plot-worker-loop.sh`. Leave the `Worker command` key out and the loop starts, running `.plot/worker-prompt.sh` or, where the repo has none, the template Plot ships. `--start` refuses any other configured command and names that repair.
+A worker given a branch runs any command. Free agents — `/plot-dispatch --start` and `/plot-fleet --start` — hold no branch until the registry hands them one, so they need the loop, and `--start` refuses any other command and names the loop as the repair.
 
 `--session-id` passes on the id dispatch minted, so the runtime writes its transcript under the id the manifest records. That is what lets the board show an agent's transcript and lets a correction resume the same conversation. Leave it out and the worker still runs; only the attribution is lost.
 

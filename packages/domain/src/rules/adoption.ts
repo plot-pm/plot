@@ -223,6 +223,16 @@ export interface AdoptionInput {
  */
 export const DEFAULT_WORKTREE_ROOT = '.worktrees';
 
+/**
+ * The `Worker command` adoption writes: the worker loop, by its bare name.
+ *
+ * A plugin path carries a version and an absolute path carries a machine, so
+ * the value names neither. `plot-dispatch.sh` puts its own directory first on
+ * `PATH` when it launches the command, so the name resolves to the loop
+ * shipped beside it.
+ */
+export const ADOPTED_WORKER_COMMAND = 'PLOT_UNATTENDED=1 plot-worker-loop.sh';
+
 /** The keys every adopted repository gets, whatever the probe read. */
 const STRUCTURAL_KEYS: readonly ConfigKey[] = [
   { key: 'Branch prefixes', value: 'idea/, feature/, bug/, docs/, infra/', evidence: '' },
@@ -511,6 +521,7 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
   // list is byte-identical to what it was.
   if (mainBranch.key !== null) keys.push(mainBranch.key);
   keys.push({ key: 'Worktree root', value: root, evidence: '' });
+  keys.push({ key: 'Worker command', value: ADOPTED_WORKER_COMMAND, evidence: '' });
 
   const commit = input.proposal.commitStyle;
   if (commit.style !== null) {

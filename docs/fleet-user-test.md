@@ -77,9 +77,10 @@ python3 --version    # fleet-scan and merge-queue parse JSON with it
 > finding worth recording — note what you had to change.
 >
 > This one-shot form serves `/plot-dispatch <slug>`, which gives each worker a
-> branch. Free agents (`--start`, `/plot-fleet --start`) need
-> `plot-worker-loop.sh`, which an absent `Worker command` key starts; `--start`
-> refuses any other configured command.
+> branch. Free agents (`--start`, `/plot-fleet --start`) need the worker loop,
+> `PLOT_UNATTENDED=1 plot-worker-loop.sh`, which `/plot-init` writes and
+> `/plot-dispatch` offers where the key is absent; `--start` refuses any other
+> command.
 
 ---
 

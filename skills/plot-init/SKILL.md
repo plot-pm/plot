@@ -104,7 +104,7 @@ the user corrects rather than composes:
 > `idea/ feature/ bug/ docs/ infra/`, Definition of Done = those three gates,
 > tracker `jira` (from `QUACDS` in 38 of 80 subjects), CI `jenkins` (from the
 > `Jenkinsfile`), git host `github`, worktree root `.worktrees` (with the
-> matching `.gitignore` line).
+> matching `.gitignore` line), worker command `PLOT_UNATTENDED=1 plot-worker-loop.sh`.
 
 Then ask only what the probe **could not** answer:
 
@@ -534,6 +534,14 @@ agent, and until 2026-09-05 Plot shipped no template for it at all — every
 adopting project wrote it from a comment inside the loop, and this repo's own
 copy hardcoded `--session-id` until three agents failed their second slices
 simultaneously.
+
+**The `Worker command` is written with it: `PLOT_UNATTENDED=1 plot-worker-loop.sh`.**
+`composeAdoption` writes the key, and the pair is what lets `/plot-dispatch
+--start` start agents on a fresh adoption: the loop runs this prompt file once
+per slice. The value is the loop's bare name, because a plugin path carries a
+version and an absolute path carries a machine; `plot-dispatch.sh` puts its own
+directory first on `PATH` when it launches the command. The harness call stays
+in the prompt file, and Plot names no harness in the key.
 
 **Say what landed, and that the wording is theirs.** The template's
 instructions are short on purpose: only the session handling is Plot's, and

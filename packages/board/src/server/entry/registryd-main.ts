@@ -883,13 +883,14 @@ export const startAgents = async (
     const answer = await performer.startFreeAgent(item.worktree);
     if (!answer.ok) {
       // `unaskable` IS A FIRST-CLASS ANSWER AND NOT A FAILURE. It means the
-      // repository's `Worker command` is `none` — asked, and answered *we start
-      // them by hand* — or a command that does not run `plot-worker-loop.sh`,
-      // which a free agent needs to wait (#1124). The line says what to
-      // configure rather than reading as an error to chase every sixty seconds.
+      // repository has no `Worker command`, or `none` — asked, and answered
+      // *we start them by hand* — or a command that does not run
+      // `plot-worker-loop.sh`, which a free agent needs to wait (#1124). The
+      // line says what to configure rather than reading as an error to chase
+      // every sixty seconds.
       warn(
         answer.why === 'unaskable'
-          ? 'plot-registryd: nothing starts free agents in this repository — delete the `Worker command` key to use the worker loop, or set it to run the loop; `/plot-fleet --start 1` names what is configured now\n'
+          ? 'plot-registryd: nothing starts free agents in this repository — set `Worker command` in Plot Config to `PLOT_UNATTENDED=1 plot-worker-loop.sh`; `/plot-fleet --start 1` names what is configured now\n'
           : 'plot-registryd: an agent could not be started; the next tick re-derives the queue and tries again\n',
       );
       continue;

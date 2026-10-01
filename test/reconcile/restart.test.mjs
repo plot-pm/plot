@@ -452,39 +452,15 @@ test('--restart refuses a branch with no worktree, naming the branch', () => {
 });
 
 // ---------------------------------------------------------------------------
-// An absent `Worker command` starts the loop on the branch (#1124)
+// An absent `Worker command` names the value to set (#1124)
 // ---------------------------------------------------------------------------
 
-test('--restart with no Worker command starts the loop on the branch', () => {
-  // `--restart` used to print "no 'Worker command' configured" and exit 1. An
-  // absent key now means this install's loop. The run uses a copy of the
-  // scripts directory whose loop is a stub, so nothing real starts.
-  const { tmp, repo } = makeRepo({ workerCommand: '' });
+test('--restart with no Worker command starts nothing and names the value to set', () => {
+  const { repo } = makeRepo({ workerCommand: '' });
   const wt = claimedWorktree(repo);
-  const install = path.join(tmp, 'install', 'skills', 'plot', 'scripts');
-  fs.mkdirSync(path.dirname(install), { recursive: true });
-  fs.cpSync(scripts, install, { recursive: true });
-  fs.writeFileSync(path.join(install, 'plot-worker-loop.sh'),
-    '#!/usr/bin/env bash\nprintf \'%s\\n\' "$PLOT_BRANCH" > "$PLOT_WORKTREE/.stub-loop-ran"\n');
-  fs.chmodSync(path.join(install, 'plot-worker-loop.sh'), 0o755);
-
-  const env = { ...process.env, PATH: `${ghShim()}:${process.env.PATH}` };
-  delete env.PLOT_REPO_ROOT;
-  const out = path.join(tmp, 'restart.out');
-  const fd = fs.openSync(out, 'w');
-  let status = 0;
-  try {
-    execFileSync('bash', [path.join(install, 'plot-dispatch.sh'), '--restart', 'feature/stopped'],
-      { cwd: repo, env, stdio: ['ignore', fd, fd] });
-  } catch (e) {
-    status = e.status ?? 1;
-  } finally {
-    fs.closeSync(fd);
-  }
-  const text = fs.readFileSync(out, 'utf8');
-  assert.equal(status, 0, text);
-  assert.doesNotMatch(text, /no 'Worker command' configured/, text);
-  const marker = path.join(wt, '.stub-loop-ran');
-  for (let i = 0; i < 200 && !fs.existsSync(marker); i += 1) execFileSync('sleep', ['0.05']);
-  assert.equal(fs.readFileSync(marker, 'utf8'), 'feature/stopped\n', text);
+  const res = run(repo, ['--restart', 'feature/stopped'], { gh: ghShim(), expectFail: true });
+  assert.match(res.stdout, /no 'Worker command' is configured, so nothing started/, res.stdout);
+  assert.match(res.stdout, /set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop\.sh', which \/plot-dispatch offers to write/,
+    res.stdout);
+  assert.equal(fs.existsSync(path.join(wt, '.plot-worker.pid')), false, 'no worker was launched');
 });

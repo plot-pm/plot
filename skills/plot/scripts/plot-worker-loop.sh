@@ -1102,15 +1102,8 @@ resolve_prompt_file() { # $1 = repo root, $2 = agent name ('' when none)
   prompt_verb=""
   prompt_why=""
 
-  # THE SHIPPED TEMPLATE STANDS IN FOR A MISSING REPO PROMPT. Its path is this
-  # installation's reading; the rule answers `shipped` with it when the repo
-  # holds no `.plot/worker-prompt.sh`. An install without the template passes
-  # nothing, and the answer is `fallback` as before.
-  local shipped="$script_dir/../templates/worker-prompt.sh"
-  local shipped_args=()
-  [ -f "$shipped" ] && shipped_args=(--shipped "$shipped")
   if [ -f "$script_dir/board/plot-prompt.mjs" ]; then
-    resolution=$(node "$script_dir/board/plot-prompt.mjs" ${shipped_args[@]+"${shipped_args[@]}"} "$root" "$agent" 2>/dev/null)
+    resolution=$(node "$script_dir/board/plot-prompt.mjs" "$root" "$agent" 2>/dev/null)
     status=$?
   else
     echo "plot-worker-loop: no plot-prompt.mjs beside this script — using $root/.plot/worker-prompt.sh without asking which prompt ${agent:-this agent} declared" >&2
@@ -1136,10 +1129,6 @@ resolve_prompt_file() { # $1 = repo root, $2 = agent name ('' when none)
       ;;
     fallback)
       prompt_file="$root/$named"
-      ;;
-    shipped)
-      prompt_file="$named"
-      echo "plot-worker-loop: no .plot/worker-prompt.sh in this repo — running Plot's shipped template $named" >&2
       ;;
     *)
       # An unrecognised verb, or an empty answer from a bundle that could not

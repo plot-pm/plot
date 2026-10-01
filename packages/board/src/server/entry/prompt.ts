@@ -4,8 +4,8 @@
 // `plot-movable.mjs`'s 1.2 KB — the whole domain, on the launch path of every
 // worker, to answer which file to source.
 import { readCharter, charterPath, type CharterReading } from '@plot-pm/domain/entities/charter';
-import { FALLBACK_PROMPT, resolveLaunch, resolvePrompt } from '@plot-pm/domain/rules/prompt';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { resolveLaunch, resolvePrompt } from '@plot-pm/domain/rules/prompt';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /**
@@ -68,26 +68,17 @@ export const read = (repoRoot: string, name: string): CharterReading => {
 /**
  * Decide which prompt this agent runs.
  *
- * With `shipped`, the repo's own prompt file is checked, and a repo without
- * one answers `shipped` with that path. Without it the answer is what it was
- * before the template could stand in.
- *
  * @param repoRoot - the repo root.
  * @param name - the agent name, or `''`.
- * @param shipped - the installation's template path, or `''`.
  * @returns `<resolution>\t<prompt>\t<detail>`; the prompt is empty on a refusal.
  */
-export const answer = (repoRoot: string, name: string, shipped = ''): string => {
-  const repoPrompt =
-    shipped === '' ? undefined : { exists: existsSync(`${repoRoot}/${FALLBACK_PROMPT}`), shipped };
-  const resolution = resolvePrompt(read(repoRoot, name), repoPrompt);
+export const answer = (repoRoot: string, name: string): string => {
+  const resolution = resolvePrompt(read(repoRoot, name));
   switch (resolution.resolve) {
     case 'declared':
       return `declared\t${resolution.prompt}\t${resolution.charter}\n`;
     case 'fallback':
       return `fallback\t${resolution.prompt}\t${resolution.why}\n`;
-    case 'shipped':
-      return `shipped\t${resolution.prompt}\t${resolution.why}\n`;
     case 'refused':
       return `refused\t\t${resolution.why}\n`;
   }
@@ -181,16 +172,12 @@ export const run = (
   argv: readonly string[],
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): number => {
-  // `--shipped <path>` names the installation's template for the prompt
-  // question; it comes first so the positional contract after it is unchanged.
-  const shipped = argv[0] === '--shipped' ? (argv[1] ?? '') : '';
-  const rest = argv[0] === '--shipped' ? argv.slice(2) : argv;
-  const wantsLaunch = rest[0] === '--launch';
-  const asked = rest[0] === '--capabilities';
-  const [repoRoot, name = ''] = wantsLaunch || asked ? rest.slice(1) : rest;
-  if (repoRoot === undefined || repoRoot === '' || (argv[0] === '--shipped' && shipped === '')) {
+  const wantsLaunch = argv[0] === '--launch';
+  const asked = argv[0] === '--capabilities';
+  const [repoRoot, name = ''] = wantsLaunch || asked ? argv.slice(1) : argv;
+  if (repoRoot === undefined || repoRoot === '') {
     process.stderr.write(
-      'plot-prompt: usage: plot-prompt.mjs [--shipped <template>] [--launch|--capabilities] <repo-root> [agent-name]\n',
+      'plot-prompt: usage: plot-prompt.mjs [--launch|--capabilities] <repo-root> [agent-name]\n',
     );
     return 2;
   }
@@ -203,7 +190,7 @@ export const run = (
     else write(text);
     return refused ? 3 : 0;
   }
-  const line = wantsLaunch ? launch(repoRoot, name) : answer(repoRoot, name, shipped);
+  const line = wantsLaunch ? launch(repoRoot, name) : answer(repoRoot, name);
   write(line);
   // A DISTINCT CODE FOR THE REFUSAL. The caller must not launch on it, and a
   // shell reading only `$?` would otherwise treat an unbelievable charter as a

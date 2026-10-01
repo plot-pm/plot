@@ -10,11 +10,11 @@ import { pathToFileURL } from 'node:url';
  *
  * ```
  * printf '%s' "$cmd" | plot-start-command.mjs <free|assigned> <loop-name> <loop-command>
- * run	default	PLOT_UNATTENDED=1 '…/plot-worker-loop.sh'   # exit 0
- * run	configured	<the configured command>                  # exit 0
- * declined                                                   # exit 0
- * <why>                                                      # exit 3, two lines:
- * <repair>                                                   #   the defect, the repair
+ * run	<the configured command>       # exit 0
+ * unconfigured	<repair>               # exit 0 — the key is absent or empty
+ * declined                            # exit 0 — the key is `none`
+ * <why>                               # exit 3, two lines:
+ * <repair>                            #   the defect, the repair
  * # exit 2 — an argument is missing or the agent is neither `free` nor `assigned`
  * ```
  *
@@ -28,7 +28,7 @@ import { pathToFileURL } from 'node:url';
 
 /** The exit codes the caller reads. */
 export const EXIT = {
-  /** The answer is `run` or `declined`. */
+  /** The answer is `run`, `unconfigured` or `declined`. */
   ok: 0,
   /** The caller's arguments are incomplete. */
   usage: 2,
@@ -54,7 +54,10 @@ export const run = (
   const answer = startCommand(stdin, { name, command }, agent);
   switch (answer.start) {
     case 'run':
-      write(`run\t${answer.from}\t${answer.command}\n`);
+      write(`run\t${answer.command}\n`);
+      return EXIT.ok;
+    case 'unconfigured':
+      write(`unconfigured\t${answer.repair}\n`);
       return EXIT.ok;
     case 'declined':
       write('declined\n');
