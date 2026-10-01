@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,11 +25,19 @@ const trackTemp = <T extends string>(dir: T): T => {
   return dir;
 };
 const trackedTempPaths: string[] = [];
-process.on('exit', () => {
+afterAll(() => {
   for (const dir of trackedTempPaths) {
     try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
   }
 });
+
+// Nested one level down: the board writes a repo's agent logs into its parent.
+const nestedRepo = (): string => {
+  const parent = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
+  const dir = path.join(parent, 'repo');
+  fs.mkdirSync(dir);
+  return dir;
+};
 
 
 // THE ENTRY CONDITION IS THE PERMISSION, so these tests are mostly refusals.
@@ -177,7 +185,7 @@ describe('startRepair — what is started, and what is refused', () => {
   beforeEach(() => {
     resetRepairs();
     started = [];
-    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
+    repoRoot = nestedRepo();
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -223,7 +231,7 @@ describe('every repair is reported — running, pushed and abandoned alike', () 
   beforeEach(() => {
     resetRepairs();
     exit = null;
-    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
+    repoRoot = nestedRepo();
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -318,7 +326,7 @@ describe('a not-observed refusal does not repeat on unchanged input', () => {
     resetRepairs();
     started = [];
     exit = null;
-    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
+    repoRoot = nestedRepo();
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -425,7 +433,7 @@ describe('PLOT_BOARD_REPAIR — the repair is refusable, and only ever downward'
   beforeEach(() => {
     resetRepairs();
     started = [];
-    repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
+    repoRoot = nestedRepo();
     opts = {
       repoRoot,
       scriptsDir: '/scripts',
@@ -550,7 +558,7 @@ describe('repairEnabledFromEnv — unset is on, and only "0" is off', () => {
   // existed — still repairs.
   it('an options object with no repairEnabled still repairs', () => {
     resetRepairs();
-    const repoRoot = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-')));
+    const repoRoot = nestedRepo();
     const started: string[] = [];
     const bare = { repoRoot, scriptsDir: '/scripts', spawnRepair: ({ branch }: { branch: string }) => { started.push(branch); } };
     expect('repairEnabled' in bare).toBe(false);

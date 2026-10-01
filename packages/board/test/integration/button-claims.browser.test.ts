@@ -24,7 +24,7 @@ const trackTemp = <T extends string>(dir: T): T => {
   return dir;
 };
 const trackedTempPaths: string[] = [];
-process.on('exit', () => {
+afterAll(() => {
   for (const dir of trackedTempPaths) {
     try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
   }

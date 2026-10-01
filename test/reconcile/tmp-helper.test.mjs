@@ -168,3 +168,34 @@ test('tmp helper: INT mid-run exits 130, runs no later command, removes every pa
   assert.equal(got.after, false, 'a command after the signal ran');
   assert.deepEqual(got.left, []);
 });
+
+// A CLOSED PIPE IS A SIGNAL TOO. A board server stopped with SIGTERM leaves its
+// running scripts with a closed stdout and stderr, and their next write raises
+// SIGPIPE, whose default action skips the EXIT trap. `fd` is the stream the
+// reader closes: 1 for stdout, 2 for stderr.
+const piped = (lines, fd) => new Promise((resolve) => {
+  const dir = sandbox();
+  const tmp = path.join(dir, 'tmp');
+  spawnSync('mkdir', ['-p', tmp]);
+  const file = writeScript(dir, lines);
+  const stdio = ['ignore', 'ignore', 'ignore'];
+  stdio[fd] = 'pipe';
+  const child = spawn('bash', [file], { stdio, env: { ...process.env, TMPDIR: tmp } });
+  child.stdio[fd].destroy();
+  child.on('exit', (code, signal) => {
+    const result = { code, signal, left: readdirSync(tmp) };
+    rmSync(dir, { recursive: true, force: true });
+    resolve(result);
+  });
+});
+
+test('tmp helper: a write to a closed stdout exits 141 and removes every path', async () => {
+  const got = await piped(['plot_tmpdir d pipe', 'plot_tmpfile f pipe', 'while :; do echo x; done'], 1);
+  assert.ok(got.signal === 'SIGPIPE' || got.code === 141, `status: ${JSON.stringify(got)}`);
+  assert.deepEqual(got.left, []);
+});
+
+test('tmp helper: a cleanup command writing to a closed stderr still removes the registry', async () => {
+  const got = await piped(['plot_tmpfile f pipe', 'plot_on_exit "echo bye >&2"', 'sleep 0.3'], 2);
+  assert.deepEqual(got.left, []);
+});

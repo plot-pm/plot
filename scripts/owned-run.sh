@@ -157,10 +157,14 @@ on_signal() {
 # once, whatever its type, and does not descend into it.
 #
 # The three named subdirectories are the wrapper's own and are excluded by exact
-# name. Everything else in the root was created by the run.
+# name. So is `node-compile-cache`: vite, vitest and typescript call
+# `module.enableCompileCache()`, whose default directory is
+# `$TMPDIR/node-compile-cache`. It is the toolchain's cache, not an entry a test
+# made, and it is removed with the root. Everything else in the root was created
+# by the run.
 leak_listing() {
   find "$root" -mindepth 1 -maxdepth 1 \
-    ! -name home ! -name budget ! -name pr-index 2>/dev/null
+    ! -name home ! -name budget ! -name pr-index ! -name node-compile-cache 2>/dev/null
 }
 
 # Prints the leak listing and the tail of any worker log, for a person reading a

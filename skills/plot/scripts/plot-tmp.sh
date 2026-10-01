@@ -1,5 +1,5 @@
 # plot-tmp.sh — every temp path a Plot script creates, and the process's only
-# EXIT/INT/TERM traps. SOURCED, not run.
+# EXIT/INT/TERM/PIPE traps. SOURCED, not run.
 #
 #   . "$SCRIPT_DIR/plot-tmp.sh"
 #   plot_tmpdir  work  fleet-ref     # $work  = $TMPDIR/plot-fleet-ref.XXXXXX (a directory)
@@ -27,8 +27,11 @@
 # first call would be installed inside that call's substitution and remove the
 # path when the substitution closed. `PLOT_TMP_LOADED` makes a second source in
 # the same process a no-op, because a re-run setup would truncate the live
-# registry. INT and TERM run the cleanup, clear their own trap and re-raise, so
-# the script stops with 130 or 143 rather than running on to exit 0.
+# registry. INT, TERM and PIPE run the cleanup, clear their own trap and
+# re-raise, so the script stops with 130, 143 or 141 rather than running on to
+# exit 0. PIPE is among them because a board server stopped with SIGTERM leaves
+# its running scripts writing to closed pipes, and SIGPIPE's default action
+# skips the EXIT trap.
 #
 # A script that sources this must not install its own EXIT, INT or TERM trap:
 # the last `trap` wins, and that replacement is the defect this file fixes
@@ -75,9 +78,13 @@ plot_on_exit() {
 # Runs every registered command and removes every registered path, in
 # registration order, then removes the registry. Runs once: the registry is
 # gone afterwards, so a second call finds nothing.
+#
+# PIPE is ignored for the cleanup: the process is ending, and a registered
+# command that writes to a closed stdout or stderr must not stop the removals.
 _plot_tmp_cleanup() {
   local __plot_tmp_line
   [ -f "$PLOT_TMP_REGISTRY" ] || return 0
+  trap '' PIPE
   while IFS= read -r __plot_tmp_line; do
     case $__plot_tmp_line in
       c:*) eval "${__plot_tmp_line#c:}" ;;
@@ -106,3 +113,4 @@ _plot_tmp_on_signal() {
 trap _plot_tmp_on_exit EXIT
 trap '_plot_tmp_on_signal INT 2' INT
 trap '_plot_tmp_on_signal TERM 15' TERM
+trap '_plot_tmp_on_signal PIPE 13' PIPE

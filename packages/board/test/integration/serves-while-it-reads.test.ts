@@ -81,7 +81,7 @@ const APPROVED_PLAN = `# A plan added after the first read
 `;
 
 describe('the board serves while it reads', () => {
-  let server: { port: number; kill: () => void };
+  let server: { port: number; kill: () => void; stop: () => Promise<void> };
 
   beforeAll(async () => {
     server = await startServer(FIXTURE);
@@ -110,7 +110,7 @@ describe('the board serves while it reads', () => {
 
   afterAll(async () => {
     await Promise.all(started);
-    server?.kill();
+    await server?.stop();
   });
 
   it('answers `/` in a few milliseconds while both read routes are in flight', async () => {
@@ -186,7 +186,7 @@ describe('the board serves while it reads', () => {
  */
 describe('a plan added since the last request still appears', () => {
   let repo: string;
-  let server: { port: number; kill: () => void };
+  let server: { port: number; kill: () => void; stop: () => Promise<void> };
 
   beforeAll(async () => {
     repo = makeRepo({ plans: [] });
@@ -194,8 +194,8 @@ describe('a plan added since the last request still appears', () => {
     server = await startServer(repo);
   }, 30_000);
 
-  afterAll(() => {
-    server?.kill();
+  afterAll(async () => {
+    await server?.stop();
     if (repo) rmTree(repo);
   });
 

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
-import { expandAgentFolds } from '../helpers.mjs';
+import { expandAgentFolds, boxedDir } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import type { Fleet } from '../../src/contract/schema.js';
 
@@ -24,7 +24,7 @@ const trackTemp = <T extends string>(dir: T): T => {
   return dir;
 };
 const trackedTempPaths: string[] = [];
-process.on('exit', () => {
+afterAll(() => {
   for (const dir of trackedTempPaths) {
     try { rmTree(dir); } catch { /* a sandbox already gone is the wanted state */ }
   }
@@ -68,7 +68,7 @@ const DRAFT_WITH_PR = 'Plant heirloom tomatoes';
  * the plot checkout reads plot's own `CLAUDE.md` instead of the garden's.
  */
 function detachedGarden(): string {
-  const dir = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-spin-')));
+  const dir = trackTemp(boxedDir('plot-garden-spin-'));
   fs.cpSync(FIXTURE, dir, { recursive: true });
   return dir;
 }

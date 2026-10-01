@@ -105,6 +105,15 @@ test('writes under HOME and the budget home are not reported as leaks', (t) => {
   assert.equal(res.status, 0, res.stderr);
 });
 
+// NODE'S COMPILE CACHE IS THE TOOLCHAIN'S. vite, vitest and typescript enable
+// it, and its default directory is `$TMPDIR/node-compile-cache`.
+test('the node compile cache is not reported as a leak', (t) => {
+  const tmp = privateTmp(t);
+  const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/node-compile-cache/v24"; exit 0']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(readdirSync(tmp), [], 'the root is removed, the cache with it');
+});
+
 // THERE IS NO CEILING. One entry fails the run whatever the caller's
 // environment says, so an old `PLOT_LEAK_CEILING` cannot switch the gate off.
 test('one entry fails the run even with PLOT_LEAK_CEILING set', (t) => {

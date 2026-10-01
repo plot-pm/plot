@@ -285,7 +285,13 @@ describe('no orphan survives a killed test run', () => {
       // can ever fire; this removes the one path it named, through `rmTree`
       // because a raw recursive `fs.rmSync` here fails CI's *A teardown does not
       // race a child* step, which allows exactly one and it is `rmTree`'s body.
-      if (runnerRepo) rmTree(runnerRepo);
+      // The runner's `makeRepo` put the repo in a box of its own, and this
+      // process cannot look that box up, so it removes the parent by name —
+      // only when the parent carries the repo's basename, as `boxedDir` makes it.
+      if (runnerRepo) {
+        const box = path.dirname(runnerRepo);
+        rmTree(path.basename(box) === path.basename(runnerRepo) ? box : runnerRepo);
+      }
     }
 
     // Kill the runner outright — no `after()`, no teardown, nothing runs. A

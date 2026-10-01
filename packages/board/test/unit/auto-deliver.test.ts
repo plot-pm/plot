@@ -69,9 +69,12 @@ function fixtureWithMarker(
   opts: { repoRoot: string; scriptsDir: string };
   runs: () => string[];
 } {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-autodel-repo-'));
+  // Nested one level down: the board writes a repo's agent logs into its parent.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-autodel-repo-'));
+  const repoRoot = path.join(parent, 'repo');
+  fs.mkdirSync(repoRoot);
   const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-autodel-scripts-'));
-  made.push(repoRoot, scriptsDir);
+  made.push(parent, scriptsDir);
 
   const marker = path.join(scriptsDir, 'ran.txt');
   const deliverCommand = buildCommand(marker);

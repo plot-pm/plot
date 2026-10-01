@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, rmTree } from '../helpers.mjs';
+import { startServer, rmTree, boxedDir } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
 // @needs-real-board: the last test asserts that both buttons refuse over a non-localhost binding, which no mock can be
@@ -56,7 +56,7 @@ const DRAFT_WITH_PR = 'Plant heirloom tomatoes';
  * the plot checkout reads plot's own `CLAUDE.md` instead of the garden's.
  */
 function detachedGarden(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-dbl-'));
+  const dir = boxedDir('plot-garden-dbl-');
   fs.cpSync(FIXTURE, dir, { recursive: true });
   return dir;
 }

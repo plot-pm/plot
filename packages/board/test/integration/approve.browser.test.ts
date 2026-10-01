@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, rmTree } from '../helpers.mjs';
+import { startServer, rmTree, boxedDir } from '../helpers.mjs';
 
 // @needs-real-board: the second click's POST leaves the browser and runs the configured `Approve command`, and the card asserts that script's own sentence
 //
@@ -51,7 +51,7 @@ const VIEWPORT = { width: 1280, height: 900 };
  * where whatever else depends on it can be examined.
  */
 function detachedGarden(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-'));
+  const dir = boxedDir('plot-garden-');
   fs.cpSync(FIXTURE, dir, { recursive: true });
   return dir;
 }

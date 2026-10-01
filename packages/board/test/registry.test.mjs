@@ -89,8 +89,9 @@ describe('the fleet payload carries the agent registry', () => {
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir, HOME: home });
   });
 
-  after(() => {
-    server?.kill();
+  // `stop` waits for the exit: the server writes into `home` until it is gone.
+  after(async () => {
+    await server?.stop();
     for (const d of [tmp, stub?.dir, home]) if (d) rmTree(d);
   });
 
@@ -162,7 +163,7 @@ describe('an agent whose process is genuinely alive reaches the wire as running'
       command: 'claude -p "go"', pid: String(process.pid), startedAt: '2026-08-20T08:00:00Z' });
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
   });
-  after(() => { server?.kill(); for (const d of [tmp, stub?.dir, wt]) if (d) rmTree(d); });
+  after(async () => { await server?.stop(); for (const d of [tmp, stub?.dir, wt]) if (d) rmTree(d); });
 
   it('reads `running` for the live agent, carrying its pid', async () => {
     const f = await fleet(server.port);
@@ -181,7 +182,7 @@ describe('a repo where no dispatch has run', () => {
     stub = stubScan({ plans: [], generatedAt: '2026-08-20T08:00:00Z' });
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
   });
-  after(() => { server?.kill(); for (const d of [tmp, stub?.dir]) if (d) rmTree(d); });
+  after(async () => { await server?.stop(); for (const d of [tmp, stub?.dir]) if (d) rmTree(d); });
 
   it('sends an empty list rather than omitting the field', async () => {
     // No `.plot/agents` at all. Unlike `issues`, this needs no companion answer
