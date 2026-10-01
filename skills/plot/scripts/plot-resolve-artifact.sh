@@ -182,21 +182,15 @@ wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/he
   /^worktree /  { path = substr($0, 10) }
   /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
 
-# No existing worktree holds it — compose the path a fresh one will take, by the
-# same root+prefix rule plot-dispatch.sh uses. Under a `Worktree root:` key the
-# root moves and the `plot-wt-` prefix drops; absent it, today's behaviour.
+# No existing worktree holds it — compose the path a fresh one will take, under
+# the desk root `plot-dispatch.sh` also asks for, so the fresh worktree lands
+# where dispatch would have put it. The root is the MAIN checkout's, and there
+# is no fallback: an unaskable rule refuses the repair.
+# shellcheck source=plot-desk-root.sh
+. "$script_dir/plot-desk-root.sh"
 if [ -z "$wt" ]; then
-  wt_root=$("$script_dir/plot-config.sh" get "Worktree root" "")
-  if [ -z "$wt_root" ]; then
-    wt_root=$(cd "$repo_root/.." && pwd)
-    wt="$wt_root/plot-wt-$(printf '%s' "$branch" | tr '/' '-')"
-  else
-    case "$wt_root" in
-      /*) : ;;
-      *)  wt_root="$repo_root/$wt_root" ;;
-    esac
-    wt="${wt_root%/}/$(printf '%s' "$branch" | tr '/' '-')"
-  fi
+  wt_root=$(plot_desk_root "$(plot_repo_root)") || finish refused no-desk-root
+  wt="$wt_root/$(printf '%s' "$branch" | tr '/' '-')"
 fi
 
 if [ "$dry_run" = 1 ]; then
@@ -263,6 +257,7 @@ if [ -d "$wt" ] && git worktree list --porcelain | grep -qx "worktree $wt"; then
     finish refused worktree-busy
   fi
 else
+  plot_exclude_desk_root "$(plot_repo_root)"
   if ! git worktree add -q "$wt" "$branch" 2>/dev/null; then
     if ! git worktree add -q -b "$branch" "$wt" "origin/$branch" 2>/dev/null; then
       echo "plot-resolve-artifact: cannot create a worktree for $branch at $wt" >&2

@@ -181,15 +181,19 @@ fi
 # repository genuinely keeping a pipeline under `test/` would be told it has no
 # CI. The depth bound limits the rest.
 #
-# `.git` and the configured `Worktree root` are pruned for the same reason as
-# `node_modules`: neither holds this repository's own pipeline, and a worktree
-# holds a checkout whose files are already counted once at their real home.
+# `.git` and the desk root are pruned for the same reason as `node_modules`:
+# neither holds this repository's own pipeline, and a worktree holds a checkout
+# whose files are already counted once at their real home. The desk root is
+# `deskRoot`'s answer for the MAIN checkout, pruned by its full path, so a
+# configured value naming a nested or absolute directory is pruned too.
 jenkinsfile=false
 if [ -n "$git_root" ]; then
-  wt_root=$(bash "$here/plot-config.sh" get "Worktree root" ".worktrees" 2>/dev/null || echo ".worktrees")
-  [ -n "$wt_root" ] || wt_root=".worktrees"
+  # shellcheck source=plot-desk-root.sh
+  . "$here/plot-desk-root.sh"
+  wt_root=$(plot_desk_root "$(plot_repo_root)") || {
+    echo "plot-board-probe: cannot resolve the desk root — nothing was probed." >&2; exit 3; }
   found=$(find "$git_root" -maxdepth 5 \
-    \( -name node_modules -o -name .git -o -name "$wt_root" \) -prune -o \
+    \( -name node_modules -o -name .git -o -path "$wt_root" \) -prune -o \
     -name Jenkinsfile -type f -print 2>/dev/null | head -n 1)
   [ -n "$found" ] && jenkinsfile=true
 fi

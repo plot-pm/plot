@@ -77,25 +77,18 @@ done
 # zero. Measured here on the first run: 0 sessions across 0 worktrees, in a
 # checkout sitting beside 40 of them.
 #
-# The parent of `--git-common-dir` is the main checkout from anywhere, because
-# every linked worktree shares that one directory. It is asked FIRST and
-# `--show-toplevel` is the fallback, since the common dir is also correct in a
-# non-worktree checkout: there `.git` is a real directory in the root.
-repo_root=''
-common=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
-  common=$(cd -- "$common" 2>/dev/null && pwd) || common=''
-  [ -n "$common" ] && repo_root=$(dirname -- "$common")
-}
-[ -n "$repo_root" ] || repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$(pwd)
-
-if [ -z "$worktrees" ]; then
-  worktrees=$("$script_dir/plot-config.sh" get "Worktree root" ".worktrees" 2>/dev/null) || worktrees=".worktrees"
+# The parent of `--git-common-dir` is the main checkout from anywhere;
+# `plot_repo_root` asks it. The directory is the desk root, `deskRoot`'s
+# answer: a `--worktrees` value goes through the same rule as the key, and an
+# unaskable rule stops the run rather than guessing a second default.
+# shellcheck source=plot-desk-root.sh
+. "$script_dir/plot-desk-root.sh"
+repo_root=$(plot_repo_root)
+if [ -n "$worktrees" ]; then
+  worktrees=$(plot_desk_root "$repo_root" "$worktrees") || exit 3
+else
+  worktrees=$(plot_desk_root "$repo_root") || exit 3
 fi
-case "$worktrees" in
-  /*) ;;
-  *)  worktrees="$repo_root/$worktrees" ;;
-esac
-worktrees="${worktrees%/}"
 
 # THE MONITOR'S OWN WINDOW, read from the same variable the monitor reads.
 # The report compares every measured stretch against it, because "longer than

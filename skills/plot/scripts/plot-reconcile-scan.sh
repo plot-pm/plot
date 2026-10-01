@@ -2560,25 +2560,13 @@ if ! command -v node >/dev/null 2>&1; then
   echo "  (not evaluated — node not found; the desk verdict is a domain rule)"
 elif [ ! -r "$desk_rule" ]; then
   echo "  (not evaluated — $desk_rule is missing; run 'pnpm build:board')"
+# Where the desks live: the desk root of the MAIN checkout, asked of `deskRoot`
+# through `plot-desk-root.sh`, for the reason `plot-reap.sh` records: `git
+# rev-parse --show-toplevel` answers *this* worktree, so a scan run from inside
+# a desk would resolve `.worktrees` beneath that desk and place none of them.
+elif ! desk_root=$(. "$script_dir/plot-desk-root.sh" && plot_desk_root "$(plot_repo_root)"); then
+  echo "  (not evaluated — the desk root rule could not be asked; see above)"
 else
-  # Where the desks live, resolved from the MAIN checkout for the reason
-  # `plot-reap.sh` records: `git rev-parse --show-toplevel` answers *this*
-  # worktree, so a scan run from inside a desk would resolve `.worktrees`
-  # beneath that desk and place none of them.
-  desk_root=""
-  desk_cfg=$(bash "$script_dir/plot-config.sh" get "Worktree root" "" 2>/dev/null) || desk_cfg=""
-  if [ -n "$desk_cfg" ]; then
-    case "$desk_cfg" in
-      /*) desk_root="$desk_cfg" ;;
-      *)
-        desk_main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") \
-          || desk_main=""
-        [ -d "$desk_main" ] || desk_main=$(git rev-parse --show-toplevel 2>/dev/null)
-        desk_root="$desk_main/$desk_cfg"
-        ;;
-    esac
-    desk_root="${desk_root%/}"
-  fi
 
   # One JSON object per worktree, assembled by `node` rather than by hand:
   # a path may hold a quote or a backslash, and a hand-built string breaks the

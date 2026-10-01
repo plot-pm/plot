@@ -572,22 +572,20 @@ fleet_install_state() {
 # The fleet's worktrees — where --stop and --status learn which agents exist
 # ---------------------------------------------------------------------------
 #
-# THE SAME COMPOSITION `plot-dispatch.sh` USES, because the two must enumerate
-# the same population: a stop that missed a desk would report a fleet stopped
-# while a worker kept writing to it.
-resolve_wt_root() { # sets wt_root, wt_prefix
-  local configured
-  configured=$("$script_dir/plot-config.sh" get "Worktree root" "")
-  if [ -z "$configured" ]; then
-    wt_root=$(cd "$repo_root/.." && pwd)
-    wt_prefix="plot-wt-"
-    return
-  fi
-  case "$configured" in
-    /*) wt_root="$configured" ;;
-    *)  wt_root="$repo_root/$configured" ;;
-  esac
-  wt_root="${wt_root%/}"
+# THE SAME RULE `plot-dispatch.sh` ASKS, because the two must enumerate the
+# same population: a stop that missed a desk would report a fleet stopped while
+# a worker kept writing to it. Both ask `deskRoot` through `plot-desk-root.sh`,
+# for the MAIN checkout, and neither keeps a fallback default. The prefix is
+# empty. A `plot-wt-*` desk an older dispatch made beside the repo is not under
+# the desk root, so `--status` and `--stop` do not enumerate it; stop such a
+# worker with `plot-dispatch --stop <branch>`, which asks `git worktree list`.
+# shellcheck source=plot-desk-root.sh
+. "$script_dir/plot-desk-root.sh"
+resolve_wt_root() { # sets wt_root, wt_prefix; exits 3 when unaskable
+  wt_root=$(plot_desk_root "$(plot_repo_root)") || {
+    echo "plot-fleetctl: cannot resolve where the fleet's worktrees are — nothing was done." >&2
+    exit 3
+  }
   wt_prefix=""
 }
 resolve_wt_root

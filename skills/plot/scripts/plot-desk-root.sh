@@ -15,7 +15,7 @@
 # second default, and two defaults are the defect this removes.
 #
 #   plot_repo_root            → the MAIN checkout, from anywhere
-#   plot_desk_root [repo]     → the desk root; exit 3 when unaskable
+#   plot_desk_root [repo [configured]] → the desk root; exit 3 when unaskable
 #   plot_exclude_desk_root [repo] → keep it out of `git status`; never fails
 #
 # shellcheck shell=bash
@@ -31,10 +31,14 @@
 # every linked worktree shares that one directory. It is asked FIRST and
 # `--show-toplevel` is the fallback, since the common dir is also correct in a
 # non-worktree checkout: there `.git` is a real directory in the root.
+#
+# PHYSICAL, through `pwd -P`: `git worktree list` and `--show-toplevel` print
+# resolved paths, and a desk root composed from a logical one (`/tmp` against
+# `/private/tmp` on macOS) is a prefix no worktree path ever starts with.
 plot_repo_root() {
   local common root=''
   common=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
-    common=$(cd -- "$common" 2>/dev/null && pwd) || common=''
+    common=$(cd -- "$common" 2>/dev/null && pwd -P) || common=''
     [ -n "$common" ] && root=$(dirname -- "$common")
   }
   [ -n "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
@@ -55,6 +59,10 @@ _plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #
+# A second argument is a value the caller was handed in place of the key — a
+# `--worktrees DIR` flag — and goes through the same rule; without one the
+# `Worktree root` key is read.
+#
 # READ THE EXIT CODE. A caller that treats an empty answer as a location would
 # compose paths against the filesystem root.
 plot_desk_root() {
@@ -64,10 +72,14 @@ plot_desk_root() {
     printf 'plot: cannot resolve the desk root: %s is missing\n' "$bundle" >&2
     return 3
   fi
-  # Read from the TARGET repository, never the ambient one: `plot-config.sh`
-  # walks up from its cwd, so a caller asking about another checkout would
-  # otherwise get this one's key.
-  configured=$(cd -- "$repo" 2>/dev/null && bash "$_plot_desk_root_config" get "Worktree root" "" 2>/dev/null) || configured=''
+  if [ "$#" -ge 2 ]; then
+    configured="$2"
+  else
+    # Read from the TARGET repository, never the ambient one: `plot-config.sh`
+    # walks up from its cwd, so a caller asking about another checkout would
+    # otherwise get this one's key.
+    configured=$(cd -- "$repo" 2>/dev/null && bash "$_plot_desk_root_config" get "Worktree root" "" 2>/dev/null) || configured=''
+  fi
   answer=$(node "$bundle" "$repo" "$configured" 2>&1) || {
     printf 'plot: cannot resolve the desk root: %s\n' "$answer" >&2
     return 3

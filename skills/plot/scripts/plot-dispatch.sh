@@ -219,40 +219,37 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # WHERE THE WORKTREES LIVE, and by what name
 # ---------------------------------------------------------------------------
 #
-# Two facts, resolved together because the second is a PROPERTY OF THE FIRST:
-# the root directory the worktrees sit in, and the prefix their directory names
-# carry. `plot-wt-` exists to make Plot's worktrees identifiable AMONG UNRELATED
-# directories — it is a workaround for sharing a parent with other projects.
-# Under a dedicated `Worktree root:` the directory already says what they are,
-# so the prefix answers a question nobody is asking and is dropped. The legacy
-# default keeps it, where it is still doing its job. Two conventions coexist
-# permanently, and that is the intended outcome, not a transition cost.
+# Two facts: the root directory the worktrees sit in, and the prefix their
+# directory names carry. The root is the desk root, `deskRoot`'s answer asked
+# through `plot-desk-root.sh`:
 #
-#   `Worktree root:` absent  → repo_root/.. , prefix `plot-wt-`   (today's behaviour)
-#   relative value           → repo_root/<value> , NO prefix
-#   absolute value           → <value> as given , NO prefix
+#   `Worktree root:` absent or empty → <main checkout>/.worktrees
+#   relative value                   → <main checkout>/<value>
+#   absolute value                   → <value> as given
+#
+# The prefix is always empty. `plot-wt-` made Plot's worktrees identifiable
+# among unrelated directories in the checkout's parent; the desk root is a
+# directory Plot owns, so the directory already says what they are. Desks a
+# dispatch created under the old default keep their `plot-wt-` names and their
+# place: every read of "which worktree holds this branch" asks `git worktree
+# list`, and `plot-reap.sh` still recognises the legacy path.
+#
+# The root is the MAIN checkout's, wherever this runs: inside a desk,
+# `--show-toplevel` answers the desk and `.worktrees` would resolve beneath it.
+# There is NO FALLBACK: when the rule cannot be asked, dispatch stops with the
+# reason rather than compute a second default.
 #
 # THIS FUNCTION ONLY COMPOSES A ROOT AND A PREFIX. It is the CREATION side. Every
 # read of "which worktree holds this branch" asks `git worktree list` instead —
 # see THE HELD-BRANCH GATE. A second naming convention gives path-guessing a
 # second way to be wrong, so path-guessing is confined to creation alone.
-resolve_wt_root() { # $1=repo_root → sets globals wt_root, wt_prefix
-  local rr="$1" configured
-  configured=$("$script_dir/plot-config.sh" get "Worktree root" "")
-  if [ -z "$configured" ]; then
-    # The legacy default: beside the repo, prefixed. No existing checkout moves.
-    wt_root=$(cd "$rr/.." && pwd)
-    wt_prefix="plot-wt-"
-    return
-  fi
-  case "$configured" in
-    /*) wt_root="$configured" ;;                 # absolute: taken as given
-    *)  wt_root="$rr/$configured" ;;             # relative: against the repo root
-  esac
-  # Normalise away a trailing slash so composed paths never double it. The
-  # directory may not exist yet (created on first dispatch), so this is pure
-  # string work, not a `cd`.
-  wt_root="${wt_root%/}"
+# shellcheck source=plot-desk-root.sh
+. "$script_dir/plot-desk-root.sh"
+resolve_wt_root() { # sets globals wt_root, wt_prefix; exits 3 when unaskable
+  wt_root=$(plot_desk_root "$(plot_repo_root)") || {
+    echo "plot-dispatch: cannot resolve where the worktrees go — nothing was dispatched." >&2
+    exit 3
+  }
   wt_prefix=""
 }
 
@@ -2423,6 +2420,9 @@ EOF
       continue
     fi
     mkdir -p "$wt_root" 2>/dev/null || true
+    # The desk root lies inside the repository by default, so keep it out of
+    # `git status` the moment it exists.
+    plot_exclude_desk_root "$(plot_repo_root)"
     if ! git worktree add -q --detach "$start_wt" "origin/$start_main" 2>/dev/null; then
       # NO REMOTE REF IS NOT A FAILURE OF THIS VERB. A fresh clone or a repo
       # with no remote has no `origin/<main>`; the local one is the same commit
@@ -2484,8 +2484,9 @@ if [ "$mode" = "migrate" ]; then
   configured_root=$("$script_dir/plot-config.sh" get "Worktree root" "")
   if [ -z "$configured_root" ]; then
     echo "plot-dispatch --migrate: no 'Worktree root:' configured — nothing to migrate."
-    echo "  When Worktree root is absent, worktrees live beside the repo (plot-wt-*)."
-    echo "  To migrate, first add a 'Worktree root:' key to ## Plot Config."
+    echo "  When Worktree root is absent, new worktrees go to <repo>/.worktrees;"
+    echo "  desks an older dispatch made beside the repo (plot-wt-*) stay there."
+    echo "  To move those, first add a 'Worktree root:' key to ## Plot Config."
     exit 0
   fi
 
@@ -3289,6 +3290,9 @@ write_started_record() { # $@ = branches
   # stale tip and the push would be a guaranteed non-fast-forward.
   git fetch -q origin "$MAIN" 2>/dev/null
 
+  # `git worktree add` creates the desk root when it is missing; exclude it
+  # first so the booking leaves no untracked `.worktrees/` behind.
+  plot_exclude_desk_root "$(plot_repo_root)"
   # -B: a leftover branch from an earlier failed booking must not block this
   # one. It is disposable by construction — created here, pushed, deleted.
   if ! git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null; then
