@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { allSlicesMerged, type FleetReading, type BranchState, type SliceVerdict } from '../src/index.js';
+import {
+  allSlicesConfirmed,
+  allSlicesMerged,
+  FleetReadingSchema,
+  type FleetReading,
+  type BranchState,
+  type SliceVerdict,
+} from '../src/index.js';
 
 /**
  * The deliverable rule, tested at the domain boundary.
@@ -234,5 +241,193 @@ describe('allSlicesMerged — work given up is not work never done', () => {
       slice('mixed', 'complete', [['feature/a', 'merged'], ['feature/b', 'deferred']]),
     ]);
     expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
+  });
+});
+
+/**
+ * One slice whose branches carry evidence words — the shape a throttled host
+ * produces, where a merge subject is all that proves a branch landed.
+ */
+const sliceWithEvidence = (
+  name: string,
+  verdict: SliceVerdict,
+  branches: Array<[string, BranchState, 'subject' | undefined]>,
+) => ({
+  name,
+  verdict,
+  branches: branches.map(([branch, state, evidence]) => ({
+    branch,
+    state,
+    deferred: state === 'deferred',
+    deferred_reason: '',
+    claimed: '',
+    local_dirty: false,
+    local_worktree: '',
+    evidence,
+  })),
+});
+
+describe('allSlicesConfirmed — the host has answered, not only the merge subject', () => {
+  // WHY A SECOND RULE RATHER THAN A WIDER ONE. `allSlicesMerged` answers *is
+  // this plan finished*, which the wave gate and the plan's status word read,
+  // and a subject-proven slice IS finished for both — opening the next slice is
+  // reversible. This answers *has the landing been confirmed*, which is what a
+  // delivery needs, because a delivery is not.
+  it('answers merged when every branch was confirmed by the host', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', undefined]]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  // THE ONE DIFFERENCE FROM `allSlicesMerged`, and the measured defect behind
+  // it: without this, a subject-proven plan reads `merged` during a 429, the
+  // first auto-deliver tick starts `plot-deliver.sh`, which refuses, and
+  // `pruneDelivering` keeps the slug in `inFlight` while the plan still reads
+  // approved and merged — so no later tick delivers until the board restarts.
+  it('answers unknown when a branch is proved only by its merge subject', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', 'subject']]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('unknown');
+    // And the wave gate's rule is unmoved by the same pulse, which is what
+    // keeps the next slice startable while the delivery waits.
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  it('answers unknown when one branch of several is proved only by subject', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', undefined]]),
+      sliceWithEvidence('two', 'complete', [
+        ['feature/b', 'merged', undefined],
+        ['feature/c', 'merged', 'subject'],
+      ]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('unknown');
+  });
+
+  // A DEFERRED BRANCH IS EXEMPT, as it is in `allSlicesMerged`. Work given up
+  // is not work awaiting confirmation, and a `subject` word on one would be a
+  // scan defect rather than a reason to hold a delivery for ever.
+  it('answers merged when only a deferred branch carries the subject word', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [
+        ['feature/a', 'merged', undefined],
+        ['feature/b', 'deferred', 'subject'],
+      ]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  it('answers merged for a plan whose every branch was given up', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('only-wave', 'complete', [['feature/gone', 'deferred', undefined]]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  // THE OTHER ANSWERS ARE `allSlicesMerged`'S, UNCHANGED. They are asserted
+  // here rather than assumed, because the two rules share a body and a change
+  // to the shared half must not pass by being tested on one caller only.
+  it('answers unknown with no pulse', () => {
+    expect(allSlicesConfirmed({ file: PLAN }, null, true)).toBe('unknown');
+  });
+
+  it('answers unknown for an unfinished scan', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', undefined]]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, false)).toBe('unknown');
+  });
+
+  it('answers not-merged for a plan the pulse does not name', () => {
+    const p = pulse('2026-01-01-another.md', [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', undefined]]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  it('answers not-merged for an unfinished slice', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'eligible', [['feature/a', 'open', undefined]]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  it('answers not-merged for a slice naming no branch', () => {
+    const p = pulse(BASE, [sliceWithEvidence('prose-heading', 'complete', [])]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  // THE ORDER OF THE TWO REFUSALS, pinned. An unfinished slice holding a
+  // subject-proven branch answers `not-merged` and not `unknown`: the work is
+  // measurably outstanding, which is a stronger statement than *the proof is
+  // weak*, and a caller that waits on `unknown` would wait for a confirmation
+  // of a landing that has not happened.
+  it('answers not-merged for an unfinished slice holding a subject-proven branch', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', undefined]]),
+      sliceWithEvidence('two', 'eligible', [['feature/b', 'merged', 'subject']]),
+    ]);
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  // A PULSE PARSED FROM THE WIRE, not a typed literal. `BranchSchema` strips a
+  // key it does not declare, so this is what proves the field survives the
+  // parse the board performs — the round-3 finding, and the reason the field is
+  // declared on the entity at all.
+  it('reads the field through FleetReadingSchema', () => {
+    const wire = {
+      main: 'main',
+      head: 'abc1234',
+      plans: [{
+        file: BASE,
+        slices: [{
+          name: 'one',
+          verdict: 'complete',
+          branches: [{
+            branch: 'feature/a',
+            state: 'merged',
+            deferred: false,
+            claimed: '',
+            evidence: 'subject',
+          }],
+        }],
+      }],
+      summary: {
+        plans: 1, waves: 1, branches: 1, claimed: 0,
+        eligible: 0, blocked: 0, deferred: 0,
+      },
+    };
+    const parsed = FleetReadingSchema.parse(wire);
+    expect(parsed.plans[0].slices[0].branches[0].evidence).toBe('subject');
+    expect(allSlicesConfirmed({ file: PLAN }, parsed, true)).toBe('unknown');
+  });
+
+  it('reads a parsed pulse with no evidence word as confirmed', () => {
+    const wire = {
+      main: 'main',
+      head: 'abc1234',
+      plans: [{
+        file: BASE,
+        slices: [{
+          name: 'one',
+          verdict: 'complete',
+          branches: [{
+            branch: 'feature/a',
+            state: 'merged',
+            deferred: false,
+            claimed: '',
+          }],
+        }],
+      }],
+      summary: {
+        plans: 1, waves: 1, branches: 1, claimed: 0,
+        eligible: 0, blocked: 0, deferred: 0,
+      },
+    };
+    const parsed = FleetReadingSchema.parse(wire);
+    expect(parsed.plans[0].slices[0].branches[0].evidence).toBeUndefined();
+    expect(allSlicesConfirmed({ file: PLAN }, parsed, true)).toBe('merged');
   });
 });
