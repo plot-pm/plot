@@ -34,7 +34,7 @@ A default of the checkout's parent writes `plot-wt-*` worktrees and `plot-<kind>
 
 ## The ignore line
 
-A desk root inside the repository must not appear as untracked files. `deskRootPlacement` answers whether the root lies inside the repository and names its repository-relative exclude line. The caller that creates the directory appends that line to `$(git rev-parse --git-common-dir)/info/exclude` when `git check-ignore` does not already cover it. Git reads `info/exclude` from the common directory only, so a linked worktree's private gitdir is the wrong place. The write is idempotent.
+A desk root inside the repository must not appear as untracked files. `deskRootPlacement` answers whether the root lies inside the repository and names its repository-relative exclude line. The caller that creates the directory appends that line to the common git directory's `info/exclude` when the path is not already ignored. The shell helper asks `git check-ignore`; the board reads `.gitignore` and `info/exclude` directly, because a read route reaches it and a read route spawns nothing. Git reads `info/exclude` from the common directory only, so a linked worktree's private gitdir is the wrong place. The write is idempotent.
 
 ## Existing desks
 
