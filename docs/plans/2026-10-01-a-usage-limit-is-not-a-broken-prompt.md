@@ -55,11 +55,11 @@ Verified on `origin/main`:
 
 **The bundle is asked once per prompt exit, and the loop keeps no copy.** `docs/shell-and-domain.md` §1 names `plot-worker-loop.sh` as the case that duplicates a rule, because a hop on its idle pass is paid by every agent on every pass. A prompt exit is not an idle pass: it happens once per prompt, and a prompt runs for minutes or hours. One `node` start (about 39 ms) after it adds nothing measurable, and a shell copy would need a corpus test to hold the pair together for no saved cost. **Slice 1 amends `docs/shell-and-domain.md` §1** to record this: the loop's idle pass still duplicates, and a call made once per prompt exit asks the domain. The slice-spend call (`record_slice_spend`, `plot-worker-loop.sh:1002`, called at `:2114`) is cited only as the existing bundle in the loop; it runs once at slice end on the success path, not after every exit.
 
-**The bundle's input and answer.** The last 200 lines of the prompt's output arrive on stdin. Arguments: the exit status, the effective harness, now in epoch seconds, `Worker bound` in seconds, the seconds the prompt ran, whether the prompt started after a limit wait, and the commits the desk gained since that wait. The answer is one line of tab-separated fields; every instant is written as epoch seconds and as UTC ISO text, so the loop, the monitor and `plot-fleetctl.sh` compare integers and never parse a date:
+**The bundle's input and answer.** The last 200 lines of the prompt's output arrive on stdin. Arguments: the exit status, the effective harness, now in epoch seconds, `Worker bound` in seconds, the seconds the prompt ran, whether the prompt started after a limit wait, and the commits the desk gained since that wait. **The loop passes all seven arguments on every exit**, including an exit from a prompt that never waited: there the wait flag is `0` and the commit count is `0`. With the flag `0` the rule reads neither the run time nor the commit count, so such an exit can never answer `no-progress`, and its answer depends only on the status, the harness, the output, now and the bound. The answer is one line of tab-separated fields; every instant is written as epoch seconds and as UTC ISO text, so the loop, the monitor and `plot-fleetctl.sh` compare integers and never parse a date:
 
 | Answer | When | Fields |
 |---|---|---|
-| `wait` | a limit, a known reset in the future, and the wait is allowed | reset epoch, reset ISO, the limit line |
+| `wait` | a limit, a known reset at or after now, and the wait is allowed | reset epoch, reset ISO, the limit line |
 | `end-limited` | a limit, and no wait is allowed | reset epoch and ISO, or `unknown` and `-`; the limit line; the cause: `no-reset`, `past-bound` or `no-progress` |
 | `unstarted` | no limit, and the status is not 0 | none; today's retry path |
 | `ran` | no limit, and the status is 0 | none; today's path |
@@ -68,9 +68,9 @@ Verified on `origin/main`:
 
 **All five limit names are limits.** `session`, `weekly` and `Opus` limits carry a reset the rule can read. The `fast limit` and `monthly spend limit` shapes are not measured. A line with either name reads as a limit; if its reset text cannot be read, the answer is `end-limited` with cause `no-reset`, so the marker names the limit and asks for a person, which is right for a spend cap. Neither name falls through to `unstarted` and its false prompt-fix marker.
 
-**Reading the reset.** The message gives a wall-clock time and an IANA zone (`5:20pm (Europe/Zurich)`). The rule resolves it to an instant in that zone on the date of now. **A reset up to 120 s in the past is now**, not tomorrow: a message read seconds after `5:20pm` would otherwise resolve 24 h ahead. A reset more than 120 s in the past resolves to the next day. A time or zone it cannot read is `unknown`, never a guess.
+**Reading the reset.** The message gives a wall-clock time and an IANA zone (`5:20pm (Europe/Zurich)`). The rule resolves it to an instant in that zone on the date of now. **A reset up to 120 s in the past resolves to now**, not tomorrow: a message read seconds after `5:20pm` would otherwise resolve 24 h ahead. The rule writes now as the reset epoch, so the reset is at or after now, the answer is `wait`, and the loop sleeps only the margin. A reset more than 120 s in the past resolves to the next day. A time or zone it cannot read is `unknown`, never a guess.
 
-**When a wait is allowed.** A known reset no more than `Worker bound` seconds away is allowed. A bound of `0` disables the floor (`plot-worker-loop.sh:125-130`), and with it this cap: any known reset is allowed, which is never more than 24 h by construction. **A limit is without progress** when the prompt started after a limit wait, ran less than 600 s, and the desk gained no commit since that wait. Such a limit answers `end-limited` with cause `no-progress`: a limit that does not lift cannot hold an agent forever. Any other limit is allowed to wait again, because a second limit inside an 8-hour bound is normal.
+**When a wait is allowed.** A known reset no more than `Worker bound` seconds away is allowed. A bound of `0` disables the floor (`plot-worker-loop.sh:125-130`), and with it this cap: any known reset is allowed, which is never more than 24 h by construction. **A limit is without progress** when the prompt started after a limit wait, ran less than 600 s, and the desk gained no commit since that wait. The base of that count is the desk `HEAD` the loop records when the wait starts: the loop passes `git rev-list --count <recorded HEAD>..HEAD` in the desk. Such a limit answers `end-limited` with cause `no-progress`: a limit that does not lift cannot hold an agent forever. Any other limit is allowed to wait again, because a second limit inside an 8-hour bound is normal.
 
 **Progress counts commits, not transcript writes, by choice.** The transcript gains a line on every turn, including the turn that meets the limit, so a transcript write cannot tell a prompt that worked from one that only met the limit again. A resumed prompt that edits files for minutes without a commit and meets the limit within 600 s ends the worker; the marker names its uncommitted paths and the `--restart`, so no work is lost.
 
@@ -117,24 +117,25 @@ Verified on `origin/main`:
 `rules/prompt-exit.ts` with the four answers, the reset reading, the wait-allowed and without-progress decisions; `adapters/harness/limit-lines.ts`, a constant and no function; `packages/board/src/server/entry/prompt-exit.ts` joining them; `EndingReasonSchema` gains `limited`, `endingIsAttributable` admits it, and `packages/domain/test/ending.test.ts:45`, which pins the reason list, gains it. The bundle `board/plot-prompt-exit.mjs`: its block in `packages/board/build.mjs`, its line in `packages/board/src/contract/bundles.generated.ts`, its `-merge` line in `.gitattributes`, the committed artifact, and a Helper Scripts row in `CLAUDE.md`. `docs/shell-and-domain.md` §1 records that a call made once per prompt exit asks the domain while the idle pass still duplicates. Domain tests at 100% branch coverage:
 
 - the #1141 line in `Europe/Zurich` across a day boundary answers `wait` with matching epoch and ISO fields;
-- a reset 60 s past is now, and a reset 200 s past is tomorrow;
+- a reset 60 s past answers `wait` with the reset epoch equal to now, so the loop sleeps the margin only; a reset 200 s past resolves to tomorrow;
 - a line with no reset, and an unreadable time, answer `end-limited` with `no-reset`;
 - a reset past the bound answers `end-limited` with `past-bound`, and a bound of 0 allows it;
 - a limit after a wait, under 600 s, with no new commit answers `no-progress`; the same with one new commit answers `wait`;
 - `fast limit` and `monthly spend limit` lines with no readable reset answer `end-limited`;
 - a status-0 output whose last non-empty line is the limit line answers `wait`; a status-0 output that quotes the #1141 line before a final line of other text answers `ran`;
-- an unknown harness and an empty pattern set answer `unstarted` or `ran` by status.
+- an unknown harness and an empty pattern set answer `unstarted` or `ran` by status;
+- an exit with the wait flag `0`, a run time of 5 s and a commit count of `0` that carries the #1141 line answers `wait`, never `no-progress`.
 
 - `bug/the-rule-names-a-usage-limit` — the rule, the adapter, the entry and the bundle <!-- builds: promptExit, a rule that classifies a prompt exit -->
 
 ### The loop waits out a usage limit (Branch: bug/the-loop-waits-out-a-usage-limit)
 
-`plot-worker-loop.sh` captures the prompt's output with `> >(tee -a "$out") 2>&1 &`, asks the bundle on every exit with `${PLOT_HARNESS:-claude}` and the counts above, falls back to today's paths when the bundle cannot answer, writes and removes `.plot-worker.limited`, sleeps in clock-checked steps as `_wait_sleep_pid`, and reads the desk for its sentences. `plot-worker-monitor.sh` reads `.plot-worker.limited` in `sample_verdict` and clamps a negative silence. `plot-fleetctl.sh --status` prints the waiting line while the reset is in the future. Tests extend the start-failure fixture in `test/reconcile/second-slice.test.mjs:370-440`, each with a fake harness, `PLOT_LIMIT_MARGIN_SECONDS=0` and a clock offset:
+`plot-worker-loop.sh` captures the prompt's output with `> >(tee -a "$out") 2>&1 &`, asks the bundle on every exit with `${PLOT_HARNESS:-claude}` and the counts above, falls back to today's paths when the bundle cannot answer, writes and removes `.plot-worker.limited`, sleeps in clock-checked steps as `_wait_sleep_pid`, records the desk `HEAD` when a wait starts and counts commits from it after the resumed prompt, and reads the desk for its sentences. `plot-worker-monitor.sh` reads `.plot-worker.limited` in `sample_verdict` and clamps a negative silence. `plot-fleetctl.sh --status` prints the waiting line while the reset is in the future. Tests extend the start-failure fixture in `test/reconcile/second-slice.test.mjs:370-440`, each with a fake harness, `PLOT_LIMIT_MARGIN_SECONDS=0` and a clock offset:
 
 - a limit with a reset 2 s ahead waits and resumes the same slice without raising `attempts`;
 - the same case with `PLOT_HARNESS` set and empty still waits;
 - the monitor runs beside the loop with a 1 s window and interval on a desk with commits; no finding is published during the wait, and the resumed prompt runs to exit 0;
-- a limit that returns within 600 s of a wait with no new commit ends with `limited`; a limit after a resumed prompt that committed waits again;
+- a limit that returns within 600 s of a wait with no commit since the `HEAD` recorded at the start of the wait ends with `limited`; a limit after a resumed prompt that committed waits again;
 - a limit with no reset ends at once with the limit marker, which names the commit and dirt counts;
 - a status-0 run whose last line is the limit line waits; a status-0 run that quotes the line earlier finishes the slice;
 - the bound ends a prompt whose output is captured, and no prompt process remains afterwards;
