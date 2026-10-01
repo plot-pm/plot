@@ -391,6 +391,31 @@ describe('migrateAgentLogs', () => {
     expect(migrateAgentLogs(repo)).toBe(10);
   });
 
+  it('moves records into <repo>/.worktrees when no Worktree root is configured', () => {
+    fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '# Fixture\n\n## Plot Config\n\n');
+    forgetWorktreeRoot();
+    write(parent, 'plot-approve-x.log');
+    write(parent, 'plot-approve-x.state');
+
+    expect(migrateAgentLogs(repo)).toBe(2);
+    expect(fs.readdirSync(path.join(repo, '.worktrees')).filter((n) => n.startsWith('plot-')).sort())
+      .toEqual(['plot-approve-x.log', 'plot-approve-x.state']);
+    // The parent holds the repository and nothing Plot wrote.
+    expect(fs.readdirSync(parent)).toEqual(['repo']);
+  });
+
+  it('runs at board startup, once the Worktree root is read', () => {
+    const index = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/server/index.ts'),
+      'utf8',
+    );
+    const prime = index.indexOf('primeWorktreeRoot(opts.repoRoot');
+    const migrate = index.indexOf('migrateAgentLogs(opts.repoRoot)');
+    expect(prime).toBeGreaterThan(-1);
+    // After the prime, in its chain: the destination depends on the key it reads.
+    expect(migrate).toBeGreaterThan(prime);
+  });
+
   it('moves nothing on a second run', () => {
     // The plan's third `Done when`. The marker lives in the DESTINATION, with
     // the thing it describes.
