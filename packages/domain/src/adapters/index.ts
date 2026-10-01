@@ -26,6 +26,7 @@ export {
 } from './plan-store/plan-store-fixture.js';
 
 export { hostShell } from './host/host-shell.js';
+export { BITBUCKET_PAGE_LENGTHS, listingPagingFor } from './host/listing-paging.js';
 export { hostFixture, type HostFixture } from './host/host-fixture.js';
 
 // THE TRACKER'S TWO CONNECTORS, and they are two rather than one with a branch:

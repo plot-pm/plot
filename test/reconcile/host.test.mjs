@@ -119,7 +119,7 @@ printf '%s' '${json.replace(/'/g, `'\\''`)}'
 // produce. A `perState` value may therefore be either a payload string or
 // `{ fail: '<stderr text>', code: N }`, so a test can say *this state throttled
 // and the others answered* without a second stub.
-function makeStrictBbStub({ json = '[]', perState = null } = {}) {
+function makeStrictBbStub({ json = '[]', perState = null, version = 'bb version 1.9.0' } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bb-')));
   const callsFile = path.join(dir, 'bb.calls');
   const quote = (s) => s.replace(/'/g, `'\\''`);
@@ -133,7 +133,7 @@ function makeStrictBbStub({ json = '[]', perState = null } = {}) {
     : '';
   const body = `#!/usr/bin/env bash
 # Handle capability check
-if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--version"* ]]; then echo '${version}'; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$*" >> "${callsFile}"
 state=open
@@ -3174,8 +3174,10 @@ printf '%s' '[]'
 // old one, and Done-when 5 forbids touching fleet.ts to guard against it. stderr
 // is the channel item 7 asks for and the one an untouched caller already drops.
 //
-// Detection is against the REQUESTED LIMIT being unprovable, NEVER the constant
-// 50: the rule names no page size, so a future bb returning 100 is still caught.
+// Detection reads the page length as a per-version READING (#1137): a page
+// shorter than the measured length of the answering `bb` is the last page and
+// complete; a page at that length, or any non-empty page from a `bb` nobody
+// measured, stays possibly truncated.
 
 // A strict bb stub whose page is a FULL page of `pageSize` rows for `state` — the
 // shape a truncated bb list has. Reuses makeStrictBbStub's refusal of --limit and
@@ -3236,6 +3238,50 @@ test('host: bitbucket truncation is detected against the ignored limit, not the 
   assert.match(reports[0], /\b100\b/);
 });
 
+// #1137. Quatico bb prints its version as `bb 1.9.0`, and its listing asks
+// `pagelen=50`. A state that returns fewer rows than that is the last page.
+const listAll = (bb) => spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000'], {
+  encoding: 'utf8',
+  env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+});
+
+test('host: a measured bb page shorter than its length is complete, with no truncation report', () => {
+  const bb = makeStrictBbStub({
+    version: 'bb 1.9.0',
+    perState: { open: bbFullPage(20, 'OPEN'), merged: '[]', declined: '[]' },
+  });
+  const res = listAll(bb);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim().split('\n').length, 20, 'every row is served');
+  assert.equal(truncationReports(res.stderr).length, 0, '20 of a page of 50 is the last page');
+});
+
+test('host: a measured bb page AT its length keeps the truncation report', () => {
+  const bb = makeStrictBbStub({
+    version: 'bb 1.9.0',
+    perState: { open: bbFullPage(20, 'OPEN'), merged: bbFullPage(50), declined: '[]' },
+  });
+  const res = listAll(bb);
+  assert.equal(res.status, 0, res.stderr);
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'only the full page is reported');
+  assert.match(reports[0], /state=merged possibly truncated \(50 rows/);
+});
+
+test('host: an unmeasured bb version keeps the report on a short page', () => {
+  // The rule never calls a page complete it cannot prove: a version nobody
+  // measured has no page length, so 20 rows stay unprovable.
+  const bb = makeStrictBbStub({
+    version: 'bb 1.10.0',
+    perState: { open: bbFullPage(20, 'OPEN'), merged: '[]', declined: '[]' },
+  });
+  const res = listAll(bb);
+  assert.equal(res.status, 0, res.stderr);
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1);
+  assert.match(reports[0], /state=open possibly truncated \(20 rows/);
+});
+
 test('host: bitbucket does NOT report an empty state as truncated', () => {
   // A state that returned nothing had nothing to truncate. Reporting it would
   // cost a future caller needless per-id lookups for a genuinely empty state.
@@ -3267,10 +3313,9 @@ test('host: bitbucket without a --limit does not report truncation', () => {
 });
 
 test('host: only a non-empty state is reported, and it is named', () => {
-  // Per-state granularity. On bb NO non-empty page is provably complete (no
-  // total, no cursor), so a state with even one row IS possibly truncated — the
-  // rule the plan settles. The state that returned NOTHING had nothing to hide
-  // and is not reported. So `merged` (full) is named and `declined`/`open`
+  // Per-state granularity. A full page cannot prove its total, so that state
+  // is reported. The state that returned NOTHING had nothing to hide and is
+  // not reported. So `merged` (full) is named and `declined`/`open`
   // (empty) are silent — a per-call flag would report all three, and a future
   // caller would re-fetch the two empty states for nothing.
   const bb = makeStrictBbStub({
