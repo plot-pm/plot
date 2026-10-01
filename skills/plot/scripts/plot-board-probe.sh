@@ -186,14 +186,18 @@ fi
 # whose files are already counted once at their real home. The desk root is
 # `deskRoot`'s answer for the MAIN checkout, pruned by its full path, so a
 # configured value naming a nested or absolute directory is pruned too.
+#
+# THIS PROBE REPORTS A MISSING `node` RATHER THAN NEEDING ONE, so an unaskable
+# rule prunes nothing extra instead of stopping the probe. That computes no
+# location: a desk is a checkout of this repository, so a Jenkinsfile found in
+# one is also at its real home and the reading does not change.
 jenkinsfile=false
 if [ -n "$git_root" ]; then
   # shellcheck source=plot-desk-root.sh
   . "$here/plot-desk-root.sh"
-  wt_root=$(plot_desk_root "$(plot_repo_root)") || {
-    echo "plot-board-probe: cannot resolve the desk root — nothing was probed." >&2; exit 3; }
+  wt_root=$(plot_desk_root "$(plot_repo_root)" 2>/dev/null) || wt_root=''
   found=$(find "$git_root" -maxdepth 5 \
-    \( -name node_modules -o -name .git -o -path "$wt_root" \) -prune -o \
+    \( -name node_modules -o -name .git ${wt_root:+-o -path "$wt_root"} \) -prune -o \
     -name Jenkinsfile -type f -print 2>/dev/null | head -n 1)
   [ -n "$found" ] && jenkinsfile=true
 fi

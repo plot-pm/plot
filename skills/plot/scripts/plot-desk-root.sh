@@ -48,14 +48,8 @@ plot_repo_root() {
 # Resolved ONCE at source time, the way `plot-pr-merged.sh:105` resolves its
 # own bundle. Computing it inside a function reads `BASH_SOURCE[0]` at call
 # time, which is the caller's file once the function has been exported.
-_plot_desk_root_dir="${BASH_SOURCE[0]}"
-case "$_plot_desk_root_dir" in
-  */*) _plot_desk_root_dir="${_plot_desk_root_dir%/*}" ;;
-  *)   _plot_desk_root_dir='.' ;;
-esac
-_plot_desk_root_dir="$(cd -- "$_plot_desk_root_dir" 2>/dev/null && pwd)"
-_plot_desk_root_mjs="$_plot_desk_root_dir/board/plot-desk-root.mjs"
-_plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
+_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
+_plot_desk_root_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #

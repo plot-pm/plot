@@ -51,8 +51,8 @@ function sandbox(label) {
   git(root, 'config', 'commit.gpgsign', 'false');
 
   const dst = path.join(root, 'skills', 'plot', 'scripts');
-  fs.mkdirSync(dst, { recursive: true });
-  for (const f of ['plot-boardctl.sh', 'plot-board-probe.sh', 'plot-config.sh']) {
+  fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
+  for (const f of ['plot-boardctl.sh', 'plot-board-probe.sh', 'plot-config.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs']) {
     fs.copyFileSync(path.join(scripts, f), path.join(dst, f));
   }
   fs.chmodSync(path.join(dst, 'plot-boardctl.sh'), 0o755);
