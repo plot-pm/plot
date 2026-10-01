@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-10-01, jwloka, in-session
+- **Started:** 2026-10-01, jwloka, `bug/the-desk-root-is-one-rule`
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
