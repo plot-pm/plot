@@ -879,6 +879,43 @@ await esbuild.build({
 fs.copyFileSync(startCommandArtifact, shippedStartCommand);
 fs.chmodSync(shippedStartCommand, 0o755);
 
+// What one prompt exit was, for plot-worker-loop.sh (#1141): a usage limit the
+// loop may wait out, a limit it must end on, or today's two paths.
+//
+// Its own bundle for the reason the ones above give: plot-ask.mjs answers by
+// RUNNING plot-fleet-scan.sh, so a loop asking what one exit was would start an
+// 18.3 s fleet scan to read 200 lines. This asks promptExit, spawns nothing and
+// opens nothing — the prompt's output arrives on stdin from the shell that
+// captured it.
+//
+// The cost rule permits it ON FREQUENCY, which is the whole argument.
+// docs/shell-and-domain.md §1 names this loop as the script that DUPLICATES a
+// rule, because a hop on its idle pass is paid by every agent on every pass. A
+// prompt exit happens once per prompt and a prompt runs for minutes or hours,
+// so one node start adds nothing measurable.
+//
+// SMALL, AND THE REASON IS THE IMPORT PATH. The harness table is imported as
+// `adapters/harness/limit-lines` rather than through `adapters/index.js`: the
+// barrel is what makes plot-issue-status.mjs 331 KB, and the table is a
+// constant carrying no schema.
+const promptExitArtifact = path.join(here, 'dist/plot-prompt-exit.mjs');
+const shippedPromptExit = path.join(here, '../../skills/plot/scripts/board/plot-prompt-exit.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/prompt-exit.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: promptExitArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(promptExitArtifact, shippedPromptExit);
+fs.chmodSync(shippedPromptExit, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -1097,6 +1134,7 @@ const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
 const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(1);
 const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
 const startCommandKb = (fs.statSync(shippedStartCommand).size / 1024).toFixed(1);
+const promptExitKb = (fs.statSync(shippedPromptExit).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1125,4 +1163,5 @@ console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/s
 console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-start-command.mjs (${startCommandKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-prompt-exit.mjs (${promptExitKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
