@@ -10,7 +10,7 @@
 - **Issue:** #1145
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
