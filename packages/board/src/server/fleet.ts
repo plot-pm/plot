@@ -60,6 +60,7 @@ import {
   type Reaction,
   type SupervisorRun,
   foldPrIndex,
+  handedTo,
   issueAbsence,
   issueSource,
   prWindowFor,
@@ -6238,6 +6239,84 @@ export function briefState(repoRoot: string, branch: string): BriefState {
 export { doubleClaimedBranches };
 
 
+/**
+ * The note a row carries between the registry handing its branch to one agent
+ * and that agent taking the branch up.
+ *
+ * NEW WORDING, deliberately: `handed to agent` and `not taken up` occur nowhere
+ * else in this package. It names the STATE and not the session, because the
+ * moved row is not drawn itself — WORKING renders registry agents through
+ * `RegistryRow`, and the note appears beside a link that already shows the
+ * agent's session.
+ */
+const HANDED_NOTE = 'handed over — not taken up yet';
+
+/**
+ * Every row rewritten to read the hand-over the registry has already recorded.
+ *
+ * **The rows read the scan; WORKING reads the registry.** A free agent reads its
+ * manifest once every 60 s (`plot-worker-loop.sh`), and until it does, no
+ * worktree holds the branch — so `worker_of` answers `elsewhere` and
+ * `classifyGroup` reads the branch as `open` or `claimed` with no known worker.
+ * Measured 2026-10-01 on three of this sprint's slices: WORKING listed the
+ * agent while the same slice's row read `eligible — nobody has taken it` in NOT
+ * STARTED, with that agent's own activity dot beside it. The registry knew the
+ * answer the whole time and no row had read it.
+ *
+ * **IT RUNS AFTER `classifyGroup`, NOT INSIDE IT.** That function takes the
+ * scan's readings for one branch and the registry is not one of them; its
+ * parameter list holds 30 positional arguments, and its own comments record six
+ * tests broken by one insertion. This reads one more reading at the place that
+ * reading already exists, and `rowsFromPulse`'s signature is unchanged.
+ *
+ * **A candidate is narrow, and each guard has its own failure.** A row whose
+ * `worker` is live is already answered by the scan, which has seen more than the
+ * registry has. A row whose `verdict` is `unapproved` belongs to a Draft plan,
+ * and #1161's rule wins there: dispatch refuses a Draft slice, so a live agent
+ * on one is a fault in its own right and the row must keep naming the approval a
+ * person owes. And the group is `not-started` OR the orphaned claim — `claimed`,
+ * `waiting-on-you`, no PR — because a `not-started`-only rule leaves the
+ * past-the-quiet-window case reading as an orphan while WORKING shows its agent.
+ *
+ * **Absence is not falsehood.** A row no live agent names keeps
+ * `classifyGroup`'s answer whole, so #1090's orphan reading survives every case
+ * where the registry says nothing — an agent that dies on an empty claim turns
+ * `failed`, stops matching, and its row returns to NOT STARTED inside the window
+ * and WAITING ON YOU after it.
+ *
+ * **Two live agents is a fault for a person, not a no-op.** The row goes to
+ * WAITING ON YOU naming the count. The double hand-out itself is #1039 and
+ * #1152; this only reports it.
+ *
+ * Every moved row carries `someone-is-on-it`, or an `open` row would keep
+ * `start-work` from `startabilityVerdict` and a menu would offer to start a
+ * slice an agent already holds. Every other field is kept, and the rows are
+ * REPLACED rather than mutated — the objects `rowsFromPulse` returned are read
+ * again by `deriveSlices` from the same pulse.
+ *
+ * @param rows - the rows as the scan's classifier answered them.
+ * @param agents - the registry's entries, as `refresh` loaded the manifests.
+ * @returns the rows, each either rewritten or exactly as it arrived.
+ */
+export const withHandOver = (rows: readonly AgentRow[], agents: readonly AgentEntry[]): AgentRow[] =>
+  rows.map((row) => {
+    if (row.worker === 'running' || row.worker === 'waiting') return row;
+    if (row.verdict === 'unapproved') return row;
+    const orphanedClaim = row.state === 'claimed' && row.group === 'waiting-on-you' && row.pr === null;
+    if (row.group !== 'not-started' && !orphanedClaim) return row;
+    const sessions = handedTo(row.branch, agents);
+    if (sessions.length === 0) return row;
+    return sessions.length === 1
+      ? { ...row, group: 'working' as const, note: HANDED_NOTE, startability: 'someone-is-on-it' as const }
+      : {
+        ...row,
+        group: 'waiting-on-you' as const,
+        note: `handed to ${sessions.length} agents at once`,
+        startability: 'someone-is-on-it' as const,
+      };
+  });
+
+
 export function rowsFromPulse(
   pulse: FleetReading,
   ages: Map<string, number | null>,
@@ -7786,8 +7865,12 @@ export async function buildFleet(
       // `readFile` over a cached path, in `existsSync`'s class.
       readSupervisionReport(opts),
     ]);
+  // THE ROWS READ THE SCAN, THEN THE HAND-OVER — see `withHandOver`. Applied to
+  // the result rather than threaded into `rowsFromPulse`, because `entry.agents`
+  // is in scope HERE (`refresh` fills it, and the sections and the live count
+  // below read it) while that function takes the scan's readings only.
   const rows = entry.pulse
-    ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
+    ? withHandOver(rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
       entry.runs,
       // The root, so each row can be asked whether its brief exists. Read HERE
@@ -7808,7 +7891,7 @@ export async function buildFleet(
       // WHY EACH DESK HAS NO LIVE WORKER, from the daemon's per-tick report.
       // Awaited above rather than read here, because this function is synchronous
       // — the rule the sprint map above follows.
-      supervision)
+      supervision), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
