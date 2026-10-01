@@ -77,7 +77,7 @@ import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, brokenAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
-import { hasExceptions, planRowShowsSoleVerdict, soleRowStatus } from '../lib/agent-rows/stuck.js';
+import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
@@ -1624,25 +1624,9 @@ export function AgentList({
                           elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
                             new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
                           // A ONE-SLICE plan carries its slice's *Start work* on
-                          // this row, and its verdict where the slice row beneath
-                          // does not state it.
+                          // this row. Never its verdict: a plan row states plan
+                          // facts only, and the slice row prints the verdict.
                           soleSlice={soleSliceFor(group.plan, slices)}
-                          // THE VERDICT ONCE PER SECTION. Here the slice row always
-                          // states it where one is drawn: `SliceRow` gets no
-                          // `soleRow` in this section, so it prints the verdict
-                          // rather than a branch's status — hence `null`, never
-                          // `soleRowStatus`.
-                          //
-                          // So the only question is whether a slice row exists. An
-                          // ALL-DEFERRED plan draws none and keeps the verdict.
-                          // The fold does not enter: `expanded` is null for a
-                          // one-slice plan here, meaning *there was never a fold*,
-                          // so the collapsed-head case belongs to the `planHeads`
-                          // sections alone.
-                          showsSoleVerdict={planRowShowsSoleVerdict({
-                            sliceRowVisible: unbegunSliceGroups.length > 0,
-                            soleRowStatus: null,
-                          })}
                           // …and the slice row's *Start work* rides here too,
                           // dispatching that one slice.
                           onStarting={onStarting}
@@ -1944,10 +1928,8 @@ export function AgentList({
                         // repetition, never exceptions*. A reader must see the
                         // conflict, claim, or structural issue the fold holds.
                         //
-                        // `sliceRowsShown` IS THE ONE EXPRESSION, read here, by
-                        // the list guard below, and by `showsSoleVerdict` — three
-                        // readers that must agree. It was written out three times
-                        // when the verdict became the third.
+                        // `sliceRowsShown` IS THE ONE EXPRESSION, read here and
+                        // by the list guard below — two readers that must agree.
                         expanded={planSliceRowsShown}
                         // THE KEY FOLLOWS THE DEFAULT, which differs by slice
                         // count: a plan of several is folded until opened, a plan
@@ -1975,34 +1957,9 @@ export function AgentList({
                         elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
                           new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
                         // A ONE-SLICE plan carries its slice's *Start work* on
-                        // this row, and its verdict where the slice row beneath
-                        // does not state it.
+                        // this row. Never its verdict: a plan row states plan
+                        // facts only, and the slice row prints the verdict.
                         soleSlice={soleSliceFor(group.plan, slices)}
-                        // THE VERDICT ONCE PER SECTION. The slice row beneath is
-                        // on the page where the fold says so, and it states the
-                        // verdict itself unless its one branch has a status word
-                        // of its own. `soleRowStatus` answers for a slice of ONE;
-                        // a slice of several passes `null`, because that row
-                        // prints `N <verdict>` and there is no single row to ask.
-                        //
-                        // Per SECTION, not per plan: `soleSliceFor` ignores the
-                        // section, so a plan split across NOT STARTED and WAITING
-                        // ON YOU asks once here with this section's own inputs.
-                        //
-                        // THE GROUP IS THIS SECTION'S ONLY ONE, and the guard says
-                        // so rather than indexing `[0]` on faith: a one-slice plan
-                        // whose rows are all in this section forms exactly one
-                        // group here. Where it forms none — or somehow more — the
-                        // input is `null`, which is the safe reading: the slice row
-                        // is taken to state the verdict, so the plan row yields it
-                        // rather than risking the duplicate.
-                        showsSoleVerdict={planRowShowsSoleVerdict({
-                          sliceRowVisible: planSliceRowsShown,
-                          soleRowStatus:
-                            planSliceGroups.length === 1 && planSliceGroups[0]!.rows.length === 1
-                              ? soleRowStatus(planSliceGroups[0]!.rows[0]!)
-                              : null,
-                        })}
                         // …and the slice row's *Start work* rides here too,
                         // dispatching that one slice.
                         onStarting={onStarting}
@@ -2114,12 +2071,10 @@ export function AgentList({
                         /* SLICE ROWS NAME THEIR SLICES, however many slices
                            the plan has. A one-slice plan's branches belong to
                            that slice, and its name is part of their identity.
-                           A row of ONE branch states that branch's status word
-                           and leaves the verdict to the plan row; a row of
-                           several, or one whose branch has no word to say,
-                           states the verdict itself and the plan row yields it.
-                           `planRowShowsSoleVerdict` holds the rule. See NOT
-                           STARTED for the longer form. */
+                           A row of ONE branch states that branch's status word;
+                           a row of several, or one whose branch has no word to
+                           say, states the verdict. The plan row above never
+                           states it. */
                         const sliceGroups = sliceGroupsFor(group.rows, key, slices);
                         return sliceGroups.map((wg) => {
                         // A SLICE OF ONE NEEDS NO FOLD — its single branch is

@@ -23,12 +23,10 @@ import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
  *      (NOT STARTED) and the `planHeads` path (WAITING ON YOU) — and a test on
  *      one passes while half the boards stay wrong. This is the trap
  *      `folded-plan-pr-fold.browser.test.ts` records costing a fix already.
- *   2. It does NOT replace the phase, and does not evict the verdict or the PR
- *      fold from the same cell. All of them are siblings; a plan in Discovery
- *      with an eligible wave must say both. The verdict and the fold are
- *      exclusive OF EACH OTHER since 2026-09-30 — `planRowShowsSoleVerdict`
- *      decides which of the two speaks — and the badge is beside whichever it
- *      is, answering a question neither asks.
+ *   2. It does NOT replace the phase, and does not evict the PR fold from the
+ *      same cell. They are siblings answering different questions. A plan row
+ *      never prints a slice's verdict, so the badge sits beside the phase and
+ *      the fold alone.
  *   3. It leaves the summary run. A badge that also stayed in `2 waves · …`
  *      would satisfy 1 and 2 and still not be the change.
  */
