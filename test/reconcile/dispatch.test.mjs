@@ -3426,10 +3426,11 @@ function removeSandbox(root) {
  *
  * @param label names the sandbox directory.
  * @param workerCommand what the worker runs; '' writes no key.
- * @param options `asLoop` — wrap the command in the loop stub (default true).
+ * @param options `asLoop` — wrap the command in the loop stub (default true);
+ *   `worktreeRoot` — the key's value, or `null` to write no key.
  * @returns the sandbox root and the checkout inside it.
  */
-function repoForStart(label, workerCommand = 'true', { asLoop = true } = {}) {
+function repoForStart(label, workerCommand = 'true', { asLoop = true, worktreeRoot = '.worktrees' } = {}) {
   const root = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-start-${label}-`)));
   const origin = path.join(root, 'origin.git');
   const checkout = path.join(root, 'repo');
@@ -3446,7 +3447,8 @@ function repoForStart(label, workerCommand = 'true', { asLoop = true } = {}) {
   git(checkout, 'config', 'user.name', 'Plot Test');
   git(checkout, 'config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(checkout, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** plans/\n- **Worktree root:** .worktrees\n'
+    '## Plot Config\n\n- **Plan directory:** plans/\n'
+    + (worktreeRoot === null ? '' : `- **Worktree root:** ${worktreeRoot}\n`)
     + (workerCommand === '' ? '' : `- **Worker command:** ${workerCommand}\n`));
   git(checkout, 'add', '-A');
   git(checkout, 'commit', '-qm', 'init');
@@ -3461,6 +3463,29 @@ test('dispatch: --start defaults to three free agents', () => {
     assert.match(out, /summary: agents=3 /, out);
     const desks = fs.readdirSync(path.join(checkout, '.worktrees'));
     assert.equal(desks.length, 3, `three desks, found ${desks.length}`);
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: with no Worktree root, a desk goes under <repo>/.worktrees and the parent is untouched', () => {
+  // The desk root's default, end to end. The parent's listing is read before
+  // and after, because a dispatch can create the new desk and still drop a log
+  // or a state file beside the repository — an existence check misses that.
+  const { root, checkout } = repoForStart('nokey', 'true', { worktreeRoot: null });
+  try {
+    const before = fs.readdirSync(root).sort();
+    const out = runDetached(['--start', '1'], checkout);
+    assert.match(out, /summary: agents=1 /, out);
+
+    const desks = fs.readdirSync(path.join(checkout, '.worktrees'));
+    assert.equal(desks.length, 1, `one desk under <repo>/.worktrees, found ${desks.join(', ')}`);
+    assert.doesNotMatch(desks[0], /^plot-wt-/, 'the prefix went with the parent default');
+    assert.deepEqual(fs.readdirSync(root).sort(), before, 'nothing was written beside the repository');
+
+    // The desk root is inside the repository, so it must not read as untracked.
+    const status = git(checkout, 'status', '--porcelain');
+    assert.doesNotMatch(status, /\.worktrees/, status);
   } finally {
     removeSandbox(root);
   }
