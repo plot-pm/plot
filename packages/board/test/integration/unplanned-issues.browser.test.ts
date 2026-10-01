@@ -271,6 +271,21 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     }
   });
 
+  it('says WHY a list cannot be asked, and never that it could not be read', async () => {
+    // #1131: Quatico `bb` has no issue command, so the adapter exits 4 with a
+    // reason. The reason is shown as an absence, not as an outage.
+    const absence = 'Open issues are not listed: bb 1.9.0 lists no issue command';
+    const page = await open(fleet({ issues: [], issueAnswer: 'unsupported', issueAbsence: absence }));
+    try {
+      const notice = section(page).locator('[data-issue-absence]');
+      await expect.poll(() => notice.count()).toBe(1);
+      await expect.poll(() => notice.textContent()).toBe(absence);
+      await expect.poll(() => section(page).locator('[data-issue-error]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('says a failed lookup is UNKNOWN, never "no issues"', async () => {
     // The rule `an-outage-is-not-an-answer`. Silence here is indistinguishable
     // from an empty inbox, and a reader would conclude they had nothing to

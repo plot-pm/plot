@@ -60,6 +60,8 @@ import {
   type Reaction,
   type SupervisorRun,
   foldPrIndex,
+  issueAbsence,
+  issueSource,
   prWindowFor,
   type PrIndex,
   type PrIndexRow,
@@ -642,6 +644,8 @@ export interface CacheEntry {
   issues: IssueRow[];
   issueAnswer: IssueAnswer;
   issueError: string | null;
+  /** Why the issue list cannot be asked, as the board shows it; null where unknown. */
+  issueAbsence: string | null;
   /**
    * The dispatcher's agent registry, re-read on every scan tick.
    *
@@ -2357,17 +2361,36 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | 
  * a row vanishing on a fetch error looks like someone planned the issue.
  */
 export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+  // A DECLARED TRACKER IS NEVER ANSWERED BY THE GIT HOST IN ITS PLACE, and the
+  // domain decides which source answers. `plot-host.sh issue-list` reaches
+  // Jira itself where Jira is declared; a tracker no connector lists is not
+  // asked at all, so no host call is spent on a list nobody can give.
+  const declared = await scriptsFor(opts).config('Tracker', '');
+  const source = issueSource({
+    declared: declared.ok ? declared.value : '',
+    gitHost: entry.backend ?? 'github',
+  });
+  if (source.ask === 'nobody') {
+    entry.issues = [];
+    entry.issueAnswer = 'unsupported';
+    entry.issueError = null;
+    entry.issueAbsence = issueAbsence(source.reason);
+    return;
+  }
   const said = await scriptsFor(opts).hostSaid(['issue-list', '--limit', String(ISSUE_LIMIT)]);
   // `unaskable` is the adapter saying THIS HOST CANNOT BE ASKED — a standing
-  // fact about Bitbucket, not an outage. It clears any stale error and empties
-  // the list, because there is nothing to keep and nothing failed. The adapter
-  // read the exit code; this reads the word.
+  // fact, not an outage: a disabled tracker, or a `bb` with no issue command.
+  // It clears any stale error and empties the list, because there is nothing
+  // to keep and nothing failed. The adapter read the exit code; this reads the
+  // word, and keeps the adapter's sentence as the reason the board shows.
   if (said.answer === 'unaskable') {
     entry.issues = [];
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
+    entry.issueAbsence = issueAbsence(said.said);
     return;
   }
+  entry.issueAbsence = null;
   if (said.answer === 'failed') {
     const message = said.said;
     entry.issueAnswer = 'failed';
@@ -3509,7 +3532,7 @@ export function freshCacheEntry(): CacheEntry {
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
-    issues: [], issueAnswer: 'unsupported', issueError: null, agents: [], registry: undefined,
+    issues: [], issueAnswer: 'unsupported', issueError: null, issueAbsence: null, agents: [], registry: undefined,
     // Undefined until the first refresh asks, which is NOT `unknown`: nothing
     // has been asked yet, so the header renders nothing rather than reporting a
     // reading that was never attempted.
@@ -7935,6 +7958,7 @@ export async function buildFleet(
       ? supervisorVerdict({ ...entry.supervisor, agentsRunning: liveAgents })
       : undefined,
     issueError: entry.issueError,
+    issueAbsence: entry.issueAbsence,
     // The two fleet controls, read fresh from `.plot/state/` on this render
     // clock — NOT off the cached pulse — so a write through /api/fleet-controls
     // is visible on the very next poll. Read here, unconditionally, because the
