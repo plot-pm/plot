@@ -13,7 +13,7 @@
 
 ## Changelog
 
-- A worker monitor follows its agent to a new desk after a hop, so its idle, quiet and commit readings are about the desk the agent works in.
+- The AgentMonitor, the BuildMonitor and the wrapper's `gone` line follow their agent to a new desk after a hop, so their findings are about, and land in, the desk the agent works in.
 - The worker-state reading finds a desk's manifest from inside a dispatched desk and under a configured `Agent registry`.
 - `/api/continue` starts a loop that knows its manifest and refuses a desk no manifest names; a loop whose manifest is gone ends its wait instead of holding the desk for eight hours.
 - A board row for a desk no manifest names says so, and no longer labels it with the branch the desk has checked out.
@@ -50,11 +50,11 @@ The join itself has four implementations today, and they disagree:
 
 Each export has 100% branch coverage in `packages/domain/test/`.
 
-**The shell keeps a declared duplicate, with a corpus test.** `plot_manifest_for_worktree` runs per worktree per fleet-scan pass, and the monitor's re-read runs every 30 s per agent. Per *A Shell Script Asks The Domain*, both are per-pass costs, so this plan chooses a declared shell duplicate over a bundle call. `packages/domain/corpus/desk-manifest.corpus.test.ts` drives the real shell functions and the rule over the same fixtures (path match, realpath match, none, several, configured absolute and relative directory, a call from inside a desk) and names both answers on a disagreement. No new `plot-*.sh` script is added: the shell side stays inside `plot-worker-state.sh`, the three monitors and `plot-worker-loop.sh`.
+**The shell keeps a declared duplicate, with a corpus test.** `plot_manifest_for_worktree` runs per worktree per fleet-scan pass, and the monitor's re-read runs every 30 s per agent. Per *A Shell Script Asks The Domain*, both are per-pass costs, so this plan chooses a declared shell duplicate over a bundle call. `packages/domain/corpus/desk-manifest.corpus.test.ts` drives the real shell functions and the rule over the same fixtures (path match, realpath match, none, several, configured absolute and relative directory, a call from inside a desk) and names both answers on a disagreement. No new `plot-*.sh` script is added: the shell side stays inside `plot-worker-state.sh`, the two remaining monitors, the wrapper in `plot-dispatch.sh` and `plot-worker-loop.sh`.
 
 **The shell resolves the main checkout through `--git-common-dir`**, the reading `plot_repo_root` in `plot-desk-root.sh:38-46` already makes, and reads `Agent registry` through `plot-config.sh` once per process, cached in `PLOT_MANIFEST_DIR`.
 
-**The monitors re-read the manifest each pass.** The wrapper already exports `PLOT_MANIFEST_FILE` to the monitors (`plot-dispatch.sh:1494`). Each pass, a monitor reads the manifest's `worktree` and applies `watchedDesk`. The findings file follows the watched desk, so the loop's reader at `plot-worker-loop.sh:1465` and the monitor's writer name one file. `PLOT_PID_FILE` stays at the launch desk, because the wrapper writes the agent pid there.
+**The monitors re-read the manifest each pass.** `docs/plans/2026-10-01-idle-is-read-from-what-the-desk-recorded.md` (#1041) removes `plot-worker-monitor.sh` in its slice `bug/the-loop-reports-idle`: the loop's watcher subshell judges `idle` and the wrapper appends `gone` or `clear` after `wait "$agent"`. The watcher runs inside the loop, which exports the new desk as `PLOT_WORKTREE` after a hop (`plot-worker-loop.sh:2315`), so its findings follow the hop without this plan. The AgentMonitor and the BuildMonitor remain, and each copies `PLOT_WORKTREE` once (`plot-agent-monitor.sh:119`, `plot-build-monitor.sh:127`). The wrapper's `gone` and `clear` lines go to the launch desk, because the wrapper's `PLOT_WORKTREE` is fixed at launch. The wrapper already exports `PLOT_MANIFEST_FILE` to the monitors (`plot-dispatch.sh:1494`). Each pass, the AgentMonitor and the BuildMonitor read the manifest's `worktree` and apply `watchedDesk`, and their findings files follow the watched desk. The wrapper applies `watchedDesk` once, after `wait "$agent"` returns, and appends its line to the watched desk's `.plot-worker.monitor.worker.jsonl`, the file the loop's watcher writes. `PLOT_PID_FILE` and `PLOT_EXIT_FILE` stay at the launch desk, because the wrapper writes the agent pid and exit status there.
 
 **`/api/continue` carries the manifest or refuses.** The route asks `deskManifest`. On `named` it passes `PLOT_MANIFEST_FILE` in the spawn environment. On `unnamed` or `several` it refuses with a sentence that names the desk and the answer, and starts nothing. It removes `.plot-worker.wrapper.pid` before the spawn, because it starts no wrapper and the file would claim one.
 
@@ -81,11 +81,11 @@ Each export has 100% branch coverage in `packages/domain/test/`.
 
 Tests that fail on origin/main: a contract case in `test/reconcile/workerstate.test.mjs` sources `plot-worker-state.sh` from inside a linked worktree whose manifest sits in the main checkout's `.plot/agents/`, with `PLOT_MANIFEST_DIR` unset, and asserts `plot_manifest_for_worktree` prints that manifest; a second case sets `Agent registry` to an absolute directory and asserts the same; a `supervisor` unit case registers a desk by its symlinked path and asserts the real path reads `registered: true`.
 
-### The monitor follows the hop (Branch: bug/the-monitor-follows-the-hop) <!-- builds: watchedDesk, the monitor's per-pass desk --> <!-- waits: bug/the-join-is-one-rule -->
+### The monitor follows the hop (Branch: bug/the-monitor-follows-the-hop) <!-- builds: watchedDesk, the monitor's per-pass desk --> <!-- waits: bug/the-join-is-one-rule --> <!-- waits: bug/the-loop-reports-idle -->
 
-`watchedDesk` in `rules/desk-manifest.ts` with unit tests; `plot-worker-monitor.sh`, `plot-agent-monitor.sh` and `plot-build-monitor.sh` re-read the manifest's `worktree` each pass and move their findings file with it; a corpus row for `watchedDesk`; a `plot` patch changeset. Answers #1085.
+`watchedDesk` in `rules/desk-manifest.ts` with unit tests; `plot-agent-monitor.sh` and `plot-build-monitor.sh` re-read the manifest's `worktree` each pass and move their findings files with it; the wrapper in `plot-dispatch.sh` appends its `gone` or `clear` line to the watched desk; a corpus row for `watchedDesk`; a `plot` patch changeset. The slice builds on #1041's `bug/the-loop-reports-idle`, which removes `plot-worker-monitor.sh` and moves `idle` into the loop's watcher and `gone` into the wrapper; it does not edit `plot-worker-monitor.sh`. Answers #1085.
 
-Tests that fail on origin/main: a contract case in `test/reconcile/workermonitor.test.mjs` starts the monitor with `--once` on desk A, rewrites the manifest's `worktree` to desk B, runs `--once` again, and asserts the finding names desk B and lands in B's `.plot-worker.monitor.worker.jsonl`; a `workerloop.test.mjs` case drives the create path of the hop (`reset_desk` refused at step 1, #1085's third row) and asserts `monitor_has_commits` answers about the new desk.
+Tests that fail on origin/main: a contract case in `test/reconcile/` starts the BuildMonitor with `--once` on desk A, rewrites the manifest's `worktree` to desk B, runs `--once` again, and asserts the finding names desk B and lands in B's findings file, and a second case does the same for the AgentMonitor; a `workerloop.test.mjs` case drives the create path of the hop (`reset_desk` refused at step 1, #1085's third row) and asserts the loop's watcher publishes `idle` into the new desk's `.plot-worker.monitor.worker.jsonl`, which locks in what #1041 gives; a dispatch contract case hops an agent and lets it exit 124, and asserts the `gone` line lands in the new desk's `.plot-worker.monitor.worker.jsonl`.
 
 ### A continued loop carries its manifest (Branch: bug/a-continued-loop-carries-its-manifest) <!-- builds: loopRegistration, the continue refusal --> <!-- waits: bug/the-join-is-one-rule -->
 
@@ -99,7 +99,7 @@ Tests that fail on origin/main: a `continue-route.test.ts` case asserts the spaw
 
 Tests that fail on origin/main: a `registry.test.ts` case lists a worktree no manifest names on `bug/x` and asserts the entry's `branch` is `''` and `checkout` is `bug/x`; a browser test asserts the synthesized row does not show `bug/x` as its branch and shows the label.
 
-Slices 2, 3 and 4 each wait on slice 1, because each adds an export to `rules/desk-manifest.ts` and slices 1 and 4 both edit `registry.ts`. Slices 2, 3 and 4 do not wait on each other.
+Slices 2, 3 and 4 each wait on slice 1, because each adds an export to `rules/desk-manifest.ts` and slices 1 and 4 both edit `registry.ts`. Slice 2 also waits on `bug/the-loop-reports-idle` from #1041's plan, because that slice removes `plot-worker-monitor.sh` and rewrites the wrapper line in `plot-dispatch.sh` that slice 2 edits. Slices 2, 3 and 4 do not wait on each other.
 
 ## Done when
 
@@ -112,3 +112,4 @@ Slices 2, 3 and 4 each wait on slice 1, because each adds an export to `rules/de
 
 - One plan, because the three issues share one mechanism: the `worktree` field of a manifest, read from the desk side (#1086, #1101's row), from the manifest side (#1085), and not passed at all (#1101's loop).
 - Measured cases: `free-c7b58b4f` and `free-a8d68976` (2026-09-30, #1101); #1074's comment on #1085 (four `reset_desk` shapes).
+- #1085's hop case for the `idle` finding is covered by `docs/plans/2026-10-01-idle-is-read-from-what-the-desk-recorded.md`, slice `bug/the-loop-reports-idle`: the loop's watcher judges `idle` and reads the desk the loop exports after a hop. That plan does not cover the AgentMonitor, the BuildMonitor or the wrapper's `gone` line, so slice 2 keeps those and waits on it.
