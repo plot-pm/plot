@@ -113,3 +113,44 @@ describe('the parsers read what the scripts print', () => {
     expect(asText('  main \n')).toBe('main');
   });
 });
+
+describe('a timeout ends the whole process group (#1084)', () => {
+  // The script starts a child that would outlive it, prints the child's pid,
+  // then waits on it, as `plot-fleet-scan.sh` waits on `plot-host.sh`.
+  const SCRIPT = 'sleep 30 & echo $!; wait';
+
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 300));
+
+  it('leaves no child running after runProcess times out', async () => {
+    const started = Date.now();
+    const run = await runProcess('bash', ['-c', `${SCRIPT}`], { timeoutMs: 500 });
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(run.code).not.toBe(0);
+    const child = Number(run.stdout.trim());
+    expect(child).toBeGreaterThan(0);
+    await settle();
+    expect(alive(child)).toBe(false);
+  });
+
+  it('leaves a child started by a script that exits on its own', async () => {
+    // A plain non-zero exit is not a timeout: a script may start work that is
+    // meant to outlive it, and the group is left alone.
+    const run = await runProcess('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!; exit 3'], { timeoutMs: 5_000 });
+    expect(run.code).toBe(3);
+    const child = Number(run.stdout.trim());
+    try {
+      expect(alive(child)).toBe(true);
+    } finally {
+      process.kill(child, 'SIGKILL');
+    }
+  });
+});
