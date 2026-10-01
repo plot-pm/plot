@@ -99,4 +99,12 @@ describe('deskRootPlacement', () => {
       inside: false,
     });
   });
+
+  it('names the exclude line for a repository at the filesystem root', () => {
+    // The one root that keeps its trailing slash, so the prefix is not doubled.
+    expect(deskRootPlacement({ configured: '', repoRoot: '/' })).toEqual({
+      inside: true,
+      excludeLine: '/.worktrees/',
+    });
+  });
 });
