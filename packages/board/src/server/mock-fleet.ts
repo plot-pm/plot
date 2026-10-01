@@ -412,6 +412,7 @@ export function mockFleet(): Fleet {
     }],
     issueAnswer: 'answered' as const,
     issueError: null,
+    issueAbsence: null,
     // `nullable()` with no default: the schema requires the key, and null is the
     // honest value — a mock had no scan to fail and no host to ask.
     error: null,
