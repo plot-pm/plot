@@ -95,6 +95,7 @@ export * from './rules/spend.js';
 export * from './rules/slice-tokens.js';
 export * from './rules/issue-status.js';
 export * from './rules/issue-source.js';
+export * from './rules/listing-page.js';
 export * from './rules/timebox.js';
 /**
  * The per-agent half of the tick, disambiguated for the same reason the phase

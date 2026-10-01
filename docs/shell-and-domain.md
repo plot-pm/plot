@@ -80,3 +80,7 @@ It carried a declared divergence until 2026-09-08, and that divergence is now cl
 So each state is built in a real repository with a real origin, and read back through the loop's own `plot_worker_blocked` and `plot_worker_dirty`. **The shell under test is the shipped shell; only the estate it reads is made.** The rule stated in section 3 is unchanged — production supplies the readings and its own verdict, and the domain re-scores the same readings.
 
 **Where a subject cannot be checked in, the corpus builds it.** What must never be built is the READING: assembling `dirtyPath` from a `git status` written in the test would compare the domain against the test's idea of a dirty tree, and `plot_worker_dirty` drops editor leftovers and Plot's own `.plot-worker.*` records for measured reasons.
+
+## The listing-page comparison
+
+`corpus/listing-page.corpus.test.ts` compares `pagePossiblyTruncated` (`rules/listing-page.ts`) against `pr_list_report_truncation` (`plot-host.sh`). `pr-list` runs on every board refresh, so the shell keeps its copy. The corpus is built: 63 cases over GitHub and two `bb` versions, three limits and seven row counts, run through `plot-host.sh pr-list` against stub CLIs. The rule reads each case's paging through `listingPagingFor`, so the comparison also holds the two page-length tables together: `BITBUCKET_PAGE_LENGTHS` in `adapters/host/listing-paging.ts` and `BB_LIST_PAGE_VERSIONS` in the script.
