@@ -1,0 +1,1 @@
+../2026-10-01-every-file-plot-writes-declares-its-bound.md
