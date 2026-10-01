@@ -70,6 +70,27 @@ test('the run gets a TMPDIR, HOME, budget home and PR index home inside one root
 
 // THE GATE'S OWN FIXTURE — the Done-when item "pnpm run test:contracts fails
 // when a test leaves an entry". The command creates one on purpose.
+test('Playwright finds its browsers under the caller HOME, not the private one', (t) => {
+  const tmp = privateTmp(t);
+  const home = privateTmp(t);
+  const res = runWrapped(tmp, ['sh', '-c', 'printf "%s\\n" "$PLAYWRIGHT_BROWSERS_PATH"'],
+    { HOME: home, PLAYWRIGHT_BROWSERS_PATH: '', XDG_CACHE_HOME: '' });
+  assert.equal(res.status, 0, res.stderr);
+  const want = process.platform === 'darwin'
+    ? path.join(home, 'Library', 'Caches', 'ms-playwright')
+    : path.join(home, '.cache', 'ms-playwright');
+  // The registry check prints its own line after the command's.
+  assert.equal(res.stdout.split('\n')[0], want);
+});
+
+test('a caller PLAYWRIGHT_BROWSERS_PATH wins', (t) => {
+  const tmp = privateTmp(t);
+  const res = runWrapped(tmp, ['sh', '-c', 'printf "%s\\n" "$PLAYWRIGHT_BROWSERS_PATH"'],
+    { PLAYWRIGHT_BROWSERS_PATH: '/opt/browsers' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.split('\n')[0], '/opt/browsers');
+});
+
 test('an entry left behind fails the run and is named with its prefix', (t) => {
   const tmp = privateTmp(t);
   const res = runWrapped(tmp, ['sh', '-c', 'mkdir -p "$TMPDIR/plot-leaky-abc123"; exit 0'],

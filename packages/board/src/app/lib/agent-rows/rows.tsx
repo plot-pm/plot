@@ -455,7 +455,6 @@ export function PlanRow({
   ageMinutes,
   elsewhere = 0,
   soleSlice,
-  showsSoleVerdict = true,
   dispatch,
   onStarting,
 }: {
@@ -527,38 +526,13 @@ export function PlanRow({
   /**
    * The plan's sole slice, where it has exactly one.
    *
-   * WITHIN ONE SECTION, THE VERDICT APPEARS ONCE among the rows a reader can
-   * see. A one-slice plan renders a slice row like any other plan
-   * (`AgentList.tsx`: *"SLICE ROWS NAME THEIR SLICES, however many slices the
-   * plan has"*), so this row prints the verdict only where that row does not —
-   * which is {@link showsSoleVerdict}'s question, decided by the section that
-   * knows whether its slice row is on the page and what it says.
-   *
-   * This prop survives for its SECOND job: it carries the slice's *Start work*
-   * onto the plan row below, which is about the slice's identity rather than
-   * about who prints its verdict. Measured on this estate: 35 of 54 plans have
+   * It carries the slice's *Start work* onto the plan row below and nothing
+   * else. A PLAN ROW NEVER PRINTS A SLICE'S VERDICT: its status cell holds the
+   * plan's phase, its rounds badge and its PR fold, and the verdict belongs to
+   * the slice row beneath it. Measured on this estate: 35 of 54 plans have
    * exactly one slice.
-   *
-   * It read *"a plan with one slice renders NO slice row"* until 2026-09-30,
-   * when the slice row returned and the verdict was stated twice — the outcome
-   * the premise was written to prevent.
    */
   soleSlice?: Slice | null;
-  /**
-   * Does this row print {@link soleSlice}'s verdict, rather than the PR fold?
-   *
-   * `planRowShowsSoleVerdict`'s answer, computed by the CALLER because only the
-   * section knows whether it renders a slice row beneath this one and what that
-   * row says. The rule is per section, not per plan: `soleSliceFor` ignores the
-   * section, so a plan whose rows split across NOT STARTED and WAITING ON YOU
-   * renders a plan row in each, and each asks with its own inputs.
-   *
-   * Defaults to `true`, which is the pre-2026-09-30 behaviour: a caller that
-   * has not been taught the question keeps the verdict rather than silently
-   * losing it. Ignored where `soleSlice` is absent — a multi-slice plan has no
-   * verdict to print here.
-   */
-  showsSoleVerdict?: boolean;
   /**
    * Whether this server will dispatch, and why not — passed through to the
    * `SliceActions` control the plan row carries for a ONE-SLICE plan.
@@ -775,25 +749,15 @@ export function PlanRow({
       // branch carries the state — a single branch says its own size by being
       // one row once opened.
       //
-      // A ONE-SLICE PLAN shows its sole slice's VERDICT here instead of the PR
-      // fold — but ONLY where the slice row beneath it in this section does not
-      // say the verdict itself. `showsSoleVerdict` is the caller's answer, and
-      // the two are exclusive: where the verdict prints, the fold does not, and
-      // where it does not, the fold takes the slot.
-      //
-      // The verdict outranks the prFold where both could speak:
-      // `eligible`/`blocked`/`complete` says what to do next, while a PR state is
-      // about a branch that may not exist yet.
-      //
-      // IT WAS UNCONDITIONAL UNTIL 2026-09-30, on the premise that a one-slice
-      // plan rendered no slice row. The slice row returned and the verdict was
-      // then printed twice: `Testing complete` over `complete`.
+      // A PLAN ROW CARRIES PLAN FACTS ONLY. A one-slice plan's row is built as a
+      // multi-slice plan's row is: the slice's verdict is the slice row's to
+      // print, and placed beside the phase it read as the plan's status —
+      // `Testing complete` for a plan delivered and not released.
       statusExtra={<>
         {/* THE INTERROGATION ROUNDS, a badge in the phase's own cell.
-            It sits BEFORE the verdict/PR fold and never replaces either: the
-            three answer different questions — *how far did the thinking get*,
-            *what can be started*, *what are its branches doing* — and a plan in
-            Discovery with an eligible slice should say both. Styled as `draft`
+            It sits BEFORE the PR fold and never replaces it: the two answer
+            different questions — *how far did the thinking get* and *what are
+            its branches doing*. Styled as `draft`
             is, because it is the same kind of fact: a small standing property
             of the row, not a state that changes under you. */}
         {rounds && card && (
@@ -813,15 +777,7 @@ export function PlanRow({
             {rounds}
           </span>
         )}
-        {soleSlice?.verdict && showsSoleVerdict ? (
-        <span
-          data-sole-wave-verdict={soleSlice.verdict}
-          title={`This plan's sole slice: ${soleSlice.verdict}`}
-          className={`min-w-0 shrink-0 truncate ${statusTone(soleSlice.verdict)}`}
-        >
-          {soleSlice.verdict}
-        </span>
-      ) : prFold ? (
+        {prFold ? (
         <span
           data-plan-pr-fold={prFold.state}
           data-plan-pr-count={prFold.count > 1 ? prFold.count : undefined}
@@ -1043,11 +999,10 @@ export function SliceRow({
    * would be no second row to read it from. Measured: all 12 slices in WAITING ON
    * YOU hold one branch, so this is the ordinary case rather than an edge.
    *
-   * SO THIS ROW MAY SAY THE BRANCH'S WORD INSTEAD OF THE VERDICT, and the plan
-   * row above it reads the same fact the other way round: where this states a
-   * word of its own, the verdict is the plan row's to print
-   * (`planRowShowsSoleVerdict`). Where the word is empty — a PR state of
-   * `unknown` — this falls back to the verdict and the plan row yields it.
+   * SO THIS ROW MAY SAY THE BRANCH'S WORD INSTEAD OF THE VERDICT. Where the word
+   * is empty — a PR state of `unknown` — it falls back to the verdict. Where it
+   * states a word, the verdict appears on no row: the plan row never prints a
+   * slice's status.
    */
   soleRow?: AgentRow;
   continueWith?: DispatchInfo;

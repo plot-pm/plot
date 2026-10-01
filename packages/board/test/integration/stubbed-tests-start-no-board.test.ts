@@ -611,7 +611,11 @@ const EXPECTED_FILES = 56;
 // 527 → 533 on 2026-09-30: the six `it(` in
 // `plan-row-verdict-once.browser.test.ts`. Added, not moved —
 // `EXPECTED_FILES` counts the new file, and no file lost an `it(`.
-const EXPECTED_TESTS = 533;
+// 533 → 535 on 2026-10-01: `plan-row-verdict-once.browser.test.ts` became
+// `plan-row-shows-plan-status-only.browser.test.ts` and went from six `it(` to
+// eight — a page-wide no-verdict case and a `pending` fold case. Renamed, not
+// moved; `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 535;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
