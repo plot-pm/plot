@@ -351,3 +351,30 @@ describe('pathOf names a script without running it', () => {
       .toBe(path.join(dir, 'plot-resolve-artifact.sh'));
   });
 });
+
+describe('a streamed script that times out leaves nothing running (#1084)', () => {
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('ends the subshell and the child it started, not only bash', async () => {
+    // The shape measured on a Bitbucket estate: the scan backgrounds a subshell
+    // that runs `plot-host.sh pr-list`, and waits on it.
+    const dir = scriptDir({
+      'plot-fleet-scan.sh': '#!/usr/bin/env bash\n( sleep 30; echo late ) &\necho "$!"\nwait\n',
+    });
+    const lines: string[] = [];
+    await expect(
+      at(dir).stream('plot-fleet-scan.sh', ['--stream'], (l) => lines.push(l), { timeoutMs: 500 }),
+    ).rejects.toThrow(/timed out after 500ms/);
+    const subshell = Number(lines[0]);
+    expect(subshell).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(alive(subshell)).toBe(false);
+  });
+});

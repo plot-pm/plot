@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
 
 import { answered, failed, unaskable, type PortResult } from '../port-result.js';
 
@@ -46,7 +46,34 @@ const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
+ * Ends a child that leads its own process group, and every process in it.
+ *
+ * A Plot script is `bash` with subshells and children (`git`, `plot-host.sh`,
+ * `bb`), and signalling the leader alone leaves them running reparented to
+ * pid 1. SIGKILL rather than SIGTERM, because bash defers a TERM until its
+ * foreground child exits. Measured 2026-10-01 on a Bitbucket estate: a timed-out
+ * scan's tree outlived SIGTERM for over a minute, and its `pr-list` children
+ * held the account while the next scan timed out beside them (#1084).
+ *
+ * The child must have been spawned with `detached: true`, which makes it the
+ * group leader. Where the group cannot be signalled, the leader is.
+ *
+ * @param child - the process to end, spawned detached.
+ */
+export const killGroup = (child: ChildProcess): void => {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+};
+
+/**
  * Runs a command and reports its exit code and output.
+ *
+ * The command runs as the leader of its own process group, and a timeout ends
+ * the whole group, so nothing it started outlives the answer.
  *
  * Never throws for a non-zero exit: the exit code is the answer, and an
  * exception would make the four contract codes indistinguishable from a
@@ -63,22 +90,44 @@ export const runProcess = (
   options: RunOptions = {},
 ): Promise<ScriptRun> =>
   new Promise((resolve) => {
-    execFile(
-      command,
-      [...args],
-      {
-        cwd: options.cwd,
-        env: options.env ? { ...process.env, ...options.env } : process.env,
-        timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        maxBuffer: options.maxBuffer ?? DEFAULT_MAX_BUFFER,
-        encoding: 'utf8',
-      },
-      (error, stdout, stderr) => {
-        const code =
-          error === null ? 0 : typeof error.code === 'number' ? error.code : 1;
-        resolve({ code, stdout: stdout ?? '', stderr: stderr ?? '' });
-      },
-    );
+    // SPAWN, NOT `execFile`: `execFile` ignores `detached`, so its child joins
+    // this process's group and a timeout could signal only `bash`.
+    const child = spawn(command, [...args], {
+      cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const limit = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (code: number): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    };
+    // A STREAM PAST ITS LIMIT ENDS THE GROUP and answers 1, as `execFile`'s
+    // `maxBuffer` did, but with nothing it started left running.
+    const collect = (chunk: string, into: 'stdout' | 'stderr'): void => {
+      if (into === 'stdout') stdout += chunk;
+      else stderr += chunk;
+      if ((into === 'stdout' ? stdout : stderr).length > limit) {
+        killGroup(child);
+        finish(1);
+      }
+    };
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => collect(chunk, 'stdout'));
+    child.stderr.on('data', (chunk: string) => collect(chunk, 'stderr'));
+    // A process that could not start at all reports code 1.
+    child.on('error', () => finish(1));
+    // `close` waits for both streams, so the answer holds everything written.
+    // A process ended by a signal has no exit code and reports 1.
+    child.on('close', (code) => finish(code ?? 1));
+    const timer = setTimeout(() => killGroup(child), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   });
 
 
