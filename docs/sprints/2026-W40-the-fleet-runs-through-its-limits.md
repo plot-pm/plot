@@ -52,7 +52,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 
 - [ ] [a-draft-slice-waits-on-its-approval](../plans/2026-10-02-a-draft-slice-waits-on-its-approval.md) — [#1161](https://github.com/plot-pm/plot/issues/1161) — A Draft plan's waiting slice renders in NOT STARTED as approved — nobody has taken it.
 
-- [ ] [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
+- [ ] [a-slice-waits-on-every-branch-it-names](../plans/2026-10-02-a-slice-waits-on-every-branch-it-names.md) — [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
 
 ### Should Have
 
