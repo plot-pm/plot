@@ -399,79 +399,35 @@ if [ -r "$CONFIG" ]; then
 fi
 case "$MANIFEST_DIR" in /*) ;; *) MANIFEST_DIR="$ROOT/$MANIFEST_DIR" ;; esac
 
-# Where the agent logs live, resolved through `plot-config.sh` from the SAME
-# `Worktree root` key `resolve_wt_root()` and `agentLogDir` read. Three readers
-# of one key, and none of them may invent a second: a reaper sweeping a
-# directory the board never writes to reports success over a file that is still
-# there, which is the failure this slice exists to stop.
+# Where the DESKS and the agent logs live: the desk root, `deskRoot`'s answer
+# asked through `plot-desk-root.sh` — the rule `plot-dispatch.sh` creates desks
+# under and `agentLogDir` writes logs into. One rule, so a reaper cannot sweep a
+# directory the board never writes to and report success over a file that is
+# still there.
 #
-# THE FALLBACK IS THE PARENT DIRECTORY, NOT AN ERROR — `agentLogDir`'s rule,
-# stated the same way here. A repository with no key has no `.worktrees/`, and
-# the logs it wrote are beside it; a reaper that refused to look there would
-# clean nothing on exactly the repositories that never migrated.
+# Two questions read the one answer. `LOG_DIR` is where a finished branch's log
+# files are swept from; `WT_ROOT` is the directory a tree must sit under to be a
+# candidate desk at all. The sweep's filename filter (`branch_log_files`) is
+# unchanged, so what it may delete is still only `plot-<kind>-*` names. The
+# default root is `<repo>/.worktrees`, which Plot owns, so a sibling checkout in
+# the parent is never under it and stays silent.
 #
-# The case split is `resolve_wt_root()`'s: absolute taken as given, relative
-# joined onto the repo root, trailing slash trimmed as pure string work because
-# the directory need not exist. A second convention for resolving a configured
-# directory is a second way to be wrong.
-LOG_DIR="$(cd "$ROOT/.." && pwd)"
-if [ -r "$CONFIG" ]; then
-  d=$(bash "$CONFIG" get "Worktree root" "" 2>/dev/null) || d=""
-  if [ -n "$d" ]; then
-    case "$d" in
-      /*) LOG_DIR="$d" ;;
-      *)  LOG_DIR="$ROOT/$d" ;;
-    esac
-    LOG_DIR="${LOG_DIR%/}"
-  fi
-fi
-
-# Where the DESKS live, which is the same key resolved for a different question.
-#
-# `LOG_DIR` and this answer two things: `LOG_DIR` is where a finished branch's
-# log files are swept from, and this is the directory a tree must sit under to
-# be a candidate desk at all. A repository with NO configured root has no
-# `.worktrees/` and its desks are named `plot-wt-*` beside the repo — so this
-# stays EMPTY there rather than defaulting to the parent, because the parent
-# holds every sibling checkout a person ever made and calling those candidate
-# desks is the over-broad reading this slice must not introduce.
-#
-# IT IS RESOLVED AGAINST THE MAIN CHECKOUT, NOT `$ROOT`, and that is the one
-# place in this script where the two differ on purpose. `git rev-parse
+# IT IS RESOLVED AGAINST THE MAIN CHECKOUT, NOT `$ROOT`. `git rev-parse
 # --show-toplevel` answers *this* worktree, so a reaper run from inside a desk
-# resolves `.worktrees` to a directory beneath that desk — which does not
+# would resolve `.worktrees` to a directory beneath that desk — which does not
 # exist, so every tree reads as unplaceable-but-elsewhere and the reading is
-# silently empty. Measured 2026-09-10 from this worktree: `$ROOT/.worktrees`
+# silently empty. Measured 2026-09-10 from inside a desk: `$ROOT/.worktrees`
 # named `.../plot-wt-feature-a-finished-desk-is-a-finding/.worktrees` while
 # every desk sits under `.../plot/.worktrees`. A dispatched agent runs the
 # reaper from exactly there, so the wrong answer would be the usual one.
 #
-# `--git-common-dir` is shared by every worktree of one repository, and its
-# parent is the primary checkout — which is what `plot-dispatch.sh` composes
-# desk paths from when it creates them. Same directory, same key, so a
-# creation and this reading cannot disagree.
-#
-# `LOG_DIR` above keeps `$ROOT` untouched: it is this script's established
-# behaviour with its own callers, and changing where a sweep DELETES from is a
-# blast radius rather than a reading. Named here rather than fixed silently.
-WT_ROOT=""
-if [ -r "$CONFIG" ]; then
-  d=$(bash "$CONFIG" get "Worktree root" "" 2>/dev/null) || d=""
-  if [ -n "$d" ]; then
-    case "$d" in
-      /*) WT_ROOT="$d" ;;
-      *)
-        # Falls back to `$ROOT` where git cannot answer, which is the same
-        # directory on a single-checkout repository and the only one available.
-        main_checkout=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") \
-          || main_checkout="$ROOT"
-        [ -d "$main_checkout" ] || main_checkout="$ROOT"
-        WT_ROOT="$main_checkout/$d"
-        ;;
-    esac
-    WT_ROOT="${WT_ROOT%/}"
-  fi
-fi
+# There is NO FALLBACK: a reaper that cannot ask the rule stops rather than
+# compute a second default and delete from it.
+# shellcheck source=plot-desk-root.sh
+. "$(dirname "${BASH_SOURCE[0]}")/plot-desk-root.sh"
+WT_ROOT=$(plot_desk_root "$(plot_repo_root)") || {
+  echo "plot-reap: cannot resolve the desk root — nothing was reaped." >&2; exit 2; }
+LOG_DIR="$WT_ROOT"
 
 # The files ONE branch's agent run leaves beside its worktree, removed with it.
 #

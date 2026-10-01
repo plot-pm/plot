@@ -343,8 +343,9 @@ test('--dry-run names which monitors it would attach to which worktree', () => {
     assert.match(withFlag, /would attach:.*plot-agent-monitor\.sh/,
       '--monitors did not name the AgentMonitor it would attach');
     // It names the WORKTREE too — "which monitors to which worktree" is the
-    // question, and a monitor named without its subject only answers half.
-    assert.match(withFlag, /would attach:.*→.*plot-wt-feature-watched/,
+    // question, and a monitor named without its subject only answers half. With
+    // no `Worktree root` configured, the desk lies under `<repo>/.worktrees`.
+    assert.match(withFlag, /would attach:.*→.*\.worktrees\/feature-watched/,
       '--monitors named the monitors but not the worktree they would watch');
 
     // The control: without the flag, none of it appears. This is what makes the

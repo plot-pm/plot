@@ -91,7 +91,7 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
     // exist — it is written only if the implement exits 0.
     assert.equal(
       fs.realpathSync(path.dirname(body.dispatchLog)),
-      fs.realpathSync(path.resolve(tmp, '..')),
+      fs.realpathSync(path.join(tmp, '.worktrees')),
     );
     assert.equal(path.basename(body.dispatchLog), 'plot-dispatch-ship-the-widget.log');
     // The implementLog should also be present — from the implement step. It
@@ -460,7 +460,7 @@ describe('POST /api/dispatch: the 202 names the act, not an outcome', () => {
     assert.equal(path.basename(body.dispatchLog), 'plot-dispatch-ship-the-widget.log');
     assert.equal(
       fs.realpathSync(path.dirname(body.dispatchLog)),
-      fs.realpathSync(path.resolve(tmp, '..')),
+      fs.realpathSync(path.join(tmp, '.worktrees')),
     );
     assert.equal(path.basename(body.implementLog), 'plot-implement-ship-the-widget.log');
 

@@ -166,14 +166,16 @@ test('init: the desk exclusion is still written by plot-dispatch.sh', () => {
 
 // ── The default this proposal changes ───────────────────────────────────────
 
-test('init: says the absent-key default is the repo PARENT, not .worktrees', () => {
-  // The reason to propose at all. With no key, dispatch uses `repo_root/..`
-  // with a `plot-wt-` prefix, which puts nothing inside the repository — so
-  // the ignore line is needed precisely BECAUSE the proposal changes that.
-  assert.match(skill, /The absent-key default is not `\.worktrees`/,
-    'the skill must not imply the default is what it proposes');
-  assert.match(skill, /PARENT/,
-    'it must name where desks go without the key');
+test('init: says the absent-key default is .worktrees, the desk root rule', () => {
+  // With no key the desk root is `<repo>/.worktrees` (`deskRoot`), so the
+  // proposal states the location rather than changing it — and the skill must
+  // not tell a person that desks go to the parent.
+  assert.match(skill, /The absent-key default is `\.worktrees` too/,
+    'the skill must state the default the rule answers');
+  assert.match(skill, /`deskRoot`'s answer/,
+    'it must name the rule that holds the default');
+  assert.doesNotMatch(skill, /repository's PARENT with a `plot-wt-` prefix/,
+    'the parent default is gone and must not be described');
 });
 
 test('init: the skill and plot-config.sh agree about the default', () => {
@@ -181,8 +183,10 @@ test('init: the skill and plot-config.sh agree about the default', () => {
   // reads the contract file rather than restating it.
   const config = fs.readFileSync(
     path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-config.sh'), 'utf8');
-  assert.match(config, /Absent = the default `repo_root\/\.\.`/,
-    'plot-config.sh must still document the parent default the skill describes');
+  assert.match(config, /Absent or empty =\n#\s+`<repo>\/\.worktrees`/,
+    'plot-config.sh must document the .worktrees default the skill describes');
+  assert.match(skill, /\*\*The absent-key default is `\.worktrees` too\.\*\*/,
+    'the skill must describe the same default');
 });
 
 test('init: an absolute worktree root needs no ignore line', () => {

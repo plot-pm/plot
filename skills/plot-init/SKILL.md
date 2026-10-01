@@ -142,11 +142,11 @@ Then ask only what the probe **could not** answer:
   line then follows whatever the repo chose. Moving existing worktrees is
   `/plot-dispatch --migrate`'s job on a person's say, never adoption's.
 
-  **The absent-key default is not `.worktrees`.** With no key, dispatch uses
-  the repository's PARENT with a `plot-wt-` prefix — so this proposal changes
-  where desks go, and that is the reason to make it rather than leave the
-  default implicit. A relative value resolves inside the repo and the prefix is
-  dropped.
+  **The absent-key default is `.worktrees` too.** With no key, the desk root
+  is `<repo>/.worktrees` — `deskRoot`'s answer, which every script and the
+  board ask. Writing the key still matters: it states the location in the
+  config a person reads, and it comes with the `.gitignore` line. A relative
+  value resolves inside the repo and desks carry no prefix.
 
   **This question declares no unattended shape of its own.** Step 2 already
   stops and writes nothing when `PLOT_UNATTENDED=1` is set, and its existing

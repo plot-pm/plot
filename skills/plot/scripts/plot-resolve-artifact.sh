@@ -165,11 +165,10 @@ fi
 # MEASURED, and recorded at length in plot-dispatch.sh's held_worktree: a
 # hand-made worktree is named for the branch with its TYPE dropped, so a gate
 # that guessed `plot-wt-<flattened>` missed a worktree with six modified files
-# in it. This site had the same shape — it composed `plot-wt-<flattened>` under
-# `repo_root/..` — and this change would make the guess worse, not better: the
-# new `Worktree root:` key introduces a SECOND naming convention, giving a
-# path guess a second way to be wrong. So the read asks git, and only the
-# CREATE-a-fresh-one fallback below composes a name (via dispatch's rule, so the
+# in it. Desks carry two naming conventions — `plot-wt-*` beside the repo from
+# older dispatches, and unprefixed names under the desk root — so a path guess
+# has two ways to be wrong. So the read asks git, and only the
+# CREATE-a-fresh-one fallback below composes a name (under the desk root, so the
 # fresh worktree lands where dispatch would have put it).
 #
 # `git worktree list --porcelain` emits `worktree <path>` then `branch
@@ -182,21 +181,15 @@ wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/he
   /^worktree /  { path = substr($0, 10) }
   /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
 
-# No existing worktree holds it — compose the path a fresh one will take, by the
-# same root+prefix rule plot-dispatch.sh uses. Under a `Worktree root:` key the
-# root moves and the `plot-wt-` prefix drops; absent it, today's behaviour.
+# No existing worktree holds it — compose the path a fresh one will take, under
+# the desk root `plot-dispatch.sh` also asks for, so the fresh worktree lands
+# where dispatch would have put it. The root is the MAIN checkout's, and there
+# is no fallback: an unaskable rule refuses the repair.
+# shellcheck source=plot-desk-root.sh
+. "$script_dir/plot-desk-root.sh"
 if [ -z "$wt" ]; then
-  wt_root=$("$script_dir/plot-config.sh" get "Worktree root" "")
-  if [ -z "$wt_root" ]; then
-    wt_root=$(cd "$repo_root/.." && pwd)
-    wt="$wt_root/plot-wt-$(printf '%s' "$branch" | tr '/' '-')"
-  else
-    case "$wt_root" in
-      /*) : ;;
-      *)  wt_root="$repo_root/$wt_root" ;;
-    esac
-    wt="${wt_root%/}/$(printf '%s' "$branch" | tr '/' '-')"
-  fi
+  wt_root=$(plot_desk_root "$(plot_repo_root)") || finish refused no-desk-root
+  wt="$wt_root/$(printf '%s' "$branch" | tr '/' '-')"
 fi
 
 if [ "$dry_run" = 1 ]; then
@@ -263,6 +256,7 @@ if [ -d "$wt" ] && git worktree list --porcelain | grep -qx "worktree $wt"; then
     finish refused worktree-busy
   fi
 else
+  plot_exclude_desk_root "$(plot_repo_root)"
   if ! git worktree add -q "$wt" "$branch" 2>/dev/null; then
     if ! git worktree add -q -b "$branch" "$wt" "origin/$branch" 2>/dev/null; then
       echo "plot-resolve-artifact: cannot create a worktree for $branch at $wt" >&2

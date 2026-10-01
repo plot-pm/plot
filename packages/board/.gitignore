@@ -25,3 +25,4 @@ dist/
 /plot-state-receipt.sh
 /plot-agent-manifest.sh
 /plot-tmp.sh
+/plot-desk-root.sh

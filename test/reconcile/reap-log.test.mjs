@@ -49,13 +49,13 @@ after(() => {
  * A repo with an origin and a `main` with one commit.
  *
  * Each fixture gets its OWN parent directory and the repo sits inside it, so
- * "beside the repo" — where the logs go when no `Worktree root` is configured —
- * means only what this test created. The shared `os.tmpdir()` is a namespace two
+ * the parent holds only what this test created and a log the reaper should not
+ * touch is easy to see. The shared `os.tmpdir()` is a namespace two
  * suites have already collided in: a `plot-wt-*` left by an aborted run of
  * another file failed an unrelated assertion on 2026-08-30.
  *
  * `worktreeRoot` writes the `Worktree root` key, so the configured branch of the
- * resolution is exercised as well as the fallback.
+ * resolution is exercised as well as the default.
  */
 const makeRepo = ({ registry = 'shared-registry', worktreeRoot = '' } = {}) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-reaplog-'));
@@ -76,13 +76,13 @@ const makeRepo = ({ registry = 'shared-registry', worktreeRoot = '' } = {}) => {
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'init');
   git(repo, 'push', '-q', 'origin', 'main');
-  // Where the reaper must look. With no key that is the parent of the repo,
-  // which is this fixture's own directory; with one it is the configured root.
+  // Where the reaper must look: the desk root. With no key that is
+  // `<repo>/.worktrees`; with one it is the configured root.
   const logDir = worktreeRoot
     ? path.isAbsolute(worktreeRoot)
       ? worktreeRoot
       : path.join(repo, worktreeRoot)
-    : tmp;
+    : path.join(repo, '.worktrees');
   return { tmp, repo, registryDir: path.join(repo, registry), logDir };
 };
 
@@ -180,8 +180,8 @@ test('item 1: the whole run goes — the .state and the .prompt.md too', () => {
 
 test('item 1: the log is found under a configured Worktree root', () => {
   // The repository this plan was written on. `agentLogDir` puts logs under the
-  // configured root, and a reaper reading the fallback would sweep an empty
-  // parent directory and report success over a file still sitting there.
+  // configured root, and a reaper reading the default would sweep an empty
+  // `.worktrees` and report success over a file still sitting there.
   const { repo, logDir } = makeRepo({ worktreeRoot: '.worktrees' });
   worktree(repo, 'feature/configured');
   const files = runFiles(logDir, 'feature/configured');

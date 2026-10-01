@@ -125,7 +125,7 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
 
   const dst = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -391,7 +391,7 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
   // rather than signalling anything. THE ORDER IS THE ASSERTION: an agent
   // stopped after the supervisor was unloaded would have been unwatched for the
   // length of the shutdown.
-  const desk = path.join(box, 'plot-wt-feature-a');
+  const desk = path.join(root, '.worktrees', 'feature-a');
   git(root, 'worktree', 'add', '-q', '-b', 'feature/a', desk);
 
   // A live process the state reader will find, and the pid file it reads.
@@ -483,7 +483,7 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
   // where an operator needs both halves. The flag-and-one-exit shape is what
   // this asserts.
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopboth');
-  const desk = path.join(box, 'plot-wt-feature-b');
+  const desk = path.join(root, '.worktrees', 'feature-b');
   git(root, 'worktree', 'add', '-q', '-b', 'feature/b', desk);
   const sleeper = execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim();
   fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
@@ -1476,7 +1476,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   const plugin = path.join(box, 'plugin-cache', 'plot', '9.9.9');
   const dst = path.join(plugin, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }

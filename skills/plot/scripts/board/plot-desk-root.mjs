@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+var g=".worktrees",n=e=>{let t=e.length;for(;t>1&&e[t-1]==="/";)t-=1;return e.slice(0,t)},l=(e,t)=>e.endsWith("/")?`${e}${t}`:`${e}/${t}`,s=e=>{let t=n(e.repoRoot.trim()),o=e.configured.trim();return o===""?l(t,g):o.startsWith("/")?n(o):l(t,n(o))},a=e=>{let t=n(e.repoRoot.trim()),o=s(e),r=t.endsWith("/")?t:`${t}/`;return o.startsWith(r)?{inside:!0,excludeLine:`/${o.slice(r.length)}/`}:{inside:!1}};import{realpathSync as p}from"node:fs";import{pathToFileURL as f}from"node:url";var i={ok:0,usage:2},m=(e,t=o=>process.stdout.write(o))=>{let o=e[0]==="--exclude-line",[r="",u=""]=o?e.slice(1):e;if(r.trim()==="")return i.usage;let c={configured:u,repoRoot:r};if(!o)return t(`${s(c)}
+`),i.ok;let d=a(c);return d.excludeLine!==void 0&&t(`${d.excludeLine}
+`),i.ok};process.argv[1]&&import.meta.url===f(p(process.argv[1])).href&&process.exit(m(process.argv.slice(2)));export{i as EXIT,m as run};
