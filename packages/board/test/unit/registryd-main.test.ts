@@ -18,6 +18,7 @@ import {
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { PortResult } from '@plot-pm/domain';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 import { readQueue, type QueueWorld } from '../../src/server/queue-reading.js';
@@ -1218,7 +1219,9 @@ describe('a tick asks the host about a branch once', () => {
           } as never,
         ],
         claimedBranches: async () => new Set<string>(),
-        mergedBranches: async () => new Set<string>(),
+        mergedBranches: async () => ({ merged: new Set<string>(), whole: false }),
+        prIndexRows: async () => [],
+        viewLanded: async () => 'unknown',
         briefPresent: async () => true,
         sliceHasMerged: queue.sliceHasMerged,
         queuedHasLanded: queue.queuedHasLanded,
@@ -1229,6 +1232,129 @@ describe('a tick asks the host about a branch once', () => {
       expect(slices.map((slice) => whyNotReady(slice))).toEqual(['merge-unknown']);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the queue world asks a known PR by number when the listing fails (#1140)', () => {
+  // A STUB HOST SHAPED LIKE THE MEASURED OUTAGE: the merged listing refuses
+  // with HTTP 429, while a lookup by number answers.
+  const outage = (listing: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-by-number-'));
+    const log = join(dir, 'calls.log');
+    writeFileSync(
+      join(dir, 'plot-host.sh'),
+      [
+        '#!/usr/bin/env bash',
+        `echo "$*" >> '${log}'`,
+        'case "$1" in',
+        '  backend) echo bitbucket ;;',
+        `  pr-list) ${listing} ;;`,
+        '  pr-state) [ "$2" = 12 ] && { echo \'{"number":12,"state":"MERGED","draft":false,"url":"","mergeCommit":"abc"}\'; exit 0; }',
+        '            echo "HTTP 429 Rate limit for this resource has been exceeded" >&2; exit 5 ;;',
+        'esac',
+      ].join('\n') + '\n',
+    );
+    chmodSync(join(dir, 'plot-host.sh'), 0o755);
+    const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []);
+    return { dir, calls };
+  };
+  const refused = 'echo "HTTP 429 Rate limit for this resource has been exceeded" >&2; exit 5';
+  const row = { number: 12, head: 'feature/one', state: 'OPEN', draft: false, checks: 'none', review: '', url: '' };
+  const index = (connectors: string[]): PrIndexStore => ({
+    location: async () => answered(''),
+    read: async (connector) => {
+      connectors.push(connector);
+      return answered({ v: 2, connector, watermark: null, complete: false, at: '', rows: [row] });
+    },
+    write: async () => answered(undefined),
+  });
+
+  it('reads a refused listing as not whole, and the view by number as landed', async () => {
+    const { dir, calls } = outage(refused);
+    try {
+      const tally = { calls: 0 };
+      const connectors: string[] = [];
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, index(connectors));
+      expect(await queue.mergedBranches()).toEqual({ merged: new Set(), whole: false });
+      expect(await queue.prIndexRows()).toEqual([row]);
+      expect(connectors).toEqual(['bitbucket']);
+      expect(await queue.viewLanded(12)).toBe('landed');
+      expect(await queue.viewLanded(13)).toBe('unknown');
+      expect(calls().filter((c) => c.startsWith('pr-'))).toEqual(['pr-list --state merged --limit 500', 'pr-state 12', 'pr-state 13']);
+      expect(tally.calls).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the rows of a partial listing and reads it as not whole', async () => {
+    const { dir } = outage(`echo '{"number":3,"head":"feature/a","state":"MERGED"}'; echo "pr-list: state open refused" >&2; exit 7`);
+    try {
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, index([]));
+      expect(await queue.mergedBranches()).toEqual({ merged: new Set(['feature/a']), whole: false });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads a whole listing as whole', async () => {
+    const { dir } = outage(`echo '{"number":3,"head":"feature/a","state":"MERGED"}'`);
+    try {
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, index([]));
+      expect(await queue.mergedBranches()).toEqual({ merged: new Set(['feature/a']), whole: true });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('offers the slice behind a merged one through the real join', async () => {
+    const { dir } = outage(refused);
+    try {
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, index([]));
+      const { slices } = await readQueue([], {
+        ...queue,
+        plans: async () => [
+          {
+            file: 'docs/plans/2026-10-01-a-plan.md',
+            phase: 'approved',
+            slices: [
+              { branches: [{ branch: 'feature/one', deferred: false }] },
+              { branches: [{ branch: 'feature/two', deferred: false }] },
+            ],
+          } as never,
+        ],
+        claimedBranches: async () => new Set<string>(),
+        briefPresent: async () => true,
+        queuedHasLanded: async () => 'not-landed',
+      });
+      expect(slices.map((slice) => [slice.branch, whyNotReady(slice)])).toEqual([['feature/two', null]]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads no index where the backend cannot be named', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-no-backend-'));
+    try {
+      writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\nexit 3\n');
+      const connectors: string[] = [];
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, index(connectors));
+      expect(await queue.prIndexRows()).toEqual([]);
+      expect(connectors).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads no rows from a missing store', async () => {
+    const { dir } = outage(refused);
+    try {
+      const empty: PrIndexStore = { ...index([]), read: async () => answered(null) };
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, empty);
+      expect(await queue.prIndexRows()).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

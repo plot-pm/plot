@@ -1,6 +1,13 @@
 import { sliceVerdicts } from '@plot-pm/domain/rules/eligible';
 import type { QueueAgent, QueueReadings, QueuedSlice } from '@plot-pm/domain/rules/queue';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
+import {
+  VIEWS_PER_PASS,
+  blockingBranches,
+  knownPrFor,
+  landedSource,
+} from '@plot-pm/domain/rules/known-pr';
+import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { PlanRecord, PlanRecordSlice } from '@plot-pm/domain';
 
 import type { AgentEntry } from './registry.js';
@@ -34,10 +41,27 @@ export interface QueueWorld {
    * merging has deleted the ref. Asked per branch it cost 426 calls and took a
    * tick from 25 s to 357 s (measured 2026-09-06); asked once it costs one.
    *
-   * An unreachable host answers with an empty set, so nothing is promoted on
-   * silence.
+   * An unreachable host answers with an empty set and `whole: false`, so
+   * nothing is promoted on silence; a partial answer keeps its rows and is not
+   * whole either.
    */
-  mergedBranches(): Promise<ReadonlySet<string>>;
+  mergedBranches(): Promise<MergedListing>;
+  /**
+   * The PR index's rows, read from disk and never from the host.
+   *
+   * Asked only when the listing was not whole: a merged row answers a branch
+   * for no call, and any row names the number {@link QueueWorld.viewLanded}
+   * asks by. Empty where there is no index.
+   */
+  prIndexRows(): Promise<readonly PrIndexRow[]>;
+  /**
+   * Whether the PR with this number merged, asked by number rather than listed.
+   *
+   * A listing and a lookup by number are separate requests on the host, and
+   * one answered under a rate limit while the other refused (#1140). A lookup
+   * that does not answer reads `unknown`.
+   */
+  viewLanded(number: number): Promise<LandedAnswer>;
   /**
    * Whether the host merged any PR for a QUEUED branch.
    *
@@ -53,6 +77,14 @@ export interface QueueWorld {
   workerAlive(worktree: string): Promise<boolean>;
   /** Whether the desk carries a `PLOT-BLOCKED*` marker. */
   blocked(worktree: string): Promise<boolean>;
+}
+
+/** The merged listing: the heads it named, and whether it answered whole. */
+export interface MergedListing {
+  /** Every head a merged PR names, from the rows that arrived. */
+  merged: ReadonlySet<string>;
+  /** Whether the listing answered in full; false on a failure or a partial answer. */
+  whole: boolean;
 }
 
 /**
@@ -198,7 +230,15 @@ export const readQueue = async (
   // Promoting on silence would hand an agent a slice whose predecessor may
   // still be running — the opposite of the reaper's direction, and stated here
   // because the two are easy to confuse.
-  const merged = await world.mergedBranches();
+  //
+  // A LISTING THAT IS NOT WHOLE IS NOT THE LAST WORD. A known PR number is
+  // asked by number, a request that answered on Bitbucket while the listing
+  // returned HTTP 429 (#1140). `landedWithoutListing` bounds those lookups.
+  const listing = await world.mergedBranches();
+  const merged = new Set(listing.merged);
+  const answered = listing.whole
+    ? new Map<string, LandedAnswer>()
+    : await landedWithoutListing(plans, claimed, merged, world);
 
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
@@ -207,9 +247,12 @@ export const readQueue = async (
       slices.push({
         ...entry,
         briefPresent,
+        // A BRANCH THE NUMBER LOOKUP ALREADY ANSWERED IS NOT ASKED AGAIN. Every
+        // other branch goes to the per-branch question, as it did before the
+        // listing could fail.
         landed:
           entry.claimable && briefPresent
-            ? await world.queuedHasLanded(entry.branch)
+            ? answered.get(entry.branch) ?? (await world.queuedHasLanded(entry.branch))
             : 'not-landed',
       });
     }
@@ -229,6 +272,64 @@ export const readQueue = async (
   }
 
   return { slices, agents };
+};
+
+/**
+ * Answers *did this land* for the branches the queue needs, without the listing.
+ *
+ * **ONLY THE BRANCHES THAT DECIDE ARE ASKED.** Per plan that is the unsettled
+ * branches of the first slice that is not complete ({@link blockingBranches}).
+ * When every one of them landed, the next slice is asked in the same pass, so a
+ * plan whose earlier slices all merged reaches its queued slice in one pass.
+ *
+ * **A MERGED INDEX ROW ANSWERS FOR NO CALL**, and a known number costs one
+ * lookup, at most {@link VIEWS_PER_PASS} per pass. A branch past the cap reads
+ * `unknown`; a branch with no number is left to the per-branch question. Either
+ * way it stays unsettled, so the slices behind it stay held. Nothing is
+ * promoted on a lookup that did not answer.
+ *
+ * It writes nothing. The board's refresh is the only writer of the PR index.
+ *
+ * @param plans - every plan on the estate.
+ * @param claimed - the remote branches that exist.
+ * @param merged - the heads the listing named; landed branches are added to it.
+ * @param world - what to read the estate through.
+ * @returns the answers taken by index row or by number, keyed by branch.
+ */
+const landedWithoutListing = async (
+  plans: readonly PlanRecord[],
+  claimed: ReadonlySet<string>,
+  merged: Set<string>,
+  world: QueueWorld,
+): Promise<ReadonlyMap<string, LandedAnswer>> => {
+  const answered = new Map<string, LandedAnswer>();
+  const rows = await world.prIndexRows();
+  const settled = (branch: string): boolean => claimed.has(branch) || merged.has(branch);
+  let views = 0;
+  for (const plan of plans) {
+    const slices = plan.slices.map((slice: PlanRecordSlice) => slice.branches);
+    for (;;) {
+      const needed = blockingBranches(plan.phase, slices, settled);
+      let moved = needed.length > 0;
+      for (const branch of needed) {
+        const known = knownPrFor(rows, branch);
+        const source = landedSource(false, known);
+        let answer: LandedAnswer | null = null;
+        if (source === 'index') answer = 'landed';
+        else if (source === 'number') {
+          // PAST THE CAP A KNOWN NUMBER READS `unknown`. It is not sent to the
+          // per-branch question, which asks the same listing that just failed.
+          answer = views < VIEWS_PER_PASS ? await world.viewLanded(known.number as number) : 'unknown';
+          views += 1;
+        }
+        if (answer !== null) answered.set(branch, answer);
+        if (answer === 'landed') merged.add(branch);
+        else moved = false;
+      }
+      if (!moved) break;
+    }
+  }
+  return answered;
 };
 
 /**

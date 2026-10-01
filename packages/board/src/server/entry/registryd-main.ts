@@ -11,6 +11,7 @@ import {
   treesGit,
   machineSystem,
   planStoreShell,
+  prIndexFile,
   supervisionReportFile,
   tempSweepShell,
 } from '@plot-pm/domain/adapters';
@@ -22,6 +23,8 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
 import { landed } from '@plot-pm/domain/rules/landed';
+import { viewLanded } from '@plot-pm/domain/rules/known-pr';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
@@ -518,6 +521,8 @@ export const worldForRepo = (
  * @param scriptsDir - where the helper scripts are.
  * @param merges - the per-tick merge memo {@link worldForRepo} clears; when
  *   absent, every merge question goes to the host.
+ * @param index - the PR index this world reads; the repository's own store
+ *   when absent. It is read and never written.
  * @returns the world the queue is read through.
  */
 export const queueWorldForRepo = (
@@ -525,6 +530,7 @@ export const queueWorldForRepo = (
   scriptsDir: string,
   tally: HostTally = { calls: 0 },
   merges?: MergeMemo,
+  index: PrIndexStore = prIndexFile({ cwd: repoRoot }),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const plans = planStoreShell(context);
@@ -578,7 +584,11 @@ export const queueWorldForRepo = (
       // before.
       tally.calls += 1;
       const answer = await host.prList('merged', 500);
-      if (!answer.ok) return new Set<string>();
+      if (!answer.ok) return { merged: new Set<string>(), whole: false };
+      // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers the
+      // rows that arrived and leaves a refusal behind, so a branch missing from
+      // them may still have merged.
+      const whole = host.lastRefusal() === null;
       // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
       // The repo's rule is that `mergedAt` decides *did this land* — a merged
       // PR reports CLOSED when asked about one PR. Here `--state merged` made
@@ -586,7 +596,23 @@ export const queueWorldForRepo = (
       // all (`host-shell.ts:94` fills it from a field the shell never emits),
       // so filtering on it would reject every row. Ask `prMerged` for a single
       // branch; this is the bundle.
-      return new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head));
+      return {
+        merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
+        whole,
+      };
+    },
+    prIndexRows: async () => {
+      // THE STORE IS KEYED BY THE BACKEND WORD, as the board writes it. Reading
+      // it costs a file read and no host request.
+      const backend = await host.backend();
+      if (!backend.ok) return [];
+      const held = await index.read(backend.value);
+      return held.ok && held.value !== null ? held.value.rows : [];
+    },
+    viewLanded: async (number) => {
+      tally.calls += 1;
+      const answer = await host.prState(number);
+      return viewLanded(answer.ok ? answer.value : 'unanswered');
     },
     sliceHasMerged: async (branch) => {
       tally.calls += 1;
