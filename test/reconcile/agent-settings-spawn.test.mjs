@@ -105,6 +105,15 @@ test('entry/main.ts primes the settings file in its own process too', () => {
     /await primeAgentSettings\(/,
     'entry/main.ts must AWAIT the prime — the dispatch it configures runs in the same tick',
   );
+  // STDOUT IS THE ANSWER. `primeAgentSettings` announces a resolved path through
+  // `console.log` by default, and `plot-ask.mjs` callers parse stdout as one JSON
+  // document: measured 2026-10-01, `plot-deliver.sh` read `deliverable: true`
+  // as a refusal because the announcement preceded it.
+  assert.match(
+    main,
+    /await primeAgentSettings\(\s*scriptsFor\(opts\),\s*process\.env,\s*\(s\) => console\.error\(s\)/,
+    'entry/main.ts must announce the settings file on stderr — stdout carries only the JSON answer',
+  );
 });
 
 // THE ONE RUNTIME PROOF. `spawn` with no `env`, and `spawn` spreading

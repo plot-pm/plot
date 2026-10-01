@@ -131,7 +131,11 @@ export const run = async (
   // There the process is long-lived and the first spawn is a request away; here
   // the dispatch happens INSIDE the `askOnce` below, so an unawaited resolve
   // would race the agents it is meant to configure and lose on a fast estate.
-  await primeAgentSettings(scriptsFor(opts));
+  //
+  // STDOUT CARRIES THE ANSWER AND NOTHING ELSE. `plot-deliver.sh` and every
+  // other caller parse it as one JSON document, so the announcement goes to
+  // stderr; on stdout it turned a `deliverable: true` into a refusal.
+  await primeAgentSettings(scriptsFor(opts), process.env, (s) => console.error(s));
 
   const answer = await askOnce({
     ports: estate,
