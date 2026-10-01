@@ -165,11 +165,10 @@ fi
 # MEASURED, and recorded at length in plot-dispatch.sh's held_worktree: a
 # hand-made worktree is named for the branch with its TYPE dropped, so a gate
 # that guessed `plot-wt-<flattened>` missed a worktree with six modified files
-# in it. This site had the same shape — it composed `plot-wt-<flattened>` under
-# `repo_root/..` — and this change would make the guess worse, not better: the
-# new `Worktree root:` key introduces a SECOND naming convention, giving a
-# path guess a second way to be wrong. So the read asks git, and only the
-# CREATE-a-fresh-one fallback below composes a name (via dispatch's rule, so the
+# in it. Desks carry two naming conventions — `plot-wt-*` beside the repo from
+# older dispatches, and unprefixed names under the desk root — so a path guess
+# has two ways to be wrong. So the read asks git, and only the
+# CREATE-a-fresh-one fallback below composes a name (under the desk root, so the
 # fresh worktree lands where dispatch would have put it).
 #
 # `git worktree list --porcelain` emits `worktree <path>` then `branch
