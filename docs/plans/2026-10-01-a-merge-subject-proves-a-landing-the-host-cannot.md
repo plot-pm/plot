@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Started:** 2026-10-01, Jan Wloka, `bug/the-merge-subject-is-one-rule`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-queue-reads-the-merge-subject`
 
 ## Changelog
 
