@@ -2444,10 +2444,7 @@ EOF
     # the marker is ignored via `info/exclude` rather than `.gitignore`, because
     # an untracked file in a desk reads as unlanded work to
     # `plot-worker-state.sh` and would make every free agent look stalled.
-    _excl="$(git -C "$start_wt" rev-parse --git-common-dir 2>/dev/null)/info/exclude"
-    if [ -f "$_excl" ] && ! grep -qxF '.metadata_never_index' "$_excl" 2>/dev/null; then
-      printf '%s\n' '.metadata_never_index' >> "$_excl" 2>/dev/null || true
-    fi
+    plot_desk_exclude "$start_wt" '.metadata_never_index'
     : > "$start_wt/.metadata_never_index" 2>/dev/null || true
 
     echo "  desk $start_wt (detached at origin/$start_main)"

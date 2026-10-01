@@ -392,6 +392,28 @@ plot_worker_dirty() { # $1=worktree → the dirty files, one per line, leftovers
   plot_worker_dirty_filter "$(git -C "$wt" status --porcelain 2>/dev/null)"
 }
 
+# Keep a file the estate writes into every desk out of `git status`.
+#
+# THROUGH THE CLONE'S `info/exclude`, never `.gitignore`: a `.gitignore` rule
+# lives in the branch's own content, so a desk cut from an older branch would
+# not see it, and `info/exclude` is per-repository and shared by every worktree.
+# The directory and the file are CREATED when absent. Measured 2026-10-01
+# (#1130): a clone with no `.git/info/exclude` kept `?? .metadata_never_index`
+# in every free desk, and the AgentMonitor reported each waiting agent as
+# `holds unlanded work`, because the writer skipped a file that did not exist.
+#
+# Best-effort: a desk that cannot take the line still works. Always returns 0.
+plot_desk_exclude() { # $1=worktree $2=the exact line to exclude
+  local common excl
+  common=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || return 0
+  [ -n "$common" ] || return 0
+  case "$common" in /*) ;; *) common="$1/$common" ;; esac
+  excl="$common/info/exclude"
+  mkdir -p "$common/info" 2>/dev/null || return 0
+  grep -qxF "$2" "$excl" 2>/dev/null || printf '%s\n' "$2" >> "$excl" 2>/dev/null || true
+  return 0
+}
+
 # The same filter, over status output the CALLER already has.
 #
 # SPLIT OUT BECAUSE THE STATUS CALL IS THE EXPENSIVE HALF and one caller had
