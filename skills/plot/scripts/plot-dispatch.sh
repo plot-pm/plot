@@ -2244,25 +2244,29 @@ EOF
   # `--start` reported `agents=1`. A branch dispatch is not affected: a worker
   # given a branch works on any command.
   #
-  # THE MATCH IS THE SCRIPT'S BASENAME AS A WORD, so a repo-relative path, a
-  # plugin path and `bash …/plot-worker-loop.sh` all match, and a name that only
-  # contains it (`my-plot-worker-loop.sh.bak`) does not. `worker=no-loop` is the
-  # footer word the performer reads, the way it reads `unconfigured`.
+  # THE DECISION IS THE DOMAIN'S: `freeAgentCommandRefusal`, asked through its
+  # bundle, answers 0 (may start), or 3 with the defect and the repair as two
+  # lines. Any other answer is a rule that could not be asked, which starts
+  # nothing, as the fleet-size ask above does. `worker=no-loop` is the footer
+  # word the performer reads, the way it reads `unconfigured`.
   start_cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
-  case "$start_cmd" in
-    ''|none|NONE|None) ;;
+  start_cmd_bundle="$script_dir/board/plot-free-agent-command.mjs"
+  start_cmd_answer=$(printf '%s' "$start_cmd" | node "$start_cmd_bundle" 2>/dev/null)
+  start_cmd_rc=$?
+  case "$start_cmd_rc" in
+    0) ;;
+    3)
+      echo "plot-dispatch: --start refuses — ${start_cmd_answer%%$'\n'*}." >&2
+      echo "  configured: $start_cmd" >&2
+      echo "  Repair: ${start_cmd_answer#*$'\n'}." >&2
+      echo "  This install's loop is $script_dir/plot-worker-loop.sh. A branch dispatch (--restart <branch>) starts a worker on any command." >&2
+      echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=no-loop"
+      exit 1
+      ;;
     *)
-      start_loop_re='(^|[/[:space:]"'"'"'=])plot-worker-loop\.sh($|[[:space:]"'"'"';&|)])'
-      if ! [[ "$start_cmd" =~ $start_loop_re ]]; then
-        echo "plot-dispatch: --start refuses — the 'Worker command' does not run plot-worker-loop.sh, and a free agent needs its wait loop." >&2
-        echo "  configured: $start_cmd" >&2
-        echo "  A free agent starts with an empty PLOT_BRANCH; any command but the loop runs at once and exits." >&2
-        echo "  Repair: set 'Worker command' to 'PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh' (this install: $script_dir/plot-worker-loop.sh)," >&2
-        echo "          and move the harness call into .plot/worker-prompt.sh — '$script_dir/plot-install-prompt.sh' writes one from the template." >&2
-        echo "  A branch dispatch is unaffected: plot-dispatch.sh --restart <branch> starts a worker on any command." >&2
-        echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=no-loop"
-        exit 1
-      fi
+      echo "plot-dispatch: --start could not ask whether the 'Worker command' runs the loop — starting none." >&2
+      echo "  The rule's bundle is $start_cmd_bundle (exit $start_cmd_rc)." >&2
+      exit 1
       ;;
   esac
 

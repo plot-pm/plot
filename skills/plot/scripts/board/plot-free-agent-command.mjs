@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+var o="plot-worker-loop.sh",a=`PLOT_UNATTENDED=1 skills/plot/scripts/${o}`,i=/(?:^|[/\s"'=])plot-worker-loop\.sh(?:$|[\s"';&|)])/,n=r=>{let e=r.trim();if(!(e===""||e.toLowerCase()==="none")&&!i.test(e))return{why:`the 'Worker command' does not run ${o}, so a free agent starts with an empty PLOT_BRANCH, runs at once and exits`,repair:`set 'Worker command' to '${a}' (or the plugin's copy of ${o}), and move the harness call into .plot/worker-prompt.sh \u2014 plot-install-prompt.sh writes one from the template`}};import{realpathSync as p}from"node:fs";import{pathToFileURL as f}from"node:url";var s={ok:0,refused:3},u=(r,e=t=>process.stdout.write(t))=>{let t=n(r);return t===void 0?s.ok:(e(`${t.why}
+${t.repair}
+`),s.refused)};if(process.argv[1]&&import.meta.url===f(p(process.argv[1])).href){let r=[];for await(let e of process.stdin)r.push(e);process.exit(u(Buffer.concat(r).toString("utf8")))}export{s as EXIT,u as run};
