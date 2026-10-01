@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- The WAITING ON YOU header names each kind of line it counts: plans, slices, tickets and stopped agents, for example `(3 plans · 6 slices · 15 tickets)`. A ticket no longer reads as a plan or a slice.
+- A section header names each kind of line it counts: plans, slices, branches with no plan, tickets and stopped agents, for example `(3 plans · 6 slices · 15 tickets)`. A ticket no longer reads as a plan or a slice, and a branch no plan names no longer reads as a plan.
 
 Board impact: one `@plot-pm/board` patch. No payload, schema or plan-format change.
 
@@ -35,36 +35,67 @@ Read on `7206c9d8`:
 
 ### Approach
 
-**`sectionTally` counts each kind under its own name.** Its fourth argument becomes `{ tickets, drafts, agents }` instead of one number. It returns `{ plans, slices, tickets, agents }`:
+**`sectionTally` counts each kind under its own name.** Its fourth argument becomes `{ tickets, drafts, agents }` instead of one number. It returns `{ plans, slices, branches, tickets, agents }`:
 
-- `plans` = plan lines from the rows + `drafts` (a draft plan is a plan line).
-- `slices` = slice lines from the rows only.
-- `tickets` and `agents` = their counts, unchanged.
+- `plans` = top-level lines of groups that carry a plan, as `planLines` computes them today, plus `drafts` (a draft plan is a plan line).
+- `slices` = lines a reader reaches by expanding those groups' heads, as `sliceLines` computes them today, for groups that carry a plan only.
+- `branches` = rows of the plan-less group (`plan === ''`). Each renders as one line, because `showPlanHeading` and `planHeads` never head that group.
+- `tickets` and `agents` = their counts.
+
+**A branch no plan names is not counted as a plan.** `a-plan-less-row-is-not-a-nameless-plan` (#973, Released 2.21.0) removed the nameless `PLAN` head and its thesis is *"a group with no plan has nothing to head, and no count to hide in"*. It still counted each plan-less row under `plans`: `a-plan-less-row-is-not-a-plan.browser.test.ts:108` asserts `(3 plans · 4 slices)` for one plan head over two slices plus two plan-less rows, and `agent-list.test.ts:411` asserts `.plans` is 2 for the plan-less bucket alone. This plan finishes that thesis in every section, because `sectionTally` serves all five branch sections: the same NOT STARTED fixture reads `(1 plan · 2 slices · 2 branches)`, and WAITING ON YOU with one plan-less PR row and two tickets reads `(1 branch · 2 tickets)`, not `(1 plan · 1 slice · 2 tickets)`.
 
 **One pure function decides the label.** `tallyLabel(tally)` in `sections.ts` returns the header text, so the wording is unit-tested and the component only renders it:
 
-- Only plan lines, and `plans === slices`: `(N)`, as today, so `QUIET (0)` stays `(0)`.
-- Otherwise each non-zero figure with its unit, in the order plans, slices, tickets, stopped agents, singular at 1: `(3 plans · 6 slices · 15 tickets)`, `(15 tickets)`, `(1 plan · 2 slices · 1 stopped agent)`.
-- The visible top-level line count equals `plans + tickets + agents` when every head is collapsed. The doc comment states this invariant, replacing the "count toward BOTH figures" paragraph.
+- Only plan lines, and `plans === slices`: `(N)`, as today. `QUIET (0)` stays `(0)`.
+- Otherwise each non-zero figure with its unit, in render order plans, slices, branches, tickets, stopped agents, singular at 1.
+- **The slice figure prints only where it differs from the plan figure**, whatever else the header holds: two ungrouped plan lines and one ticket read `(2 plans · 1 ticket)`, never `(2 plans · 2 slices · 1 ticket)`.
+- A section with plan lines only at 0 and one other kind prints that kind with its unit: `(15 tickets)`, `(1 stopped agent)`, `(2 branches)`.
+
+**The invariant.** With every head collapsed, the visible top-level lines equal `plans + branches + tickets + agents`. The doc comment states it, replacing the paragraph that says issues "count toward BOTH figures" (`sections.ts:410-412`), and one unit test asserts it over a mixed section.
+
+**The `not sprint-filtered` suffix stops repeating the count.** Today `AgentList.tsx:1178-1183` prints ` · N not sprint-filtered (issues, draft plans, stopped agents)`, where N is `issues + drafts + broken`, the same lines the new header already names. A second pure function, `unfilteredNote({ tickets, drafts, agents }, filterActive)`, returns ` · tickets, draft plans and stopped agents are not sprint-filtered`, naming only the kinds that are present, and an empty string when the filter is off or none is present. The `data-sprint-unfiltered` attribute keeps its number, so a test can still read the count without the reader reading it twice.
+
+**Narrow width.** The tally is a `<span>` inside the heading button, whose classes are `flex items-center gap-2` with no `whitespace-nowrap` or `truncate` (`AgentList.tsx:1277`). A longer header wraps inside its own flex item beside the label; nothing truncates and the page does not scroll sideways. Read from the classes, not measured; the slice adds no width test, because the decision this plan makes is the wording, which the unit tests carry.
 
 `AgentList.tsx:1157-1165` passes `{ tickets: issues.length, drafts: drafts.length, agents: broken.length }` and renders `tallyLabel(tallyOf)`. WORKING keeps its single agent count.
 
 ### What this does NOT do
 
-- **It does not change any other section's count.** Only WAITING ON YOU receives tickets, drafts or stopped agents; for the other sections the extra figures are zero and the label is unchanged.
-- **It does not change the `not sprint-filtered` suffix** at `AgentList.tsx:1178-1183`.
+- **It does not change how a plan's own rows fold.** A plan whose rows render without a head (`planHeads` false because a row is loose) still counts each of its lines under `plans`, as `planLines` does today. That is a plan's lines named as plan lines, not another kind named as a plan.
+- **It adds no browser test,** so `EXPECTED_TESTS` in `stubbed-tests-start-no-board.test.ts` is unchanged.
 
 ## Slices
 
 ### The tally names its tickets (Branch: bug/the-tally-names-its-tickets)
 
-`sectionTally` with the new argument and result, `tallyLabel`, and the call site. Unit tests: 3 plans and 6 slices with 15 tickets give `(3 plans · 6 slices · 15 tickets)`; tickets alone give `(15 tickets)`; one stopped agent alone gives `(1 stopped agent)`; a draft plan with no branch adds to plans and not slices; QUIET at 0/0 stays `(0)`; an ungrouped section with equal plans and slices and no extras stays `(N)`. The existing test *folds issue rows into the visible count* is rewritten to assert the named figures, since it pins the behaviour this plan replaces. The browser test in `a-plan-less-row-is-not-a-plan.browser.test.ts` that asserts `(3 plans · 4 slices)` is checked and updated only if its fixture carries tickets. A `'@plot-pm/board': patch` changeset. <!-- builds: tallyLabel, the WAITING ON YOU header wording -->
+`sectionTally` with the new argument and result, `tallyLabel`, `unfilteredNote`, and the call site. A `'@plot-pm/board': patch` changeset. <!-- builds: tallyLabel, unfilteredNote, the section header wording -->
+
+Unit tests in `agent-list.test.ts`, each asserting the label string:
+
+- 3 plans, 6 slices, 15 tickets: `(3 plans · 6 slices · 15 tickets)`.
+- 15 tickets alone: `(15 tickets)`.
+- One stopped agent alone: `(1 stopped agent)`.
+- One plan-less branch row and two tickets: `(1 branch · 2 tickets)`.
+- One plan head over two slices plus two plan-less rows in NOT STARTED: `(1 plan · 2 slices · 2 branches)`.
+- Two ungrouped plan lines and one ticket: `(2 plans · 1 ticket)`.
+- A draft plan with no branch adds to plans and not slices.
+- QUIET at 0/0: `(0)`; an ungrouped section with equal plans and slices and nothing else: `(N)`.
+- The invariant over a mixed section: collapsed visible lines equal `plans + branches + tickets + agents`.
+- `unfilteredNote`: off when the filter is off, names only present kinds, carries no number.
+
+Tests rewritten, because they pin the behaviour this plan replaces:
+
+- The eight unit call sites that pass a number as the fourth argument: `agent-list.test.ts:411, 3855, 3864, 3881, 3898, 3920, 3927, 3929`. Line 411 asserts `.branches` is 2 and `.plans` is 0 for the plan-less bucket; line 3898 (*folds issue rows into the visible count*) asserts the named figures.
+- `test/integration/unplanned-issues.browser.test.ts:328` (*counts issue rows in the section tally*) asserts `(1 branch · 2 tickets)` instead of `(3)`.
+- `test/integration/a-plan-less-row-is-not-a-plan.browser.test.ts:108` asserts `(1 plan · 2 slices · 2 branches)` instead of `(3 plans · 4 slices)`.
 
 ## Done when
 
-- `tallyLabel` and `sectionTally` are unit-tested for the six cases above, and the header on a board with 3 plans, 6 slices and 15 tickets reads `(3 plans · 6 slices · 15 tickets)`.
+- `tallyLabel`, `sectionTally` and `unfilteredNote` are unit-tested for the cases above, and the header on a board with 3 plans, 6 slices and 15 tickets reads `(3 plans · 6 slices · 15 tickets)`.
+- No section header counts a ticket, a stopped agent or a plan-less branch as a plan or a slice.
 - A section holding only a stopped agent prints `(1 stopped agent)`.
-- `pnpm run test:board` and `pnpm run typecheck` pass.
+- With the filter on, the `not sprint-filtered` note carries no number.
+- `pnpm run test:board` and `pnpm run typecheck` pass, and `EXPECTED_TESTS` is unchanged.
 
 ## Notes
 
