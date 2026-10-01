@@ -83,7 +83,7 @@ A desk root inside the repository must not appear as untracked files. When the a
 
 ## Slices
 
-### The desk root is one rule (Branch: bug/the-desk-root-is-one-rule)
+### The desk root is one rule (Branch: bug/the-desk-root-is-one-rule, PR: #1136)
 
 `deskRoot`, its Concept file, the bundle, `agentLogDir`, the nine callers, the ignore line, and the tests.
 
