@@ -1,9 +1,19 @@
-/** What a repository says about where its issues live. */
+/** A tracker scheme some connector can list open issues from. */
+export interface IssueLister {
+  /** The scheme, lowercased, as the `Tracker` key's first word names it. */
+  readonly scheme: string;
+  /** The one git host this scheme lists from, where it lists from only one. */
+  readonly onlyOnHost?: string;
+}
+
+/** What a repository says about where its issues live, and what can list them. */
 export interface IssueSourceReading {
   /** The `Tracker` config key's value, verbatim; `''` where the repository declared none. */
   readonly declared: string;
   /** The git host's backend word, as `plot-host.sh backend` reports it. */
   readonly gitHost: string;
+  /** The schemes a connector lists issues from, as the adapters declare them. */
+  readonly listers: readonly IssueLister[];
 }
 
 /**
@@ -11,7 +21,7 @@ export interface IssueSourceReading {
  *
  * `tracker` is a declared tracker whose connector lists issues; `git-host` is a
  * repository that declared no tracker, whose git host lists its own issues;
- * `nobody` is a declared tracker that no connector lists, and carries the
+ * `nobody` is a declared tracker that no connector lists here, and carries the
  * sentence that says why.
  */
 export type IssueSource =
@@ -29,35 +39,31 @@ const SCRIPT_PREFIX = /^plot-host:\s*/;
  * from the wrong service is wrong about every row. Only a repository that
  * declared no tracker asks its git host.
  *
- * @param reading - the declared `Tracker` value and the git host's backend.
+ * @param reading - the declared `Tracker` value, the git host's backend, and
+ *   the schemes a connector lists.
  * @returns the source to ask, or `nobody` with the reason no list exists.
  */
 export const issueSource = (reading: IssueSourceReading): IssueSource => {
   const scheme = (reading.declared.trim().split(/\s+/)[0] ?? '').toLowerCase();
   if (scheme === '') return { ask: 'git-host' };
-  if (scheme === 'jira') return { ask: 'tracker', scheme };
-  if (scheme === 'github-issues') {
-    return reading.gitHost === 'github'
-      ? { ask: 'tracker', scheme }
-      : {
-          ask: 'nobody',
-          reason:
-            `the declared tracker \`github-issues\` lists GitHub issues, ` +
-            `and this repository's git host is \`${reading.gitHost}\``,
-        };
-  }
-  if (scheme === 'plot') {
+  const lister = reading.listers.find((l) => l.scheme === scheme);
+  if (lister === undefined) {
     return {
       ask: 'nobody',
-      reason: "this repository's plans are its tracker (`Tracker: plot`), so there is no issue list to read",
+      reason:
+        `no connector lists issues from the declared tracker \`${scheme}\`, ` +
+        'and the git host is not asked in its place',
     };
   }
-  return {
-    ask: 'nobody',
-    reason:
-      `no connector lists issues from the declared tracker \`${scheme}\`, ` +
-      'and the git host is not asked in its place',
-  };
+  if (lister.onlyOnHost !== undefined && lister.onlyOnHost !== reading.gitHost) {
+    return {
+      ask: 'nobody',
+      reason:
+        `the declared tracker \`${scheme}\` lists issues only where the git host is ` +
+        `\`${lister.onlyOnHost}\`, and this repository's git host is \`${reading.gitHost}\``,
+    };
+  }
+  return { ask: 'tracker', scheme };
 };
 
 /**

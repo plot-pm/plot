@@ -35,7 +35,7 @@ export { hostFixture, type HostFixture } from './host/host-fixture.js';
 export { trackerGithub } from './tracker/tracker-github.js';
 export { trackerJira } from './tracker/tracker-jira.js';
 export { trackerNone } from './tracker/tracker-none.js';
-export { trackerFor, trackerShell } from './tracker/tracker-resolve.js';
+export { TRACKER_LISTERS, trackerFor, trackerShell } from './tracker/tracker-resolve.js';
 export { trackerFixture, type TrackerFixture } from './tracker/tracker-fixture.js';
 
 // THE BUILD PIPELINE'S CONNECTORS, and the same rule holds: each owns its own

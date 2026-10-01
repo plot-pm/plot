@@ -72,7 +72,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { slotsFile, prIndexFile } from '@plot-pm/domain/adapters';
+import { slotsFile, prIndexFile, TRACKER_LISTERS } from '@plot-pm/domain/adapters';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -2369,6 +2369,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? 'github',
+    listers: TRACKER_LISTERS,
   });
   if (source.ask === 'nobody') {
     entry.issues = [];
