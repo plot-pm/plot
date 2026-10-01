@@ -852,31 +852,32 @@ await esbuild.build({
 fs.copyFileSync(agentSettingsArtifact, shippedAgentSettings);
 fs.chmodSync(shippedAgentSettings, 0o755);
 
-// Whether a repository's `Worker command` can run a free agent, for
-// plot-dispatch.sh --start (#1124).
+// Which command starts an agent, for plot-dispatch.sh's start_worker (#1124):
+// the loop for an absent `Worker command`, `none` declined, and a refusal for a
+// free agent whose command does not run the loop.
 //
 // Its own bundle for the reason the ones above give: plot-ask.mjs runs the
-// fleet scan to answer anything. This asks freeAgentCommandRefusal, spawns
-// nothing and opens nothing — the command arrives on stdin. It runs once per
-// --start, which the cost rule permits.
-const freeAgentCommandArtifact = path.join(here, 'dist/plot-free-agent-command.mjs');
+// fleet scan to answer anything. This asks startCommand, spawns nothing and
+// opens nothing — the command arrives on stdin. It runs once per agent start,
+// which the cost rule permits.
+const startCommandArtifact = path.join(here, 'dist/plot-start-command.mjs');
 // ONE LINE, for the bundle-set derivation's reason above.
-const shippedFreeAgentCommand = path.join(here, '../../skills/plot/scripts/board/plot-free-agent-command.mjs');
+const shippedStartCommand = path.join(here, '../../skills/plot/scripts/board/plot-start-command.mjs');
 
 await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/free-agent-command.ts')],
+  entryPoints: [path.join(here, 'src/server/entry/start-command.ts')],
   bundle: true,
   platform: 'node',
   format: 'esm',
   target: 'node20',
-  outfile: freeAgentCommandArtifact,
+  outfile: startCommandArtifact,
   minify: true,
   legalComments: 'none',
   banner: { js: '#!/usr/bin/env node' },
 });
 
-fs.copyFileSync(freeAgentCommandArtifact, shippedFreeAgentCommand);
-fs.chmodSync(shippedFreeAgentCommand, 0o755);
+fs.copyFileSync(startCommandArtifact, shippedStartCommand);
+fs.chmodSync(shippedStartCommand, 0o755);
 
 // What has drifted, at one scope, for /plot-reconcile.
 //
@@ -1088,7 +1089,7 @@ const deskRootKb = (fs.statSync(shippedDeskRoot).size / 1024).toFixed(1);
 const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
 const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(1);
 const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
-const freeAgentCommandKb = (fs.statSync(shippedFreeAgentCommand).size / 1024).toFixed(1);
+const startCommandKb = (fs.statSync(shippedStartCommand).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1116,5 +1117,5 @@ console.log(`Built plot-desk-root.mjs (${deskRootKb} KB) → skills/plot/scripts
 console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
-console.log(`Built plot-free-agent-command.mjs (${freeAgentCommandKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-start-command.mjs (${startCommandKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

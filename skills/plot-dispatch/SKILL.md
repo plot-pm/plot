@@ -9,12 +9,13 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.15.1
+  version: 0.15.2
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git with worktree support and
-  python3. Starting workers needs a `Worker command` in Plot Config; the first
-  dispatch asks for one, and without it worktrees are prepared and you start
-  them yourself.
+  python3. Starting workers needs a `Worker command` in Plot Config, which
+  /plot-init writes as the worker loop; where it is absent the first dispatch
+  offers to write it, and without it worktrees are prepared and you start them
+  yourself.
 ---
 
 # Plot: Dispatch
@@ -47,7 +48,7 @@ configured `Worktree root:`.
 |-------|-----------|-------|
 | 1. Preflight | Small | Phase check + one script call |
 | 2. Dry run and confirm | Mid | How many agents is a judgment about cost and review capacity; the `in flight:` lines are facts to relay, and whether a shared file matters is the user's call. A `skipped … (held …)` line needs no judgment at all — the script decided, and it is relayed as decided |
-| 3. Ask about the worker command | Mid | One config read decides whether to ask at all; asking without an example, and recording an empty answer as `none` rather than leaving it blank, is the judgment |
+| 3. Offer the worker loop | Mid | One config read decides whether to ask at all; proposing the loop without a harness example, and recording a no as `none` rather than leaving it blank, is the judgment |
 | 4. Fan out | Small | The script does the work; claims are atomic |
 | 5. Write a brief per branch | Frontier | Delegated to `/plot-implement`, whose brief step is itself Frontier: naming the alternatives the plan rejected is judgment |
 | 6. Report | Small | Read the footer counts and `worker=`; relay a failed `Started:` booking verbatim |
@@ -169,7 +170,7 @@ guessing a path from the branch name — hand-made worktrees are the population
 this gate is for, and they rarely follow dispatch's `plot-wt-<flattened>`
 convention.
 
-### 3. Ask How This Project Runs an Agent Headless — Once
+### 3. Offer the Worker Loop — Once
 
 **Only when `Worker command` is absent entirely**, and only here:
 
@@ -177,31 +178,43 @@ convention.
 ../plot/scripts/plot-config.sh get "Worker command" ""
 ```
 
-Empty output means nobody has been asked. Ask now, with the count from the dry
-run in hand:
+Empty output means the repository is not set up to start agents: `/plot-init`
+writes the key, and this repository has none. Propose the loop, with the count
+from the dry run in hand:
 
 ```
 3 branches eligible.
 No `Worker command` configured — worktrees will be prepared
 but no agent started.
 
-How does this project run an agent headless?
-(leave empty to keep starting them yourself)
+Start agents with Plot's worker loop?
+Writes: - **Worker command:** PLOT_UNATTENDED=1 plot-worker-loop.sh
 ```
 
-**Never offer an example command.** Not in the prompt, not as an
-`AskUserQuestion` option, not as a "for instance". An example becomes a
-template, and then Plot has effectively hardcoded a tool it is not supposed to
-know (Principle 5). The problem was never *which* command — it is that nobody
-learns the option exists.
+**Never offer a harness command.** Not in the prompt, not as an
+`AskUserQuestion` option, not as a "for instance". The loop is Plot's own
+script; the harness call belongs in the project's `.plot/worker-prompt.sh`,
+and an example harness command becomes a template, after which Plot has
+effectively hardcoded a tool it is not supposed to know (Principle 5).
 
-**Write the answer to `## Plot Config` either way**, and that is the whole point
-of asking here:
+**Write the answer to `## Plot Config` either way**:
 
 | Answer | Write | Meaning |
 |---|---|---|
-| a command | `- **Worker command:** <what they said>` | dispatch starts workers |
-| empty | `- **Worker command:** none` | asked; this repo starts them by hand |
+| yes | `- **Worker command:** PLOT_UNATTENDED=1 plot-worker-loop.sh` | dispatch starts the loop, which runs `.plot/worker-prompt.sh` |
+| no | `- **Worker command:** none` | asked; this repo starts them by hand |
+
+The value is the loop's bare name: `plot-dispatch.sh` puts its own directory
+first on `PATH` when it launches the command, so the name resolves to the loop
+shipped beside it, and a plugin path's version and an absolute path's machine
+stay out of the config.
+
+**After a yes, check the prompt file.** Where `.plot/worker-prompt.sh` is
+absent, say so and name the command that writes it from the shipped template:
+
+```bash
+../plot/scripts/plot-install-prompt.sh
+```
 
 > **Unattended (`PLOT_UNATTENDED=1`):** stop, and write **nothing** to
 > `## Plot Config`. Both answers above are durable configuration, so an
@@ -209,21 +222,13 @@ of asking here:
 > nobody made and stop the question ever being asked again. `none` in
 > particular means *a person considered this and declined*, which is a claim an
 > agent cannot truthfully make. Prepare no worktrees.
-> `PLOT-UNASKED: How does this project run an agent headless? — stopped — Worker command absent; config left untouched`
+> `PLOT-UNASKED: Start agents with Plot's worker loop? — stopped — Worker command absent; config left untouched`
 
 `none` is a **deliberate absence**, and recording it is what stops the question
-returning. An empty answer is first-class — hand-starting works, and the config
-removes a step rather than declaring the manual path wrong. A prompt that comes
-back every dispatch is a nag, and nags get answered with whatever silences them.
+returning. A no is first-class — hand-starting works, and the config removes a
+step rather than declaring the manual path wrong. A prompt that comes back
+every dispatch is a nag, and nags get answered with whatever silences them.
 `plot-dispatch.sh` never runs `none` as a command; it reports `worker=declined`.
-
-**Never ask this at `/plot-init`.** Adoption runs long before anyone fans out
-work — often before the repo has a second branch — so the question arrives about
-a need the answerer does not have. It gets a shrug, the key is written empty,
-and nobody revisits it: **an answered-and-wrong config is harder to fix than a
-missing one**, because nothing later notices it was never really decided. Here
-the consequence is concrete and immediate: *these branches are about to be
-prepared and nobody will start them.*
 
 Skip this step when the key already holds anything at all — a command or
 `none`. Both mean the question has been answered.
@@ -325,22 +330,26 @@ them, and nothing in the last line saying so.
 ## Configuration
 
 Starting workers requires the adopting project to say how (Principle 5 — Plot
-hardcodes no tooling):
+hardcodes no agent tooling). `/plot-init` writes the worker loop, and step 3
+offers the same value where the key is absent:
 
 ```markdown
 ## Plot Config
 
-- **Worker command:** PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh
+- **Worker command:** PLOT_UNATTENDED=1 plot-worker-loop.sh
 ```
 
 The command runs inside the worktree with `PLOT_BRANCH`, `PLOT_WORKTREE` and
 `PLOT_SESSION_ID` set, detached, with output to `.plot-worker.log`. The loop
 runs the project's `.plot/worker-prompt.sh` once per slice, and that file holds
-the harness call (`claude -p "…"`); `plot-install-prompt.sh` writes one from the
-shipped template. In a plugin install, name the plugin's copy of the script.
+the harness call; `plot-install-prompt.sh` writes one from the shipped
+template. The bare name resolves because `plot-dispatch.sh` puts its own
+directory first on `PATH` for the command it launches, so a plugin install and a
+checkout both run the loop shipped beside the script.
 
-**Free agents need the loop.** `--start` refuses any `Worker command` that does
-not run `plot-worker-loop.sh`, before it cuts a desk: a free agent starts with an
+**Free agents need the loop.** `--start` refuses any configured `Worker command`
+that does not run `plot-worker-loop.sh`, before it cuts a desk, and its repair
+names `PLOT_UNATTENDED=1 plot-worker-loop.sh` first: a free agent starts with an
 empty `PLOT_BRANCH`, only the loop waits for the registry to hand it a slice,
 and any other command runs its prompt at once and exits. A worker given a branch
 — a fan-out or `--restart <branch>` — works with any command, for example a
@@ -365,8 +374,8 @@ portable form, since `--session-id ""` is worse than passing nothing. The **agen
 process the command names, not the shell that wraps it — is recorded in
 `.plot-worker.pid`, so the panel describes the process doing the work; the
 wrapper's own pid is kept in `.plot-worker.wrapper.pid`, where it records the
-run's exit code. Without the key, worktrees are prepared and the user starts
-them.
+run's exit code. Without the key, nothing starts: worktrees are prepared, and
+the line names the value to set.
 
 `- **Worker command:** none` records that the question was asked and the answer
 was *we start them by hand*. It is never run as a command, and it stops step 3
@@ -455,7 +464,8 @@ exists there is nobody to match. Measured 2026-09-05: a dispatch reported
 Each agent gets a desk, a manifest naming **no branch**, and a loop that waits.
 The `Worker command` must therefore run `plot-worker-loop.sh`; any other command
 is refused with `worker=no-loop` in the summary and the repair on stderr, and no
-desk is cut.
+desk is cut. An absent key reports `worker=unconfigured` and names the value to
+set.
 `isAgentFree` already reads that state as available, so the supervisor's next
 tick can hand each one a queued slice with nobody touching a desk.
 
@@ -659,7 +669,6 @@ phase, since it operates on the estate rather than one plan.
 | Starting workers that merge their own PRs | Concurrent merges invalidate each other's bases | The worker command must say "open a PR, do not merge" |
 | Stopping at the fan-out | A prepared, claimed worktree that nobody was handed — the gap a human closed by hand every time | Step 5: `/plot-implement` per dispatched branch |
 | Fanning out with `worker=unconfigured` and not saying so | Claimed branches nobody is working on, and a last line that reads like success | Step 3 asks once; step 6 relays `worker=` |
-| Suggesting an example `Worker command` | The example becomes a template, and Plot has hardcoded agent tooling (Principle 5) | Ask the question; offer no command, not even "for instance" |
-| Asking again after an empty answer | A nag, answered with whatever silences it — including a wrong command | Record `none`; it means asked-and-declined |
-| Asking at `/plot-init` | A shrug at adoption writes an empty key nobody revisits | Ask at the first dispatch, where the consequence is concrete |
+| Suggesting a harness command | The example becomes a template, and Plot has hardcoded agent tooling (Principle 5) | Offer the worker loop; offer no harness command, not even "for instance" |
+| Asking again after a no | A nag, answered with whatever silences it — including a wrong command | Record `none`; it means asked-and-declined |
 | Writing the brief here instead of calling `/plot-implement` | A second definition of what an implementer needs, drifting from the first | One definition; dispatch invokes, never re-implements |

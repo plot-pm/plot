@@ -109,14 +109,15 @@
 #                       branch" read asks `git worktree list` instead.
 # Agent-runner keys (optional; Plot hardcodes no agent tooling, Principle 5):
 #   Worker command      how /plot-dispatch runs an agent headless on a worktree.
-#                       `none` = asked, and this repo starts workers by hand —
-#                       a DELIBERATE absence, distinct from a missing key so
-#                       /plot-dispatch stops asking at every fan-out. Never run
-#                       as a command. Absent = nobody has been asked yet, and
-#                       the first dispatch asks (never /plot-init: at adoption
-#                       the question meets a need the answerer does not have,
-#                       gets a shrug, and an answered-and-wrong key is harder
-#                       to fix than a missing one).
+#                       /plot-init writes `PLOT_UNATTENDED=1 plot-worker-loop.sh`;
+#                       the bare name resolves to the loop beside
+#                       plot-dispatch.sh, which puts its own directory first on
+#                       PATH. A free agent (`--start`) refuses a command that
+#                       does not run the loop, because only the loop waits for a
+#                       slice. Absent = not set up: nothing starts, and
+#                       /plot-dispatch offers to write the loop. `none` = asked,
+#                       and this repo starts workers by hand — a DELIBERATE
+#                       absence, never run as a command.
 #   Approve command     how the board runs `/plot-approve <slug>`; the prompt is
 #                       appended as one argument. Absent = the board's Approve
 #                       button renders disabled, naming this key as the fix.

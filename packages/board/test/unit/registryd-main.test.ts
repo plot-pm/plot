@@ -734,8 +734,8 @@ describe('starting agents is the one write this daemon performs', () => {
     expect(started).toBe(0);
     expect(err.join('')).toContain('Worker command');
     // A command that is not the loop answers `unaskable` too (#1124), so the
-    // line names the loop as the repair rather than only the key.
-    expect(err.join('')).toContain('to run the worker loop');
+    // line names the value to set rather than only the key.
+    expect(err.join('')).toContain('`PLOT_UNATTENDED=1 plot-worker-loop.sh`');
   });
 
   it('reports a failed start and lets the next tick re-derive it', async () => {

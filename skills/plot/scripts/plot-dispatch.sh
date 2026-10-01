@@ -14,8 +14,8 @@
 #               hand each a queued slice with nobody touching a desk. The count
 #               is a REQUEST: a machine at its bound answers with fewer and says
 #               so, and the shortfall is reported rather than remembered.
-#               Refuses (exit 1, `worker=no-loop`) when a configured `Worker
-#               command` does not run plot-worker-loop.sh: only the loop waits.
+#               A `Worker command` that does not run plot-worker-loop.sh
+#               refuses (exit 1, `worker=no-loop`): only the loop waits.
 #   --restart <br>
 #               start a worker on <br>, which already holds a claim — the
 #               counterpart to --stop, and the only way to hand a stopped
@@ -1024,6 +1024,46 @@ handover_refusal() { # $1=branch $2=worktree $3=state → 0 may hand over, 1 ref
   return 0
 }
 
+# WHICH COMMAND STARTS THIS AGENT is the domain's answer: `startCommand`, asked
+# through `board/plot-start-command.mjs`. An absent `Worker command` is not set
+# up and starts nothing, `none` is declined, and a free agent refuses a command
+# that does not run the loop (#1124). The loop's name and the value that runs it
+# are this script's readings; the rule names no script.
+#
+# THE VALUE IS THE BARE NAME, `PLOT_UNATTENDED=1 plot-worker-loop.sh`, the one
+# `/plot-init` writes: a plugin path carries a version and an absolute path
+# carries a machine. The launch puts this script's directory first on PATH, so
+# the bare name resolves to the loop shipped beside it.
+#
+# It sets `start_cmd_verb` (`run`, `unconfigured`, `declined`, `refused` or
+# `unaskable`), `start_cmd_run`, and `start_cmd_why` / `start_cmd_repair` where
+# they apply. `unaskable` is a bundle that could not answer, which starts
+# nothing.
+ask_start_command() { # $1 = free | assigned
+  local answer rc
+  start_cmd_verb="" start_cmd_run="" start_cmd_why="" start_cmd_repair=""
+  start_cmd_configured=$("$script_dir/plot-config.sh" get "Worker command" "")
+  start_cmd_bundle="$script_dir/board/plot-start-command.mjs"
+  answer=$(printf '%s' "$start_cmd_configured" | node "$start_cmd_bundle" "$1" \
+    plot-worker-loop.sh "PLOT_UNATTENDED=1 plot-worker-loop.sh" 2>/dev/null)
+  rc=$?
+  case "$rc:$answer" in
+    0:run$'\t'*) start_cmd_verb=run; start_cmd_run=${answer#run$'\t'} ;;
+    0:unconfigured$'\t'*)
+      start_cmd_verb=unconfigured
+      start_cmd_why="no 'Worker command' is configured"
+      start_cmd_repair=${answer#unconfigured$'\t'}
+      ;;
+    0:declined) start_cmd_verb=declined ;;
+    3:*)
+      start_cmd_verb=refused
+      start_cmd_why=${answer%%$'\n'*}
+      start_cmd_repair=${answer#*$'\n'}
+      ;;
+    *) start_cmd_verb=unaskable; start_cmd_why="the rule's bundle $start_cmd_bundle answered exit $rc" ;;
+  esac
+}
+
 start_worker() {
   local branch="$1" wt="$2"
   local cmd
@@ -1086,11 +1126,26 @@ start_worker() {
     return 1
   fi
 
-  cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
   # `none` means "asked, and this repo starts them by hand". Running it would
   # spawn a worker per branch that fails with `none: command not found` — a
-  # deliberate answer turned into N crashed workers.
-  case "$cmd" in none|NONE|None) cmd="" ;; esac
+  # deliberate answer turned into N crashed workers. An absent key starts
+  # nothing either, and its line names the value to set.
+  ask_start_command "$([ -n "$branch" ] && echo assigned || echo free)"
+  case "$start_cmd_verb" in
+    run) cmd="$start_cmd_run" ;;
+    declined) cmd="" ;;
+    unconfigured)
+      echo "    worktree ready — ${start_cmd_why}, so nothing started:"
+      echo "      $start_cmd_repair."
+      echo "      cd $wt   # ${branch:+branch $branch is claimed and waiting}"
+      return 1
+      ;;
+    *)
+      echo "  refusing to start ${branch:-a free agent} — ${start_cmd_why}" >&2
+      [ -n "$start_cmd_repair" ] && echo "    Repair: $start_cmd_repair." >&2
+      return 1
+      ;;
+  esac
   if [ -z "$cmd" ]; then
     # Not an error: Plot deliberately hardcodes no agent tooling (Principle 5).
     # Word it as the next step rather than a failure, or a first run reads as
@@ -1101,11 +1156,7 @@ start_worker() {
     # in the summary, because per-branch output is exactly where it was missed
     # five times on 2026-08-17. Saying it in both places would train the reader
     # to skip both.
-    if [ "$worker_cmd_declined" = 1 ]; then
-      echo "    worktree ready — start it yourself:"
-    else
-      echo "    worktree ready — no 'Worker command' configured, so start it yourself:"
-    fi
+    echo "    worktree ready — start it yourself:"
     echo "      cd $wt   # branch $branch is claimed and waiting"
     return 1
   fi
@@ -1450,7 +1501,8 @@ start_worker() {
       PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
-      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
+      PLOT_SCRIPT_DIR="$script_dir" \
+      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -2263,31 +2315,25 @@ EOF
   # `--start` reported `agents=1`. A branch dispatch is not affected: a worker
   # given a branch works on any command.
   #
-  # THE DECISION IS THE DOMAIN'S: `freeAgentCommandRefusal`, asked through its
-  # bundle, answers 0 (may start), or 3 with the defect and the repair as two
-  # lines. Any other answer is a rule that could not be asked, which starts
-  # nothing, as the fleet-size ask above does. `worker=no-loop` is the footer
-  # word the performer reads, the way it reads `unconfigured`.
-  start_cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
-  start_cmd_bundle="$script_dir/board/plot-free-agent-command.mjs"
-  # The loop's basename and the command that runs it are this script's to
-  # name: the rule receives them as readings and names no script itself.
-  start_cmd_answer=$(printf '%s' "$start_cmd" | node "$start_cmd_bundle" \
-    plot-worker-loop.sh "PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh" 2>/dev/null)
-  start_cmd_rc=$?
-  case "$start_cmd_rc" in
-    0) ;;
-    3)
-      echo "plot-dispatch: --start refuses — ${start_cmd_answer%%$'\n'*}." >&2
-      echo "  configured: $start_cmd" >&2
-      echo "  Repair: ${start_cmd_answer#*$'\n'}." >&2
-      echo "  This install's loop is $script_dir/plot-worker-loop.sh. A branch dispatch (--restart <branch>) starts a worker on any command." >&2
+  # THE DECISION IS THE DOMAIN'S: `ask_start_command` asks `startCommand`
+  # through its bundle. A refusal names the defect and the repair; a bundle that
+  # cannot answer starts nothing, as the fleet-size ask above does.
+  # `worker=no-loop` is the footer word the performer reads, the way it reads
+  # `unconfigured` and `declined`.
+  ask_start_command free
+  case "$start_cmd_verb" in
+    run|declined|unconfigured) ;;
+    refused)
+      echo "plot-dispatch: --start refuses — ${start_cmd_why}." >&2
+      echo "  configured: $start_cmd_configured" >&2
+      echo "  Repair: ${start_cmd_repair}." >&2
+      echo "  A branch dispatch (--restart <branch>) starts a worker on any command." >&2
       echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=no-loop"
       exit 1
       ;;
     *)
-      echo "plot-dispatch: --start could not ask whether the 'Worker command' runs the loop — starting none." >&2
-      echo "  The rule's bundle is $start_cmd_bundle (exit $start_cmd_rc)." >&2
+      echo "plot-dispatch: --start could not ask which command starts an agent — starting none." >&2
+      echo "  ${start_cmd_why}." >&2
       exit 1
       ;;
   esac
@@ -2305,14 +2351,18 @@ EOF
   # summary — which is now a performer as well as a person — must be able to
   # tell *the machine bounded it* from *nobody has configured how to start one*.
   worker_cmd_declined=0
-  start_worker_state=configured
-  case "$("$script_dir/plot-config.sh" get "Worker command" "")" in
-    none|NONE|None) worker_cmd_declined=1; start_worker_state=declined ;;
-    '') start_worker_state=unconfigured ;;
+  case "$start_cmd_verb" in
+    declined) worker_cmd_declined=1; start_worker_state=declined ;;
+    unconfigured) start_worker_state=unconfigured ;;
+    *) start_worker_state=configured ;;
   esac
   if [ "$start_worker_state" != configured ]; then
     echo "  no worker will start — 'Worker command' is $start_worker_state in this repo's Plot Config."
-    echo "  The desks below are cut and registered; start them by hand, or set the key."
+    if [ "$start_worker_state" = unconfigured ]; then
+      echo "  The desks below are cut and registered. Repair: $start_cmd_repair."
+    else
+      echo "  The desks below are cut and registered; start them by hand, or set the key."
+    fi
   fi
 
   # `slug` STAYS EMPTY, and the loop reads it. A free agent belongs to no plan
