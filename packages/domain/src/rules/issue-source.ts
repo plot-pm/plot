@@ -44,7 +44,8 @@ const SCRIPT_PREFIX = /^plot-host:\s*/;
  * @returns the source to ask, or `nobody` with the reason no list exists.
  */
 export const issueSource = (reading: IssueSourceReading): IssueSource => {
-  const scheme = (reading.declared.trim().split(/\s+/)[0] ?? '').toLowerCase();
+  // The first word, as one string: `split` with a limit of 1 joins to it.
+  const scheme = reading.declared.trim().split(/\s+/, 1).join('').toLowerCase();
   if (scheme === '') return { ask: 'git-host' };
   const lister = reading.listers.find((l) => l.scheme === scheme);
   if (lister === undefined) {
