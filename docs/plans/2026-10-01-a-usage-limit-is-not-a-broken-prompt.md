@@ -114,7 +114,7 @@ Verified on `origin/main`:
 
 ## Slices
 
-### The rule names a usage limit (Branch: bug/the-rule-names-a-usage-limit)
+### The rule names a usage limit (Branch: bug/the-rule-names-a-usage-limit, PR: #1157)
 
 `rules/prompt-exit.ts` with the four answers, the reset reading, the wait-allowed and without-progress decisions; `adapters/harness/limit-lines.ts`, a constant and no function; `packages/board/src/server/entry/prompt-exit.ts` joining them; `EndingReasonSchema` gains `limited`, `endingIsAttributable` admits it, and `packages/domain/test/ending.test.ts:45`, which pins the reason list, gains it. The bundle `board/plot-prompt-exit.mjs`: its block in `packages/board/build.mjs`, its line in `packages/board/src/contract/bundles.generated.ts`, its `-merge` line in `.gitattributes`, the committed artifact, and a Helper Scripts row in `CLAUDE.md`. `docs/shell-and-domain.md` §1 records that a call made once per prompt exit asks the domain while the idle pass still duplicates. Domain tests at 100% branch coverage:
 
