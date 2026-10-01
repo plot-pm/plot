@@ -101,6 +101,19 @@ root=$(mktemp -d "${TMPDIR:-/tmp}/plot-run.XXXXXX") || {
 # them.
 mkdir -p "$root/home" "$root/budget" "$root/pr-index" || exit 2
 
+# PLAYWRIGHT'S BROWSERS STAY WHERE THEY ARE INSTALLED. Playwright finds them
+# under `HOME`, which moves into the root below, so every browser test would
+# fail at `browserType.launch`. The suite reads the cache and never writes it,
+# so pointing at the caller's cache reopens no leak. A caller's own
+# `PLAYWRIGHT_BROWSERS_PATH` wins.
+if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+  case "$(uname -s)" in
+    Darwin) PLAYWRIGHT_BROWSERS_PATH="$ORIG_HOME/Library/Caches/ms-playwright" ;;
+    *) PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$ORIG_HOME/.cache}/ms-playwright" ;;
+  esac
+  export PLAYWRIGHT_BROWSERS_PATH
+fi
+
 cleanup() {
   # `${root:?}` refuses an empty expansion, so a cleanup reached with `root`
   # unset can never become `rm -rf /`. The path is the exact name `mktemp`
