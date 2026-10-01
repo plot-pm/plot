@@ -118,6 +118,21 @@ describe('sanitizeSelection', () => {
     expect(sanitizeSelection(['beta', 'alpha'], options)).toEqual(['beta', 'alpha']);
   });
 
+  // THE AGENTS TAB'S SHAPE — #1145. Its «Sprint only» selection is an in-memory
+  // Set of sprint slugs, and its options are the ACTIVE sprints of the moment.
+  // When one selected sprint closes it leaves `fleet.sprints`, and the selection
+  // must keep filtering on the sprint that is still active rather than on both.
+  // The generic cases above prove the kept/dropped arms; this one states the
+  // option shape `AgentList` builds, so a change to it fails here.
+  it('keeps the still-active sprint when a second selected one closes', () => {
+    const active = [{ slug: 'alpha', title: 'Alpha' }];
+    const stillFilters = sanitizeSelection(
+      ['alpha', 'beta'],
+      active.map((s) => ({ value: s.slug, label: s.title })),
+    );
+    expect(stillFilters).toEqual(['alpha']);
+  });
+
   // The regression this guards (council c006 / plan "validated against known
   // slugs"): a URL like ?sprint=typo must NOT blank the board. Sanitizing to []
   // makes passesFilter treat it as "no filter" and every card shows.
