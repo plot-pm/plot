@@ -3,13 +3,25 @@
 // Wave 1 of docs/plans/2026-09-24-the-board-shows-me-only-my-work.md. The op
 // exposes the reading `budget_account` already makes and changes nothing it
 // returns to the budget callers. Each test names the implementation it catches.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
@@ -23,7 +35,7 @@ const HOSTS_YML = `github.com:
 
 /** A scratch repo with an origin remote, a `gh` config dir, and a PATH stub dir. */
 const sandbox = (remote) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-host-account-'));
+  const root = scratch('plot-host-account-');
   execFileSync('git', ['init', '-q', root]);
   if (remote) execFileSync('git', ['-C', root, 'remote', 'add', 'origin', remote]);
   const ghConfig = path.join(root, 'gh');

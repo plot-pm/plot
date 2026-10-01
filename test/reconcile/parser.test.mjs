@@ -4,13 +4,25 @@
 // states exactly what the parser must extract from it. Changing the plan
 // format means changing a fixture + expectation here, in the same commit as
 // the parser change.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const parser = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-plan-meta.sh');
@@ -458,7 +470,7 @@ test('plan-meta: neither field nor block → absent, not zero (Done-when 4)', ()
 test('parser: issues reads the Issue field, and a list of them', () => {
   // A LIST because one plan can answer several signals — the plan that
   // introduced this field subsumes three (#226, #227, #228).
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-issue-'));
+  const dir = scratch('plot-parser-issue-');
   const f = path.join(dir, '2026-01-01-signals.md');
   writeFileSync(f, `# A plan answering signals
 
@@ -487,7 +499,7 @@ Cites #999 and PR #232 as history — neither is a signal this plan answers.
 test('parser: issues is empty when the plan names none', () => {
   // Every plan written before this field existed must still parse, and a bare
   // `#226` in prose is a citation rather than a reference.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-noissue-'));
+  const dir = scratch('plot-parser-noissue-');
   const f = path.join(dir, '2026-01-01-plain.md');
   writeFileSync(f, `# A plan with no issue
 
@@ -508,7 +520,7 @@ test('parser: issues reads front matter, and a placeholder is absent', () => {
   // Front matter wins over the canonical body, the rule every other field
   // follows; a template-fresh `<!-- ... -->` counts as absent rather than as a
   // reference to nothing.
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-fmissue-'));
+  const dir = scratch('plot-parser-fmissue-');
   const fm = path.join(dir, '2026-01-01-fm.md');
   writeFileSync(fm, `---
 status: Approved

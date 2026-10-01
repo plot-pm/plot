@@ -8,6 +8,7 @@ import {
   buildFleet, mergePlan, partialSummary, pulseShrink, runStreaming, stopFleetRefresh,
 } from '../../src/server/fleet.js';
 import { summariseFromPulse } from '../../src/server/board.js';
+import { inFlightPath } from '../../src/server/in-flight-store.js';
 import { FleetSchema, PlanMetaSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The measurement this file exists for, taken on this repo 2026-08-19: the
@@ -116,6 +117,16 @@ async function until<T>(
   }
 }
 
+/**
+ * Wait for a successful scan's last write.
+ *
+ * `complete` is set before the refresh's success path finishes: it still reads
+ * git, writes `.plot/state/last-pulse.json`, and last writes
+ * `.plot/state/auto-in-flight.json` from the auto-dispatch pass. A case that
+ * ends at `complete` hands `afterEach` a directory those writes recreate.
+ */
+const landed = (dir: string) => until(() => fs.existsSync(inFlightPath(dir)), Boolean);
+
 describe('a row renders from plan facts before any git fact exists', () => {
   // THE assertion the branch is named for. `summariseFromPulse` is what a card
   // is built from, and its plan-derived half must stand alone: a pulse that has
@@ -197,6 +208,7 @@ describe('the board renders plans as they arrive', () => {
     const done = await until(() => buildFleet(opts), (f) => f.complete);
     expect(done.complete).toBe(true);
     expect(done.summary.plans).toBe(2);
+    await landed(scripts);
   });
 
   it('marks the totals not-yet-arrived while partial, and stops marking them when done', async () => {
@@ -221,6 +233,7 @@ describe('the board renders plans as they arrive', () => {
 
     const done = await until(() => buildFleet(opts), (f) => f.complete);
     expect(done.complete).toBe(true);
+    await landed(scripts);
   });
 });
 
@@ -281,6 +294,7 @@ describe('a scan that fails midway keeps what arrived', () => {
     expect(f.complete).toBe(true);
     expect(f.error).toBeNull();
     expect(f.summary.plans).toBe(1);
+    await landed(scripts);
   });
 });
 
@@ -323,6 +337,7 @@ describe('a completed scan renders identically to a batch one', () => {
     );
     // The payload validates as a Fleet — the contract is unchanged by streaming.
     expect(() => FleetSchema.parse(streamed)).not.toThrow();
+    await landed(scripts);
   });
 
   it('recounts a partial summary to describe what arrived, not what the scan will find', () => {

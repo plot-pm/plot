@@ -6,13 +6,25 @@
 // error — it would silently never fire. This pins (a) the JSON decodes to
 // a shell line that survives a space in CLAUDE_PLUGIN_ROOT and still
 // blocks, and (b) the unquoted form degrades to exactly that silent miss.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, cpSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, cpSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
@@ -23,7 +35,7 @@ const hookCommand = hookCommands[0];
 
 // A plugin root whose path contains a space, holding the real scripts.
 function pluginRootWithSpace() {
-  const base = mkdtempSync(path.join(tmpdir(), 'plot-hooks-'));
+  const base = scratch('plot-hooks-');
   const root = path.join(base, 'plot plugin');
   mkdirSync(path.join(root, 'skills', 'plot'), { recursive: true });
   cpSync(path.join(repoRoot, 'skills', 'plot', 'scripts'), path.join(root, 'skills', 'plot', 'scripts'), {
@@ -41,7 +53,7 @@ function pluginRootWithSpace() {
 // shell-quoting property THROUGH the block, so a fail-open fixture would let
 // them pass while proving nothing about quoting at all.
 function blockingRepo() {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-hooks-repo-'));
+  const tmp = scratch('plot-hooks-repo-');
   const dir = path.join(tmp, 'repo');
   mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });

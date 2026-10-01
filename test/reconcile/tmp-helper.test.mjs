@@ -168,3 +168,57 @@ test('tmp helper: INT mid-run exits 130, runs no later command, removes every pa
   assert.equal(got.after, false, 'a command after the signal ran');
   assert.deepEqual(got.left, []);
 });
+
+// A CLOSED PIPE IS A SIGNAL TOO. A board server stopped with SIGTERM leaves its
+// running scripts with a closed stdout and stderr, and their next write raises
+// SIGPIPE, whose default action skips the EXIT trap. `fd` is the stream the
+// reader closes: 1 for stdout, 2 for stderr.
+const piped = (lines, fd) => new Promise((resolve) => {
+  const dir = sandbox();
+  const tmp = path.join(dir, 'tmp');
+  spawnSync('mkdir', ['-p', tmp]);
+  const file = writeScript(dir, lines);
+  const stdio = ['ignore', 'ignore', 'ignore'];
+  stdio[fd] = 'pipe';
+  const child = spawn('bash', [file], { stdio, env: { ...process.env, TMPDIR: tmp } });
+  child.stdio[fd].destroy();
+  child.on('exit', (code, signal) => {
+    const result = { code, signal, left: readdirSync(tmp) };
+    rmSync(dir, { recursive: true, force: true });
+    resolve(result);
+  });
+});
+
+test('tmp helper: a write to a closed stdout exits 141 and removes every path', async () => {
+  const got = await piped(['plot_tmpdir d pipe', 'plot_tmpfile f pipe', 'while :; do echo x; done'], 1);
+  assert.ok(got.signal === 'SIGPIPE' || got.code === 141, `status: ${JSON.stringify(got)}`);
+  assert.deepEqual(got.left, []);
+});
+
+test('tmp helper: a cleanup command writing to a closed stderr still removes the registry', async () => {
+  const got = await piped(['plot_tmpfile f pipe', 'plot_on_exit "echo bye >&2"', 'sleep 0.3'], 2);
+  assert.deepEqual(got.left, []);
+});
+
+// A TERM INSIDE A CREATION WAITS FOR THE REGISTRATION. bash runs a pending trap
+// as soon as `$(mktemp …)` returns, before the next line registers the path, so
+// a cleanup run there would leave a file its registry never listed. Each run is
+// signalled at a random moment while it creates paths.
+test('tmp helper: TERM while creating paths leaves nothing, over 100 runs', async () => {
+  const dir = sandbox();
+  const tmp = path.join(dir, 'tmp');
+  spawnSync('mkdir', ['-p', tmp]);
+  const file = writeScript(dir, [
+    'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do plot_tmpfile f r$i; plot_tmpdir d s$i; done',
+    'sleep 5',
+  ]);
+  for (let i = 0; i < 100; i++) {
+    const child = spawn('bash', [file], { env: { ...process.env, TMPDIR: tmp }, stdio: 'ignore' });
+    await new Promise((r) => setTimeout(r, Math.random() * 40));
+    child.kill('SIGTERM');
+    await new Promise((r) => child.on('exit', r));
+  }
+  const left = readdirSync(tmp);
+  rmSync(dir, { recursive: true, force: true });
+  assert.deepEqual(left, []);
+});

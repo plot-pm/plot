@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, rmTree } from '../helpers.mjs';
-import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { type Browser, type Page } from 'playwright';
+import { startServer, rmTree, boxedDir } from '../helpers.mjs';
+import { openCatalogue, type Catalogue, launchBrowser } from '../catalogue/index.js';
 
 // @needs-real-board: the last test asserts that both buttons refuse over a non-localhost binding, which no mock can be
 //
@@ -56,7 +56,7 @@ const DRAFT_WITH_PR = 'Plant heirloom tomatoes';
  * the plot checkout reads plot's own `CLAUDE.md` instead of the garden's.
  */
 function detachedGarden(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-dbl-'));
+  const dir = boxedDir('plot-garden-dbl-');
   fs.cpSync(FIXTURE, dir, { recursive: true });
   return dir;
 }
@@ -232,7 +232,7 @@ describe('a board that cannot act refuses both clicks for its OWN reasons', () =
     // Bound to 0.0.0.0: whoever reaches localhost owns the worktrees, and over
     // a network that stops being true. Both routes refuse.
     server = await startServer(garden, { HOST: '0.0.0.0' });
-    browser = await chromium.launch();
+    browser = await launchBrowser();
   });
   afterAll(async () => {
     await browser?.close();

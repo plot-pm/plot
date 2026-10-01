@@ -552,10 +552,11 @@ jobs:
       # throw as the LAST TEST FAILING. Measured across three failures, the
       # named test had passed and the failing site was one teardown.
       #
-      # `rmTree` (test/helpers.mjs) retries that specific, transient class and
-      # nothing else. 157 sites were converted to it across #578 and #616; one
-      # raw site landed afterwards, which is exactly the drift a gate exists to
-      # catch — a conversion nothing enforces is undone one merge at a time.
+      # `rmTree` (test/helpers.mjs, through `removeTree` in test/rm-tree.mjs)
+      # retries that specific, transient class and nothing else. 157 sites were
+      # converted to it across #578 and #616; one raw site landed afterwards,
+      # which is exactly the drift a gate exists to catch — a conversion nothing
+      # enforces is undone one merge at a time.
       #
       # `force: true` DOES NOT COVER THIS. It suppresses the absence of
       # something expected; this failure is the presence of something
@@ -570,7 +571,7 @@ jobs:
       # fixture would make grep report "binary file matches" and hide the whole
       # file from the count.
       #
-      # `allowed=1` is `rmTree`'s own implementation, the one call that must
+      # `allowed=1` is `removeTree` in test/rm-tree.mjs, the one call that must
       # stay raw. Same ratchet shape as above: `::error::` when the count rises,
       # `::notice::` when it can tighten. The target is 1, not 0.
       #

@@ -114,6 +114,15 @@ if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
   export PLAYWRIGHT_BROWSERS_PATH
 fi
 
+# NODE'S COMPILE CACHE GOES INTO THE RUN'S HOME. vite, vitest and typescript
+# call `module.enableCompileCache()`, which writes to `NODE_COMPILE_CACHE` and,
+# when that is unset, to `$TMPDIR/node-compile-cache` — an entry in the root
+# that no test made. Setting the variable also enables the cache for every node
+# process in the run. A caller's own `NODE_COMPILE_CACHE` wins.
+if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+  export NODE_COMPILE_CACHE="$root/home/.node-compile-cache"
+fi
+
 cleanup() {
   # `${root:?}` refuses an empty expansion, so a cleanup reached with `root`
   # unset can never become `rm -rf /`. The path is the exact name `mktemp`
@@ -293,33 +302,13 @@ elif [ "$find_status" != 0 ]; then
   status=1
 elif [ -n "$listing" ]; then
   count=$(printf '%s\n' "$listing" | grep -c . )
-  # THE CEILING IS A RATCHET, AND ITS ONLY LEGITIMATE EDIT IS DOWNWARD.
+  # ANY ENTRY FAILS THE RUN. Every test removes what it creates, so the limit
+  # is zero.
   #
-  # The plan measured 11 of the 94 files in `test/reconcile/` and named five
-  # leakers. Those five are fixed and leave ZERO. A full-suite run then measured
-  # **390** entries from about 23 OTHER files the plan never looked at:
-  #
-  #     controller-gate 34   brief-name-gate 22   scan 21   install-hooks 20
-  #     ci-scheme 19   board 19   budget-rotation 18   storylint 10
-  #     agent-settings 9   capabilities 8   host-account 7   …
-  #
-  # Migrating those 23 is a slice of its own, and this gate must not be OFF while
-  # it waits. So the ceiling holds today's number and fails when it GROWS, which
-  # is the spawn ratchet's shape (`ci.yml:340`).
-  #
-  # A COUNT RATHER THAN A PER-FILE LIST, because the gate reads a DIRECTORY. It
-  # sees `plot-gate-4kQ2lP`, not the file that made it, and mapping a prefix back
-  # to its file means grepping the suite — which mis-attributed `plot-gate-` to
-  # `dispatch.test.mjs` on the first try. A ceiling states what is measured; a
-  # per-file list would state an attribution this gate cannot perform.
-  ceiling="${PLOT_LEAK_CEILING:-390}"
-  if [ "$count" -le "$ceiling" ]; then
-    echo "owned-run.sh: ${count} entr$( [ "$count" = 1 ] && echo y || echo ies ) left in the run's TMPDIR (ceiling ${ceiling}, target 0)." >&2
-    echo "owned-run.sh: at or under the ceiling, so this run is not failed on it. Lower the ceiling when you fix one." >&2
-    report_leaks
-    exit "$status"
-  fi
-  echo "owned-run.sh: ${count} entr$( [ "$count" = 1 ] && echo y || echo ies ) left in the run's TMPDIR, above the ceiling of ${ceiling}:" >&2
+  # The gate reads a directory: it sees `plot-gate-4kQ2lP`, not the file that
+  # made it. A prefix can be shared — `plot-gate-` appears in three test files
+  # — so confirm the file by running it alone under this wrapper.
+  echo "owned-run.sh: ${count} entr$( [ "$count" = 1 ] && echo y || echo ies ) left in the run's TMPDIR:" >&2
   printf '%s\n' "$listing" | while IFS= read -r entry; do
     [ -n "$entry" ] || continue
     name="${entry##*/}"

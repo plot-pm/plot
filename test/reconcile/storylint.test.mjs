@@ -1,17 +1,29 @@
 // Contract test for skills/plot/scripts/plot-story-lint.sh.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const lint = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-story-lint.sh');
 
 function estate(stories) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-lint-'));
+  const dir = scratch('plot-lint-');
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
   sh('git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
   writeFileSync(path.join(dir, 'README.md'), '## Active Stories — test coverage notes\n\n- [good](docs/stories/good/STORY-good.md)\n');

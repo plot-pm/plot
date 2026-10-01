@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
+import { type Browser, type Page } from 'playwright';
+import { launchBrowser } from '../catalogue/index.js';
 import { startServer } from '../helpers.mjs';
 import { DOC_FETCH_TIMEOUT_MS } from '../../src/app/lib/bounded-fetch.js';
 
@@ -42,7 +43,7 @@ describe('a dead fetch is not a slow one', () => {
   beforeAll(async () => {
     server = await startServer(FIXTURE);
     baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
+    browser = await launchBrowser();
   });
   afterAll(async () => {
     await browser?.close();

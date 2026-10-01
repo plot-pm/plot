@@ -53,9 +53,12 @@ function fixture(
   asks: () => string[];
   askArgv: () => string[][];
 } {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-repo-'));
+  // Nested one level down: the board writes a repo's agent logs into its parent.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-repo-'));
+  const repoRoot = path.join(parent, 'repo');
+  fs.mkdirSync(repoRoot);
   const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-scripts-'));
-  made.push(repoRoot, scriptsDir);
+  made.push(parent, scriptsDir);
 
   execSync('git init --initial-branch=main', { cwd: repoRoot, stdio: 'ignore' });
   execSync('git config user.email "test@test.local"', { cwd: repoRoot, stdio: 'ignore' });

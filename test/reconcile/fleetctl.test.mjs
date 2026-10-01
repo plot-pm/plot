@@ -37,13 +37,25 @@
 // that is the arm a macOS operator uses. What IS assertable everywhere is that
 // both units FILL with no placeholder left and PARSE, which is what the last
 // group below checks. Actually loading the plist stays a manual release step.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, '..', '..');
@@ -115,7 +127,7 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
   // `repo_root/..`, so a sandbox sitting directly in $TMPDIR enumerates every
   // OTHER sandbox as its own fleet — measured here on the first run, where an
   // empty repository reported eleven desks belonging to other test cases.
-  const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `plot-fleetctl-${label}-`)));
+  const box = fs.realpathSync(scratch(`plot-fleetctl-${label}-`));
   const root = path.join(box, 'repo');
   fs.mkdirSync(root);
   git(root, 'init', '-q', '-b', 'main');
@@ -1621,7 +1633,7 @@ function startAgainst(label, workdir) {
 }
 
 test('refusal 4: a label held by another checkout names that checkout', () => {
-  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleetctl-other-')));
+  const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
   const { r, calls, units, root } = startAgainst('held-other', other);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, new RegExp(`serving ANOTHER checkout \\(${other.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`),
@@ -1662,7 +1674,7 @@ test('refusal 4: no working directory answers cannot determine, and still refuse
 });
 
 test('--status names the checkout the running supervisor serves', () => {
-  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleetctl-other-')));
+  const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('status-serves');
   const calls = holdLabel(box, guardBin, other);
   const r = run(ctl, ['--status'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });

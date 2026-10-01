@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, rmTree } from '../helpers.mjs';
+import { type Browser, type Page } from 'playwright';
+import { launchBrowser } from '../catalogue/index.js';
+import { startServer, rmTree, boxedDir } from '../helpers.mjs';
 
 // @needs-real-board: the second click's POST leaves the browser and runs the configured `Approve command`, and the card asserts that script's own sentence
 //
@@ -51,7 +52,7 @@ const VIEWPORT = { width: 1280, height: 900 };
  * where whatever else depends on it can be examined.
  */
 function detachedGarden(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-'));
+  const dir = boxedDir('plot-garden-');
   fs.cpSync(FIXTURE, dir, { recursive: true });
   return dir;
 }
@@ -72,7 +73,7 @@ describe('approve: a Draft card can act, behind one confirmation', () => {
     garden = detachedGarden();
     server = await startServer(garden);
     baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
+    browser = await launchBrowser();
   });
   afterAll(async () => {
     await browser?.close();
@@ -285,7 +286,7 @@ describe('approve: a board that cannot approve says so instead of offering', () 
     // the wrong reason against an unconfigured project.
     garden = detachedGarden();
     server = await startServer(garden, { HOST: '0.0.0.0' });
-    browser = await chromium.launch();
+    browser = await launchBrowser();
   });
   afterAll(async () => {
     await browser?.close();

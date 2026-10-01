@@ -17,13 +17,25 @@
 // THREE SUBJECTS, BECAUSE THE SLICE HAS THREE PARTS: the export, the shipped
 // template's handling of it, and the warning an agent gets when its charter
 // declares a capability the prompt ignores.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
@@ -33,7 +45,7 @@ const template = path.join(repoRoot, 'skills', 'plot', 'templates', 'worker-prom
 
 /** A repo root holding charters in each of the four readings. */
 const sandbox = () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-caps-'));
+  const root = scratch('plot-caps-');
   fs.mkdirSync(path.join(root, '.plot', 'charters'), { recursive: true });
   const charter = (name, body) =>
     fs.writeFileSync(path.join(root, '.plot', 'charters', `${name}.json`),

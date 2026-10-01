@@ -18,13 +18,25 @@
 //   - the gate set is read from `hooks/hooks.json`. A hardcoded pair ships a
 //     repository missing whichever gate landed last — measured: the file carried
 //     two gates when this was planned and three when it was built.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, chmodSync, copyFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, chmodSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
@@ -46,7 +58,7 @@ const shippedGates = (() => {
 // A throwaway repository carrying the shipped hooks.json and the installer,
 // plus whatever settings the case starts from.
 function repo({ settings } = {}) {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-install-hooks-'));
+  const tmp = scratch('plot-install-hooks-');
   const dir = path.join(tmp, 'repo');
   mkdirSync(path.join(dir, 'hooks'), { recursive: true });
   mkdirSync(path.join(dir, 'skills', 'plot', 'scripts'), { recursive: true });
@@ -430,7 +442,7 @@ test('/plot-init reports an unproved gate and continues rather than failing adop
 // the registered command points; `siblingGates` puts them beside the installer.
 // The two are independent, which is exactly the point.
 function splitInstall({ vendorGates = false, siblingGates = false } = {}) {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-install-hooks-split-'));
+  const tmp = scratch('plot-install-hooks-split-');
   const consumer = path.join(tmp, 'consumer');
   // Three below `plugin/` so the installer's own `../../../hooks/hooks.json`
   // walk finds the shipped file, the way a real install is laid out.

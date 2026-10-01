@@ -204,8 +204,12 @@ describe('the scan writes its own bridge', () => {
     scan(repo, '--stream');
     const good = fs.readFileSync(bridgeFile(repo), 'utf8');
 
+    // Its own TMPDIR inside the sandbox: SIGKILL skips the scan's exit trap, so
+    // its temp registry stays, and goes with the sandbox in `afterAll`.
+    const killedTmp = path.join(tmp, 'killed-tmp');
+    fs.mkdirSync(killedTmp, { recursive: true });
     const child = spawn('bash', [SCAN, '--offline', '--stream'], {
-      cwd: repo, stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: killedTmp },
     });
     // Killed while it is still deriving: the scan spawns git per branch, so a
     // short wait lands inside the walk rather than before it starts.

@@ -2,9 +2,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
+import { type Browser, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
-import { openCatalogue, scenario, board as buildBoard, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, scenario, board as buildBoard, type Catalogue, launchBrowser } from '../catalogue/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
@@ -347,7 +347,7 @@ describe('tiny-garden: the standalone plan page (the server assembles it)', () =
   beforeAll(async () => {
     server = await startServer(FIXTURE);
     baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
+    browser = await launchBrowser();
   }, 60_000);
   afterAll(async () => {
     await browser?.close();

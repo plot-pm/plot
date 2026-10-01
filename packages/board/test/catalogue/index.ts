@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { chromium, type Browser, type Page, type Route } from 'playwright';
+import { removeTree } from '../rm-tree.mjs';
 import { startMockBoard, type MockBoard } from './mock-board.js';
 import type { Scenario, ScenarioName } from './states.js';
 
@@ -137,6 +141,37 @@ export const countSliceRows = async (page: Page): Promise<number> => {
 };
 
 /**
+ * Launch Chromium with a `TMPDIR` of its own, removed when the browser closes.
+ *
+ * On Linux Playwright passes `--disable-dev-shm-usage`, so Chromium backs its
+ * shared memory with `.org.chromium.Chromium.*` files under `TMPDIR` and
+ * unlinks each one at once. A process killed between the two at shutdown
+ * leaves the file, so a browser closed correctly can still leave one. The
+ * directory goes with the browser, after `close()` resolves.
+ *
+ * @returns the launched browser; its `close()` also removes the directory.
+ */
+export const launchBrowser = async (): Promise<Browser> => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-chromium-'));
+  let browser: Browser;
+  try {
+    browser = await chromium.launch({ env: { ...process.env, TMPDIR: tmp } });
+  } catch (err) {
+    removeTree(tmp);
+    throw err;
+  }
+  const close = browser.close.bind(browser);
+  browser.close = async (options) => {
+    try {
+      await close(options);
+    } finally {
+      removeTree(tmp);
+    }
+  };
+  return browser;
+};
+
+/**
  * Launch a browser and a mock board.
  *
  * The mock starts on `an-empty-estate` and every `open()` re-serves the state it
@@ -145,10 +180,19 @@ export const countSliceRows = async (page: Page): Promise<number> => {
  * every subsequent one subtly different.
  */
 export const openCatalogue = async (): Promise<Catalogue> => {
-  const [browser, mock] = await Promise.all([
-    chromium.launch(),
+  // Settled, not `Promise.all`: a mock that fails to start must not leave the
+  // browser that did launch running with nothing to close it.
+  const [launched, started] = await Promise.allSettled([
+    launchBrowser(),
     startMockBoard('an-empty-estate'),
   ]);
+  if (launched.status === 'rejected' || started.status === 'rejected') {
+    if (launched.status === 'fulfilled') await launched.value.close();
+    if (started.status === 'fulfilled') await started.value.stop();
+    throw launched.status === 'rejected' ? launched.reason : (started as PromiseRejectedResult).reason;
+  }
+  const browser = launched.value;
+  const mock = started.value;
 
   const open: Catalogue['open'] = async (name, opts = {}) => {
     mock.serve(name, opts.over);

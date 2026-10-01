@@ -8,6 +8,7 @@ import os from 'node:os';
 import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTree } from './rm-tree.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /**
@@ -38,6 +39,60 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(here, '../../..');
 export const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
 export const ARTIFACT = path.join(SCRIPTS_DIR, 'board/board-server.mjs');
+
+/** Every process descending from `root`, read from one `ps` listing. */
+const descendantsOf = (root) => {
+  let listing = '';
+  try {
+    listing = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+  } catch {
+    return [];
+  }
+  const children = new Map();
+  for (const line of listing.split('\n')) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+    if (!pid) continue;
+    if (!children.has(ppid)) children.set(ppid, []);
+    children.get(ppid).push(pid);
+  }
+  const found = [];
+  const queue = [root];
+  while (queue.length) {
+    for (const child of children.get(queue.shift()) ?? []) {
+      found.push(child);
+      queue.push(child);
+    }
+  }
+  return found;
+};
+
+/** Send `signal` to `pid`; a process already gone is the wanted state. */
+const signalPid = (pid, signal) => {
+  try { process.kill(pid, signal); } catch { /* already gone */ }
+};
+
+/**
+ * Blocks until none of `pids` is running, or for at most `ms`.
+ *
+ * Synchronous, so `kill()` stays a drop-in for the after-hooks that do not
+ * await it. A zombie counts as gone: the server is this process's child and
+ * stays one until the event loop reaps it.
+ */
+const untilGoneSync = (pids, ms = 5_000) => {
+  const stop = Date.now() + ms;
+  const running = () => {
+    let listing = '';
+    try {
+      listing = execFileSync('ps', ['-o', 'stat=', '-p', pids.join(',')], { encoding: 'utf8' });
+    } catch {
+      return false; // `ps -p` exits 1 when none of the pids exists
+    }
+    return listing.split('\n').some((stat) => stat.trim() !== '' && !stat.trim().startsWith('Z'));
+  };
+  while (pids.length && running() && Date.now() < stop) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  }
+};
 
 /**
  * Start the built artifact with cwd = the scratch repo. PLOT_SCRIPTS_DIR points
@@ -92,13 +147,33 @@ export function startServer(cwd, env = {}) {
       if (!match) return;
       done = true;
       clearTimeout(timer);
+      // STOPPED FIRST, so the tree read is the whole tree: a stopped server
+      // starts no child between the `ps` listing and its own death. Its TERM
+      // stays pending until the CONT.
+      const kill = () => {
+        signalPid(proc.pid, 'SIGSTOP');
+        const tree = descendantsOf(proc.pid);
+        for (const pid of tree) signalPid(pid, 'SIGTERM');
+        signalPid(proc.pid, 'SIGTERM');
+        signalPid(proc.pid, 'SIGCONT');
+        untilGoneSync([proc.pid, ...tree]);
+      };
       resolve({
         port: Number(match[1]),
-        kill: () => proc.kill('SIGTERM'),
+        // THE TREE, NOT ONLY THE SERVER. The server has no SIGTERM handler, so
+        // the scripts it is running — a `plot-host.sh pr-list` waiting on `gh`,
+        // a scan — are orphaned and keep their temp files until they finish,
+        // which can be after the run's TMPDIR is gone. `kill` sends each of the
+        // server's descendants SIGTERM, which their `plot-tmp.sh` traps clean
+        // up on, and returns once the server and they have exited —
+        // `plot-boardctl.sh --stop`'s rule. A server still alive after an
+        // `rmTree` writes its agent logs and recreates the repo's box.
+        kill,
         /**
          * SIGTERM, and then WAIT for the process to be gone.
          *
-         * `kill()` only sends the signal. A test that kills its server and
+         * `kill()` returns once the server has exited, before the event loop
+         * reaps it; `stop` resolves on that reap. A test that kills its server and
          * immediately `rmSync`s the directory the server is serving from is
          * racing it: on 2026-08-17 `discovery.test.mjs` failed three times in
          * CI with `ENOTEMPTY` on a `/tmp/plot-board-nested-…` checkout's `.git` —
@@ -115,7 +190,7 @@ export function startServer(cwd, env = {}) {
         stop: () => new Promise((done) => {
           if (proc.exitCode !== null || proc.signalCode !== null) return done();
           proc.once('exit', () => done());
-          proc.kill('SIGTERM');
+          kill();
         }),
       });
     });
@@ -390,6 +465,23 @@ export function fetchBoard(port) {
   });
 }
 
+/** Each {@link boxedDir} path, keyed to the box `mkdtempSync` returned for it. */
+const repoBoxes = new Map();
+
+/**
+ * A path for a scratch repo, inside a temp box of its own.
+ *
+ * The board writes a repo's agent logs into the repo's PARENT (`agentLogDir`),
+ * so a repo made directly in `os.tmpdir()` leaves them there. The path keeps
+ * the box's basename and does not exist yet; `rmTree` on it removes the box.
+ */
+export const boxedDir = (prefix) => {
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = path.join(box, path.basename(box));
+  repoBoxes.set(dir, box);
+  return dir;
+};
+
 /**
  * Scaffold a scratch repo.
  * @param {{
@@ -401,7 +493,8 @@ export function fetchBoard(port) {
  * }} spec
  */
 export function makeRepo(spec = {}) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-test-'));
+  const tmp = boxedDir('plot-board-test-');
+  fs.mkdirSync(tmp);
   const plansDir = path.join(tmp, 'docs/plans');
   fs.mkdirSync(plansDir, { recursive: true });
   for (const p of spec.plans ?? []) {
@@ -495,49 +588,8 @@ export function git(cwd, { retries = 10, delayMs = 25 } = {}) {
   };
 }
 
-/**
- * Delete a fixture tree, retrying only while a dying process still writes into
- * it.
- *
- * `after()` hooks await `server.stop()`, but that resolves when the SERVER
- * exits — not when the `git` children it spawned mid-scan do. A grandchild is
- * outside the scope of the SIGTERM sent to its parent, so it can still create
- * `.git/index.lock` or an object file a few milliseconds after the server is
- * gone. `rmSync` walks a directory, deletes what it saw, then `rmdir`s the
- * parent; a file appearing between those two steps fails the `rmdir` with
- * ENOTEMPTY. CI failed exactly this way on `outer/.git`.
- *
- * `force: true` does not cover this. It suppresses "no such file" — the
- * absence of something expected — while this is the presence of something
- * unexpected, the opposite failure.
- *
- * This is the same reasoning as `git` above, applied to the other half of the
- * fixture's life: contention with a doomed process is transient by definition,
- * so a bounded retry converts a spurious teardown failure into a marginally
- * slower one. Awaiting the server was the previous attempt at this and did not
- * hold, because it addressed the process that was waited for rather than the
- * ones that were not.
- *
- * Bounded and specific for the same reason the git retry is: ENOTEMPTY/EBUSY
- * clear on their own, and any other error means the fixture is wrong in a way
- * patience cannot fix, so it must surface on the first attempt.
- */
-const STILL_BEING_WRITTEN = new Set(['ENOTEMPTY', 'EBUSY', 'EPERM']);
-
-export function rmTree(target, { retries = 10, delayMs = 25 } = {}) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      fs.rmSync(target, { recursive: true, force: true });
-      return;
-    } catch (err) {
-      if (attempt >= retries || !STILL_BEING_WRITTEN.has(err?.code)) throw err;
-      // Synchronous, to stay a drop-in for the `fs.rmSync` calls it replaces:
-      // `after()` hooks are not all async, and making them so to accommodate a
-      // cleanup helper would spread this detail across every suite.
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
-    }
-  }
-}
+/** Delete a fixture tree with `removeTree`; a `boxedDir` path goes with its box. */
+export const rmTree = (target, options) => removeTree(repoBoxes.get(target) ?? target, options);
 
 /**
  * The attribute a Slice row carries, and the two folds that hide it.

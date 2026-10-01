@@ -39,9 +39,12 @@ function fixture(briefBranches: string[] = []): {
   opts: { repoRoot: string; scriptsDir: string };
   runs: () => string[];
 } {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-auto-repo-'));
+  // Nested one level down: the board writes a repo's agent logs into its parent.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-auto-repo-'));
+  const repoRoot = path.join(parent, 'repo');
+  fs.mkdirSync(repoRoot);
   const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-auto-scripts-'));
-  made.push(repoRoot, scriptsDir);
+  made.push(parent, scriptsDir);
 
   // Initialize git repo and create briefs on origin/main.
   // Auto-dispatch reads briefs from `origin/main:.plot/briefs/<slug>.md`, so

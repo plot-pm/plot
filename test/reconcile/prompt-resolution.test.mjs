@@ -13,7 +13,7 @@
 // driven through a launch — `deskreset.test.mjs` states the idiom this file
 // follows, and `resolve_prompt_file` sits above the `PLOT_WORKER_LOOP_SOURCED`
 // guard for exactly this reason.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -21,13 +21,25 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const loop = path.join(scripts, 'plot-worker-loop.sh');
 
 /** A repo root holding a repo prompt, a declared prompt, and four charters. */
 const sandbox = () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-prompt-'));
+  const root = scratch('plot-prompt-');
   fs.mkdirSync(path.join(root, '.plot', 'charters'), { recursive: true });
   fs.mkdirSync(path.join(root, '.plot', 'prompts'), { recursive: true });
   fs.writeFileSync(path.join(root, '.plot', 'worker-prompt.sh'), 'echo REPO\n');

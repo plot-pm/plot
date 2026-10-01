@@ -21,13 +21,25 @@
 // The seam between this file and `test/e2e/monitors-attached.test.mjs` is the
 // process boundary: here, every branch against fake ports; there, one real
 // wrapper publishing a real finding a real subscriber reads.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// Every directory this file creates, removed after its last test by the exact
+// path mkdtempSync returned — never by a glob over the shared temp directory.
+const made = [];
+const scratch = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -538,7 +550,7 @@ test('worker-monitor: commits are counted against a local ref, and absent means 
 
 /** A repo with an origin/main and a branch carrying the commits described. */
 const repoWith = (commits) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-repo-'));
+  const dir = scratch('plot-wmon-repo-');
   const git = (...args) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' });
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
