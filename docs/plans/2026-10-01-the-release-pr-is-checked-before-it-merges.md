@@ -44,11 +44,12 @@ The *Check for changeset* step (`ci.yml:960-961`) already runs only on `pull_req
 
 - The next release PR after this merges shows a `validate` check from a `workflow_dispatch` run on its head commit, and merges with `gh pr merge` without `--admin`.
 - `ci.yml` no longer lists `changeset-release/main` under `push`, and its comment states the measured mechanism.
+- A new case in `test/reconcile/ci-scheme.test.mjs` reads `.github/workflows/ci.yml` and `release.yml` and asserts that `ci.yml` declares `workflow_dispatch`, that `push.branches` omits `changeset-release/main`, and that `release.yml` runs `gh workflow run ci.yml --ref changeset-release/main` under `actions: write`. It fails on `origin/main` today, where `ci.yml:21` lists the branch under `push` and `release.yml` has no dispatch step.
 - If the dispatched run does not satisfy the required check on the PR, the slice records the measured reason in this plan and does not merge with a comment that claims it works.
 
 ## Slices
 
-### The release workflow starts CI (Branch: bug/the-release-workflow-starts-ci)
+### The release workflow starts CI (Branch: infra/the-release-workflow-starts-ci)
 
 The `workflow_dispatch` trigger, the dispatch step and its permission, the rewritten comment, and a changeset.
 

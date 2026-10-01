@@ -63,6 +63,13 @@ The `Released` write is already decided in the domain. `release` (`workflows/rel
 - `transitions/plan.ts` and `workflows/approve.ts` answer the same for in-session with and without a reviewer, at 100% branch coverage, and a corpus case holds the shell's answer.
 - `/plot-approve` step 3b and `/plot-release` step 5 call the scripts; neither SKILL.md tells an agent to write `--unowned` for these two writes.
 
+Tests that fail on `origin/main` today:
+
+- `packages/domain/test/transitions.test.ts`: a new case *approves an in-session plan with a reviewer* fails, because `:132-140` asserts `review-human` for every in-session input. The `:132` case is rewritten to pass no reviewer and keeps its refusal.
+- `packages/domain/test/workflows-approve.test.ts`: the `it.each` at `:61` splits; *approves in-session with a reviewer* fails today, and `ballot` keeps the refusal.
+- `test/reconcile/approve.test.mjs`: a new case *--reviewer approves Review: in-session with no unowned row* fails, because `:238-242` asserts the refusal. The `:238` case keeps the refusal without the flag and asserts the message names `--reviewer`.
+- A new case in `test/reconcile/deliver-phase-takes-effect.test.mjs`: *--release writes Released and its record with no unowned row* fails, because `plot-deliver.sh` takes no `--release` today.
+
 ## Slices
 
 ### The transition takes the reviewer (Branch: bug/the-transition-takes-the-reviewer)
