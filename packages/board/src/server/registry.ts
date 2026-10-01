@@ -5,6 +5,7 @@ import path from 'node:path';
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
 import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from '../contract/schema.js';
 import { scriptsShell } from '@plot-pm/domain/adapters';
+import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 
 /**
  * What the registry can say about an agent's liveness — one fact, computed once
@@ -369,17 +370,34 @@ export const AGENT_MANIFEST_DIR_KEY = 'Agent registry';
  * viewer on the fleet's 5 s pulse. Same defect, different blast radius, and
  * only the second one is this plan's subject.
  *
- * The two share {@link joinManifestDir}, so *where is the registry* still has
- * one answer and the read and write halves cannot drift apart.
+ * The two share `manifestDirectory` — the domain's rule, which
+ * `plot_manifest_dir_for` in `plot-worker-state.sh` duplicates under the corpus
+ * test — so *where is the registry* still has one answer and the read and write
+ * halves cannot drift apart.
  */
 export function resolveManifestDir(
   repoRoot: string,
   opts: { manifestDir?: string; scriptsDir?: string },
 ): string {
-  return joinManifestDir(
-    repoRoot,
-    opts.manifestDir ?? readManifestDirConfig(repoRoot, opts.scriptsDir),
-  );
+  return manifestDirectory({
+    mainCheckout: repoRoot,
+    configured: opts.manifestDir ?? readManifestDirConfig(repoRoot, opts.scriptsDir),
+  });
+}
+
+/**
+ * A path through `realpath`, or `undefined` when it cannot be resolved.
+ *
+ * A desk that is gone has no realpath, and that is not a failure: the rule
+ * matches on the forms it was given, so an unresolvable path simply contributes
+ * one form instead of two.
+ */
+function realpathOrUndefined(p: string): string | undefined {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -397,25 +415,10 @@ export async function resolveManifestDirAsync(
   repoRoot: string,
   opts: { manifestDir?: string; scriptsDir?: string },
 ): Promise<string> {
-  return joinManifestDir(
-    repoRoot,
-    opts.manifestDir ?? (await readManifestDirConfigAsync(repoRoot, opts.scriptsDir)),
-  );
-}
-
-/**
- * Anchor a configured directory against the repository.
- *
- * A relative result (the common case — `.plot/agents`, or a repo-relative
- * override) is joined against `repoRoot`; an absolute result is taken as-is, so
- * a project may name a registry outside its own tree.
- *
- * @param repoRoot - the repository to join relative paths against.
- * @param configured - what the config or the caller named.
- * @returns the absolute directory.
- */
-function joinManifestDir(repoRoot: string, configured: string): string {
-  return path.isAbsolute(configured) ? configured : path.join(repoRoot, configured);
+  return manifestDirectory({
+    mainCheckout: repoRoot,
+    configured: opts.manifestDir ?? (await readManifestDirConfigAsync(repoRoot, opts.scriptsDir)),
+  });
 }
 
 /**
@@ -805,18 +808,15 @@ export async function readAgentRegistryWithInfo(
   // Fix C: a worktree no manifest names is still an agent the registry cannot
   // rule out. Synthesize one entry per such worktree — but never for a path a
   // manifest already claims (a manifest wins), never for the main repo, and never
-  // for a branchless worktree. Both `path` and its realpath are held in the seen
-  // set because a manifest records the resolved path and git may report either.
-  const claimed = new Set<string>();
-  for (const e of out) {
-    if (!e.worktree) continue;
-    claimed.add(e.worktree);
-    try {
-      claimed.add(fs.realpathSync(e.worktree));
-    } catch {
-      /* the worktree may be gone; the raw path is enough to dedupe */
-    }
-  }
+  // for a branchless worktree.
+  //
+  // WHETHER A MANIFEST CLAIMS A PATH IS `deskManifest`'s ANSWER. This read its
+  // own set of paths and realpaths until 2026-10-02, which was the third of four
+  // implementations of one join; the rule holds the both-forms-match-either-form
+  // property and `desk-manifest.corpus.test.ts` holds it against the shell.
+  const manifestReadings: ManifestReading[] = out
+    .filter((e) => e.worktree)
+    .map((e) => ({ path: e.worktree, worktree: e.worktree, worktreeReal: realpathOrUndefined(e.worktree) }));
   let synthesizedCount = 0;
   {
     const lister = opts.worktrees ?? (() => gitWorktrees(repoRoot));
@@ -829,7 +829,15 @@ export async function readAgentRegistryWithInfo(
     for (const wt of worktrees) {
       if (wt.isMain) continue; // The main repo is not an agent.
       if (wt.branch === '') continue; // A branchless worktree is not an agent row.
-      if (claimed.has(wt.path)) continue; // A manifest already names this path.
+      // A manifest already names this path. `several` claims it too: two agents
+      // on one desk is a defect to report elsewhere, never a reason to add a
+      // third row for the same tree.
+      const named = deskManifest({
+        desk: wt.path,
+        deskReal: realpathOrUndefined(wt.path) ?? wt.path,
+        manifests: manifestReadings,
+      });
+      if (named.kind !== 'unnamed') continue;
       out.push(synthesizeEntry(wt));
       synthesizedCount++;
     }

@@ -80,6 +80,61 @@ describe('the tick counts the trees it did not start', () => {
     expect(unclaimedLines(report)).toEqual([]);
   });
 
+  it('keeps a desk the registry named by its SYMLINKED path', async () => {
+    // THE FOURTH IMPLEMENTATION OF THE JOIN, and the one that matched on the
+    // raw path alone: `new Set(entries.map((e) => e.worktree)).has(tree.path)`.
+    // A manifest records the path the dispatcher was given and `git worktree
+    // list` prints a resolved one, so a desk registered through a symlink read
+    // as unregistered — and an unregistered live desk is reported as a
+    // leftover with a `git worktree remove` beside it.
+    //
+    // `realpath` is the world's reading here, as it is in production: the rule
+    // matches either form against either, and something has to resolve them.
+    const report = await tick({
+      registry: async () => [manifest({ worktree: '/tmp/estate/.worktrees/one' })],
+      world: world({
+        trees: async () => [tree({ path: '/private/tmp/estate/.worktrees/one', branch: 'feature/one' })],
+        realpath: (p) =>
+          p === '/tmp/estate/.worktrees/one' ? '/private/tmp/estate/.worktrees/one' : p,
+      }),
+      now: () => 0,
+    });
+
+    expect(report.decision.detail.unclaimed).toEqual([]);
+    expect(unclaimedLines(report)).toEqual([]);
+  });
+
+  it('still reports an unregistered tree when a realpath reading is available', async () => {
+    // The guard on the case above: resolving paths must not make every tree
+    // read as registered. A world that answers `realpath` and a registry that
+    // names a DIFFERENT desk still produces the finding.
+    const report = await tick({
+      registry: async () => [manifest({ worktree: '/private/tmp/estate/.worktrees/other' })],
+      world: world({
+        trees: async () => [tree({ path: '/private/tmp/wt818' })],
+        realpath: (p) => p,
+      }),
+      now: () => 0,
+    });
+
+    expect(tickLine(report)).toContain('unclaimed=1');
+  });
+
+  it('matches on the given forms alone when the world reads no realpath', async () => {
+    // `realpath` is OPTIONAL, so a world built before it existed supervises
+    // every desk exactly as it did: the registered path matches and the tree is
+    // kept, with nothing resolving anything.
+    const report = await tick({
+      registry: async () => [manifest({ worktree: '/estate/.worktrees/one' })],
+      world: world({
+        trees: async () => [tree({ path: '/estate/.worktrees/one', branch: 'feature/one' })],
+      }),
+      now: () => 0,
+    });
+
+    expect(unclaimedLines(report)).toEqual([]);
+  });
+
   it('names a hand-made tree nobody dispatched, and what the scan pays for it', async () => {
     const report = await tick({
       registry: async () => [],

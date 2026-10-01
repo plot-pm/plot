@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -17,6 +17,7 @@ import {
 } from '@plot-pm/domain/rules/gates';
 import type { DeskMergeReading } from '@plot-pm/domain/rules/gates';
 import type { SupervisionReadings } from '@plot-pm/domain/rules/supervision';
+import { deskManifest, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import type { SuperviseReadings } from '@plot-pm/domain/workflows/supervise';
 
@@ -91,6 +92,21 @@ export interface SupervisorWorld {
    * estate with none.
    */
   trees?(): Promise<readonly TreeReading[]>;
+  /**
+   * A path through `realpath`, or `undefined` when it cannot be resolved.
+   *
+   * SYNCHRONOUS AND OPTIONAL, because it answers a question about a NAME rather
+   * than about a desk's contents: `deskManifest` matches a desk against the
+   * manifests on both the path as given and its resolved form, and a desk
+   * registered by a symlinked path is found by its real one only if something
+   * resolves it. A world that does not read the filesystem omits it and the
+   * match runs on the given forms alone — which is the behaviour before this
+   * member existed.
+   *
+   * `undefined` for an unresolvable path is an ANSWER, not a failure: a desk
+   * that is gone has no realpath, and the rule then matches on one form.
+   */
+  realpath?(p: string): string | undefined;
 }
 
 /**
@@ -148,13 +164,32 @@ export const readTick = async (
   // manifests again here would let one tick supervise one set of desks and
   // judge another set unclaimed — which is the disagreement that would name a
   // live worker's desk as a leftover.
-  const registered = new Set(entries.map((entry) => entry.worktree));
+  //
+  // THE MATCH IS `deskManifest`'s, NOT A RAW-PATH SET. This was
+  // `new Set(entries.map((e) => e.worktree)).has(tree.path)` until 2026-10-02:
+  // the one reader of the four that matched on the path alone, so a desk
+  // registered by its symlinked path and listed by its real one read as
+  // unregistered — and an unregistered live desk is what `isUnclaimedTree`
+  // reports as a leftover. Both sides now carry both forms.
+  const manifests: ManifestReading[] = entries
+    .filter((entry) => entry.worktree)
+    .map((entry) => ({
+      path: entry.worktree,
+      worktree: entry.worktree,
+      worktreeReal: world.realpath?.(entry.worktree),
+    }));
   const trees =
     world.trees === undefined
       ? undefined
-      : (await world.trees()).map(
-          (tree): RegisteredTreeReadings => ({ ...tree, registered: registered.has(tree.path) }),
-        );
+      : (await world.trees()).map((tree): RegisteredTreeReadings => ({
+          ...tree,
+          registered:
+            deskManifest({
+              desk: tree.path,
+              deskReal: world.realpath?.(tree.path) ?? tree.path,
+              manifests,
+            }).kind !== 'unnamed',
+        }));
 
   return { agents, trees };
 };
@@ -341,7 +376,26 @@ export const worldFrom = (options: WorldOptions): SupervisorWorld => ({
   deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
   transcriptFound: (worktree, sessionId) =>
     transcriptFile(transcriptDir(worktree, options.home), sessionId) !== null,
+  realpath: (p) => realpathOrUndefined(p),
 });
+
+/**
+ * A path through `realpath`, or `undefined` when it cannot be resolved.
+ *
+ * Local filesystem work rather than a port call, the way {@link fileOrNull}
+ * beside it is: it resolves a NAME and reads nothing, so there is no estate
+ * reading for a port to own.
+ *
+ * @param p - the path to resolve.
+ * @returns the resolved path, or undefined when it cannot be resolved.
+ */
+const realpathOrUndefined = (p: string): string | undefined => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * Reads one file, treating absence as `null` rather than as an empty file.
