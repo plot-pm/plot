@@ -133,9 +133,9 @@
 #         lifecycle state, verbatim from plot-plan-meta.sh, and the half of a
 #         row's phase git cannot answer. Which column a row reads is composed
 #         from it AND the branch state one layer up; this script decides nothing.
-#         The plan set also includes plans delivered inside a rolling 24 h
-#         window (see "the last day of finished work"), so work does not
-#         disappear at the moment it becomes finished.
+#         The plan set also includes every plan at `Delivered`, until it is
+#         `Released` (see "the release scope"), so DONE names what the next
+#         release ships.
 #         Plans are enumerated from REFS (`git ls-tree`/`git show`), NOT from
 #         the working tree — so the list describes committed state and does not
 #         change while rebases and worker commits rewrite the checkout
@@ -2248,37 +2248,15 @@ pr_ready() {
 }
 
 # ---------------------------------------------------------------------------
-# Recently delivered plans: the last day of finished work
+# Delivered plans: the release scope
 # ---------------------------------------------------------------------------
 #
-# The pulse read `active/` only, so a plan left the view the INSTANT it was
-# delivered — taking every branch with it. Measured on this repo: five plans
-# delivered in one day named eight branches between them, and DONE showed one,
-# because delivery and merge are minutes apart and only whichever branch
-# happened to sit in the gap survived. A group that is full by accident is
-# worse than one that is empty by rule.
-#
-# A ROLLING 24 HOURS, not the calendar day. Literally "delivered today" is
-# easier to explain and wrong at exactly the wrong moment: a plan delivered at
-# 23:50 vanishes ten minutes later, mid-session, while the branches it names
-# are still on screen. 24 is also the one freshness bound this repo already
-# uses (`Claim stale after`), so it is one unit to learn rather than two.
-#
-# THE WINDOW FILTERS BEFORE THE PARSE. Measured: ~57 ms per plan through
-# plot-plan-meta.sh against a scan that already runs 500–1050 ms, so parsing
-# fourteen delivered plans to discard thirteen would roughly double the pulse —
-# and that cost grows with the archive, which only ever gets larger, while the
-# answer stays the size of a day's work. So the cheap signal comes first (the
-# delivered symlink's own mtime) and only the candidates it admits are parsed.
-#
-# The pre-filter may OVER-ADMIT AND PAY A PARSE; it may never exclude. A
-# checkout can freshen an old file, so the `Delivered:` record keeps the last
-# word — but nothing mtime rules out could have been delivered inside the
-# window. On a fresh clone or a CI worktree every file shares one checkout
-# timestamp and ALL of them are admitted: correct, merely slower, once. Reaching
-# for `git log` per plan to avoid that would spend a git call to save a parse.
-DELIVERED_WINDOW_HOURS=$(cfg "Claim stale after" "24")
-case "$DELIVERED_WINDOW_HOURS" in (*[!0-9]*|'') DELIVERED_WINDOW_HOURS=24 ;; esac
+# A plan at `Delivered` stays in the pulse until it is `Released`, whatever its
+# age. DONE holds the release scope (`done-holds-what-is-still-yours`): every
+# plan whose work has landed and whose version has not shipped. A 24-hour window
+# on the `Delivered:` record bounded this until 2026-10-01, when 25 plans awaited
+# 2.22.0 and DONE showed 10. Every plan file is parsed in one pass anyway, so the
+# window bought no parse time; it only hid work the next release ships.
 
 
 # ---------------------------------------------------------------------------
@@ -2444,52 +2422,7 @@ changed_ago_of() { # $1=branch → "<seconds since>\t<epoch of>" for the newest 
   if [ "$newest" -gt "$now" ]; then printf '0\t%s' "$newest"; else printf '%s\t%s' "$((now - newest))" "$newest"; fi
 }
 
-# A plan whose delivered symlink was touched inside the window. `find -newermt`
-# is not portable to every BSD find in the wild, so the cutoff is computed and
-# compared with `stat` — one stat per file, no parse.
-delivered_candidates() {
-  local cutoff now link mtime
-  now=$(date +%s)
-  cutoff=$((now - DELIVERED_WINDOW_HOURS * 3600))
-  for link in "$DELIVERED_DIR"*.md; do
-    [ -e "$link" ] || continue
-    # `stat` follows the symlink, which is what we want: the TARGET is the plan,
-    # and a plan edited after delivery must still admit. An unreadable time
-    # ADMITS rather than excludes — the pre-filter may only over-admit, and the
-    # `Delivered:` record has the last word either way.
-    mtime=$(file_mtime "$link") || { printf '%s\n' "$link"; continue; }
-    [ "$mtime" -ge "$cutoff" ] && printf '%s\n' "$link"
-  done
-}
 
-# Does this plan's `Delivered:` record fall inside the window? The RECORD
-# decides — mtime only chose who got asked.
-#
-# "No date, no row." A delivered plan with an empty record does not appear at
-# all: no date means no membership in any window, the same rule the waiting age
-# already follows. Showing it always would create the one row that can never
-# age out of DONE, and the missing record is a bookkeeping fault
-# plot-reconcile-scan.sh exists to report — a view that quietly compensates
-# for it makes the fault harder to see.
-#
-# A BARE DATE IS ANCHORED AT THE END OF ITS DAY, not at midnight, and this is
-# the one detail that makes "rolling, not the calendar day" true rather than
-# merely stated. Every `Delivered:` record in this repo is a bare date, which
-# names no time — so anchoring at 00:00 measures from up to a day BEFORE the
-# delivery, and the window collapses back into exactly the calendar boundary
-# the rolling window exists to avoid: a plan delivered at 23:50 would be an
-# hour from expiry the moment it was written, and gone ten minutes later
-# mid-session while the branches it names are still on screen.
-#
-# Anchoring at 23:59:59 over-admits by at most the length of the delivery day.
-# That is the same direction the mtime pre-filter is allowed to err in, and for
-# the same reason: showing a finished plan slightly too long costs a row, while
-# dropping one mid-session costs the reader the work they were looking at. A
-# record that DOES carry a time is honoured exactly, so the imprecision belongs
-# to the record rather than to the rule.
-# The rule itself now runs inside the ONE estate parse below (`in_window`),
-# because asking it per plan meant an interpreter per plan. What it decides is
-# unchanged; only the number of processes that decide it is.
 
 # ---------------------------------------------------------------------------
 # Plan enumeration: from the REF, not from the tree
@@ -2893,7 +2826,7 @@ is_plan_phase() { # $1=normalized phase → 0 when this file is a plan
 #
 # `record` types, one per line, all tab-separated and all prefixed by the plan
 # file they describe:
-#   P <file> <phase> <delivered_in_window>   one per parsed file
+#   P <file> <phase>   one per parsed file
 #   W <file> <wave-idx> <branch> <deferred> <why> <wave-name> <claim>
 #
 # NO ASSOCIATIVE ARRAYS. `/bin/bash` on macOS is 3.2 and this script uses no
@@ -2911,7 +2844,6 @@ is_plan_phase() { # $1=normalized phase → 0 when this file is a plan
 # gave when it failed.
 plan_meta_files=()
 plan_meta_phases=()
-plan_meta_inwindow=()
 plan_meta_waves=()
 
 # Parses every plan file given, filling the four arrays above. Called ONCE.
@@ -2921,33 +2853,6 @@ parse_plan_estate() { # $@=files to parse
   records=$("$script_dir/plot-plan-meta.sh" "$@" --prefixes "$PREFIX_RE" 2>/dev/null \
     | python3 -c '
 import json, re, sys, time
-
-window = float(sys.argv[1]) * 3600
-now = time.time()
-
-def in_window(raw):
-    """The `Delivered:` record against the rolling window — the same rule the
-    per-plan test applied, moved into the one pass. A record whose date does
-    not parse is dropped rather than coerced: Date-style leniency would turn a
-    typo into a confident answer. A record with no time anchors at 23:59:59,
-    so a plan delivered at 23:50 is not an hour from expiry the moment it is
-    written. A FUTURE record is INSIDE (negative age), because hiding a live
-    plan for a mistyped year costs more than showing one."""
-    raw = (raw or "").strip()
-    if not raw:
-        return False
-    m = re.match(r"(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?", raw)
-    if not m:
-        return False
-    y, mo, dy, hh, mi = m.groups()
-    timed = hh is not None
-    try:
-        at = time.mktime((int(y), int(mo), int(dy),
-                          int(hh) if timed else 23, int(mi) if timed else 59,
-                          0 if timed else 59, 0, 0, -1))
-    except (ValueError, OverflowError):
-        return False
-    return (now - at) <= window
 
 def clean(s):
     return str(s).replace("\t", " ").replace("\n", " ")
@@ -2966,8 +2871,7 @@ for line in sys.stdin:
     f = d.get("file")
     if not f:
         continue
-    print("\t".join(["P", clean(f), clean(d.get("phase", "")),
-                     "1" if in_window(d.get("delivered_raw")) else "0"]))
+    print("\t".join(["P", clean(f), clean(d.get("phase", ""))]))
     for i, w in enumerate(d.get("waves", []) or []):
         name = w.get("name")
         for b in w.get("branches", []) or []:
@@ -2994,7 +2898,7 @@ for line in sys.stdin:
                 (b.get("deferred_reason") or "-"),
                 (b.get("waits_on") or "-"),
                 name or "-", b.get("claimed") or "-"]))
-' "$DELIVERED_WINDOW_HOURS" 2>/dev/null) || records=""
+' 2>/dev/null) || records=""
 
   local kind file rest
   while IFS=$'\t' read -r kind file rest; do
@@ -3002,9 +2906,8 @@ for line in sys.stdin:
     case "$kind" in
       P)
         plan_meta_files+=("$file")
-        # `rest` is "<phase>\t<inwindow>"; both are single tokens with no tabs.
-        plan_meta_phases+=("${rest%%	*}")
-        plan_meta_inwindow+=("${rest##*	}")
+        # `rest` is "<phase>", a single token with no tabs.
+        plan_meta_phases+=("$rest")
         plan_meta_waves+=("")
         ;;
       W)
@@ -3128,8 +3031,8 @@ else
   # was buying less than it appeared to: it keyed off the `$DELIVERED_DIR`
   # symlink's mtime, and a fresh checkout stamps every symlink at once — 56 of
   # 56 delivered links admitted here, so the parse it was meant to avoid was
-  # already being paid in full. `delivered_in_window` (the `Delivered:` record)
-  # was always the filter that actually decided, and the pre-filter's own
+  # already being paid in full. The `Delivered:` record's window was the filter
+  # that actually decided until 2026-10-01, when the phase alone took over, and the pre-filter's own
   # contract was that it may only ever OVER-admit. Removing it takes that
   # contract to its limit — strictly more correct, and on this repo not even
   # more expensive.
@@ -3747,26 +3650,14 @@ for plan in "${plans[@]}"; do
   # is a judgment that belongs one layer up (Manifesto Principle 3).
   plan_phase="${plan_meta_phases[$meta_i]}"
 
-  # The delivered window, applied to the plans the PHASE put in the terminal
-  # group. Enumeration grouped them; the `Delivered:` RECORD decides which of
-  # them still appears.
-  #
-  # THE TEST IS THE PHASE, not the path. It read `case "$plan" in "$DELIVERED_DIR"*)`
-  # — the directory the link sat in — and that made "which group is this plan
-  # in" a fact about a symlink while "what phase is it" was a fact about the
-  # file. The old comment here noted that an active plan carrying
-  # `Phase: Delivered` was drift the window must not hide; under the phase rule
-  # that drift cannot be constructed, because there is no second place for the
-  # answer to live. One source, so nothing to disagree.
-  #
-  # Two exits, and both matter:
-  #   * the record's date has aged out of the window — ordinary expiry;
-  #   * there is NO record — "no date, no row". `reconcile-scan-accuracy.md` is
-  #     the live example; showing it would create the one row that can never
-  #     age out of DONE.
-  # Both leave before a single git call is spent on the plan's branches.
-  if is_terminal_phase "$plan_phase"; then
-    [ "${plan_meta_inwindow[$meta_i]}" = "1" ] || continue
+  # THE RELEASE SCOPE, decided by the PHASE alone. A terminal plan stays in the
+  # pulse only while it is `delivered`: its work has landed and its version has
+  # not shipped, which is what DONE holds. `released`, `rejected` and
+  # `superseded` leave, whatever their age, and leave before a single git call
+  # is spent on their branches. No date bounds it, so a plan delivered weeks
+  # before a release still names the release's contents.
+  if is_terminal_phase "$plan_phase" && [ "$plan_phase" != "delivered" ]; then
+    continue
   fi
 
   n_plans=$((n_plans + 1))

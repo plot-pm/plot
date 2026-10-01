@@ -3,19 +3,17 @@
 //
 // Two things are pinned here, and both are the kind that fail silently:
 //
-//   * the delivered WINDOW — a plan delivered inside a rolling 24 h still
-//     appears, an older one does not. The scan used to read `docs/plans/active`
-//     alone, so a plan left the view the instant it was delivered: five plans
-//     delivered in one day named eight branches between them, and DONE showed
-//     one, because delivery and merge are minutes apart and only whichever
-//     branch happened to sit in the gap survived.
+//   * the RELEASE SCOPE — a plan at `Delivered` appears until it is `Released`,
+//     whatever its age, and a released plan does not. The scan used to read
+//     `docs/plans/active` alone, so a plan left the view the instant it was
+//     delivered; a 24-hour window on the `Delivered:` record replaced that, and
+//     on 2026-10-01 it hid 15 of the 25 plans 2.22.0 was about to ship.
 //
 //   * the plan's own PHASE, reported per plan so a consumer can compose it with
 //     each branch's git state. The pulse discarded everything plot-plan-meta.sh
 //     returned except the waves.
 //
-// Every test builds its own repo: the window is read from the filesystem clock,
-// and a shared fixture would make one test's mtime another test's answer.
+// Every test builds its own repo, so one test's fixture is never another's answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -35,18 +33,6 @@ const pad = (n) => String(n).padStart(2, '0');
 function dateHoursAgo(hoursAgo) {
   const d = new Date(Date.now() - hoursAgo * 3600_000);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-/**
- * `YYYY-MM-DD HH:MM` for a moment `hoursAgo` in the past, in LOCAL time.
- *
- * A record that names a TIME is what makes the rolling window testable to the
- * hour: a bare date names no time, so it is deliberately anchored at the end of
- * its day and cannot distinguish 23 hours from 25.
- */
-function stampHoursAgo(hoursAgo) {
-  const d = new Date(Date.now() - hoursAgo * 3600_000);
-  return `${dateHoursAgo(hoursAgo)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /**
@@ -103,7 +89,7 @@ function makeRepo(delivered = []) {
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** ${d.phase ?? 'Delivered'}
 - **Type:** feature
 - **Delivered:** ${d.delivered}
 
@@ -132,113 +118,62 @@ const pulse = (repo) => JSON.parse(
 
 const files = (doc) => doc.plans.map((p) => p.file);
 
-test('delivered window: a plan delivered inside 24 h still appears in the pulse', (t) => {
+test('release scope: a plan delivered an hour ago appears in the pulse', (t) => {
   const { tmp, repo } = makeRepo([{ slug: 'fresh', delivered: dateHoursAgo(1) }]);
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
   assert.ok(files(pulse(repo)).includes('2026-01-01-fresh.md'),
     'work must not disappear at the moment it becomes finished');
 });
 
-test('delivered window: an old delivery does NOT appear', (t) => {
-  // The other half, and the one that makes the first mean something: a test
-  // asserting only "delivered plans appear" passes with no bound at all, which
-  // would turn the Agents tab into an archive.
+test('release scope: an old delivery still appears, because it has not shipped', (t) => {
+  // The case the 24-hour window got wrong: a plan delivered months ago and never
+  // released is still part of what the next release ships.
   const { tmp, repo } = makeRepo([{ slug: 'ancient', delivered: '2026-01-02' }]);
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
   const got = files(pulse(repo));
-  assert.ok(!got.includes('2026-01-01-ancient.md'), `unexpectedly present: ${got}`);
-  // …and the active plan is untouched by the filtering.
+  assert.ok(got.includes('2026-01-01-ancient.md'), `missing: ${got}`);
   assert.ok(got.includes('2026-01-01-live.md'));
 });
 
-test('delivered window: the bound is 24 h ROLLING, not the calendar day', (t) => {
-  // 23 hours in, 25 hours out — the assertion a day-boundary implementation
-  // cannot pass: "delivered today" would drop the 23-hour plan whenever those
-  // 23 hours crossed midnight, and keep the 25-hour one whenever they did not.
-  //
-  // Written with TIMED records, because that is the only way to state a
-  // 23-vs-25-hour distinction at all. A bare date names no time, and is
-  // anchored at the end of its day for exactly that reason.
+test('release scope: a released plan never appears, however recent', (t) => {
+  // The other half, and the one that makes the first mean something: a test
+  // asserting only "delivered plans appear" passes with no bound at all, which
+  // would turn the Agents tab into an archive. The bound is the phase.
   const { tmp, repo } = makeRepo([
-    { slug: 'justinside', delivered: stampHoursAgo(23) },
-    { slug: 'justoutside', delivered: stampHoursAgo(25) },
+    { slug: 'shipped', delivered: dateHoursAgo(1), phase: 'Released' },
+    { slug: 'pending', delivered: dateHoursAgo(1) },
   ]);
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
   const got = files(pulse(repo));
-  assert.ok(got.includes('2026-01-01-justinside.md'), `23 h must be inside: ${got}`);
-  assert.ok(!got.includes('2026-01-01-justoutside.md'), `25 h must be outside: ${got}`);
+  assert.ok(!got.includes('2026-01-01-shipped.md'), `a released plan must leave: ${got}`);
+  assert.ok(got.includes('2026-01-01-pending.md'), `a delivered one must stay: ${got}`);
 });
 
-test('delivered window: a bare date is anchored at the END of its day', (t) => {
-  // The detail that makes "rolling" true rather than merely stated. Every
-  // `Delivered:` record in this repo is a bare date, so anchoring at 00:00
-  // would measure from up to a day BEFORE the delivery — a plan delivered at
-  // 23:50 would be an hour from expiry the moment it was written, and gone ten
-  // minutes later mid-session. Anchoring at 23:59:59 over-admits by at most the
-  // delivery day, which is the safe direction.
-  //
-  // So yesterday's bare date is still inside (its day ended under 24 h ago) and
-  // the day before that is not.
-  const { tmp, repo } = makeRepo([
-    { slug: 'yesterday', delivered: dateHoursAgo(24) },
-    { slug: 'dayb4', delivered: dateHoursAgo(24 * 3) },
-  ]);
-  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  const got = files(pulse(repo));
-  assert.ok(got.includes('2026-01-01-yesterday.md'),
-    `a bare date must not expire before its own day is over: ${got}`);
-  assert.ok(!got.includes('2026-01-01-dayb4.md'), `three days back must be outside: ${got}`);
-});
-
-test('delivered window: a plan with an EMPTY Delivered: record never appears', (t) => {
-  // Not hypothetical — `docs/plans/delivered/reconcile-scan-accuracy.md` is in
-  // this repo's delivered index today with an empty record. No date means no
-  // membership in any window, the same rule the waiting age follows. Showing it
-  // always would create the one row that can never age out of DONE, and it
-  // would hide a bookkeeping fault plot-reconcile-scan.sh exists to report.
+test('release scope: a delivered plan with an EMPTY Delivered: record appears', (t) => {
+  // The phase decides membership; the record no longer does. A missing record
+  // is a bookkeeping fault plot-reconcile-scan.sh reports, and hiding the plan
+  // would also hide it from the release it belongs to.
   const { tmp, repo } = makeRepo([{ slug: 'nodate', delivered: '' }]);
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  const got = files(pulse(repo));
-  assert.ok(!got.includes('2026-01-01-nodate.md'), `no date, no row: ${got}`);
+  assert.ok(files(pulse(repo)).includes('2026-01-01-nodate.md'));
 });
 
-test('delivered window: a stale mtime never excludes a plan the record admits', (t) => {
-  // The pre-filter is an OPTIMISATION and may only over-admit. This plan was
-  // delivered an hour ago and its file has not been touched in a week — a real
-  // shape wherever the record is written by one commit and the file by another.
-  // Without this assertion the cheap signal silently becomes the rule, and the
-  // saving is paid for with wrong answers.
-  const { tmp, repo } = makeRepo([
-    { slug: 'staleweek', delivered: dateHoursAgo(1), mtimeHoursAgo: 24 * 7 },
-  ]);
-  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  assert.ok(files(pulse(repo)).includes('2026-01-01-staleweek.md'),
-    'the Delivered: record has the last word, not the mtime');
-});
-
-test('delivered window: a fresh clone still answers correctly', (t) => {
-  // On a fresh clone or a CI worktree every file carries the same checkout
-  // timestamp, so the pre-filter admits ALL of them. That is the safe
-  // direction — the result stays correct and only the saving is lost — but only
-  // if the record still excludes the old, which is what this pins.
+test('release scope: file times decide nothing', (t) => {
+  // A fresh clone stamps every file with one checkout time; a week-old mtime is
+  // a file nobody touched since. Neither may move a plan in or out.
   const now = Date.now() / 1000;
   const { tmp, repo } = makeRepo([
-    { slug: 'clonefresh', delivered: dateHoursAgo(2) },
+    { slug: 'staleweek', delivered: dateHoursAgo(1), mtimeHoursAgo: 24 * 7 },
     { slug: 'cloneold', delivered: '2026-01-02' },
   ]);
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  // One uniform mtime across every plan file, as a checkout produces.
-  for (const f of fs.readdirSync(path.join(repo, 'plans'))) {
-    const p = path.join(repo, 'plans', f);
-    if (fs.statSync(p).isFile()) fs.utimesSync(p, now, now);
-  }
+  fs.utimesSync(path.join(repo, 'plans', '2026-01-01-cloneold.md'), now, now);
   const got = files(pulse(repo));
-  assert.ok(got.includes('2026-01-01-clonefresh.md'));
-  assert.ok(!got.includes('2026-01-01-cloneold.md'),
-    `an admitted-by-mtime plan must still be excluded by its record: ${got}`);
+  assert.ok(got.includes('2026-01-01-staleweek.md'), `stale mtime hid a plan: ${got}`);
+  assert.ok(got.includes('2026-01-01-cloneold.md'), `fresh mtime hid a plan: ${got}`);
 });
 
-test('delivered window: --next never names a branch from a delivered plan', (t) => {
+test('release scope: --next never names a branch from a delivered plan', (t) => {
   // --next answers "what may a worker claim", and a delivered plan answers
   // nothing to it: even an untaken branch under one is work somebody decided
   // was finished. Naming one would send a dispatcher at completed work.
@@ -249,7 +184,7 @@ test('delivered window: --next never names a branch from a delivered plan', (t) 
   assert.equal(picked, 'feature/live-one');
 });
 
-test('delivered window: the mtime pre-filter reads a real time on this platform', (t) => {
+test('scan: file_mtime reads a real time on this platform', (t) => {
   // A DIRECT assertion, because the failure mode is silent in the worst way.
   // The first implementation read the mtime as `stat -f %m || stat -c %Y`, and
   // on GNU coreutils `-f` is a valid flag meaning *file system status* — so it
@@ -257,9 +192,8 @@ test('delivered window: the mtime pre-filter reads a real time on this platform'
   // as zero. Every delivered plan was then excluded on Linux while macOS was
   // green, and the symptom was an empty DONE group rather than an error.
   //
-  // The window tests above catch it too, but only as "nothing appeared", which
-  // names no cause. This one says which half is broken. Asserted against the
-  // real script rather than a copy: a copy would have been just as wrong.
+  // `file_mtime` still dates a desk's newest change. Asserted against the real
+  // script rather than a copy: a copy would have been just as wrong.
   const { tmp, repo } = makeRepo();
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
   // The function is lifted out of the script rather than the script being run:
