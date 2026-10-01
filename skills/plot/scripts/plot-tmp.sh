@@ -45,9 +45,8 @@ PLOT_TMP_LOADED=$$
 # Fixed at first source: a later `TMPDIR` change in the script does not move it.
 # A file already at this path belongs to a dead process that had the same pid,
 # and its `c:` commands are not this process's, so it is replaced, never read.
+# The file itself is created at the end of this file, after the traps.
 PLOT_TMP_REGISTRY="${TMPDIR:-/tmp}/plot-reg.$$"
-rm -f -- "$PLOT_TMP_REGISTRY" 2>/dev/null
-: > "$PLOT_TMP_REGISTRY" 2>/dev/null || true
 
 # One line per entry, in registration order: `p:<path>` or `c:<command>`.
 _plot_tmp_register() {
@@ -106,7 +105,7 @@ plot_on_exit() {
 # command that writes to a closed stdout or stderr must not stop the removals.
 _plot_tmp_cleanup() {
   local __plot_tmp_line
-  [ -f "$PLOT_TMP_REGISTRY" ] || return 0
+  [ -n "${__plot_tmp_owned:-}" ] && [ -f "$PLOT_TMP_REGISTRY" ] || return 0
   trap '' PIPE
   while IFS= read -r __plot_tmp_line; do
     case $__plot_tmp_line in
@@ -141,3 +140,17 @@ trap _plot_tmp_on_exit EXIT
 trap '_plot_tmp_on_signal INT 2' INT
 trap '_plot_tmp_on_signal TERM 15' TERM
 trap '_plot_tmp_on_signal PIPE 13' PIPE
+
+# THE REGISTRY IS CREATED AFTER THE TRAPS, so no signal lands between the file
+# and the handler that removes it. It is replaced under the creation deferral:
+# until `__plot_tmp_owned` is set, a file at this path is a dead process's and
+# the cleanup leaves it unread.
+__plot_tmp_busy=1
+rm -f -- "$PLOT_TMP_REGISTRY" 2>/dev/null
+: > "$PLOT_TMP_REGISTRY" 2>/dev/null || true
+__plot_tmp_owned=1
+__plot_tmp_busy=''
+if [ -n "$__plot_tmp_pending" ]; then
+  # shellcheck disable=SC2086 # "<name> <number>", split on purpose
+  _plot_tmp_on_signal $__plot_tmp_pending
+fi
