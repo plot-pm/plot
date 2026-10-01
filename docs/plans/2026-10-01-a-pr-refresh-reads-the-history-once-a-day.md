@@ -4,13 +4,15 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Issue:** #1087
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Started:** 2026-10-02, Jan Wloka, `bug/a-delta-keeps-the-store-whole`
 
 ## Changelog
 

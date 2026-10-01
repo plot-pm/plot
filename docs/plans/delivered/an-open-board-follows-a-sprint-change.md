@@ -1,0 +1,1 @@
+../2026-10-01-an-open-board-follows-a-sprint-change.md

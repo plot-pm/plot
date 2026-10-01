@@ -441,7 +441,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 55 → 56 on 2026-09-30: `plan-row-verdict-once.browser.test.ts`, for the
 // section in which a one-slice plan's verdict appears. A plain addition; it
 // serves its own state through the catalogue and starts no board.
-const EXPECTED_FILES = 56;
+// 56 → 57 on 2026-10-01: `sprint-switch.browser.test.ts` (#1145). It swaps the
+// served payload under an open page with `mock.serve()` and waits on
+// `mock.served()`, and starts no board of its own.
+const EXPECTED_FILES = 57;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -618,7 +621,11 @@ const EXPECTED_FILES = 56;
 // 535 → 536 on 2026-10-01: one `it(` added to
 // `unplanned-issues.browser.test.ts` for the unaskable issue list's absence
 // row (#1131). Added, not moved; no file was added.
-const EXPECTED_TESTS = 536;
+// 536 → 538 on 2026-10-01: two `it(` in the new
+// `sprint-switch.browser.test.ts`, for a selected sprint that closes (#1145) —
+// one that it stops filtering and forgets the slug, one that a second selected
+// sprint keeps filtering. A file was added, so `EXPECTED_FILES` moves too.
+const EXPECTED_TESTS = 538;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

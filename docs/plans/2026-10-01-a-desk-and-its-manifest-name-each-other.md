@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
+- **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Issue:** #1085, #1086, #1101
 - **Review:** in-session
 - **Impl:** own branches
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-join-is-one-rule`
 
 ## Changelog
 
