@@ -86,9 +86,9 @@ let finished: Record<string, unknown>;
 let working: Record<string, unknown>;
 
 beforeAll(() => {
-  finished = readFleetScan(build([['a-done-thing', 'Delivered', 'feature/done']]));
+  finished = readFleetScan(build([['a-done-thing', 'Released', 'feature/done']]));
   working = readFleetScan(build([
-    ['a-done-thing', 'Delivered', 'feature/done'],
+    ['a-done-thing', 'Released', 'feature/done'],
     ['a-live-thing', 'Approved', 'feature/live'],
   ]));
 }, 120_000);
@@ -99,9 +99,10 @@ afterAll(() => {
 
 describe('a finished estate is a reading, not a broken scan', () => {
   it('reports no plans when every plan is terminal', () => {
-    // THE SHAPE THAT FAILED CI. `plans` carries the NON-TERMINAL population, so
-    // an estate whose work is all delivered reports an empty one — and the
-    // summary counts agree rather than disagreeing with it.
+    // THE SHAPE THAT FAILED CI. `plans` carries every plan not yet released — a
+    // Delivered plan stays until /plot-release records it — so an estate whose
+    // work is all released reports an empty one, and the summary counts agree
+    // rather than disagreeing with it.
     expect(finished.plans).toEqual([]);
     const summary = finished.summary as Record<string, number>;
     expect(summary.plans).toBe(0);
