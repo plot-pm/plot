@@ -2844,6 +2844,7 @@ is_plan_phase() { # $1=normalized phase → 0 when this file is a plan
 # gave when it failed.
 plan_meta_files=()
 plan_meta_phases=()
+plan_meta_types=()
 plan_meta_waves=()
 
 # Parses every plan file given, filling the four arrays above. Called ONCE.
@@ -2871,7 +2872,7 @@ for line in sys.stdin:
     f = d.get("file")
     if not f:
         continue
-    print("\t".join(["P", clean(f), clean(d.get("phase", ""))]))
+    print("\t".join(["P", clean(f), clean(d.get("phase", "")), clean(d.get("type", ""))]))
     for i, w in enumerate(d.get("waves", []) or []):
         name = w.get("name")
         for b in w.get("branches", []) or []:
@@ -2906,8 +2907,12 @@ for line in sys.stdin:
     case "$kind" in
       P)
         plan_meta_files+=("$file")
-        # `rest` is "<phase>", a single token with no tabs.
-        plan_meta_phases+=("$rest")
+        # `rest` is "<phase>\t<type>", two tokens with no tabs inside either.
+        plan_meta_phases+=("${rest%%$'\t'*}")
+        case "$rest" in
+          *$'\t'*) plan_meta_types+=("${rest#*$'\t'}") ;;
+          *) plan_meta_types+=("") ;;
+        esac
         plan_meta_waves+=("")
         ;;
       W)
@@ -3658,6 +3663,11 @@ for plan in "${plans[@]}"; do
   # before a release still names the release's contents.
   if is_terminal_phase "$plan_phase" && [ "$plan_phase" != "delivered" ]; then
     continue
+  fi
+  # A docs or infra plan is live when it merges: /plot-release never records
+  # `Released` for one, so `delivered` is its last phase and it leaves here.
+  if [ "$plan_phase" = "delivered" ]; then
+    case "${plan_meta_types[$meta_i]}" in docs|infra) continue ;; esac
   fi
 
   n_plans=$((n_plans + 1))
