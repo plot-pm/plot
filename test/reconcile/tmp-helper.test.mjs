@@ -199,3 +199,26 @@ test('tmp helper: a cleanup command writing to a closed stderr still removes the
   const got = await piped(['plot_tmpfile f pipe', 'plot_on_exit "echo bye >&2"', 'sleep 0.3'], 2);
   assert.deepEqual(got.left, []);
 });
+
+// A TERM INSIDE A CREATION WAITS FOR THE REGISTRATION. bash runs a pending trap
+// as soon as `$(mktemp …)` returns, before the next line registers the path, so
+// a cleanup run there would leave a file its registry never listed. Each run is
+// signalled at a random moment while it creates paths.
+test('tmp helper: TERM while creating paths leaves nothing, over 100 runs', async () => {
+  const dir = sandbox();
+  const tmp = path.join(dir, 'tmp');
+  spawnSync('mkdir', ['-p', tmp]);
+  const file = writeScript(dir, [
+    'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do plot_tmpfile f r$i; plot_tmpdir d s$i; done',
+    'sleep 5',
+  ]);
+  for (let i = 0; i < 100; i++) {
+    const child = spawn('bash', [file], { env: { ...process.env, TMPDIR: tmp }, stdio: 'ignore' });
+    await new Promise((r) => setTimeout(r, Math.random() * 40));
+    child.kill('SIGTERM');
+    await new Promise((r) => child.on('exit', r));
+  }
+  const left = readdirSync(tmp);
+  rmSync(dir, { recursive: true, force: true });
+  assert.deepEqual(left, []);
+});

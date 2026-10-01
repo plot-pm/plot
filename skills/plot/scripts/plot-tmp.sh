@@ -54,20 +54,43 @@ _plot_tmp_register() {
   printf '%s:%s\n' "$1" "$2" >> "$PLOT_TMP_REGISTRY" 2>/dev/null || true
 }
 
+# A SIGNAL INSIDE A CREATION WAITS FOR THE REGISTRATION. bash runs a pending
+# trap as soon as `$(mktemp …)` returns, before the next line registers the
+# path, so a cleanup run there would remove the registry and leave the new path
+# unlisted. While `__plot_tmp_busy` is set, the signal handler records the
+# signal in `__plot_tmp_pending` and returns; `_plot_tmp_create` handles it once
+# the path is registered.
+__plot_tmp_busy=''
+__plot_tmp_pending=''
+
+# _plot_tmp_create VAR prefix [-d] — create, register, assign to VAR.
+_plot_tmp_create() {
+  local __plot_tmp_new __plot_tmp_rc
+  __plot_tmp_busy=1
+  if [ "${3:-}" = -d ]; then
+    __plot_tmp_new=$(mktemp -d "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
+  else
+    __plot_tmp_new=$(mktemp "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
+  fi
+  __plot_tmp_rc=$?
+  [ "$__plot_tmp_rc" -eq 0 ] && _plot_tmp_register p "$__plot_tmp_new"
+  __plot_tmp_busy=''
+  if [ -n "$__plot_tmp_pending" ]; then
+    # shellcheck disable=SC2086 # "<name> <number>", split on purpose
+    _plot_tmp_on_signal $__plot_tmp_pending
+  fi
+  [ "$__plot_tmp_rc" -eq 0 ] || return 1
+  printf -v "$1" '%s' "$__plot_tmp_new"
+}
+
 # plot_tmpdir VAR prefix — create a directory, register it, assign it to VAR.
 plot_tmpdir() {
-  local __plot_tmp_new
-  __plot_tmp_new=$(mktemp -d "${TMPDIR:-/tmp}/plot-$2.XXXXXX") || return 1
-  _plot_tmp_register p "$__plot_tmp_new"
-  printf -v "$1" '%s' "$__plot_tmp_new"
+  _plot_tmp_create "$1" "$2" -d
 }
 
 # plot_tmpfile VAR prefix — create a file, register it, assign it to VAR.
 plot_tmpfile() {
-  local __plot_tmp_new
-  __plot_tmp_new=$(mktemp "${TMPDIR:-/tmp}/plot-$2.XXXXXX") || return 1
-  _plot_tmp_register p "$__plot_tmp_new"
-  printf -v "$1" '%s' "$__plot_tmp_new"
+  _plot_tmp_create "$1" "$2"
 }
 
 # plot_on_exit command — run `command` (one line) when the process ends.
@@ -104,6 +127,10 @@ _plot_tmp_on_exit() {
 # $1 is the signal name, $2 its number. `kill` re-raises it with the default
 # disposition; the `exit` is reached only if the shell defers the delivery.
 _plot_tmp_on_signal() {
+  if [ -n "$__plot_tmp_busy" ]; then
+    __plot_tmp_pending="$1 $2"
+    return 0
+  fi
   trap - EXIT "$1"
   _plot_tmp_cleanup
   kill -"$1" "$$"
