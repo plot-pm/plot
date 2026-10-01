@@ -615,7 +615,10 @@ const EXPECTED_FILES = 56;
 // `plan-row-shows-plan-status-only.browser.test.ts` and went from six `it(` to
 // eight — a page-wide no-verdict case and a `pending` fold case. Renamed, not
 // moved; `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 535;
+// 535 → 536 on 2026-10-01: one `it(` added to
+// `unplanned-issues.browser.test.ts` for the unaskable issue list's absence
+// row (#1131). Added, not moved; no file was added.
+const EXPECTED_TESTS = 536;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
