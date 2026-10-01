@@ -51,7 +51,7 @@ Read on `7206c9d8`:
 - **The slice figure prints only where it differs from the plan figure**, whatever else the header holds: two ungrouped plan lines and one ticket read `(2 plans · 1 ticket)`, never `(2 plans · 2 slices · 1 ticket)`.
 - A section with plan lines only at 0 and one other kind prints that kind with its unit: `(15 tickets)`, `(1 stopped agent)`, `(2 branches)`.
 
-**The invariant.** With every head collapsed, the visible top-level lines equal `plans + branches + tickets + agents`. The doc comment states it, replacing the paragraph that says issues "count toward BOTH figures" (`sections.ts:410-412`), and one unit test asserts it over a mixed section.
+**The invariant.** With every head collapsed, the visible top-level lines equal `plans + branches + tickets + agents`. The doc comment states it, replacing the paragraph that says issues "count toward BOTH figures" (`sections.ts:410-412`). A browser test asserts it against the rendered section, because a unit test has only `sectionTally`'s own line count to compare with, and that compares the function with itself.
 
 **The `not sprint-filtered` suffix stops repeating the count.** Today `AgentList.tsx:1178-1183` prints ` · N not sprint-filtered (issues, draft plans, stopped agents)`, where N is `issues + drafts + broken`, the same lines the new header already names. A second pure function, `unfilteredNote({ tickets, drafts, agents }, filterActive)`, returns ` · tickets, draft plans and stopped agents are not sprint-filtered`, naming only the kinds that are present, and an empty string when the filter is off or none is present. The `data-sprint-unfiltered` attribute keeps its number, so a test can still read the count without the reader reading it twice.
 
@@ -59,10 +59,12 @@ Read on `7206c9d8`:
 
 `AgentList.tsx:1157-1165` passes `{ tickets: issues.length, drafts: drafts.length, agents: broken.length }` and renders `tallyLabel(tallyOf)`. WORKING keeps its single agent count.
 
+**DONE and QUIET change too.** `sectionTally` serves every branch section, so a DONE or QUIET header gains a `branches` figure wherever plan-less rows sit, for example a merged PR that no plan names. Measured on this estate at `34200acb` (2026-10-01, 16:59 UTC): the fleet payload holds rows only in WAITING ON YOU, 8 rows and none plan-less, so DONE and QUIET hold no rows and their headers read `(0)` before and after the change.
+
 ### What this does NOT do
 
 - **It does not change how a plan's own rows fold.** A plan whose rows render without a head (`planHeads` false because a row is loose) still counts each of its lines under `plans`, as `planLines` does today. That is a plan's lines named as plan lines, not another kind named as a plan.
-- **It adds no browser test,** so `EXPECTED_TESTS` in `stubbed-tests-start-no-board.test.ts` is unchanged.
+- **It adds no browser test.** The invariant is a new assertion inside the existing test at `unplanned-issues.browser.test.ts:328`, so `EXPECTED_TESTS` in `stubbed-tests-start-no-board.test.ts` is unchanged.
 
 ## Slices
 
@@ -80,13 +82,16 @@ Unit tests in `agent-list.test.ts`, each asserting the label string:
 - Two ungrouped plan lines and one ticket: `(2 plans · 1 ticket)`.
 - A draft plan with no branch adds to plans and not slices.
 - QUIET at 0/0: `(0)`; an ungrouped section with equal plans and slices and nothing else: `(N)`.
-- The invariant over a mixed section: collapsed visible lines equal `plans + branches + tickets + agents`.
 - `unfilteredNote`: off when the filter is off, names only present kinds, carries no number.
 
 Tests rewritten, because they pin the behaviour this plan replaces:
 
 - The eight unit call sites that pass a number as the fourth argument: `agent-list.test.ts:411, 3855, 3864, 3881, 3898, 3920, 3927, 3929`. Line 411 asserts `.branches` is 2 and `.plans` is 0 for the plan-less bucket; line 3898 (*folds issue rows into the visible count*) asserts the named figures.
-- `test/integration/unplanned-issues.browser.test.ts:328` (*counts issue rows in the section tally*) asserts `(1 branch · 2 tickets)` instead of `(3)`.
+- `test/integration/unplanned-issues.browser.test.ts:328` (*counts issue rows in the section tally*) asserts `(1 branch · 2 tickets)` instead of `(3)`, and asserts the invariant: it counts the section's rendered top-level rows (one branch row, two ticket rows) and asserts that the count equals the sum of the header's figures, 1 + 2 = 3.
+
+Tests that survive unchanged:
+
+- `test/integration/sprint-exempt.browser.test.ts:214-218` (*says which of the section tally the sprint filter never saw*). It reads `data-sprint-unfiltered`, which keeps its number, and asserts that the note contains `not sprint-filtered`, which the new note still does.
 - `test/integration/a-plan-less-row-is-not-a-plan.browser.test.ts:108` asserts `(1 plan · 2 slices · 2 branches)` instead of `(3 plans · 4 slices)`.
 
 ## Done when
@@ -95,6 +100,7 @@ Tests rewritten, because they pin the behaviour this plan replaces:
 - No section header counts a ticket, a stopped agent or a plan-less branch as a plan or a slice.
 - A section holding only a stopped agent prints `(1 stopped agent)`.
 - With the filter on, the `not sprint-filtered` note carries no number.
+- The rewritten `unplanned-issues.browser.test.ts:328` asserts that the section's rendered top-level rows equal the sum of the header's figures.
 - `pnpm run test:board` and `pnpm run typecheck` pass, and `EXPECTED_TESTS` is unchanged.
 
 ## Notes
