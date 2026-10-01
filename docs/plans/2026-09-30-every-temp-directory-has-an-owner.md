@@ -19,8 +19,8 @@
 ## Changelog
 
 - Plot's helper scripts create every temporary path under `TMPDIR` through one helper, one exit registry removes them, and a signal still stops the script.
-- Plot's contract suites run inside a private temp root and a private `HOME`, and CI fails a test that leaves an entry behind.
-- The budget ledger rotates into two generations without losing an append or miscounting a read, supervisor and board logs rotate by size, and every file Plot writes declares its bound.
+- Plot's contract suites run inside a private temp root and a private `HOME`, and a run fails when the entries it leaves behind exceed a ceiling that only shrinks.
+- The budget ledger rotates into two generations without losing an append or miscounting a read, and supervisor and board logs rotate by size.
 
 Board impact: none. No plan-format, template or payload change. `plot-fleet-scan.sh` changes only where it creates its temp directories and how it removes them.
 
@@ -274,7 +274,7 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 - **`plot-reconcile-scan.sh` reports** the sweepable count, the legacy fleet-scan `tmp.*` cache count, and the broken-lock count, below its blocking marker.
 - **One run of `test/reconcile/host.test.mjs` leaves zero entries in its `TMPDIR`**, measured the same way as the 365 above, on macOS and with GNU `mktemp`. The four scan files `fleet`, `fleetrefplans`, `fleetclaimable` and `fleetderived` leave zero with GNU `mktemp`.
 - **One run of `host.test.mjs` adds zero lines to the operator's `budget.tsv`** and creates nothing under the operator's `~/.plot/state/slots/`.
-- **`pnpm run test:contracts` fails when a test leaves an entry**, asserted by a fixture test that creates one on purpose and checks that the run names it.
+- **`pnpm run test:contracts` fails when a test leaves an entry**, asserted by a fixture test that creates one on purpose and checks that the run names it. <!-- deferred: shipped as a 390-entry ceiling that only shrinks; failing on any entry, with a per-file allowance, moved to every-file-plot-writes-declares-its-bound -->
 - **A killed contract run leaves at most one directory**, a `plot-run.*`: send SIGKILL to the run mid-suite and count. SIGINT and SIGTERM to the wrapper leave none.
 - **`check-registry-not-leaked.mjs` still sees `/var/folders/.../T`** when it runs after a wrapped suite.
 - **No append is lost across a rotation**: four concurrent appenders writing 600 lines while exactly one rotation fires leave all 600 readable by `budget_rate_read`. A second rotation forced in the same run, while the new `budget.tsv` is younger than the generation length, is refused by the age condition, and all 600 stay readable.
@@ -285,7 +285,7 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 - **Two concurrent breakers of one stale lock record one break and lose no line**: with one breaker descheduled between its inspection and its rename while the other breaks, takes the lock and rotates, the live-window count is unchanged, no second rotation runs, and `budget-lock-broken.tsv` holds exactly one line.
 - **A reader reads at most two generations**: after three rotations over a fixture ledger, `budget_rate_read`'s `read` field equals the line count of `budget.tsv` plus `budget.tsv.1`, and no line older than two generations is read.
 - **`registryd.log` and `board.log` rotate at the bound and keep 3 files**, asserted by writing past the bound in a sandbox, with the writer started both under a unit-shaped redirect and by hand.
-- **The inventory gate fails on an undeclared state path**, asserted by a fixture script that writes one inside the sandbox.
+- **The inventory gate fails on an undeclared state path**, asserted by a fixture script that writes one inside the sandbox. <!-- deferred: not built; moved to every-file-plot-writes-declares-its-bound -->
 
 ## Slices
 
@@ -299,6 +299,8 @@ The order in step 2 is deliberate. Read current first, then previous, and a rota
 Layers 3 and 4: `scripts/owned-run.sh` with the private `TMPDIR`, `HOME` and `PLOT_BUDGET_HOME`, the original-environment registry check, the signal traps, the leak gate, the per-file fixes that make it pass, and the inventory gate with its manifest of globs. It needs the first slice: without templated script paths the gate is blind on macOS and red on Linux. The inventory gate lives here because it runs inside this slice's sandbox; the manifest declares each path's bound, and the third slice makes the ledger, log and cache bounds true.
 
 ## Notes
+
+**Two Done-when items deferred on 2026-10-01, at the operator's call.** The delivery panel found the inventory gate unbuilt and the leak gate shipped as a 390-entry ceiling rather than a failure on any entry. The inventory gate fell between slices 2 and 3 when the slices were re-cut after their briefs were written. Both move to `every-file-plot-writes-declares-its-bound`, targeted at the next release, and the changelog states what shipped.
 
 **Slices re-cut on 2026-09-30, after approval, at the operator's call.** The inventory gate moved from the third slice to the second, whose sandbox it runs in, and the third slice joined the first slice's wave so it runs beside it: Plot runs waves in order, so a wait annotation alone could not release it. The suites' slice now follows both. No design text changed.
 
