@@ -54,7 +54,7 @@ The window existed to bound parse cost: about 57 ms per plan through `plot-plan-
 
 ## Slices
 
-### DONE holds the release scope (Branch: bug/done-holds-the-release-scope)
+### DONE holds the release scope (Branch: bug/done-holds-the-release-scope, PR: #1117)
 
 The phase-based admission in `plot-fleet-scan.sh`, the removal of the window, the rewritten contract tests, and the measurement.
 
