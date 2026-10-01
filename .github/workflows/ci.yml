@@ -906,7 +906,9 @@ jobs:
       # which is why the gates below carry no bound and this does.
       - name: Board tests
         timeout-minutes: 10
-        run: pnpm --filter @plot-pm/board test
+        # Through `owned-run.sh`, like a local `test:board`: a private TMPDIR and
+        # HOME, and a leftover entry fails the step.
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board test
 
       # ── Board integration tests: a real browser (Playwright) renders the just-
       #    built artifact against the tiny-garden fixture, asserting the mobile
@@ -945,7 +947,7 @@ jobs:
       # letting a wedged browser hold the job to the ceiling above.
       - name: Board integration tests (vitest + Playwright)
         timeout-minutes: 15
-        run: pnpm --filter @plot-pm/board exec vitest run
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run
 
       # NOT gated on pull_request: an unknown package name aborts `changeset
       # version` for the WHOLE repo, so it must fail on main too — the four-day
