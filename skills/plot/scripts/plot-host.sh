@@ -247,7 +247,9 @@
 #                                 list` (no --json), pinned to bb 0.6.0. EXIT 4
 #                                 narrows rather than disappears: it is the
 #                                 tracker-DISABLED case (bb answers 404/410),
-#                                 which stays *this host cannot answer* where an
+#                                 and a bb whose `--help` lists no `issue`
+#                                 command (Quatico bb), both of
+#                                 which stay *this host cannot answer* where an
 #                                 empty list would say *there are none*. A call
 #                                 that failed on an enabled tracker, or any error
 #                                 wording this adapter does not recognise, exits
@@ -281,7 +283,8 @@
 #                                 Same three outcomes as issue-list, same codes:
 #                                 BITBUCKET NOW ANSWERS via `bb issue view`
 #                                 (pinned to 0.6.0); `url` comes from the view's
-#                                 footer. EXIT 4 is the tracker-DISABLED case,
+#                                 footer. EXIT 4 is the tracker-DISABLED case
+#                                 or a bb with no `issue` command,
 #                                 EXIT 3 a lookup that failed or an unrecognised
 #                                 error. An issue that does not exist is a
 #                                 FAILURE here, not an empty body: the caller
@@ -2033,15 +2036,39 @@ bb_issue_exit_code() {
 # fails LOUDLY rather than silently mis-reading a column that may have moved.
 # `PLOT_BB_SKIP_VERSION_CHECK` exists for the test harness, whose stub bb has no
 # meaningful version — the parse is exercised against captured fixture text.
+#
+# A VERSION MISMATCH IS NOT ALWAYS A MOVED FORMAT. Two products share the name
+# `bb` (see the capability check below), and Quatico `bb` — 1.9.0 measured
+# 2026-10-01 — has no `issue` command at all: `bb --help` lists `pr …`,
+# `source …` and `api`. Telling it to update would suggest a fix that does not
+# exist, so a mismatch first asks `bb --help` what the CLI offers. A help text
+# that lists a `pr` command and no `issue` command is a bb that cannot be asked
+# about issues, which is exit 4 — the same answer as a disabled tracker. Any
+# other help text keeps the refusal below, exit 3. Exits 4 or 3; 0 passes.
 bb_assert_issue_version() {
   [ -n "${PLOT_BB_SKIP_VERSION_CHECK:-}" ] && return 0
   local v
   v="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [ "$v" != "$BB_ISSUE_VERSION" ]; then
+    if bb_lacks_issue_command; then
+      echo "plot-host: bb ${v:-unknown} lists no issue command — Quatico bb has none, unlike craftamap/bb — so this repository's issues cannot be read through it; declare the issue tracker with the \`Tracker\` config key" >&2
+      return 4
+    fi
     echo "plot-host: bb issue parse targets $BB_ISSUE_VERSION but found '${v:-unknown}' — refusing to mis-read a format that may have moved" >&2
     return 3
   fi
   return 0
+}
+
+# Whether `bb --help` lists commands and `issue` is not one of them. A help
+# that lists no `pr` command either is not a command listing this can read, so
+# it answers *not proven* (1) and the caller keeps its exit-3 refusal: guessing
+# 4 from unreadable help would turn a broken bb into *no issue tracker*.
+bb_lacks_issue_command() {
+  local help
+  help="$(bb --help 2>&1 | bb_strip_ansi)" || return 1
+  grep -qE '^[[:space:]]+pr([[:space:]]|$)' <<<"$help" || return 1
+  ! grep -qE '^[[:space:]]+issues?([[:space:]]|$)' <<<"$help"
 }
 
 # --- bb capability check (--json support) ------------------------------------

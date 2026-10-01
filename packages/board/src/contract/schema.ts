@@ -4158,6 +4158,12 @@ export const FleetShape = z.object({
   /** The failure, when `issueAnswer` is `failed` — shown, never swallowed. */
   issueError: z.string().nullable().default(null),
   /**
+   * The sentence shown where `issueAnswer` is `unsupported` and a reason is
+   * known — the domain's `issueAbsence`. Null where none is known, which an
+   * older server and a board that has not asked yet both send.
+   */
+  issueAbsence: z.string().nullable().default(null),
+  /**
    * The two fleet controls, SHARED across every board reading this repo.
    *
    * The switch belongs to NOT STARTED (*is the queue being served?*) and the

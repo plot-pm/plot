@@ -2375,6 +2375,21 @@ export function AgentList({
                   </span>
                 </li>
               )}
+              {/* AN ABSENCE IS NOT AN OUTAGE. A list nobody can give — a `bb`
+                  with no issue command, a tracker no connector lists — says
+                  why, in the domain's sentence, and never borrows the
+                  *could not be read* wording above. */}
+              {key === 'waiting-on-you' && fleet.issueAnswer === 'unsupported' && fleet.issueAbsence && (
+                <li
+                  role="row"
+                  data-issue-absence
+                  className="border-t border-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                >
+                  <span role="gridcell">
+                    {fleet.issueAbsence}
+                  </span>
+                </li>
+              )}
             </ul>
             )}
           </section>

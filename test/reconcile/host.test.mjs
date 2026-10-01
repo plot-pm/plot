@@ -1716,6 +1716,48 @@ test('host: issue-list bitbucket pins bb 0.6.0 and fails loudly on a version it 
   assert.equal(res.stdout.trim(), '', 'no rows parsed against an untested format');
 });
 
+// #1131: Quatico `bb` (1.9.0 measured 2026-10-01) shares the name with
+// craftamap/bb and has NO `issue` command. Its version is not a moved format,
+// so the adapter must say the command is missing (exit 4) rather than refuse a
+// version an update would not fix. The help text is Quatico's own shape.
+const QUATICO_HELP =
+  'bb — Bitbucket Cloud CLI\n\nUsage: bb <command> [flags]\n\nPull Requests:\n' +
+  '  pr list             List pull requests\n  pr view <id>        View a pull request\n\n' +
+  'Raw API:\n  api <path>          Make a raw API call with correct auth (escape hatch)\n\n' +
+  'Source:\n  source ls [path]    List files and directories\n';
+
+const makeBbWithoutIssueStub = () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bbquatico-')));
+  const argvFile = path.join(dir, 'bb.argv');
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> '${argvFile}'
+case "$1" in
+  --version) printf 'bb 1.9.0\\n'; exit 0 ;;
+  --help) printf '%s' '${QUATICO_HELP.replace(/'/g, `'\\''`)}'; exit 0 ;;
+esac
+printf 'unknown command: %s\\n' "$1" >&2
+exit 1
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, argvFile };
+};
+
+for (const args of [['issue-list'], ['issue-view', '5']]) {
+  test(`host: ${args[0]} bitbucket exits 4 for a bb with no issue command (Quatico bb)`, () => {
+    const stub = makeBbWithoutIssueStub();
+    const res = runBb(args, stub);
+    assert.equal(res.status, 4, res.stderr);
+    assert.equal(res.stdout.trim(), '');
+    assert.match(res.stderr, /bb 1\.9\.0 lists no issue command/);
+    assert.match(res.stderr, /Quatico bb has none/);
+    assert.match(res.stderr, /`Tracker` config key/);
+    assert.doesNotMatch(res.stderr, /refusing to mis-read/);
+    // The adapter asked what the CLI offers and never called an issue command.
+    const argv = readFileSync(stub.argvFile, 'utf8');
+    assert.doesNotMatch(argv, /^issue/m);
+  });
+}
+
 test('host: issue-view bitbucket returns {number,title,body,url} from bb view text', () => {
   const stub = makeBbIssueStub({ out: BB_VIEW_ANSI });
   const res = runBb(['issue-view', '3'], stub);
