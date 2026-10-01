@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.2.0
+  version: 0.2.1
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git, bash, curl, lsof and Node
   >= 20. No git-host CLI is needed — the board reads plans from git, and only
