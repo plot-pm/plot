@@ -98,14 +98,16 @@ describe('NOT STARTED draws no plan head for rows no plan names', () => {
     }
   });
 
-  it('counts the lines it shows — one plan head plus each plan-less row', async () => {
-    // The real plan is one head over two slices; each plan-less row is one line.
-    // The bug read `(1 plan · 2 slices)` for the two plan-less rows alone.
+  it('counts the lines it shows — one plan head, its slices, and the branches beside it', async () => {
+    // The real plan is one head over two slices; each plan-less row is a branch,
+    // counted under its own name. The bug read `(1 plan · 2 slices)` for the two
+    // plan-less rows alone, and `(3 plans · 4 slices)` folded them into the
+    // plan's own figures.
     const page = await open();
     try {
       const heading = page.getByRole('heading', { name: /Not started/i }).first();
       await heading.waitFor({ timeout: 5_000 });
-      await expect.poll(() => heading.textContent()).toContain('(3 plans · 4 slices)');
+      await expect.poll(() => heading.textContent()).toContain('(1 plan · 2 slices · 2 branches)');
     } finally {
       await page.close();
     }

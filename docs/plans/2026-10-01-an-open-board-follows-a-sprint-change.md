@@ -68,7 +68,7 @@ Every consumer reads the derived selection. `selectedSprints` (`:569`), today `[
 
 ## Slices
 
-### A closed sprint stops filtering (Branch: bug/a-closed-sprint-stops-filtering)
+### A closed sprint stops filtering (Branch: bug/a-closed-sprint-stops-filtering, PR: #1158)
 
 One unit case in the existing `describe('sanitizeSelection')` block of `test/unit/filters.test.ts`, with sprint-shaped options: two selected sprints where one closed keep the other. The block's generic cases already cover a kept value, a dropped value and an empty selection. `AgentList` derives the selection with `sanitizeSelection`, reads it at every site named above, and prunes the stored `Set` in an effect.
 
