@@ -317,10 +317,14 @@ test('a linked worktree reads the main checkout\'s store', () => {
   const stub = stubGh();
   // PLOT_PR_INDEX_HOME is deliberately NOT set here: the point is that the
   // adapter's own `--git-common-dir` resolution finds this file from the desk.
+  // It is DELETED rather than merely not added, because `owned-run.sh` exports
+  // one for the whole contract run and the spread would carry it in.
+  const env = { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'github' };
+  delete env.PLOT_PR_INDEX_HOME;
   const j = JSON.parse(execFileSync('bash', [implStatus, 'a-plan'], {
     encoding: 'utf8',
     cwd: desk,
-    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+    env,
   }));
 
   assert.deepEqual(

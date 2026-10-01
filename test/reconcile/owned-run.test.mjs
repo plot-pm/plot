@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, rmSync, readdirSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readdirSync, writeFileSync, mkdirSync, copyFileSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -288,7 +288,17 @@ test('the registry check still fails on a manifest under the original os.tmpdir(
   // run root. Inside the root, `os.tmpdir()` answers the root and the caller's
   // temp directory drops out of the set entirely — a fixture manifest recorded
   // there would read as clean and the gate would silently stop gating.
-  assert.doesNotMatch(out, /plot-run\./, 'the check must not have run inside the private root');
+  // When this suite itself runs inside `owned-run.sh`, as `test:contracts`
+  // does, every path here lies under that ENCLOSING run's root, which is what
+  // `os.tmpdir()` answers. That root is masked so the assertion reads only the
+  // root the wrapper under test would have made. macOS spells one directory
+  // two ways, `/private/var/...` and its `/var/...` symlink, and the check
+  // prints both, so the `/private` prefix is dropped before masking.
+  const unalias = (s) => s.split('/private/var/').join('/var/');
+  const root = unalias(realpathSync(tmpdir()));
+  const own = unalias(out).split(root).join('<CALLER_TMP>');
+  assert.doesNotMatch(own, /plot-run\./, 'the check must not have run inside the private root');
+  assert.ok(out.includes(tmp), `the check's temp set names the caller TMPDIR:\n${out}`);
 
   rmSync(desk, { recursive: true, force: true });
 });
