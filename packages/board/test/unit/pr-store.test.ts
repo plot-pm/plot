@@ -7,9 +7,16 @@ import { refreshPrs, freshCacheEntry, type CacheEntry, type PrRecord } from '../
 import { decodePrIndex, PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain';
 
 // THE SUBJECT: `refreshPrs` reads a durable store before its host call and
-// writes it after. The call's filter is unchanged — still
-// `pr-list --rich --state all --limit 1000` — so what this buys is that the
-// ANSWER survives the process.
+// writes it after, so the ANSWER survives the process.
+//
+// THE FULL READ'S FILTER IS `--rich-open` SINCE 2026-10-02 and the delta's is
+// still `--rich`. A full read asks about a history that is almost entirely
+// terminal — measured 2026-10-01, all 1000 rows were — so a verdict per row
+// cost 36 s of a 43 s call for answers about heads nobody can act on. A delta
+// asks about the rows that CHANGED, which is the population whose verdicts are
+// worth buying. The assertions below hold both forms, and the delta ones are
+// the lock: a flag change that leaked into the window would drop the verdicts
+// of every PR that moved.
 //
 // The measurement behind it: one `gh pr list --state all` with the fields the
 // board needs is 29 811 ms of a 32 105 ms scan, 96%. The board refreshes every
@@ -439,7 +446,7 @@ describe('the call asks only for the delta', () => {
     // everything or with nothing.
     const scripts = host([line()]);
     await refresh(scripts, storeHome());
-    expect(prListCall(scripts)).toBe('pr-list --rich --state all --limit 1000');
+    expect(prListCall(scripts)).toBe('pr-list --rich-open --state all --limit 1000');
   });
 
   it('a warm store sends the stored watermark, byte-for-byte', async () => {
@@ -531,7 +538,7 @@ describe('the call asks only for the delta', () => {
 
     const calls = argvOf(shared).filter((l) => l.startsWith('pr-list'));
     expect(calls).toHaveLength(3);
-    expect(calls[0]).toBe('pr-list --rich --state all --limit 1000');
+    expect(calls[0]).toBe('pr-list --rich-open --state all --limit 1000');
     expect(calls[1]).toBe('pr-list --rich --state all --limit 1000 --since 2026-09-20T12:00:00Z');
     expect(calls[2]).toBe('pr-list --rich --state all --limit 1000 --since 2026-09-20T12:00:00Z');
     // Stated as the property rather than as three strings: exactly one full
@@ -629,7 +636,7 @@ describe('the call asks only for the delta', () => {
     // which is the whole point of keeping a full read at all.
     const full = host([line({ number: 1 })]);
     await refresh(full, home, freshCacheEntry());
-    expect(prListCall(full)).toBe('pr-list --rich --state all --limit 1000');
+    expect(prListCall(full)).toBe('pr-list --rich-open --state all --limit 1000');
     expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
     expect(onDisk(home)?.complete).toBe(true);
     // And the full read stamped its own clock, so the next one is a day away.
@@ -659,7 +666,7 @@ describe('the call asks only for the delta', () => {
 
     const calls = argvOf(shared).filter((l) => l.startsWith('pr-list'));
     expect(calls.filter((c) => !c.includes('--since'))).toHaveLength(1);
-    expect(calls[0]).toBe('pr-list --rich --state all --limit 1000');
+    expect(calls[0]).toBe('pr-list --rich-open --state all --limit 1000');
     // The second refresh narrowed, which is what says the full read landed as a
     // version-3 store rather than being paid again.
     expect(calls[1]).toContain('--since 2026-09-20T12:00:00Z');
@@ -689,7 +696,7 @@ describe('the call asks only for the delta', () => {
     const entry = freshCacheEntry();
     const failing = host([], 1, 'HTTP 504: We could not respond to your request in time');
     await refresh(failing, home, entry);
-    expect(prListCall(failing)).toBe('pr-list --rich --state all --limit 1000');
+    expect(prListCall(failing)).toBe('pr-list --rich-open --state all --limit 1000');
     expect(entry.prError).toContain('504');
     expect(entry.prFullReadFailedAt).not.toBeNull();
     // THE STORE IS UNTOUCHED by a failure, so the full read is still due.
@@ -708,7 +715,7 @@ describe('the call asks only for the delta', () => {
     entry.prFullReadFailedAt = Date.now() - 61 * 60 * 1000;
     const later = host([line({ updatedAt: '2026-09-20T12:00:00Z' })]);
     await refresh(later, home, entry);
-    expect(prListCall(later)).toBe('pr-list --rich --state all --limit 1000');
+    expect(prListCall(later)).toBe('pr-list --rich-open --state all --limit 1000');
     // A full read that answered clears the latch, so the next failure gets its
     // own full hour rather than inheriting a spent one.
     expect(entry.prFullReadFailedAt).toBeNull();
@@ -735,7 +742,7 @@ describe('the call asks only for the delta', () => {
 
     const next = host([line()]);
     await refresh(next, home, freshCacheEntry());
-    expect(prListCall(next)).toBe('pr-list --rich --state all --limit 1000');
+    expect(prListCall(next)).toBe('pr-list --rich-open --state all --limit 1000');
   });
 
   it('a partial DELTA merges and stays partial', async () => {
@@ -758,5 +765,112 @@ describe('the call asks only for the delta', () => {
     expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1, 2]);
     // And the maps carry both, not just the one row that answered.
     expect(entry.prsByNumber?.size).toBe(2);
+  });
+});
+
+describe('the full read asks verdicts of open PRs only', () => {
+  // THE SEAM THIS SLICE OWNS. The adapter makes the cheap call and the fold
+  // keeps the held verdicts; what these assert is that the decision reaches the
+  // ARGUMENTS, and that a terminal row arriving with absent verdicts does not
+  // erase what the store already proved.
+
+  /** The `pr-list` invocation from one recorded argv line. */
+  const prListCall = (scriptsDir: string, nth = 0): string =>
+    argvOf(scriptsDir).filter((l) => l.startsWith('pr-list'))[nth] ?? '';
+
+  /** A terminal row as the plain half of `--rich-open` emits it. */
+  const terminal = (over: Record<string, unknown> = {}): string => line({
+    state: 'MERGED',
+    checks: 'unknown',
+    mergeable: 'unknown',
+    review: '',
+    failing_checks: [],
+    ...over,
+  });
+
+  it('sends ONE pr-list call, and it carries --rich-open', async () => {
+    // ONE CALL PER REFRESH, which is why `PR_REQUESTS_PER_REFRESH` needs no new
+    // arithmetic: the adapter makes two HOST calls inside the one question, and
+    // the budget counts questions. A second `pr-list` here would mean the board
+    // had grown a call it never declared.
+    const scripts = host([line()]);
+    await refresh(scripts, storeHome());
+    const calls = argvOf(scripts).filter((l) => l.startsWith('pr-list'));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe('pr-list --rich-open --state all --limit 1000');
+    expect(calls[0]).not.toContain('--since');
+  });
+
+  it('leaves the store untouched when the split call exits non-zero', async () => {
+    // THE FIXTURE THE BRIEF NAMES: the open half succeeds and the all half
+    // fails. The adapter buffers both and prints neither, so this arrives as a
+    // non-zero exit with no rows — and the store must be byte-identical. An
+    // implementation that printed the open rows and exited 0 would fold a store
+    // holding three PRs where the history holds a thousand.
+    const home = storeHome();
+    await refresh(host([line({ updatedAt: '2026-09-20T12:00:00Z' })]), home);
+    const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
+
+    // Exit 3 with no rows is what a failed half produces.
+    await refresh(host([], 3, 'plot-host: pr-list: gh: all call down'), home, freshCacheEntry());
+    expect(fs.readFileSync(path.join(home, 'github.json'), 'utf8')).toBe(before);
+  });
+
+  it('keeps a held MERGED row\'s verdicts across the split full read', async () => {
+    // THE WHOLE POINT, THROUGH THE SEAM. The first refresh stores a rich
+    // `MERGED` row; the second is a full read whose terminal row carries the
+    // absent values, exactly as `--rich-open` now emits it. Without the fold's
+    // half this is where every held verdict would become `unknown`.
+    const home = storeHome();
+    await refresh(host([line({
+      number: 5, head: 'feature/five', state: 'MERGED',
+      checks: 'green', mergeable: 'mergeable', review: 'APPROVED',
+      updatedAt: '2026-09-20T12:00:00Z',
+    })]), home);
+    expect(onDisk(home)?.rows[0]).toMatchObject({ checks: 'green', review: 'APPROVED' });
+
+    // A FULL READ, NOT A DELTA: the store's `wholeAt` is aged out so
+    // `prWindowFor` asks for everything, which is the call that carries
+    // `--rich-open`.
+    const aged = onDisk(home) as PrIndex;
+    fs.writeFileSync(path.join(home, 'github.json'), JSON.stringify({
+      ...aged, wholeAt: '2026-09-01T00:00:00Z', at: '2026-09-01T00:00:00Z',
+    }));
+    const second = host([terminal({
+      number: 5, head: 'feature/five', updatedAt: '2026-10-01T12:00:00Z',
+    })]);
+    await refresh(second, home, freshCacheEntry());
+    expect(prListCall(second)).toBe('pr-list --rich-open --state all --limit 1000');
+    expect(onDisk(home)?.rows[0]).toMatchObject({
+      number: 5,
+      state: 'MERGED',
+      // Held, because the split read did not ask.
+      checks: 'green',
+      mergeable: 'mergeable',
+      review: 'APPROVED',
+      // The host's, because it did answer this one.
+      updatedAt: '2026-10-01T12:00:00Z',
+    });
+  });
+
+  it('serves a terminal row with no held verdicts as unavailable, never green', async () => {
+    // ABSENT IS NOT FALSE, at the boundary a reader sees. A PR the store has
+    // never held arrives `unknown`, and `agentPr` is the one reader a terminal
+    // row reaches — through `prsByHead`, for the link. `prStates` answers
+    // `closed` for a CLOSED row before reading `checks` at all, and `unknown`
+    // for a MERGED one whose mergeability it cannot read.
+    const home = storeHome();
+    const scripts = host([
+      terminal({ number: 11, head: 'feature/merged', state: 'MERGED' }),
+      terminal({ number: 12, head: 'feature/closed', state: 'CLOSED' }),
+    ]);
+    const entry = await refresh(scripts, home);
+    const merged = entry.prsByHead?.get('feature/merged');
+    const closed = entry.prsByHead?.get('feature/closed');
+    expect(merged?.checks).toBe('unknown');
+    expect(closed?.checks).toBe('unknown');
+    // NOT in the open map, so no verdict of theirs reaches `classify`.
+    expect(entry.prs?.get('feature/merged')).toBeUndefined();
+    expect(entry.prs?.get('feature/closed')).toBeUndefined();
   });
 });
