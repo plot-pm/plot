@@ -1,4 +1,9 @@
 import { type Outcome, type Write, decide, refuse } from './decision.js';
+import {
+  unnamedBranchDetail,
+  unnamedBranches,
+  type NamedSlice,
+} from '../rules/slice-name.js';
 
 /**
  * Why `approve` refused.
@@ -15,6 +20,7 @@ export type ApproveRefusal =
   | 'state-wrong'
   | 'review-human'
   | 'review-unrecognised'
+  | 'slice-unnamed'
   | 'pr-closed'
   | 'pr-absent';
 
@@ -39,6 +45,15 @@ export interface ApproveReadings {
   impl: string;
   /** Every branch the plan names, across all of its slices. */
   branches: readonly string[];
+  /**
+   * The plan's slices, as the parser reported them.
+   *
+   * {@link branches} cannot answer which branch sits under which heading — it
+   * is one flat list — so the slices are read beside it rather than derived
+   * from it. Absent means the caller did not read them, which is not the same
+   * as a plan whose slices are all named.
+   */
+  slices?: readonly NamedSlice[];
   /** The sprint slug the plan belongs to, or `''`. */
   sprint: string;
   /** The sprint file naming this plan, or `''` when none does. */
@@ -98,8 +113,8 @@ export interface ApproveDetail {
  * @param input - the date and approver to record.
  * @returns a decision naming every write, or a refusal naming the rule that
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
- *   `state-unreadable`, `state-wrong`, `review-human`, `review-unrecognised`,
- *   `pr-closed` or `pr-absent`.
+ *   `state-unreadable`, `state-wrong`, `slice-unnamed`, `review-human`,
+ *   `review-unrecognised`, `pr-closed` or `pr-absent`.
  */
 export const approve = (
   readings: ApproveReadings,
@@ -141,6 +156,14 @@ export const approve = (
         'state-wrong',
         `plan '${slug}' is in state '${readings.phase}' — only a Draft or Design plan can be approved.`,
       );
+  }
+
+  // THE HEADING IS OWED BEFORE ANY AGENT STARTS. Asked from the plan rather
+  // than from a host, and before the review channel so an unnamed branch is
+  // reported on every channel rather than hidden behind `review-human`.
+  const unnamed = unnamedBranches(readings.slices ?? []);
+  if (unnamed.length > 0) {
+    return no('slice-unnamed', unnamedBranchDetail(slug, unnamed));
   }
 
   // NONE is a pre-Plot-2 plan on an idea branch, which the skill documents as
