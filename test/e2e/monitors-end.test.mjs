@@ -248,9 +248,21 @@ function findings(file) {
  * the contract the monitor reads, `start_worker` started it, and every other
  * part of the path — the wrapper, the quoting, the env vars — is the real one.
  * What changes is only which process the file names.
+ *
+ * THE WRAPPER WRITES FIRST. `plot-dispatch.sh --restart` returns while the
+ * wrapper starts, and the wrapper writes the agent's pid to the same file. A
+ * substitution written before that write is overwritten, the monitor watches
+ * the `sleep 30` agent, and the test kills a process nobody is watching: CI
+ * failed this way on 2026-10-02 (run 37055971434, attempt 1). So the agent's
+ * own pid must be in the file before it is replaced.
  */
 function dispatchWithLiveSubject(name) {
   const run = dispatchOne(name, { workerCommand: 'sleep 30' });
+  const agentPid = waitFor(() => {
+    const written = fs.existsSync(run.pidFile) ? fs.readFileSync(run.pidFile, 'utf8').trim() : '';
+    return /^\d+$/.test(written) ? written : null;
+  });
+  assert.ok(agentPid, 'the wrapper never wrote the agent pid, so there is nothing to substitute');
   const subject = detachedSubject(120);
   fs.writeFileSync(run.pidFile, String(subject));
   return { ...run, subject };
