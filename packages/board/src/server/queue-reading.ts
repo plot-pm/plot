@@ -73,6 +73,24 @@ export interface QueueWorld {
    * rather than offer it.
    */
   queuedHasLanded(branch: string): Promise<LandedAnswer>;
+  /**
+   * The refless branches a merge subject on the default branch proves landed,
+   * per plan.
+   *
+   * Local git readings only, and no host call. A branch is proven for a plan
+   * only where its merge is not contained in the commit that added the plan
+   * file, so a reused name merged before the plan existed proves nothing.
+   *
+   * @param plans - the plans to answer for.
+   * @param claimed - branch names to leave out; each one keeps its own host
+   *   question.
+   * @returns each plan's file to the branches proven for it, or `null` where
+   *   the readings could not be taken.
+   */
+  subjectProven(
+    plans: readonly PlanRecord[],
+    claimed: ReadonlySet<string>,
+  ): Promise<ReadonlyMap<string, ReadonlySet<string>> | null>;
   /** Whether a worker process is alive in this desk. */
   workerAlive(worktree: string): Promise<boolean>;
   /** Whether the desk carries a `PLOT-BLOCKED*` marker. */
@@ -236,13 +254,14 @@ export const readQueue = async (
   // returned HTTP 429 (#1140). `landedWithoutListing` bounds those lookups.
   const listing = await world.mergedBranches();
   const merged = new Set(listing.merged);
+  const provenFor = await subjectProofOf(plans, claimed, merged, world);
   const answered = listing.whole
     ? new Map<string, LandedAnswer>()
-    : await landedWithoutListing(plans, claimed, merged, world);
+    : await landedWithoutListing(plans, claimed, merged, provenFor, world);
 
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
-    for (const entry of queueOfPlan(plan, claimed, merged)) {
+    for (const entry of queueOfPlan(plan, claimed, new Set([...merged, ...provenFor(plan)]))) {
       const briefPresent = entry.claimable ? await world.briefPresent(entry.branch) : false;
       slices.push({
         ...entry,
@@ -274,6 +293,37 @@ export const readQueue = async (
   return { slices, agents };
 };
 
+/** No branch, for a plan the merge subjects prove nothing about. */
+const NONE: ReadonlySet<string> = new Set<string>();
+
+/**
+ * The branches a merge subject proves for each plan, as a lookup.
+ *
+ * **NO PROOF UNDER THE `'*'` SENTINEL.** `claimedBranches` answers `{'*'}` when
+ * the ref list could not be read, and `'*'` names no branch. A subject naming
+ * an in-flight branch would then settle it, so no proof is asked for.
+ *
+ * Names the listing already merged are left out with the claimed ones: the
+ * proof adds nothing for them, and leaving them out saves their ancestry tests.
+ *
+ * @param plans - every plan on the estate.
+ * @param claimed - the remote branches that exist.
+ * @param merged - the heads the listing named.
+ * @param world - what to read the estate through.
+ * @returns a lookup from a plan to the branches proven for it, empty where
+ *   nothing was proven or nothing could be asked.
+ */
+const subjectProofOf = async (
+  plans: readonly PlanRecord[],
+  claimed: ReadonlySet<string>,
+  merged: ReadonlySet<string>,
+  world: QueueWorld,
+): Promise<(plan: PlanRecord) => ReadonlySet<string>> => {
+  if (claimed.has('*')) return () => NONE;
+  const proven = await world.subjectProven(plans, new Set([...claimed, ...merged]));
+  return (plan) => proven?.get(plan.file) ?? NONE;
+};
+
 /**
  * Answers *did this land* for the branches the queue needs, without the listing.
  *
@@ -293,6 +343,8 @@ export const readQueue = async (
  * @param plans - every plan on the estate.
  * @param claimed - the remote branches that exist.
  * @param merged - the heads the listing named; landed branches are added to it.
+ * @param provenFor - the branches a merge subject proves, per plan. A proven
+ *   branch is settled for its own plan only, and is asked nothing.
  * @param world - what to read the estate through.
  * @returns the answers taken by index row or by number, keyed by branch.
  */
@@ -300,13 +352,16 @@ const landedWithoutListing = async (
   plans: readonly PlanRecord[],
   claimed: ReadonlySet<string>,
   merged: Set<string>,
+  provenFor: (plan: PlanRecord) => ReadonlySet<string>,
   world: QueueWorld,
 ): Promise<ReadonlyMap<string, LandedAnswer>> => {
   const answered = new Map<string, LandedAnswer>();
   const rows = await world.prIndexRows();
-  const settled = (branch: string): boolean => claimed.has(branch) || merged.has(branch);
   let views = 0;
   for (const plan of plans) {
+    const proven = provenFor(plan);
+    const settled = (branch: string): boolean =>
+      claimed.has(branch) || merged.has(branch) || proven.has(branch);
     const slices = plan.slices.map((slice: PlanRecordSlice) => slice.branches);
     for (;;) {
       const needed = blockingBranches(plan.phase, slices, settled);

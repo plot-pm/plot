@@ -78,7 +78,7 @@ If slice 1 finds no such caller, slice 2 is deferred with the measurement as its
 
 ## Slices
 
-### The account's spend is attributed by caller (Branch: bug/the-account-spend-is-attributed-by-caller)
+### The account's spend is attributed by caller (Branch: bug/the-account-spend-is-attributed-by-caller, PR: #1190)
 
 One hour of `bb` calls counted per checkout and per caller through a `PATH` wrapper in a scratch directory, compared with `spend-rate`, posted on #1069. No shipped file changes. <!-- builds: a per-caller attribution of one shared account's requests -->
 

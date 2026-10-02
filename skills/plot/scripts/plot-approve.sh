@@ -272,6 +272,43 @@ case "$pr_state" in
   Then open its PR — or run /plot-idea, which does both." ;;
 esac
 
+# --- refusal 4: a branch under no slice heading -----------------------------
+#
+# BEFORE THE MERGE, which is the whole point of its position. Step 2 merges the
+# plan PR, and a refusal fired after that leaves the PR merged, the plan still
+# Draft, and a refusal the operator can clear only by editing a merged plan. So
+# it sits with refusals 1 to 3, reading the same `$meta` step 1 took, and it
+# writes nothing.
+#
+# The heading is the slice's name on the board and the title of its PR
+# (`openSlicePr` refuses `slice-unnamed`), so it is owed on the default branch
+# before any agent starts. Without this an agent meets that refusal, writes the
+# heading on its own branch, and the board reads `(unnamed)` until the PR
+# merges (#1057).
+#
+# The rule is the domain's and it is asked, never re-implemented here:
+# `decide_transition` asks the same one through the same bundle, so the two can
+# never disagree about one plan.
+transition_check_mjs="$script_dir/board/plot-transition.mjs"
+if [ -f "$transition_check_mjs" ]; then
+  slice_err_file=""
+  plot_tmpfile slice_err_file approve-slices
+  slice_rc=0
+  printf '%s' "$meta" | node "$transition_check_mjs" --check-slices "$slug" \
+    2>"$slice_err_file" >/dev/null || slice_rc=$?
+  slice_err=$(cat "$slice_err_file" 2>/dev/null); rm -f "$slice_err_file"
+  if [ "$slice_rc" = 1 ]; then
+    die "$(printf '%s' "$slice_err" | cut -f2-)
+  The plan was not approved, nothing was merged and its phase is unchanged."
+  elif [ "$slice_rc" != 0 ]; then
+    die "cannot read the slices of '$plan_file' (plot-transition.mjs --check-slices exited $slice_rc).
+  ${slice_err:-The bundle gave no reason.}
+  Refusing rather than approving a plan whose slice headings were never read."
+  fi
+else
+  echo "plot-approve: cannot find $transition_check_mjs — slice headings went unchecked. Run 'pnpm build:board'." >&2
+fi
+
 echo "step: plan $plan_file — phase=$phase review=${review} impl=${impl} pr=#$pr_number($pr_state)"
 
 # --- a DRAFT is taken out of draft, not refused ------------------------------
@@ -513,6 +550,19 @@ decide_transition() { # $1=file $2=channel  → prints "<Phase>\t<record>\t<writ
     || { echo "plot-approve: cannot find $transition_mjs — run 'pnpm build:board'." >&2; return 1; }
   m=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null) || m=""
   [ -n "$m" ] || { echo "plot-approve: cannot parse $f — refusing rather than guessing." >&2; return 1; }
+  # THE SLICES TRAVEL WITH THE TRANSITION, not only with the early check above.
+  # Measured 2026-10-02 by disabling that check: this call approved an unnamed
+  # plan outright — merged, flipped and recorded — because the field line
+  # carries no slices and the domain reads an absent reading as unmeasured. So
+  # the rule is asked twice, the second time from the file this re-parses, which
+  # on the `pr` flow is the plan on the default branch.
+  #
+  # Out of band rather than a field of its own, which is why `People` widening
+  # the line to twelve did not touch this: the slices are a nested list, and
+  # `requestFrom` pads nothing.
+  local slices_file=""
+  plot_tmpfile slices_file approve-transition-slices
+  printf '%s' "$m" > "$slices_file"
   answer=$(printf 'approve\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
     "$slug" \
     "$(printf '%s' "$m" | jq -r '.phase // ""')" \
@@ -521,8 +571,9 @@ decide_transition() { # $1=file $2=channel  → prints "<Phase>\t<record>\t<writ
     "$(printf '%s' "$m" | jq -r '.delivered_raw // ""')" \
     "$(printf '%s' "$m" | jq -r '.released_raw // ""')" \
     "$today" "$who" "$channel" \
-    | node "$transition_mjs" 2>&1)
+    | node "$transition_mjs" --slices "$slices_file" 2>&1)
   rc=$?
+  rm -f "$slices_file"
   # Exit 1 is the domain's refusal and its sentence, tab-separated after the
   # rule that fired. Exit 2 is this script handing it something unreadable,
   # which no operator can act on — so it reports as the bug it is.

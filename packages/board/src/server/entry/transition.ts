@@ -7,7 +7,12 @@ import {
   type TransitionResult,
 } from '@plot-pm/domain/transitions/plan';
 import { planStateOf } from '@plot-pm/domain/entities/plan';
-import { realpathSync } from 'node:fs';
+import {
+  unnamedBranchDetail,
+  unnamedBranches,
+  type NamedSlice,
+} from '@plot-pm/domain/rules/slice-name';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /**
@@ -18,6 +23,11 @@ import { pathToFileURL } from 'node:url';
  * printf 'deliver\tslug\tapproved\tpr\t\t\t\t2026-09-02\t\t\t\n' | node plot-transition.mjs
  * Delivered	2026-09-02	write	no
  * ```
+ *
+ * It also answers ONE other question, by argument rather than by field:
+ * `--check-slices <slug>` reads the parser's `waves[]` as JSON and exits 1
+ * where the plan names a branch under no `###` heading. See
+ * {@link checkSlices} for why it is not a twelfth field.
  *
  * **A FIFTH artifact, for the reason the third and fourth ones give.**
  * `plot-ask.mjs` answers `board` and `fleet` by RUNNING `plot-fleet-scan.sh`,
@@ -57,6 +67,15 @@ export interface Request {
   channel: string;
   /** The version to record — `release` only. */
   version: string;
+  /**
+   * The plan's slices, as the parser reported them — `approve` only.
+   *
+   * Supplied out of band (`--slices <file>`) rather than as a twelfth field,
+   * because {@link requestFrom} refuses any line that is not exactly eleven and
+   * does not pad. Absent means the caller did not read them, which the
+   * transition reads as unmeasured rather than as *all named*.
+   */
+  slices?: readonly NamedSlice[];
   /** The handles the project declares, from the `People` config key. */
   people: readonly string[];
 }
@@ -87,7 +106,7 @@ const SPELLING: Readonly<Record<Verb, string>> = {
  * @returns the request
  * @throws when the line is not twelve tab-separated fields, or names no verb
  */
-export const requestFrom = (text: string): Request => {
+export const requestFrom = (text: string, slices?: readonly NamedSlice[]): Request => {
   const fields = text.replace(/\n$/, '').split('\t');
   if (fields.length !== 12) {
     throw new Error(
@@ -137,6 +156,7 @@ export const requestFrom = (text: string): Request => {
     who,
     channel,
     version,
+    ...(slices === undefined ? {} : { slices }),
     people: people.split(',').filter((h) => h !== ''),
   };
 };
@@ -154,6 +174,7 @@ export const decide = (request: Request): TransitionResult => {
         on: request.on,
         who: request.who,
         channel: request.channel,
+        ...(request.slices === undefined ? {} : { slices: request.slices }),
         people: request.people,
       });
     case 'deliver':
@@ -210,6 +231,79 @@ export const answer = (request: Request): string => {
 };
 
 /**
+ * Read the parser's slices from a JSON document.
+ *
+ * The caller may supply the whole `plot-plan-meta.sh` object or only its
+ * `waves[]`. Anything else answers `null`, which every caller refuses on:
+ * reading an unparseable document as a plan naming no branch would approve the
+ * very shape this gate exists for.
+ *
+ * @param text the JSON document
+ * @returns the slices, or `null` where the document names no `waves[]`
+ */
+export const slicesFrom = (text: string): readonly NamedSlice[] | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const waves = Array.isArray(parsed) ? parsed : (parsed as { waves?: unknown } | null)?.waves;
+  if (!Array.isArray(waves)) return null;
+  return waves.map((wave) => {
+    const w = (wave ?? {}) as { name?: unknown; branches?: unknown };
+    return {
+      name: typeof w.name === 'string' ? w.name : '',
+      branches: (Array.isArray(w.branches) ? w.branches : []).map((line) => {
+        const l = (line ?? {}) as { branch?: unknown; deferred?: unknown };
+        return {
+          branch: typeof l.branch === 'string' ? l.branch : '',
+          deferred: l.deferred === true,
+        };
+      }),
+    };
+  });
+};
+
+/**
+ * Answer whether a plan names a branch under no slice heading.
+ *
+ * **A SECOND QUESTION ON ONE BUNDLE, ASKED BY ARGUMENT RATHER THAN BY FIELD.**
+ * {@link requestFrom} refuses any line that is not exactly eleven fields and
+ * does not pad, so a twelfth field would have to be added to every sender in
+ * one commit. The slices are a different shape anyway — a nested list, not a
+ * scalar — so they arrive as the parser's own JSON and the tab-separated
+ * contract is untouched.
+ *
+ * Asked BEFORE the merge by `plot-approve.sh`, where the other three refusals
+ * sit. The transition itself asks the same rule, so a caller that skips this
+ * check is still refused; what this buys is a refusal the operator meets while
+ * the plan PR is still open and nothing has been written.
+ *
+ * @param text the stdin document — the parser's `waves[]` as JSON, or a whole
+ *   `plot-plan-meta.sh` object carrying it
+ * @param slug the plan the answer is about, for the refusal's wording
+ * @param write where the refusal goes
+ * @returns the process exit code — 0 every branch is named, 1 one is not,
+ *   2 the slices could not be read
+ */
+export const checkSlices = (
+  text: string,
+  slug: string,
+  write: (s: string) => void = (s) => process.stderr.write(s),
+): number => {
+  const slices = slicesFrom(text);
+  if (slices === null) {
+    write("plot-transition: cannot read the parser's waves[] — refusing rather than guessing.\n");
+    return 2;
+  }
+  const unnamed = unnamedBranches(slices);
+  if (unnamed.length === 0) return 0;
+  write(`slice-unnamed\t${unnamedBranchDetail(slug, unnamed)}\n`);
+  return 1;
+};
+
+/**
  * Read stdin, print the answer.
  *
  * Three exit codes rather than two, because the caller repairs them
@@ -218,15 +312,17 @@ export const answer = (request: Request): string => {
  *
  * @param text the whole of stdin
  * @param write where the answer goes
+ * @param slices the plan's slices, where the caller read them
  * @returns the process exit code — 0 decided, 1 refused, 2 unreadable input
  */
 export const run = (
   text: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  slices?: readonly NamedSlice[],
 ): number => {
   let request: Request;
   try {
-    request = requestFrom(text);
+    request = requestFrom(text, slices);
   } catch (err) {
     process.stderr.write(`plot-transition: ${(err as Error).message}\n`);
     return 2;
@@ -251,5 +347,23 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8')));
+  const text = Buffer.concat(chunks).toString('utf8');
+  const check = process.argv.indexOf('--check-slices');
+  if (check !== -1) process.exit(checkSlices(text, process.argv[check + 1] ?? ''));
+  // `--slices <file>` rather than a twelfth stdin field, and a FILE rather than
+  // an inline argument: the parser's waves[] carry branch names and prose, and
+  // an argv limit is the one failure that would silently drop the reading.
+  const at = process.argv.indexOf('--slices');
+  let slices: readonly NamedSlice[] | undefined;
+  if (at !== -1) {
+    const parsed = slicesFrom(readFileSync(process.argv[at + 1] ?? '', 'utf8'));
+    if (parsed === null) {
+      process.stderr.write(
+        "plot-transition: cannot read the parser's waves[] from --slices — refusing rather than guessing.\n",
+      );
+      process.exit(2);
+    }
+    slices = parsed;
+  }
+  process.exit(run(text, (out) => process.stdout.write(out), slices));
 }

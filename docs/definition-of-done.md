@@ -6,6 +6,8 @@ reviewer uphold.
 
 ## Every change
 
+Before a push, run the checks `skills/plot/scripts/board/plot-local-checks.mjs` prints for the change. CI runs every suite below on every pull request, so a local run of a full suite repeats CI's work.
+
 - [ ] Skills parse and frontmatter validates (`pnpm test`, `pnpm run validate`).
 - [ ] Contract tests pass (`pnpm run test:contracts`) — the helper estate and
       the CI gates are specified by fixtures, the plan-format contract

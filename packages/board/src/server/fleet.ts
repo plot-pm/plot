@@ -59,10 +59,13 @@ import {
   type LimitReading,
   type Reaction,
   type SupervisorRun,
+  answerKind,
   foldPrIndex,
+  handedTo,
   issueAbsence,
   issueSource,
   prWindowFor,
+  type PrAnswerKind,
   type PrIndex,
   type PrIndexRow,
 } from '@plot-pm/domain';
@@ -232,10 +235,10 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // A DELTA CHANGED WHAT EACH REQUEST COSTS AND NOT HOW MANY ARE MADE, so this
   // number is unchanged by the `--since` slice. The Bitbucket arm still calls
   // once per state plus once for issues, whether or not a window narrows each
-  // call: `bb pr list` has no query flag, so its bulk listing is asked in full
-  // regardless, and the per-branch sweep — the only Bitbucket path a window
-  // reaches — is not the shape this file uses. GitHub likewise makes one call
-  // with `--search` exactly as it made one without.
+  // call: a windowed listing goes through `bb_window_listing`, which asks REST
+  // with `updated_on>=` and walks its pages, so it narrows but still spends one
+  // call per state. GitHub likewise makes one call with `--search` exactly as
+  // it made one without.
   //
   // WHAT A CHEAPER CALL BUYS IS LATENCY, NOT BUDGET, and conflating the two is
   // how a table like this goes wrong. 29 811 ms became 943 ms because the host
@@ -309,6 +312,22 @@ const PR_LIMIT = 1000;
  * and the 30 s is paid once against roughly 1440 refreshes.
  */
 const PR_FULL_READ_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long a failed full read stands the next one down.
+ *
+ * **A SERVER-SIDE TIMEOUT IS NO RATE LIMIT**, so `hostReaction` names no wait,
+ * the next refresh follows in `PR_REFRESH_MS` (60 s), and the full read is
+ * still due — the heaviest query on the estate, every minute. An hour is long
+ * enough that a GitHub GraphQL 504 (measured 46-68 s on this repository, #1087)
+ * is not retried into the ground, and short enough that the daily full read is
+ * delayed rather than abandoned.
+ *
+ * **NOT A RETRY.** The refreshes inside the hour ask a delta, which is the
+ * cheap call. Retrying the full read at once would double the cost of a request
+ * that already ran too long.
+ */
+const PR_FULL_READ_GRACE_MS = 60 * 60 * 1000;
 
 /**
  * How many open issues to ask for.
@@ -835,6 +854,19 @@ export interface CacheEntry {
    */
   prSlotsHeld: number | null;
   prLimit: number | null;
+  /**
+   * When THIS PROCESS last saw a full PR listing fail, epoch ms, or null.
+   *
+   * **IN MEMORY AND NEVER IN THE STORE**, and that is the field's whole
+   * contract. It is this process's observation of this host at this moment; a
+   * store field would be inherited by a process that never saw the failure and
+   * would stand the daily full read down on evidence it does not hold.
+   *
+   * Read by `prWindowFor` as a reading: a full read that failed inside
+   * `PR_FULL_READ_GRACE_MS` answers a delta, so a 504 — which names no wait —
+   * does not make the board repeat its heaviest query every 60 s.
+   */
+  prFullReadFailedAt: number | null;
   /** How the limit reading was come by — `actual`, `predicted`, or `unknown`. */
   prLimitBasis: LimitBasis;
   /**
@@ -2753,7 +2785,7 @@ const applyPrMaps = (entry: CacheEntry, maps: PrMaps): void => {
  * @returns the store as it was folded and written, or null where it could not be.
  */
 const writePrStore = async (
-  connector: string, rows: readonly PrIndexRow[], complete: boolean,
+  connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind,
 ): Promise<PrIndex | null> => {
   try {
     const held = await prStore.read(connector);
@@ -2764,7 +2796,7 @@ const writePrStore = async (
     const folded = foldPrIndex(previous, {
       connector,
       rows,
-      complete,
+      kind,
       // THIS MACHINE'S CLOCK, AND ONLY FOR AN OPERATOR READING THE FILE. The
       // watermark is taken from the ROWS by `foldPrIndex` and never from here.
       at: new Date().toISOString(),
@@ -2869,7 +2901,16 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   } catch {
     stored = null;
   }
-  const window = prWindowFor(stored, Date.now(), PR_FULL_READ_MS);
+  // THE FAILED FULL READ IS A READING, AND IT COMES FROM THIS PROCESS. The
+  // domain takes readings as values and never reaches a port, so the entry's
+  // own observation is handed in rather than looked up. A fresh process has
+  // seen no failure and keeps today's cadence exactly.
+  const failedFullRead = entry.prFullReadFailedAt === null
+    ? null
+    : { at: entry.prFullReadFailedAt };
+  const window = prWindowFor(
+    stored, Date.now(), PR_FULL_READ_MS, failedFullRead, PR_FULL_READ_GRACE_MS,
+  );
   try {
     // BOUNDED HERE, WHERE THE CALL IS. The gate wraps the host request and
     // nothing else — reading the record, parsing the answer and scheduling the
@@ -2990,22 +3031,24 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
     } else {
       // The happy path: the host answered and at least some PRs are readable.
       //
-      // COMPLETENESS IS THE WINDOW'S AND THE PARTIAL ANSWER'S TOGETHER, and
-      // they are two different facts about one answer. `window.complete` says
-      // *was this a full read* — did the call ask about the whole history, or
-      // about one window of it. `partialSaid` says *did every host state
-      // answer* — a Bitbucket-only shape, since `bb` has no `all` state and its
-      // arm calls once per state.
+      // THE DOMAIN DECIDES WHAT KIND OF ANSWER THIS WAS. This line held the
+      // rule as `window.complete && partialSaid === null`, which could not
+      // express a healthy delta as anything but not-whole: the window asked
+      // about a slice of the history, every state answered, and the store was
+      // then marked partial — so the next refresh refused to narrow and the
+      // board made its 43 s full listing every second refresh.
       //
-      // CONFLATING THEM FAILS IN BOTH DIRECTIONS. A successful delta exits 0
-      // and carries no partial sentence, so reading completeness from
-      // `partialSaid === null` alone would mark a 3-row window `complete: true`
-      // and replace 933 stored rows with 3 — #912 reproduced on disk, where the
-      // next process inherits it. And treating a delta as a degraded reading
-      // would raise the partial banner on every healthy refresh.
-      //
-      // Only an answer that is BOTH a full read and whole may replace.
-      const complete = window.complete && partialSaid === null;
+      // THE TWO FACTS ARE STILL TWO FACTS. `window.kind` says *was this a full
+      // read*; `partialSaid` says *did every host state answer*, a Bitbucket
+      // shape since `bb` has no `all` state and its arm calls once per state.
+      // `answerKind` maps the pair to one of three words rather than folding
+      // them into a boolean that can only hold one of them.
+      const kind = answerKind(window, partialSaid);
+      // A FULL READ THAT ANSWERED CLEARS THE LATCH. The grace exists to stop a
+      // failed full read repeating every 60 s; once one succeeds there is
+      // nothing left to stand down, and a latch nobody clears would shorten the
+      // next failure's grace to nothing.
+      if (kind === 'whole') entry.prFullReadFailedAt = null;
       // THE SERVED MAPS COME FROM THE FOLD, NOT FROM THIS PASS'S ROWS. A
       // delta's window returns the rows that changed — 3 on a quiet estate —
       // and `map`/`byNumber`/`byHead` above hold exactly those. Serving them
@@ -3026,7 +3069,7 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       // assert the file without racing it, and — since this slice — so the maps
       // it serves are derived from a fold that has already happened. The write
       // is one local `rename` against a host call measured at 29 811 ms.
-      const folded = await writePrStore(backend, rows, complete);
+      const folded = await writePrStore(backend, rows, kind);
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this
       // pass hold the same rows by construction. Deriving from the fold anyway
@@ -3037,7 +3080,13 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       // already in the state this whole path exists to avoid, and serving the
       // window's rows is the last honest thing left: they are what the host
       // just said.
-      if (complete || folded === null) {
+      //
+      // THE TEST IS THE ANSWER'S KIND AND NEVER THE FOLDED STORE'S FLAG. Since
+      // a delta now leaves a whole store whole, `folded.complete` is `true`
+      // after a 0-row window — and serving this pass's rows on that would
+      // report every other branch as having no PR. The kind describes the CALL,
+      // which is the question being asked here; `complete` describes the FILE.
+      if (kind === 'whole' || folded === null) {
         entry.prs = map;
         entry.prsByNumber = byNumber;
         entry.prsByHead = byHead;
@@ -3064,6 +3113,18 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
     // git-only group, which looks like state changing rather than data missing.
     const message = err instanceof Error ? err.message : String(err);
     entry.prError = message;
+    // A FAILED FULL READ IS RECORDED, AND ONLY A FULL READ. The next refresh
+    // follows in 60 s and the full read is still due, so without this the
+    // heaviest query on the estate repeats every minute — a 504 names no wait,
+    // so `hostReaction` has nothing to slow the board with. A failed DELTA is
+    // not recorded: it is the cheap call, and standing the full read down on it
+    // would delay the one answer that sees a deleted PR for a failure that
+    // costs nothing to retry.
+    //
+    // ON THE ENTRY AND NOT IN THE STORE: see `prFullReadFailedAt`. The store is
+    // also deliberately untouched on this path, so a dark answer is never
+    // inherited as good data.
+    if (window.kind === 'whole') entry.prFullReadFailedAt = Date.now();
     // A rate limit is the one failure worth slowing down for: retrying at the
     // normal cadence spends quota to be told the same thing. Every other
     // failure keeps the ordinary rhythm — a VPN blip should recover in a
@@ -3546,7 +3607,8 @@ export function freshCacheEntry(): CacheEntry {
     briefsAsked: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
-    prLimit: null, prLimitBasis: 'unknown', prAccount: null, prSlotsHeld: null,
+    prLimit: null, prFullReadFailedAt: null, prLimitBasis: 'unknown',
+    prAccount: null, prSlotsHeld: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
@@ -6239,6 +6301,84 @@ export function briefState(repoRoot: string, branch: string): BriefState {
 export { doubleClaimedBranches };
 
 
+/**
+ * The note a row carries between the registry handing its branch to one agent
+ * and that agent taking the branch up.
+ *
+ * NEW WORDING, deliberately: `handed to agent` and `not taken up` occur nowhere
+ * else in this package. It names the STATE and not the session, because the
+ * moved row is not drawn itself — WORKING renders registry agents through
+ * `RegistryRow`, and the note appears beside a link that already shows the
+ * agent's session.
+ */
+const HANDED_NOTE = 'handed over — not taken up yet';
+
+/**
+ * Every row rewritten to read the hand-over the registry has already recorded.
+ *
+ * **The rows read the scan; WORKING reads the registry.** A free agent reads its
+ * manifest once every 60 s (`plot-worker-loop.sh`), and until it does, no
+ * worktree holds the branch — so `worker_of` answers `elsewhere` and
+ * `classifyGroup` reads the branch as `open` or `claimed` with no known worker.
+ * Measured 2026-10-01 on three of this sprint's slices: WORKING listed the
+ * agent while the same slice's row read `eligible — nobody has taken it` in NOT
+ * STARTED, with that agent's own activity dot beside it. The registry knew the
+ * answer the whole time and no row had read it.
+ *
+ * **IT RUNS AFTER `classifyGroup`, NOT INSIDE IT.** That function takes the
+ * scan's readings for one branch and the registry is not one of them; its
+ * parameter list holds 30 positional arguments, and its own comments record six
+ * tests broken by one insertion. This reads one more reading at the place that
+ * reading already exists, and `rowsFromPulse`'s signature is unchanged.
+ *
+ * **A candidate is narrow, and each guard has its own failure.** A row whose
+ * `worker` is live is already answered by the scan, which has seen more than the
+ * registry has. A row whose `verdict` is `unapproved` belongs to a Draft plan,
+ * and #1161's rule wins there: dispatch refuses a Draft slice, so a live agent
+ * on one is a fault in its own right and the row must keep naming the approval a
+ * person owes. And the group is `not-started` OR the orphaned claim — `claimed`,
+ * `waiting-on-you`, no PR — because a `not-started`-only rule leaves the
+ * past-the-quiet-window case reading as an orphan while WORKING shows its agent.
+ *
+ * **Absence is not falsehood.** A row no live agent names keeps
+ * `classifyGroup`'s answer whole, so #1090's orphan reading survives every case
+ * where the registry says nothing — an agent that dies on an empty claim turns
+ * `failed`, stops matching, and its row returns to NOT STARTED inside the window
+ * and WAITING ON YOU after it.
+ *
+ * **Two live agents is a fault for a person, not a no-op.** The row goes to
+ * WAITING ON YOU naming the count. The double hand-out itself is #1039 and
+ * #1152; this only reports it.
+ *
+ * Every moved row carries `someone-is-on-it`, or an `open` row would keep
+ * `start-work` from `startabilityVerdict` and a menu would offer to start a
+ * slice an agent already holds. Every other field is kept, and the rows are
+ * REPLACED rather than mutated — the objects `rowsFromPulse` returned are read
+ * again by `deriveSlices` from the same pulse.
+ *
+ * @param rows - the rows as the scan's classifier answered them.
+ * @param agents - the registry's entries, as `refresh` loaded the manifests.
+ * @returns the rows, each either rewritten or exactly as it arrived.
+ */
+export const withHandOver = (rows: readonly AgentRow[], agents: readonly AgentEntry[]): AgentRow[] =>
+  rows.map((row) => {
+    if (row.worker === 'running' || row.worker === 'waiting') return row;
+    if (row.verdict === 'unapproved') return row;
+    const orphanedClaim = row.state === 'claimed' && row.group === 'waiting-on-you' && row.pr === null;
+    if (row.group !== 'not-started' && !orphanedClaim) return row;
+    const sessions = handedTo(row.branch, agents);
+    if (sessions.length === 0) return row;
+    return sessions.length === 1
+      ? { ...row, group: 'working' as const, note: HANDED_NOTE, startability: 'someone-is-on-it' as const }
+      : {
+        ...row,
+        group: 'waiting-on-you' as const,
+        note: `handed to ${sessions.length} agents at once`,
+        startability: 'someone-is-on-it' as const,
+      };
+  });
+
+
 export function rowsFromPulse(
   pulse: FleetReading,
   ages: Map<string, number | null>,
@@ -7787,8 +7927,12 @@ export async function buildFleet(
       // `readFile` over a cached path, in `existsSync`'s class.
       readSupervisionReport(opts),
     ]);
+  // THE ROWS READ THE SCAN, THEN THE HAND-OVER — see `withHandOver`. Applied to
+  // the result rather than threaded into `rowsFromPulse`, because `entry.agents`
+  // is in scope HERE (`refresh` fills it, and the sections and the live count
+  // below read it) while that function takes the scan's readings only.
   const rows = entry.pulse
-    ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
+    ? withHandOver(rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
       entry.runs,
       // The root, so each row can be asked whether its brief exists. Read HERE
@@ -7809,7 +7953,7 @@ export async function buildFleet(
       // WHY EACH DESK HAS NO LIVE WORKER, from the daemon's per-tick report.
       // Awaited above rather than read here, because this function is synchronous
       // — the rule the sprint map above follows.
-      supervision)
+      supervision), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
