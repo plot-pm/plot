@@ -131,7 +131,7 @@ Verified on `origin/main`:
 
 - `bug/the-rule-names-a-usage-limit` — the rule, the adapter, the entry and the bundle <!-- builds: promptExit, a rule that classifies a prompt exit -->
 
-### The loop waits out a usage limit (Branch: bug/the-loop-waits-out-a-usage-limit)
+### The loop waits out a usage limit (Branch: bug/the-loop-waits-out-a-usage-limit, PR: #1202)
 
 `plot-worker-loop.sh` captures the prompt's output with `> >(tee -a "$out") 2>&1 &`, asks the bundle on every exit with `${PLOT_HARNESS:-claude}` and the counts above, falls back to today's paths when the bundle cannot answer, writes and removes `.plot-worker.limited`, sleeps in clock-checked steps as `_wait_sleep_pid`, records the desk `HEAD` when a wait starts and counts commits from it after the resumed prompt, and reads the desk for its sentences. `plot-worker-monitor.sh` reads `.plot-worker.limited` in `sample_verdict` and clamps a negative silence. `plot-fleetctl.sh --status` prints the waiting line while the reset is in the future. Tests extend the start-failure fixture in `test/reconcile/second-slice.test.mjs:370-440`, each with a fake harness, `PLOT_LIMIT_MARGIN_SECONDS=0` and a clock offset:
 
