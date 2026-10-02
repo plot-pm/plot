@@ -569,3 +569,90 @@ exec ${JSON.stringify(realNode)} "$@"
     'with no rule to ask, the branch falls through to the host as it did before',
   );
 });
+
+/**
+ * Replaces the fixture's host with one that ANSWERS: `pr-list` names each given
+ * branch's PR as MERGED, and every call is logged.
+ *
+ * THE SCRIPTS ARE COPIED, because the scan resolves `plot-host.sh` from its own
+ * directory and a stub reached through `PATH` is never asked. This is
+ * `fleetlisting.test.mjs`'s arrangement.
+ */
+function answeringHost(fx, merged) {
+  const scriptsCopy = path.join(fx.tmp, 'scripts');
+  fs.cpSync(scripts, scriptsCopy, { recursive: true });
+  const rows = merged
+    .map((b, i) => `{"number":${100 + i},"state":"MERGED","head":"${b}","draft":false}`)
+    .join('\n');
+  fs.writeFileSync(path.join(scriptsCopy, 'plot-host.sh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(fx.log)}
+case "$1" in
+  backend) echo ${JSON.stringify(fx.backend)}; exit 0 ;;
+  default-branch) echo main; exit 0 ;;
+  pr-list)
+    case "$*" in *"--state open"*) exit 0 ;; esac
+    cat <<'ROWS'
+${rows}
+ROWS
+    exit 0 ;;
+  pr-state)
+    echo '{"state":"MERGED"}'; exit 0 ;;
+esac
+exit 4
+`, { mode: 0o755 });
+  return path.join(scriptsCopy, 'plot-fleet-scan.sh');
+}
+
+test('a delivery candidate drops the subject evidence once the host says merged', () => {
+  // THE DEFECT, measured 2026-10-02 on this estate: the candidate argument
+  // `branch_readings` tests was never passed, so the host was never asked about
+  // a subject-proven branch. 32 of 39 merged branches read `evidence: subject`,
+  // `allSlicesConfirmed` answered `unknown` for every plan whose refs were
+  // deleted at merge, and auto-deliver held them all.
+  const fx = makeRepo({ backend: 'github', owner: 'acme' });
+  const { repo } = fx;
+  addPlan(repo, '2026-10-02-done.md', {
+    title: 'Done',
+    slices: [
+      { name: 'First', branches: ['bug/first-landed'] },
+      { name: 'Second', branches: ['bug/second-landed'] },
+    ],
+  });
+  mergeWithSubject(repo, 'bug/first-landed', 'Merge pull request #31 from acme/bug/first-landed');
+  mergeWithSubject(repo, 'bug/second-landed', 'Merge pull request #32 from acme/bug/second-landed');
+
+  const scanCopy = answeringHost(fx, ['bug/first-landed', 'bug/second-landed']);
+  const doc = JSON.parse(execFileSync('bash', [scanCopy, '--json'], {
+    encoding: 'utf8', cwd: repo, env: { ...process.env, PLOT_HOST: 'github' },
+  }));
+
+  for (const br of ['bug/first-landed', 'bug/second-landed']) {
+    const b = branchOf(doc, '2026-10-02-done.md', br);
+    assert.equal(b?.state, 'merged', `${br} reads merged`);
+    assert.equal(b?.evidence, undefined, `${br}: the host confirmed it, so the subject is no longer the proof`);
+  }
+});
+
+test('a plan that is not a candidate keeps its subject evidence under an answering host', () => {
+  // The second slice is outstanding, so nothing is about to be delivered and
+  // the subject is enough for the wave gate. The branch is not confirmed.
+  const fx = makeRepo({ backend: 'github', owner: 'acme' });
+  const { repo } = fx;
+  addPlan(repo, '2026-10-02-half.md', {
+    title: 'Half',
+    slices: [
+      { name: 'First', branches: ['bug/half-landed'] },
+      { name: 'Second', branches: ['bug/half-next'] },
+    ],
+  });
+  mergeWithSubject(repo, 'bug/half-landed', 'Merge pull request #33 from acme/bug/half-landed');
+
+  const scanCopy = answeringHost(fx, ['bug/half-landed']);
+  const doc = JSON.parse(execFileSync('bash', [scanCopy, '--json'], {
+    encoding: 'utf8', cwd: repo, env: { ...process.env, PLOT_HOST: 'github' },
+  }));
+
+  const b = branchOf(doc, '2026-10-02-half.md', 'bug/half-landed');
+  assert.equal(b?.state, 'merged');
+  assert.equal(b?.evidence, 'subject', 'not a delivery candidate, so the host is not consulted');
+});

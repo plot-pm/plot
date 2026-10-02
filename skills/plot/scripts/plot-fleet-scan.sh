@@ -3804,22 +3804,11 @@ branch_readings() { # $1=branch $2=deferred $3=plan-base → readings
     # every question, asked again on a 5-second pulse about a branch already
     # proven.
     #
-    # THE ONE EXCEPTION IS A DELIVERY CANDIDATE, decided by the caller and
-    # passed in as `$4`: an Approved plan whose every non-deferred branch reads
-    # `merged` is about to be offered for delivery, and a delivery wants the
-    # host's own answer. Even then the question is put only under `HOST_VERDICT`
-    # `ok` or `partial` — a question the host is refusing is new spend in
-    # exactly the condition this plan exists for, and the branch keeps
-    # `evidence: subject` until the host confirms it.
-    #
-    # The terminal cache bounds the candidate's cost: it keeps a merged answer
-    # per tip of `origin/<main>`, so a candidate is asked once per tip rather
-    # than once per pulse.
-    if [ "$_bs_subject" = true ]; then
-      case "${4:-}:$HOST_VERDICT" in
-        candidate:ok|candidate:partial) merged_by_host "$br" || true ;;
-      esac
-    else
+    # THE ONE EXCEPTION IS A DELIVERY CANDIDATE, and it is asked in PASS 1e of
+    # the plan loop rather than here. Candidacy needs every branch's DECIDED
+    # state, which exists only after the rule has answered for the whole plan,
+    # and this function runs per branch in a subshell before that.
+    if [ "$_bs_subject" = false ]; then
       merged_by_host "$br" || true
     fi
     # `open` IS A CLAIM ABOUT A PR: that one was looked for and none was found.
@@ -4318,6 +4307,46 @@ for plan in "${plans[@]}"; do
     st=$(printf '%s\n' "$branch_answers" | sed -n "${answer_i}p" | cut -f1)
     states+="$idx	$br	$st	$deferred	$why	$waits	$wname	$claim"$'\n'
   done <<< "$order"
+
+  # PASS 1e: A DELIVERY CANDIDATE ASKS THE HOST about its subject-proven branches.
+  #
+  # A candidate is an Approved plan whose every non-deferred branch reads
+  # `merged`. Its next step is a delivery, and `allSlicesConfirmed` refuses a
+  # delivery while any branch carries `evidence: subject`. So for a candidate,
+  # and only under `HOST_VERDICT` `ok` or `partial`, `merged_by_host` is asked
+  # about each branch the subject alone proved. A refused host is not asked:
+  # that spend is the condition #1139 reports, and the branch keeps
+  # `evidence: subject`.
+  #
+  # IN THE MAIN SHELL, not in `branch_readings`. That function runs per branch
+  # in a subshell before any state is decided, so it cannot know whether the
+  # plan is a candidate. Measured 2026-10-02: its `$4` was never passed, 32 of
+  # 39 merged branches on this estate read `evidence: subject`, and auto-deliver
+  # held every plan whose branch refs were deleted at merge.
+  #
+  # The terminal cache bounds the cost: a MERGED answer is kept per tip of
+  # `origin/<main>`, so a candidate is asked once per tip, not once per pulse.
+  if [ "$plan_phase" = approved ]; then
+    case "$HOST_VERDICT" in
+      ok|partial)
+        cand=true
+        cand_proven=""
+        while IFS=$'\t' read -r _ c_br c_st c_deferred _; do
+          [ -n "$c_br" ] || continue
+          if [ "$c_deferred" = true ]; then continue; fi
+          [ "$c_st" = merged ] || { cand=false; break; }
+          case "$host_merged_branches" in *$'\n'"$c_br"$'\n'*) continue ;; esac
+          if merged_by_subject "$plan_base" "$c_br"; then cand_proven+="$c_br"$'\n'; fi
+        done <<< "$states"
+        if [ "$cand" = true ]; then
+          while IFS= read -r c_br; do
+            [ -n "$c_br" ] || continue
+            if merged_by_host "$c_br"; then host_merged_branches+="$c_br"$'\n'; fi
+          done <<< "$cand_proven"
+        fi
+        ;;
+    esac
+  fi
 
   # Pass 2a: what each wave HOLDS — how many of its non-deferred branches have
   # not settled. A reading, and the whole of what this script contributes to the
