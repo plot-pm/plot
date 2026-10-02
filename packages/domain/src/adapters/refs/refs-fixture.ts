@@ -1,3 +1,4 @@
+import { globToRegExp } from '../../rules/local-checks.js';
 import type { FleetReading } from '../../entities/fleet.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
@@ -34,6 +35,12 @@ export interface RefsFixture {
   shas?: Readonly<Record<string, string>>;
   /** Branch name to the files it changed. */
   changedFiles?: Readonly<Record<string, readonly string[]>>;
+  /** The working tree's changed paths. */
+  workingChanges?: readonly string[];
+  /** Search term to the files containing it; the globs are applied to these. */
+  filesNaming?: Readonly<Record<string, readonly string[]>>;
+  /** The paths whose `merge` attribute is unset. */
+  mergeUnset?: readonly string[];
   /** Files each commit changed, keyed by sha — what `commitFiles` answers. */
   commitFiles?: Readonly<Record<string, readonly string[]>>;
   /** `<ref>:<path>` to that file's content at that ref. */
@@ -197,6 +204,18 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     },
 
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),
+
+    workingChanges: async () => answered(fixture.workingChanges ?? []),
+
+    filesNaming: async (term, globs) => {
+      const patterns = globs.map(globToRegExp);
+      return answered((fixture.filesNaming?.[term] ?? []).filter((file) => patterns.some((p) => p.test(file))));
+    },
+
+    mergeUnset: async (paths) => {
+      const unset = new Set(fixture.mergeUnset ?? []);
+      return answered(paths.filter((path) => unset.has(path)));
+    },
 
     commitFiles: async (sha) => answered(commitFiles[sha] ?? []),
 

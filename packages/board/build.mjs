@@ -916,6 +916,28 @@ await esbuild.build({
 fs.copyFileSync(promptExitArtifact, shippedPromptExit);
 fs.chmodSync(shippedPromptExit, 0o755);
 
+// plot-local-checks.mjs — the checks a branch's change needs, for an agent
+// before it pushes. It reads git and the config through two adapters, so it
+// carries `refs-git` and `scripts-shell` and their schemas; it runs once per
+// push, so its size costs one load per push.
+const localChecksArtifact = path.join(here, 'dist/plot-local-checks.mjs');
+const shippedLocalChecks = path.join(here, '../../skills/plot/scripts/board/plot-local-checks.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/local-checks.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: localChecksArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(localChecksArtifact, shippedLocalChecks);
+fs.chmodSync(shippedLocalChecks, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -1166,6 +1188,7 @@ const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(
 const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
 const startCommandKb = (fs.statSync(shippedStartCommand).size / 1024).toFixed(1);
 const promptExitKb = (fs.statSync(shippedPromptExit).size / 1024).toFixed(1);
+const localChecksKb = (fs.statSync(shippedLocalChecks).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1195,4 +1218,5 @@ console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/p
 console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-start-command.mjs (${startCommandKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-prompt-exit.mjs (${promptExitKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-local-checks.mjs (${localChecksKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

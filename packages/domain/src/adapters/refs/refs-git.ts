@@ -186,6 +186,46 @@ export const refsGit = (context: ShellContext): Refs => {
       );
     },
 
+    workingChanges: () =>
+      runScript(
+        'git',
+        ['status', '--porcelain', '--untracked-files=all'],
+        (stdout) =>
+          stdout
+            .split('\n')
+            .filter((line) => line.length > 3)
+            .map((line) => line.slice(3))
+            .map((path) => (path.includes(' -> ') ? path.slice(path.indexOf(' -> ') + 4) : path))
+            .map((path) => path.replace(/^"(.*)"$/, '$1')),
+        inRepo,
+      ),
+
+    filesNaming: async (term, globs) => {
+      if (globs.length === 0) return answered<readonly string[]>([]);
+      // `git grep` exits 1 when nothing matches, which is an answer, not a failure.
+      const run = await runProcess(
+        'git',
+        ['grep', '-l', '-F', '-e', term, '--', ...globs.map((glob) => `:(glob)${glob}`)],
+        inRepo,
+      );
+      if (run.code === 0) return answered<readonly string[]>(asLines(run.stdout));
+      if (run.code === 1) return answered<readonly string[]>([]);
+      return failed<readonly string[]>();
+    },
+
+    mergeUnset: async (paths) => {
+      if (paths.length === 0) return answered<readonly string[]>([]);
+      return runScript(
+        'git',
+        ['check-attr', 'merge', '--', ...paths],
+        (stdout) =>
+          asLines(stdout)
+            .filter((line) => line.endsWith(': merge: unset'))
+            .map((line) => line.slice(0, -': merge: unset'.length)),
+        inRepo,
+      );
+    },
+
     commitFiles: (sha) =>
       // `--format=` empties the header so only the name-status body remains.
       // `-m --first-parent` is one reading and the two flags are inseparable.
