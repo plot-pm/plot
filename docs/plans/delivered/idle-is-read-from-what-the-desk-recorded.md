@@ -1,0 +1,1 @@
+../2026-10-01-idle-is-read-from-what-the-desk-recorded.md
