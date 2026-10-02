@@ -244,7 +244,10 @@ report_corpus() {
 
   found_any=1
   echo "$corpus_label :: $term — $n_files file(s), $n_hits line(s)"
-  printf '%s\n' "$hits" | head -n "$MAX_PER_TERM" | cut -c "1-$MAX_LINE" | sed 's/^/  /'
+  # `awk 'NR<=n'` and never `head`: head exits after n lines, the writer takes
+  # SIGPIPE once the rest exceeds the pipe buffer, and pipefail ends the script
+  # with 141. awk reads every line, so the writer always finishes.
+  printf '%s\n' "$hits" | awk -v n="$MAX_PER_TERM" 'NR<=n' | cut -c "1-$MAX_LINE" | sed 's/^/  /'
   if [ "$n_hits" -gt "$MAX_PER_TERM" ]; then
     echo "  … $((n_hits - MAX_PER_TERM)) more"
   fi
@@ -290,7 +293,7 @@ while IFS=$'\t' read -r kind term; do
       found_any=1
       echo "reconcile scan sections :: $term — $n heading(s)"
       printf '%s\n' "$scan_hits" \
-        | head -n "$MAX_PER_TERM" \
+        | awk -v n="$MAX_PER_TERM" 'NR<=n' \
         | sed "s|^|  ${scan#"$repo_root"/}:|" \
         | cut -c "1-$MAX_LINE"
     fi
