@@ -336,12 +336,12 @@ export interface EndingAttributionInput {
    * The reason the ending record names, as read — a string, for the same reason
    * {@link actor} is one.
    *
-   * **THE ACTOR ALONE CANNOT DECIDE THIS.** `agent` is attributable for exactly
-   * one reason and self-attributed for every other, so a rule reading only the
+   * **THE ACTOR ALONE CANNOT DECIDE THIS.** `agent` is attributable for two
+   * reasons and self-attributed for every other, so a rule reading only the
    * actor either refuses a legitimate ending or admits an agent claiming it
    * decided its own stop. Absent — an older caller, or a record that named no
-   * reason — reads as *not `unstarted`*, which keeps the refusal that was there
-   * before this field existed.
+   * reason — reads as neither of those two, which keeps the refusal that was
+   * there before this field existed.
    */
   reason?: string;
   /** Readings a caller measured, such as whether the ending file parsed. */
@@ -364,14 +364,21 @@ export interface EndingAttributionInput {
  * ending naming `agent` there would be an agent claiming it decided its own
  * stop, and neither watcher's finding is the agent's to claim.
  *
- * **`unstarted` IS THE ONE READING WHERE `agent` IS THE HONEST ANSWER, AND THE
- * REASON IS WHAT SEPARATES THEM.** A prompt whose command exited non-zero
- * without running was ended by no watcher: the floor did not expire and the
- * monitor published nothing. The agent's own process launched the command and
- * received the refusal, so `bound` would claim a clock expired and `monitor`
- * that a finding was published, and both would be false. This is still not an
- * agent DECIDING to stop — it is an agent reporting what its command did — and
- * that is why the pair is checked rather than the actor alone.
+ * **`unstarted` AND `limited` ARE THE READINGS WHERE `agent` IS THE HONEST
+ * ANSWER, AND THE REASON IS WHAT SEPARATES THEM.** A prompt whose command
+ * exited non-zero without running was ended by no watcher: the floor did not
+ * expire and the monitor published nothing. The agent's own process launched
+ * the command and received the refusal, so `bound` would claim a clock expired
+ * and `monitor` that a finding was published, and both would be false. This is
+ * still not an agent DECIDING to stop — it is an agent reporting what its
+ * command did — and that is why the pair is checked rather than the actor
+ * alone.
+ *
+ * **`limited` IS THE SAME SHAPE AND NOT THE SAME READING.** The harness
+ * answered the agent's own process with the account's usage limit, and again no
+ * watcher fired. It is admitted here for `unstarted`'s reason and kept apart
+ * from it for the repair's: measured 2026-10-01 in #1141, a limit recorded as
+ * `unstarted` asked a person to fix a prompt file that worked.
  *
  * The check survives every enum change because it reads STRINGS: an ending file
  * on a desk is bytes until something validates them, and a worker of an older
@@ -387,11 +394,11 @@ export const endingIsAttributable = (
   session: string,
   input: EndingAttributionInput,
 ): TransitionResult => {
-  if (input.actor === 'agent' && input.reason !== 'unstarted') {
+  if (input.actor === 'agent' && input.reason !== 'unstarted' && input.reason !== 'limited') {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted' ending names the agent, because no watcher produces that one.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted' or 'limited' ending names the agent, because no watcher produces those.`,
     );
   }
 

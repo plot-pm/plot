@@ -106,6 +106,14 @@ const ACTIVITY_VALUES = ['working', 'idle', ''];
  */
 const UNCARRIED_TOP = ['fetch_failed', 'fetch_error', 'plan_source'];
 const UNCARRIED_SUMMARY = ['merge_detect', 'host'];
+/**
+ * Branch fields the scan writes that the Refs adapter does not reproduce yet.
+ * `evidence` and `subjectIgnored` come from the merge-subject walk, which the
+ * refs port gains in the next slice of `a-merge-subject-proves-a-landing-the-host-cannot`
+ * (`mergeSubjects`, `planAdditions`, `contains`). `BranchSchema` declares both,
+ * so the board reads them; this list says the adapter does not answer them yet.
+ */
+const UNCARRIED_BRANCH = ['evidence', 'subjectIgnored'];
 
 /** The branch fields `BranchSchema` declares, beside their wire spelling. */
 const BRANCH_FIELDS = [
@@ -520,7 +528,7 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
         }
         for (const branch of asArray(slice.branches)) {
           for (const key of Object.keys(branch)) {
-            if (!branchMapped.has(key)) unexpected.add(`branch.${key}`);
+            if (!branchMapped.has(key) && !UNCARRIED_BRANCH.includes(key)) unexpected.add(`branch.${key}`);
           }
         }
       }

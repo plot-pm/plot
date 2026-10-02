@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
-import { readConfig, allSlicesMerged, scriptsFor, type BuildBoardOptions } from './board.js';
+import { readConfig, allSlicesConfirmed, scriptsFor, type BuildBoardOptions } from './board.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { pulseFor, pulseCompleteFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
@@ -217,7 +217,7 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
     return { verdict: 'not-found' };
   }
   // The plan's own phase decides `already-delivered` FIRST — a delivered plan
-  // has every slice merged too, so `allSlicesMerged` alone would read it as
+  // has every slice merged too, so the measurement alone would read it as
   // deliverable. `delivered`/`released` are the phases past Development where
   // the decision is already recorded.
   const phase = meta.phase.toLowerCase();
@@ -225,9 +225,16 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
   // Then the measurement, against the same pulse the board renders from, so the
   // route agrees with the card by construction.
   // THREE ANSWERS FROM THE MEASUREMENT, mapped one-to-one onto verdicts. The
-  // `unknown` arm is the one that earns this shape: it is the scan not having
-  // finished, which is not a statement about any branch.
-  switch (allSlicesMerged(meta, pulseFor(opts), pulseCompleteFor(opts))) {
+  // `unknown` arm is the one that earns this shape, and it now carries two
+  // cases: the scan not having finished, and a branch whose landing only a
+  // merge commit's subject proves. Neither is a statement about any branch
+  // being unmerged, and `scan-incomplete` is what a person reads for both.
+  //
+  // `allSlicesConfirmed` RATHER THAN `allSlicesMerged`, so this control does
+  // not offer a delivery the re-gate behind it would refuse: `/plot-deliver`
+  // asks the host, where a throttled answer counts as not merged. The wave
+  // gate still reads the subject and still opens the next slice.
+  switch (allSlicesConfirmed(meta, pulseFor(opts), pulseCompleteFor(opts))) {
     case 'merged':
       return { verdict: 'deliverable' };
     case 'unknown':

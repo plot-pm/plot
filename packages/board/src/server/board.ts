@@ -928,7 +928,7 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetReading | null): 
  * the one place the board names the rule — the same shape `deriveSlices` and
  * `planStatus` beside it already have.
  */
-export { allSlicesMerged, type Landed } from '@plot-pm/domain';
+export { allSlicesConfirmed, allSlicesMerged, type Landed } from '@plot-pm/domain';
 
 /**
  * Whether the pulse shows a claim ref on any of this plan's branches — the

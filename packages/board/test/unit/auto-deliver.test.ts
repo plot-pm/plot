@@ -473,3 +473,155 @@ describe('planAutoDeliver — shelved is not finished', () => {
     expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
   });
 });
+
+// A LANDING ONLY A MERGE SUBJECT PROVES DOES NOT AUTO-DELIVER.
+//
+// The measured defect, 2026-10-01 (#1139): on a Bitbucket estate under HTTP
+// 429, a branch merged with its ref deleted is proven merged by the
+// `Merged in <branch> (pull request #N)` commit on the default branch. That is
+// enough for the wave gate — opening the next slice is reversible — and not
+// enough for a delivery, which flips a phase, moves a symlink and on this path
+// chains to a reap and a ref deletion.
+//
+// Without the skip, the round-2 skeptic executed the sticking: tick 1 starts
+// `plot-deliver.sh`, which asks the host and refuses; `pruneDelivering` keeps
+// the slug in `inFlight` while the plan still reads approved and merged; and
+// four later ticks over the same pulse start none. No later tick delivers
+// until the board restarts.
+//
+// EVERY PULSE HERE IS PARSED, NEVER A TYPED LITERAL, and that is the gate
+// rather than a style: `BranchSchema` is a plain `z.object` and STRIPS a key it
+// does not declare. A literal pulse would carry `evidence` into the rule
+// whatever the schema says, so these tests would pass with the field
+// undeclared and the skip would never fire in production. `pulse()` above
+// calls `FleetReadingSchema.parse`, so a stripped field fails these.
+describe('a landing only a merge subject proves', () => {
+  /**
+   * One slice whose branches carry an evidence word.
+   *
+   * The verdict is derived exactly as `slice` derives it: a subject-proven
+   * branch IS `merged`, so its slice IS `complete`. That is the shape the scan
+   * emits and the reason the refusal has to live in the confirmation rule — a
+   * fixture that made such a slice incomplete would be testing a pulse the
+   * scan never produces.
+   */
+  const subjectSlice = (
+    name: string,
+    branches: Array<[string, 'open' | 'merged' | 'deferred', 'subject' | undefined]>,
+  ) => ({
+    name,
+    verdict: branches.every(([, st]) => st === 'merged' || st === 'deferred')
+      ? ('complete' as const)
+      : ('eligible' as const),
+    branches: branches.map(([branch, state, evidence]) => ({
+      branch,
+      state,
+      deferred: state === 'deferred',
+      claimed: '',
+      ref_held: false,
+      ...(evidence === undefined ? {} : { evidence }),
+    })),
+  });
+
+  /** An approved plan whose only branch a merge subject proved. */
+  const subjectOnly = (file = '2026-10-01-throttled.md') =>
+    pulse([[file, 'approved', [subjectSlice('W', [['feature/a', 'merged', 'subject']])]]]);
+
+  /** The same plan, the host having confirmed the merge. */
+  const confirmed = (file = '2026-10-01-throttled.md') =>
+    pulse([[file, 'approved', [subjectSlice('W', [['feature/a', 'merged', undefined]])]]]);
+
+  // THE FIELD SURVIVES THE PARSE. Asserted first and on its own, because every
+  // assertion below is vacuous if it does not — a stripped field makes the rule
+  // answer as `allSlicesMerged` does and each test would pass for the wrong
+  // reason.
+  it('carries the evidence word through FleetReadingSchema', () => {
+    const p = subjectOnly();
+    expect(p.plans[0].slices[0].branches[0].evidence).toBe('subject');
+    expect(p.plans[0].slices[0].branches[0].state).toBe('merged');
+    // And the slice still reads complete, which is what keeps the wave gate
+    // unmoved and the next slice startable.
+    expect(p.plans[0].slices[0].verdict).toBe('complete');
+  });
+
+  it('names no plan for delivery while only a subject proves it', () => {
+    expect(planAutoDeliver({ pulse: subjectOnly(), inFlight: new Set() })).toEqual([]);
+  });
+
+  it('names the plan once the host has confirmed the merge', () => {
+    expect(planAutoDeliver({ pulse: confirmed(), inFlight: new Set() })).toEqual([
+      { slug: 'throttled', file: '2026-10-01-throttled.md' },
+    ]);
+  });
+
+  it('names no plan when one branch of several is proved only by subject', () => {
+    const p = pulse([
+      ['2026-10-01-throttled.md', 'approved', [
+        subjectSlice('One', [['feature/a', 'merged', undefined]]),
+        subjectSlice('Two', [['feature/b', 'merged', 'subject']]),
+      ]],
+    ]);
+    expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
+  });
+
+  // A DEFERRED BRANCH IS EXEMPT. Work given up is not work awaiting
+  // confirmation, and holding a delivery for ever on one would be a second
+  // defect wearing this fix's clothes.
+  it('names the plan when only a deferred branch carries the word', () => {
+    const p = pulse([
+      ['2026-10-01-throttled.md', 'approved', [
+        subjectSlice('One', [
+          ['feature/a', 'merged', undefined],
+          ['feature/b', 'deferred', 'subject'],
+        ]),
+      ]],
+    ]);
+    expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([
+      { slug: 'throttled', file: '2026-10-01-throttled.md' },
+    ]);
+  });
+
+  it('starts no delivery on a tick over a subject-only plan', async () => {
+    const { opts, runs } = fixture('');
+    const next = maybeAutoDeliver(opts, subjectOnly(), new Set());
+    await settle();
+    expect(runs()).toEqual([]);
+    expect([...next]).toEqual([]);
+  });
+
+  // THE STICKING, ASSERTED AS ABSENCE. `inFlight` stays empty across five
+  // ticks over the same pulse — so there is no entry for `pruneDelivering` to
+  // hold and no state a restart would clear.
+  it('keeps inFlight empty across five subject-only ticks', async () => {
+    const { opts, runs } = fixture('');
+    let inFlight = new Set<string>();
+    for (let tick = 0; tick < 5; tick++) {
+      inFlight = maybeAutoDeliver(opts, subjectOnly(), inFlight);
+      await settle();
+      inFlight = pruneDelivering(inFlight, subjectOnly());
+      expect([...inFlight]).toEqual([]);
+    }
+    expect(runs()).toEqual([]);
+  });
+
+  // AND THE FIRST TICK AFTER THE HOST CONFIRMS DELIVERS. The wait is a wait,
+  // not a refusal: nothing has to be reset, and no restart is needed.
+  it('delivers on the first tick after the host confirms the merge', async () => {
+    const { opts, runs } = fixture('');
+    let inFlight = maybeAutoDeliver(opts, subjectOnly(), new Set());
+    await settle();
+    expect(runs()).toEqual([]);
+    inFlight = maybeAutoDeliver(opts, confirmed(), inFlight);
+    await settle();
+    expect(runs()[0]).toBe('deliver throttled');
+    expect([...inFlight]).toEqual(['throttled']);
+  });
+
+  // THE WAVE GATE IS UNMOVED BY THE SAME PULSE, which is what the whole fix
+  // buys: the merged slice settles, the next slice opens, and only the
+  // delivery waits.
+  it('still reads the plan as merged for the wave gate', () => {
+    const p = subjectOnly();
+    expect(allSlicesMerged({ file: '2026-10-01-throttled.md' }, p, true)).toBe('merged');
+  });
+});
