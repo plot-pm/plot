@@ -35,8 +35,15 @@ import path from 'node:path';
  * script names live on the shell side where the gate itself reads them off a
  * command line. An endpoint authorises *an approval*; which file performs it is
  * the adapter's business.
+ *
+ * `release` SHARES A SCRIPT WITH `deliver` (`plot-deliver.sh --release`) AND
+ * IS STILL A SEPARATE ACTION. The two write different fields through
+ * different refusals, and `plot-controller-gate.sh` tells them apart by
+ * reading the command line for `--release` — a receipt named `deliver` would
+ * let `/api/deliver` authorise a release, or the reverse, which the identity
+ * being the action rather than the script is exactly what prevents.
  */
-export type ControllerAction = 'dispatch' | 'approve' | 'deliver';
+export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release';
 
 /**
  * Where one action's receipt lives.

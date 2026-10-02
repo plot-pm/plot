@@ -97,6 +97,66 @@ test('controller gate: all three gated scripts refuse, each naming its own endpo
   }
 });
 
+// --- the gate test pair (an-in-session-approval-has-a-controller slice 2) ---
+//
+// `plot-deliver.sh --release` is a FOURTH action sharing a script `deliver`
+// already names — it must be refused with no receipt, name `POST /api/release`
+// rather than `/api/deliver`, and clear on a receipt filed under `release`
+// rather than under `deliver`. `plot-approve.sh --who` is the same script and
+// the same action the bare form already refuses, so it is refused the same way
+// and clears on the same receipt.
+
+const RELEASE = 'bash skills/plot/scripts/plot-deliver.sh --release 1.2.3 some-slug';
+const APPROVE_WHO = 'bash skills/plot/scripts/plot-approve.sh --who jwloka some-slug';
+
+test('controller gate: plot-deliver.sh --release is refused with no receipt and names /api/release', () => {
+  const r = run(repo(), RELEASE);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /controller-owned action/);
+  assert.match(r.stderr, /POST \/api\/release/, 'names /api/release, not /api/deliver');
+  assert.doesNotMatch(r.stderr, /POST \/api\/deliver\b/);
+});
+
+test('controller gate: plot-approve.sh --who is refused with no receipt and names /api/approve', () => {
+  const r = run(repo(), APPROVE_WHO);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /POST \/api\/approve/);
+});
+
+test('controller gate: a release receipt clears --release and NOT a bare deliver', () => {
+  const dir = repo();
+  recordReceipt(dir, 'release', 'some-slug');
+  assert.equal(run(dir, RELEASE).status, 0, 'the release receipt clears --release');
+  assert.equal(
+    run(dir, 'bash skills/plot/scripts/plot-deliver.sh some-slug').status, 2,
+    'a release receipt must not license a bare delivery of a different action',
+  );
+});
+
+test('controller gate: a deliver receipt does not clear --release', () => {
+  const dir = repo();
+  recordReceipt(dir, 'plot-deliver.sh', 'some-slug');
+  assert.equal(
+    run(dir, RELEASE).status, 2,
+    'a deliver receipt must not license a release — they are separate actions sharing one script',
+  );
+});
+
+test('controller gate: an approve receipt clears --who', () => {
+  const dir = repo();
+  recordReceipt(dir, 'plot-approve.sh', 'some-slug');
+  assert.equal(run(dir, APPROVE_WHO).status, 0);
+});
+
+test('controller gate: plot-dispatch.sh --release <branch> still clears with no receipt', () => {
+  // The ONLY --release that keeps its old exemption: plot-dispatch.sh's
+  // returns an abandoned claim to the queue and has no endpoint. Scoping the
+  // exemption to this script is what plot-deliver.sh --release needed to stop
+  // riding along on it.
+  const r = run(repo(), 'bash skills/plot/scripts/plot-dispatch.sh --release feature/x');
+  assert.equal(r.status, 0, `--release on plot-dispatch.sh still has no endpoint (stderr: ${r.stderr})`);
+});
+
 test('controller gate: a controller receipt clears the call', () => {
   const dir = repo();
   recordReceipt(dir, 'plot-dispatch.sh', 'some-slug');
@@ -227,8 +287,12 @@ test('controller gate: the escape refuses without a reason', () => {
 });
 
 test('controller gate: the escape refuses an action no controller owns', () => {
+  // `release` is a controller-owned action as of this slice — `reject` is the
+  // word this estate uses for the one still unowned (`/plot-reject` writing
+  // `Rejected:`/`Superseded:` has no controller), so it is the one this test
+  // now names.
   const r = spawnSync('bash',
-    [receipt, '--unowned-action', 'release', 'x', 'because'], { cwd: repo(), encoding: 'utf8' });
+    [receipt, '--unowned-action', 'reject', 'x', 'because'], { cwd: repo(), encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /not a controller-owned action/);
 });

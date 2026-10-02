@@ -70,6 +70,12 @@ const WRITE_ROUTES = [
   // this test reads that table back out of the artifact: a write route absent
   // from this list fails the coverage assertion below.
   { path: '/api/deliver', body: { slug: 'ship-the-widget' } },
+  // Release runs plot-deliver.sh --release directly — the mechanical half of
+  // cutting a Delivered plan's `Released:` record, gated by the same loopback
+  // boundary. Added here for the same reason /api/deliver is: the router
+  // dispatches from a TABLE and this test reads that table back out of the
+  // artifact.
+  { path: '/api/release', body: { slug: 'ship-the-widget', version: '1.2.3' } },
   // Implement spawns a plot agent that prepares an approved plan on this disk —
   // the same class of write as /api/deliver, and gated by the same loopback
   // boundary. Added here because the router dispatches from a TABLE and this

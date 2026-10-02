@@ -107,12 +107,13 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$script_dir/plot-state-receipt.sh"
 
 dry_run=0
-who_override=""
+who_flag_given=0
+who_flag=""
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=1 ;;
-    --who) who_override="${2:?--who needs a value}"; shift ;;
+    --who) who_flag_given=1; who_flag="${2:-}"; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     -*) echo "plot-approve: unknown flag '$1'" >&2; exit 1 ;;
     *) slug="$1" ;;
@@ -195,11 +196,34 @@ esac
 # NONE means a pre-Plot-2 plan on an idea branch, which the skill documents as
 # `pr` by default. An unrecognised value is refused rather than defaulted:
 # "carry on" is the shape of stale assumption this whole story keeps finding.
+#
+# `in-session` IS NO LONGER A REFUSAL HERE, which is this slice's whole change.
+# `plot-approve.sh --who <handle> <slug>` performs the seven mechanical steps
+# for it exactly as it does for `pr`, because #1185 made the domain able to
+# decide the write (`approveTransition` takes `who` and `people`). What stays a
+# refusal is the absence of a usable reviewer: no `--who` at all, an empty one,
+# or one `People` does not declare — the domain's `review-human` and
+# `reviewer-undeclared` gates, asked through `decide_transition` below rather
+# than re-implemented here. There is no `--reviewer`: a round-1 panel measured
+# that spelling exiting 2 at the controller gate, and `--who` is the one flag
+# this script already declares.
+#
+# UNDER `PLOT_UNATTENDED=1` THIS STILL REFUSES, `--who` or not. The reviewer is
+# a human in a session that, by definition, has nobody in it under an
+# unattended run — the same argument `plot-approve/SKILL.md` already makes for
+# the skill's own in-session walkthrough. A default here would let the machine
+# name the reviewer, which is exactly what `--who`'s absence of a fallback (no
+# `PLOT_APPROVE_WHO`, no `git config user.name`) refuses for the same channel.
+in_session=0
 case "$review" in
   pr|NONE) ;;
   in-session)
-    die "plan '$slug' declares 'Review: in-session' — the reviewer is a human in the room.
-  A script cannot stand in for one. Approve it with /plot-approve $slug." ;;
+    if [ "${PLOT_UNATTENDED:-}" = "1" ]; then
+      die "plan '$slug' declares 'Review: in-session' — the reviewer is a human in the room.
+  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve $slug"
+    fi
+    in_session=1
+    ;;
   ballot)
     die "plan '$slug' declares 'Review: ballot' — the tally is the approval.
   A script cannot read a ballot. Approve it with /plot-approve $slug." ;;
@@ -208,69 +232,95 @@ case "$review" in
   Refusing rather than treating it as 'pr' — that would approve a plan nobody discussed." ;;
 esac
 
+# The declared handles, for the domain's `reviewer-undeclared` gate. Read
+# unconditionally — cheap, and a `pr` or `ballot` plan never reaches the branch
+# that uses it — from `People`'s `handle = Spelling; handle = Spelling` form:
+# only the text before each `=` is a handle, and `People` may be absent.
+people_raw=$(cfg "People" "")
+people_csv=$(printf '%s' "$people_raw" | tr ';' '\n' | while IFS= read -r entry; do
+  h="${entry%%=*}"
+  h="$(printf '%s' "$h" | sed -e 's/^[ \t]*//' -e 's/[ \t]*$//' | tr '[:upper:]' '[:lower:]')"
+  [ -n "$h" ] && printf '%s\n' "$h"
+done | paste -sd, -)
+[ -n "$people_csv" ] || people_csv=""
+
+# Read even for in-session: the booking worktree below (every non-same-branch
+# flow, in-session included) fetches and books against it.
 MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 [ -n "$MAIN" ] || MAIN=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null) || MAIN=""
 [ -n "$MAIN" ] || MAIN="main"
 
-# The PR that carries the plan. `Impl: same branch` puts plan and code on the
-# work branch, so its PR is the WORK branch's — and it must not be merged here
-# (it merges once, at the end, carrying the implementation with it).
-same_branch=0
-[ "$impl" = "same-branch" ] && same_branch=1
-
-if [ "$same_branch" = 1 ]; then
-  pr_branch="$slug"
-  for p in $(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" | tr ',' ' '); do
-    p="${p%/}"; p="${p# }"
-    [ -z "$p" ] && continue
-    [ "$p" = "idea" ] && continue
-    if git show-ref --verify --quiet "refs/heads/$p/$slug" \
-      || git show-ref --verify --quiet "refs/remotes/origin/$p/$slug"; then
-      pr_branch="$p/$slug"
-      break
-    fi
-  done
+if [ "$in_session" = 1 ]; then
+  # No plan PR to read or merge: the approval IS the reviewer's go, not a host
+  # state. `same_branch` stays 0 — in-session records through the same booking
+  # worktree the `pr` flow uses, since an in-session plan has no work branch of
+  # its own to record on.
+  same_branch=0
+  pr_number=0
+  pr_state="NONE"
+  pr_draft="false"
+  echo "step: plan $plan_file — phase=$phase review=${review} impl=${impl} (in-session, no plan PR)"
 else
-  pr_branch="idea/$slug"
-fi
+  # The PR that carries the plan. `Impl: same branch` puts plan and code on the
+  # work branch, so its PR is the WORK branch's — and it must not be merged here
+  # (it merges once, at the end, carrying the implementation with it).
+  same_branch=0
+  [ "$impl" = "same-branch" ] && same_branch=1
 
-# THE EXIT CODE IS THE READING, not the emptiness of stdout. `pr-state` exits 0
-# with `state: NONE` when the host answered that the branch has no PR, and
-# non-zero when the host could not be asked: 3 for a refused or failed call
-# (a rate limit included), 4 for a backend with no answer at all. Only the
-# first is an absence. The other two stop here with the host's own words and
-# name no repair to the branch, because nothing about the branch was read.
-pr_err_file=""
-plot_tmpfile pr_err_file approve-pr
-pr_rc=0
-pr_json=$(bash "$script_dir/plot-host.sh" pr-state "$pr_branch" 2>"$pr_err_file") || pr_rc=$?
-pr_err=$(cat "$pr_err_file" 2>/dev/null); rm -f "$pr_err_file"
-if [ "$pr_rc" = 4 ]; then
-  die "the host backend has no answer for the PR state of '$pr_branch' (plot-host.sh pr-state exited 4).
+  if [ "$same_branch" = 1 ]; then
+    pr_branch="$slug"
+    for p in $(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" | tr ',' ' '); do
+      p="${p%/}"; p="${p# }"
+      [ -z "$p" ] && continue
+      [ "$p" = "idea" ] && continue
+      if git show-ref --verify --quiet "refs/heads/$p/$slug" \
+        || git show-ref --verify --quiet "refs/remotes/origin/$p/$slug"; then
+        pr_branch="$p/$slug"
+        break
+      fi
+    done
+  else
+    pr_branch="idea/$slug"
+  fi
+
+  # THE EXIT CODE IS THE READING, not the emptiness of stdout. `pr-state` exits 0
+  # with `state: NONE` when the host answered that the branch has no PR, and
+  # non-zero when the host could not be asked: 3 for a refused or failed call
+  # (a rate limit included), 4 for a backend with no answer at all. Only the
+  # first is an absence. The other two stop here with the host's own words and
+  # name no repair to the branch, because nothing about the branch was read.
+  pr_err_file=""
+  plot_tmpfile pr_err_file approve-pr
+  pr_rc=0
+  pr_json=$(bash "$script_dir/plot-host.sh" pr-state "$pr_branch" 2>"$pr_err_file") || pr_rc=$?
+  pr_err=$(cat "$pr_err_file" 2>/dev/null); rm -f "$pr_err_file"
+  if [ "$pr_rc" = 4 ]; then
+    die "the host backend has no answer for the PR state of '$pr_branch' (plot-host.sh pr-state exited 4).
   ${pr_err:-The host adapter gave no reason.}
   This backend cannot report a PR's state, so the approval cannot read its gate. The plan was not approved and its phase is unchanged."
-elif [ "$pr_rc" != 0 ]; then
-  die "the host could not be asked for the PR of '$pr_branch' (plot-host.sh pr-state exited $pr_rc).
+  elif [ "$pr_rc" != 0 ]; then
+    die "the host could not be asked for the PR of '$pr_branch' (plot-host.sh pr-state exited $pr_rc).
   ${pr_err:-The host adapter gave no reason.}
   The plan was not approved and its phase is unchanged. Wait for the host to answer again, then re-run the approval."
-fi
-[ -n "$pr_json" ] || pr_json='{"number":0,"state":"NONE","draft":false,"url":""}'
-pr_number=$(printf '%s' "$pr_json" | jq -r '.number // 0' 2>/dev/null)
-pr_state=$(printf '%s' "$pr_json" | jq -r '.state // "NONE"' 2>/dev/null)
-pr_draft=$(printf '%s' "$pr_json" | jq -r '.draft // false' 2>/dev/null)
+  fi
+  [ -n "$pr_json" ] || pr_json='{"number":0,"state":"NONE","draft":false,"url":""}'
+  pr_number=$(printf '%s' "$pr_json" | jq -r '.number // 0' 2>/dev/null)
+  pr_state=$(printf '%s' "$pr_json" | jq -r '.state // "NONE"' 2>/dev/null)
+  pr_draft=$(printf '%s' "$pr_json" | jq -r '.draft // false' 2>/dev/null)
 
-# --- refusal 3: the PR ------------------------------------------------------
-case "$pr_state" in
-  MERGED) ;;
-  OPEN) ;;
-  CLOSED)
-    die "the plan PR for '$slug' (#$pr_number) is closed.
+  # --- refusal 3: the PR ------------------------------------------------------
+  case "$pr_state" in
+    MERGED) ;;
+    OPEN) ;;
+    CLOSED)
+      die "the plan PR for '$slug' (#$pr_number) is closed.
   Reopen it on the host, or push '$pr_branch' again and open a new one." ;;
-  NONE|*)
-    die "no PR found for branch '$pr_branch'.
+    NONE|*)
+      die "no PR found for branch '$pr_branch'.
   Push the branch: git push -u origin $pr_branch
   Then open its PR — or run /plot-idea, which does both." ;;
-esac
+  esac
+fi
 
 # --- refusal 4: a branch under no slice heading -----------------------------
 #
@@ -309,7 +359,7 @@ else
   echo "plot-approve: cannot find $transition_check_mjs — slice headings went unchecked. Run 'pnpm build:board'." >&2
 fi
 
-echo "step: plan $plan_file — phase=$phase review=${review} impl=${impl} pr=#$pr_number($pr_state)"
+[ "$in_session" = 1 ] || echo "step: plan $plan_file — phase=$phase review=${review} impl=${impl} pr=#$pr_number($pr_state)"
 
 # --- a DRAFT is taken out of draft, not refused ------------------------------
 #
@@ -327,16 +377,35 @@ echo "step: plan $plan_file — phase=$phase review=${review} impl=${impl} pr=#$
 # mergeable on either host — and stated as its own `step:` line so a caller
 # reading the output can see which half happened if the second one fails.
 
-who="${who_override:-${PLOT_APPROVE_WHO:-$(git config user.name 2>/dev/null || echo plot)}}"
+# `in-session` TAKES NO DEFAULT. A default here would let the machine name the
+# reviewer, which is the one thing a script must never do for a channel that
+# exists because a human is in the room — so `--who` alone answers, and an
+# empty or absent one reaches the domain's `review-human` refusal below rather
+# than silently becoming `git config user.name`. `pr` and the direct/same-branch
+# flow keep the existing chain: `PLOT_APPROVE_WHO`, then the git identity.
+if [ "$in_session" = 1 ]; then
+  who="$who_flag"
+  channel="in-session"
+else
+  who="${who_flag:-${PLOT_APPROVE_WHO:-$(git config user.name 2>/dev/null || echo plot)}}"
+fi
 today=$(date +%Y-%m-%d)
 
 if [ "$dry_run" = 1 ]; then
-  [ "$pr_draft" = "true" ] && echo "step: would mark PR #$pr_number ready for review"
-  echo "step: would merge PR #$pr_number"
-  echo "step: would flip Phase → Approved and fill Approved: $today, $who, plan-PR #$pr_number merged"
-  echo "step: would clear .plot/hold entries for: $(printf '%s' "$plan_branches" | tr '\n' ' ')"
-  echo "step: would update the sprint annotation${sprint:+ in $SPRINT_DIR (sprint $sprint)}"
-  echo "summary: merged=would phase=would record=would holds=would sprint=would push=would"
+  if [ "$in_session" = 1 ]; then
+    echo "step: would flip Phase → Approved and fill Approved: $today, $who, in-session"
+    echo "step: would clear .plot/hold entries for: $(printf '%s' "$plan_branches" | tr '\n' ' ')"
+    echo "step: would update the sprint annotation${sprint:+ in $SPRINT_DIR (sprint $sprint)}"
+    echo "step: would append a row to .plot/state/in-session-approvals.tsv"
+    echo "summary: merged=skipped-in-session phase=would record=would holds=would sprint=would push=would"
+  else
+    [ "$pr_draft" = "true" ] && echo "step: would mark PR #$pr_number ready for review"
+    echo "step: would merge PR #$pr_number"
+    echo "step: would flip Phase → Approved and fill Approved: $today, $who, plan-PR #$pr_number merged"
+    echo "step: would clear .plot/hold entries for: $(printf '%s' "$plan_branches" | tr '\n' ' ')"
+    echo "step: would update the sprint annotation${sprint:+ in $SPRINT_DIR (sprint $sprint)}"
+    echo "summary: merged=would phase=would record=would holds=would sprint=would push=would"
+  fi
   exit 0
 fi
 
@@ -350,7 +419,11 @@ fi
 # Merge commits, not squash: plan refinement history is the context a later
 # reader wants. `--delete-branch` retires idea/<slug>, which has no further job.
 merged_report="already"
-if [ "$same_branch" = 1 ]; then
+if [ "$in_session" = 1 ]; then
+  # No plan PR exists for this channel: the approval is the reviewer's go,
+  # read nowhere on a host.
+  merged_report="skipped-in-session"
+elif [ "$same_branch" = 1 ]; then
   # Plan and code ride one branch; the PR merges once, at the end, and merging
   # it here would land an unfinished implementation on the default branch.
   merged_report="skipped-same-branch"
@@ -563,14 +636,14 @@ decide_transition() { # $1=file $2=channel  → prints "<Phase>\t<record>\t<writ
   local slices_file=""
   plot_tmpfile slices_file approve-transition-slices
   printf '%s' "$m" > "$slices_file"
-  answer=$(printf 'approve\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
+  answer=$(printf 'approve\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' \
     "$slug" \
     "$(printf '%s' "$m" | jq -r '.phase // ""')" \
     "$(printf '%s' "$m" | jq -r '.review // ""')" \
     "$(printf '%s' "$m" | jq -r '.approved_raw // ""')" \
     "$(printf '%s' "$m" | jq -r '.delivered_raw // ""')" \
     "$(printf '%s' "$m" | jq -r '.released_raw // ""')" \
-    "$today" "$who" "$channel" \
+    "$today" "$who" "$channel" "$people_csv" \
     | node "$transition_mjs" --slices "$slices_file" 2>&1)
   rc=$?
   rm -f "$slices_file"
@@ -741,10 +814,11 @@ apply_local_writes() { # $1=root  → sets phase_report record_report holds_repo
   # here rather than trusted from the caller's copy, because on the `pr` flow
   # those are different files and the plan on the default branch is the one that
   # counts.
-  local channel="plan-PR #$pr_number merged"
-  [ "$same_branch" = 1 ] && channel="plan-PR #$pr_number reviewed"
+  local write_channel="plan-PR #$pr_number merged"
+  [ "$same_branch" = 1 ] && write_channel="plan-PR #$pr_number reviewed"
+  [ "$in_session" = 1 ] && write_channel="$channel"
   local decided record action recorded
-  decided=$(decide_transition "$f" "$channel") || return 1
+  decided=$(decide_transition "$f" "$write_channel") || return 1
   record=$(printf '%s' "$decided" | cut -f2)
   action=$(printf '%s' "$decided" | cut -f3)
   recorded=$(printf '%s' "$decided" | cut -f4)
@@ -842,13 +916,16 @@ else
       cleanup
     else
       # BRANCH PROTECTION FALLBACK — the only path where a micro-PR is right.
-      # Never leave the merged plan stranded at `Phase: Draft`: the merge is
-      # done and irreversible, so the recorded phase must follow it.
+      # Never leave the approved plan stranded at `Phase: Draft`: the approval
+      # is decided and irreversible once committed, so the recorded phase must
+      # follow it.
+      micro_body="Records the approval of \`$slug\` (plan-PR #$pr_number merged)."
+      [ "$in_session" = 1 ] && micro_body="Records the in-session approval of \`$slug\` by $who."
       echo "step: push rejected — opening a micro-PR instead"
       if git push -q origin "$bookbr" 2>/dev/null \
         && micro_url=$(bash "$script_dir/plot-host.sh" pr-create \
              --title "plot: approve $slug" \
-             --body "Records the approval of \`$slug\` (plan-PR #$pr_number merged)." \
+             --body "$micro_body" \
              --base "$MAIN" --head "$bookbr" 2>/dev/null) \
         && micro_num=$(printf '%s' "$micro_url" | sed 's#.*/##') \
         && bash "$script_dir/plot-host.sh" pr-merge "$micro_num" --delete-branch >/dev/null 2>&1
@@ -858,8 +935,10 @@ else
         cleanup
       else
         push_report="rejected"
+        stranded_reason="PR #$pr_number IS MERGED"
+        [ "$in_session" = 1 ] && stranded_reason="the in-session approval IS DECIDED"
         echo "plot-approve: the approval is committed on '$bookbr' but could not reach $MAIN." >&2
-        echo "  PR #$pr_number IS MERGED — the plan must not stay at Phase: Draft." >&2
+        echo "  $stranded_reason — the plan must not stay at Phase: Draft." >&2
         echo "  Land '$bookbr' by hand, or re-run this command once the push works." >&2
         git worktree remove --force "$tmpwt" >/dev/null 2>&1 || true
         echo "summary: merged=$merged_report phase=$phase_report record=$record_report holds=$holds_report sprint=$sprint_report push=$push_report"
@@ -867,6 +946,21 @@ else
       fi
     fi
   fi
+fi
+
+# THE LOG REPLACES A COUNT, NEVER A RECEIPT. Appended ONLY after the push
+# landed this run — `nothing-to-commit` means an earlier run already recorded
+# this approval (and, with it, this row), so appending again would double a
+# count that exists to say how many in-session approvals happened, not how
+# many times this script ran. A refused or interrupted run reaches neither
+# this line nor a row, which is `plot-agent-settings.sh`'s rule applied here:
+# read the exit code, not the emptiness.
+if [ "$in_session" = 1 ] && [ "$push_report" != "nothing-to-commit" ] && [ "$push_report" != "n/a" ]; then
+  entry="script"
+  [ "${PLOT_APPROVE_ENTRY:-}" = "board" ] && entry="board"
+  log_dir="$main_root/.plot/state"
+  mkdir -p "$log_dir" 2>/dev/null \
+    && printf '%s\t%s\t%s\t%s\n' "$today" "$slug" "$who" "$entry" >> "$log_dir/in-session-approvals.tsv" 2>/dev/null
 fi
 
 echo "summary: merged=$merged_report phase=$phase_report record=$record_report holds=$holds_report sprint=$sprint_report push=$push_report"

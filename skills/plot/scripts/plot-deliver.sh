@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Plot helper: perform the MECHANICAL half of delivering a plan.
 # Usage: plot-deliver.sh [--dry-run] [--who <name>] <slug>
+#        plot-deliver.sh --release <version> <slug>
 #   --dry-run   say what would happen; write nothing, push nothing
 #   --who       the name recorded in the `Delivered:` line (default: git user.name)
-#   <slug>      the plan to deliver
+#   --release   cut a plan's RELEASE record instead of delivering it — see
+#               "THE RELEASE ARM" below. Takes the version being released.
+#   <slug>      the plan to deliver (or release)
 # Output: one `step:` line per step, then a machine-countable summary:
 #             summary: phase=flipped record=written index=moved sprint=updated push=clean tracker=none
 #         `tracker=` is plot-issue-status.sh's outcome (none|written|no-target|
@@ -12,6 +15,40 @@
 #         Exit 0 when the plan is Delivered on the default branch (whether this
 #         run did the work or found it already done); 1 on a refusal or a
 #         failure, with the reason on stderr.
+#
+# THE RELEASE ARM. `--release <version> <slug>` performs the OTHER lifecycle
+# write `plot-release/SKILL.md` step 5b used to do by hand: flip `State:
+# Delivered` → `Released` and fill the `Released:` record. It lives here rather
+# than in a new script — `scripts/check-script-names.sh` refuses a new
+# `plot-*.sh`, this script already calls the transition bundle and owns a
+# `State:` receipt, and Released is the transition that follows Delivered.
+#
+# THE VERSION COMES FROM THE PLAN'S MERGE COMMIT, NEVER FROM A DATE OR A PR
+# TITLE. The plan's last `→ #N` names the PR that carried it; `plot-host.sh
+# pr-state <N>` answers that PR's `mergeCommit` (never `plot-impl-status.sh`'s
+# index, which carries no `mergeCommit` for a branch it resolved); and the
+# release that shipped it is the FIRST `vX.Y.Z` tag containing that commit,
+# sorted by version rather than by `git tag --contains`'s creation order. A
+# plan booked on one date can ship in a release cut months later, and two tags
+# can share a date — `git tag --contains | head -1` without the version sort
+# is the one shape that passes a later tag than the first that actually
+# contains the commit.
+#
+# FOUR REFUSALS, NAMED SEPARATELY, because each has a different repair: no
+# `→ #N` or no `mergeCommit` (the PR never merged, or the host's answer carries
+# none); no tag reads `v<version>` at all; a tag exists but does not contain
+# the merge commit (the version named was not the one that shipped this
+# commit); and the first tag that DOES contain it is a different version (this
+# commit shipped earlier than the version named). The third is the one `git
+# tag --contains | head -1` without a version sort would pass silently.
+#
+# THE SYMLINK DOES NOT MOVE. `delivered/` means "no longer active", not "phase
+# is exactly Delivered" — unlike delivering, releasing moves no index link.
+#
+# THE DOMAIN DECIDES THE PHASE, same as the deliver arm: `release` in
+# `transitions/plan.ts` refuses Draft and Approved and accepts `released` as
+# idempotent — a plan already Released with a record for this version is a
+# no-op, same exit 0, no new commit.
 #
 # WHY THIS EXISTS. The board computes `allSlicesMerged` — exactly the condition
 # that says a plan is ready to deliver — but the transition itself lives only in
@@ -61,11 +98,13 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 dry_run=0
 who_override=""
+release_version=""
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=1 ;;
     --who) who_override="${2:?--who needs a value}"; shift ;;
+    --release) release_version="${2:?--release needs a version}"; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     -*) echo "plot-deliver: unknown flag '$1'" >&2; exit 1 ;;
     *) slug="$1" ;;
@@ -75,7 +114,7 @@ done
 
 die() { echo "plot-deliver: $*" >&2; exit 1; }
 
-[ -n "$slug" ] || die "need a plan slug (usage: plot-deliver.sh [--dry-run] <slug>)"
+[ -n "$slug" ] || die "need a plan slug (usage: plot-deliver.sh [--dry-run] <slug>; or --release <version> <slug>)"
 git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository — run this from inside the checkout, or 'git init' one here"
 
 cfg() { bash "$script_dir/plot-config.sh" get "$1" "$2"; }
@@ -115,6 +154,307 @@ jfield() { printf '%s' "$meta" | jq -r "$1" 2>/dev/null; }
 phase=$(jfield '.phase')
 sprint=$(jfield '.sprint')
 delivered_raw=$(jfield '.delivered_raw')
+
+# ---------------------------------------------------------------------------
+# THE RELEASE ARM — a separate path, taken over before any deliver-only logic
+# below reads `$phase` for ITS OWN refusal. Shares plan lookup and `$meta`
+# with the deliver arm; shares nothing past this point, because releasing
+# moves no symlink and ticks no sprint item (`/plot-release` step 5b never
+# did either).
+# ---------------------------------------------------------------------------
+if [ -n "$release_version" ]; then
+  released_raw=$(jfield '.released_raw')
+  last_pr=$(jfield '.prs[-1]?')
+
+  # --- refusal: the phase, asked BEFORE any host call --------------------
+  #
+  # CHEAP AND FIRST, same as every other refusal in this script. The domain
+  # re-checks this at `decide_release` time regardless — this is a fast,
+  # host-free rejection of the two phases the version resolution below would
+  # otherwise waste a PR lookup and a tag scan proving unresolvable for
+  # reasons that have nothing to do with a version.
+  case "$phase" in
+    delivered|released) ;;
+    approved)
+      die "plan '$slug' is still 'approved' — deliver it first: plot-deliver.sh $slug" ;;
+    draft|design)
+      die "plan '$slug' is still '$phase' — deliver it first: plot-deliver.sh $slug" ;;
+    NONE|"")
+      die "cannot read the phase of '$slug' ($plan_file) — refusing rather than guessing." ;;
+    *)
+      die "plan '$slug' is in phase '$phase' — only a Delivered plan can be released." ;;
+  esac
+
+  MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+  [ -n "$MAIN" ] || MAIN=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null) || MAIN=""
+  [ -n "$MAIN" ] || MAIN="main"
+
+  # --- refusal: unresolvable — no annotation, no mergeCommit ----------------
+  #
+  # ASKED EVEN WHEN A RECORD ALREADY EXISTS, because `release` is idempotent on
+  # the FILE's own record and not on the arguments — a plan already carrying a
+  # `Released:` line for a DIFFERENT version must still be read as a mismatch,
+  # never silently confirmed by a version this run never checked. Only once the
+  # domain answers `already` (below) does this become a no-op.
+  if [ -z "$last_pr" ] || [ "$last_pr" = "null" ]; then
+    die "plan '$slug' names no '→ #N' annotation — the version cannot be resolved from a merge commit that does not exist.
+  Nothing was written. Annotate the branch that shipped this plan, then re-run."
+  fi
+
+  merge_sha=$(bash "$script_dir/plot-host.sh" pr-state "$last_pr" 2>/dev/null | jq -r '.mergeCommit // ""' 2>/dev/null)
+  if [ -z "$merge_sha" ]; then
+    die "plan '$slug''s last PR (#$last_pr) carries no mergeCommit — it may not have merged, or the host could not answer.
+  Nothing was written. Verify #$last_pr merged, then re-run."
+  fi
+
+  # --- the tag rule: FIRST vX.Y.Z tag containing the merge commit, by version,
+  #     must equal the version named -------------------------------------------
+  #
+  # `git tag --contains <sha>` lists every tag reachable FROM that commit, in no
+  # dependable order — `sort -V` imposes the version order git does not. The
+  # FIRST one is the release that shipped it; a later tag containing the same
+  # commit is a later release that happens to still carry it, not the one that
+  # shipped it first.
+  wanted_tag=$(printf '%s' "$release_version" | sed -e 's/^[Vv]//' -e 's/^/v/')
+  containing_tags=$(git tag --contains "$merge_sha" 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
+  first_tag=$(printf '%s\n' "$containing_tags" | head -1)
+
+  if [ -z "$first_tag" ]; then
+    die "no 'v*.*.* ' tag contains plan '$slug''s merge commit ($merge_sha, from PR #$last_pr).
+  Nothing was written. Cut the release that ships this commit, then re-run."
+  fi
+  if ! printf '%s\n' "$containing_tags" | grep -qx -- "$wanted_tag"; then
+    die "tag '$wanted_tag' does not contain plan '$slug''s merge commit ($merge_sha, from PR #$last_pr).
+  Nothing was written. The tags that do: $(printf '%s' "$containing_tags" | tr '\n' ' ')"
+  fi
+  if [ "$first_tag" != "$wanted_tag" ]; then
+    die "plan '$slug' shipped in '$first_tag', not '$wanted_tag' — '$first_tag' is the FIRST tag (by version) containing its merge commit ($merge_sha, from PR #$last_pr).
+  Nothing was written. Release it as $first_tag instead."
+  fi
+
+  tag_date=$(git log -1 --format=%as "$wanted_tag" 2>/dev/null)
+  [ -n "$tag_date" ] || die "could not read the date of tag '$wanted_tag' — refusing rather than guessing.
+  Nothing was written."
+
+  who="${who_override:-${PLOT_DELIVER_WHO:-$(git config user.name 2>/dev/null || echo plot)}}"
+
+  if [ "$dry_run" = 1 ]; then
+    echo "step: plan $plan_file — phase=$phase released_raw=${released_raw:-<empty>}"
+    echo "step: would flip State → Released and fill Released: $tag_date, $wanted_tag"
+    echo "summary: phase=would record=would index=skipped sprint=none push=would tracker=skipped"
+    exit 0
+  fi
+
+  echo "step: plan $plan_file — phase=$phase PR #$last_pr merged $merge_sha, shipped in $wanted_tag ($tag_date)"
+
+  transition_mjs="$script_dir/board/plot-transition.mjs"
+  [ -f "$transition_mjs" ] || die "cannot find $transition_mjs — run 'pnpm build:board'."
+
+  decide_release() { # $1=file → prints "<Phase>\t<record>\t<write|already>\t<yes|no>"
+    local f="$1" m answer rc
+    m=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null) || m=""
+    [ -n "$m" ] || { echo "plot-deliver: cannot parse $f — refusing rather than guessing." >&2; return 1; }
+    answer=$(printf 'release\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t%s\t\n' \
+      "$slug" \
+      "$(printf '%s' "$m" | jq -r '.phase // ""')" \
+      "$(printf '%s' "$m" | jq -r '.review // ""')" \
+      "$(printf '%s' "$m" | jq -r '.approved_raw // ""')" \
+      "$(printf '%s' "$m" | jq -r '.delivered_raw // ""')" \
+      "$(printf '%s' "$m" | jq -r '.released_raw // ""')" \
+      "$tag_date" "$wanted_tag" \
+      | node "$transition_mjs" 2>&1)
+    rc=$?
+    if [ "$rc" != 0 ]; then
+      if [ "$rc" = 1 ]; then
+        echo "plot-deliver: $(printf '%s' "$answer" | cut -f2-)" >&2
+      else
+        echo "plot-deliver: $answer" >&2
+      fi
+      return 1
+    fi
+    printf '%s' "$answer"
+  }
+
+  # Shares `flip_phase`'s shape (defined below, for the deliver arm) but for
+  # the Released value, so the same bug history (the HTML-comment stop, the
+  # placeholder-first insertion) applies here too.
+  flip_phase_released() { # $1=in $2=out → 0 if changed, 1 if nothing to flip
+    awk '
+      BEGIN { section = ""; done = 0 }
+      /^## / { section = ($0 ~ /^## Status/) ? "status" : ""; print; next }
+      section == "status" && !done && tolower($0) ~ /^[ \t]*[-*]?[ \t]*\**(state|phase)[:*]/ {
+        if (tolower($0) ~ /delivered/) {
+          sub(/[Dd]elivered/, "Released")
+          done = 1
+          changed = 1
+        }
+      }
+      { print }
+      END { exit (changed ? 0 : 1) }
+    ' "$1" > "$2"
+  }
+
+  append_released_line() { # $1=in $2=out $3=record
+    local line
+    line="- **Released:** $3"
+    awk -v line="$line" '
+      { lines[++n] = $0 }
+      END {
+        for (i = 1; i <= n; i++) {
+          if (lines[i] ~ /^##[ \t]*[Ss]tatus[ \t]*$/) { start = i; break }
+        }
+        if (!start) exit 1
+
+        insert = start
+        for (i = start + 1; i <= n; i++) {
+          if (lines[i] ~ /^##[ \t]/) break
+          if (lines[i] ~ /<!--/) break
+          if (lines[i] ~ /^[ \t]*[-*][ \t]*\*\*Released:\*\*[ \t]*$/) { slot = i; break }
+          if (lines[i] ~ /^[ \t]*[-*][ \t]/) insert = i
+        }
+
+        for (i = 1; i <= n; i++) {
+          if (i == slot) { print line; continue }
+          print lines[i]
+          if (!slot && i == insert) print line
+        }
+      }
+    ' "$1" > "$2"
+  }
+
+  write_release() { # $1=file $2=record $3=recorded(yes|no) → sets phase_report record_report
+    local f="$1" record="$2" recorded="$3" a="$1.plot-phase" b="$1.plot-record" flipped=0
+
+    if flip_phase_released "$f" "$a"; then flipped=1; else flipped=0; fi
+    [ -s "$a" ] || { rm -f "$a"; echo "plot-deliver: could not read $rel" >&2; return 1; }
+
+    if [ "$recorded" = "yes" ]; then
+      mv "$a" "$f" || { rm -f "$a"; return 1; }
+      record_report="already"
+    else
+      if ! append_released_line "$a" "$b" "$record"; then
+        rm -f "$a" "$b"
+        echo "plot-deliver: $rel has no '## Status' section — nowhere to record the release." >&2
+        echo "  Nothing was written: the phase is not flipped either, because a phase" >&2
+        echo "  with no record is invisible to the scan. Fix the section and re-run." >&2
+        return 1
+      fi
+      mv "$b" "$f" || { rm -f "$a" "$b"; return 1; }
+      rm -f "$a"
+      record_report="written"
+    fi
+
+    phase_report=$([ "$flipped" = 1 ] && echo flipped || echo already)
+    record_state_receipt "$f" "Released"
+    return 0
+  }
+
+  real_release_plan_path() { # $1 = plan file as found
+    local p="$1" d b t
+    d=$(cd "$(dirname "$p")" 2>/dev/null && pwd) || return 1
+    b=$(basename "$p")
+    t=$(readlink "$d/$b" 2>/dev/null || true)
+    if [ -n "$t" ]; then
+      case "$t" in
+        /*) d=$(cd "$(dirname "$t")" 2>/dev/null && pwd) || return 1 ;;
+        *)  d=$(cd "$d/$(dirname "$t")" 2>/dev/null && pwd) || return 1 ;;
+      esac
+      b=$(basename "$t")
+    fi
+    case "$d" in
+      "$repo_root")   printf '%s' "$b" ;;
+      "$repo_root"/*) printf '%s/%s' "${d#$repo_root/}" "$b" ;;
+      *) return 1 ;;
+    esac
+  }
+
+  rel=$(cd "$repo_root" && real_release_plan_path "$plan_file") || rel=""
+  [ -n "$rel" ] || die "$plan_file is outside the repository root ($repo_root).
+  Move the plan under $PLAN_DIR inside this checkout and re-run."
+
+  phase_report="" record_report=""
+
+  git fetch -q origin "$MAIN" 2>/dev/null
+
+  bookbr="plot/release-$slug"
+  tmpwt="$wt_root/.plot-release-$slug.$$"
+  plot_exclude_desk_root "$main_root"
+  git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null \
+    || die "could not prepare a booking worktree at $tmpwt.
+  Most often origin/$MAIN is not fetched, or '$bookbr' is checked out in
+  another worktree. Check both: git fetch origin $MAIN && git worktree list
+  Nothing has been written locally; the plan is untouched."
+
+  cleanup() {
+    git worktree remove --force "$tmpwt" >/dev/null 2>&1 || true
+    git branch -D "$bookbr" >/dev/null 2>&1 || true
+  }
+
+  f="$tmpwt/$rel"
+  [ -f "$f" ] || { cleanup; die "$rel is not present in $tmpwt"; }
+
+  decided=$(decide_release "$f") || { cleanup; exit 1; }
+  record=$(printf '%s' "$decided" | cut -f2)
+  action=$(printf '%s' "$decided" | cut -f3)
+  recorded=$(printf '%s' "$decided" | cut -f4)
+  if [ "$action" = "already" ]; then
+    phase_report="already"
+    record_report="already"
+  else
+    write_release "$f" "$record" "$recorded" || { cleanup; exit 1; }
+  fi
+
+  git -C "$tmpwt" add -- "$rel" >/dev/null 2>&1 || true
+
+  push_report="n/a"
+  if git -C "$tmpwt" diff --cached --quiet 2>/dev/null; then
+    push_report="nothing-to-commit"
+    echo "step: nothing to commit — the release is already recorded on $MAIN"
+    cleanup
+  else
+    if ! git -C "$tmpwt" -c "user.name=$who" commit -q -m "plot: release $slug ($wanted_tag)"; then
+      cleanup
+      die "could not commit the release.
+  Nothing was pushed; re-run this — it is idempotent."
+    fi
+    push_out=$(bash "$script_dir/plot-push-main.sh" "$bookbr" "$MAIN" 2>&1)
+    push_rc=$?
+    printf '%s\n' "$push_out" | sed 's/^/  /'
+    if [ "$push_rc" = 0 ]; then
+      push_report=$(printf '%s' "$push_out" | sed -n 's/^push: \([a-z]*\).*/\1/p' | head -1)
+      [ -n "$push_report" ] || push_report="unknown"
+      cleanup
+    else
+      echo "step: push rejected — opening a micro-PR instead"
+      if git push -q origin "$bookbr" 2>/dev/null \
+        && micro_url=$(bash "$script_dir/plot-host.sh" pr-create \
+             --title "plot: release $slug ($wanted_tag)" \
+             --body "Records the release of \`$slug\` in $wanted_tag." \
+             --base "$MAIN" --head "$bookbr" 2>/dev/null) \
+        && micro_num=$(printf '%s' "$micro_url" | sed 's#.*/##') \
+        && bash "$script_dir/plot-host.sh" pr-merge "$micro_num" --delete-branch >/dev/null 2>&1
+      then
+        push_report="micro-pr"
+        echo "step: release landed via micro-PR $micro_url"
+        cleanup
+      else
+        push_report="rejected"
+        echo "plot-deliver: the release is committed on '$bookbr' but could not reach $MAIN." >&2
+        echo "  Land '$bookbr' by hand, or re-run this command once the push works." >&2
+        git worktree remove --force "$tmpwt" >/dev/null 2>&1 || true
+        echo "summary: phase=$phase_report record=$record_report index=skipped sprint=none push=$push_report tracker=skipped"
+        exit 1
+      fi
+    fi
+  fi
+
+  echo "summary: phase=$phase_report record=$record_report index=skipped sprint=none push=$push_report tracker=skipped"
+  # Spends the RELEASE receipt, never the deliver one — the two are separate
+  # actions sharing this script, and `plot-controller-gate.sh` records them
+  # under separate names for exactly this reason.
+  spend_action_receipt "release"
+  exit 0
+fi
 
 # --- refusal 1: the phase ---------------------------------------------------
 #

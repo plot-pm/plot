@@ -136,6 +136,7 @@ export const scriptsShell = (context: ShellContext): Scripts => {
         cwd: context.repoRoot,
         detached: true,
         stdio,
+        ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
       });
       if (options.onError) child.on('error', options.onError);
       if (options.onExit) child.on('exit', (code, signal) => options.onExit?.(code, signal));

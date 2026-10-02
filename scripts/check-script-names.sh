@@ -79,7 +79,14 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # fall. A LITERAL ON PURPOSE — deriving it from the estate would make the gate
 # agree with whatever it found, which is a check you can answer "yes" to without
 # doing the work.
-ALLOWED=9
+#
+# RAISED TO 10 ON 2026-10-02 for `release.ts:37`'s `RELEASE_SCRIPT =
+# 'plot-deliver.sh'` — a tenth site, and the same kind as `approve.ts`'s
+# `APPROVE_SCRIPT`: no port answers "run this plot lifecycle script" yet, and
+# `plot-deliver.sh --release` reuses the same dependency `plot-deliver.sh`
+# delivering already named rather than inventing a second constant for one
+# script.
+ALLOWED=10
 
 ROOTS='packages/board/src packages/domain/src'
 
