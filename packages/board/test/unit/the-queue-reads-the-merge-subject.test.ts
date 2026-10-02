@@ -63,7 +63,12 @@ const throttled = (
   const world: QueueWorld = {
     plans: async () => plans,
     claimedBranches: async () => new Set<string>(),
-    mergedBranches: async () => ({ merged: new Set<string>(), whole: false }),
+    mergedBranches: async () => ({
+      merged: new Set<string>(),
+      whole: false,
+      kind: 'throttled' as const,
+      failed: true,
+    }),
     prIndexRows: async () => rows,
     viewLanded: async (n) => {
       asked.views.push(n);
@@ -140,7 +145,11 @@ describe('where the proof is not applied', () => {
     const readings = await readQueue([], world);
 
     expect(asked.proven).toBe(0);
-    expect(holdOf(readings, 'feature/two')).toBe('not-claimable');
+    // `prior-unknown` AND NOT `not-claimable`: with no proof applied, slice 1
+    // is looked up by its index number and that lookup answers `unknown`, so
+    // slice 2 waits on the host rather than on the plan (#1094). It is held
+    // either way.
+    expect(holdOf(readings, 'feature/two')).toBe('prior-unknown');
   });
 
   it('applies no proof for a subject older than the plan', async () => {
@@ -152,7 +161,9 @@ describe('where the proof is not applied', () => {
     );
     const readings = await readQueue([], world);
 
-    expect(holdOf(readings, 'feature/two')).toBe('not-claimable');
+    // Unproven, so slice 1's own lookup by number decides — and it answers
+    // `unknown`, which slice 2 now names.
+    expect(holdOf(readings, 'feature/two')).toBe('prior-unknown');
   });
 
   it('applies no proof when the plan additions cannot be read', async () => {
@@ -164,7 +175,7 @@ describe('where the proof is not applied', () => {
     );
     const readings = await readQueue([], world);
 
-    expect(holdOf(readings, 'feature/two')).toBe('not-claimable');
+    expect(holdOf(readings, 'feature/two')).toBe('prior-unknown');
   });
 });
 
