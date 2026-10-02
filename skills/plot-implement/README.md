@@ -33,6 +33,19 @@ distinction.
   them three agents in one session would have rebuilt mechanisms the plan
   had already disproved, because a plan's reasoning reads as background
   rather than as a warning aimed at the implementer.
+- **`--brief-only` stops at the brief.** The flag runs the preflight, the
+  brief and the `Started:` record, and skips step 3 completely: no
+  checkout, no claim push, no worktree. It is what the board asks for on
+  every dispatch (`composeImplementPrompt` in
+  `packages/board/src/server/implement.ts`), because the claim belongs to
+  the agent that takes the slice up rather than to the step that prepares
+  it. Measured 2026-10-01: a claim this step pushed was worked by nobody —
+  `claimedBranches` reads every remote branch as claimed, so the queue
+  dropped three slices and they sat with no worker until a person released
+  their refs; the leftover worktree then blocked the agent the branch was
+  finally handed to (#1151). Run by a person without the flag, step 3 is
+  unchanged: that claim is legitimate, it belongs to the session that
+  pushed it, and a supervisor never works it.
 - Reads the plan's recorded `Review:`/`Impl:` answers via
   `plot-plan-meta.sh`; never re-decides them.
 - Requires phase `approved`; refuses Draft with a pointer to

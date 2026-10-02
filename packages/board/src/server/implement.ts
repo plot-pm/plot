@@ -111,16 +111,26 @@ export function implementCommand(opts: BuildBoardOptions): string {
 }
 
 /**
- * The instruction handed to the runner: run `/plot-implement` on this slug.
+ * The instruction handed to the runner: run `/plot-implement` on this slug,
+ * in `--brief-only` mode.
  *
  * A natural-language prompt, not a shell command line — the runner is a
  * `claude -p`-style agent (see `Worker command`, `Idea command`), and its
  * `"$@"` argument is the prompt it acts on. The slug is `SLUG_RE`-bounded, so
  * even embedded in the prompt it carries nothing a shell would interpret; and
- * it travels as one argument, never spliced into the command string.
+ * it travels as one argument, never spliced into the command string. The flag
+ * rides INSIDE the prompt for the same reason: it is text the skill reads, not
+ * an argv entry the shell parses.
+ *
+ * `--brief-only` writes the hand-off brief and the `Started:` record and stops.
+ * It pushes no claim ref and cuts no worktree, because under the registry model
+ * nobody works a claim this step pushed: `claimedBranches` reads the ref as
+ * claimed, the queue drops the slice, and the agent later handed it reads its
+ * own slice as double-assigned. The claim belongs to the agent, which pushes it
+ * at take-up (`plot-worker-loop.sh`).
  */
 export function composeImplementPrompt(slug: string): string {
-  return `Run /plot-implement ${slug} and follow it.`;
+  return `Run /plot-implement ${slug} --brief-only and follow it.`;
 }
 
 /**
