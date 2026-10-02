@@ -135,8 +135,8 @@ const PAST_THE_RESET = { PLOT_CLOCK_OFFSET_SECONDS: String(RESET_AHEAD + 30) };
  * `date` is asked for the 12-hour fields directly, which keeps the shell free
  * of any 12-hour arithmetic of its own.
  */
-const limitLineAtRuntime = (limit = 'session limit') => `
-  _at=$(( $(date +%s) + \${PLOT_CLOCK_OFFSET_SECONDS:-0} + ${RESET_AHEAD} ))
+const limitLineAtRuntime = (limit = 'session limit', ahead = RESET_AHEAD) => `
+  _at=$(( $(date +%s) + \${PLOT_CLOCK_OFFSET_SECONDS:-0} + ${ahead} ))
   _hhmm=$(date -r "$_at" '+%-I:%M%p' 2>/dev/null || date -d "@$_at" '+%-I:%M%p')
   _zone=$(readlink /etc/localtime | sed 's#.*zoneinfo/##')
   printf "You've hit your ${limit} \u00b7 resets %s (%s)\\n" \
@@ -266,11 +266,11 @@ function runLoop(dir, wt, manifest, env = {}, timeout = 120000) {
  * which is what lets the loop finish the slice and leave, so the test does not
  * depend on the wait budget to end.
  */
-const limitThenWork = (work, log, ahead) => `set -e
+const limitThenWork = (work, log) => `set -e
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
 if [ "$n" = "1" ]; then
-  printf '%s\\n' ${JSON.stringify(limitLine(ahead))}
+  ${limitLineAtRuntime()}
   exit 1
 fi
 echo "worked" > "$PLOT_WORKTREE/work.txt"
@@ -292,7 +292,7 @@ test('a limit with a reset ahead waits and resumes the same slice', serial, () =
     const { wt } = claim(sb, 'feature/seam');
     const log = path.join(sb.root, 'seen');
     fs.mkdirSync(log, { recursive: true });
-    writePrompt(wt, limitThenWork(sb.work, log, 2));
+    writePrompt(wt, limitThenWork(sb.work, log));
     const manifest = manifestFile(sb, wt, 'feature/seam');
     const dir = shimmedScripts(sb.root, manifest, '');
     const r = runLoop(dir, wt, manifest, PAST_THE_RESET);
@@ -329,7 +329,7 @@ test('an empty PLOT_HARNESS still waits', serial, () => {
     const { wt } = claim(sb, 'feature/seam');
     const log = path.join(sb.root, 'seen');
     fs.mkdirSync(log, { recursive: true });
-    writePrompt(wt, limitThenWork(sb.work, log, 2));
+    writePrompt(wt, limitThenWork(sb.work, log));
     const manifest = manifestFile(sb, wt, 'feature/seam');
     const dir = shimmedScripts(sb.root, manifest, '');
 
@@ -362,7 +362,7 @@ test('a limit record names the reset while the desk waits', serial, () => {
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
 if [ "$n" = "1" ]; then
-  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
+  ${limitLineAtRuntime()}
   exit 1
 fi
 cp "$PLOT_WORKTREE/${LIMITED}" "${log}/limited.tsv"
@@ -484,7 +484,7 @@ test('a reset past the Worker bound ends rather than waits', serial, () => {
     const { wt } = claim(sb, 'feature/seam');
     // THE BOUND IS 1800 s IN THE FIXTURE'S CONFIG and the reset is four hours
     // out, so the wait would outlive the worker that is serving it.
-    writePrompt(wt, `printf '%s\\n' ${JSON.stringify(limitLine(4 * 3600))}
+    writePrompt(wt, `${limitLineAtRuntime('session limit', 4 * 3600)}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
@@ -614,7 +614,7 @@ test('a status-0 run whose last line is the limit waits', serial, () => {
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
 if [ "$n" = "1" ]; then
-  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
+  ${limitLineAtRuntime()}
   exit 0
 fi
 echo "worked" > "$PLOT_WORKTREE/work.txt"
@@ -651,7 +651,7 @@ test('a status-0 run that quotes the limit line earlier finishes the slice', ser
     writePrompt(wt, `set -e
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
-printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
+${limitLineAtRuntime()}
 echo "I quoted the limit line above while reporting on the fix."
 echo "worked" > "$PLOT_WORKTREE/work.txt"
 git -C "$PLOT_WORKTREE" add -A
