@@ -39,13 +39,14 @@ jobs:
     # a tag ref, where it may open a version PR or publish a stable release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # Read by `dispatch-ci`, which starts CI on the release branch. Its
-    # permissions deliberately do NOT gain `actions: write`: this job runs
-    # `changesets/action`, `pnpm install` and `create-release.sh`, and widening
-    # the job that publishes to npm was the rejected alternative.
+    # Read by `dispatch-ci`, which starts CI on the release branch.
     outputs:
       pr_number: ${{ steps.changesets.outputs.pullRequestNumber }}
       head_sha: ${{ steps.release-head.outputs.head_sha }}
+    # UNCHANGED, and deliberately without `actions: write`. This job runs
+    # `changesets/action`, `pnpm install` and `create-release.sh` and publishes
+    # to npm; widening it was the rejected alternative. The dispatch holds that
+    # permission in its own job instead.
     permissions:
       contents: write
       pull-requests: write

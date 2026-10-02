@@ -44,9 +44,9 @@ on:
         required: true
         type: string
 
-# The file carried none, so every run inherited the repository default. A
-# settings change would otherwise widen runs on a bot-written ref. No job needs
-# more: both read the repository and neither writes anything back.
+# A pinned permission replaces the inherited repository default, so a settings
+# change cannot widen a run on a bot-written ref. Neither job needs more: both
+# read the repository and neither writes anything back.
 permissions:
   contents: read
 
