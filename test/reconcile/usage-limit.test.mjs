@@ -131,12 +131,17 @@ const PAST_THE_RESET = { PLOT_CLOCK_OFFSET_SECONDS: String(RESET_AHEAD + 30) };
  * wait the test is asserting becomes `past-bound`. Measured in run 6: a
  * fixture meant to wait twice logged `until 2026-10-03`, four hours out.
  *
- * So the line is composed IN THE PROMPT, from the same offset the loop uses.
+ * So the line is composed IN THE PROMPT, against the REAL clock — never the
+ * offset one. Adding the offset here would cancel it: the reset would sit
+ * `ahead` seconds past the loop's own now on every prompt, and the loop would
+ * sleep the full `ahead` for real. Measured: a desk wrote a record 1094 s in
+ * the future and the suite waited it out.
+ *
  * `date` is asked for the 12-hour fields directly, which keeps the shell free
  * of any 12-hour arithmetic of its own.
  */
 const limitLineAtRuntime = (limit = 'session limit', ahead = RESET_AHEAD) => `
-  _at=$(( $(date +%s) + \${PLOT_CLOCK_OFFSET_SECONDS:-0} + ${ahead} ))
+  _at=$(( $(date +%s) + ${ahead} ))
   _hhmm=$(date -r "$_at" '+%-I:%M%p' 2>/dev/null || date -d "@$_at" '+%-I:%M%p')
   _zone=$(readlink /etc/localtime | sed 's#.*zoneinfo/##')
   printf "You've hit your ${limit} \u00b7 resets %s (%s)\\n" \
