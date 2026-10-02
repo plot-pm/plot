@@ -186,6 +186,29 @@ export interface DeskReading {
 }
 
 /**
+ * Whether a duration reached the window — and whether it is a duration at all.
+ *
+ * WRITTEN AS `>=` AND NEGATED, NEVER AS `<`, and that is the whole reason this
+ * is a function. `NaN` breaks numeric trichotomy: `NaN < 900`, `NaN > 900` and
+ * `NaN === 900` are all false, so a guard reading `if (seconds < window) return
+ * 'silent'` lets `NaN` straight through and answers `idle` on a reading nobody
+ * took. Found 2026-10-02 by the test that asserts an unreadable duration is
+ * silent — the guard was written the readable way and was wrong.
+ *
+ * `number` HOLDS `NaN`, so the type does not make this unnecessary. The shell's
+ * copy validates digits with `case "$x" in *[!0-9]*)`, which refuses every
+ * non-number there is; this is the same refusal in the language that needs it
+ * spelled out, and it is what keeps the corpus pair from disagreeing on a
+ * reading a caller translated badly.
+ *
+ * @param seconds The duration read, which may be no reading at all.
+ * @param window Seconds the duration must reach.
+ * @returns Whether this is a real duration that reached the window.
+ */
+const quietFor = (seconds: number, window: number): boolean =>
+  Number.isFinite(seconds) && Number.isFinite(window) && seconds >= window;
+
+/**
  * Whether this desk is idle, from one reading.
  *
  * SIX CONDITIONS, ALL OF THEM TOGETHER: the pid is alive, the conversation has
@@ -226,8 +249,8 @@ export interface DeskReading {
 export const idleNow = (reading: DeskReading, window: number): MonitorVerdict => {
   if (reading.pid !== 'alive') return 'silent';
   if (!reading.spoken) return 'silent';
-  if (reading.silenceSeconds < window) return 'silent';
+  if (!quietFor(reading.silenceSeconds, window)) return 'silent';
   if (reading.childOnCore) return 'silent';
-  if (reading.treeQuietSeconds < window) return 'silent';
+  if (!quietFor(reading.treeQuietSeconds, window)) return 'silent';
   return reading.commits === 'yes' ? 'idle' : 'silent';
 };
