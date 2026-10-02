@@ -131,6 +131,18 @@ describe('the action prepares an approved plan, and says so', () => {
     assert.match(prompt, /\/plot-implement/);
     assert.match(prompt, new RegExp(SLUG));
   });
+
+  it('asks for --brief-only, so the step claims nothing and cuts no desk', () => {
+    // The flag is what makes this route safe to run on every dispatch. Without
+    // it the step pushes the claim ref itself, `claimedBranches` reads the
+    // slice as taken, the queue drops it, and no agent is ever handed it —
+    // measured 2026-10-01, three slices sat at `142ae697` with no worker.
+    //
+    // This assertion catches the half-landed shape: a skill that gained
+    // `--brief-only` while the board still sends the old prompt, which
+    // re-creates the defect on every dispatch.
+    assert.match(composeImplementPrompt(SLUG), /--brief-only/);
+  });
 });
 
 describe('an action that cannot work is not offered', () => {

@@ -7,15 +7,16 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * *Implement* — the entrance a person walks, run from the board.
  *
  * `/plot-implement` is the preparation that comes before writing code: the
- * staleness preflight, the branch, the hand-off brief, the `Started:` record.
- * It is the complement of Dispatch on the same plan row — Dispatch fans a plan
- * out to detached workers, this prepares ONE slice the way a person picking the
- * plan up would, then stops. Which of the two applies is the operator's call
- * (*am I picking this up, or is the fleet taking it?*), so the board offers
- * both and defaults to neither.
+ * staleness preflight, the hand-off brief, the `Started:` record. It runs
+ * `--brief-only`, so it claims no branch and cuts no worktree — the claim
+ * belongs to the agent the supervisor hands the slice to. It is the complement
+ * of Dispatch on the same plan row — Dispatch fans a plan out to detached
+ * workers, this prepares ONE slice, then stops. Which of the two applies is the
+ * operator's call (*am I picking this up, or is the fleet taking it?*), so the
+ * board offers both and defaults to neither.
  *
  * **Single click, no arming.** Unlike Approve and Deliver, this is not
- * irreversible: it creates a branch and a brief, both cheap to undo. So it
+ * irreversible: it writes a brief and one plan line, both cheap to undo. So it
  * follows `DispatchAllButton`'s interaction — one click acts — rather than
  * `DeliverButton`'s arm-then-act. It takes the same spinner-and-refusal
  * treatment every acting control has, because a detached spawn cannot report
@@ -37,7 +38,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 /** How often to ask what happened, once a click is outstanding. */
 const POLL_MS = 700;
 
-/** Long enough for the preflight, branch, brief and Started record; then the log. */
+/** Long enough for the preflight, the brief and the Started record; then the log. */
 const GIVE_UP_MS = 300_000;
 
 export interface ImplementButtonProps {
@@ -190,7 +191,11 @@ export function ImplementButton({
         // the page has dimmed.
         aria-disabled={blocked || undefined}
         aria-busy={running}
-        title={implement.available ? (title ?? `Implement ${slug} — prepare a slice with /plot-implement`) : implement.reason}
+        title={
+          implement.available
+            ? (title ?? `Implement ${slug} — write the hand-off brief and the Started record; no branch is claimed`)
+            : implement.reason
+        }
         className={
           blocked
             ? `cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600${running ? ` ${ACTING_CLASS}` : ''}`
