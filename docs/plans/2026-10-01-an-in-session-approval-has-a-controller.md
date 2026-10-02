@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-transition-takes-the-reviewer`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-scripts-own-the-approval-and-the-release`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
