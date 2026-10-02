@@ -181,13 +181,23 @@ export function startServer(cwd, env = {}) {
       // the tree is removed. CI left `<repo>/.budget/budget.tsv` this way on
       // 2026-10-02 (#1205). The late child is in its script's group, so the
       // group is signalled and waited for.
+      //
+      // ONE TERM PER PROCESS. A group member is signalled through its group
+      // only. `plot-tmp.sh`'s TERM trap opens with `trap - EXIT TERM`, so a
+      // second TERM that lands while the trap runs kills the script before it
+      // removes its registry and temp files. PR #1209's first CI run left
+      // `plot-reg.*` and `plot-host-*` entries this way when every member got
+      // the group TERM and then its own. SIGCONT follows, so a stopped member
+      // acts on the TERM.
       const kill = () => {
         signalPid(proc.pid, 'SIGSTOP');
         const table = processTable();
         const tree = descendantsOf(proc.pid, table);
         const groups = ledGroups(tree, table);
+        const ungrouped = tree.filter((pid) => !table.some((row) => row.pid === pid && groups.includes(row.pgid)));
         for (const pgid of groups) signalPid(-pgid, 'SIGTERM');
-        for (const pid of tree) signalPid(pid, 'SIGTERM');
+        for (const pid of ungrouped) signalPid(pid, 'SIGTERM');
+        for (const pgid of groups) signalPid(-pgid, 'SIGCONT');
         signalPid(proc.pid, 'SIGTERM');
         signalPid(proc.pid, 'SIGCONT');
         if (untilGoneSync([proc.pid, ...tree], groups)) return;
