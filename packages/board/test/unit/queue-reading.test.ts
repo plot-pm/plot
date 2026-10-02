@@ -86,6 +86,7 @@ describe('the host is asked once per branch, and only where the answer decides',
     viewLanded: async () => 'unknown',
     briefPresent: async () => true,
     sliceHasMerged: async () => false,
+    subjectProven: async () => null,
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
@@ -166,6 +167,7 @@ describe('a known PR number is asked by number when the listing fails', () => {
       },
       briefPresent: async () => true,
       sliceHasMerged: async () => false,
+      subjectProven: async () => null,
       queuedHasLanded: async (branch) => {
         asked.branches.push(branch);
         return queued(branch);

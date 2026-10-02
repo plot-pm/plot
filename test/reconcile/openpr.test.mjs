@@ -289,6 +289,66 @@ test('open-pr: a merged PR counts as carrying the branch too', () => {
   assert.match(err, /#12 already carries/);
 });
 
+// --- which PR row carries the branch (#1093) --------------------------------
+
+test('open-pr: a closed, unmerged PR carries nothing — the PR opens, naming it', () => {
+  // MEASURED 2026-09-30 on `bug/a-state-sweep-is-one-request`: #1089 was opened,
+  // closed 38 s later, and the branch force-pushed, so GitHub refuses to reopen
+  // it. Every later run refused `pr-exists` while the branch held two finished
+  // commits.
+  makeRepo();
+  setHostState({ prs: [{ number: 1089, title: 'closed early', state: 'CLOSED', head: 'feature/alpha' }] });
+  const { err } = run([]);
+
+  const argv = created();
+  assert.ok(argv, `a closed PR carries no branch — the PR must open:\n${err}`);
+  assert.match(err, /#1089/, `and the operator must be told which PR was closed:\n${err}`);
+  assert.match(err, /closed unmerged/, err);
+  const body = argv[argv.indexOf('--body') + 1];
+  assert.match(body, /#1089/, `the body names the closed PR:\n${body}`);
+  assert.match(body, /closed unmerged/, body);
+});
+
+test('open-pr: a CLOSED row before an OPEN one still refuses, naming the open PR', () => {
+  // THE SCRIPT PASSES EVERY ROW, NOT THE FIRST MATCH. A domain-only fix passes
+  // every domain test and still fails here: the shell kept one number, so the
+  // rule never saw the open PR behind the closed one.
+  makeRepo();
+  setHostState({ prs: [
+    { number: 1089, title: 'closed early', state: 'CLOSED', head: 'feature/alpha' },
+    { number: 1102, title: 'the live one', state: 'OPEN', head: 'feature/alpha' },
+  ] });
+  const { err } = run([], { expectFail: true });
+
+  assert.match(err, /#1102 already carries/, `the OPEN row decides, wherever it sits:\n${err}`);
+  assert.equal(created(), null, 'a refusal opens nothing');
+});
+
+test('open-pr: a MERGED row behind a CLOSED one refuses too', () => {
+  makeRepo();
+  setHostState({ prs: [
+    { number: 1089, title: 'closed early', state: 'CLOSED', head: 'feature/alpha' },
+    { number: 1049, title: 'landed', state: 'MERGED', head: 'feature/alpha' },
+  ] });
+  const { err } = run([], { expectFail: true });
+
+  assert.match(err, /#1049 already carries/, err);
+  assert.equal(created(), null);
+});
+
+test('open-pr: a closed PR on another branch is not this branch\'s row', () => {
+  // The rows are filtered by head, as they always were.
+  makeRepo();
+  setHostState({ prs: [{ number: 1089, title: 'elsewhere', state: 'CLOSED', head: 'feature/beta' }] });
+  const { err } = run([]);
+
+  const argv = created();
+  assert.ok(argv, err);
+  const body = argv[argv.indexOf('--body') + 1];
+  assert.doesNotMatch(body, /#1089/, `another branch's closed PR says nothing here:\n${body}`);
+  assert.doesNotMatch(err, /closed unmerged/, err);
+});
+
 test('open-pr: refuses a branch holding no commit its base does not', () => {
   makeRepo({ files: {} });
   const { err } = run([], { expectFail: true });

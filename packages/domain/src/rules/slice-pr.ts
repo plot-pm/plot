@@ -79,6 +79,15 @@ export interface SlicePrDecision {
    * the plan, so this reports, and the body says so where it holds.
    */
   readonly notice: WorkNotice;
+  /**
+   * The PRs that once carried this branch and were closed unmerged.
+   *
+   * EMPTY IN THE ORDINARY CASE, and the body is byte-identical to what it was
+   * before this field existed when it is. A closed PR delivered nothing, so it
+   * carries no branch and refuses nothing — but a reader of the new PR is owed
+   * the number, because the closed one holds the review that was abandoned.
+   */
+  readonly closedPrs: readonly number[];
 }
 
 /** What opening a slice's PR answers: what to open, or the rule that stopped it. */
@@ -92,6 +101,23 @@ export type SlicePrResult = SlicePrDecision | SlicePrRefusal;
  */
 export const isSlicePrRefusal = (result: SlicePrResult): result is SlicePrRefusal =>
   result.outcome === 'refused';
+
+/**
+ * The state a `pr-list` row reports, as the three words the host reports.
+ *
+ * `DRAFT` IS NOT ONE OF THEM. A draft's draft status is a separate field on the
+ * row, so an open draft PR has `state: 'OPEN'` and carries the branch like any
+ * other open PR.
+ */
+export type SlicePrState = 'OPEN' | 'MERGED' | 'CLOSED';
+
+/** One `pr-list` row for the branch, as the adapter read it. */
+export interface SlicePrRow {
+  /** The PR's number. */
+  readonly number: number;
+  /** What the host says about it. */
+  readonly state: SlicePrState;
+}
 
 /** What a branch's own commits say, as the adapter measured them. */
 export interface SlicePrReadings {
@@ -114,8 +140,20 @@ export interface SlicePrReadings {
   readonly sliceName: string;
   /** The brief's path, or `''` where the slice has none. */
   readonly briefFile: string;
-  /** The PR number already carrying this branch, or 0 where none does. */
-  readonly existingPr: number;
+  /**
+   * Every `pr-list` row whose head is this branch, in the host's order.
+   *
+   * THE RULE DECIDES WHICH ROW CARRIES THE BRANCH, AND THE ADAPTER DOES NOT.
+   * #1093: the shell kept the number of the FIRST matching row and read no
+   * state, so a branch whose earlier PR was closed unmerged read as carried
+   * forever, and a branch with both a closed and an open PR gave whichever
+   * answer the host's row order produced.
+   *
+   * EMPTY MEANS NO ROW WAS FOUND, never *no PR exists*. A `pr-list` that could
+   * not be asked gives no rows and the opening proceeds, because a refusal is
+   * not one to raise on an outage and the host itself refuses a duplicate.
+   */
+  readonly prs: readonly SlicePrRow[];
   /** How many commits the branch holds that its base does not. */
   readonly commits: number;
   /**
@@ -147,6 +185,24 @@ export const MARKER_ONLY_NOTICE =
   '> **This branch carries no implementation** — its commits change nothing outside a `PLOT-BLOCKED*` marker and its claim. Check whether the work landed under another PR, mark the slice `deferred:`, or finish it before merging.';
 
 /**
+ * The sentence a body puts in where an earlier PR was closed unmerged.
+ *
+ * ONE SENTENCE NAMING EVERY NUMBER. A branch may collect more than one closed
+ * PR, and a reader asking *what happened to the earlier review* needs all of
+ * them rather than the newest.
+ *
+ * @param closedPrs - the closed, unmerged PRs, in the host's order.
+ * @returns the sentence, as markdown.
+ */
+export const closedPrNotice = (closedPrs: readonly number[]): string => {
+  const names = closedPrs.map((n) => `#${n}`);
+  const subject =
+    names.length === 1 ? `Earlier PR ${names[0]} was` : `Earlier PRs ${names.join(', ')} were`;
+  return `${subject} closed unmerged.`;
+};
+
+
+/**
  * Compose the body of a slice's PR.
  *
  * THE PARTS ARE THE PLAN, THE BRIEF AND THE NOTICE, in that order. A reader
@@ -155,12 +211,20 @@ export const MARKER_ONLY_NOTICE =
  *
  * @param readings - what the adapter measured about the branch and its plan.
  * @param notice - what the branch's commits said about the work it carries.
+ * @param closedPrs - the PRs that carried this branch and were closed unmerged.
  * @returns the body, as markdown.
  */
-const bodyFor = (readings: SlicePrReadings, notice: WorkNotice): string => {
+const bodyFor = (
+  readings: SlicePrReadings,
+  notice: WorkNotice,
+  closedPrs: readonly number[],
+): string => {
   const parts = [`Slice of [${readings.planSlug}](${readings.planFile}): **${readings.sliceName}**.`];
   if (readings.briefFile !== '') {
     parts.push(`Brief: [\`${readings.briefFile}\`](${readings.briefFile}).`);
+  }
+  if (closedPrs.length > 0) {
+    parts.push(closedPrNotice(closedPrs));
   }
   if (notice === 'marker-only') {
     parts.push(MARKER_ONLY_NOTICE);
@@ -207,11 +271,15 @@ export const openSlicePr = (
       detail: `'${readings.planSlug}' names '${readings.branch}' under no wave heading — the PR title is that heading, and a branch name is not one`,
     };
   }
-  if (readings.existingPr > 0) {
+  // WHICH ROW CARRIES THE BRANCH IS A QUESTION OF STATE, NOT OF POSITION. An
+  // open PR and a merged one both mean the branch is carried, wherever the host
+  // listed them; a closed one delivered nothing and carries nothing.
+  const carrying = readings.prs.find((pr) => pr.state === 'OPEN' || pr.state === 'MERGED');
+  if (carrying !== undefined) {
     return {
       outcome: 'refused',
       reason: 'pr-exists',
-      detail: `#${readings.existingPr} already carries '${readings.branch}' — push to the branch and the PR follows it`,
+      detail: `#${carrying.number} already carries '${readings.branch}' — push to the branch and the PR follows it`,
     };
   }
   if (readings.commits <= 0) {
@@ -223,13 +291,15 @@ export const openSlicePr = (
   }
   const notice: WorkNotice =
     readings.carriedWork === 'unknown' ? 'unknown' : readings.carriedWork ? 'carries-work' : 'marker-only';
+  const closedPrs = readings.prs.filter((pr) => pr.state === 'CLOSED').map((pr) => pr.number);
   return {
     outcome: 'decided',
     head: readings.branch,
     base: readings.base,
     title: readings.sliceName,
-    body: bodyFor(readings, notice),
+    body: bodyFor(readings, notice, closedPrs),
     draft: input.draft,
     notice,
+    closedPrs,
   };
 };
