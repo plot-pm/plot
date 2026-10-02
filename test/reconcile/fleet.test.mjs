@@ -4846,6 +4846,175 @@ test('fleet: completeness is counted on the all payload before its OPEN rows are
   f.cleanup();
 });
 
+// --- the adapter's completeness claim outranks the scan's row count --------
+//
+// A page AT its limit proves only "at least this many", so the row-count test
+// cannot license `NONE` — and on a repository that outgrew the limit it stopped
+// licensing anything at all. Measured 2026-10-02 here: 1064 PRs, `--state all
+// --limit 1000` returned exactly 1000 rows, `.list-complete` was withheld, and
+// the 26 branches the join could not name each cost one `pr-state` call at
+// 3.8 s — 54-61% of the scan's wall time (#1017).
+//
+// `plot-host.sh` now states the claim only it can make, and these tests pin the
+// sentence on the reading side. The row count stays as the fallback, which is
+// what the two tests above (`PLOT_PR_LIST_LIMIT: '2'` / `'3'`) still cover: the
+// stub there emits no sentence at all.
+
+const PAGE_COMPLETE = (state, rows, limit) =>
+  `plot-host: github pr-list state=${state} page complete (${rows} rows below requested limit ${limit}) — this page holds every pull request the host has in this state`;
+
+test('fleet: a stated page-complete claim licenses the marker at the row limit', () => {
+  // THE DISCRIMINATING CASE. Both pages return exactly the limit, so the row
+  // count says "possibly truncated" and would withhold the marker. The adapter
+  // says the pages were whole, and a stated claim outranks a re-derived one.
+  const f = makeOpenAndLandedRepo('plot-fleet-complete-stated-');
+  const { cache } = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    openErr: PAGE_COMPLETE('open', 1, 1),
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open')],
+    allErr: PAGE_COMPLETE('all', 1, 1),
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok('.list-complete' in cache,
+    'the adapter stated both pages were whole and the scan read its own row count instead');
+  f.cleanup();
+});
+
+test('fleet: a page at the limit with no stated claim still withholds the marker', () => {
+  // THE GUARD THE FIX MUST NOT WEAKEN. A silent adapter leaves the row count
+  // deciding, and a page at its limit is unprovable. Withholding costs one
+  // `pr-state` call per unjoined branch and never a wrong answer.
+  const f = makeOpenAndLandedRepo('plot-fleet-complete-silent-');
+  const { cache } = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open')],
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok('.list-arrived' in cache, 'the list arrived and must say so');
+  assert.ok(!('.list-complete' in cache),
+    'a page at its limit with no stated claim was read as whole');
+  f.cleanup();
+});
+
+test('fleet: one page claiming completeness is not enough for the marker', () => {
+  // BOTH PAGES OR NEITHER. The `all` payload's OPEN rows are dropped, so a
+  // short `open` page is what keeps an open PR from having no row at all. A
+  // truncated `open` page plus a complete `all` page would turn those misses
+  // into `NONE` — a real PR reported absent, which is worse than the cost.
+  const f = makeOpenAndLandedRepo('plot-fleet-complete-half-');
+  const { cache } = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open')],
+    allErr: PAGE_COMPLETE('all', 1, 1),
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok(!('.list-complete' in cache),
+    'the all page alone licensed completeness while the open page was unprovable');
+  f.cleanup();
+});
+
+test('fleet: a truncation report never licenses the marker', () => {
+  // The adapter's other sentence, read as the refusal it is.
+  const f = makeOpenAndLandedRepo('plot-fleet-complete-trunc-');
+  const { cache } = scanWithHostCache(f, stateAwareHost({
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    openErr: PAGE_COMPLETE('open', 1, 1),
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open')],
+    allErr: "plot-host: github pr-list state=all possibly truncated (1 rows, requested limit 1 unprovable) — a join against this page may read older branches as 'no PR' (#333)",
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok(!('.list-complete' in cache),
+    'a page the adapter called possibly truncated was read as whole');
+  f.cleanup();
+});
+
+// THE CALL COUNT IS ASSERTED ON A BRANCH WITH NO REF, which is the population
+// `--ask` is reached for at all. `host_pr_state --ask` fires from `branch_merged`
+// (`:1399`) for a branch whose ref is gone and from `waits_pr_state` (`:1465`)
+// for a prerequisite; a branch whose ref is pushed answers from the join or from
+// git and asks nothing either way.
+//
+// Measured while writing these tests: against a fixture whose branches both had
+// refs, the licensed and the unlicensed case BOTH made zero `pr-state` calls, so
+// an assertion on the count passed for a reason that had nothing to do with the
+// marker. A plan names the branch and no ref is pushed for it, so the join is
+// the only thing that can answer.
+// A BRANCH WITH NO REF IS THE POPULATION, and the fixture is the one
+// `fleet: the host is asked once per absent branch` already proves reaches
+// `host_pr_state --ask`: a squash-merged branch whose ref was deleted at merge,
+// beside one whose ref is still pushed. Git cannot answer the first, so the
+// marker is what decides whether it costs a round trip. The list names neither,
+// which is exactly the 26 branches slice 1 measured.
+//
+// THE STUB COUNTS `pr-state` AND SERVES THE TWO PAGES, so the only thing that
+// differs between the two tests below is the completeness sentence on stderr.
+const goneAndHereHost = ({ openErr = '', allErr = '' }) => `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  pr-list)
+    case " $* " in
+      *" --state open "*) ${openErr ? `echo '${openErr}' >&2` : ':'} ; exit 0 ;;
+      *" --state all "*)
+        echo '{"number":9,"title":"t","state":"MERGED","head":"feature/other","draft":false,"url":"u"}'
+        ${allErr ? `echo '${allErr}' >&2` : ':'}
+        exit 0 ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`;
+
+const makeGoneAndHereRepo = (prefix) => {
+  const f = makeRepo(prefix,
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/gone` — squash-merged and deleted\n- `feature/here` — still pushed\n');
+  f.work('feature/gone', 'g.txt');
+  f.push('-u', 'origin', 'feature/gone');
+  squashMerge(f, 'feature/gone', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/gone');
+  f.work('feature/here', 'h.txt');
+  f.push('-u', 'origin', 'feature/here');
+  git(f.dir, 'checkout', '-q', 'main');
+  return f;
+};
+
+test('fleet: the marker is withheld on an unprovable page and the verdict is unchanged', () => {
+  // THE DIRECTION THAT MUST SURVIVE. A Bitbucket checkout whose `bb pr list`
+  // caps at 50 states no claim, so the marker stays absent and `host_pr_state
+  // --ask` keeps falling through to the host rather than deriving `NONE` from a
+  // page that could not prove itself. That is the 2026-08-17 outage's failure in
+  // a new shape, and it is strictly worse than the cost this slice removes.
+  //
+  // ASSERTED ON THE MARKER, which is what licenses the derivation and what this
+  // change controls. The per-branch call count is deliberately NOT asserted
+  // here: measured 2026-10-02 against pristine `origin/main` (d116e84bf), the
+  // neighbouring `fleet: the host is asked once per absent branch` makes zero
+  // `pr-state` calls on this machine and fails with ENOENT on its own
+  // `calls.txt`, so a count assertion would pin a fixture that is broken before
+  // this branch touches anything. Reported on #1017, not repaired here.
+  const f = makeGoneAndHereRepo('plot-fleet-complete-asks-');
+  const { cache } = scanWithHostCache(f, goneAndHereHost({}),
+    ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok('.list-arrived' in cache, 'the list arrived and must say so');
+  assert.ok(!('.list-complete' in cache),
+    'a page at its limit with no stated claim licensed the NONE derivation');
+  f.cleanup();
+});
+
+test('fleet: a stated claim licenses the derivation the row count could not', () => {
+  // THE MECHANISM THE FIX EXISTS FOR. The same fixture and the same two pages,
+  // both AT the row limit — so the fallback count withholds the marker, exactly
+  // as the test above shows. The only difference is the sentence the adapter
+  // prints, and that sentence is what turns 26 per-branch calls at 3.8 s into a
+  // join: 54-61% of the scan's wall time in slice 1's five runs (#1017).
+  const f = makeGoneAndHereRepo('plot-fleet-complete-nocalls-');
+  const { cache } = scanWithHostCache(f, goneAndHereHost({
+    openErr: PAGE_COMPLETE('open', 0, 1), allErr: PAGE_COMPLETE('all', 1, 1),
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok('.list-complete' in cache,
+    'the adapter stated both pages were whole and the scan withheld the licence anyway');
+  f.cleanup();
+});
+
 // --- ref_held: whether a ref on the remote holds the branch ----------------
 //
 // The git fact `plot-dispatch.sh` tests when it claims: a push of an empty
