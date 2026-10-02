@@ -388,6 +388,25 @@ monitor_transcript_quiet() { # → seconds | unavailable
   plot_transcript_quiet_seconds "$worktree"
 }
 
+# The reset epoch this desk is waiting out, or nothing.
+#
+# THE LOOP WRITES THE FILE AND THIS ONLY READS IT. `.plot-worker.limited`
+# carries the reset epoch, the same instant as ISO text, and the limit line;
+# only the first field is read here, because the monitor compares integers and
+# never parses a date — which is why the loop writes the instant twice.
+#
+# NOTHING IS ANSWERED FOR AN ABSENT, EMPTY OR UNPARSEABLE FILE, and the caller
+# reads that as *this desk is not waiting*. A record whose first field is not a
+# number is the same answer as no record: the monitor must not widen a reading
+# it cannot make into a reason to hold a verdict back.
+monitor_limited_reset() { # → epoch seconds | ""
+  local file="$worktree/.plot-worker.limited" reset
+  [ -n "$worktree" ] && [ -r "$file" ] || return 0
+  reset=$(cut -f1 < "$file" 2>/dev/null | head -n1)
+  case "$reset" in (''|*[!0-9]*) return 0 ;; esac
+  printf '%s' "$reset"
+}
+
 # Has THIS worker's conversation written yet?
 #
 # THE DESK-WIDE NUMBER CANNOT SAY. After a hop to a new branch the loop mints a
@@ -532,6 +551,32 @@ sample_verdict() { # → gone | quiet | busy | unknown | unspoken
     ''|unavailable)    printf 'unknown'; return ;;
     *[!0-9]*)          printf 'unknown'; return ;;
   esac
+
+  # A WAITING AGENT IS NOT A SILENT ONE, and the transcript cannot tell them
+  # apart. The loop waits out a usage limit by sleeping, so it writes no
+  # transcript line for as long as the limit lasts — up to the `Worker bound`.
+  # On the transcript alone that is indistinguishable from an agent that
+  # stopped, and the monitor would publish `idle`, the watcher would signal,
+  # and the loop would kill a prompt that had not started yet.
+  #
+  # SO SILENCE IS MEASURED FROM THE LATER OF THE TWO INSTANTS: the newest
+  # transcript line and the reset the desk is waiting for. While the reset is
+  # ahead of now the difference is negative, which CLAMPS TO 0 and reads as
+  # `busy` — the agent is doing exactly what it should.
+  #
+  # THE CLAMP IS WRITTEN RATHER THAN RELIED ON. A negative would compare
+  # correctly against the window by accident here and nowhere else, and
+  # `:533`'s `*[!0-9]*` arm would answer `unknown` for it if the order of these
+  # two blocks were ever swapped. `plot_transcript_quiet_seconds` states the
+  # same argument for its own clamp.
+  local limited_until
+  limited_until=$(monitor_limited_reset)
+  if [ -n "$limited_until" ]; then
+    local since_reset
+    since_reset=$(( $(date +%s) - limited_until ))
+    [ "$since_reset" -lt 0 ] && since_reset=0
+    [ "$since_reset" -lt "$quiet" ] && quiet=$since_reset
+  fi
 
   # Inside the window, the agent has produced output recently. Nothing else
   # needs asking: no CPU sample can overturn a line written seconds ago.
