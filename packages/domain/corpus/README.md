@@ -26,7 +26,7 @@ comparison here. Production supplies both the readings *and* its own verdict;
 the rule re-scores the same readings; the two verdicts are compared.
 `sprint-score.corpus.test.ts` is the first — `scoreItem` against
 `plot-sprint-release.sh`'s `item_state`, over 134 MoSCoW items in 10 sprints.
-`sample.corpus.test.ts` is the third — `idleNow` against
+`sample.corpus.test.ts` is the fifth — `idleNow` against
 `plot-worker-state.sh`'s `plot_worker_idle_now`, over all 864 combinations of
 the six readings, including both window boundaries and the `''` activity word.
 

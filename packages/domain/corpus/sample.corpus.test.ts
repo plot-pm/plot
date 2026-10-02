@@ -6,7 +6,7 @@ import type { WorkerActivity } from '../src/entities/fleet.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
 
 /**
- * THE THIRD RULE-VERSUS-SHELL COMPARISON: does `idleNow` answer what
+ * THE FIFTH RULE-VERSUS-SHELL COMPARISON: does `idleNow` answer what
  * `plot-worker-state.sh`'s `plot_worker_idle_now` answers, over every
  * combination of the six readings it takes?
  *
@@ -17,10 +17,10 @@ import { compareField, describingAs, type Disagreement, type Sides } from './com
  * AUTHORITATIVE — on a disagreement the branch stops, and adjusting either side
  * to make this pass is the one move forbidden.
  *
- * THE CORPUS IS CONSTRUCTED, AND EXHAUSTIVELY. A desk corpus has to be built
- * because CI's checkout has one clean worktree (`desk-reset.corpus.test.ts`
- * says so); this corpus needs no desk at all, because the rule is a function of
- * six values. So every combination is enumerated rather than sampled — the
+ * THE CORPUS IS CONSTRUCTED, AND EXHAUSTIVELY — the first of the five to be.
+ * A desk corpus has to be built because CI's checkout has one clean worktree
+ * (`desk-reset.corpus.test.ts` says so); this corpus needs no desk at all,
+ * because the rule is a function of six values. So every combination is enumerated rather than sampled — the
  * cross product is small enough to run whole, and a sampled corpus would be a
  * comparison whose coverage depends on a seed.
  *
