@@ -594,7 +594,7 @@ describe('whyNotReady — the host is named where the plan was blamed', () => {
     expect(whyNotReady(slice({ claimable: false, priorUnknown: false }))).toBe('not-claimable');
   });
 
-  it('keeps a slice's own answer ahead of its predecessor's', () => {
+  it("keeps a slice's own answer ahead of its predecessor's", () => {
     // A CLAIMABLE SLICE IS NEVER `prior-unknown`. Its own landing question was
     // asked, and whatever it answered is the fact that decides.
     expect(whyNotReady(slice({ landed: 'unknown', priorUnknown: true }))).toBe('merge-unknown');

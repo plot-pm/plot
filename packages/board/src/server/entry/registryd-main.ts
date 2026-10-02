@@ -654,11 +654,22 @@ export const queueWorldForRepo = (
       // before.
       tally.calls += 1;
       const answer = await host.prList('merged', 500);
-      if (!answer.ok) return { merged: new Set<string>(), whole: false };
+      // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
+      // incomplete and cannot say why; the tick line prints the kind, so an
+      // operator reads `unaskable(throttled)` rather than inferring a rate
+      // limit from a count of held slices (#1094).
+      if (!answer.ok)
+        return {
+          merged: new Set<string>(),
+          whole: false,
+          kind: host.lastRefusal()?.kind ?? 'failed',
+          failed: true,
+        };
       // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers the
       // rows that arrived and leaves a refusal behind, so a branch missing from
       // them may still have merged.
-      const whole = host.lastRefusal() === null;
+      const refusal = host.lastRefusal();
+      const whole = refusal === null;
       // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
       // The repo's rule is that `mergedAt` decides *did this land* — a merged
       // PR reports CLOSED when asked about one PR. Here `--state merged` made
@@ -669,6 +680,8 @@ export const queueWorldForRepo = (
       return {
         merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
         whole,
+        kind: refusal?.kind ?? null,
+        failed: false,
       };
     },
     prIndexRows: async () => {
@@ -1268,11 +1281,11 @@ export const run = async (
  * **A HOLD OVER THE ESTATE GROWS WITH THE BACKLOG; A HOLD OVER THE QUEUE DOES
  * NOT.** `not-claimable` is every branch no plan makes claimable — 165 on this
  * estate, re-enumerated 7,333 times in seven days, and the bulk of a 69 MB
- * log. The other four are refusals about slices that were actually queued:
+ * log. Every other hold is a refusal about a slice that was actually queued:
  * small, churning, and what a debugger reads at 3am.
  *
- * **IT IS A TOTAL RECORD RATHER THAN A STRING TEST**, because a sixth hold
- * must not default into silence. `hold === 'not-claimable'` compiles forever
+ * **IT IS A TOTAL RECORD RATHER THAN A STRING TEST**, because a hold added
+ * later must not default into silence. `hold === 'not-claimable'` compiles forever
  * and re-opens this hole the day an estate-wide hold is added; a missing key
  * here fails the build.
  */
@@ -1280,6 +1293,11 @@ const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
   'already-merged': 'queue',
   'merge-unknown': 'queue',
   'no-brief': 'queue',
+  // QUEUE-SCOPED, SO A LOOPING TICK NAMES ITS BRANCHES. It is proportional to
+  // the slices one outage left unanswered rather than to the backlog, and it is
+  // the hold an operator is waiting on a branch for — the case `not-claimable`
+  // below made invisible by being a count only (#1094).
+  'prior-unknown': 'queue',
   'not-claimable': 'estate',
   'no-free-agent': 'queue',
 };

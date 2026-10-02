@@ -350,12 +350,27 @@ export const tickLine = (report: TickReport): string => {
       `idle=${queue.idle.length}`,
     );
     // THE HOLDS ARE COUNTED ON THE SUMMARY LINE, because this line is what a
-    // person reads on a running daemon and what the log carries. All six keys
-    // print every time a queue was read, so a zero is a measurement — the
+    // person reads on a running daemon and what the log carries. EVERY key
+    // prints every time a queue was read, so a zero is a measurement — the
     // difference between *nothing was ready* and *something is wrong*, which
-    // `handed=0` alone could never say.
+    // `handed=0` alone could never say. The keys are `QUEUE_HOLDS`' own, so a
+    // hold added there prints here without being named twice.
     const counts = holdCounts(queue.held);
     for (const hold of QUEUE_HOLDS) fields.push(`${hold}=${counts[hold]}`);
+    // HOW FULLY THE HOST ANSWERED *WHICH BRANCHES MERGED*, which is the cause
+    // behind every `merge-unknown=` and `prior-unknown=` above it. Under HTTP
+    // 429 the supervisor held 36 slices and this line named no refusal, so the
+    // rate limit was found by reading a Bitbucket dashboard (#1094).
+    //
+    // IT IS CONSTANT WHERE A QUEUE WAS READ, `whole` included, so a missing key
+    // is a version difference rather than a silence — the rule the hold counts
+    // follow. `unaskable` is a listing that failed and `partial` one that
+    // answered and left a refusal behind: a partial set's rows may be
+    // incomplete, an unaskable set has none.
+    if (queue.mergedSet !== null) {
+      const { state, kind } = queue.mergedSet;
+      fields.push(`merged-set=${kind === null ? state : `${state}(${kind})`}`);
+    }
     // `started=` IS OMITTED WHEN NOBODY ASKED TO SCALE, the same rule the three
     // fields above follow: `started=0` on a tick that never read a cap claims
     // the fleet was already the size it should be, which is a claim this tick

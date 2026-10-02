@@ -3,6 +3,7 @@ import { type FleetSize, fleetSize } from '../rules/fleet-size.js';
 import {
   type Assignment,
   type HeldSlice,
+  type MergedSetState,
   type QueueReadings,
   matchQueue,
 } from '../rules/queue.js';
@@ -26,6 +27,19 @@ export interface AssignDetail {
    * with no cap configured indistinguishable from one over a quiet estate.
    */
   scaling: FleetSize | null;
+  /**
+   * How fully the host answered *which branches merged* for this pass, or
+   * `null` where no listing was read.
+   *
+   * **IT IS CARRIED BECAUSE IT IS THE CAUSE OF THE HOLDS BESIDE IT.** Every
+   * `merge-unknown` and every `prior-unknown` in {@link AssignDetail.held}
+   * came from this answer, and a reader of the counts alone cannot tell a plan
+   * waiting its turn from an estate whose host refused. It decides nothing:
+   * {@link matchQueue} never reads it.
+   *
+   * **NULL IS *NOBODY ASKED***, the rule {@link AssignDetail.scaling} follows.
+   */
+  mergedSet: MergedSetState | null;
 }
 
 /**
@@ -148,7 +162,13 @@ export const assign = (
     writes.push({ kind: 'worker-start', branch: '', worktree: desk });
   }
 
-  return decide('assign', writes, { assignments: taken, held, idle, scaling });
+  return decide('assign', writes, {
+    assignments: taken,
+    held,
+    idle,
+    scaling,
+    mergedSet: readings.mergedSet ?? null,
+  });
 };
 
 /**
