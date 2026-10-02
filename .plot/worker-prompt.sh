@@ -137,10 +137,6 @@ harness="${PLOT_HARNESS:-claude}"
 
 model_args=()
 [ -n "${PLOT_MODEL:-}" ] && model_args=(--model "$PLOT_MODEL")
-# THIS PROJECT'S DEFAULT FOR IMPLEMENTATION when no charter names a model: opus.
-# Brief writing runs on sonnet through `Brief command` in CLAUDE.md. The model
-# is set here so it does not depend on the operator's own `claude` default.
-[ -z "${PLOT_MODEL:-}" ] && [ "$harness" = "claude" ] && model_args=(--model opus)
 
 # THE EFFORT FLAG IS THIS HARNESS'S NAME FOR IT. Change the flag, not the
 # variable, when a project runs something that spells it another way.
