@@ -58,6 +58,12 @@ describe('globToRegExp', () => {
     expect(globToRegExp('**/*.test.ts').test('packages/a/b.test.ts')).toBe(true);
   });
 
+  it('lets `?` match one character inside a segment', () => {
+    expect(globToRegExp('v?.ts').test('v1.ts')).toBe(true);
+    expect(globToRegExp('v?.ts').test('v12.ts')).toBe(false);
+    expect(globToRegExp('a?b').test('a/b')).toBe(false);
+  });
+
   it('treats regex characters in a glob literally', () => {
     expect(globToRegExp('a+b.(c)').test('a+b.(c)')).toBe(true);
     expect(globToRegExp('a+b.(c)').test('aab.c')).toBe(false);
