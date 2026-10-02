@@ -1224,6 +1224,7 @@ describe('a tick asks the host about a branch once', () => {
         viewLanded: async () => 'unknown',
         briefPresent: async () => true,
         sliceHasMerged: queue.sliceHasMerged,
+        subjectProven: async () => null,
         queuedHasLanded: queue.queuedHasLanded,
         workerAlive: async () => true,
         blocked: async () => false,
