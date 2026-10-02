@@ -105,31 +105,132 @@ PLOT_WORKER_RECORD='\.plot-worker\.'
 # its number. Without it, dead pids are one `fork()` away from reading `running`.
 #
 # THE WORKTREE→MANIFEST LOOKUP. The manifest directory lives at
-# `$PLOT_MANIFEST_DIR` when the caller sets it, or it is derived from the
-# worktree's repo root. Each manifest names a `worktree` field; the lookup
-# finds the manifest whose worktree matches.
+# `$PLOT_MANIFEST_DIR` when the caller sets it, and is otherwise resolved from
+# the MAIN CHECKOUT and the `Agent registry` key. Each manifest names a
+# `worktree` field; the lookup finds the manifest whose worktree matches.
+#
+# THE RULE IS `deskManifest` / `manifestDirectory` IN THE DOMAIN
+# (`packages/domain/src/rules/desk-manifest.ts`), and this is a DECLARED
+# DUPLICATE of it rather than a call to it. `docs/shell-and-domain.md` puts the
+# choice on the cost: `plot_manifest_for_worktree` runs once per worktree per
+# fleet-scan pass, and a bundle answers in about 39 ms, so a hop here is paid by
+# every desk on every pass forever. `packages/domain/corpus/desk-manifest.corpus.test.ts`
+# holds the pair. NEITHER SIDE IS AUTHORITATIVE: on a disagreement the branch
+# stops, and adjusting either side to make the comparison pass is forbidden.
 
-# The manifest directory, set by callers who know their repo root. When unset,
-# `plot_manifest_for_worktree` derives it from the worktree's own repo.
+# The manifest directory, set by callers who know their repo root. When unset it
+# is resolved once at source time, below.
 : "${PLOT_MANIFEST_DIR:=}"
+
+# The MAIN checkout for a directory, or "" — the reading `plot_repo_root`
+# (`plot-desk-root.sh:38-46`) makes, asked of a path rather than of the cwd.
+#
+# `--show-toplevel` ANSWERS THE DESK inside a linked worktree, which is the whole
+# of #1086: this function derived `<desk>/.plot/agents` and found no manifest, so
+# every worker-state reading taken from inside a dispatched desk read its agent
+# as unregistered. Every linked worktree shares ONE common git dir, so the
+# parent of `--git-common-dir` is the main checkout from anywhere.
+#
+# THE COMMON DIR MAY BE RELATIVE. In a linked worktree git prints an absolute
+# path; in the main checkout it prints `.git`, relative to the tree. So it is
+# resolved by `cd`-ing to the tree FIRST and then to the common dir, which makes
+# both forms absolute, and `pwd -P` keeps it physical for the same reason
+# `plot-desk-root.sh` does: `git worktree list` prints resolved paths, and a
+# directory composed from a logical one (`/tmp` against `/private/tmp` on macOS)
+# is a prefix no worktree path starts with.
+plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
+  local at="$1" common root=''
+  [ -n "$at" ] && [ -d "$at" ] || return 1
+  common=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
+    common=$(cd -- "$at" 2>/dev/null && cd -- "$common" 2>/dev/null && pwd -P) || common=''
+    [ -n "$common" ] && root=$(dirname -- "$common")
+  }
+  [ -n "$root" ] || root=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -n "$root" ] || return 1
+  printf '%s' "$root"
+}
+
+# The `Agent registry` directory for a main checkout — `manifestDirectory`'s rule.
+#
+# An absolute value is taken as given, so a project may name a registry outside
+# its own tree; a relative one joins to the MAIN CHECKOUT, never to a desk,
+# because a desk must resolve the same directory the checkout does (`CLAUDE.md`
+# gives that reason for `Board artifact` and `Agent settings`). An absent or
+# empty key means `.plot/agents`. The trailing slash is trimmed, the way
+# `plot-dispatch.sh:agent_registry_dir` trims one and `path.join` normalises
+# one — two answers to *where is the registry* is what this removes.
+# `PLOT_REPO_ROOT` IS PASSED AND NEVER INHERITED, which is this function's one
+# trap. `plot-config.sh:222` takes an exported `PLOT_REPO_ROOT` in preference to
+# asking git, and the fleet wrapper exports the DISPATCHING repository's root
+# into every agent — so a lookup about a desk in another checkout read this
+# repository's `CLAUDE.md`. Measured 2026-10-02 while building this slice: a
+# fixture repo with its own `Agent registry` key answered the surrounding repo's
+# `.plot/agents`. Its own fallback is `--show-toplevel`, which answers the DESK,
+# so leaving the variable unset would reintroduce #1086 one layer down.
+plot_manifest_dir_for() { # $1=main checkout → prints the directory
+  local root="$1" dir=''
+  if [ -x "$_plot_wstate_config" ] || [ -r "$_plot_wstate_config" ]; then
+    dir=$(PLOT_REPO_ROOT="$root" bash "$_plot_wstate_config" get "Agent registry" "" 2>/dev/null) || dir=''
+  fi
+  # Whitespace alone is a key nobody filled in.
+  dir=$(printf '%s' "$dir" | tr -d '[:space:]')
+  [ -n "$dir" ] || dir=".plot/agents"
+  case "$dir" in
+    /*) ;;
+    *)  dir="${root%/}/$dir" ;;
+  esac
+  printf '%s' "${dir%/}"
+}
+
+# `plot-config.sh`, resolved ONCE at source time the way `plot-desk-root.sh:48`
+# resolves its own bundle: reading `BASH_SOURCE[0]` inside a function reads the
+# CALLER's file once the function has been exported.
+_plot_wstate_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
+
+# THE DIRECTORY IS RESOLVED AT SOURCE TIME, AND THAT IS NOT A STYLE CHOICE.
+# Both callers invoke the lookup as `manifest=$(plot_manifest_for_worktree …)`,
+# so an assignment made inside it dies with the command substitution's subshell
+# and a cache set there never reaches a second call. Resolving here spends one
+# `plot-config.sh` fork per PROCESS instead of one per desk per pass.
+#
+# A CALLER-SET VALUE WINS and is never overwritten: the dispatcher and the tests
+# set it, and they know their repo root without being asked.
+if [ -z "$PLOT_MANIFEST_DIR" ]; then
+  _plot_wstate_root=$(plot_main_checkout_of "$PWD" 2>/dev/null) || _plot_wstate_root=''
+  if [ -n "$_plot_wstate_root" ]; then
+    PLOT_MANIFEST_DIR=$(plot_manifest_dir_for "$_plot_wstate_root")
+  fi
+  unset _plot_wstate_root
+fi
 
 # Find the manifest for a worktree → the full path, or "" (non-zero).
 #
-# Iterates `.plot/agents/*.json` and matches on the `worktree` field. The
-# dispatcher records the RESOLVED worktree path (`realpath`), so the match is
-# tried against both the path as given and its realpath.
+# Iterates the registry's `*.json` and matches on the `worktree` field. BOTH
+# SIDES CARRY BOTH PATH FORMS: the dispatcher records the RESOLVED worktree path
+# (`realpath`) and git may report either, and a desk registered by its symlinked
+# path must still be found by its real one. So the manifest's field is resolved
+# too, and either form matches either.
+#
+# SEVERAL MANIFESTS IS NOT THE FIRST MATCH. Two agents on one desk is an estate
+# defect, and returning the first hides it, so this returns non-zero — the same
+# answer `deskManifest` gives as `several`, which every caller reads as *no
+# manifest*.
+#
+# ABSENT IS NOT FALSE: a missing directory, an unreadable manifest and a desk
+# that is gone all answer "no manifest" rather than failing loudly.
 plot_manifest_for_worktree() { # $1=worktree → manifest path, or "" (non-zero)
-  local wt="$1" dir real f wt_field
+  local wt="$1" dir real f wt_field wt_real found='' count=0
   [ -n "$wt" ] || return 1
 
-  # Determine the manifest directory.
-  if [ -n "$PLOT_MANIFEST_DIR" ]; then
-    dir="$PLOT_MANIFEST_DIR"
-  else
-    # Derive from the worktree's repo. A worktree IS a git working tree, so
-    # `git rev-parse --show-toplevel` from inside it returns the MAIN repo —
-    # which is where `.plot/agents/` lives.
-    dir=$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)/.plot/agents
+  # The directory: the caller's value, then the one resolved at source time, then
+  # a resolution from the WORKTREE's own main checkout — which covers a caller
+  # whose cwd is outside any repository.
+  dir="$PLOT_MANIFEST_DIR"
+  if [ -z "$dir" ]; then
+    local root
+    root=$(plot_main_checkout_of "$wt" 2>/dev/null) || root=''
+    [ -n "$root" ] || return 1
+    dir=$(plot_manifest_dir_for "$root")
   fi
   [ -d "$dir" ] || return 1
 
@@ -143,12 +244,19 @@ plot_manifest_for_worktree() { # $1=worktree → manifest path, or "" (non-zero)
     # per line, so a grep-and-sed approach avoids parsing JSON in bash.
     wt_field=$(grep -m1 '"worktree":' "$f" 2>/dev/null | sed 's/.*"worktree": *"\([^"]*\)".*/\1/')
     [ -n "$wt_field" ] || continue
-    if [ "$wt_field" = "$wt" ] || [ "$wt_field" = "$real" ]; then
-      printf '%s' "$f"
-      return 0
+    # The manifest's own realpath, for the symlinked-registration case. A field
+    # naming a desk that is gone resolves to nothing and matches on its text.
+    wt_real=$(cd "$wt_field" 2>/dev/null && pwd -P) || wt_real=""
+    if [ "$wt_field" = "$wt" ] || [ "$wt_field" = "$real" ] ||
+       { [ -n "$wt_real" ] && { [ "$wt_real" = "$wt" ] || [ "$wt_real" = "$real" ]; }; }; then
+      found="$f"
+      count=$((count + 1))
     fi
   done
-  return 1
+
+  # Exactly one, or nothing. `several` is named by the count, not by a pick.
+  [ "$count" = 1 ] || return 1
+  printf '%s' "$found"
 }
 
 # Read pid and startedAt from a manifest → "pid\tstartedAt", or "" (non-zero).

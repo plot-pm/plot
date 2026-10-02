@@ -100,7 +100,7 @@ If slice 2 runs, it removes the largest named cost, and the cost decides the fix
 
 The board-shaped scan timed on `origin/main` and split into host, git, shell and wait; the table goes on #1017 and into Notes. No shipped file changes. <!-- builds: a timed attribution of the fleet scan's wall time -->
 
-### The scan drops its largest cost (Branch: bug/the-scan-drops-its-largest-cost) <!-- waits: bug/the-scan-time-is-measured -->
+### The scan drops its largest cost (Branch: bug/the-scan-drops-its-largest-cost, PR: #1196) <!-- waits: bug/the-scan-time-is-measured -->
 
 Removes the one cost slice 1 names, if it holds 30% of the median or the median is 45 s or more; deferred otherwise. A decision moves into `packages/domain`; shell overhead is fixed in place.
 
