@@ -810,6 +810,19 @@ test('the systemd unit keeps its Nice, which is priority without eviction', () =
     'the systemd unit lost its IO politeness');
 });
 
+test('the systemd unit stops only its daemon', () => {
+  const service = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8');
+
+  // THE DEFAULT IS THE DEFECT, so the assertion is on the directive's presence
+  // and not on its absence. systemd's `KillMode=control-group` signals every
+  // process in the cgroup, and `--start-agents` puts each agent there: a stop,
+  // a restart or a crash ended work no operator asked to end. There is no
+  // systemd on a macOS runner, so this holds the one line that fixes it where
+  // `systemd-analyze verify` cannot run.
+  assert.match(service, /^KillMode=process$/m,
+    'the systemd unit stops its agents along with its daemon');
+});
+
 // ── The completion marker: did the LAST --start finish? ───────────────────────
 //
 // THE MEASURED FAILURE, 2026-09-09: the fleet was stopped for hours and nothing
