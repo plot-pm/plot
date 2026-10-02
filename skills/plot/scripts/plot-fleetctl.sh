@@ -784,7 +784,11 @@ if [ "$mode" = "status" ]; then
       quiet=""
       if [ -f "$wt/.plot-worker.log" ]; then
         now=$(date +%s)
-        touched=$(stat -f %m "$wt/.plot-worker.log" 2>/dev/null || stat -c %Y "$wt/.plot-worker.log" 2>/dev/null || echo "$now")
+        # GNU FIRST, as at the log reading above: GNU `stat -f` is a
+        # filesystem report that succeeds, so asking BSD's form first hands
+        # its text to the arithmetic below.
+        touched=$(stat -c %Y "$wt/.plot-worker.log" 2>/dev/null || stat -f %m "$wt/.plot-worker.log" 2>/dev/null || echo "$now")
+        case "$touched" in (''|*[!0-9]*) touched=$now ;; esac
         quiet=" — quiet $((now - touched))s"
       fi
       # A WAITING AGENT IS NAMED AS WAITING, because `quiet 2400s` on a worker

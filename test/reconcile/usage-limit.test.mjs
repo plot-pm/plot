@@ -77,7 +77,12 @@ const SESSION = '5c7c41bd-ae8f-45ec-a220-2a23b5f1a16b';
  */
 function limitLine(ahead, limit = 'session limit') {
   const at = new Date((nowSeconds() + ahead) * 1000);
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // `Intl` ANSWERS `UTC` UNDER `TZ=UTC`, the CI runner's zone, and the rule
+  // reads only an `Area/Location` name, which is the form the harness prints.
+  // `Etc/UTC` names the same zone in that form; `limitLineAtRuntime` already
+  // gets it from `/etc/localtime` on the same runner.
+  const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = local.includes('/') ? local : `Etc/${local}`;
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: zone, hour: 'numeric', minute: '2-digit', hour12: true,
   }).formatToParts(at);
