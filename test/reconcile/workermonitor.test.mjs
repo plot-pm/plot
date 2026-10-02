@@ -3,12 +3,17 @@
 //
 // UNIT-FIRST AGAINST MOCKED PORTS, and that is not a preference. The branches
 // this monitor exists for are states a real machine will not produce on demand:
-// a pid that dies BETWEEN two samples, a tree that changes between two
-// readings, a subtree whose CPU clock is frozen for exactly one pass and then
-// moves. A test that waits for a real machine to enter one of those is a test
-// that flakes, and a flaky test on a monitor is worse than none — it teaches
-// the same "ignore the finding" habit the monitor's three-condition `idle`
-// exists to avoid.
+// a pid that dies between two passes, a tree whose newest change is exactly 899
+// seconds old, a subtree whose CPU clock is frozen for one pass and then moves.
+// A test that waits for a real machine to enter one of those is a test that
+// flakes, and a flaky test on a monitor is worse than none — it teaches the
+// same "ignore the finding" habit the monitor's six-condition `idle` exists to
+// avoid.
+//
+// WHAT THE MOCKS CANNOT PROVE IS THE TREE READING ITSELF, and that is the seam
+// this file does not cover: a stubbed `monitor_tree_quiet` returns whatever
+// number a test names, so it says nothing about whether mtimes are read
+// correctly. `test/reconcile/workeridle.test.mjs` builds a real desk for that.
 //
 // So the script is SOURCED with `PLOT_MONITOR_NO_MAIN=1`, which defines every
 // function and runs no loop, and the four `monitor_*` ports are redefined by
@@ -50,10 +55,11 @@ const monitor = path.join(scripts, 'plot-worker-monitor.sh');
  *
  * `ports` is shell that redefines any of `monitor_pid_alive`,
  * `monitor_pid`, `monitor_transcript_quiet`, `monitor_activity`,
- * `monitor_tree_fingerprint`, `monitor_has_commits` and
+ * `monitor_tree_quiet`, `monitor_has_commits` and
  * `monitor_conversation_spoken`. `passes` is how many times `monitor_pass` is
- * called — the two-sample rule means most interesting assertions need at least
- * two. `body`, when given, replaces the pass loop with its own shell.
+ * called — ONE is now enough for every finding, so a test passing more is
+ * asserting that nothing is republished rather than waiting for a comparison.
+ * `body`, when given, replaces the pass loop with its own shell.
  *
  * `PLOT_SESSION_ID` and `PLOT_MANIFEST_FILE` are blanked after the ambient
  * environment and before `env`. A dispatched worker running this suite carries
@@ -98,43 +104,56 @@ function drive(ports, passes = 1, { env = {}, body = '' } = {}) {
 
 /**
  * Ports for a live agent that has written nothing for far longer than the
- * window, with no child process burning CPU behind it, over a tree that never
- * moves. That is the whole of the new `quiet` reading, and BOTH readings are
- * needed: since 2026-09-02 a frozen CPU clock alone is not a stall, because an
- * agent waiting on a model response has exactly that clock.
+ * window, with no child process burning CPU behind it, over a tree nothing has
+ * touched for just as long. That is the whole of the `idle` reading, and every
+ * part is needed: since 2026-09-02 a frozen CPU clock alone is not a stall,
+ * because an agent waiting on a model response has exactly that clock.
  *
- * 99999 is well past the 900 s default, so the window's exact value is not
- * baked into every test that merely needs *quiet*.
+ * BOTH DURATIONS ARE 99999, well past the 900 s default, so the window's exact
+ * value is not baked into every test that merely needs *quiet*. The tree is a
+ * NUMBER here where it used to be an opaque fingerprint: as of 2026-10-02 the
+ * reading is seconds since the newest change rather than a string compared
+ * between passes, which is what removed the need for a previous sample.
  */
 const QUIET = `
   monitor_pid_alive() { return 0; }
   monitor_pid() { printf '4242'; }
   monitor_transcript_quiet() { printf '99999'; }
   monitor_activity() { printf 'idle'; }
-  monitor_tree_fingerprint() { printf 'unchanged'; }
+  monitor_tree_quiet() { printf '99999'; }
   monitor_has_commits() { return 0; }
 `;
 
-test('worker-monitor: a single idle sample reports nothing', () => {
-  // THE FIRST HALF OF THE TWO-SAMPLE RULE, and the property that stops the
-  // monitor crying wolf. One idle reading is a process caught between syscalls;
-  // the COMPARISON is the finding, so one pass cannot make it.
+test('worker-monitor: ONE idle reading reports idle, on the first pass', () => {
+  // THIS ASSERTION INVERTED ON 2026-10-02, and the inversion is the slice.
+  //
+  // It read *"a single idle sample reports nothing"*, because `idle` was a
+  // COMPARISON between two passes and a process had to hold the first one. That
+  // was right about a 0.4 s CPU sample: a snapshot of a subtree's clock catches
+  // a process between syscalls.
+  //
+  // Nothing in the rule is a snapshot now. The transcript silence is a span of
+  // at least 900 s and so is the tree's quiet, and a process caught between
+  // syscalls has neither. So one pass answers, and a process no longer has to
+  // exist to hold a previous one — which is what the next slice removes.
   const published = drive(QUIET, 1);
-  assert.deepEqual(published, [],
-    'one idle sample published a finding — a process between syscalls is now reported as a stall');
-});
-
-test('worker-monitor: two consecutive idle samples over an unchanged tree report idle', () => {
-  // The other half. Same ports, one more pass — so the ONLY difference between
-  // this test and the one above is the number of readings, which is exactly the
-  // property under test.
-  const published = drive(QUIET, 2);
   assert.equal(published.length, 1,
-    `two idle samples should publish exactly one finding, got ${JSON.stringify(published)}`);
+    `one idle reading should publish exactly one finding, got ${JSON.stringify(published)}`);
   assert.equal(published[0].finding, 'idle');
   assert.equal(published[0].monitor, 'WorkerMonitor',
     'the finding does not identify its monitor — the attention slice cannot tell it from an AgentMonitor entry');
   assert.equal(published[0].branch, 'feature/watched');
+});
+
+test('worker-monitor: the finding is published once, however many passes run', () => {
+  // THE PROPERTY THE SECOND PASS USED TO CARRY, kept and relocated. Publishing
+  // once is a property of the CHANNEL — a monitor that re-published `idle`
+  // every 30 seconds would bury the one line that matters — and it was never
+  // the reason the rule needed two samples.
+  const published = drive(QUIET, 4);
+  assert.equal(published.length, 1,
+    `a held finding was republished, got ${published.length} lines`);
+  assert.equal(published[0].finding, 'idle');
 });
 
 test('worker-monitor: it is called idle and never stalled', () => {
@@ -144,7 +163,7 @@ test('worker-monitor: it is called idle and never stalled', () => {
   // earlier draft of this slice reused the name and put a process fact on the
   // agent side, which is the exact confusion CLAUDE.md's Machine/Registry split
   // exists to prevent — so it is asserted rather than left to review.
-  const published = drive(QUIET, 2);
+  const published = drive(QUIET, 1);
   assert.equal(published[0].finding, 'idle');
   const blob = JSON.stringify(published);
   assert.doesNotMatch(blob, /stall/i,
@@ -161,25 +180,50 @@ test('worker-monitor: it is called idle and never stalled', () => {
   }
 });
 
-test('worker-monitor: a tree that changed between samples resets the comparison', () => {
-  // THE THIRD ROW OF THE TRUTH TABLE. `no CPU, tree CHANGED between samples` is
-  // `silent`, because something is plainly happening — an agent can write for a
-  // long time without its subtree registering a centisecond in any one sample.
-  //
-  // This is the branch a real machine will not give you on demand, and the
-  // reason this suite mocks: the fingerprint has to differ between two
-  // consecutive readings at a moment of the test's choosing.
-  const changing = QUIET.replace(
-    "monitor_tree_fingerprint() { printf 'unchanged'; }",
-    `monitor_tree_fingerprint() {
-       _n=$(cat "$PLOT_WORKTREE/.n" 2>/dev/null || echo 0)
-       _n=$((_n + 1)); printf '%s' "$_n" > "$PLOT_WORKTREE/.n"
-       printf 'tree-%s' "$_n"
-     }`,
-  );
-  const published = drive(changing, 4);
-  assert.deepEqual(published, [],
-    'a tree changing between samples still reported idle — the monitor is reporting a working agent as stalled');
+test('worker-monitor: a tree that moved inside the window is silent', () => {
+  // THE THIRD ROW OF THE TRUTH TABLE, re-read. It used to be `tree CHANGED
+  // between samples`, which needed two passes to observe; it is now `the newest
+  // change is inside the window`, which one reading answers — and answers more
+  // strongly, because a tree that moved 100 seconds ago reads as activity where
+  // two passes 30 s apart would have seen nothing.
+  const moved = QUIET.replace("monitor_tree_quiet() { printf '99999'; }",
+    "monitor_tree_quiet() { printf '100'; }");
+  assert.deepEqual(drive(moved, 4), [],
+    'a tree that moved 100s ago still reported idle — the monitor is reporting a working agent as stalled');
+});
+
+test('worker-monitor: the tree boundary is the window, inclusive', () => {
+  // `>= window`, NOT `>`. The window is where the question becomes worth
+  // asking, so a tree exactly at it is eligible — the same boundary the
+  // transcript draws from the other side. This catches a `>` where a `>=`
+  // belongs, which a 99999 fixture can never see.
+  const at = (n) => QUIET.replace("monitor_tree_quiet() { printf '99999'; }",
+    `monitor_tree_quiet() { printf '${n}'; }`);
+  assert.deepEqual(drive(at(899), 2), [],
+    'a tree that moved 899s ago fired inside the 900s window');
+  assert.equal(drive(at(900), 1).length, 1,
+    'a tree quiet for exactly the window did not fire — the boundary excludes the window itself');
+});
+
+test('worker-monitor: an unreadable tree is silent, not a very long silence', () => {
+  // A FAILURE TO OBSERVE IS NOT EVIDENCE OF SOMETHING TO SEE. A desk whose git
+  // directory cannot be read answers `unreadable`, and the word travels to the
+  // verdict. Read as zero it would say *everything just moved*; read as a huge
+  // number it would say *nothing has moved in years*, and both are inventions.
+  const unreadable = QUIET.replace("monitor_tree_quiet() { printf '99999'; }",
+    "monitor_tree_quiet() { printf 'unreadable'; }");
+  assert.deepEqual(drive(unreadable, 4), [],
+    'a desk whose tree could not be read was reported idle — unreadable became a finding');
+});
+
+test('worker-monitor: a missing tree reader is unreadable, not zero', () => {
+  // THE HELPER GOING MISSING is the same answer as the tree going missing, for
+  // the same reason the transcript reader's absence is. Zero would make every
+  // worker on a broken install a stall.
+  const noReader = QUIET.replace("monitor_tree_quiet() { printf '99999'; }", '')
+    + '\n unset -f plot_worker_tree_quiet_seconds\n';
+  assert.deepEqual(drive(noReader, 4), [],
+    'a monitor whose tree reader was absent reported idle anyway');
 });
 
 test('worker-monitor: quiet with no commits yet is silent, not idle', () => {
@@ -228,7 +272,7 @@ test('worker-monitor: a pid that dies mid-sample reports gone on the pass that s
   const dying = `
     monitor_pid() { printf '4242'; }
     monitor_activity() { printf 'working'; }
-    monitor_tree_fingerprint() { printf 'unchanged'; }
+    monitor_tree_quiet() { printf '99999'; }
     monitor_has_commits() { return 0; }
     monitor_pid_alive() {
       _n=$(cat "$PLOT_WORKTREE/.p" 2>/dev/null || echo 0)
@@ -307,15 +351,15 @@ test('worker-monitor: past the window, a live pid with NO child is idle', () => 
   // the commonest real stall unreported.
   const nothing = QUIET.replace("monitor_activity() { printf 'idle'; }",
     "monitor_activity() { printf ''; }");
-  const published = drive(nothing, 4);
+  const published = drive(nothing, 1);
   assert.equal(published.length, 1,
     `expected one idle finding, got ${JSON.stringify(published)}`);
   assert.equal(published[0].finding, 'idle');
 });
 
 test('worker-monitor: it publishes the moment a finding holds and nothing when nothing changed', () => {
-  // THE PLAN'S CLAUSE, both halves. `idle` holds from the second pass onward,
-  // and passes three through eight say the same thing — so exactly one line is
+  // THE PLAN'S CLAUSE, both halves. `idle` holds from the FIRST pass now, and
+  // passes two through eight say the same thing — so exactly one line is
   // published, at the moment it first held.
   const published = drive(QUIET, 8);
   assert.equal(published.length, 1,
@@ -331,7 +375,7 @@ test('worker-monitor: a finding that stops holding is published as clear', () =>
   const recovers = `
     monitor_pid_alive() { return 0; }
     monitor_pid() { printf '4242'; }
-    monitor_tree_fingerprint() { printf 'unchanged'; }
+    monitor_tree_quiet() { printf '99999'; }
     monitor_has_commits() { return 0; }
     monitor_transcript_quiet() { printf '99999'; }
     monitor_activity() {
@@ -352,7 +396,7 @@ test('worker-monitor: every finding carries finding, since, evidence and measure
   // `measuredAt` is required for a reason that outlives any one finding: a
   // reading without one cannot be judged stale.
   for (const [label, ports, passes] of [
-    ['idle', QUIET, 2],
+    ['idle', QUIET, 1],
     ['gone', 'monitor_pid_alive() { return 1; }\nmonitor_pid() { printf "7"; }', 1],
   ]) {
     const [record] = drive(ports, passes);
@@ -400,15 +444,15 @@ test('worker-monitor: it makes no host call at all', () => {
     'the WorkerMonitor fetches — `commits present` must be answered from local refs or not at all');
 });
 
-test('worker-monitor: the tree fingerprint ignores the monitor\'s own findings file', () => {
-  // THE SELF-REFERENCE BUG THIS AVOIDS, asserted against the real fingerprint.
+test('worker-monitor: the tree reading ignores the monitor\'s own findings file', () => {
+  // THE SELF-REFERENCE BUG THIS AVOIDS, asserted against the REAL reading.
   //
   // The monitor appends to `.plot-worker.monitor.worker.jsonl` INSIDE the
-  // worktree it fingerprints. A raw `git status` fingerprint would therefore
-  // change every time the monitor published, and `idle` could never hold across
-  // two passes — the monitor would suppress its own finding forever on the
-  // strength of its own output. `plot_worker_dirty_filter` drops the
-  // `.plot-worker.` prefix, which is why the fingerprint goes through it.
+  // worktree it reads. A reading over a raw `git status` would therefore move
+  // to zero every time the monitor published, and `idle` could never fire — the
+  // monitor would suppress its own finding forever on the strength of its own
+  // output. `plot_worker_dirty_filter` drops the `.plot-worker.` prefix, which
+  // is why the reading goes through it.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-self-'));
   try {
     execFileSync('git', ['init', '-q', '-b', 'main', dir]);
@@ -418,56 +462,32 @@ test('worker-monitor: the tree fingerprint ignores the monitor\'s own findings f
     fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
     execFileSync('git', ['-C', dir, 'add', '-A']);
     execFileSync('git', ['-C', dir, 'commit', '-qm', 'init']);
+    // AGE THE COMMIT, or HEAD's own committer time is seconds old and every
+    // reading below is zero whatever the filter does. `GIT_COMMITTER_DATE` is
+    // the one this reads — `git log -1 --format=%ct` is the COMMITTER's time,
+    // and `--date` sets only the author's.
+    const old = `@${Math.floor(Date.now() / 1000) - 4000} +0000`;
+    execFileSync('git', ['-C', dir, 'commit', '-q', '--amend', '--no-edit', '--date', old],
+      { env: { ...process.env, GIT_COMMITTER_DATE: old } });
 
-    const fingerprint = () => execFileSync('bash', ['-c', `
+    const treeQuiet = () => Number(execFileSync('bash', ['-c', `
       PLOT_MONITOR_NO_MAIN=1
       . ${JSON.stringify(monitor)}
-      monitor_tree_fingerprint
-    `], { encoding: 'utf8', env: { ...process.env, PLOT_WORKTREE: dir } });
+      monitor_tree_quiet
+    `], { encoding: 'utf8', env: { ...process.env, PLOT_WORKTREE: dir } }));
 
-    const before = fingerprint();
+    const before = treeQuiet();
+    assert.ok(before > 900, `the fixture's own commit is only ${before}s old — this test proves nothing`);
+
     fs.writeFileSync(path.join(dir, '.plot-worker.monitor.worker.jsonl'), '{"finding":"idle"}\n');
-    assert.equal(fingerprint(), before,
-      'the monitor publishing changed its own tree fingerprint — it watches itself, and idle can never hold for two passes');
+    assert.ok(treeQuiet() > 900,
+      'the monitor publishing reset its own tree reading — it watches itself, and idle can never fire');
 
-    // The control: a REAL change must still move it, or the fingerprint is
-    // measuring nothing and the "tree changed" row of the truth table is dead.
+    // The control: a REAL change must still move it to ~0, or the reading is
+    // measuring nothing and the "tree moved" row of the truth table is dead.
     fs.writeFileSync(path.join(dir, 'new-work.ts'), 'export const x = 1;\n');
-    assert.notEqual(fingerprint(), before,
-      'a new source file did not move the fingerprint — the tree-changed condition can never fire');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('worker-monitor: a commit moves the fingerprint even with an identical status', () => {
-  // HEAD IS PART OF THE FINGERPRINT, and this is the case that needs it. An
-  // agent that stages its work and commits leaves an EMPTY status either side
-  // of a clean commit — so a status-only fingerprint would read "unchanged"
-  // across the single most meaningful thing an agent does.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-head-'));
-  try {
-    execFileSync('git', ['init', '-q', '-b', 'main', dir]);
-    execFileSync('git', ['-C', dir, 'config', 'user.email', 't@t']);
-    execFileSync('git', ['-C', dir, 'config', 'user.name', 't']);
-    execFileSync('git', ['-C', dir, 'config', 'commit.gpgsign', 'false']);
-    fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
-    execFileSync('git', ['-C', dir, 'add', '-A']);
-    execFileSync('git', ['-C', dir, 'commit', '-qm', 'one']);
-
-    const fingerprint = () => execFileSync('bash', ['-c', `
-      PLOT_MONITOR_NO_MAIN=1
-      . ${JSON.stringify(monitor)}
-      monitor_tree_fingerprint
-    `], { encoding: 'utf8', env: { ...process.env, PLOT_WORKTREE: dir } });
-
-    const before = fingerprint();
-    fs.writeFileSync(path.join(dir, 'b.txt'), 'b');
-    execFileSync('git', ['-C', dir, 'add', '-A']);
-    execFileSync('git', ['-C', dir, 'commit', '-qm', 'two']);
-
-    assert.notEqual(fingerprint(), before,
-      'a clean commit left the fingerprint unchanged — an agent that commits between passes reads as idle');
+    assert.ok(treeQuiet() < 60,
+      'a new source file did not move the tree reading — the tree condition can never refuse');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -709,7 +729,7 @@ test('worker-monitor: a genuinely stopped agent is still ended', () => {
   // THE OTHER HALF, and the one that keeps the fix from being a deletion. Past
   // the window with nothing burning CPU, over an unchanged tree, with commits
   // already on the branch — every condition the finding has ever carried.
-  const published = drive(QUIET, 2);
+  const published = drive(QUIET, 1);
   assert.equal(published.length, 1,
     `a stopped agent published ${JSON.stringify(published)} — the monitor stopped finding real stalls`);
   assert.equal(published[0].finding, 'idle');
@@ -724,7 +744,9 @@ test('worker-monitor: the window boundary is the measured maximum, with margin',
 
   assert.deepEqual(drive(at(899), 4), [],
     'a transcript quiet for 899s fired inside the 900s window');
-  assert.equal(drive(at(901), 2).length, 1,
+  assert.equal(drive(at(900), 1).length, 1,
+    'a transcript quiet for exactly the window did not fire — the boundary excludes the window itself');
+  assert.equal(drive(at(901), 1).length, 1,
     'a transcript quiet for 901s did not fire past the 900s window');
 
   // 600.8 s — the longest stretch ever measured on this estate, an agent
@@ -886,7 +908,7 @@ const LIVE_DESK = `
   monitor_pid_alive() { return 0; }
   monitor_pid() { printf '4242'; }
   monitor_activity() { printf 'idle'; }
-  monitor_tree_fingerprint() { printf 'unchanged'; }
+  monitor_tree_quiet() { printf '99999'; }
   monitor_has_commits() { return 0; }
 `;
 
@@ -957,27 +979,37 @@ test('unspoken: a hop whose conversation has no file answers unspoken and publis
   }
 });
 
-test('unspoken: the first line ends it, and idle needs two quiet passes after it', () => {
+test('unspoken: the first line ends it, and the WINDOW is what protects it after', () => {
+  // THE PROTECTION MOVED, AND THIS TEST FOLLOWED IT. Until 2026-10-02 the name
+  // read *"idle needs two quiet passes after it"*: `unspoken` was recorded as
+  // `prev_verdict`, so the pass after a conversation's first line could not
+  // fire. With one sample there is no previous verdict to record, and what
+  // stands between a first line and an `idle` finding is the 900 s of SILENCE
+  // that line then has to be followed by.
+  //
+  // So the assertion is the same shape and a different mechanism: a
+  // conversation that has just written is NOT idle, and one quiet for longer
+  // than the window is.
   const desk = hopDesk();
   try {
     desk.transcript('previous-slice', 3000);
     desk.manifest({ resumeId: 'new-slice' });
-    // Pass 1 has no file. Then the conversation writes and goes quiet for
-    // 1 200 s. Pass 2 is the first `quiet` (prev was `unspoken`), pass 3 fires.
     const own = path.join(desk.dir, 'new-slice.jsonl');
-    const published = drive(LIVE_DESK, 0, {
-      env: desk.env,
-      body: `
-        monitor_pass; printf '%s' "$prev_verdict" > ${JSON.stringify(path.join(desk.root, 'v1'))}
-        printf '{}\\n' > ${JSON.stringify(own)}; touch -t ${touchStamp(1200)} ${JSON.stringify(own)}
-        monitor_pass
-        printf 'after-2:%s' "$published" > ${JSON.stringify(path.join(desk.root, 'v2'))}
-        monitor_pass
-      `,
-    });
-    assert.equal(fs.readFileSync(path.join(desk.root, 'v1'), 'utf8'), 'unspoken');
-    assert.equal(fs.readFileSync(path.join(desk.root, 'v2'), 'utf8'), 'after-2:',
-      'idle fired on the first quiet pass after unspoken — the two-sample rule counted unspoken as quiet');
+
+    // Pass 1: no file for this conversation, so the desk's 3 000 s belongs to
+    // the previous slice and nothing is published.
+    assert.deepEqual(drive(LIVE_DESK, 1, { env: desk.env }), [],
+      'a worker whose conversation has not written was published idle on the previous slice\'s silence');
+
+    // The conversation writes, and is quiet for 100 s — inside the window.
+    fs.writeFileSync(own, '{}\n');
+    execFileSync('touch', ['-t', touchStamp(100), own]);
+    assert.deepEqual(drive(LIVE_DESK, 3, { env: desk.env }), [],
+      'a conversation quiet for only 100s was published idle — the window no longer protects a fresh first line');
+
+    // Quiet for 1 200 s — past the window, and now it fires on one pass.
+    execFileSync('touch', ['-t', touchStamp(1200), own]);
+    const published = drive(LIVE_DESK, 1, { env: desk.env });
     assert.equal(published.length, 1, `expected one idle, got ${JSON.stringify(published)}`);
     assert.equal(published[0].finding, 'idle');
   } finally {

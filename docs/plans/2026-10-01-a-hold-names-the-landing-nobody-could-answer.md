@@ -65,7 +65,7 @@ A new `QueueHold`, `prior-unknown`: *an earlier slice of this plan holds a branc
 
 ## Slices
 
-### A held slice names the unanswered landing (Branch: bug/a-held-slice-names-the-unanswered-landing) <!-- waits: bug/the-queue-reads-the-merge-subject -->
+### A held slice names the unanswered landing (Branch: bug/a-held-slice-names-the-unanswered-landing, PR: #1197) <!-- waits: bug/the-queue-reads-the-merge-subject -->
 
 `prior-unknown` in `QueueHold`, `QUEUE_HOLDS` and `HOLD_SCOPE`; `behindUnknownLanding` and `QueuedSlice.priorUnknown` in `packages/domain/src/rules/queue.ts`; the call in `readQueue`; the listing state on `QueueReadings` and `merged-set=` in `tickLine`. It waits on #1139's second slice because both change `readQueue` at `queue-reading.ts:237-258`. <!-- builds: behindUnknownLanding, the prior-unknown hold -->
 
