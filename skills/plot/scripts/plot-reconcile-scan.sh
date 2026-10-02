@@ -1589,7 +1589,10 @@ done <<< "$plan_rows"
 lookup_plan_phase() {
   local result
   result=$(printf '%s' "$plan_phase_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
-  if printf '%s' "$plan_phase_map" | grep -q "^$1"$'\t'; then
+  # A here-string, not a pipe: `grep -q` exits on the first match, and under
+  # pipefail a map larger than the pipe buffer (64 KB; 417 plans filled 18 KB)
+  # fails its writer with SIGPIPE and reads a known slug as unknown.
+  if grep -q "^$1"$'\t' <<< "$plan_phase_map"; then
     printf '%s' "$result"
     return 0
   fi
@@ -1602,7 +1605,10 @@ lookup_plan_phase() {
 lookup_plan_sprint() {
   local result
   result=$(printf '%s' "$plan_sprint_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
-  if printf '%s' "$plan_sprint_map" | grep -q "^$1"$'\t'; then
+  # A here-string, not a pipe: `grep -q` exits on the first match, and under
+  # pipefail a map larger than the pipe buffer (64 KB; 417 plans filled 18 KB)
+  # fails its writer with SIGPIPE and reads a known slug as unknown.
+  if grep -q "^$1"$'\t' <<< "$plan_sprint_map"; then
     printf '%s' "$result"
     return 0
   fi
