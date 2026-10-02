@@ -3912,6 +3912,39 @@ test('host: pr-list gives the two limits DIFFERENT exit codes', () => {
     'one word for two ceilings is what the banner could not tell apart');
 });
 
+// --- a server-side timeout is not a login problem ----------------------------
+//
+// #1087: the board's rich PR listing sometimes ends in a GitHub GraphQL 504,
+// and the banner told the reader to run `gh auth login`. A 504 means the
+// server took too long, not that the credential is bad — so the advice sent a
+// reader to a command that does nothing.
+test('host: pr-list names a 504 as a TIMEOUT, never as a login problem', () => {
+  const stubs = makeStubs({ ghFail: "HTTP 504: We couldn't respond to your request in time" });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 3, 'a timeout is not a limit: no caller should wait for a reset that never comes');
+  assert.match(res.stderr, /host timed out/i, 'the word a human reads');
+  assert.doesNotMatch(res.stderr, /auth login/i,
+    'a naive arm would print "host timed out" and still fall through to host_repair');
+});
+
+test('host: a bitbucket 503 is also a TIMEOUT, never a login problem', () => {
+  const stubs = makeStubs({ bbFail: 'HTTP 503: Service Unavailable' });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.equal(res.code, 3, 'the same rule on the other backend');
+  assert.match(res.stderr, /host timed out/i, 'the word a human reads');
+  assert.doesNotMatch(res.stderr, /auth login/i, 'bitbucket gets no auth advice for a timeout either');
+});
+
+// THE ORDER IS PART OF THE RULE: a rate-limit message that also carries a 5xx
+// status must stay THROTTLED, because patience until the reset is the right
+// advice for it — the timeout arm must sit after both limit arms.
+test('host: a rate-limit message carrying a 5xx status stays THROTTLED, not timeout', () => {
+  const stubs = makeStubs({ ghFail: 'HTTP 504: API rate limit exceeded, please wait and retry' });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 5, 'rate limit wins over the HTTP status word');
+  assert.match(res.stderr, /throttled/i, 'and the message says so');
+});
+
 // ── limit ───────────────────────────────────────────────────────────────────
 //
 // WHAT IS THIS CONNECTOR'S LIMIT, AND HOW WELL DOES IT KNOW IT?
