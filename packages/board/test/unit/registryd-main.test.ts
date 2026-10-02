@@ -523,6 +523,7 @@ describe('what a looping tick prints does not follow what grows', () => {
       'already-merged',
       'merge-unknown',
       'no-brief',
+      'slice-unnamed',
       'prior-unknown',
       'no-free-agent',
     ] as const) {
@@ -1226,7 +1227,7 @@ describe('a tick asks the host about a branch once', () => {
           {
             file: 'docs/plans/2026-09-29-a-plan.md',
             phase: 'approved',
-            slices: [{ branches: [{ branch: 'feature/one', deferred: false }] }],
+            slices: [{ name: 'A named slice', branches: [{ branch: 'feature/one', deferred: false }] }],
           } as never,
         ],
         claimedBranches: async () => new Set<string>(),
@@ -1356,8 +1357,8 @@ describe('the queue world asks a known PR by number when the listing fails (#114
             file: 'docs/plans/2026-10-01-a-plan.md',
             phase: 'approved',
             slices: [
-              { branches: [{ branch: 'feature/one', deferred: false }] },
-              { branches: [{ branch: 'feature/two', deferred: false }] },
+              { name: 'First slice', branches: [{ branch: 'feature/one', deferred: false }] },
+              { name: 'Second slice', branches: [{ branch: 'feature/two', deferred: false }] },
             ],
           } as never,
         ],

@@ -15,6 +15,7 @@ import {
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import { unnamedBranches } from '@plot-pm/domain/rules/slice-name';
 import type { PlanRecord, PlanRecordSlice } from '@plot-pm/domain';
 
 import type { AgentEntry } from './registry.js';
@@ -211,6 +212,12 @@ export const queueOfPlan = (
     })),
   );
 
+  // THE PLAN'S OWN UNNAMED BRANCHES, ASKED ONCE AND READ PER BRANCH. The
+  // predicate is `slice-unnamed`'s, the same one `/plot-approve` refuses on, so
+  // the queue and the approval can never name different branches. It reads the
+  // slices and nothing else: no host call, no ref, no file.
+  const unnamed = new Set(unnamedBranches(plan.slices));
+
   const queued: QueuedBranch[] = [];
   plan.slices.forEach((slice: PlanRecordSlice, index: number) => {
     const claimable = verdicts[index] === 'eligible';
@@ -229,7 +236,13 @@ export const queueOfPlan = (
       // name several and `behindUnknownLanding` asks which slices are EARLIER.
       // Counting the entries instead would make two branches of one slice
       // read as one before the other.
-      queued.push({ branch: line.branch, slug, claimable, slice: index });
+      queued.push({
+        branch: line.branch,
+        slug,
+        claimable,
+        unnamed: unnamed.has(line.branch),
+        slice: index,
+      });
     }
   });
   return queued;

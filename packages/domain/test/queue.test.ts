@@ -33,6 +33,10 @@ const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   slug: 'a-plan',
   briefPresent: true,
   claimable: true,
+  // A NAMED SLICE IS THE DEFAULT, because every case but the new hold's is
+  // about a plan that named its branch, and a fixture defaulting the other way
+  // would silently move them all into `slice-unnamed`.
+  unnamed: false,
   landed: 'not-landed',
   priorUnknown: false,
   ...over,
@@ -480,6 +484,7 @@ describe('a refusal is counted so a zero can be read', () => {
       whyNotReady(slice({ landed: 'landed' })),
       whyNotReady(slice({ landed: 'unknown' })),
       whyNotReady(slice({ briefPresent: false })),
+      whyNotReady(slice({ unnamed: true })),
       whyNotReady(slice({ claimable: false })),
       whyNotReady(slice({ claimable: false, priorUnknown: true })),
     ].filter((hold): hold is QueueHold => hold !== null);
@@ -601,5 +606,68 @@ describe('whyNotReady — the host is named where the plan was blamed', () => {
     expect(whyNotReady(slice({ landed: 'landed', priorUnknown: true }))).toBe('already-merged');
     expect(whyNotReady(slice({ briefPresent: false, priorUnknown: true }))).toBe('no-brief');
     expect(whyNotReady(slice({ priorUnknown: true }))).toBeNull();
+  });
+});
+
+/**
+ * A SLICE ITS PLAN NAMES UNDER NO HEADING.
+ *
+ * Slice 1 stops a plan reaching `Approved` holding one. A plan approved before
+ * that refusal existed can still hold one, and the supervisor would hand it to
+ * an agent — which meets the same refusal at `openSlicePr`, writes the heading
+ * on its own branch, and leaves the board reading `(unnamed)` until that PR
+ * merges (#1057).
+ *
+ * The hold keeps the repair on the default branch, where every reader of the
+ * plan can see it. Its word is the approval's.
+ */
+describe('whyNotReady — a slice with no name is held rather than handed over', () => {
+  it('holds a claimable, briefed slice whose plan gave it no heading', () => {
+    expect(whyNotReady(slice({ unnamed: true }))).toBe('slice-unnamed');
+  });
+
+  it('leaves a named slice exactly as it was', () => {
+    expect(whyNotReady(slice({ unnamed: false }))).toBeNull();
+  });
+
+  it('names the merge first, so nobody is sent to name a finished slice', () => {
+    // A MERGED UNNAMED BRANCH IS FINISHED. The heading is owed on a slice
+    // somebody will work, and this one is done — a hold tested before the
+    // landing would hide that behind a naming problem.
+    expect(whyNotReady(slice({ unnamed: true, landed: 'landed' }))).toBe('already-merged');
+  });
+
+  it('names the unanswered host first, because silence is not a naming fault', () => {
+    expect(whyNotReady(slice({ unnamed: true, landed: 'unknown' }))).toBe('merge-unknown');
+  });
+
+  it('leaves the estate-wide backlog under its own word', () => {
+    // THE GATE THAT BOUNDS THE HOLD. `not-claimable` is 165 branches on this
+    // estate; naming them `slice-unnamed` would move the whole backlog into a
+    // new word and print it on every tick. The hold means *this slice would be
+    // handed over if it had a name*.
+    expect(whyNotReady(slice({ unnamed: true, claimable: false }))).toBe('not-claimable');
+    expect(whyNotReady(slice({ unnamed: true, claimable: false, priorUnknown: true }))).toBe(
+      'prior-unknown',
+    );
+  });
+
+  it('names the missing heading ahead of the missing brief', () => {
+    // THE REPAIR FOR `no-brief` IS TO WRITE A BRIEF, and the writer would
+    // produce one for a slice that then stays held. The heading is owed first.
+    expect(whyNotReady(slice({ unnamed: true, briefPresent: false }))).toBe('slice-unnamed');
+  });
+
+  it('hands the slice to nobody, and leaves the free agent idle', () => {
+    // THE DONE-WHEN, THROUGH `matchQueue` RATHER THAN THE PREDICATE: the slice
+    // stays in the queue and no assignment names it.
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/nameless', unnamed: true })],
+      agents: [agent('s1')],
+    });
+
+    expect(match.assignments).toEqual([]);
+    expect(match.held).toEqual([{ branch: 'feature/nameless', hold: 'slice-unnamed' }]);
+    expect(match.idle).toEqual(['s1']);
   });
 });
