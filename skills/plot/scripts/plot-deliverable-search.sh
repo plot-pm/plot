@@ -150,7 +150,18 @@ scan="$repo_root/skills/plot/scripts/plot-reconcile-scan.sh"
 # proposing any of those five is told the estate already has it, citing THIS
 # COMMENT as the finding: a check firing on its own prose, which is exactly the
 # failure the four-corpus scoping exists to prevent.
-excludes=(":(exclude)skills/plot/scripts/plot-deliverable-search.sh")
+#
+# THE HELPER README IS EXCLUDED, and it is the one exclusion that is neither
+# this script nor a build artifact. `skills/plot/scripts/README.md` holds one
+# row per script in that directory — 62 of them, 84k characters, naming nearly
+# every script the corpus contains. Left in, a search for almost any script
+# name matches the README first, and the finding reads *the estate already has
+# this* when what it found is the row describing it. It is hand-written, so
+# `.gitattributes` cannot name it and this line must.
+excludes=(
+  ":(exclude)skills/plot/scripts/plot-deliverable-search.sh"
+  ":(exclude)skills/plot/scripts/README.md"
+)
 if [ -f .gitattributes ]; then
   while IFS= read -r path; do
     if [ -n "$path" ]; then excludes+=(":(exclude)$path"); fi
