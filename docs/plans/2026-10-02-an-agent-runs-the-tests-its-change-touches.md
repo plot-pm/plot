@@ -155,3 +155,8 @@ Panel round 1 (2026-10-02, three lenses: skeptic, operator, domain): unanimous `
 The same evening the operator set the parallel-agents cap from 8 to 5 and set a model per role in `## Plot Config` (`1ccbbab4`): the Brief command on sonnet, the Idea, Story, Implement and Interrogate commands on opus.
 
 Load baseline, recorded 2026-10-02 02:55-03:54 with the cap at 5 and 6-7 agents still running (agents above a lowered cap finish their slices): 60 one-minute samples, mean 1-minute load 66.8, peak 149.6, mean 5-minute load 68.4, on 16 cores.
+- 2026-10-02: a delivery run delivered this plan at 09:28 UTC (`1c52c954`), after all four slices had merged (#1171, #1176, #1179, #1181; the last three through the merge train #1188). The operator kept it Delivered. Three measurements were planned for before delivery and are recorded here as they come in:
+  - **Briefs name the local checks: holds.** Both briefs written after slice 4 merged tell the agent to run `plot-local-checks.mjs` before each push and leave the `CI suites` to CI: `the-full-read-asks-verdicts-of-open-prs-only` (`2072152f`, line 80) and `the-largest-caller-follows-the-account-rate` (`9fb77a36`, line 53).
+  - **Load:** sampling one hour from 10:2x UTC. The fleet runs 2 agents, not the planned 5, so the hour is not comparable to the 7–8 agent baseline above. Load1 at the start was 12.9.
+  - **Slot hold:** not yet measured. It needs five slices started after #1171 merged, read from their claim to their PR's last check.
+
