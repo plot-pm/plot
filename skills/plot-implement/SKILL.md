@@ -28,7 +28,17 @@ plan is right" and "someone picks it up" — and the world moves in
 between. Starting is therefore its own step, with its own check.
 
 **Input:** `$ARGUMENTS` = `<slug>` (optional if only one approved plan is
-ready — propose it per smart defaults).
+ready — propose it per smart defaults), plus the optional flag
+`--brief-only`.
+
+**`--brief-only`** runs step 1 (locate), step 2 (preflight), step 4
+(brief) and step 5 (`Started:`), and **skips step 3 entirely**: no
+checkout, no `git push -u`, no worktree, and no
+`plot-fleet-scan.sh --next`. It is what the board's dispatch and
+Implement routes ask for (`composeImplementPrompt`), because under the
+registry model the claim belongs to the agent that takes the slice up,
+not to the step that prepares it. Without the flag, step 3 runs as
+before.
 
 ## Model Guidance
 
@@ -36,7 +46,7 @@ ready — propose it per smart defaults).
 |-------|-----------|-------|
 | 1. Locate Plan | Small | plot-plan-meta.sh lookup |
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
-| 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed |
+| 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed. **`--brief-only` skips this step**: no checkout, no claim push, no worktree |
 | 4. Hand-off Brief | Frontier | Interpretation, not extraction: naming which alternatives a plan rejected and which assertions a naive implementation would pass without is judgment. Smaller tiers fill the header fields and the plan's own `Done when`, then say which sections they could not write |
 | 5. Record Started | Small | One Status line + commit; optional board status is a single shell command |
 | 6. Summary | Small | Orientation template |
@@ -100,6 +110,24 @@ Verdict, per the guidance principle (name the signal, advise):
 > touched paths), present them, and ask the user for the verdict.
 
 ### 3. Branch Setup — per the plan's recorded answers
+
+**`--brief-only` skips this whole step.** Go straight to step 4. Create no
+branch, push no ref, cut no worktree, and do not run
+`plot-fleet-scan.sh --next`. Which branch the brief names comes from the
+plan's `## Slices` section — the wave whose every prior wave has merged,
+read without claiming it. The supervisor hands the slice to a free agent,
+and that agent pushes the claim when it takes the slice up.
+
+A claim this step pushes is worked by nobody: `claimedBranches` reads
+every remote branch as claimed, the queue drops the slice, and the agent
+later handed it finds its own ref already there and logs
+`REGISTRY LOCK VIOLATION`. Measured 2026-10-01, three slices sat with no
+worker until a person released their refs.
+
+**Without the flag, this step runs as before.** A person who runs
+`/plot-implement` by hand is about to work the branch, so the claim is
+legitimate — and **that claim belongs to the session that pushed it. A
+supervisor never works it**; releasing it is `plot-dispatch.sh --release`.
 
 Read the plan's `Impl:` answer (field `impl` from plot-plan-meta.sh).
 Never re-decide it; if it's missing (pre-Plot-2 plan), ask the two
@@ -236,8 +264,12 @@ The plan's `## Done when` list is the specification. <Then lift the
 assertions that exist *because a naive implementation would pass without
 them*, and say for each what it catches.>
 
-Plus: <the repo's gates — test commands, build artifacts, changeset,
-platform constraints>.
+Plus: <the repo's gates — build artifacts, changeset, platform
+constraints>. For tests, name the local checks command,
+`node <plot scripts>/board/plot-local-checks.mjs` with the path resolved from
+this skill's directory, and say: run it before each push and run what it
+prints; the suites in the `CI suites` config key run in CI, and a failure there
+comes back as a correction. List no full suite.
 
 ### Bookkeeping
 
@@ -331,3 +363,11 @@ e.g.:
 > Started `feature/<slug>` (recorded in the plan). Hand the brief above
 > to the implementing session — when its PR(s) merge, `/plot-deliver
 > <slug>` closes the loop.
+
+Under `--brief-only`, say that nothing was claimed and name who acts next
+— e.g.:
+
+> Brief written for `feature/<slug>` and `Started:` recorded. No branch,
+> no claim and no worktree: the supervisor hands this slice to a free
+> agent, which claims the branch when it takes it up. Watch it on the
+> board, or `/plot-pulse` for the wave.

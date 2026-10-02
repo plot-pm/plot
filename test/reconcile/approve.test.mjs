@@ -169,6 +169,90 @@ beforeEach(() => {
   if (fs.existsSync(path.join(stubDir, 'calls.log'))) fs.rmSync(path.join(stubDir, 'calls.log'));
 });
 
+// --- refusal 4: a branch under no slice heading ------------------------------
+//
+// THE REACH TEST. The refusal lives in the domain and is asked through
+// board/plot-transition.mjs. `workflows/approve.ts` carries the same rule and
+// NO shell path calls it, so a refusal proven only by the domain test passes
+// while the script approves — the shape `setSprintState` measured with nine
+// refusals and zero callers. These tests drive the script.
+
+/** A plan naming its branches under NO `###` heading — the historical shape. */
+const UNNAMED_PLAN = (extra = {}) => `# Approve me
+
+## Status
+
+- **Phase:** ${extra.phase ?? 'Draft'}
+- **Type:** feature
+- **Story:**
+- **Sprint:**
+- **Review:** ${extra.review ?? 'pr'}
+- **Impl:** own branches
+- **Approved:**${extra.approved ? ` ${extra.approved}` : ''}
+- **Started:**
+- **Delivered:**
+
+## Branches
+
+- \`feature/alpha\`${extra.deferred ? ' — deferred: superseded' : ' — the first'}
+`;
+
+test('approve: refuses a branch under no slice heading, and names it', () => {
+  makeRepo(UNNAMED_PLAN());
+  const { err } = run(['approve-me'], { expectFail: true });
+
+  assert.match(err, /slice-unnamed|under no slice heading/,
+    `the refusal must name the rule:\n${err}`);
+  assert.match(err, /feature\/alpha/, `the refusal must name the branch:\n${err}`);
+  assert.match(err, /### <name> \(Branch: feature\/alpha\)/,
+    `the refusal must name the heading to add:\n${err}`);
+});
+
+test('approve: the unnamed-slice refusal fires BEFORE the merge and writes nothing', () => {
+  // THE ORDER TEST. `decide_transition` runs after step 2 has merged the plan
+  // PR. A refusal fired there leaves the PR merged, the plan still Draft, and a
+  // refusal the operator can clear only by editing a merged plan. So the gate
+  // sits with refusals 1 to 3 and these three assertions are the proof.
+  makeRepo(UNNAMED_PLAN());
+  run(['approve-me'], { expectFail: true });
+
+  assert.equal(hostState().state, 'OPEN', 'the plan PR must NOT have been merged');
+
+  refreshMain();
+  const plan = planOnMain();
+  assert.match(plan, /- \*\*Phase:\*\* Draft/, `the phase must be untouched:\n${plan}`);
+  assert.match(plan, /- \*\*Approved:\*\*\s*$/m, `no record may be written:\n${plan}`);
+
+  const status = git(repo, 'status', '--porcelain');
+  assert.equal(status.trim(), '', `the tree must be clean:\n${status}`);
+});
+
+test('approve: refuses a DEFERRED branch under no heading — it can return to the queue', () => {
+  // A filter on `!deferred`, copied from `queueOfPlan`, would let this through.
+  makeRepo(UNNAMED_PLAN({ deferred: true }));
+  const { err } = run(['approve-me'], { expectFail: true });
+  assert.match(err, /feature\/alpha/, `a deferred unnamed branch must refuse:\n${err}`);
+  assert.equal(hostState().state, 'OPEN', 'nothing may be merged');
+});
+
+test('approve: refuses an unnamed slice under --dry-run too, merging nothing', () => {
+  makeRepo(UNNAMED_PLAN());
+  const { err } = run(['--dry-run', 'approve-me'], { expectFail: true });
+  assert.match(err, /feature\/alpha/, `--dry-run must report the refusal:\n${err}`);
+  assert.equal(hostState().state, 'OPEN', 'nothing may be merged');
+});
+
+test('approve: a fully named plan approves exactly as before', () => {
+  // The control. Every branch of PLAN() sits under `### Wave one`, so the gate
+  // must pass it through untouched.
+  makeRepo();
+  const { out } = run(['approve-me']);
+  assert.equal(hostState().state, 'MERGED');
+  refreshMain();
+  assert.match(planOnMain(), /- \*\*Phase:\*\* Approved/);
+  assert.match(out, /summary: .*push=clean/);
+});
+
 // --- the happy path ---------------------------------------------------------
 
 test('approve: merges the PR, flips the phase, fills the record, pushes to main', () => {

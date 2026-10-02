@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-10-02, jwloka, in-session
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-largest-caller-follows-the-account-rate`
 - **Type:** bug
 - **Issue:** #1069
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -78,7 +79,7 @@ If slice 1 finds no such caller, slice 2 is deferred with the measurement as its
 
 ## Slices
 
-### The account's spend is attributed by caller (Branch: bug/the-account-spend-is-attributed-by-caller)
+### The account's spend is attributed by caller (Branch: bug/the-account-spend-is-attributed-by-caller, PR: #1190)
 
 One hour of `bb` calls counted per checkout and per caller through a `PATH` wrapper in a scratch directory, compared with `spend-rate`, posted on #1069. No shipped file changes. <!-- builds: a per-caller attribution of one shared account's requests -->
 
@@ -90,3 +91,18 @@ The caller slice 1 names asks a domain rule built on `cadence.ts` before it spen
 
 - **Replaces the rejected `a-spend-line-names-its-caller`** (`docs/plans/2026-09-29-a-spend-line-names-its-caller.md`). That plan proposed a caller field in the spend record. The panel found that the account field already names the workspace, that the board's cadence already reads the whole account, and that an eleventh field makes every line unreadable. This plan keeps the record unchanged, measures per caller outside it, and makes the change conditional on that measurement.
 - The 3363-3515 requests an hour are one supervisor's reading on Plot 2.22.1. The supervisor's merge lookups changed after that reading (#1140), so the split on `origin/main` may differ.
+- **Measured 2026-10-02, 06:30:00-07:30:00 UTC, on the Bitbucket workspace `quatico`** (slice 1). Two checkouts of `quatico/ewz-kus-portal`: C1 is the main checkout, and C2 is a linked worktree outside it, detached at `origin/develop`. Each checkout ran one board (`board-server.mjs`, ports 7778 and 7779) and one supervisor (`plot-registryd.mjs` in the foreground, without `--start-agents` and `--sweep-temp`). Supervisor choice: no launchd unit was loaded or unloaded, and both supervisors ran in the foreground under the wrapped `PATH`. All four processes ran the installed plugin, Plot 2.22.2 at `573f2af7`. That commit is an ancestor of `origin/main` `2ce8007f`, and the 27 commits between them change only issue listing among the measured paths, which this workspace does not reach (`Tracker: plot`). No process had `PLOT_BUDGET_HOME` set. The checkout is the caller's working directory. The caller is the first named process in its ancestor chain.
+
+  | Caller | Under the cadence rule | C1 /hr | C2 /hr | Total /hr | Share | Network /hr | Network share |
+  |---|---|---|---|---|---|---|---|
+  | Board fleet scan | no | 1438 | 1511 | 2949 | 93.6% | 2168 | 97.1% |
+  | Supervisor | no | 92 | 92 | 184 | 5.8% | 60 | 2.7% |
+  | Board PR refresh | yes | 8 | 9 | 17 | 0.5% | 5 | 0.2% |
+  | Other | no | 0 | 0 | 0 | 0.0% | 0 | 0.0% |
+  | **Total** | | **1538** | **1612** | **3150** | 100% | **2233** | 100% |
+
+  `plot-host.sh spend-rate --connector bitbucket --account quatico` read at 07:30:01 UTC: `spent=3134`, `perHour=3134.17`, `unreadable=0`. The record holds 3134 lines in the window, and the wrapper logged 3150 calls: a difference of 0.5%. The wrapper logs a call when it starts and the record logs it when it ends, so calls in flight at the window's edges explain the difference. "Network" excludes `bb --version` and `bb pr list --help --json`, which make no request but are recorded as spends: 917 of 3150 calls, 29%.
+
+  **Verdict for slice 2: the condition holds.** Callers outside the cadence rule spend 3133 of 3150 calls, 99.5%. The largest is the **board fleet scan**, with 93.6% of all calls and 97.1% of network calls. Slice 2 brings the board fleet scan under the account's rate.
+
+  Not anticipated by the plan: the fleet scan's open listing makes one request per branch, not one per run. Its `pr-list --state open --rich --branch …` sent 1764 `pullrequests?q=state="OPEN" AND source.branch.name=…` requests in the hour, against 276 `pr list --state open` and 128 `pr list --state merged` listings.

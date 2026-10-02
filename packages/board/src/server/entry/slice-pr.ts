@@ -3,6 +3,8 @@ import {
   openSlicePr,
   type SlicePrReadings,
   type SlicePrResult,
+  type SlicePrRow,
+  type SlicePrState,
 } from '@plot-pm/domain/rules/slice-pr';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -84,6 +86,45 @@ const carriedWorkFrom = (value: unknown): boolean | 'unknown' =>
   typeof value === 'boolean' ? value : 'unknown';
 
 /**
+ * Read one row's state.
+ *
+ * ANYTHING THE ENTRY CANNOT READ IS `OPEN`, so it refuses as today. The other
+ * direction opens a duplicate PR on a parse defect, and Bitbucket does not
+ * always refuse a duplicate, so the host is no safety net there.
+ *
+ * @param value - what the row's `state` field held.
+ * @returns the state.
+ */
+const stateFrom = (value: unknown): SlicePrState =>
+  value === 'MERGED' || value === 'CLOSED' ? value : 'OPEN';
+
+/**
+ * Read the `pr-list` rows a caller took for the branch.
+ *
+ * AN ABSENT `prs` IS NO ROWS FOUND, which is the outage path: a `pr-list` that
+ * could not be asked gives the shell nothing and the opening proceeds. It never
+ * means *closed* — a missing answer is not a negative one.
+ *
+ * A ROW NAMING NO PR IS DROPPED, because it can neither be refused on nor named
+ * in a body.
+ *
+ * @param value - the request's `prs` array, or anything else.
+ * @returns the rows, in the order the caller gave them.
+ */
+const prsFrom = (value: unknown): readonly SlicePrRow[] => {
+  if (!Array.isArray(value)) return [];
+  const rows: SlicePrRow[] = [];
+  for (const row of value as unknown[]) {
+    if (typeof row !== 'object' || row === null) continue;
+    const given = row as Record<string, unknown>;
+    const number = numberOr(given.number);
+    if (number <= 0) continue;
+    rows.push({ number, state: stateFrom(given.state) });
+  }
+  return rows;
+};
+
+/**
  * Read the readings a caller took.
  *
  * @param value - the request's `readings` object, or anything else.
@@ -98,7 +139,7 @@ export const readingsFrom = (value: unknown): SlicePrReadings => {
     planFile: stringOr(given.planFile),
     sliceName: stringOr(given.sliceName),
     briefFile: stringOr(given.briefFile),
-    existingPr: numberOr(given.existingPr),
+    prs: prsFrom(given.prs),
     commits: numberOr(given.commits),
     carriedWork: carriedWorkFrom(given.carriedWork),
   };

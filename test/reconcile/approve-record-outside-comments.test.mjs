@@ -139,19 +139,33 @@ const approveAndRead = (planBody) => {
 };
 
 /**
- * The SHIPPED template, made approvable: the two ceremony answers filled in and
- * a `## Branches` section added. Everything else — crucially the trailing
- * comment block — is the template's own text, read from disk.
+ * The SHIPPED template, made approvable: the two ceremony answers filled in,
+ * the `## Slices` branch placeholder filled, and a `## Branches` section
+ * added. Everything else — crucially the trailing comment block — is the
+ * template's own text, read from disk.
+ *
+ * THE `## Slices` PLACEHOLDER IS A BLANK LIKE THE OTHERS, and it is filled for
+ * the same reason `<title>` is. The template's live line is
+ * `- \`feature/<slug>\` — <description>` under `## Slices` with no `###`
+ * heading, so a plan carrying it names a branch under no heading and
+ * `slice-unnamed` refuses the approval — correctly, since that is the shape
+ * `openSlicePr` later refuses and the board renders as `(unnamed)`. Leaving it
+ * would make this test about the slice gate rather than about where the record
+ * lands.
  */
 const fromShippedTemplate = () => {
   const template = fs.readFileSync(TEMPLATE, 'utf8');
   assert.match(template, /<!-- Transition records/,
     'the shipped template no longer carries the comment block this test is about — '
     + 'if the placeholders moved out of the comment, re-read the plan before deleting this');
+  assert.match(template, /^- `feature\/<slug>` — <description>$/m,
+    'the template no longer carries the `## Slices` branch placeholder this helper fills — '
+    + 'drop the replace below if it was removed, rather than leaving a no-op');
   return template
     .replace(/^# <title>$/m, '# Approve me')
     .replace(/^- \*\*Review:\*\* <!--.*-->$/m, '- **Review:** pr')
     .replace(/^- \*\*Impl:\*\* <!--.*-->$/m, '- **Impl:** own branches')
+    .replace(/^- `feature\/<slug>` — <description>$/m, '### A named slice\n- `feature/filled` — the slice')
     + '\n## Branches\n\n### Wave one\n- `feature/alpha` — the first\n';
 };
 

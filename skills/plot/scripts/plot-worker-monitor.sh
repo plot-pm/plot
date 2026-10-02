@@ -11,10 +11,10 @@
 # ═══════════════════════════════════════════════════════════════════════════
 #
 #   gone   the agent pid names no live process
-#   idle   the pid lives, its TRANSCRIPT has been silent past the window with
-#          no child process burning CPU behind it, across two consecutive
-#          passes, the tree did not change between them, AND commits already
-#          exist on the branch
+#   idle   the pid lives, its conversation has spoken, its TRANSCRIPT has been
+#          silent past the window with no child process burning CPU behind it,
+#          nothing in its tree has moved for the window either, AND commits
+#          already exist on the branch
 #
 # Anything else is `silent`, which is not a finding and is not published. The
 # distinction is the whole point: a monitor that reports every quiet moment
@@ -66,9 +66,9 @@
 # What separated the three stalls measured on 2026-08-30 is that each had
 # already COMMITTED and then gone quiet:
 #
-#   quiet, tree unchanged, commits present   → idle
-#   quiet, tree unchanged, no commits yet    → silent (it may be thinking)
-#   quiet, tree CHANGED between samples      → silent (something is happening)
+#   quiet, tree quiet past the window, commits present  → idle
+#   quiet, tree quiet past the window, no commits yet    → silent (it may be thinking)
+#   quiet, tree MOVED inside the window                  → silent (something is happening)
 #
 # THE MIDDLE ROW IS WHERE THE FALSE POSITIVES WOULD HAVE BEEN. An agent given a
 # hard first slice is quiet for a long time with nothing to show; calling that a
@@ -97,14 +97,24 @@
 # its vocabulary is Worker-side.
 #
 # ═══════════════════════════════════════════════════════════════════════════
-# TWO SAMPLES, NEVER ONE
+# ONE SAMPLE, AND THE WINDOW IS WHAT MAKES IT SAFE
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# A single idle reading is a process caught between syscalls. The COMPARISON is
-# the finding, so the monitor keeps the previous answer — one piece of state,
-# and derived rather than recorded: lose it (restart the monitor, say) and the
-# next pass rebuilds it, at one interval's delay. Nothing is persisted, because
-# nothing needs to be.
+# This block read *"TWO SAMPLES, NEVER ONE — a single idle reading is a process
+# caught between syscalls"* until 2026-10-02. It was written about a 0.4 s CPU
+# SAMPLE, and it was right about one: a snapshot of a subtree's clock catches a
+# process between syscalls, so the comparison had to be the finding.
+#
+# NOTHING IN THE RULE IS A SNAPSHOT ANY MORE. Since 2026-09-02 the quiet reading
+# is transcript silence past a 900 s window, and since 2026-10-02 the tree
+# reading is seconds since the newest thing in it moved. Each is already a SPAN
+# of at least the window, and the CPU is only a veto beside them. A process
+# caught between syscalls has neither 900 seconds of transcript silence nor a
+# 900-second-old tree — there is no instant to be caught in.
+#
+# SO NO PREVIOUS SAMPLE IS KEPT, and a process no longer has to exist to hold
+# one. That is what `bug/the-loop-reports-idle` then removes: the finding moves
+# into the loop's own watcher and this script goes.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 # IT MAKES NO HOST CALL AT ALL
@@ -430,35 +440,28 @@ monitor_conversation_spoken() { # → 0 spoken | 1 unspoken | 2 no handle
   return 1
 }
 
-# A cheap stand-in for "the tree as it is right now", compared between passes.
+# HOW LONG SINCE ANYTHING IN THIS TREE MOVED — the reading that replaced a
+# comparison between two passes.
 #
-# IT GOES THROUGH `plot_worker_dirty_filter`, which is not an optimisation — it
-# is what stops the monitor from watching itself. This script appends to
-# `.plot-worker.monitor.worker.jsonl` INSIDE the worktree it is watching, so a
-# raw `git status` fingerprint would change every time the monitor published and
-# `idle` could never hold for two passes. The filter drops the `.plot-worker.`
-# prefix (and editor leftovers, and tool scratch) for exactly the reasons
-# recorded where it is defined.
+# UNTIL 2026-10-02 THIS WAS A FINGERPRINT, and the fingerprint is why a process
+# had to exist. It answered *what does the tree look like now*, so the finding
+# was the COMPARISON with the previous pass, and somebody had to hold that
+# previous pass. `treeQuietSeconds` answers *how long since anything moved*,
+# which the filesystem had been recording all along — and `at least the window`
+# is a stronger statement than `unchanged across two passes 30 s apart`.
 #
-# THE FILTERED FILE LIST, NOT A CONTENT HASH. What is being asked is *did
-# anything happen here*, and an agent at work adds, removes and renames files
-# far more often than it rewrites one in place at byte-identical length. A
-# content hash over a large tree on a 30s loop would also be the one expensive
-# thing in an otherwise cheap monitor.
-monitor_tree_fingerprint() { # → an opaque string; unchanged means unchanged
-  [ -n "$worktree" ] && [ -d "$worktree" ] || { printf 'no-tree'; return 0; }
-  local status
-  status=$(git -C "$worktree" status --porcelain 2>/dev/null)
-  local head
-  head=$(git -C "$worktree" rev-parse HEAD 2>/dev/null || printf 'no-head')
-  # HEAD is part of the fingerprint too: an agent that COMMITS between two
-  # passes has plainly done something, and its status output may well be
-  # identical either side of the commit.
-  if command -v plot_worker_dirty_filter >/dev/null 2>&1; then
-    printf '%s\n%s' "$head" "$(plot_worker_dirty_filter "$status")"
-  else
-    printf '%s\n%s' "$head" "$status"
-  fi
+# DELEGATED WHOLESALE to `plot_worker_tree_quiet_seconds`, which the loop's own
+# watcher reads too: one function, two readers, one answer. It is where the
+# exclusions live — this script appends to `.plot-worker.monitor.worker.jsonl`
+# INSIDE the worktree it watches, so a reading over a raw status would move
+# every time the monitor published and `idle` could never fire.
+#
+# `unreadable` TRAVELS TO THE VERDICT rather than being collapsed into a number.
+# A missing helper answers the same way: a monitor whose reader is absent must
+# say it cannot see, not that it saw nothing happen.
+monitor_tree_quiet() { # → seconds | unreadable
+  command -v plot_worker_tree_quiet_seconds >/dev/null 2>&1 || { printf 'unreadable'; return 0; }
+  plot_worker_tree_quiet_seconds "$worktree"
 }
 
 # Are there commits on this branch yet?
@@ -501,14 +504,16 @@ monitor_has_commits() { # → 0 yes | 1 no | 2 unanswerable
 # THE SAMPLER — one pass, using only the ports above
 # ---------------------------------------------------------------------------
 #
-# THE STATE IS TWO VARIABLES AND IT IS DERIVED. `prev_verdict` is the previous
-# pass's answer and `prev_tree` its fingerprint; `since` is when the CURRENT
-# published finding first held. Nothing is written down: kill the monitor and
-# the next one rebuilds all three, one interval late. That is the plan's "one
-# piece of state, derived rather than recorded", and it is why a monitor
-# restart costs an interval rather than a wrong answer.
-prev_verdict=''
-prev_tree=''
+# NO PREVIOUS SAMPLE IS KEPT, and that is this slice's whole point. `idle` was
+# a comparison between two passes, so `prev_verdict` and `prev_tree` held the
+# first one and a process had to exist to hold them. Every condition behind the
+# finding is now a duration the desk itself records, so one pass answers it.
+#
+# WHAT SURVIVES IS NOT A SAMPLE. `published` is the finding currently standing
+# and `since` is when it first held; both exist so that a held finding is
+# published ONCE rather than on every pass, which is a property of the CHANNEL
+# and not of the rule. A monitor restarted re-publishes one line and loses
+# nothing, where a lost `prev_tree` cost a whole interval's delay.
 published=''
 since=''
 
@@ -616,51 +621,68 @@ sample_verdict() { # → gone | quiet | busy | unknown | unspoken
   esac
 }
 
-# One full pass: sample, apply the two-sample rule, publish only on a change.
+# One full pass: take the readings, ask the rule, publish only on a change.
 monitor_pass() {
-  local verdict tree evidence finding
-  tree=$(monitor_tree_fingerprint)
+  local verdict tree evidence finding commits rc2
   verdict=$(sample_verdict)
 
   finding=''
   evidence=''
   case "$verdict" in
     gone)
-      # ONE SAMPLE IS ENOUGH FOR `gone`, and only for `gone`. A dead pid is not
-      # a transient reading the way a frozen CPU clock is — a process does not
-      # come back. Requiring two passes here would delay the one finding that is
-      # already certain by a whole interval, for no gain in confidence.
+      # ONE SAMPLE IS ENOUGH FOR `gone`, and this arm is UNTOUCHED by the
+      # one-sample slice — it never needed two. A dead pid is not a transient
+      # reading the way a frozen CPU clock is: a process does not come back.
+      # The slice that moves this finding to the wrapper is the next one; here
+      # it stays exactly as it was.
       finding='gone'
       evidence="the agent pid $(monitor_pid) names no live process; the worker's desk is unattended"
       ;;
     quiet)
-      # THE TWO-SAMPLE RULE, and the two extra conditions with it. All four must
-      # hold together: this pass quiet, the PREVIOUS pass quiet, the tree
-      # unchanged between them, and commits already on the branch.
-      if [ "$prev_verdict" = 'quiet' ] && [ "$tree" = "$prev_tree" ]; then
-        local has rc2
-        monitor_has_commits; rc2=$?
-        if [ "$rc2" = 0 ]; then
-          finding='idle'
-          evidence="the agent pid $(monitor_pid) is alive but its transcript has been silent for over ${PLOT_MONITOR_QUIET_SECONDS}s with no child process burning CPU behind it, across two consecutive passes ~${interval}s apart, the tree is unchanged between them, and the branch already carries commits"
-        fi
-        # rc2 = 1 → no commits yet: the middle row. It may be thinking, and
-        # calling that a stall is what teaches an operator to ignore the word.
-        # rc2 = 2 → unanswerable: no ref to count against, so no finding. A
-        # failure to observe is not evidence of something to see.
+      # ONE READING, AND THE RULE JUDGES IT. `sample_verdict` has already
+      # established five of the six conditions to reach this word — the pid is
+      # alive, the conversation has spoken, the transcript is past the window,
+      # and no child is on a core — so what is read here is the tree's own
+      # quiet and the commit question, and all six go to the shared rule.
+      #
+      # THE RULE IS ASKED RATHER THAN RESTATED. `plot_worker_idle_now` lives in
+      # `plot-worker-state.sh` and the loop's watcher reads the same function;
+      # `idleNow` in the domain holds the same rule, and
+      # `packages/domain/corpus/sample.corpus.test.ts` holds the pair. A second
+      # copy of the conditions in this file is what the corpus tier exists to
+      # prevent.
+      tree=$(monitor_tree_quiet)
+      monitor_has_commits; rc2=$?
+      case "$rc2" in
+        0) commits='yes' ;;
+        1) commits='no' ;;
+        # No ref to count against: the question was never put. `unanswerable`
+        # is not `no`, and the rule withholds the finding for both — but the
+        # words are kept apart because a failure to observe is not evidence.
+        *) commits='unanswerable' ;;
+      esac
+      # Every condition `sample_verdict` already proved is passed as the word
+      # the rule expects, so the rule is asked ONE question rather than two
+      # halves of one. `alive`, spoken and a silence past the window are what
+      # `quiet` means.
+      if [ "$(plot_worker_idle_now 'alive' '1' "$PLOT_MONITOR_QUIET_SECONDS" '' \
+                                   "$tree" "$commits" "$PLOT_MONITOR_QUIET_SECONDS")" = 'idle' ]; then
+        finding='idle'
+        evidence="the agent pid $(monitor_pid) is alive but its transcript has been silent for over ${PLOT_MONITOR_QUIET_SECONDS}s with no child process burning CPU behind it, nothing in its tree has moved for ${tree}s, and the branch already carries commits"
       fi
       ;;
     # `busy`, `unknown` and `unspoken` are not findings. Nothing is published,
     # which is the design: silence means healthy, and the AgentMonitor's slower
-    # loop is what catches a worker that finished without saying so. `unspoken`
-    # is recorded as `prev_verdict`, so `idle` needs two `quiet` passes after
-    # the conversation's first line. No grace period bounds it: a prompt that
-    # stays alive and never writes a line ends at `Worker bound`, the cost
-    # `unknown` already carries.
+    # loop is what catches a worker that finished without saying so.
+    #
+    # `unspoken` NO LONGER DELAYS A PASS, and the protection it gave is now the
+    # window's. Before this slice it was recorded as `prev_verdict`, so `idle`
+    # needed two `quiet` passes after the conversation's first line; now one
+    # pass answers, and what stands between a conversation's first line and an
+    # `idle` finding is the 900 s of silence that line has to be followed by.
+    # No grace period bounds it: a prompt that stays alive and never writes a
+    # line ends at `Worker bound`, the cost `unknown` already carries.
   esac
-
-  prev_verdict="$verdict"
-  prev_tree="$tree"
 
   # PUBLISH ONLY ON A CHANGE — the plan's "it publishes the moment a finding
   # holds and publishes nothing when nothing changed". A monitor that
@@ -698,9 +720,11 @@ fi
 monitor_pass
 [ "$once" = 1 ] && exit 0
 
-# THE LOOP IS WHERE THE COMPARISON LIVES. `idle` needs two readings, so a
-# monitor that ran once and exited could never report it — which is why `--once`
-# is a test affordance and not a mode anyone dispatches.
+# THE LOOP IS THE CADENCE, NOT THE COMPARISON. `idle` needs ONE reading as of
+# 2026-10-02, so `--once` can now report it — and that is the property the next
+# slice rests on, because a finding one pass can make is a finding the loop's
+# own watcher can make without a resident process. The loop here is what keeps
+# ASKING, which is a different job from holding a previous answer.
 #
 # SILENCE IS MEANINGFUL HERE, and it is the opposite of what the no-op slice
 # needed. That monitor published every pass so that an attached-but-blind

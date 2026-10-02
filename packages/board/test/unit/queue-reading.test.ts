@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { queueOfPlan, readQueue, type QueueWorld } from '../../src/server/queue-reading.js';
+import {
+  queueOfPlan,
+  readQueue,
+  type MergedListing,
+  type QueueWorld,
+} from '../../src/server/queue-reading.js';
 import type { PlanRecord } from '@plot-pm/domain';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
@@ -27,6 +32,22 @@ const plan = (slices: string[][], phase = 'approved'): PlanRecord =>
       branches: branches.map((branch) => ({ branch, deferred: false })),
     })),
   }) as unknown as PlanRecord;
+
+/** A listing that answered in full — no refusal to name. */
+const wholeListing = (heads: string[]): MergedListing => ({
+  merged: new Set(heads),
+  whole: true,
+  kind: null,
+  failed: false,
+});
+
+/** A listing whose request failed: no rows, and the refusal's kind. */
+const failedListing = (kind: MergedListing['kind'] = 'failed'): MergedListing => ({
+  merged: new Set<string>(),
+  whole: false,
+  kind,
+  failed: true,
+});
 
 describe('a slice whose branches merged does not block the slices behind it', () => {
   it('reads the second slice as claimable when the first one merged', () => {
@@ -81,11 +102,12 @@ describe('the host is asked once per branch, and only where the answer decides',
   const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
     plans: async () => [plan([['feature/one'], ['feature/two']])],
     claimedBranches: async () => new Set<string>(),
-    mergedBranches: async () => ({ merged: new Set(['feature/one']), whole: true }),
+    mergedBranches: async () => wholeListing(['feature/one']),
     prIndexRows: async () => [],
     viewLanded: async () => 'unknown',
     briefPresent: async () => true,
     sliceHasMerged: async () => false,
+    subjectProven: async () => null,
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
@@ -101,7 +123,7 @@ describe('the host is asked once per branch, and only where the answer decides',
     await readQueue([], world({
       mergedBranches: async () => {
         calls += 1;
-        return { merged: new Set(['feature/one']), whole: true };
+        return wholeListing(['feature/one']);
       },
     }));
 
@@ -118,7 +140,7 @@ describe('the host is asked once per branch, and only where the answer decides',
     // so slice 1 stays outstanding and slice 2 stays blocked — the opposite of
     // the reaper's direction, where silence KEEPS a checkout.
     const readings = await readQueue([], world({
-      mergedBranches: async () => ({ merged: new Set<string>(), whole: false }),
+      mergedBranches: async () => failedListing(),
     }));
 
     expect(readings.slices.find((s) => s.branch === 'feature/two')?.claimable).toBe(false);
@@ -157,7 +179,7 @@ describe('a known PR number is asked by number when the listing fails', () => {
       claimedBranches: async () => new Set<string>(),
       mergedBranches: async () => {
         asked.listing += 1;
-        return { merged: new Set<string>(), whole: false };
+        return failedListing();
       },
       prIndexRows: async () => rows,
       viewLanded: async (n) => {
@@ -166,6 +188,7 @@ describe('a known PR number is asked by number when the listing fails', () => {
       },
       briefPresent: async () => true,
       sliceHasMerged: async () => false,
+      subjectProven: async () => null,
       queuedHasLanded: async (branch) => {
         asked.branches.push(branch);
         return queued(branch);
@@ -200,7 +223,10 @@ describe('a known PR number is asked by number when the listing fails', () => {
     );
     const readings = await readQueue([], world);
 
-    expect(hold(readings, 'feature/two')).toBe('not-claimable');
+    // SLICE 2 NAMES THE HOST, NOT THE PLAN. It is held exactly as before —
+    // silence must not promote work — and the word now says the landing of
+    // slice 1 could not be asked, which is what sent a reader to the plan.
+    expect(hold(readings, 'feature/two')).toBe('prior-unknown');
     expect(hold(readings, 'feature/one')).toBe('merge-unknown');
   });
 
@@ -212,6 +238,10 @@ describe('a known PR number is asked by number when the listing fails', () => {
     );
     const readings = await readQueue([], world);
 
+    // THE ASSERTION THAT SEPARATES THE TWO WORDS. The host ANSWERED here — it
+    // said the PR did not merge — so slice 2 is waiting its turn rather than
+    // waiting on the host, and a change relabelling every `not-claimable`
+    // would fail exactly here.
     expect(hold(readings, 'feature/two')).toBe('not-claimable');
     // The view already answered feature/one, so it is not asked again by branch.
     expect(asked.branches).not.toContain('feature/one');
@@ -254,7 +284,7 @@ describe('a known PR number is asked by number when the listing fails', () => {
     const { world, asked } = failing([plan([['feature/one'], ['feature/two']])], [], () => 'landed');
     const readings = await readQueue([], {
       ...world,
-      mergedBranches: async () => ({ merged: new Set(['feature/one']), whole: true }),
+      mergedBranches: async () => wholeListing(['feature/one']),
       prIndexRows: async () => {
         read += 1;
         return [];
@@ -292,9 +322,168 @@ describe('a known PR number is asked by number when the listing fails', () => {
     // Plan 1 spent the last two views; its third slice is past the cap and
     // reads `unknown` without a per-branch question into the failed listing.
     expect(hold(readings, 'feature/p1-c')).toBe('merge-unknown');
-    expect(hold(readings, 'feature/p1-d')).toBe('not-claimable');
+    // Behind an unanswered landing in its OWN plan, so it names the host.
+    expect(hold(readings, 'feature/p1-d')).toBe('prior-unknown');
     expect(hold(readings, 'feature/p9-a')).toBe('merge-unknown');
     // 1 listing + 5 views + 1 per-branch question = 7 host calls in the pass.
     expect(asked.listing + asked.views.length + asked.branches.length).toBe(7);
+  });
+});
+
+/**
+ * A SLICE HELD BEHIND A LANDING NOBODY COULD ASK ABOUT (#1094).
+ *
+ * Measured 2026-09-30 on a Bitbucket estate under HTTP 429: the supervisor held
+ * 36 slices `not-claimable`, among them slices whose earlier waves had merged
+ * days before. `not-claimable` means *the plan's ordering blocks this*, so a
+ * reader went to the plan and found nothing wrong with it.
+ *
+ * THE HOLD DOES NOT CHANGE. Silence must not promote work, and these tests
+ * assert the slice stays held — only the word it is held under moves.
+ */
+describe('a slice behind an unanswered landing names the host', () => {
+  const twoSlice = (
+    answer: LandedAnswer,
+    plans: PlanRecord[] = [plan([['feature/one'], ['feature/two']])],
+  ) => {
+    const asked = { listing: 0, branches: [] as string[] };
+    const world: QueueWorld = {
+      plans: async () => plans,
+      claimedBranches: async () => new Set<string>(),
+      mergedBranches: async () => {
+        asked.listing += 1;
+        return failedListing('throttled');
+      },
+      prIndexRows: async () => [],
+      viewLanded: async () => 'unknown',
+      briefPresent: async () => true,
+      sliceHasMerged: async () => false,
+      subjectProven: async () => null,
+      queuedHasLanded: async (branch) => {
+        asked.branches.push(branch);
+        return answer;
+      },
+      workerAlive: async () => true,
+      blocked: async () => false,
+    };
+    return { world, asked };
+  };
+
+  const hold = (readings: Awaited<ReturnType<typeof readQueue>>, branch: string) =>
+    whyNotReady(readings.slices.find((s) => s.branch === branch)!);
+
+  it('holds slice 1 `merge-unknown` and slice 2 `prior-unknown`', async () => {
+    const { world } = twoSlice('unknown');
+    const readings = await readQueue([], world);
+
+    expect(hold(readings, 'feature/one')).toBe('merge-unknown');
+    expect(hold(readings, 'feature/two')).toBe('prior-unknown');
+  });
+
+  it('holds slice 2 `not-claimable` when slice 1 simply has not landed', async () => {
+    // THE SAME WORLD, ONE READING CHANGED. A change that relabelled every
+    // `not-claimable` as `prior-unknown` passes the test above and fails this
+    // one: the host answered, and slice 2 is waiting its turn.
+    const { world } = twoSlice('not-landed');
+    const readings = await readQueue([], world);
+
+    expect(hold(readings, 'feature/one')).toBeNull();
+    expect(hold(readings, 'feature/two')).toBe('not-claimable');
+  });
+
+  it("does not mark a second plan from the first plan's unanswered landing", async () => {
+    // A PER-ESTATE FLAG PASSES EVERY SINGLE-PLAN TEST. The two plans share a
+    // host and nothing else: plan B's own slice 1 answered, so its slice 2 is
+    // held by plan B's ordering.
+    const planB = {
+      ...plan([['feature/b-one'], ['feature/b-two']]),
+      file: 'docs/plans/2026-10-01-plan-b.md',
+    } as PlanRecord;
+    const { world } = twoSlice('unknown', [plan([['feature/one'], ['feature/two']])]);
+    const readings = await readQueue([], {
+      ...world,
+      plans: async () => [plan([['feature/one'], ['feature/two']]), planB],
+      // Plan A's slice 1 goes unanswered; plan B's answers *not merged*.
+      queuedHasLanded: async (branch) => (branch === 'feature/one' ? 'unknown' : 'not-landed'),
+    });
+
+    expect(hold(readings, 'feature/two')).toBe('prior-unknown');
+    expect(hold(readings, 'feature/b-two')).toBe('not-claimable');
+  });
+
+  it('never marks a later slice that is claimable in its own right', async () => {
+    // Slice 1 merged, so slice 2 is claimable and keeps its own landing
+    // question — here unanswered, which is `merge-unknown` and not its
+    // predecessor's problem.
+    const { world } = twoSlice('unknown');
+    const readings = await readQueue([], {
+      ...world,
+      mergedBranches: async () => ({ ...wholeListing(['feature/one']), whole: false, failed: true }),
+      subjectProven: async () => new Map([['docs/plans/2026-09-04-a-plan.md', new Set(['feature/one'])]]),
+    });
+
+    const two = readings.slices.find((s) => s.branch === 'feature/two');
+    expect(two?.claimable).toBe(true);
+    expect(two?.priorUnknown).toBe(false);
+    expect(hold(readings, 'feature/two')).toBe('merge-unknown');
+  });
+
+  it('costs no host call beyond the ones the pass already took', async () => {
+    // NO NEW HOST CALL. The `unknown` answers are this pass's own: one listing
+    // and one per-branch question for the slice that could otherwise be handed
+    // over. The hold is decided from those readings and asks nothing.
+    const { world, asked } = twoSlice('unknown');
+    await readQueue([], world);
+
+    expect(asked.listing).toBe(1);
+    expect(asked.branches).toEqual(['feature/one']);
+  });
+
+  it("carries the listing's state and the refusal's kind beside the slices", async () => {
+    const { world } = twoSlice('unknown');
+    const readings = await readQueue([], world);
+
+    expect(readings.mergedSet).toEqual({ state: 'unaskable', kind: 'throttled' });
+  });
+
+  it('reads a whole listing as `whole`, with no kind to name', async () => {
+    const readings = await readQueue([], {
+      ...twoSlice('not-landed').world,
+      mergedBranches: async () => wholeListing([]),
+    });
+
+    expect(readings.mergedSet).toEqual({ state: 'whole', kind: null });
+  });
+
+  it('reads an answered listing that left a refusal as `partial`', async () => {
+    // `partial` AND `unaskable` ARE NOT ONE WORD. This listing ANSWERED and
+    // left a refusal behind, so its rows are real but may be incomplete; an
+    // unaskable listing has no rows at all.
+    const readings = await readQueue([], {
+      ...twoSlice('not-landed').world,
+      mergedBranches: async () => ({
+        merged: new Set(['feature/one']),
+        whole: false,
+        kind: 'secondary',
+        failed: false,
+      }),
+    });
+
+    expect(readings.mergedSet).toEqual({ state: 'partial', kind: 'secondary' });
+  });
+
+  it('names a refusal `failed` where the listing gave no kind', async () => {
+    const readings = await readQueue([], {
+      ...twoSlice('not-landed').world,
+      mergedBranches: async () => ({
+        merged: new Set<string>(),
+        whole: false,
+        kind: null,
+        failed: false,
+      }),
+    });
+
+    // A state with no cause would print `partial()`; something refused it.
+    expect(readings.mergedSet).toEqual({ state: 'partial', kind: 'failed' });
   });
 });

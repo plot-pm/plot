@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-01, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Started:** 2026-10-01, Jan Wloka, `bug/the-launch-gives-back-the-callers-streams`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 

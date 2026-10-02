@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/approval-refuses-an-unnamed-slice`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-queue-holds-an-unnamed-slice`
 
 ## Changelog
 
@@ -75,7 +76,7 @@ A rule in `packages/domain/src/rules/` answers *which branches does this plan na
 
 ## Slices
 
-### Approval refuses an unnamed slice (Branch: bug/approval-refuses-an-unnamed-slice)
+### Approval refuses an unnamed slice (Branch: bug/approval-refuses-an-unnamed-slice, PR: #1189)
 
 The predicate, the `slice-unnamed` refusal in `approve`, the reading through `plot-approve.sh` and `entry/transition.ts`, and the tests above. <!-- builds: unnamedBranches, the slice-unnamed approval refusal -->
 

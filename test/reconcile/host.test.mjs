@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -3388,9 +3388,21 @@ test('host: a GitHub page AT the requested limit is reported possibly truncated'
   assert.match(reports[0], /\b5\b/);
 });
 
-test('host: a GitHub page UNDER the requested limit is silent', () => {
-  // The pairing: fewer rows than the limit proves the host had no more, so the
-  // common path (a 1000 limit, a handful of PRs) reports nothing.
+// A completeness claim is the other half of the same decision, and it is a
+// machine-parseable stderr line for the same reason: `plot-fleet-scan.sh` reads
+// the sentence to license `.list-complete`, so its shape is a contract.
+const completeReports = (stderr) =>
+  stderr.split('\n').filter((l) => /page complete/i.test(l));
+
+test('host: a GitHub page UNDER the requested limit states that it is complete', () => {
+  // The pairing: fewer rows than the limit proves the host had no more.
+  //
+  // THIS TEST ASSERTED SILENCE UNTIL 2026-10-02, and the silence was the defect
+  // rather than the contract. A caller joining against the page could not tell
+  // "this holds every PR" from "this adapter has no opinion", so the scan read
+  // its own row count instead — which on a repository of 1064 PRs behind a
+  // 1000-row limit proved nothing and cost 26 `pr-state` calls a scan (#1017).
+  // The claim belongs here because the paging semantics do.
   const rows = Array.from({ length: 3 }, (_, i) => ({
     number: 100 + i, title: `t${i}`, state: 'MERGED', headRefName: `feature/f${i}`,
   }));
@@ -3401,6 +3413,43 @@ test('host: a GitHub page UNDER the requested limit is silent', () => {
   });
   assert.equal(res.status, 0, res.stderr);
   assert.equal(truncationReports(res.stderr).length, 0, '3 < 1000 proves the list is whole');
+  const reports = completeReports(res.stderr);
+  assert.equal(reports.length, 1, 'a provably whole page must say so, not stay silent');
+  assert.match(reports[0], /state=merged page complete \(3 rows below requested limit 1000\)/);
+});
+
+test('host: the two completeness sentences are never both emitted for one state', () => {
+  // ONE DECISION, TWO OUTCOMES. A reader that saw both would have no answer, and
+  // a reader that saw neither must be able to read that as "no claim owed".
+  const atLimit = makeStubs({
+    ghJson: JSON.stringify(Array.from({ length: 5 }, (_, i) => ({
+      number: 100 + i, title: `t${i}`, state: 'MERGED', headRefName: `feature/f${i}`,
+    }))),
+  });
+  const capped = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '5'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${atLimit.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(truncationReports(capped.stderr).length, 1);
+  assert.equal(completeReports(capped.stderr).length, 0,
+    'a capped page both warned and claimed completeness');
+
+  // NO `--limit` OWES NO CLAIM, and an empty page hides nothing. Both stay
+  // silent, which is why silence may not be read as either answer.
+  const noLimit = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${atLimit.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(completeReports(noLimit.stderr).length, 0, 'no --limit owes no completeness claim');
+  assert.equal(truncationReports(noLimit.stderr).length, 0, 'no --limit owes no truncation report');
+
+  const empty = makeStubs({ ghJson: '[]' });
+  const none = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '10'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${empty.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(completeReports(none.stderr).length, 0,
+    'an empty page is not a complete one — a host that answered nothing may have failed silently');
 });
 
 test('host: --rich reports truncation too and keeps the rich rows clean', () => {
@@ -5620,6 +5669,75 @@ test('host: a windowed --state all asks once per state, each state inside its ow
   }
 });
 
+test('host: a windowed --state all that every state answers is a clean delta', () => {
+  // THE JOIN BETWEEN THIS ADAPTER AND THE FOLD, and the half `--state all` above
+  // does not assert. The board reads a windowed Bitbucket answer as `delta`
+  // only if every state answered, which means exit 0 and NO partial sentence —
+  // `pr_list_states` returns `PR_LIST_PARTIAL_RC` (7) the moment one state
+  // fails, and a 7 makes `answerKind` say `partial` and unproves the store.
+  //
+  // So a healthy Bitbucket board keeps its store whole after a window, exactly
+  // as a GitHub one does. Before this slice the comment at `plot-host.sh:89`
+  // said Bitbucket's bulk listing could not narrow at all.
+  const bb = makeWindowBbStub({ pages: [mergedRows(900, 2)] });
+  const res = runWindow(bb, ['--rich', '--state', 'all', '--limit', '1000',
+    '--since', '2026-09-20T18:42:10Z']);
+
+  assert.equal(res.status, 0, `every state answered, so the answer is whole: ${res.stderr}`);
+  // THE SENTENCE THAT WOULD MAKE IT PARTIAL. `refreshPrs` reads `said.answer`
+  // and turns a partial one into `partialSaid`, which outranks the window.
+  assert.doesNotMatch(res.stderr, /missing:/, 'no state is reported missing');
+  assert.doesNotMatch(res.stderr, /answered [0-9]+ of/, 'no partial tally');
+  assert.doesNotMatch(res.stderr, /ignores --since/, 'the window was applied');
+  // Each state narrowed through `bb_window_listing`, so this is a delta and not
+  // a full listing wearing a window's name.
+  const calls = sweepCalls(bb.callsFile);
+  assert.equal(calls.length, 3, 'one windowed request per state');
+  for (const c of calls) {
+    assert.match(c, /updated_on>=%222026-09-20T18%3A42%3A10Z%22/, 'each call carries the window');
+  }
+  // And the rows arrived, so the fold has something to merge.
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(rows.length, 6, 'three states, two rows each');
+});
+
+test('host: one unanswered state makes a windowed --state all partial, not whole', () => {
+  // THE OTHER SIDE OF THE SAME JOIN. A state that did not answer means rows
+  // exist the store has never seen, and the window would never see them either
+  // because they did not change — so the answer must reach the board as
+  // partial, whatever the window said. `answerKind` then says `partial` and the
+  // store is marked not whole, which is what stops the next refresh narrowing.
+  //
+  // The stub answers page 1 for the first state asked and 404s afterwards, so
+  // one state answers and the others do not.
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-window-partial-')));
+  const callsFile = path.join(dir, 'bb.calls');
+  const payload = path.join(dir, 'page.json');
+  writeFileSync(payload, JSON.stringify({
+    size: 1, page: 1, pagelen: 50, values: [restPr(900, 'feature/w900')],
+  }));
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
+if [ "$(grep -c . ${JSON.stringify(callsFile)})" -gt 1 ]; then
+  echo "error: HTTP 500 — the state did not answer" >&2; exit 1
+fi
+cat ${JSON.stringify(payload)}
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+
+  const res = runWindow({ dir }, ['--rich', '--state', 'all', '--limit', '1000',
+    '--since', '2026-09-20T18:42:10Z']);
+  // 7 is the partial code, and it is NOT the outage code: one state answered,
+  // so its rows are real and must not be dropped — #912.
+  assert.equal(res.status, 7, `a partial answer keeps its own code: ${res.stderr}`);
+  assert.match(res.stderr, /answered 1 of 3 states/, 'the tally the board reads as partial');
+  assert.match(res.stderr, /missing:/, 'and it names what is missing');
+  // The rows that did arrive are still printed, which is what the fold merges.
+  assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, 1);
+});
+
 test('host: a windowed state the host refuses keeps the host\'s own words', () => {
   // The raw stderr travels to `pr_list_call`, which classifies once — so a
   // Bitbucket rate limit keeps its burst code (6), as it does through the
@@ -5823,3 +5941,244 @@ for (const rich of [true, false]) {
     assert.deepEqual(rows.map((r) => r.author), ['pexample', '']);
   });
 }
+
+// --- plot-pr-merged.sh: an empty branch is not asked -------------------------
+//
+// `gh pr list --head ""` applies NO FILTER, so every PR in the repository
+// matches. Measured 2026-10-01 on `origin/main` (`56a978ea`): `pr_merged ""`
+// exited 0 — *merged* — and `pr_merged_heads ""` printed 98 lines, the head of
+// every merged PR in the repository. The guard that fixes it sits in the three
+// lookups and is pinned here.
+//
+// WHY THE STUB ANSWERS EVERY CALL THE SAME. The `gh` written below ignores its
+// arguments, exactly as the real `gh` does for `--head ""`, so these cases
+// reproduce the DEFECT rather than a stub's idea of it. It carries one merged
+// row and one open row in one listing, and both rows hold `mergedAt`, `number`
+// and `headRefOid` together: a real `gh` returns only the fields `--json`
+// asked for, and a stub that answered only one lookup's fields would make the
+// other read `none` for the wrong reason.
+//
+// AND IT RECORDS ITS ARGV ON EVERY CALL, so a missing `gh.argv` is positive
+// proof that no call was made. That is the assertion a naive implementation
+// fails: a guard placed AFTER `command -v gh`, or one that answers `none` after
+// asking, passes every return-value check below and writes the file anyway.
+
+// The three lookups are SOURCED, not run, so they need their own runner rather
+// than the `run` helper above, which spawns `plot-host.sh`.
+const prMergedLib = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-pr-merged.sh');
+
+function sourcedPrMerged(script, stubDir) {
+  const res = spawnSync('bash', ['-c', `source ${JSON.stringify(prMergedLib)}\n${script}`], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` },
+  });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+// One merged PR and one open PR in the same listing, every field in both rows.
+function makePrMergedStub() {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-')));
+  const argvFile = path.join(dir, 'gh.argv');
+  const rows = JSON.stringify([
+    { number: 101, mergedAt: '2026-01-01T00:00:00Z', headRefOid: 'a'.repeat(40) },
+    { number: 102, mergedAt: null, headRefOid: 'b'.repeat(40) },
+  ]);
+  writeFileSync(
+    path.join(dir, 'gh'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}\nprintf '%s' ${JSON.stringify(rows)}\n`,
+  );
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, argvFile };
+}
+
+test('plot-pr-merged: an empty branch refuses, and gh is never asked', () => {
+  const stub = makePrMergedStub();
+
+  // `unaskable`, never `none`. `rules/landed.ts` defines `unaskable` as *the
+  // lookup did not run, or did not answer*, and a lookup that refuses an empty
+  // branch did not run. `none` would claim the host spoke and found nothing,
+  // which `mayRemove` reads as permission to remove.
+  const merged = sourcedPrMerged('_plot_merged_lookup ""', stub.dir);
+  assert.equal(merged.stdout.trim(), 'unaskable', 'an empty branch is unaskable, not none');
+  const open = sourcedPrMerged('_plot_open_lookup ""', stub.dir);
+  assert.equal(open.stdout.trim(), 'unaskable', 'an empty branch is unaskable, not none');
+
+  // `pr_merged ""` returning 0 is the defect: every caller reads 0 as *merged*,
+  // and `plot-release-refs.sh` deletes remote refs on that answer.
+  assert.equal(sourcedPrMerged('pr_merged ""', stub.dir).code, 1, 'pr_merged "" refuses');
+
+  // `pr_open` VETOES, so 1 releases the veto — safe only because `pr_merged ""`
+  // refuses on the same branch, which `mayRemove` asserts. Returning 0 here to
+  // be "conservative" would block nothing real and contradict the plan.
+  assert.equal(sourcedPrMerged('pr_open ""', stub.dir).code, 1, 'pr_open "" has no veto to cast');
+
+  // Exit code and stdout are checked SEPARATELY: exit 1 means *cannot ask* and
+  // exit 0 with no output means *asked, nothing merged*, so emptiness alone
+  // cannot tell the two apart.
+  const heads = sourcedPrMerged('pr_merged_heads ""', stub.dir);
+  assert.equal(heads.code, 1, 'pr_merged_heads "" returns 1');
+  assert.equal(heads.stdout, '', 'pr_merged_heads "" prints nothing');
+
+  // THE ASSERTION A NAIVE GUARD FAILS. The stub appends its argv on every
+  // invocation, so the file exists if and only if `gh` ran at least once.
+  assert.equal(
+    existsSync(stub.argvFile), false,
+    `no gh call is made for an empty branch; argv recorded: ${
+      existsSync(stub.argvFile) ? readFileSync(stub.argvFile, 'utf8') : ''}`,
+  );
+});
+
+test('plot-pr-merged: a non-empty branch with a merged PR still reads as merged', () => {
+  // THE POLARITY CHECK. A guard with the test inverted, or one that refuses
+  // every branch, passes every assertion above and fails here.
+  const stub = makePrMergedStub();
+
+  assert.equal(
+    sourcedPrMerged('_plot_merged_lookup feature/x', stub.dir).stdout.trim(), 'found',
+    'a real branch still reaches the host',
+  );
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup feature/x', stub.dir).stdout.trim(), 'found',
+    'a real branch still reaches the host',
+  );
+  assert.equal(sourcedPrMerged('pr_merged feature/x', stub.dir).code, 0, 'a merged PR still reads as merged');
+
+  const heads = sourcedPrMerged('pr_merged_heads feature/x', stub.dir);
+  assert.equal(heads.code, 0, 'pr_merged_heads answers for a real branch');
+  assert.equal(heads.stdout.trim(), 'a'.repeat(40), 'only the MERGED row\'s head is printed');
+
+  // And the guard did not swallow the call.
+  assert.ok(existsSync(stub.argvFile), 'a non-empty branch does reach gh');
+  assert.ok(
+    readFileSync(stub.argvFile, 'utf8').includes('feature/x'),
+    'the branch travels in the call',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// WHO LISTS THE ISSUES — `issue-list` and `issue-view` ask the domain.
+//
+// THE TESTS REPLAY 2026-10-01 (#1131). Both ops tested `tracker_scheme = jira`
+// and sent every other scheme to the git host, so
+// `PLOT_HOST=github PLOT_TRACKER=linear issue-list` exited 0 having called
+// `gh issue list` — a repository tracking in Linear shown GitHub's issues
+// under Linear's name. `issueSource` had decided this since #1132 and the
+// shell had no way to ask it.
+//
+// EVERY REFUSAL ASSERTS THE ABSENT CALL, not just the exit code. A fix that
+// prints the reason and exits 4 AFTER spending the host call passes an
+// exit-code test and still leaks the request; `argvOf` returns null only when
+// the stub was never invoked, which is the fact that cannot be faked.
+// ---------------------------------------------------------------------------
+
+test('host: issue-list refuses a tracker no connector lists, and spends no host call', () => {
+  // `linear` is the measured case from #1131: a real vendor with no connector.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list', '--limit', '5'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'linear' },
+    stubs,
+  });
+  assert.equal(res.code, 4, `exit 4 says this cannot be asked at all: ${res.stderr}`);
+  assert.match(res.stderr, /linear/, 'the refusal names the scheme that has no lister');
+  assert.equal(argvOf(stubs.ghArgv), null, 'gh is never called for a tracker it does not own');
+});
+
+test('host: issue-list refuses Tracker: plot on github, the rule\'s own decision', () => {
+  // A repository declaring `plot` tracks in its own plans. It LOSES its
+  // open-issue list here, as it already did on the board with #1132 — stated
+  // in the plan's Open Points so a reviewer can object. `plot` means *there is
+  // no tracker*, and the git host is not asked in its place.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'plot' },
+    stubs,
+  });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /plot/, 'the refusal names the declared scheme');
+  assert.equal(argvOf(stubs.ghArgv), null, 'no gh call for a repository tracking in its own plans');
+});
+
+test('host: issue-list refuses github-issues on bitbucket, naming the host it needs', () => {
+  // THE `onlyOnHost` CASE. An entry reading only the scheme would find
+  // `github-issues` in the lister list and call `bb`, so this is what catches
+  // a fix that ignores the host half of the rule.
+  const stubs = makeStubs();
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'bitbucket', PLOT_TRACKER: 'github-issues' },
+    stubs,
+  });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /github/, 'the refusal names the git host the scheme needs');
+  assert.equal(argvOf(stubs.bbArgv), null, 'bb never lists GitHub issues');
+});
+
+test('host: issue-view refuses a tracker no connector lists, and spends no host call', () => {
+  // The same question with the same three answers and the same exit codes: a
+  // consumer mapping 4 to `unsupported` needs no second table for this op.
+  const stubs = makeStubs({ ghJson: '{}' });
+  const res = runAllowFail(['issue-view', '7'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'linear' },
+    stubs,
+  });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /linear/);
+  assert.equal(argvOf(stubs.ghArgv), null, 'gh issue view is never spent on a refused tracker');
+});
+
+test('host: an unaskable issue-source entry exits 1 and never falls through to the host', () => {
+  // THE FALL-THROUGH IS THE DEFECT, so a bundle that cannot answer must not
+  // reopen it. Exit 1 is what every caller already reads as *the question
+  // failed*; exit 4 means *this host cannot be asked at all*, and collapsing
+  // the two reproduces `an-outage-is-not-an-answer` — a list that says "none"
+  // because it could not ask.
+  //
+  // The script is COPIED and the copy's bundle removed. Deleting the real
+  // artifact would break every other test in this file and leave the checkout
+  // dirty.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const scripts = path.join(stubs.dir, 'scripts');
+  cpSync(path.join(here, '..', '..', 'skills', 'plot', 'scripts'), scripts, { recursive: true });
+  rmSync(path.join(scripts, 'board', 'plot-issue-source.mjs'));
+  const res = spawnSync('bash', [path.join(scripts, 'plot-host.sh'), 'issue-list'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${stubs.dir}:${process.env.PATH}`,
+      ...budgetEnvFor(stubs),
+      // AN EMPTY TRACKER, which is the case that WOULD have reached the git
+      // host: this proves the refusal comes from the unaskable rule and not
+      // from a scheme nobody lists.
+      PLOT_HOST: 'github',
+      PLOT_TRACKER: '',
+    },
+  });
+  assert.equal(res.status, 1, `the question failed, not the host: ${res.stderr}`);
+  assert.match(res.stderr, /plot-issue-source\.mjs/, 'the sentence names the entry that could not answer');
+  assert.equal(argvOf(stubs.ghArgv), null, 'an unaskable rule spends no host call');
+});
+
+test('host: an empty Tracker still asks the git host — absent is not false', () => {
+  // THE REGRESSION LOCK for the rule's one permissive answer. A repository
+  // that declared no tracker asks its git host, and empty stdin is a COMPLETE
+  // answer to the entry rather than a failure.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: '' },
+    stubs,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.ok(argv, 'gh is called for a repository that declared no tracker');
+  assert.deepEqual(argv.slice(0, 2), ['issue', 'list']);
+});
+
+test('host: issue-list with Tracker: github-issues on github still calls gh', () => {
+  // The lister whose host matches is unaffected — the arm it always took.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(argvOf(stubs.ghArgv).slice(0, 2), ['issue', 'list']);
+});

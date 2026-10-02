@@ -664,7 +664,32 @@ cache_key() { # $1=branch → a filename that is injective in the branch name
 # them. OPEN outranks MERGED outranks CLOSED, matching the walk `pr-state`
 # already performs on Bitbucket, so the join and the per-branch lookup cannot
 # disagree about the same branch.
-PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
+# GENEROUS MEANS ABOVE THE REPOSITORY'S PR COUNT, and 1000 stopped being that.
+# It was set when this repo held 221 PRs. Measured 2026-10-02 it holds 1064, so
+# `--state all --limit 1000` returned exactly 1000 rows — a page AT its limit,
+# which proves only "at least 1000" and can never license completeness. The
+# marker was withheld, and the 26 branches the join could not name each cost one
+# `pr-state` call at 3.8 s: 54-61% of the scan's wall time (#1017).
+#
+# THE NUMBER IS A BUDGET, NOT AN ASSUMPTION, and that distinction is what makes
+# raising it a fix rather than a deferral. A page short of this limit is now read
+# as PROOF of completeness — `plot-host.sh` states it and `prefill_pr_states`
+# reads the sentence — so the limit's only job is to be reachable. A repository
+# that outgrows it gets a capped page, the adapter says `possibly truncated`,
+# the marker is withheld, and the scan degrades to the per-branch asking it did
+# before: slower, and still correct. The failure is loud in the adapter's own
+# stderr and costs cost, never an answer.
+#
+# COST SCALES WITH ROWS RETURNED, NOT ROWS REQUESTED, so the headroom is nearly
+# free. Measured 2026-10-02 through `plot-host.sh pr-list --state all`:
+# `--limit 1000` → 1000 rows in 7.0 s; `--limit 3000` → 1065 rows in 9.2 s;
+# `--limit 5000` → the same 1065 rows in 11.1 s. GitHub pages internally and
+# stops at what exists, so asking for 3000 of 1064 fetches 1064. Two seconds
+# more on one call against ~100 s of per-branch calls removed.
+#
+# `PLOT_PR_LIST_LIMIT` still overrides it, and lowering it is how a repository
+# with a tighter quota trades the join back for per-branch asking.
+PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-3000}"
 
 # WHETHER THE HOST ANSWERED, as a fact of its own — the thing this scan
 # computed and threw away until 2026-08-30.
@@ -1086,19 +1111,43 @@ EOF
   # were dropped above, so an `open` answer that is short — exit 7, or a sweep
   # that did not state its completeness — leaves open PRs with no row at all,
   # and completeness would turn those misses into `NONE`.
+  # A STATED CLAIM OUTRANKS A RE-DERIVED ONE, and that is why this reads two
+  # sentences before it counts anything. Either sentence is the adapter saying
+  # the page was whole — `sweep complete` because every tracked branch was asked
+  # and answered, `page complete` because the page came back short of a limit the
+  # host honours. The row count below can only ever GUESS at the second, and on
+  # this repository it guessed wrong: measured 2026-10-02, `--state all --limit
+  # 1000` returned exactly 1000 rows of 1064 PRs, so `_pr_rows < PR_LIST_LIMIT`
+  # was false, the marker was withheld, and 26 branches each cost one `pr-state`
+  # call at 3.8 s — 54-61% of the scan's wall time across slice 1's five runs
+  # (#1017). The adapter knew the page was capped and said so; nothing read it.
+  #
+  # BOTH PAGES MUST CLAIM IT, as the header above requires: the `all` payload's
+  # OPEN rows were dropped, so a short `open` page is what keeps an open PR from
+  # having no row at all, and completeness would turn those misses into `NONE`.
+  # The two claims may arrive by different routes — a sweep for one state and a
+  # short page for the other — and either pair licenses the marker, because each
+  # sentence is the same assertion about its own page.
+  #
+  # THE ROW COUNT STAYS AS THE FALLBACK and is reached only when neither page
+  # stated anything. An adapter that makes no claim is the case it was written
+  # for, and it is still the weaker evidence: a count equal to the limit is
+  # evidence of AT LEAST that many PRs, never of exactly that many. Withholding
+  # the marker costs calls and never correctness, which is why every failure path
+  # here does exactly that.
   [ "$_v_open" = ok ] || return 0
-  case "$host_err" in
-    *"pr-list sweep complete"*)
-      case "$open_err" in
-        *"pr-list sweep complete"*)
-          printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true ;;
-      esac ;;
-    *)
-      if [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] \
-         && [ "$_pr_open_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
-        printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
-      fi ;;
-  esac
+  _list_whole() { # $1=the stderr text of one pr-list call
+    case "$1" in
+      *"pr-list sweep complete"*|*"pr-list state="*" page complete "*) return 0 ;;
+    esac
+    return 1
+  }
+  if _list_whole "$host_err" && _list_whole "$open_err"; then
+    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+  elif [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] \
+       && [ "$_pr_open_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
+    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+  fi
 }
 prefill_pr_states
 

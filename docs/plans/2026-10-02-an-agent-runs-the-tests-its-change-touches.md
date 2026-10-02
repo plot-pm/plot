@@ -4,14 +4,18 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Started:** 2026-10-02, Jan Wloka, `feature/a-slice-ends-when-its-checks-do`
+- **Started:** 2026-10-02, Jan Wloka, `feature/the-checks-a-diff-needs`
+- **Started:** 2026-10-02, Jan Wloka, `feature/a-ci-suite-is-refused-at-a-desk`
+- **Started:** 2026-10-02, Jan Wloka, `feature/agents-run-their-local-checks`
 - **Type:** feature
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
@@ -64,18 +68,15 @@ These are single readings taken while the fleet ran, not a recorded series.
 - *checks*: the `Local checks` config key, `glob = command` pairs separated by `;`. A command carries `{tests}` (the selected test files under that glob) or `{changed}` (the changed paths under that glob, for runners that follow imports, such as `vitest related`), or neither (a check that runs when any changed path matches the glob, such as a typecheck). `plot-config.sh` strips parentheses and normalises commas in every value, so a command uses neither;
 - *limit*: `Local checks limit`, default 20. A changed path named by more test files than the limit selects none of them and is reported as *CI runs these N*.
 
-A changed test file selects itself. A changed path that selects nothing is reported as *untested here — CI runs it*. The rule decides; it reads no file and spawns nothing.
+A changed test file selects itself. A changed path that selects nothing is reported as *untested here — CI runs it*. The rule decides; it reads no file and spawns nothing. **Both placeholders are filled with absolute paths**, because a command such as `pnpm --filter <package> exec vitest related` runs in another directory: measured 2026-10-02, `vitest related` given a repo-relative path from there printed *No test files found* and exited 0, a pass that ran nothing.
 
-This repository declares, in slice 2:
-
-    Local checks: test/reconcile/*.test.mjs = node --test {tests}; packages/domain/** = pnpm --filter @plot-pm/domain exec vitest related --run {changed}; packages/domain/src/** = pnpm --filter @plot-pm/domain exec tsc --noEmit; packages/board/src/** = pnpm --filter @plot-pm/board exec vitest related --run {changed}; packages/board/src/** = pnpm run typecheck
-    CI suites: pnpm run test:e2e; pnpm run test:contracts; pnpm run test:board; pnpm --filter @plot-pm/domain exec vitest run --coverage; node --test test/reconcile/*.test.mjs
+This repository declares, in slice 2, one `Local checks` line: `node --test {tests}` for `test/reconcile/*.test.mjs`; `vitest related --run {changed}` and `tsc --noEmit` for the domain package; `vitest related --run {changed}` and `pnpm run typecheck` for the board's `src`; and, for any change (`**`), the gate tests `test/reconcile/*gate*.test.mjs` and the nine `scripts/check-*.sh` that CI runs as steps, 13 s together. `CI suites` lists `test:e2e`, `test:contracts`, `test:board`, the domain coverage run and `node --test test/reconcile/*.test.mjs`.
 
 The board's 24 `node --test` files and 63 integration files start the built artifact, so no change under `src` selects them; they are CI's, by design, and slice 2 counts what that costs.
 
 **The entry.** `packages/board/src/server/entry/local-checks.ts`, imported through the narrow path `@plot-pm/domain/rules/local-checks`, built by a `build.mjs` block like the panel's into `skills/plot/scripts/board/plot-local-checks.mjs`, with its `-merge` line in `.gitattributes` (gated by `scripts/check-bundle-attributes.sh`). It reads the readings through the `Refs` port and `Scripts` for the two config keys, prints one command per line, then a `summary:` line with the counts. Exit 0 always; 2 when not inside a git repository. The same bundle answers `ciSuiteRefusal` for slice 3 with a second verb. No new `plot-*.sh` script.
 
-**Slice 3, a CI suite is refused at a desk.** `ciSuiteRefusal(command, suites)` in `packages/domain/src/rules/ci-suite.ts` returns a refusal when the command, after leading `VAR=value` assignments and `env` options are stripped, starts with a `CI suites` entry. It matches only the runner position, so a `grep`, a quoted commit message and a `gh pr create --body` that mention a suite pass. `plot-controller-gate.sh` gains an arm placed **before** its `named_script` exit and before its linked-worktree exemption. The arm runs only inside a linked worktree that holds `.plot-worker.pid` (a fleet desk). As a shell prefilter it also needs `PLOT_UNATTENDED=1` and one `CI suites` word in the command, so other Bash calls start no `node`. The refusal names the suite, says CI runs it, and prints the local checks command by a path relative to the gate script, which resolves under a plugin install. The gate runs from the plugin cache, so it reaches this fleet after a release and a plugin update. It is a check against habit, not a boundary: a command spelled another way passes, and the tests name the forms that do.
+**Slice 3, a CI suite is refused at a desk.** `ciSuiteRefusal(command, suites)` in `packages/domain/src/rules/ci-suite.ts` returns a refusal when one of the command's simple commands (split on `&&`, `||`, `;`, `|` and new lines, after quoted text is removed), with leading `VAR=value` assignments and `env` options stripped, starts with a `CI suites` entry. It matches only the runner position, so a `grep`, a quoted commit message and a `gh pr create --body` that mention a suite pass. `plot-controller-gate.sh` gains an arm placed **before** its `named_script` exit and before its linked-worktree exemption. The arm runs only inside a linked worktree that holds `.plot-worker.pid` (a fleet desk). As a shell prefilter it also needs `PLOT_UNATTENDED=1` and one `CI suites` word in the command, so other Bash calls start no `node`. The refusal names the suite, says CI runs it, and prints the local checks command by a path relative to the gate script, which resolves under a plugin install. The gate runs from the plugin cache, so it reaches this fleet after a release and a plugin update. It is a check against habit, not a boundary: a command spelled another way passes, and the tests name the forms that do.
 
 **The slices land in order, 1 to 4, each waiting on the one before**, so slice 4 merges only after the return route, the checks and the gate exist.
 
@@ -91,7 +92,7 @@ The board's 24 `node --test` files and 63 integration files start the built arti
 
 ### Open Points
 
-- [ ] Slice 2's PR body counts, over the last 50 merged fleet PRs whose first CI run failed, the failures in a file the selection would not have chosen. Slice 4 does not merge if that share is above one in five.
+- [x] Slice 2's PR body counts, over the last 50 merged fleet PRs whose first CI run failed, the failures in a file the selection would not have chosen. Slice 4 does not merge if that share is above two in five. Measured 2026-10-02 (#1176): 8 of 21 missed (38%), 6 of 19 (32%) without the two inline `ci.yml` steps; the misses are e2e, board integration and `node --test`, and the domain corpus, which this plan leaves to CI. The operator set the bound at two in five on 2026-10-02, after the first bound of one in five was measured against; with slice 1 each miss returns to its agent as a correction.
 - [ ] Slice 2's PR body reports how many changed paths hit `Local checks limit` over the last 20 merged PRs, and how long `vitest related` takes for a one-file change in each package.
 - [ ] Slice 1's PR body measures how long an agent holds its slot waiting for checks, over at least five slices.
 
@@ -106,7 +107,7 @@ Tests:
 - Domain: a PR whose head's checks are pending is not finished; a passing run finishes it; a failed run for the current head is a correction; a failed run for a superseded head is ignored; a PR with no terminal checks inside `Worker bound` finishes it and says so.
 - `test/reconcile/`: a loop whose fake monitor publishes `build failed` for the pushed head writes `PLOT-CORRECTION.md` and resumes, instead of taking a new slice; a passing finding frees the agent.
 
-### The checks a diff needs (Branch: feature/the-checks-a-diff-needs) <!-- waits: feature/a-slice-ends-when-its-checks-do -->
+### The checks a diff needs (Branch: feature/the-checks-a-diff-needs, PR: #1176) <!-- waits: feature/a-slice-ends-when-its-checks-do -->
 
 - `feature/the-checks-a-diff-needs` — `localChecks`, the `Refs` working-tree extension, the `Local checks`, `Local checks limit` and `CI suites` keys, the entry and the `plot-local-checks.mjs` bundle, this repository's two config lines <!-- builds: localChecks, the checks a diff needs -->
 
@@ -116,7 +117,7 @@ Tests:
 - A contract test runs the bundle in a scratch repository with two commits and an uncommitted file, and checks the printed commands and the summary.
 - The PR body carries the two measurements under Open Points.
 
-### A CI suite is refused at a desk (Branch: feature/a-ci-suite-is-refused-at-a-desk) <!-- waits: feature/the-checks-a-diff-needs -->
+### A CI suite is refused at a desk (Branch: feature/a-ci-suite-is-refused-at-a-desk, PR: #1179) <!-- waits: feature/the-checks-a-diff-needs -->
 
 - `feature/a-ci-suite-is-refused-at-a-desk` — `ciSuiteRefusal`, its bundle verb, and the arm in `plot-controller-gate.sh` <!-- builds: ciSuiteRefusal, the CI-suite gate arm -->
 
@@ -125,7 +126,7 @@ Tests:
 - Domain: each `CI suites` entry is refused at the runner position, with and without `VAR=value` and `env -u NAME` prefixes; `grep test:contracts`, `git commit -m "… test:contracts …"` and `gh pr create --body "… test:board …"` pass; a suite not on the list passes; an empty key refuses nothing.
 - `test/reconcile/`: the hook run from a linked worktree holding `.plot-worker.pid` exits 2 with the refusal for a listed suite; the same command from the main checkout exits 0; the same command at the desk without `PLOT_UNATTENDED=1` exits 0; a command naming a gated script still meets the existing controller refusal.
 
-### Agents run their local checks (Branch: feature/agents-run-their-local-checks) <!-- waits: feature/a-ci-suite-is-refused-at-a-desk -->
+### Agents run their local checks (Branch: feature/agents-run-their-local-checks, PR: #1181) <!-- waits: feature/a-ci-suite-is-refused-at-a-desk -->
 
 - `feature/agents-run-their-local-checks` — the brief template line, both worker prompts, `CLAUDE.md` Testing, `docs/definition-of-done.md`
 
@@ -140,7 +141,7 @@ Tests:
 - `plot-local-checks.mjs` on a branch that changes one shell script prints the reconcile tests naming it and no typecheck; on a branch that changes one domain rule it prints the domain `vitest related` command and the domain typecheck; on a branch that changes only a generated bundle it prints nothing but the report.
 - An agent at a fleet desk that runs `pnpm run test:contracts` is refused with the local checks command in the message; the same command in the main checkout runs.
 - A brief written after slice 4 names the local checks command and no full suite.
-- The share measured under Open Points is at most one in five before slice 4 merges.
+- The share measured under Open Points is at most two in five before slice 4 merges.
 - After slice 4 merges, one hour of the same sampling as the baseline, with 5 agents, is recorded in Notes beside the baseline before `/plot-deliver`.
 - No new `plot-*.sh` script; every decision is in `packages/domain/src/rules/`.
 - `pnpm test`, `pnpm run test:contracts`, `pnpm run test:board`, `pnpm run typecheck` and the domain coverage gate pass in CI. Each slice carries a changeset.
@@ -152,3 +153,10 @@ Written 2026-10-02 from the fleet run of sprint `the-fleet-runs-through-its-limi
 Panel round 1 (2026-10-02, three lenses: skeptic, operator, domain): unanimous `amend`. The moderation is `.plot/panels/2026-10-02-an-agent-runs-the-tests-its-change-touches/round1.md`. This version applies its nine amendments: corrected counts and the coverage command, a new first slice that keeps an agent on its slice until its checks finish, the `Refs` port instead of a new adapter, one `Local checks` key with per-glob checks, excluded generated paths and a limit, the named entry and bundle, the gate arm placed before both exits and decided at the desk, the slice order, and the load comparison against a recorded baseline.
 
 The same evening the operator set the parallel-agents cap from 8 to 5 and set a model per role in `## Plot Config` (`1ccbbab4`): the Brief command on sonnet, the Idea, Story, Implement and Interrogate commands on opus.
+
+Load baseline, recorded 2026-10-02 02:55-03:54 with the cap at 5 and 6-7 agents still running (agents above a lowered cap finish their slices): 60 one-minute samples, mean 1-minute load 66.8, peak 149.6, mean 5-minute load 68.4, on 16 cores.
+- 2026-10-02: a delivery run delivered this plan at 09:28 UTC (`1c52c954`), after all four slices had merged (#1171, #1176, #1179, #1181; the last three through the merge train #1188). The operator kept it Delivered. Three measurements were planned for before delivery and are recorded here as they come in:
+  - **Briefs name the local checks: holds.** Both briefs written after slice 4 merged tell the agent to run `plot-local-checks.mjs` before each push and leave the `CI suites` to CI: `the-full-read-asks-verdicts-of-open-prs-only` (`2072152f`, line 80) and `the-largest-caller-follows-the-account-rate` (`9fb77a36`, line 53).
+  - **Load:** sampling one hour from 10:2x UTC. The fleet runs 2 agents, not the planned 5, so the hour is not comparable to the 7–8 agent baseline above. Load1 at the start was 12.9.
+  - **Slot hold:** not yet measured. It needs five slices started after #1171 merged, read from their claim to their PR's last check.
+

@@ -3,6 +3,11 @@
 // VALUE import — a bundle taking one transition took `zod` with it, at 324 KB
 // for four lines of string handling. See `entities/version.ts`.
 import { normalizeVersion } from '../entities/version.js';
+import {
+  unnamedBranchDetail,
+  unnamedBranches,
+  type NamedSlice,
+} from '../rules/slice-name.js';
 
 /**
  * A plan's state as the parser normalizes it.
@@ -89,11 +94,13 @@ export type RefusalReason =
   | 'state-wrong'
   | 'state-unreadable'
   | 'review-human'
+  | 'reviewer-undeclared'
   | 'review-unrecognised'
   | 'version-missing'
   | 'reason-missing'
   | 'successor-missing'
   | 'refs-swept'
+  | 'slice-unnamed'
   | 'precondition-unmet';
 
 /**
@@ -190,8 +197,25 @@ export interface ApproveInput {
   who: string;
   /** How the approval happened, e.g. `plan-PR #42 merged`. */
   channel: string;
+  /**
+   * The handles the project declares, as the `People` config key spells them.
+   *
+   * An empty list declares no reviewer, so every `Review: in-session` `who` is
+   * undeclared: absence is not permission.
+   */
+  people: readonly string[];
   /** Readings an adapter measured, such as the plan PR's state. */
   preconditions?: readonly Precondition[];
+  /**
+   * The plan's slices, as the parser reported them.
+   *
+   * Absent means the caller did not read them, which is NOT the same as a plan
+   * whose slices are all named: a caller that cannot supply them gets the
+   * behaviour it had before this reading existed. {@link approvable} relies on
+   * that, since it asks whether the mechanical gates pass without reading a
+   * plan file.
+   */
+  slices?: readonly NamedSlice[];
 }
 
 /**
@@ -205,7 +229,7 @@ export interface ApproveInput {
  * @returns true when the mechanical gates would pass.
  */
 export const approvable = (plan: TransitionPlan): boolean =>
-  !isRefusal(approve(plan, { on: '', who: '', channel: '' }));
+  !isRefusal(approve(plan, { on: '', who: '', channel: '', people: [] }));
 
 /**
  * Decides the write that approving a plan calls for.
@@ -217,11 +241,19 @@ export const approvable = (plan: TransitionPlan): boolean =>
  * `approved` is not refused: it is the idempotent case, where a missing record
  * is still repairable.
  *
+ * `Review: in-session` approves when `input.who` names a handle `input.people`
+ * declares. An empty or whitespace `who` refuses `review-human`; a handle the
+ * project never declared refuses `reviewer-undeclared`. The two are separate
+ * reasons because they have separate repairs — name a reviewer, or declare the
+ * one named.
+ *
  * @param plan - the plan to approve.
- * @param input - the date, approver and channel to record, plus any readings.
+ * @param input - the date, approver, channel and declared handles to record
+ *   against, plus any readings.
  * @returns a decision carrying `approved` and its record, or a refusal naming
  *   the gate that fired: `state-terminal`, `state-unreadable`, `state-wrong`,
- *   `review-human`, `review-unrecognised` or `precondition-unmet`.
+ *   `review-human`, `reviewer-undeclared`, `review-unrecognised` or
+ *   `precondition-unmet`.
  */
 export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionResult => {
   switch (plan.phase) {
@@ -250,16 +282,47 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
       );
   }
 
+  // THE HEADING IS OWED BEFORE ANY AGENT STARTS, and it is asked here rather
+  // than beside the preconditions because it is read from the plan itself: no
+  // host answers it, and a `precondition-unmet` naming no branch gives the
+  // operator nothing to repair.
+  //
+  // Asked before the review channel so an unnamed branch is reported on every
+  // channel. A `Review: in-session` plan refuses `review-human` below, which
+  // would otherwise hide the real defect from the operator who then approves
+  // it by hand.
+  const unnamed = unnamedBranches(input.slices ?? []);
+  if (unnamed.length > 0) {
+    return refuse(plan.slug, 'slice-unnamed', unnamedBranchDetail(plan.slug, unnamed));
+  }
+
   switch (plan.review) {
     case 'pr':
     case 'none':
       break;
-    case 'in-session':
+    case 'in-session': {
+      const who = input.who.trim();
+      if (who === '') {
+        return refuse(
+          plan.slug,
+          'review-human',
+          `plan '${plan.slug}' declares 'Review: in-session' — name the reviewer with --who.`,
+        );
+      }
+      if (!input.people.includes(who)) {
+        return refuse(
+          plan.slug,
+          'reviewer-undeclared',
+          `'${who}' is not a handle this project declares — add it to the 'People' config key, or name one it declares.`,
+        );
+      }
+      break;
+    }
     case 'ballot':
       return refuse(
         plan.slug,
         'review-human',
-        `plan '${plan.slug}' declares 'Review: ${plan.review}' — the approval needs a human.`,
+        `plan '${plan.slug}' declares 'Review: ballot' — the tally is the approval.`,
       );
     default:
       return refuse(

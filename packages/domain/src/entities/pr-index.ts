@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take.
  */
-export const PR_INDEX_VERSION = 2;
+export const PR_INDEX_VERSION = 3;
 
 /**
  * One PR as the store holds it — exactly what the host answered, and nothing
@@ -73,6 +73,13 @@ export type PrIndexRow = z.infer<typeof PrIndexRowSchema>;
  * let a reader infer wholeness from "the file exists" would license the answer
  * *asked, and there is no PR* from a partial read. So a partial answer marks the
  * store `complete: false` and the flag survives until a whole answer clears it.
+ *
+ * **`complete` ANSWERS ONE QUESTION, AND `wholeAt` ANSWERS THE OTHER.**
+ * `complete` says *the store holds every PR up to its watermark*, which a
+ * healthy delta leaves true. `wholeAt` says *when this machine last replaced
+ * the store from a full read*, which only a full read advances. The kind of
+ * answer a refresh received is `PrIndexUpdate.kind`'s and is not stored: it
+ * describes the call, not the file.
  */
 export const PrIndexSchema = z
   .object({
@@ -88,10 +95,27 @@ export const PrIndexSchema = z
      * `updated:>` window — forever, silently, because the window never reopens.
      */
     watermark: z.string().nullable(),
-    /** Whether the answer this store was last written from covered every state. */
+    /** Whether the store holds every PR the host has up to its watermark. */
     complete: z.boolean(),
     /** When this machine wrote the file, ISO-8601 — for an operator, not a window. */
     at: z.string(),
+    /**
+     * When this machine last folded a `whole` answer, ISO-8601.
+     *
+     * **THE FULL READ'S CLOCK, AND `at` CANNOT BE IT.** Every delta rewrites
+     * `at`, so once a delta keeps the store whole a healthy board's `at` never
+     * ages past the full-read interval and the daily full read — the only
+     * answer that sees a DELETED PR — would never run again.
+     *
+     * **THIS MACHINE'S CLOCK, NEVER THE WATERMARK.** The watermark is the
+     * host's and answers *how far have we asked*; on a repository whose newest
+     * PR is a month old it is a month old too, and reading it as the store's
+     * age would make that board do a full read every single refresh.
+     *
+     * Optional, so *no full read has been recorded* stays expressible: a store
+     * with no `wholeAt` reads as due rather than as freshly replaced.
+     */
+    wholeAt: z.string().optional(),
     /** The rows, keyed by PR number. */
     rows: z.array(PrIndexRowSchema),
   })

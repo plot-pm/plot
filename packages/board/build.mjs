@@ -916,6 +916,27 @@ await esbuild.build({
 fs.copyFileSync(promptExitArtifact, shippedPromptExit);
 fs.chmodSync(shippedPromptExit, 0o755);
 
+// plot-local-checks.mjs — the checks a branch's change needs, for an agent
+// before it pushes. It reads git and the config through two adapters, so it
+// carries `refs-git` and `scripts-shell` and their schemas; it runs once per
+// push, so its size costs one load per push.
+const localChecksArtifact = path.join(here, 'dist/plot-local-checks.mjs');
+const shippedLocalChecks = path.join(here, '../../skills/plot/scripts/board/plot-local-checks.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/local-checks.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: localChecksArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(localChecksArtifact, shippedLocalChecks);
+fs.chmodSync(shippedLocalChecks, 0o755);
 // plot-checks-verdict.mjs — whether an agent that finished a prompt still waits
 // for its PR's checks, for `plot-worker-loop.sh`. Its own bundle for the reason
 // the prompt-exit block gives: `plot-ask.mjs` runs the fleet scan to answer
@@ -938,6 +959,36 @@ await esbuild.build({
 
 fs.copyFileSync(checksVerdictArtifact, shippedChecksVerdict);
 fs.chmodSync(shippedChecksVerdict, 0o755);
+
+// plot-checkout-yield.mjs — whether the worktree holding a branch may be
+// removed so the agent handed that branch can take it, for
+// `plot-worker-loop.sh`'s `reset_desk` (#1151). Its own bundle for the reason
+// the checks-verdict block gives: `plot-ask.mjs` runs the fleet scan to answer
+// anything, so a loop asking about one checkout would start an 18.3 s scan to
+// read six words.
+//
+// The cost rule permits it ON FREQUENCY. The call fires only when `reset_desk`
+// finds another worktree holding the branch — once per take-up, never per pass
+// — on a path that already runs git four times. The entry reads stdin, spawns
+// nothing and opens nothing: every reading arrives from the shell that took it.
+const checkoutYieldArtifact = path.join(here, 'dist/plot-checkout-yield.mjs');
+// ONE LINE, for the bundle-set derivation's reason above.
+const shippedCheckoutYield = path.join(here, '../../skills/plot/scripts/board/plot-checkout-yield.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/checkout-yield.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: checkoutYieldArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(checkoutYieldArtifact, shippedCheckoutYield);
+fs.chmodSync(shippedCheckoutYield, 0o755);
 
 // What has drifted, at one scope, for /plot-reconcile.
 //
@@ -1006,6 +1057,34 @@ await esbuild.build({
 
 fs.copyFileSync(deskRootArtifact, shippedDeskRoot);
 fs.chmodSync(shippedDeskRoot, 0o755);
+
+// Who answers a repository's open-issue list, for `plot-host.sh`'s `issue-list`
+// and `issue-view`, which sent every scheme but `jira` to the git host.
+//
+// Its own bundle for the reason the ones above give: plot-ask.mjs runs the
+// fleet scan to answer anything, so a script asking who lists its issues would
+// start an 18 s scan to read one config key. This asks issueSource, spawns
+// nothing and opens nothing — the git host arrives as an argument and the
+// `Tracker` value on stdin. It runs once per operator command, which the cost
+// rule permits.
+const issueSourceArtifact = path.join(here, 'dist/plot-issue-source.mjs');
+// ONE LINE, for the bundle-set derivation's reason above.
+const shippedIssueSource = path.join(here, '../../skills/plot/scripts/board/plot-issue-source.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/issue-source.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: issueSourceArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(issueSourceArtifact, shippedIssueSource);
+fs.chmodSync(shippedIssueSource, 0o755);
 
 // Which of a plan's refless branches a merge subject proves landed, for
 // plot-fleet-scan.sh.
@@ -1184,12 +1263,15 @@ const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
 const sliceSpendKb = (fs.statSync(shippedSliceSpend).size / 1024).toFixed(1);
 const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
 const deskRootKb = (fs.statSync(shippedDeskRoot).size / 1024).toFixed(1);
+const issueSourceKb = (fs.statSync(shippedIssueSource).size / 1024).toFixed(1);
 const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
 const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(1);
 const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
 const startCommandKb = (fs.statSync(shippedStartCommand).size / 1024).toFixed(1);
 const promptExitKb = (fs.statSync(shippedPromptExit).size / 1024).toFixed(1);
+const localChecksKb = (fs.statSync(shippedLocalChecks).size / 1024).toFixed(1);
 const checksVerdictKb = (fs.statSync(shippedChecksVerdict).size / 1024).toFixed(1);
+const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1214,10 +1296,13 @@ console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/b
 console.log(`Built plot-slice-spend.mjs (${sliceSpendKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-desk-root.mjs (${deskRootKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-issue-source.mjs (${issueSourceKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-start-command.mjs (${startCommandKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-prompt-exit.mjs (${promptExitKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-local-checks.mjs (${localChecksKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-checks-verdict.mjs (${checksVerdictKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

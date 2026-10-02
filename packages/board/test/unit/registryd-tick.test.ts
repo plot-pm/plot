@@ -697,9 +697,15 @@ describe('a tick starts agents when queued > running', () => {
       } as never,
     ],
     claimedBranches: async () => new Set<string>(),
-    mergedBranches: async () => ({ merged: new Set<string>(), whole: true }),
+    mergedBranches: async () => ({ merged: new Set<string>(), whole: true, kind: null, failed: false }),
+    // ASKED ONLY WHERE THE LISTING WAS NOT WHOLE, which is why this fixture
+    // carried neither until a refusal was tested here: every listing above was
+    // whole, and `landedWithoutListing` was never reached.
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
     briefPresent: async () => true,
     sliceHasMerged: async () => false,
+    subjectProven: async () => null,
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
@@ -856,9 +862,15 @@ describe('a tick says which hold refused each slice', () => {
       } as never,
     ],
     claimedBranches: async () => new Set<string>(),
-    mergedBranches: async () => ({ merged: new Set<string>(), whole: true }),
+    mergedBranches: async () => ({ merged: new Set<string>(), whole: true, kind: null, failed: false }),
+    // ASKED ONLY WHERE THE LISTING WAS NOT WHOLE, which is why this fixture
+    // carried neither until a refusal was tested here: every listing above was
+    // whole, so `landedWithoutListing` was never reached.
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
     briefPresent: async () => true,
     sliceHasMerged: async () => false,
+    subjectProven: async () => null,
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
@@ -880,6 +892,7 @@ describe('a tick says which hold refused each slice', () => {
     expect(line).toContain('not-claimable=0');
     expect(line).toContain('already-merged=0');
     expect(line).toContain('merge-unknown=0');
+    expect(line).toContain('prior-unknown=0');
     expect(line).toContain('no-free-agent=0');
   });
 
@@ -898,6 +911,60 @@ describe('a tick says which hold refused each slice', () => {
     expect(tickLine(report)).not.toContain('queued=');
   });
 
+  it('says the merged listing answered whole, on a tick that read a queue', async () => {
+    // CONSTANT WHERE A QUEUE WAS READ, `whole` INCLUDED. A field that appeared
+    // only on a refusal makes its absence ambiguous: an old build and a healthy
+    // host print the same line.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld(),
+      now: () => 0,
+    });
+
+    expect(tickLine(report)).toContain('merged-set=whole');
+  });
+
+  it('names a throttled refusal behind a partial listing', async () => {
+    // THE 429 THAT NOTHING NAMED (#1094). The listing ANSWERED and left a
+    // refusal, so its rows are real and may be incomplete.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({
+        mergedBranches: async () => ({
+          merged: new Set<string>(),
+          whole: false,
+          kind: 'throttled',
+          failed: false,
+        }),
+      }),
+      now: () => 0,
+    });
+
+    expect(tickLine(report)).toContain('merged-set=partial(throttled)');
+  });
+
+  it('names a failed listing `unaskable`, which is not a partial one', async () => {
+    // TWO DIFFERENT OUTCOMES AND TWO WORDS. A hardcoded `whole` passes neither
+    // of these, and one word for both would report rows that do not exist.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({
+        mergedBranches: async () => ({
+          merged: new Set<string>(),
+          whole: false,
+          kind: 'failed',
+          failed: true,
+        }),
+      }),
+      now: () => 0,
+    });
+
+    expect(tickLine(report)).toContain('merged-set=unaskable(failed)');
+  });
+
   it('prints no hold counts on a tick that never read a queue', async () => {
     // THE SAME RULE `handed=` ALREADY FOLLOWS. `no-brief=0` on a tick that read
     // no plans claims the estate has nothing missing a brief, which that tick
@@ -906,6 +973,10 @@ describe('a tick says which hold refused each slice', () => {
     const line = tickLine(report);
     expect(line).not.toContain('held=');
     expect(line).not.toContain('no-brief=');
+    // `merged-set=` FOLLOWS THE SAME RULE. A tick that read no queue asked the
+    // host for no listing, and `merged-set=whole` would claim an answer nothing
+    // requested.
+    expect(line).not.toContain('merged-set=');
   });
 });
 
@@ -942,10 +1013,11 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
         } as never,
       ],
       claimedBranches: async () => new Set<string>(),
-      mergedBranches: async () => ({ merged: new Set<string>(), whole: true }),
+      mergedBranches: async () => ({ merged: new Set<string>(), whole: true, kind: null, failed: false }),
       briefPresent: async () => true,
       sliceHasMerged: async () => false,
       // THE HOST WOULD NOT ANSWER — the hold `merge-unknown` names.
+      subjectProven: async () => null,
       queuedHasLanded: async () => 'unknown',
       workerAlive: async () => true,
       blocked: async () => false,

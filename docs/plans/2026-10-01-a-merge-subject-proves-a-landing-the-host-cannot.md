@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-01, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -14,6 +14,7 @@
 - **Rounds:** 3
 - **Started:** 2026-10-01, Jan Wloka, `bug/the-merge-subject-is-one-rule`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-queue-reads-the-merge-subject`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 

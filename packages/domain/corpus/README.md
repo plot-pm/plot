@@ -26,6 +26,9 @@ comparison here. Production supplies both the readings *and* its own verdict;
 the rule re-scores the same readings; the two verdicts are compared.
 `sprint-score.corpus.test.ts` is the first — `scoreItem` against
 `plot-sprint-release.sh`'s `item_state`, over 134 MoSCoW items in 10 sprints.
+`sample.corpus.test.ts` is the fifth — `idleNow` against
+`plot-worker-state.sh`'s `plot_worker_idle_now`, over all 864 combinations of
+the six readings, including both window boundaries and the `''` activity word.
 
 **Neither side is authoritative in either pair.** The test says they agree.
 
@@ -102,6 +105,7 @@ these was injected and caught:
 | production grows an unmapped field | `names every wire field` |
 | `scoreItem` reads a checked-and-undelivered item as `open` | 2 disagreements, `… :: state :: rule="open" shell="disputed"` |
 | `item_state` reads the same case as `open` | the same 2, inverted, plus the vacuity guard — `disputed` left the estate |
+| `idleNow` compares a duration with `>` where `>=` belongs | 6 disagreements, each naming the case — `… :: idle-now :: rule="silent" shell="idle"` |
 
 The third is worth keeping: it shows the adapter's tolerance for the parser's
 older `waves` spelling is load-bearing rather than defensive. `plot-plan-meta.sh`

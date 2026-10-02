@@ -106,7 +106,11 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
     // ordering is asserted once the second marker exists rather than at a
     // moment chosen by a timer.
     await until(() => stub.implementRuns().length === 1, 'the implement stub to run');
-    assert.match(stub.implementRuns()[0], /plot-implement.*ship-the-widget/);
+    // `--brief-only` is read from the argument the stub actually received, not
+    // from `composeImplementPrompt`: that is what catches a second caller
+    // building its own prompt. Without the flag the step claims the branch and
+    // cuts a worktree, and the supervisor then never hands the slice out.
+    assert.match(stub.implementRuns()[0], /plot-implement.*ship-the-widget.*--brief-only/);
     // `--max 1` because a button is one decision. Fanning out a whole wave
     // stays with /plot-dispatch, where the human sees the count first.
     await until(() => stub.runs().length === 1, 'the dispatch stub to run');
