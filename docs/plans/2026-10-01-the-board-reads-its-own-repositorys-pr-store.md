@@ -54,7 +54,7 @@ Measured 2026-10-01 on origin/main `0d2b4d5c`:
 
 ## Slices
 
-### The streaming test owns its store (Branch: bug/the-streaming-test-owns-its-store) <!-- builds: a fixture-local PR store for streaming-scan.test.ts -->
+### The streaming test owns its store (Branch: bug/the-streaming-test-owns-its-store, PR: #1211) <!-- builds: a fixture-local PR store for streaming-scan.test.ts -->
 
 `fakeScan` creates `<fixture>/pr-index`, and each case stubs `PLOT_PR_INDEX_HOME` to it with `vi.stubEnv`, restored in `afterEach`. Test-only; no changeset. Answers #1112's test half.
 
