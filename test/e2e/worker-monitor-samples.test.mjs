@@ -393,8 +393,8 @@ test('the published findings file does not make the worktree read as dirty', () 
 // passes `PLOT_SESSION_ID` and `PLOT_MANIFEST_FILE` down to the monitor.
 //
 // THE PAIR IS THE PROOF. Both runs lay the same desk: a previous slice's
-// transcript far past a shortened window, a committed file, a tree that then
-// stays still, and a worker that sleeps. The only difference is whether the
+// transcript far past a shortened window, a committed file whose commit is
+// dated past that window, a clean tree, and a worker that sleeps. The only difference is whether the
 // worker writes a file under its own handle, so the handle is the only thing
 // that can separate the two outcomes.
 //
@@ -403,6 +403,13 @@ test('the published findings file does not make the worktree read as dirty', () 
 // run, so the test cannot know it in time. The worker asks `session_handle`, the
 // function the monitor asks. It runs as a script file because a `$` in the
 // Worker command is expanded several shells out.
+//
+// THE COMMIT IS DATED PAST THE WINDOW. `idle` is one reading of the desk: the
+// tree counts as quiet only when the newest of HEAD's committer time and each
+// dirty path's mtime is at least the window old (`plot_worker_idle_now`,
+// `docs/plans/2026-10-01-idle-is-read-from-what-the-desk-recorded.md`). A
+// commit made seconds ago moves the tree inside the window, so the worker
+// dates its commit through `GIT_COMMITTER_DATE` and the tree is clean after it.
 const conversationDesk = (name, { spoken }) => dispatchOne(name, {
   // Both travel through `staffDesk`'s env and reach the monitor by inheritance,
   // as `PLOT_MONITOR_INTERVAL` does.
@@ -420,7 +427,7 @@ printf '{}\\n' > "$dir/$handle.jsonl"
 touch -t 200001010000 "$dir/$handle.jsonl"` : ''}
 echo work > done.txt
 git add done.txt
-git -c user.email=a@b -c user.name=a commit -qm work
+GIT_COMMITTER_DATE='2000-01-01T00:00:00 +0000' git -c user.email=a@b -c user.name=a commit -qm work
 sleep 8
 `);
     return `bash ${script}`;

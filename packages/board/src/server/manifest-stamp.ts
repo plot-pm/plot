@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveManifestDir } from './registry.js';
+import { deskManifest, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 
 /**
  * The launch stamp — ONE contract, and this is one of its two implementations.
@@ -197,6 +198,11 @@ export function stampManifest(text: string, stamp: Stamp): string {
  *
  * `opts` defaults to `{}`, which resolves to the same relative default as
  * before: a caller that passes nothing is unaffected.
+ *
+ * WHICH MANIFEST NAMES THE DESK IS `deskManifest`'s ANSWER, and this is a READER:
+ * it collects `{ path, worktree, worktreeReal }` and asks the rule. It returned
+ * the FIRST match until 2026-10-02; two manifests on one desk now answer `''`,
+ * because that is an estate defect and a first match hides it.
  */
 export function manifestForWorktree(
   repoRoot: string,
@@ -217,17 +223,26 @@ export function manifestForWorktree(
   } catch {
     return '';
   }
+  const manifests: ManifestReading[] = [];
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const full = path.join(dir, name);
     try {
       const wt = JSON.parse(fs.readFileSync(full, 'utf8'))?.worktree;
-      if (typeof wt === 'string' && (wt === worktree || wt === real)) return full;
+      if (typeof wt !== 'string' || wt === '') continue;
+      let wtReal: string | undefined;
+      try {
+        wtReal = fs.realpathSync(wt);
+      } catch {
+        /* the manifest may name a desk that is gone; its text is still a form */
+      }
+      manifests.push({ path: full, worktree: wt, worktreeReal: wtReal });
     } catch {
       continue; // Not a manifest this reader recognises; skip it.
     }
   }
-  return '';
+  const answer = deskManifest({ desk: worktree, deskReal: real, manifests });
+  return answer.kind === 'named' ? answer.path : '';
 }
 
 /**

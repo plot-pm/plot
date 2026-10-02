@@ -105,31 +105,132 @@ PLOT_WORKER_RECORD='\.plot-worker\.'
 # its number. Without it, dead pids are one `fork()` away from reading `running`.
 #
 # THE WORKTREE→MANIFEST LOOKUP. The manifest directory lives at
-# `$PLOT_MANIFEST_DIR` when the caller sets it, or it is derived from the
-# worktree's repo root. Each manifest names a `worktree` field; the lookup
-# finds the manifest whose worktree matches.
+# `$PLOT_MANIFEST_DIR` when the caller sets it, and is otherwise resolved from
+# the MAIN CHECKOUT and the `Agent registry` key. Each manifest names a
+# `worktree` field; the lookup finds the manifest whose worktree matches.
+#
+# THE RULE IS `deskManifest` / `manifestDirectory` IN THE DOMAIN
+# (`packages/domain/src/rules/desk-manifest.ts`), and this is a DECLARED
+# DUPLICATE of it rather than a call to it. `docs/shell-and-domain.md` puts the
+# choice on the cost: `plot_manifest_for_worktree` runs once per worktree per
+# fleet-scan pass, and a bundle answers in about 39 ms, so a hop here is paid by
+# every desk on every pass forever. `packages/domain/corpus/desk-manifest.corpus.test.ts`
+# holds the pair. NEITHER SIDE IS AUTHORITATIVE: on a disagreement the branch
+# stops, and adjusting either side to make the comparison pass is forbidden.
 
-# The manifest directory, set by callers who know their repo root. When unset,
-# `plot_manifest_for_worktree` derives it from the worktree's own repo.
+# The manifest directory, set by callers who know their repo root. When unset it
+# is resolved once at source time, below.
 : "${PLOT_MANIFEST_DIR:=}"
+
+# The MAIN checkout for a directory, or "" — the reading `plot_repo_root`
+# (`plot-desk-root.sh:38-46`) makes, asked of a path rather than of the cwd.
+#
+# `--show-toplevel` ANSWERS THE DESK inside a linked worktree, which is the whole
+# of #1086: this function derived `<desk>/.plot/agents` and found no manifest, so
+# every worker-state reading taken from inside a dispatched desk read its agent
+# as unregistered. Every linked worktree shares ONE common git dir, so the
+# parent of `--git-common-dir` is the main checkout from anywhere.
+#
+# THE COMMON DIR MAY BE RELATIVE. In a linked worktree git prints an absolute
+# path; in the main checkout it prints `.git`, relative to the tree. So it is
+# resolved by `cd`-ing to the tree FIRST and then to the common dir, which makes
+# both forms absolute, and `pwd -P` keeps it physical for the same reason
+# `plot-desk-root.sh` does: `git worktree list` prints resolved paths, and a
+# directory composed from a logical one (`/tmp` against `/private/tmp` on macOS)
+# is a prefix no worktree path starts with.
+plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
+  local at="$1" common root=''
+  [ -n "$at" ] && [ -d "$at" ] || return 1
+  common=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
+    common=$(cd -- "$at" 2>/dev/null && cd -- "$common" 2>/dev/null && pwd -P) || common=''
+    [ -n "$common" ] && root=$(dirname -- "$common")
+  }
+  [ -n "$root" ] || root=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -n "$root" ] || return 1
+  printf '%s' "$root"
+}
+
+# The `Agent registry` directory for a main checkout — `manifestDirectory`'s rule.
+#
+# An absolute value is taken as given, so a project may name a registry outside
+# its own tree; a relative one joins to the MAIN CHECKOUT, never to a desk,
+# because a desk must resolve the same directory the checkout does (`CLAUDE.md`
+# gives that reason for `Board artifact` and `Agent settings`). An absent or
+# empty key means `.plot/agents`. The trailing slash is trimmed, the way
+# `plot-dispatch.sh:agent_registry_dir` trims one and `path.join` normalises
+# one — two answers to *where is the registry* is what this removes.
+# `PLOT_REPO_ROOT` IS PASSED AND NEVER INHERITED, which is this function's one
+# trap. `plot-config.sh:222` takes an exported `PLOT_REPO_ROOT` in preference to
+# asking git, and the fleet wrapper exports the DISPATCHING repository's root
+# into every agent — so a lookup about a desk in another checkout read this
+# repository's `CLAUDE.md`. Measured 2026-10-02 while building this slice: a
+# fixture repo with its own `Agent registry` key answered the surrounding repo's
+# `.plot/agents`. Its own fallback is `--show-toplevel`, which answers the DESK,
+# so leaving the variable unset would reintroduce #1086 one layer down.
+plot_manifest_dir_for() { # $1=main checkout → prints the directory
+  local root="$1" dir=''
+  if [ -x "$_plot_wstate_config" ] || [ -r "$_plot_wstate_config" ]; then
+    dir=$(PLOT_REPO_ROOT="$root" bash "$_plot_wstate_config" get "Agent registry" "" 2>/dev/null) || dir=''
+  fi
+  # Whitespace alone is a key nobody filled in.
+  dir=$(printf '%s' "$dir" | tr -d '[:space:]')
+  [ -n "$dir" ] || dir=".plot/agents"
+  case "$dir" in
+    /*) ;;
+    *)  dir="${root%/}/$dir" ;;
+  esac
+  printf '%s' "${dir%/}"
+}
+
+# `plot-config.sh`, resolved ONCE at source time the way `plot-desk-root.sh:48`
+# resolves its own bundle: reading `BASH_SOURCE[0]` inside a function reads the
+# CALLER's file once the function has been exported.
+_plot_wstate_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
+
+# THE DIRECTORY IS RESOLVED AT SOURCE TIME, AND THAT IS NOT A STYLE CHOICE.
+# Both callers invoke the lookup as `manifest=$(plot_manifest_for_worktree …)`,
+# so an assignment made inside it dies with the command substitution's subshell
+# and a cache set there never reaches a second call. Resolving here spends one
+# `plot-config.sh` fork per PROCESS instead of one per desk per pass.
+#
+# A CALLER-SET VALUE WINS and is never overwritten: the dispatcher and the tests
+# set it, and they know their repo root without being asked.
+if [ -z "$PLOT_MANIFEST_DIR" ]; then
+  _plot_wstate_root=$(plot_main_checkout_of "$PWD" 2>/dev/null) || _plot_wstate_root=''
+  if [ -n "$_plot_wstate_root" ]; then
+    PLOT_MANIFEST_DIR=$(plot_manifest_dir_for "$_plot_wstate_root")
+  fi
+  unset _plot_wstate_root
+fi
 
 # Find the manifest for a worktree → the full path, or "" (non-zero).
 #
-# Iterates `.plot/agents/*.json` and matches on the `worktree` field. The
-# dispatcher records the RESOLVED worktree path (`realpath`), so the match is
-# tried against both the path as given and its realpath.
+# Iterates the registry's `*.json` and matches on the `worktree` field. BOTH
+# SIDES CARRY BOTH PATH FORMS: the dispatcher records the RESOLVED worktree path
+# (`realpath`) and git may report either, and a desk registered by its symlinked
+# path must still be found by its real one. So the manifest's field is resolved
+# too, and either form matches either.
+#
+# SEVERAL MANIFESTS IS NOT THE FIRST MATCH. Two agents on one desk is an estate
+# defect, and returning the first hides it, so this returns non-zero — the same
+# answer `deskManifest` gives as `several`, which every caller reads as *no
+# manifest*.
+#
+# ABSENT IS NOT FALSE: a missing directory, an unreadable manifest and a desk
+# that is gone all answer "no manifest" rather than failing loudly.
 plot_manifest_for_worktree() { # $1=worktree → manifest path, or "" (non-zero)
-  local wt="$1" dir real f wt_field
+  local wt="$1" dir real f wt_field wt_real found='' count=0
   [ -n "$wt" ] || return 1
 
-  # Determine the manifest directory.
-  if [ -n "$PLOT_MANIFEST_DIR" ]; then
-    dir="$PLOT_MANIFEST_DIR"
-  else
-    # Derive from the worktree's repo. A worktree IS a git working tree, so
-    # `git rev-parse --show-toplevel` from inside it returns the MAIN repo —
-    # which is where `.plot/agents/` lives.
-    dir=$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)/.plot/agents
+  # The directory: the caller's value, then the one resolved at source time, then
+  # a resolution from the WORKTREE's own main checkout — which covers a caller
+  # whose cwd is outside any repository.
+  dir="$PLOT_MANIFEST_DIR"
+  if [ -z "$dir" ]; then
+    local root
+    root=$(plot_main_checkout_of "$wt" 2>/dev/null) || root=''
+    [ -n "$root" ] || return 1
+    dir=$(plot_manifest_dir_for "$root")
   fi
   [ -d "$dir" ] || return 1
 
@@ -143,12 +244,19 @@ plot_manifest_for_worktree() { # $1=worktree → manifest path, or "" (non-zero)
     # per line, so a grep-and-sed approach avoids parsing JSON in bash.
     wt_field=$(grep -m1 '"worktree":' "$f" 2>/dev/null | sed 's/.*"worktree": *"\([^"]*\)".*/\1/')
     [ -n "$wt_field" ] || continue
-    if [ "$wt_field" = "$wt" ] || [ "$wt_field" = "$real" ]; then
-      printf '%s' "$f"
-      return 0
+    # The manifest's own realpath, for the symlinked-registration case. A field
+    # naming a desk that is gone resolves to nothing and matches on its text.
+    wt_real=$(cd "$wt_field" 2>/dev/null && pwd -P) || wt_real=""
+    if [ "$wt_field" = "$wt" ] || [ "$wt_field" = "$real" ] ||
+       { [ -n "$wt_real" ] && { [ "$wt_real" = "$wt" ] || [ "$wt_real" = "$real" ]; }; }; then
+      found="$f"
+      count=$((count + 1))
     fi
   done
-  return 1
+
+  # Exactly one, or nothing. `several` is named by the count, not by a pick.
+  [ "$count" = 1 ] || return 1
+  printf '%s' "$found"
 }
 
 # Read pid and startedAt from a manifest → "pid\tstartedAt", or "" (non-zero).
@@ -437,6 +545,230 @@ plot_worker_dirty_filter() { # $1=`git status --porcelain` output → the real w
     | grep -vE "(^|/)$PLOT_WORKER_RECORD" \
     | grep -vE "$PLOT_EDITOR_LEFTOVER" \
     | grep -vE "$PLOT_TOOL_SCRATCH" || true
+}
+
+# ---------------------------------------------------------------------------
+# THE ONE-SAMPLE `idle` RULE — the shell's half of a declared duplicate
+# ---------------------------------------------------------------------------
+#
+# A DECLARED DUPLICATE OF `idleNow`, and the pair is held by
+# `packages/domain/corpus/sample.corpus.test.ts`. `docs/shell-and-domain.md` §1
+# settles which side of the cost rule this falls on: the rule is asked once per
+# agent per pass, so a 39 ms `node` hop is paid by every agent on this machine
+# forever. Neither side is authoritative — on a disagreement the branch stops,
+# and adjusting either side to make the comparison pass is the one move
+# forbidden.
+#
+# WHY IT LIVES HERE RATHER THAN IN THE MONITOR. Two callers read it: the
+# WorkerMonitor sources this file today, and the loop's own watcher sources it
+# too. One function, two readers, one answer — the same split this file was
+# extracted to hold.
+
+# Seconds since the newest thing in a desk's tree changed.
+#
+# THIS IS WHAT REPLACED A COMPARISON BETWEEN TWO PASSES. The two-sample rule
+# asked *did the fingerprint change between pass N-1 and pass N*, which needs a
+# process to hold pass N-1. This asks *how long since anything moved*, which the
+# filesystem has been recording all along — and `at least the window` is a
+# stronger statement than `unchanged across two passes 30 s apart`.
+#
+# THREE SOURCES, AND THE NEWEST OF THEM WINS:
+#
+#   HEAD's committer time        an agent that commits has plainly done something
+#   each dirty path's mtime      an agent editing a file
+#   each dirty path's PARENT     an add, a removal or a rename, which does not
+#                                move any surviving file's own mtime
+#
+# THE DESK ROOT'S OWN MTIME IS NEVER READ, and that is the reading's one
+# deliberate blind spot. The loop writes `.plot-worker.*` records into the desk
+# root and replaces them (`plot-dispatch.sh`'s manifest `mv`), which moves the
+# root directory's mtime. `plot_worker_dirty_filter` drops those records from
+# the list, but a dirty path AT the root would still contribute its parent — the
+# root — and the loop's own bookkeeping would then read as tree activity, so
+# `idle` could never fire. A parent counts only BELOW the root; a root-level
+# dirty path contributes its own mtime instead. The stated cost: a removal or a
+# rename at the desk root alone does not move this number.
+#
+# `unreadable` WHERE THERE IS NO TREE TO READ, and that word travels to the
+# verdict rather than being collapsed into a number. A failure to observe is not
+# evidence of something to see; zero would read as *everything just moved* and
+# a huge number as *nothing has moved in years*, and both are inventions.
+plot_worker_tree_quiet_seconds() { # $1=worktree → seconds | unreadable
+  local wt="$1" status paths head_ct now newest
+  [ -n "$wt" ] && [ -d "$wt" ] || { printf 'unreadable'; return 0; }
+
+  # HEAD's committer time, which is the whole reading on a clean tree. A repo
+  # with no commit yet answers nothing and leaves the dirty paths to speak.
+  head_ct=$(git -C "$wt" log -1 --format=%ct 2>/dev/null)
+  case "$head_ct" in ''|*[!0-9]*) head_ct='' ;; esac
+
+  # `-uall` IS FOR THIS READING ONLY, AND IT IS A MEASUREMENT RATHER THAN A
+  # TIDINESS. Default porcelain collapses a wholly new untracked directory to
+  # one line, `?? brandnew/`, because once git knows the whole directory is
+  # untracked it stops descending — fine for a display, fatal for an mtime. A
+  # directory's mtime moves when an ENTRY is added or removed and not when a
+  # file inside it is written, so a file an agent is editing right now inside a
+  # directory it created earlier reads as untouched. Measured 2026-10-02: a
+  # directory aged 2 000 s holding a file 1 s old read `tree quiet: 2001`, which
+  # is a false `idle` on an agent mid-edit. `-uall` lists `brandnew/f.txt`, so
+  # the file's own mtime is read and its parent is read beside it.
+  #
+  # THE FINGERPRINT KEEPS THE DEFAULT, and the asymmetry is correct: it asked
+  # *did these path NAMES change*, and a collapsed directory's name changes when
+  # the directory appears. This asks *when did anything move*, which the name
+  # cannot answer. Recorded in the plan's Open Points rather than widened
+  # silently.
+  status=$(git -C "$wt" status --porcelain -uall 2>/dev/null)
+
+  # THE SAME FILTER THE FINGERPRINT USED, for the same reason: this script's own
+  # records and the monitor's findings file are not work an agent left, and a
+  # raw status would make the monitor watch itself.
+  paths=''
+  if command -v plot_worker_dirty_filter >/dev/null 2>&1; then
+    paths=$(plot_worker_dirty_filter "$status")
+  else
+    paths=$(printf '%s' "$status" | cut -c4-)
+  fi
+
+  # Every path to stat, one per line, absolute. Built in awk rather than a bash
+  # loop so a desk holding hundreds of dirty paths costs one fork.
+  #
+  # A RENAME ARRIVES AS `old -> new` and the NEW name is the one that exists.
+  # A path with unusual bytes arrives quoted by git; the quotes are stripped so
+  # `stat` sees the name, which is lossy for a true embedded quote and the
+  # alternative is parsing C escapes in awk.
+  #
+  # A DELETED PATH DOES NOT EXIST, so its own mtime is unreadable. It is still
+  # listed — `stat` simply says nothing for it — and its parent below the root
+  # carries the change, which is exactly what a removal moves.
+  local list
+  list=$(printf '%s\n' "$paths" | awk -v wt="$wt" '
+    { line = $0 }
+    line == "" { next }
+    # A rename: take the destination, which is the name on disk now.
+    {
+      i = index(line, " -> ")
+      if (i > 0) line = substr(line, i + 4)
+      # Git quotes a path holding unusual bytes. Drop the quotes; the escapes
+      # inside are left as they are, and such a path simply reads unreadable.
+      if (substr(line, 1, 1) == "\"" && substr(line, length(line), 1) == "\"")
+        line = substr(line, 2, length(line) - 2)
+      if (line == "") next
+      print wt "/" line
+      # THE PARENT, BUT ONLY BELOW THE ROOT. A path with no `/` in it sits at
+      # the desk root, and the root is the directory the loop keeps touching.
+      if (index(line, "/") > 0) {
+        n = line
+        sub(/\/[^\/]*$/, "", n)
+        if (n != "" && n != ".") print wt "/" n
+      }
+    }
+  ')
+
+  # ONE `stat` CALL OVER EVERY PATH, and the flavour is probed once against a
+  # directory that certainly exists.
+  #
+  # THE ORDER IS LOAD-BEARING AND CI MEASURED WHY. On Linux `stat -f` is not an
+  # unknown flag — it means FILESYSTEM info and it SUCCEEDS, printing
+  # `Namelen: 255  Type: ext2/ext3`, which a caller then subtracts from a clock
+  # (`plot-fleetctl.sh`, and two tests that passed on macOS). So GNU's own form
+  # is asked first, because GNU is the implementation that mis-parses the other's
+  # flag, and each answer is validated as digits rather than trusted.
+  newest="$head_ct"
+  if [ -n "$list" ]; then
+    local fmt='' mtimes
+    if [ -n "$(stat -c %Y "$wt" 2>/dev/null)" ]; then fmt='gnu'
+    elif [ -n "$(stat -f %m "$wt" 2>/dev/null)" ]; then fmt='bsd'
+    fi
+    if [ -n "$fmt" ]; then
+      # A missing path makes `stat` exit non-zero while still printing the
+      # others, so the exit code is deliberately not read.
+      if [ "$fmt" = 'gnu' ]; then
+        mtimes=$(printf '%s\n' "$list" | tr '\n' '\0' | xargs -0 stat -c %Y 2>/dev/null)
+      else
+        mtimes=$(printf '%s\n' "$list" | tr '\n' '\0' | xargs -0 stat -f %m 2>/dev/null)
+      fi
+      # The maximum, taken in awk: only lines that are entirely digits count, so
+      # a filesystem report or an error line cannot become a timestamp.
+      local max
+      max=$(printf '%s\n' "$mtimes" | awk '/^[0-9]+$/ { if ($0 > m) m = $0 } END { if (m != "") print m }')
+      if [ -n "$max" ]; then
+        if [ -z "$newest" ] || [ "$max" -gt "$newest" ] 2>/dev/null; then newest="$max"; fi
+      fi
+    fi
+  fi
+
+  # NO COMMIT AND NO READABLE PATH is no reading at all — a desk whose git
+  # directory cannot be read, or a worktree with no history yet and nothing on
+  # the floor. It is not a very long silence.
+  [ -n "$newest" ] || { printf 'unreadable'; return 0; }
+
+  now=$(date +%s)
+  local quiet=$(( now - newest ))
+  # A time in the future — clock skew across a mounted volume — reads as zero
+  # rather than negative. A comparison against a window would behave correctly
+  # by accident here and not elsewhere; clamping says what is meant.
+  [ "$quiet" -lt 0 ] && quiet=0
+  printf '%s' "$quiet"
+}
+
+# Is this desk idle, from ONE reading of it?
+#
+# THE SHELL'S COPY OF `idleNow`, argument for argument. Six readings in, one
+# word out:
+#
+#   $1 pid        alive | dead | unrecorded
+#   $2 spoken     1 spoken | 0 not  (a reading, never an absence)
+#   $3 silence    seconds since the newest transcript line, or any non-number
+#   $4 activity   the sampler's word: `working` vetoes, `idle` and `` do not
+#   $5 treeQuiet  seconds since the newest tree change, or any non-number
+#   $6 commits    yes | no | unanswerable
+#   $7 window     seconds a duration must reach
+#
+# ONE WORD ON STDOUT AND EXIT 0, ALWAYS. A caller that tests only for empty
+# output cannot tell `silent` from *the function was missing*, so read the exit
+# code: this prints `idle` or `silent` and returns 0, and a shell that never
+# sourced this file returns 127 having printed nothing.
+#
+# `≥ window`, NOT `>`. The window is where the question becomes worth asking, so
+# a desk exactly at it is eligible — the same boundary `quiet -lt window → busy`
+# draws from the other side.
+#
+# THE CPU IS A VETO AND NOT THE VERDICT. Only `working` refuses, because only
+# `working` says something is running. `idle` (a frozen subtree clock) and ``
+# (no child holding a clock at all) agree here: past the window, each is an
+# agent that has stopped. That is the opposite of how the old CPU-snapshot rule
+# read the empty answer, and deliberately so — this line is reached only after
+# the window has already elapsed.
+#
+# NO `gone` ARM. A dead pid answers `silent`: the wrapper that starts the agent
+# knows the instant it ends and publishes `gone` itself.
+#
+# AN UNREADABLE VALUE ANSWERS `silent`, every one of them. An `unrecorded` pid,
+# an `unavailable` transcript, an `unreadable` tree and an `unanswerable` commit
+# question each withhold the finding, because a failure to observe is not
+# evidence of something to see.
+plot_worker_idle_now() { # $1..$7 as above → idle | silent
+  local pid="$1" spoken="$2" silence="$3" activity="$4" tree="$5" commits="$6" window="$7"
+
+  [ "$pid" = 'alive' ]  || { printf 'silent'; return 0; }
+  [ "$spoken" = '1' ]   || { printf 'silent'; return 0; }
+
+  # A non-numeric duration is a reading that was not taken. `unavailable`,
+  # `unreadable` and an empty string all land here, and so would a filesystem
+  # report that slipped past the validation above.
+  case "$window"  in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
+  case "$silence" in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
+  [ "$silence" -ge "$window" ] || { printf 'silent'; return 0; }
+
+  [ "$activity" = 'working' ] && { printf 'silent'; return 0; }
+
+  case "$tree" in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
+  [ "$tree" -ge "$window" ] || { printf 'silent'; return 0; }
+
+  [ "$commits" = 'yes' ] || { printf 'silent'; return 0; }
+  printf 'idle'
+  return 0
 }
 
 # The total CPU time, in centiseconds, of a pid and every process descended from
