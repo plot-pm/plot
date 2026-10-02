@@ -124,6 +124,9 @@ done
 monitor='BuildMonitor'
 
 branch="${PLOT_BRANCH:-}"
+# The branch at start, kept for a detached or unreadable desk; `monitor_branch`
+# re-reads the desk on every pass.
+start_branch="$branch"
 worktree="${PLOT_WORKTREE:-}"
 # THIRTY SECONDS IS AFFORDABLE ONLY BECAUSE OF THE SILENCE RULE. This cadence
 # matches the WorkerMonitor's rather than the AgentMonitor's, and it asks a HOST
@@ -207,6 +210,25 @@ publish() { # $1=finding $2=evidence $3=since
 monitor_head_sha() { # → prints a sha, or nothing
   [ -n "$worktree" ] && [ -d "$worktree" ] || return 0
   git -C "$worktree" rev-parse --verify --quiet HEAD 2>/dev/null || true
+}
+
+# Which branch does the desk hold, right now?
+#
+# → prints the branch, or the branch the monitor started with when the desk is
+#   detached or unreadable
+#
+# READ ON EVERY PASS, NOT ONCE. A free agent starts with an empty `PLOT_BRANCH`
+# and is handed its slices later, in the same desk; a dispatched agent hops to
+# its next slice in the same desk too. A branch fixed at start made this monitor
+# unaskable for every free agent (`monitor_run_for_sha` returns 2 on an empty
+# branch) and wrong after every hop, so the correction path in
+# `plot-worker-loop.sh` received no finding for most slices.
+monitor_branch() { # → prints a branch, or nothing
+  local current=''
+  if [ -n "$worktree" ] && [ -d "$worktree" ]; then
+    current=$(git -C "$worktree" branch --show-current 2>/dev/null || true)
+  fi
+  printf '%s' "${current:-$start_branch}"
 }
 
 # What does the host say about the run for ONE sha?
@@ -376,6 +398,7 @@ sample_finding() { # → prints "finding\tevidence", or nothing
 # One full pass: sample, publish only on a change of ANSWER-ABOUT-A-COMMIT.
 monitor_pass() {
   local row finding evidence head
+  branch=$(monitor_branch)
   head=$(monitor_head_sha)
   row=$(sample_finding)
   finding="${row%%	*}"

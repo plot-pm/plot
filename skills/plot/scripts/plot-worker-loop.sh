@@ -263,6 +263,17 @@ case "$WAIT_BUDGET_SECONDS" in (*[!0-9]*|'') WAIT_BUDGET_SECONDS="$WORKER_BOUND_
 CORRECTION_BUDGET="${PLOT_CORRECTION_BUDGET:-$(cfg "Correction budget" "2")}"
 case "$CORRECTION_BUDGET" in (*[!0-9]*|'') CORRECTION_BUDGET=2 ;; esac
 
+# HOW LONG AN AGENT KEEPS ITS SLICE WAITING FOR ITS PR'S CHECKS, in seconds.
+# The correction path below reads a failed build only while the agent holds the
+# slice, and CI reports minutes after the push, so an agent that let go when
+# its prompt ended never received a failure. `0` disables the wait. The poll is
+# the BuildMonitor's own cadence doubled: the monitor asks the host, and this
+# only reads the file it writes.
+CHECKS_WAIT_SECONDS="${PLOT_CHECKS_WAIT_SECONDS:-$(cfg "Checks wait" "1800")}"
+case "$CHECKS_WAIT_SECONDS" in (*[!0-9]*|'') CHECKS_WAIT_SECONDS=1800 ;; esac
+CHECKS_POLL_SECONDS="${PLOT_CHECKS_POLL_SECONDS:-60}"
+case "$CHECKS_POLL_SECONDS" in (*[!0-9]*|''|0) CHECKS_POLL_SECONDS=60 ;; esac
+
 # Update the manifest when the worker hops to a new branch.
 #
 # The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
@@ -1262,6 +1273,72 @@ build_says_failed() { # → prints the evidence, or nothing
 }
 
 # ---------------------------------------------------------------------------
+# THE WAIT FOR A PR'S CHECKS — `checksVerdict` decides, these read
+# ---------------------------------------------------------------------------
+#
+# Is the desk's HEAD on the remote? One fetch of the one branch, asked once
+# per finished prompt. A fetch that fails reads as not pushed, which ends the
+# slice as it ended before the wait existed.
+head_is_pushed() { # $1=head → 0 pushed | 1 not, or unreadable
+  local wt="${PLOT_WORKTREE:-$PWD}" remote
+  git -C "$wt" fetch -q origin "${PLOT_BRANCH:-}" 2>/dev/null || return 1
+  remote=$(git -C "$wt" rev-parse --verify --quiet "origin/${PLOT_BRANCH:-}" 2>/dev/null) || return 1
+  [ "$remote" = "$1" ]
+}
+
+# Does an open pull request carry the branch? One host question per finished
+# prompt, through the adapter. CI runs on pull requests, so without one no
+# result will come. A host that cannot be asked reads as no PR.
+pr_is_open() { # → 0 open | 1 not, or unaskable
+  "$script_dir/plot-host.sh" pr-state "${PLOT_BRANCH:-}" 2>/dev/null | grep -q '"state":"OPEN"'
+}
+
+# What does `checksVerdict` answer for these readings and the BuildMonitor's
+# latest line? Prints `none`, `wait`, `settled` or `expired`. A missing bundle
+# or an answer outside those four prints `none`: the slice then ends as it did
+# before the wait existed, and the log says the rule could not be asked.
+checks_verdict() { # $1=head $2=pushed $3=pr_open $4=waited
+  local bundle="$script_dir/board/plot-checks-verdict.mjs" f last='' answer
+  if [ ! -f "$bundle" ]; then
+    echo "plot-worker-loop: no plot-checks-verdict.mjs beside this script — not waiting for the checks on ${PLOT_BRANCH:-?}" >&2
+    printf 'none'
+    return 0
+  fi
+  f=$(build_findings_file)
+  if [ -n "$f" ] && [ -s "$f" ]; then
+    last=$(grep '"monitor":"BuildMonitor"' "$f" 2>/dev/null | tail -n 1)
+  fi
+  answer=$(printf '%s' "$last" | node "$bundle" "${PLOT_BRANCH:-}" "$1" "$2" "$3" "$4" "$CHECKS_WAIT_SECONDS" 2>/dev/null)
+  case "$answer" in
+    none|wait|settled|expired) printf '%s' "$answer" ;;
+    *) printf 'none' ;;
+  esac
+}
+
+# Keep the slice until the checks for the pushed head have a result, or the
+# wait reaches `Checks wait`. Returns when the caller may read the result.
+wait_for_checks() {
+  [ -n "${PLOT_BRANCH:-}" ] || return 0
+  local wt="${PLOT_WORKTREE:-$PWD}" head pushed=0 pr=0 waited=0 verdict
+  head=$(git -C "$wt" rev-parse --verify --quiet HEAD 2>/dev/null) || return 0
+  head_is_pushed "$head" && pushed=1
+  [ "$pushed" = 1 ] && pr_is_open && pr=1
+  verdict=$(checks_verdict "$head" "$pushed" "$pr" 0)
+  [ "$verdict" = wait ] || return 0
+  echo "plot-worker-loop: waiting for the checks on ${PLOT_BRANCH} at ${head:0:8} — the slice stays with this agent until CI answers, for up to ${CHECKS_WAIT_SECONDS}s." >&2
+  while [ "$verdict" = wait ]; do
+    sleep "$CHECKS_POLL_SECONDS"
+    waited=$(( waited + CHECKS_POLL_SECONDS ))
+    verdict=$(checks_verdict "$head" "$pushed" "$pr" "$waited")
+  done
+  case "$verdict" in
+    settled) echo "plot-worker-loop: CI answered on ${PLOT_BRANCH} after ${waited}s." >&2 ;;
+    expired) echo "plot-worker-loop: no CI answer on ${PLOT_BRANCH} after ${waited}s — letting go of the slice; a later failure reaches a person." >&2 ;;
+  esac
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 #
 # `PLOT_WORKER_LOOP_SOURCED=1` STOPS HERE, so a test can take the definitions
 # without launching anything. The desk decision — `desk_is_resettable`,
@@ -2070,6 +2147,11 @@ while true; do
   # `--session-id` when there is no transcript to resume. Hardcoding the flag here
   # would reintroduce the failure `session_flag` exists to prevent, in the one
   # place that most looks like it knows better.
+  # THE CHECKS ARE WAITED FOR FIRST. CI reports minutes after the push, and the
+  # question below reads only what the BuildMonitor has already published, so
+  # without the wait it was asked before any answer could exist.
+  wait_for_checks
+
   if [ -n "${PLOT_BRANCH:-}" ] && _correction=$(build_says_failed); then
     _corrections=$(manifest_corrections "${PLOT_MANIFEST_FILE:-}")
     if [ "$_corrections" -lt "$CORRECTION_BUDGET" ]; then

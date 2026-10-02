@@ -126,6 +126,8 @@ systemctl --user restart plot-registryd    # after an edit, following daemon-rel
 systemctl --user disable --now plot-registryd
 ```
 
+**A stop or a restart of the unit leaves running agents alive.** The unit sets `KillMode=process`, so systemd signals the daemon and nothing else; a crash that `Restart=always` recovers leaves them alive too. The agents stay in the unit's cgroup, so `systemctl --user status plot-registryd` lists them under the unit until they exit. To stop the agents, run `/plot-fleet --stop`, which calls `plot-dispatch.sh --stop` once per dispatched agent and unloads the supervisor last.
+
 **A user service, not a system one.** The daemon reaps worktrees and reads `~/.claude` transcripts, both of which belong to the person who dispatched the agents. Running it as root would give it write access to every desk on the machine to save typing `--user`.
 
 **Surviving logout** needs one more command, because a user service stops when the last session ends:
@@ -175,7 +177,7 @@ node skills/plot/scripts/board/plot-registryd.mjs --sweep-temp    # and sweep te
 
 **`--sweep-temp` is the second write**, and it is opt-in too. At most once an hour, keyed by the modification time of `.plot/state/temp-sweep.at`, a tick runs `plot-reap.sh --sweep-temp --yes`: it removes this user's `$TMPDIR/plot-*` entries and dead-pid budget memos older than `Temp sweep after` hours (default 24), which a SIGKILL left behind. Both unit templates pass it.
 
-The flag is off in both unit templates. Turn it on by adding it to `ProgramArguments` (launchd) or `ExecStart` (systemd) once you have watched a few ticks and agree with what they decided.
+Both unit templates pass `--start-agents` and `--sweep-temp`: the plist as `ProgramArguments` entries, the systemd unit in `ExecStart`. The long-running unit is the one place where a deciding-only daemon is nobody's intent. A person who wants one removes the flag from that line and reloads the unit.
 
 ## If it does not start
 
