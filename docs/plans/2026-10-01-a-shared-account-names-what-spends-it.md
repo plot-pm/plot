@@ -83,7 +83,7 @@ If slice 1 finds no such caller, slice 2 is deferred with the measurement as its
 
 One hour of `bb` calls counted per checkout and per caller through a `PATH` wrapper in a scratch directory, compared with `spend-rate`, posted on #1069. No shipped file changes. <!-- builds: a per-caller attribution of one shared account's requests -->
 
-### The largest caller follows the account rate (Branch: bug/the-largest-caller-follows-the-account-rate) <!-- waits: bug/the-account-spend-is-attributed-by-caller -->
+### The largest caller follows the account rate (Branch: bug/the-largest-caller-follows-the-account-rate, PR: #1200) <!-- waits: bug/the-account-spend-is-attributed-by-caller -->
 
 The caller slice 1 names asks a domain rule built on `cadence.ts` before it spends, and reuses its last answer while the account is over its share; deferred if slice 1 names no caller holding the share. <!-- builds: a domain rule deciding whether a listing may spend now -->
 
