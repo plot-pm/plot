@@ -1714,6 +1714,46 @@ wait_for_checks() {
   return 0
 }
 
+# THE WORKER'S RECORDS FOLLOW IT TO A NEW DESK. `start_worker`'s wrapper writes
+# `.plot-worker.pid` and `.plot-worker.wrapper.pid` into the desk the agent
+# starts in. A loop that cannot reset that desk cuts a new one and moves there,
+# and the old desk then still names the live pid: `plot-worker-state.sh` reads it
+# as `running`, `plot-reap.sh` refuses it as a live worker, and `--release`
+# refuses it too. Measured 2026-10-02: pid 60290 started at
+# `.worktrees/free-9cbeda11`, moved to a `plot-wt-` desk, and the old desk still
+# named 60290 after its PR #1197 merged.
+#
+# THE VALUES ARE COPIED, NOT RE-DERIVED. The wrapper recorded `$!` of the
+# subshell that runs this loop, and the monitors and the agent-liveness walk
+# read that pid; `$$` here can differ from it. A desk with no record names no
+# worker Plot started, so nothing moves.
+#
+# THE OLD FILES ARE EMPTIED, NOT DELETED. `plot-reap.sh` and
+# `plot-reconcile-scan.sh` §21 recognise a dispatch desk by `.plot-worker.pid`,
+# so a deleted file leaves the old desk unplaced and never reaped. Every reader
+# reads an empty file as no live worker.
+#
+# Each write goes to a temporary file in the same directory and is renamed into
+# place, so a reader sees the old content or the new and never a partial one.
+# A same-desk reset (`$2` = `$1`) changes nothing.
+move_worker_record() { # $1=the desk left, $2=the desk taken
+  local from="$1" to="$2" name value
+  [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ] || return 0
+  for name in .plot-worker.pid .plot-worker.wrapper.pid; do
+    [ -f "$from/$name" ] || continue
+    value=$(tr -d ' \n' < "$from/$name" 2>/dev/null) || value=""
+    [ -n "$value" ] || continue
+    printf '%s' "$value" > "$to/$name.tmp" 2>/dev/null && mv -f "$to/$name.tmp" "$to/$name" 2>/dev/null || {
+      rm -f "$to/$name.tmp" 2>/dev/null
+      echo "plot-worker-loop: could not record $name at $to — leaving $from as it is" >&2
+      continue
+    }
+    : > "$from/$name.tmp" 2>/dev/null && mv -f "$from/$name.tmp" "$from/$name" 2>/dev/null || \
+      rm -f "$from/$name.tmp" 2>/dev/null
+  done
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 #
 # `PLOT_WORKER_LOOP_SOURCED=1` STOPS HERE, so a test can take the definitions
@@ -2934,6 +2974,10 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   clear_limited_record "${PLOT_WORKTREE:-$PWD}"
   _after_wait=0
   _wait_head=""
+
+  # The pid records follow the loop, so the desk it leaves names no live worker.
+  # After the claim push, because a rejected push leaves the loop where it is.
+  move_worker_record "$PLOT_WORKTREE" "$hop_wt"
 
   # Move to the desk and update environment for the next iteration. On a reset
   # this `cd` lands where the loop already stood; the export is what makes the

@@ -132,9 +132,19 @@ plot_monitor_subject() {
   pid=$(cat "$pid_file" 2>/dev/null | tr -d ' \n')
 
   # A file that exists but holds no digits is a half-written pid, which is the
-  # startup window caught mid-`printf`. Not gone.
+  # startup window caught mid-`printf`. Not gone — UNLESS the wrapper has
+  # already recorded an exit beside it. `start_worker` removes that record
+  # before every start, so in the startup window it is absent. A worker loop
+  # that moves to a new desk empties the pid file it leaves
+  # (`move_worker_record`), and the wrapper still writes the exit into this
+  # desk when the loop ends; without this arm a monitor watching that desk
+  # would read `starting` forever.
   case "$pid" in
-    '' | *[!0-9]*) printf 'starting'; return 0 ;;
+    '' | *[!0-9]*)
+      if [ -f "$(dirname "$pid_file")/.plot-worker.exit" ]; then
+        printf 'gone'; return 0
+      fi
+      printf 'starting'; return 0 ;;
   esac
 
   if kill -0 "$pid" 2>/dev/null; then
