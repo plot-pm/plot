@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Started:** 2026-10-02, Jan Wloka, `feature/a-slice-ends-when-its-checks-do`
 - **Started:** 2026-10-02, Jan Wloka, `feature/the-checks-a-diff-needs`
@@ -15,6 +15,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
