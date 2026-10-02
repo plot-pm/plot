@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-host-script-asks-who-lists-issues`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-scan-asks-who-lists-issues`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
