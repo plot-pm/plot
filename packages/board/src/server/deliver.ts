@@ -3,9 +3,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
-import { readConfig, allSlicesConfirmed, scriptsFor, type BuildBoardOptions } from './board.js';
+import { readConfig, allSlicesConfirmed, deliveryPulse, scriptsFor, type BuildBoardOptions } from './board.js';
 import { recordActionReceipt } from './action-receipt.js';
-import { pulseFor, pulseCompleteFor } from './fleet.js';
+import { pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
 import {
@@ -234,7 +234,21 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
   // not offer a delivery the re-gate behind it would refuse: `/plot-deliver`
   // asks the host, where a throttled answer counts as not merged. The wave
   // gate still reads the subject and still opens the next slice.
-  switch (allSlicesConfirmed(meta, pulseFor(opts), pulseCompleteFor(opts))) {
+  // THE PULSE IS CHOSEN, NOT TAKEN. `pulseFor` holds a fragment for most of
+  // every scan — 18 to 37 s of each 5 s cadence — and a fragment makes the rule
+  // answer `unknown`, which this route reports as `scan-incomplete`. Measured
+  // 2026-09-30 (#1113): a plan whose every branch had merged was refused on 20
+  // of 20 calls, one a minute, while `/api/fleet` read between scans reported
+  // the same branch complete.
+  //
+  // `complete: true` beside the chosen pulse, because `deliveryPulse` returns
+  // only a pulse a finished scan produced — the live one where its scan
+  // finished, else the last that did and that named every branch this plan
+  // names now. A null answer keeps `unknown`, and `scan-incomplete` then means
+  // what the changelog says: no scan has finished, or the plan gained a slice
+  // the last finished scan never reported.
+  const judging = deliveryPulse(meta, pulseFor(opts), pulseCompleteFor(opts), lastCompletePulseFor(opts));
+  switch (allSlicesConfirmed(meta, judging, judging !== null)) {
     case 'merged':
       return { verdict: 'deliverable' };
     case 'unknown':

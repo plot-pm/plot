@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-streaming-test-owns-its-store`
 - **Started:** 2026-10-02, Jan Wloka, `bug/a-fleet-entry-reads-its-repositorys-store`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 

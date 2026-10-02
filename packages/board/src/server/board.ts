@@ -28,6 +28,7 @@ import {
   type StoryStanding } from '../contract/schema.js';
 import {
   allSlicesMerged,
+  deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
   statusDrift,
   timeboxLabel,
@@ -56,7 +57,7 @@ import {
   treesGit,
 } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
-import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
+import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics } from './topics.js';
 
 /**
@@ -928,7 +929,7 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetReading | null): 
  * the one place the board names the rule — the same shape `deriveSlices` and
  * `planStatus` beside it already have.
  */
-export { allSlicesConfirmed, allSlicesMerged, type Landed } from '@plot-pm/domain';
+export { allSlicesConfirmed, allSlicesMerged, deliveryPulse, type Landed } from '@plot-pm/domain';
 
 /**
  * Whether the pulse shows a claim ref on any of this plan's branches — the
@@ -1911,6 +1912,11 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   // card must not read a plan's absence from an unfinished read as its work
   // being unfinished.
   const pulseComplete = pulseCompleteFor(opts);
+  // THE LAST FINISHED SCAN'S pulse, read once beside the live one. A delivery
+  // verdict reads this where the live pulse is a fragment; every other reading
+  // below still reads `pulse`, because a partial answer is the honest one for
+  // a count and a wrong one only for a decision.
+  const lastComplete = lastCompletePulseFor(opts);
   const cards: Card[] = [];
   let metas: PlanMeta[];
   try {
@@ -1999,7 +2005,17 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // branch has merged, which is the same condition the old inline boolean
     // tested — with the `mapped === 'Development'` guard folded into its own
     // phase switch (`released`/`delivered` return before the merge test).
-    const status = planStatus(meta, pulse, pulseComplete);
+    // THE PULSE A DELIVERY VERDICT IS JUDGED AGAINST, chosen per plan rather
+    // than taken from the cache. `pulse` is a fragment for most of every scan,
+    // and the card then reads *not deliverable yet* on every pulse — the same
+    // defect `deliverability` carried (#1113), seen here as a Deliver control
+    // that flickers. The chosen pulse is one a finished scan produced, so
+    // `complete` is true beside it; a null answer keeps today's `unknown`.
+    //
+    // PER PLAN BECAUSE THE RULE IS PER PLAN: a last-complete pulse may judge
+    // one plan and not its neighbour, which gained a slice after that scan.
+    const judging = chooseDeliveryPulse(meta, pulse, pulseComplete, lastComplete);
+    const status = planStatus(meta, judging, judging !== null);
     const deliverable = status === 'deliverable';
     const phase = deliverable ? toBoardPhase('delivered')! : mapped;
     if (!phase) continue;
