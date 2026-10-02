@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1113
@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/delivery-reads-the-last-finished-scan`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
