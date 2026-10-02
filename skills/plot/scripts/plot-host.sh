@@ -2651,6 +2651,29 @@ bb_list_page_length() {
   esac
 }
 
+# A PAGE THAT IS PROVABLY WHOLE SAYS SO, and that sentence is the licence a
+# joining caller needs. This reported only truncation until 2026-10-02: a
+# complete page was SILENT, so a caller could not tell "this page holds every
+# PR" from "this adapter has no opinion", and the only reading left to it was
+# the page's own row count against its own limit. That is a coincidence rather
+# than evidence — measured on this repository, `--state all --limit 1000`
+# returned exactly 1000 rows of 1064 PRs, so the count-based test failed, the
+# scan's `.list-complete` was withheld, and every branch the join did not name
+# fell through to one `pr-state` call each: 26 calls at 3.8 s, 54-61% of the
+# scan's wall time in slice 1's five runs (#1017).
+#
+# THE CLAIM IS THE ADAPTER'S BECAUSE THE PAGING SEMANTICS ARE. Whether a short
+# page proves anything depends on how the host pages, which is exactly what
+# this script knows and a caller does not. `pr_sweep_report` already states its
+# own stronger claim in this shape and `plot-fleet-scan.sh` already reads that
+# sentence; this is the same contract for the second path, so a listing is no
+# longer the one answer a caller has to guess at.
+#
+# BOTH SENTENCES OR NEITHER. The complete and truncated reports are the two
+# outcomes of one decision, so they are emitted from one place: a reader can
+# never see both for one state, and silence now means only that no claim was
+# owed — no `--limit`, or an empty page.
+#
 # $1 backend  $2 requested limit (may be "")  $3 state word  $4 row count
 pr_list_report_truncation() {
   local be="$1" limit="$2" state="$3" count="$4" len=""
@@ -2658,15 +2681,31 @@ pr_list_report_truncation() {
   [ "$count" -gt 0 ] 2>/dev/null || return 0   # an empty page had nothing to hide
   if [ "$be" = "github" ]; then
     # github honours the limit: complete unless the page came back AT the limit.
-    [ "$count" -ge "$limit" ] 2>/dev/null || return 0
+    # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
+    # answered 1065 rows and `--limit 2000` the same 1065, so a page short of
+    # its limit is the whole list and asking generously costs the rows that
+    # exist rather than the rows requested.
+    if [ "$count" -lt "$limit" ] 2>/dev/null; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   else
     # A fixed page: complete below a measured page length, unprovable otherwise.
     [ "$be" = "bitbucket" ] && len="$(bb_list_page_length)"
-    if [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; then return 0; fi
+    if [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   fi
   # Named per state so a caller can resolve exactly the states that were
   # capped, not a whole-call flag that over-reports.
   echo "plot-host: $be pr-list state=$state possibly truncated ($count rows, requested limit $limit unprovable) — a join against this page may read older branches as 'no PR' (#333)" >&2
+}
+
+# THE WORDING IS A CONTRACT between this script and `plot-fleet-scan.sh`, pinned
+# on both sides exactly as `pr-list sweep complete` is. A page that cannot prove
+# itself whole never prints it, so a match is licence and a miss is silence —
+# never a guess.
+#
+# PER STATE, like the truncation report beside it, because the scan asks for two
+# states and joins both: a caller needs to know which pages were whole, not that
+# some were.
+pr_list_report_complete() { # $1 backend  $2 limit  $3 state word  $4 row count
+  echo "plot-host: $1 pr-list state=$3 page complete ($4 rows below requested limit $2) — this page holds every pull request the host has in this state" >&2
 }
 
 # The backends this script has an arm for, which is what "drivable" means here.
