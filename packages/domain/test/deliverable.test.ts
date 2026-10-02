@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   allSlicesConfirmed,
   allSlicesMerged,
+  deliveryPulse,
   FleetReadingSchema,
   type FleetReading,
   type BranchState,
@@ -429,5 +430,84 @@ describe('allSlicesConfirmed — the host has answered, not only the merge subje
     const parsed = FleetReadingSchema.parse(wire);
     expect(parsed.plans[0].slices[0].branches[0].evidence).toBeUndefined();
     expect(allSlicesConfirmed({ file: PLAN }, parsed, true)).toBe('merged');
+  });
+});
+
+/**
+ * Which pulse may judge a delivery.
+ *
+ * The rule exists because the live pulse is a fragment for most of every scan,
+ * so a delivery decision read from it depends on the moment it is asked.
+ * Measured 2026-09-30 (#1113): 20 refusals in 20 minutes over a plan whose
+ * every branch had merged.
+ *
+ * Every arm has a case, and two of them are the ones a naive rule gets wrong:
+ * a last-complete pulse that does NOT name a branch the plan names now must be
+ * refused, and a DEFERRED branch absent from it must not be.
+ */
+describe('deliveryPulse chooses the pulse a delivery is judged against', () => {
+  /** The plan's own branch shape — `deferred` is a flag here, a state in a pulse. */
+  const planBranches = (branches: Array<[string, boolean]>) => ({
+    file: PLAN,
+    slices: [{ branches: branches.map(([branch, deferred]) => ({ branch, deferred })) }],
+  });
+
+  const LANDED = pulse(BASE, [slice('one', 'complete', [['feature/a', 'merged']])]);
+
+  it('takes the live pulse where its scan finished', () => {
+    // Nothing older is consulted: the live answer is whole, so it is the answer.
+    const older = pulse(BASE, [slice('one', 'complete', [['feature/b', 'merged']])]);
+    expect(deliveryPulse(planBranches([['feature/a', false]]), LANDED, true, older)).toBe(LANDED);
+  });
+
+  it('takes the last complete pulse where the live one is a fragment', () => {
+    // THE DEFECT'S FIX. The live pulse has not reached this plan — which is
+    // what `allSlicesConfirmed` reads as `unknown` — and the last finished scan
+    // reported every branch the plan names.
+    const partial = pulse('2026-08-21-something-else.md', [slice('one', 'eligible', [['feature/z', 'open']])]);
+    expect(deliveryPulse(planBranches([['feature/a', false]]), partial, false, LANDED)).toBe(LANDED);
+  });
+
+  it('refuses a last complete pulse that never reported a branch the plan names NOW', () => {
+    // THE CASE A NAIVE RULE FAILS. A plan that gained a slice after that scan
+    // names a branch the pulse never judged, and the rule beyond this one walks
+    // the PULSE's slices — so the new branch would read as done rather than as
+    // unmeasured. Null here, `unknown` there, `scan-incomplete` at the route.
+    const gained = planBranches([['feature/a', false], ['feature/new', false]]);
+    expect(deliveryPulse(gained, null, false, LANDED)).toBeNull();
+  });
+
+  it('does not let a DEFERRED branch absent from that pulse force a refusal', () => {
+    // The over-strict branch check this pins against. Work given up is not work
+    // awaiting a measurement, so a pulse that never named it has no gap —
+    // matching `allSlicesMerged`'s own exemption.
+    const withDeferred = planBranches([['feature/a', false], ['feature/shelved', true]]);
+    expect(deliveryPulse(withDeferred, null, false, LANDED)).toBe(LANDED);
+  });
+
+  it('answers null where no scan has finished', () => {
+    // A cold cache, and the meaning the changelog gives `scan-incomplete`.
+    expect(deliveryPulse(planBranches([['feature/a', false]]), null, false, null)).toBeNull();
+  });
+
+  it('answers null on a cold cache that reports itself COMPLETE', () => {
+    // `pulseComplete` starts TRUE over a null pulse, so a rule reading the flag
+    // alone would return that null as a finished answer and never consult the
+    // last complete pulse. The pulse is tested as well as the flag.
+    expect(deliveryPulse(planBranches([['feature/a', false]]), null, true, LANDED)).toBe(LANDED);
+  });
+
+  it('refuses a last complete pulse that does not name the plan at all', () => {
+    // Absent is not false, and it is not a gap in one slice either: a pulse
+    // that never mentioned this plan judged none of its branches.
+    const elsewhere = pulse('2026-08-21-another-plan.md', [slice('one', 'complete', [['feature/a', 'merged']])]);
+    expect(deliveryPulse(planBranches([['feature/a', false]]), null, false, elsewhere)).toBeNull();
+  });
+
+  it('is read by allSlicesConfirmed as unknown when it answers null', () => {
+    // The seam the two callers rely on: a null pulse with `complete` derived
+    // from it is exactly the input that already means *nothing was measured*.
+    const judging = deliveryPulse(planBranches([['feature/a', false]]), null, false, null);
+    expect(allSlicesConfirmed({ file: PLAN }, judging, judging !== null)).toBe('unknown');
   });
 });
