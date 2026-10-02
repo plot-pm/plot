@@ -139,6 +139,56 @@ strip_quoted_heredocs() { # stdin: the command → stdout: bodies removed
 }
 CMD_SCAN="$(printf '%s' "$CMD" | strip_quoted_heredocs)" || CMD_SCAN="$CMD"
 
+# --- a CI suite at a fleet desk ----------------------------------------------
+#
+# An unattended agent at a fleet desk does not run the suites the project's
+# `CI suites` key leaves to CI; CI runs them on every pull request, and seven
+# agents running them on one machine kept the load at 4-9 times the core count
+# (measured 2026-10-02). The agent runs `plot-local-checks.mjs` instead.
+#
+# PLACED BEFORE EVERY EARLY EXIT BELOW. The `named_script` exit allows any
+# command that names none of the three controller scripts, and the desk
+# exemption allows every linked worktree: a fleet agent's command passes both,
+# so an arm after either would never fire.
+#
+# THE DESK DECIDES, and two cheap shell readings stand before any `node` start:
+# `PLOT_UNATTENDED=1`, then a linked worktree holding `.plot-worker.pid`, then
+# one `CI suites` entry's first two words appearing in the command. A person at
+# a terminal is never refused. Whether the command RUNS a suite, rather than
+# mentioning one, is `ciSuiteRefusal`'s answer, asked through the bundle.
+#
+# A check against habit, not a boundary: a suite spelled another way passes.
+if [ "${PLOT_UNATTENDED:-}" = "1" ]; then
+  ci_top="$(git rev-parse --show-toplevel 2>/dev/null)" || ci_top=""
+  ci_git_dir="$(git rev-parse --absolute-git-dir 2>/dev/null)" || ci_git_dir=""
+  ci_git_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || ci_git_common=""
+  if [ -n "$ci_top" ] && [ -f "$ci_top/.plot-worker.pid" ] && [ -n "$ci_git_dir" ] && [ "$ci_git_dir" != "$ci_git_common" ]; then
+    ci_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    ci_suites="$(cd "$ci_top" && "$ci_here/plot-config.sh" get "CI suites" "" 2>/dev/null)" || ci_suites=""
+    ci_hit=""
+    if [ -n "$ci_suites" ]; then
+      ci_old_ifs="$IFS"; IFS=';'
+      for ci_entry in $ci_suites; do
+        IFS="$ci_old_ifs"
+        ci_head="$(printf '%s' "$ci_entry" | awk '{print $1" "$2}')"
+        case "$CMD_SCAN" in *"$ci_head"*) ci_hit=1 ;; esac
+        IFS=';'
+      done
+      IFS="$ci_old_ifs"
+    fi
+    if [ -n "$ci_hit" ] && [ -f "$ci_here/board/plot-local-checks.mjs" ]; then
+      # `|| ci_rc=$?` RATHER THAN READING `$?` AFTER: the `ERR` trap above
+      # turns any failing command into `exit 0`, and exit 3 is the answer here.
+      ci_rc=0
+      ci_refusal="$(cd "$ci_top" && printf '%s' "$CMD_SCAN" | node "$ci_here/board/plot-local-checks.mjs" --ci-suite-refusal 2>/dev/null)" || ci_rc=$?
+      if [ "$ci_rc" -eq 3 ]; then
+        printf '%s\n' "$ci_refusal" >&2
+        exit 2
+      fi
+    fi
+  fi
+fi
+
 # Which of the three this command names, if any. Read as a BASENAME, because
 # `bash skills/plot/scripts/plot-dispatch.sh x`, `./plot-dispatch.sh x` and a
 # call through an absolute path are one invocation spelled three ways, and an

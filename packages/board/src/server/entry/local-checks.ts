@@ -10,6 +10,7 @@ import {
   searchTerms,
   type LocalChecksAnswer,
 } from '@plot-pm/domain/rules/local-checks';
+import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -41,6 +42,8 @@ export const EXIT = {
   ok: 0,
   /** The current directory is not inside a git repository. */
   notRepository: 2,
+  /** `--ci-suite-refusal`: the command runs a suite only CI runs. */
+  refused: 3,
 } as const;
 
 /**
@@ -132,11 +135,52 @@ export const run = async (
   return EXIT.ok;
 };
 
+/**
+ * Answers `--ci-suite-refusal`: whether the command on stdin runs a suite the
+ * project's `CI suites` key leaves to CI. `plot-controller-gate.sh` asks it for
+ * an unattended agent at a fleet desk.
+ *
+ * @param cwd - a directory inside the repository.
+ * @param scriptDir - the directory holding `plot-*.sh`.
+ * @param command - the command line.
+ * @param write - where the refusal goes.
+ * @returns `refused` when the command runs a listed suite, `ok` otherwise.
+ */
+export const refuse = async (
+  cwd: string,
+  scriptDir: string,
+  command: string,
+  write: (s: string) => void = (s) => process.stdout.write(s),
+): Promise<number> => {
+  const raw = await scriptsShell({ repoRoot: cwd, scriptDir }).config('CI suites', '');
+  const refusal = ciSuiteRefusal(command, parseList(raw.ok ? raw.value.trim() : ''));
+  if (refusal === null) return EXIT.ok;
+  const checks = path.join(scriptDir, 'board', 'plot-local-checks.mjs');
+  write(
+    [
+      `plot-controller-gate: \`${refusal.suite}\` is a CI suite, and CI runs it on every pull request.`,
+      '',
+      '  Run the checks your change touches instead:',
+      `      node ${checks}`,
+      '  and run what it prints. A failure CI finds comes back to you as a correction.',
+      '',
+      '  The suites only CI runs are listed in the `CI suites` key of this repository\'s Plot Config.',
+      '',
+    ].join('\n'),
+  );
+  return EXIT.refused;
+};
+
 // Only when RUN, never when imported. `pathToFileURL` on the realpath, because
 // `import.meta.url` is realpath-resolved and `process.argv[1]` is not. The
 // scripts sit one directory above the bundle, in a repository and under a
 // plugin install alike.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  if (process.argv[2] === '--ci-suite-refusal') {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    process.exit(await refuse(process.cwd(), scriptDir, Buffer.concat(chunks).toString('utf8')));
+  }
   process.exit(await run(process.cwd(), scriptDir));
 }
