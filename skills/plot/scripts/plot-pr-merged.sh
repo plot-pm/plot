@@ -70,6 +70,19 @@
 # Both halves are pinned in `test/reconcile/host.test.mjs`, so the exemption
 # rests on tests that fail when it stops being true.
 #
+# AN EMPTY BRANCH IS NOT ASKED ABOUT. `gh pr list --head ""` applies no filter,
+# so every PR in the repository matches: measured 2026-10-01 on `origin/main`
+# (`56a978ea`), `_plot_merged_lookup ""` answered `found`, `pr_merged ""` exited
+# 0 — merged — and `pr_merged_heads ""` printed 98 lines, the head of every
+# merged PR here. So each of the three lookups refuses an empty branch BEFORE
+# `command -v gh`, answering `unaskable` rather than `none` because a lookup that
+# did not run is silence and `none` would claim the host spoke; `pr_open ""` then
+# casts no veto, which is safe only because `pr_merged ""` refuses on the same
+# branch, as `mayRemove` asserts. The guard sits here and not at the call sites:
+# all five callers guard it today and that is precisely why the defect stayed
+# latent, so a sixth caller omitting the guard would be told a ref may be
+# deleted.
+#
 # `mergedAt` IS READ, NEVER `state`. A merged PR reports state CLOSED, and
 # trusting `state` would refuse every squash-merged branch — which is the whole
 # population these scripts exist for. Squash-merge rewrites the commits, so the
@@ -122,6 +135,7 @@ _plot_landed() {
 # is silence, and silence is never permission.
 _plot_merged_lookup() {
   local br="$1" out
+  [ -n "$br" ] || { echo unaskable; return; }
   command -v gh >/dev/null 2>&1 || { echo unaskable; return; }
   out=$(gh pr list --head "$br" --state all --limit 100 --json mergedAt 2>/dev/null) \
     || { echo unaskable; return; }
@@ -131,6 +145,7 @@ _plot_merged_lookup() {
 # What the host says about an OPEN PR on this branch: found / none / unaskable.
 _plot_open_lookup() {
   local br="$1" out
+  [ -n "$br" ] || { echo unaskable; return; }
   command -v gh >/dev/null 2>&1 || { echo unaskable; return; }
   out=$(gh pr list --head "$br" --state open --limit 1 --json number 2>/dev/null) \
     || { echo unaskable; return; }
@@ -195,6 +210,7 @@ pr_open() {
 # merged.
 pr_merged_heads() {
   local br="$1" out
+  [ -n "$br" ] || return 1
   command -v gh >/dev/null 2>&1 || return 1
   out=$(gh pr list --head "$br" --state all --limit 100 --json mergedAt,headRefOid 2>/dev/null) \
     || return 1

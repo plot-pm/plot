@@ -25,6 +25,11 @@ import type { PortResult } from '@plot-pm/domain';
 import { landed } from '@plot-pm/domain/rules/landed';
 import { viewLanded } from '@plot-pm/domain/rules/known-pr';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
+import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
+import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
+import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
+import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
@@ -506,6 +511,71 @@ export const worldForRepo = (
 };
 
 /**
+ * How many merges the subject walk reads — the fleet scan's own cap.
+ */
+export const MERGE_WALK_LIMIT = 2000;
+
+/**
+ * The refless branches a merge subject proves landed, per plan.
+ *
+ * The same readings the fleet scan takes: the commit that first added each
+ * plan file and the merges on `origin/<main>`, both read once, and one
+ * ancestry test per pair the rule matched. A plan absent from the additions
+ * gets no subjects. A branch is proven when any of its merges is NOT contained
+ * in the plan's adding commit; `yes` and `unknown` prove nothing.
+ *
+ * @param refs - the refs port.
+ * @param backend - the host's backend word, which selects the subject forms.
+ * @param plans - the plans to answer for.
+ * @param claimed - branch names to leave out.
+ * @returns each plan's file to its proven branches, or `null` where a walk failed.
+ */
+export const subjectProvenOf = async (
+  refs: Refs,
+  backend: string,
+  plans: readonly PlanRecord[],
+  claimed: ReadonlySet<string>,
+): Promise<ReadonlyMap<string, ReadonlySet<string>> | null> => {
+  const forms = mergeSubjectForms(backend);
+  if (forms.length === 0) return new Map();
+  const base = await refs.defaultBranch();
+  if (!base.ok) return null;
+  const ref = `origin/${base.value}`;
+  const dirs = [...new Set(plans.map((plan) => dirname(plan.file)))];
+  const [merges, url, ...walks] = await Promise.all([
+    refs.mergeSubjects(ref, MERGE_WALK_LIMIT),
+    refs.remoteUrl('origin'),
+    ...dirs.map((dir) => refs.planAdditions(ref, dir)),
+  ]);
+  if (!merges.ok) return null;
+  const additions = new Map<string, string>();
+  for (const walk of walks) {
+    if (!walk.ok) return null;
+    for (const [path, sha] of walk.value) additions.set(path, sha);
+  }
+  // A local-path origin, or none read, names no owner, and any owner counts.
+  const owner = url.ok ? ownerOfRemote(url.value) : null;
+  const proven = new Map<string, ReadonlySet<string>>();
+  for (const plan of plans) {
+    const added = additions.get(plan.file);
+    if (added === undefined) continue;
+    const branches = plan.slices
+      .flatMap((slice) => slice.branches)
+      .filter((line) => !line.deferred && !claimed.has(line.branch))
+      .map((line) => line.branch);
+    if (branches.length === 0) continue;
+    const found = new Set<string>();
+    for (const match of mergedBySubject({ subjects: merges.value, branches, forms, owner })) {
+      if (found.has(match.branch)) continue;
+      const contained = await refs.contains(match.sha, added);
+      if (contained.ok && contained.value === 'no') found.add(match.branch);
+    }
+    if (found.size > 0) proven.set(plan.file, found);
+  }
+  return proven;
+};
+
+/**
  * Builds the world the QUEUE is read through.
  *
  * A SECOND WORLD RATHER THAN MORE MEMBERS ON THE SUPERVISOR'S, because the two
@@ -647,6 +717,12 @@ export const queueWorldForRepo = (
         // asks only whether the work landed, so the open lookup was never run.
         open: 'unaskable',
       });
+    },
+    subjectProven: async (planList, claimed) => {
+      // The backend word is a local read and costs no host request.
+      const backend = await host.backend();
+      if (!backend.ok) return null;
+      return subjectProvenOf(refs, backend.value, planList, claimed);
     },
     workerAlive: async (worktree) => {
       const text = fileOrNull(join(worktree, '.plot-worker.pid'));
