@@ -1,5 +1,12 @@
 import { sliceVerdicts } from '@plot-pm/domain/rules/eligible';
-import type { QueueAgent, QueueReadings, QueuedSlice } from '@plot-pm/domain/rules/queue';
+import {
+  behindUnknownLanding,
+  type PlanOrderedSlice,
+  type QueueAgent,
+  type MergedSetState,
+  type QueueReadings,
+  type QueuedSlice,
+} from '@plot-pm/domain/rules/queue';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import {
   VIEWS_PER_PASS,
@@ -103,6 +110,24 @@ export interface MergedListing {
   merged: ReadonlySet<string>;
   /** Whether the listing answered in full; false on a failure or a partial answer. */
   whole: boolean;
+  /**
+   * The refusal's kind where the listing did not answer whole, else `null`.
+   *
+   * **IT TRAVELS WITH THE LISTING BECAUSE ONLY THE CALLER THAT ASKED CAN READ
+   * IT.** `host.lastRefusal()` is the connector's most recent refusal, and a
+   * later reading would name a different request's. The caller takes it beside
+   * the answer, and {@link QueueReadings.mergedSet} carries it to the tick line.
+   */
+  kind: 'throttled' | 'secondary' | 'failed' | null;
+  /**
+   * Whether the listing request itself failed, as against answering with a
+   * refusal left behind.
+   *
+   * `whole: false` cannot separate the two, and the tick line names them apart:
+   * a `partial` listing holds rows that may be incomplete, an `unaskable` one
+   * holds none.
+   */
+  failed: boolean;
 }
 
 /**
@@ -118,6 +143,19 @@ export interface MergedListing {
 export const slugOf = (file: string): string => {
   const base = (file.split('/').pop() ?? file).replace(/\.md$/, '');
   return base.replace(/^\d{4}-\d{2}-\d{2}-/, '');
+};
+
+/**
+ * One branch the queue derived from a plan, before the asked readings.
+ *
+ * **THE PLAN'S SLICE INDEX IS CARRIED, NOT THE ENTRY'S POSITION.** A plan slice
+ * may name several branches, so one entry per branch cannot say which slices
+ * are earlier — and *earlier* is the whole of what
+ * {@link behindUnknownLanding} asks.
+ */
+export type QueuedBranch = Omit<QueuedSlice, 'briefPresent' | 'landed' | 'priorUnknown'> & {
+  /** The plan's slice this branch belongs to, zero-based, in plan order. */
+  slice: number;
 };
 
 /**
@@ -144,7 +182,7 @@ export const queueOfPlan = (
   plan: PlanRecord,
   claimed: ReadonlySet<string>,
   merged: ReadonlySet<string> = new Set<string>(),
-): readonly Omit<QueuedSlice, 'briefPresent' | 'landed'>[] => {
+): readonly QueuedBranch[] => {
   const slug = slugOf(plan.file);
   // OUTSTANDING IS WHAT NOBODY HAS FINISHED, AND A REF ALONE CANNOT SAY IT.
   //
@@ -173,7 +211,7 @@ export const queueOfPlan = (
     })),
   );
 
-  const queued: Omit<QueuedSlice, 'briefPresent' | 'landed'>[] = [];
+  const queued: QueuedBranch[] = [];
   plan.slices.forEach((slice: PlanRecordSlice, index: number) => {
     const claimable = verdicts[index] === 'eligible';
     for (const line of slice.branches) {
@@ -187,7 +225,11 @@ export const queueOfPlan = (
       // still exists for the branch that IS offered and turns out to have
       // merged between two readings.
       if (settled(line)) continue;
-      queued.push({ branch: line.branch, slug, claimable });
+      // THE PLAN'S SLICE INDEX TRAVELS WITH THE BRANCH, because a slice may
+      // name several and `behindUnknownLanding` asks which slices are EARLIER.
+      // Counting the entries instead would make two branches of one slice
+      // read as one before the other.
+      queued.push({ branch: line.branch, slug, claimable, slice: index });
     }
   });
   return queued;
@@ -261,19 +303,30 @@ export const readQueue = async (
 
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
+    // THE PLAN'S SLICES ARE COLLECTED BEFORE ANY IS MARKED, because the mark is
+    // a statement about the plan rather than about one branch: whether a slice
+    // is held behind an unanswered landing cannot be known until every earlier
+    // slice of the SAME plan has its answer. `behindUnknownLanding` is asked
+    // once per plan and decides; nothing here does.
+    const ofPlan: QueuedSlice[] = [];
+    const ordered: PlanOrderedSlice[] = [];
     for (const entry of queueOfPlan(plan, claimed, new Set([...merged, ...provenFor(plan)]))) {
       const briefPresent = entry.claimable ? await world.briefPresent(entry.branch) : false;
-      slices.push({
-        ...entry,
-        briefPresent,
+      const landed: LandedAnswer =
         // A BRANCH THE NUMBER LOOKUP ALREADY ANSWERED IS NOT ASKED AGAIN. Every
         // other branch goes to the per-branch question, as it did before the
         // listing could fail.
-        landed:
-          entry.claimable && briefPresent
-            ? answered.get(entry.branch) ?? (await world.queuedHasLanded(entry.branch))
-            : 'not-landed',
-      });
+        entry.claimable && briefPresent
+          ? answered.get(entry.branch) ?? (await world.queuedHasLanded(entry.branch))
+          : 'not-landed';
+      const { slice, ...queued } = entry;
+      ofPlan.push({ ...queued, briefPresent, landed, priorUnknown: false });
+      ordered.push({ branch: entry.branch, slice, claimable: entry.claimable, landed });
+    }
+
+    const behind = new Set(behindUnknownLanding(ordered));
+    for (const slice of ofPlan) {
+      slices.push(behind.has(slice.branch) ? { ...slice, priorUnknown: true } : slice);
     }
   }
 
@@ -290,7 +343,29 @@ export const readQueue = async (
     });
   }
 
-  return { slices, agents };
+  // THE LISTING'S STATE TRAVELS WITH THE SLICES IT EXPLAINS. Every `unknown`
+  // landing and every slice held behind one came from this answer, and the tick
+  // line prints it so a reader is not left to infer a host outage from a count.
+  return { slices, agents, mergedSet: mergedSetOf(listing) };
+};
+
+/**
+ * How fully the listing answered, as the tick line reports it.
+ *
+ * `whole` carries no kind: there was no refusal to name. `unaskable` is a
+ * request that failed and `partial` one that answered and left a refusal, and
+ * the two are kept apart because their rows differ — a partial listing's rows
+ * may be incomplete, an unaskable one has none.
+ *
+ * A listing that is not whole and names no kind reads `failed`: something
+ * refused it, and `null` would print a state with no cause.
+ *
+ * @param listing - the merged listing, as the world answered it.
+ * @returns the state and the refusal's kind.
+ */
+const mergedSetOf = (listing: MergedListing): MergedSetState => {
+  if (listing.whole) return { state: 'whole', kind: null };
+  return { state: listing.failed ? 'unaskable' : 'partial', kind: listing.kind ?? 'failed' };
 };
 
 /** No branch, for a plan the merge subjects prove nothing about. */
