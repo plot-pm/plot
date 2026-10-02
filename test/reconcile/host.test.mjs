@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -5823,3 +5823,131 @@ for (const rich of [true, false]) {
     assert.deepEqual(rows.map((r) => r.author), ['pexample', '']);
   });
 }
+
+// ---------------------------------------------------------------------------
+// WHO LISTS THE ISSUES — `issue-list` and `issue-view` ask the domain.
+//
+// THE TESTS REPLAY 2026-10-01 (#1131). Both ops tested `tracker_scheme = jira`
+// and sent every other scheme to the git host, so
+// `PLOT_HOST=github PLOT_TRACKER=linear issue-list` exited 0 having called
+// `gh issue list` — a repository tracking in Linear shown GitHub's issues
+// under Linear's name. `issueSource` had decided this since #1132 and the
+// shell had no way to ask it.
+//
+// EVERY REFUSAL ASSERTS THE ABSENT CALL, not just the exit code. A fix that
+// prints the reason and exits 4 AFTER spending the host call passes an
+// exit-code test and still leaks the request; `argvOf` returns null only when
+// the stub was never invoked, which is the fact that cannot be faked.
+// ---------------------------------------------------------------------------
+
+test('host: issue-list refuses a tracker no connector lists, and spends no host call', () => {
+  // `linear` is the measured case from #1131: a real vendor with no connector.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list', '--limit', '5'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'linear' },
+    stubs,
+  });
+  assert.equal(res.code, 4, `exit 4 says this cannot be asked at all: ${res.stderr}`);
+  assert.match(res.stderr, /linear/, 'the refusal names the scheme that has no lister');
+  assert.equal(argvOf(stubs.ghArgv), null, 'gh is never called for a tracker it does not own');
+});
+
+test('host: issue-list refuses Tracker: plot on github, the rule\'s own decision', () => {
+  // A repository declaring `plot` tracks in its own plans. It LOSES its
+  // open-issue list here, as it already did on the board with #1132 — stated
+  // in the plan's Open Points so a reviewer can object. `plot` means *there is
+  // no tracker*, and the git host is not asked in its place.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'plot' },
+    stubs,
+  });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /plot/, 'the refusal names the declared scheme');
+  assert.equal(argvOf(stubs.ghArgv), null, 'no gh call for a repository tracking in its own plans');
+});
+
+test('host: issue-list refuses github-issues on bitbucket, naming the host it needs', () => {
+  // THE `onlyOnHost` CASE. An entry reading only the scheme would find
+  // `github-issues` in the lister list and call `bb`, so this is what catches
+  // a fix that ignores the host half of the rule.
+  const stubs = makeStubs();
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'bitbucket', PLOT_TRACKER: 'github-issues' },
+    stubs,
+  });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /github/, 'the refusal names the git host the scheme needs');
+  assert.equal(argvOf(stubs.bbArgv), null, 'bb never lists GitHub issues');
+});
+
+test('host: issue-view refuses a tracker no connector lists, and spends no host call', () => {
+  // The same question with the same three answers and the same exit codes: a
+  // consumer mapping 4 to `unsupported` needs no second table for this op.
+  const stubs = makeStubs({ ghJson: '{}' });
+  const res = runAllowFail(['issue-view', '7'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'linear' },
+    stubs,
+  });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /linear/);
+  assert.equal(argvOf(stubs.ghArgv), null, 'gh issue view is never spent on a refused tracker');
+});
+
+test('host: an unaskable issue-source entry exits 1 and never falls through to the host', () => {
+  // THE FALL-THROUGH IS THE DEFECT, so a bundle that cannot answer must not
+  // reopen it. Exit 1 is what every caller already reads as *the question
+  // failed*; exit 4 means *this host cannot be asked at all*, and collapsing
+  // the two reproduces `an-outage-is-not-an-answer` — a list that says "none"
+  // because it could not ask.
+  //
+  // The script is COPIED and the copy's bundle removed. Deleting the real
+  // artifact would break every other test in this file and leave the checkout
+  // dirty.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const scripts = path.join(stubs.dir, 'scripts');
+  cpSync(path.join(here, '..', '..', 'skills', 'plot', 'scripts'), scripts, { recursive: true });
+  rmSync(path.join(scripts, 'board', 'plot-issue-source.mjs'));
+  const res = spawnSync('bash', [path.join(scripts, 'plot-host.sh'), 'issue-list'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${stubs.dir}:${process.env.PATH}`,
+      ...budgetEnvFor(stubs),
+      // AN EMPTY TRACKER, which is the case that WOULD have reached the git
+      // host: this proves the refusal comes from the unaskable rule and not
+      // from a scheme nobody lists.
+      PLOT_HOST: 'github',
+      PLOT_TRACKER: '',
+    },
+  });
+  assert.equal(res.status, 1, `the question failed, not the host: ${res.stderr}`);
+  assert.match(res.stderr, /plot-issue-source\.mjs/, 'the sentence names the entry that could not answer');
+  assert.equal(argvOf(stubs.ghArgv), null, 'an unaskable rule spends no host call');
+});
+
+test('host: an empty Tracker still asks the git host — absent is not false', () => {
+  // THE REGRESSION LOCK for the rule's one permissive answer. A repository
+  // that declared no tracker asks its git host, and empty stdin is a COMPLETE
+  // answer to the entry rather than a failure.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: '' },
+    stubs,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.ok(argv, 'gh is called for a repository that declared no tracker');
+  assert.deepEqual(argv.slice(0, 2), ['issue', 'list']);
+});
+
+test('host: issue-list with Tracker: github-issues on github still calls gh', () => {
+  // The lister whose host matches is unaffected — the arm it always took.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['issue-list'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(argvOf(stubs.ghArgv).slice(0, 2), ['issue', 'list']);
+});
