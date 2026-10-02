@@ -76,7 +76,11 @@ function dispatchablePlan(work, { slug = 'unattended-flow', date = '2026-08-19' 
  * pre-wave-2 config, which is how this test proves it can see the difference.
  */
 function recorderConfig(dumpFile, prefix = 'PLOT_UNATTENDED=1 ') {
-  return `${PLAN_CONFIG}- **Worker command:** ${prefix}sh -c 'env > ${dumpFile}'\n`;
+  // The dump is written beside its name and RENAMED into place. `env > dump`
+  // creates the file empty before `env` runs, and the poll below waits only for
+  // the file to exist, so a slow `env` let it read an empty dump. A rename is
+  // atomic: the file exists only once it is complete.
+  return `${PLAN_CONFIG}- **Worker command:** ${prefix}sh -c 'env > ${dumpFile}.part && mv ${dumpFile}.part ${dumpFile}'\n`;
 }
 
 /**
@@ -111,7 +115,8 @@ function launchAndCaptureEnv(name, prefix) {
     // than extending it.
     staffDesk(sb.work, 'feature/solo', { envBase: cleanEnvForDispatch() });
 
-    // The worker is detached, so wait for the recorder to land its file.
+    // The worker is detached, so wait for the recorder to land its file. The
+    // recorder renames a complete file into place, so existence means complete.
     const deadline = Date.now() + 15000;
     while (!fs.existsSync(dump) && Date.now() < deadline) {
       sh(sb.work, 'sleep 0.2');
