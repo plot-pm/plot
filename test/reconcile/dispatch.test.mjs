@@ -1579,6 +1579,7 @@ test('dispatch: .plot-worker.pid records the AGENT process, not the wrapper', ()
   assert.ok(fs.existsSync(path.join(wt, '.plot-worker.exit')),
     'the wrapper must record an exit code after the agent stops');
 
+  endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
 });
@@ -1671,6 +1672,7 @@ test('dispatch: .plot-worker.wrapper.pid names the agent\'s ACTUAL parent', () =
   assert.notEqual(wrapperPid, agentPid, 'the wrapper is not the agent');
 
   try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
 });
@@ -2908,6 +2910,7 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
     `the manifest pid must name the agent (${agentPid}), got ${m.pid}`);
 
   try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
 });
@@ -2994,6 +2997,7 @@ test('dispatch: the manifest names the wrapper and all three monitors, at spawn'
     m.buildMonitorPid];
   assert.equal(new Set(group).size, 5, `five distinct processes, got: ${group.join(' ')}`);
 
+  endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
 });
@@ -3334,6 +3338,39 @@ test('dispatch: a nested worktree stays invisible to git status and the marker g
 //
 // A SEPARATE REPO PER TEST, because `--start` counts the workers already
 // running on this disk and the shared fixture's worktrees would be counted.
+
+/**
+ * End a `--start` desk's processes and wait until its wrapper has exited.
+ *
+ * Since #1168 the wrapper leads its own process group, holding its monitors,
+ * the loop and the agent, and `--start` returns while they run. A test that
+ * signals only the agent and then removes the desk races the wrapper writing
+ * `.plot-worker.exit` and the monitors writing findings into it: `rmSync` then
+ * fails with ENOTEMPTY. So the whole group is killed and the wrapper is waited
+ * for before the desk is removed.
+ *
+ * @param wt the desk.
+ */
+const endDesk = (wt) => {
+  const file = path.join(wt, '.plot-worker.wrapper.pid');
+  if (!fs.existsSync(file)) return;
+  const wrapper = Number(fs.readFileSync(file, 'utf8').trim());
+  if (!Number.isInteger(wrapper) || wrapper <= 0) return;
+  // SIGTERM FIRST: the loop's and the monitors' `plot-tmp.sh` traps remove
+  // their temp entries on it and cannot on SIGKILL, and the wrapper ignores it,
+  // records the exit and ends once its agent has. SIGKILL only if it has not.
+  const gone = () => { try { process.kill(wrapper, 0); return false; } catch { return true; } };
+  const waitGone = (ms) => {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline && !gone()) spawnSync('sleep', ['0.1']);
+    return gone();
+  };
+  try { process.kill(-wrapper, 'SIGTERM'); } catch { /* no such group */ }
+  if (waitGone(10_000)) return;
+  try { process.kill(-wrapper, 'SIGKILL'); } catch { /* no such group */ }
+  try { process.kill(wrapper, 'SIGKILL'); } catch { /* already gone */ }
+  waitGone(5_000);
+};
 
 /**
  * Kill every process a `--start` fixture left running, agent AND wrapper.
