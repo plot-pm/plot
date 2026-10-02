@@ -105,6 +105,20 @@
 #                                 invocation is one host question however many
 #                                 calls this makes, so a caller's per-refresh
 #                                 arithmetic is unchanged.
+#                                 `--limit` BOUNDS EACH CALL, NOT THE UNION, so
+#                                 the row count can exceed it by up to the number
+#                                 of open pull requests. Measured 2026-10-02 with
+#                                 5 open: `--limit 5` answered 6 rows, where
+#                                 `--rich` answered 5 — the open call returned an
+#                                 open PR that fell outside the plain call's
+#                                 newest-5 page. It is NOT bounded per call and
+#                                 then trimmed, because trimming would drop
+#                                 either a verdict the rich call just bought or a
+#                                 terminal row the store needs, and the caller
+#                                 cannot say which. Harmless where `--limit`
+#                                 exceeds the open count, which is every caller
+#                                 today: the board asks 1000 against 5 open, and
+#                                 no other caller passes this flag.
 #                                 [--since <iso>] narrows the listing to pull
 #                                 requests the host has seen change since that
 #                                 stamp. Measured 2026-09-21 on this repository:

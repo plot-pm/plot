@@ -6422,3 +6422,42 @@ test('host: bitbucket --rich-open emits the same rows as --rich', () => {
   assert.equal(row.checks, 'unknown', 'unknown because the host cannot say, not because of the split');
   assert.equal(row.head, 'feature/y');
 });
+
+test('host: pr-list --rich-open bounds each call, so the union may exceed --limit', () => {
+  // THE BEHAVIOUR CHANGE THE PLAN DID NOT ANTICIPATE, measured 2026-10-02 on
+  // this repository: with 5 PRs open, `--rich-open --limit 5` answered 6 rows
+  // where `--rich --limit 5` answered 5. The open call returned an open PR that
+  // fell outside the plain call's newest-5 page, so the union is larger than
+  // either page.
+  //
+  // IT IS NOT TRIMMED, AND THAT IS THE DECISION RATHER THAN AN OVERSIGHT.
+  // Trimming to `--limit` would drop either a verdict the rich call just bought
+  // or a terminal row the store needs, and this op cannot say which the caller
+  // wants. Over-answering is the safe direction: a caller joining against refs
+  // reads a row it did not expect, where a dropped row reads as *no PR* — the
+  // failure `pr_list_report_truncation` and #333 are both about.
+  //
+  // HARMLESS FOR EVERY CALLER TODAY. The board is the only one passing the flag
+  // and asks 1000 against 5 open.
+  const stub = makeSplitGhStub({
+    // The open call answers one PR the plain page does not carry.
+    open: '[{"number":99,"title":"Old open","state":"OPEN","headRefName":"feature/old-open",'
+      + '"isDraft":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}],'
+      + '"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"",'
+      + '"url":"https://example.invalid/99","updatedAt":"2026-01-01T00:00:00Z",'
+      + '"author":{"login":"jwloka"}}]',
+    // The plain page is full of terminal rows and does NOT include #99.
+    all: '[{"number":6,"title":"M","state":"MERGED","headRefName":"feature/m",'
+      + '"isDraft":false,"url":"u6","updatedAt":"2026-09-30T09:00:00Z",'
+      + '"author":{"login":"jwloka"}}]',
+  });
+  const rows = run(['pr-list', '--rich-open', '--state', 'all', '--limit', '1'],
+    { env: { PLOT_HOST: 'github' }, stubs: stub })
+    .trim().split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.number).sort((a, b) => a - b), [6, 99],
+    'both calls contribute; neither page is trimmed to the other');
+  // The open row keeps the verdict the rich call bought.
+  assert.equal(rows.find((r) => r.number === 99).checks, 'green');
+  // The terminal row carries the absent values.
+  assert.equal(rows.find((r) => r.number === 6).checks, 'unknown');
+});
