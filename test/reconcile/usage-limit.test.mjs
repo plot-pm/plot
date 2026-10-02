@@ -993,7 +993,14 @@ test('plot_worker_idle_watch_pass reads a waiting desk as not-idle and a silent 
     // thing under test.
     fs.writeFileSync(path.join(wt, 'work.txt'), 'the agent did something\n');
     git(wt, 'add', '-A');
-    git(wt, 'commit', '-qm', 'work the agent did');
+    // THE COMMIT IS AN HOUR OLD. On a clean tree `plot_worker_tree_quiet_seconds`
+    // reads HEAD's committer time, so a commit made this second reads 0 against
+    // the 1s window and the control refuses on the tree condition instead of
+    // reaching the clamp (CI measured `not-idle` on the control).
+    const hourAgo = `${nowSeconds() - 3600} +0000`;
+    spawnSync('git', ['-C', wt, 'commit', '-qm', 'work the agent did'], {
+      env: { ...process.env, GIT_AUTHOR_DATE: hourAgo, GIT_COMMITTER_DATE: hourAgo },
+    });
 
     const home = path.join(sb.root, 'runtime-home');
     const slug = wt.replace(/[/.]/g, '-');
