@@ -756,12 +756,36 @@ test('host: bitbucket reports unknown mergeability rather than claiming clean', 
   assert.equal(out.mergeable, 'unknown');
 });
 
-test('host: pr-list without --rich is unchanged', () => {
-  // The board is a new consumer; every existing caller must be untouched.
+test('host: pr-list without --rich carries no verdict, and never invents one', () => {
+  // THIS ASSERTED FIVE KEYS UNTIL 2026-10-02, and the contract genuinely
+  // changed: `--rich-open`'s terminal rows come through this arm, and a terminal
+  // row must carry every field a rich row carries. So `draft`, `url` and
+  // `updatedAt` are asked here too.
+  //
+  // WHAT IT STILL GUARANTEES IS THE EXPENSIVE HALF. The point of the plain arm
+  // is that it asks the host for no VERDICT — `statusCheckRollup` is the per-row
+  // resolution that cost 36 s of a 43 s full read, and `mergeable` and
+  // `reviewDecision` ride with it. The three fields added are scalar columns on
+  // the PR node: measured 2026-09-21, `number,updatedAt` over 937 PRs is
+  // 4715 ms against 5417 ms for the base fields and 18 842 ms for the rollup.
+  //
+  // THE ASSERTION IS THEREFORE ABOUT WHAT IS ABSENT, not about a key count. An
+  // added field cannot break a caller that reads fields by name; a verdict
+  // appearing here would mean the cheap call had quietly become the dear one.
   const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]') });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
-  // One field is added, `author`, which the domain's `Host.prList` reads.
-  assert.deepEqual(Object.keys(out).sort(), ['author', 'head', 'number', 'state', 'title']);
+  assert.deepEqual(Object.keys(out).sort(),
+    ['author', 'draft', 'head', 'number', 'state', 'title', 'updatedAt', 'url']);
+  // NO VERDICT, AND ABSENT RATHER THAN `unknown`: this arm did not ask, and a
+  // word here would be a claim. `--rich-open` fills them in as `unknown` for
+  // the rows it emits, which is a different statement made one layer up.
+  for (const verdict of ['checks', 'mergeable', 'review', 'failing_checks']) {
+    assert.ok(!(verdict in out), `the plain arm asks no verdict: ${verdict}`);
+  }
+  // The fields every existing caller already read are untouched.
+  assert.equal(out.number, 7);
+  assert.equal(out.head, 'feature/x');
+  assert.equal(out.state, 'OPEN');
 });
 
 test('host: pr-list --rich names WHICH checks failed', () => {
