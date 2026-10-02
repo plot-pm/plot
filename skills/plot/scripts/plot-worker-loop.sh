@@ -847,6 +847,189 @@ desk_is_resettable() { # $1=worktree → 0 when the desk may be taken over
   ! desk_reset_refusal "$1" >/dev/null
 }
 
+# Which worktree holds this branch, if any?
+#
+# ASKED OF GIT, never rebuilt from the branch name. A checkout left by
+# `/plot-implement` is named for the slug and a dispatch desk for the branch,
+# and a hand-made one follows no rule at all — the population with a leftover
+# checkout is exactly the population whose paths cannot be guessed.
+#
+# THE MAIN CHECKOUT IS THE FIRST ENTRY, which is `git worktree list`'s
+# documented order and the reading `main-checkout` is taken from below.
+#
+# Prints the holding path and returns 0; prints nothing and returns 1 when no
+# worktree holds the branch or git could not be asked.
+branch_holding_worktree() { # $1=branch → the path holding it
+  local branch="$1" listing line wt=''
+  listing=$(git worktree list --porcelain 2>/dev/null) || return 1
+  while IFS= read -r line; do
+    case "$line" in
+      'worktree '*) wt="${line#worktree }" ;;
+      "branch refs/heads/$branch")
+        [ -n "$wt" ] && { printf '%s' "$wt"; return 0; }
+        ;;
+    esac
+  done <<EOF
+$listing
+EOF
+  return 1
+}
+
+# The main checkout's path — `git worktree list --porcelain`'s first entry.
+main_checkout_path() { # → the main worktree's path
+  git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print substr($0,10); exit}'
+}
+
+# Does an agent manifest name this checkout?
+#
+# THE DIRECTORY IS THE ONE `PLOT_MANIFEST_FILE` SITS IN, never a hardcoded
+# `.plot/agents`: `Agent registry` is configurable and `drop.ts` already hit
+# that mistake. A manifest naming the path means another agent owns that desk
+# even with no live pid between two slices.
+#
+# Prints `1`, `0` or `unknown`, which is the bundle's own vocabulary: with no
+# manifest file of our own there is no directory to read, and a failure to
+# observe must not read as a measured absence.
+checkout_is_registered() { # $1=worktree → 1 | 0 | unknown
+  local wt="$1" dir
+  [ -n "${PLOT_MANIFEST_FILE:-}" ] || { printf 'unknown'; return 0; }
+  dir=$(dirname "$PLOT_MANIFEST_FILE")
+  [ -d "$dir" ] || { printf 'unknown'; return 0; }
+  # OUR OWN MANIFEST IS EXCLUDED. It names the desk this agent sits in, which
+  # is never the holder tested here, but a desk reused across slices can carry
+  # a stale path and that would refuse every case.
+  if grep -l -F -- "\"$wt\"" "$dir"/*.json 2>/dev/null |
+       grep -v -x -F -- "$PLOT_MANIFEST_FILE" | grep -q .; then
+    printf '1'
+  else
+    printf '0'
+  fi
+}
+
+# Does the checkout holding our branch yield it?
+#
+# THE READINGS ARE THE HOLDER'S, NOT THIS AGENT'S. `desk_reset_refusal` reads
+# `$PLOT_WORKTREE` and skips `liveWorker` because the agent asking IS the live
+# worker; here the subject is the OTHER worktree, so `live-worker` is asked.
+# Passing our own path would refuse every case.
+#
+# AN UNREADABLE READING KEEPS THE CHECKOUT, and that is the OPPOSITE polarity
+# to `desk_reset_refusal`'s `''|0|*[!0-9]*) ;;` on purpose. A reset rewrites
+# nothing, so an unanswerable reading costs nothing there. A removal deletes
+# the checkout's only copy of an unpushed commit, so here it must keep. A
+# reviewer copying that function's case arm into this one removes work.
+#
+# THE REMOVAL HAS NO `--force`. Without it git refuses on a modified or
+# untracked tree, so a reading this missed costs a refused removal and not lost
+# work — `reset_desk`'s own argument for plain checkouts, applied one level out.
+#
+# Returns 0 when the checkout was removed and the branch is free; 1 when it was
+# kept, having written a `PLOT-BLOCKED` naming the path, the branch and why.
+yield_the_held_checkout() { # $1=holder $2=branch → 0 when the holder is gone
+  local holder="$1" branch="$2" bundle live blocked dirty unpushed registered main answer condition
+  bundle="$script_dir/board/plot-checkout-yield.mjs"
+
+  if [ ! -f "$bundle" ]; then
+    # A checkout that vendored the skills without building them. The rule could
+    # not be asked, so the checkout stays — the same answer every unreadable
+    # reading gets.
+    blocked_on_held_checkout "$holder" "$branch" unaskable \
+      "no plot-checkout-yield.mjs beside this script"
+    return 1
+  fi
+
+  # THE PROCESS READING COMES FROM `plot-worker-state.sh`, which this loop
+  # already sources, rather than from a second `kill -0` written here.
+  live=unknown
+  case "$(plot_worker_state "$holder" "" 2>/dev/null | cut -f1)" in
+    running) live=1 ;;
+    finished|failed|ended|none|waiting|stalled) live=0 ;;
+  esac
+
+  if plot_worker_blocked "$holder"; then blocked=1; else blocked=0; fi
+
+  if [ -d "$holder" ]; then
+    [ -n "$(plot_worker_dirty "$holder")" ] && dirty=1 || dirty=0
+  else
+    dirty=unknown
+  fi
+
+  # NO UPSTREAM MEANS UNKNOWN, NOT ZERO. A branch whose claim push never
+  # happened has no `@{upstream}`, and its own commits are the work a removal
+  # would delete.
+  if unpushed=$(git -C "$holder" rev-list --count '@{upstream}..HEAD' 2>/dev/null); then
+    case "$unpushed" in
+      0) unpushed=0 ;;
+      ''|*[!0-9]*) unpushed=unknown ;;
+      *) unpushed=1 ;;
+    esac
+  else
+    unpushed=unknown
+  fi
+
+  registered=$(checkout_is_registered "$holder")
+
+  main=$(main_checkout_path)
+  if [ -z "$main" ]; then
+    main=unknown
+  elif [ "$main" = "$holder" ]; then
+    main=1
+  else
+    main=0
+  fi
+
+  # READ THE EXIT CODE, NOT THE OUTPUT'S EMPTINESS. A bundle that could not
+  # answer exits 2 with nothing on stdout, and taking that for `yields` is the
+  # one reading that would remove a checkout nothing judged.
+  if ! answer=$(printf '%s\t%s\t%s\t%s\t%s\t%s' \
+      "$live" "$blocked" "$dirty" "$unpushed" "$registered" "$main" |
+      node "$bundle" 2>/dev/null); then
+    blocked_on_held_checkout "$holder" "$branch" unaskable \
+      "plot-checkout-yield.mjs could not answer for these readings"
+    return 1
+  fi
+
+  case "$answer" in
+    yields)
+      if git worktree remove "$holder" 2>/dev/null; then
+        echo "plot-worker-loop: removed the worker-less checkout at $holder that held $branch" >&2
+        return 0
+      fi
+      # GIT REFUSED WHAT THE RULE ALLOWED, which is the guard working: the tree
+      # held something the readings missed. It stays, and a person is told.
+      blocked_on_held_checkout "$holder" "$branch" 'git-refused' \
+        "the rule allowed the removal and git refused it, so the tree holds something the readings missed"
+      return 1
+      ;;
+    keep*)
+      condition=$(printf '%s' "$answer" | cut -f2)
+      [ -n "$condition" ] || condition=unaskable
+      blocked_on_held_checkout "$holder" "$branch" "$condition" ''
+      return 1
+      ;;
+    *)
+      blocked_on_held_checkout "$holder" "$branch" unaskable \
+        "plot-checkout-yield.mjs answered '$answer', which is neither 'yields' nor 'keep'"
+      return 1
+      ;;
+  esac
+}
+
+# The marker for a checkout that kept our branch.
+#
+# IN OUR OWN DESK, never the holder's: the holder may belong to another agent,
+# and `write_blocked_marker` refuses to speak over an existing question anyway.
+# The pair of path and branch is what made the foreign-marker incident legible,
+# and the condition is the word an operator greps.
+blocked_on_held_checkout() { # $1=holder $2=branch $3=condition $4=extra prose
+  local holder="$1" branch="$2" condition="$3" extra="$4" text
+  text="PLOT-BLOCKED: the worktree \`$holder\` holds \`$branch\`, and this agent was handed that slice. The checkout was kept because \`$condition\`."
+  [ -n "$extra" ] && text="$text $extra."
+  text="$text Plot removes only a checkout that yields on all six conditions, and never with \`--force\`, so nothing in that tree was touched. Read it, land or discard what it holds, then \`git worktree remove $holder\` and restart this agent with \`/plot-dispatch --restart $branch\`."
+  echo "plot-worker-loop: the checkout at $holder keeps $branch ($condition) — leaving it untouched and asking a person" >&2
+  write_blocked_marker "${PLOT_WORKTREE:-$PWD}" "$text"
+}
+
 # Take the desk over for a new branch.
 #
 # THE BASE IS CHECKED OUT FIRST, AND THE ORDER IS THE DELIVERABLE.
@@ -899,6 +1082,25 @@ reset_desk() { # $1=worktree $2=branch → 0 when the desk now holds the branch
   # yet and attached where it does. The `-B` form is not used: it would MOVE an
   # existing branch onto the base, discarding commits an earlier attempt left on
   # it, which is the destruction this function refuses everywhere else.
+  git -C "$wt" checkout -b "$branch" 2>/dev/null && return 0
+  git -C "$wt" checkout "$branch" 2>/dev/null && return 0
+
+  # STEP 3 — BOTH CHECKOUTS FAILED. The usual cause is another worktree holding
+  # the branch: git refuses to check one out twice, and the fallback both
+  # callers reach for — `git worktree add` — is refused for the same reason. So
+  # the holding checkout is the thing to resolve, and `checkout_yields` decides
+  # whether it may go.
+  local holder
+  holder=$(branch_holding_worktree "$branch") || return 1
+  [ -n "$holder" ] || return 1
+  [ "$holder" = "$wt" ] && return 1
+
+  if ! yield_the_held_checkout "$holder" "$branch"; then
+    return 1
+  fi
+
+  # RETRIED ONCE, and only once. The removal either freed the branch or it did
+  # not; a loop here would re-ask a question whose answer cannot change.
   git -C "$wt" checkout -b "$branch" 2>/dev/null && return 0
   git -C "$wt" checkout "$branch" 2>/dev/null && return 0
   return 1
