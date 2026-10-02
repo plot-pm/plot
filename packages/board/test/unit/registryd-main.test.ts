@@ -510,11 +510,22 @@ describe('what a looping tick prints does not follow what grows', () => {
     expect(out.join('\n')).toContain('… and 562 more');
   });
 
-  it('still names the four queue-level classes, because a debugger reads them', () => {
+  it('still names every queue-level class, because a debugger reads them', () => {
     // CATCHES OVER-DELETION, the failure mode of the draft that deleted all
-    // five holds to fix one. These four are refusals about slices that were
+    // five holds to fix one. Each of these is a refusal about a slice that was
     // actually queued: small, churning, and what somebody reads at 3am.
-    for (const hold of ['already-merged', 'merge-unknown', 'no-brief', 'no-free-agent'] as const) {
+    //
+    // `prior-unknown` IS NAMED FOR THAT REASON AND NOT BY DEFAULT. It is the
+    // hold an operator is waiting on a branch for, and under HTTP 429 the slice
+    // they waited for appeared only as a count (#1094) — because the word was
+    // `not-claimable`, the one class below that is counted and never named.
+    for (const hold of [
+      'already-merged',
+      'merge-unknown',
+      'no-brief',
+      'prior-unknown',
+      'no-free-agent',
+    ] as const) {
       const text = looped(holding(3, hold)).join('\n');
       expect(text).toContain(`held on ${hold} (3):`);
       expect(text).toContain('feature/b0');
@@ -1219,7 +1230,7 @@ describe('a tick asks the host about a branch once', () => {
           } as never,
         ],
         claimedBranches: async () => new Set<string>(),
-        mergedBranches: async () => ({ merged: new Set<string>(), whole: false }),
+        mergedBranches: async () => ({ merged: new Set<string>(), whole: false, kind: 'failed' as const, failed: true }),
         prIndexRows: async () => [],
         viewLanded: async () => 'unknown',
         briefPresent: async () => true,
@@ -1277,7 +1288,19 @@ describe('the queue world asks a known PR by number when the listing fails (#114
       const tally = { calls: 0 };
       const connectors: string[] = [];
       const queue = queueWorldForRepo(dir, dir, tally, undefined, index(connectors));
-      expect(await queue.mergedBranches()).toEqual({ merged: new Set(), whole: false });
+      // A FAILED REQUEST NAMES ITS OWN REFUSAL, so the tick line can print
+      // `unaskable(throttled)` rather than leaving an operator to infer a rate
+      // limit from a count of held slices (#1094).
+      //
+      // `throttled` IS THE STUB'S EXIT 5, WHICH IS #1094'S OWN CASE: a spent
+      // quota behind an HTTP 429. It is not `failed`, and the two recover
+      // differently — a quota returns at its reset, an auth error never does.
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(),
+        whole: false,
+        kind: 'throttled',
+        failed: true,
+      });
       expect(await queue.prIndexRows()).toEqual([row]);
       expect(connectors).toEqual(['bitbucket']);
       expect(await queue.viewLanded(12)).toBe('landed');
@@ -1293,7 +1316,15 @@ describe('the queue world asks a known PR by number when the listing fails (#114
     const { dir } = outage(`echo '{"number":3,"head":"feature/a","state":"MERGED"}'; echo "pr-list: state open refused" >&2; exit 7`);
     try {
       const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, index([]));
-      expect(await queue.mergedBranches()).toEqual({ merged: new Set(['feature/a']), whole: false });
+      // `failed: false` IS WHAT SEPARATES THIS FROM THE CASE ABOVE. The
+      // listing ANSWERED — its row is here — and left a refusal behind, so the
+      // tick line reads `partial(<kind>)` and not `unaskable`.
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/a']),
+        whole: false,
+        kind: 'failed',
+        failed: false,
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1303,7 +1334,12 @@ describe('the queue world asks a known PR by number when the listing fails (#114
     const { dir } = outage(`echo '{"number":3,"head":"feature/a","state":"MERGED"}'`);
     try {
       const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, index([]));
-      expect(await queue.mergedBranches()).toEqual({ merged: new Set(['feature/a']), whole: true });
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/a']),
+        whole: true,
+        kind: null,
+        failed: false,
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

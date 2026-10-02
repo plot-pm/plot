@@ -367,7 +367,11 @@ export const tickLine = (report: TickReport): string => {
     // follow. `unaskable` is a listing that failed and `partial` one that
     // answered and left a refusal behind: a partial set's rows may be
     // incomplete, an unaskable set has none.
-    if (queue.mergedSet !== null) {
+    //
+    // TESTED LOOSELY, BECAUSE RENDERING MUST BE TOTAL. The field is declared
+    // non-optional, and a report assembled by hand can still omit it — a log
+    // writer that throws takes down the tick that was reporting the problem.
+    if (queue.mergedSet != null) {
       const { state, kind } = queue.mergedSet;
       fields.push(`merged-set=${kind === null ? state : `${state}(${kind})`}`);
     }
