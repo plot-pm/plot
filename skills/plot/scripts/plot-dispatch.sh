@@ -785,8 +785,12 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
   mkdir -p "$(dirname "$log")" 2>/dev/null || true
   # `nohup ... &` inside a subshell, the same detachment `start_worker` uses:
   # this outlives the dispatch run by design, because the fan-out must not block
-  # on a `claude -p` session of unknown length. `setsid` is not used — it does
-  # not exist on macOS, where most of this fleet runs.
+  # on a `claude -p` session of unknown length. `set -m` gives the brief the
+  # process group `setsid` would give: the backgrounded list becomes a job, the
+  # job leads its own group, and `exec` keeps that pid, so a signal to the
+  # dispatcher's group does not reach the brief. `setsid` is not used — it does
+  # not exist on macOS, where most of this fleet runs. `set -m` goes in this bash
+  # subshell and never in the `sh -c` body: dash refuses it without a terminal.
   # THE SETTINGS FILE THIS PROJECT STARTS ITS AGENTS WITH. The `Brief command` is
   # a `claude -p` session like any other agent and inherits every `SessionStart`
   # hook the operator's plugins declare, so it carries the same variable the
@@ -798,7 +802,7 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
   # which `${VAR:+…}` reads as nothing — so a broken config cannot stop a brief
   # being written.
   _brief_settings="$(bash "$(dirname "${BASH_SOURCE[0]}")/plot-agent-settings.sh" 2>/dev/null || echo "")"
-  ( cd "$repo_root" \
+  ( set -m; cd "$repo_root" \
     && PLOT_UNATTENDED=1 PLOT_PLAN_SLUG="$bslug" PLOT_BRIEF_BRANCH="$branch" \
        PLOT_AGENT_SETTINGS="$_brief_settings" \
        exec nohup sh -c "$cmd \"\$@\"" plot-brief \
@@ -1475,7 +1479,22 @@ start_worker() {
   # byte-identical to what it was — which is the 100% case, since zero charters
   # exist. `PLOT_AGENT` is forwarded too, so the loop's own `resolve_prompt_file`
   # asks about the same agent this launch resolved.
-  ( cd "$wt" && \
+  #
+  # `set -m` FIRST: THE AGENT LEADS ITS OWN PROCESS GROUP. With job control on,
+  # the backgrounded list below is a job, the job gets a group of its own, and
+  # `exec` keeps the job's pid, so the wrapper's pid IS its group id. A SIGKILL
+  # to the starter's group — `killGroup` in `run-script.ts` — then misses the
+  # agent, and `--stop` on one agent ends that wrapper's group and no sibling's.
+  # It goes in this bash subshell and never in the `sh -c` body: dash refuses
+  # `set -m` without a terminal.
+  #
+  # THE WRAPPER IGNORES SIGTERM, AND ONLY AFTER ITS CHILDREN EXIST. `--stop`
+  # signals this whole group, and the wrapper must outlive the agent to write
+  # `.plot-worker.exit` (`test/e2e/monitors-attached.test.mjs`). `trap "" TERM`
+  # comes after `agent=$!`, because an ignored signal is inherited by every child
+  # started after it: set earlier, the monitors and the agent would ignore the
+  # stop too. The wrapper then records the exit code and ends on its own.
+  ( set -m; cd "$wt" && \
       # AN `export`, NOT AN ENV PREFIX, AND THE REASON IS A MEASUREMENT. Bash
       # recognises an assignment prefix BEFORE it expands parameters, so a
       # `${caps:+PLOT_CAPABILITIES="$caps"}` in the prefix below is not an
@@ -1505,7 +1524,7 @@ start_worker() {
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
+      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -1789,10 +1808,14 @@ if [ "$mode" = "stop" ]; then
       # THE WHOLE PROCESS GROUP, NOT ONE PID. Measured 2026-09-30 (#1084):
       # `--stop` signalled the wrapper, the group leader, and the loop, the
       # prompt shell, `claude` and its children survived reparented to pid 1;
-      # `kill -TERM -<pgid>` ended all of them. The pid is the fallback when the
-      # group cannot be read, or is this script's own group: a worker started
-      # without job control shares its starter's group, and signalling that
-      # group would stop the caller with it.
+      # `kill -TERM -<pgid>` ended all of them. `start_worker` launches under
+      # `set -m`, so an agent leads its own group and that group holds one
+      # wrapper with its monitors, its loop and its `claude`: the signal ends
+      # this agent and nothing else. An agent started before that change still
+      # shares its starter's group with every sibling the same run started and
+      # with the starter itself. The guard below stays for those agents: the
+      # pid is the target when the group cannot be read, or is this script's
+      # own group, because signalling that group would stop the caller with it.
       stop_pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
       stop_own_pgid=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
       stop_target="$pid"

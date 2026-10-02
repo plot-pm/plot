@@ -68,7 +68,7 @@ The shell asks it through one bundle, `skills/plot/scripts/board/plot-checkout-y
 
 ## Slices
 
-### The implement step stops at the brief (Branch: bug/the-implement-step-stops-at-the-brief)
+### The implement step stops at the brief (Branch: bug/the-implement-step-stops-at-the-brief, PR: #1173)
 
 `--brief-only` in `skills/plot-implement/SKILL.md` (step 3 skipped, its Model Guidance row and its unattended lines updated, `README.md` beside it), `composeImplementPrompt` in `packages/board/src/server/implement.ts`, the capability reason that names the Implement action's effect, and a `plot-implement` minor bump plus an `@plot-pm/board` patch in one changeset. Tests: a unit case that `composeImplementPrompt('x')` contains `--brief-only`; the existing dispatch test at `packages/board/test/dispatch.test.mjs:448` asserts the prompt argument its stub implement receives carries `--brief-only`.
 

@@ -6,7 +6,7 @@
 // without doing any of it. These tests hold that line.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -4066,6 +4066,268 @@ test('dispatch: a claim whose Brief command never exits returns through a pipe',
     const ps = spawnSync('pgrep', ['-f', 'plot-brief'], { encoding: 'utf8' });
     brief = (ps.stdout ?? '').trim().split('\n').map(Number).filter((n) => Number.isInteger(n) && n > 0);
     killPids(...brief);
+    f.cleanup();
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+// A started agent leaves its starter's group
+// ---------------------------------------------------------------------------
+//
+// BOTH LAUNCH SITES RUN UNDER `set -m`, so the backgrounded list is a job and
+// the job leads its own process group; `exec` keeps the job's pid, so a
+// wrapper's pid IS its group id. Without it the agent shared its starter's
+// group: `killGroup` (`run-script.ts`) SIGKILLs that group when a run times out
+// and took the agent with it, and `--stop` from another group ended every
+// sibling the same `--start` had launched — measured 2026-10-01, both agents
+// died.
+//
+// EVERY TEST HERE SPAWNS THE DISPATCHER IN A GROUP OF ITS OWN WHERE THE
+// DEFECT NEEDS ONE. `spawnSync` and `execFileSync` share the test's group, and
+// in that case `--stop` signals the pid alone, so a sibling test run that way
+// passes before the fix and proves nothing.
+
+/** The process group of a pid, or undefined when it is gone. */
+function pgidOf(pid) {
+  const ps = spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' });
+  const pgid = Number((ps.stdout ?? '').trim());
+  return Number.isInteger(pgid) && pgid > 0 ? pgid : undefined;
+}
+
+/** Whether a pid is a live process; a zombie counts as gone. */
+function isAlive(pid) {
+  if (pid === undefined) return false;
+  const ps = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+  const stat = (ps.stdout ?? '').trim();
+  return stat !== '' && !stat.startsWith('Z');
+}
+
+/** Waits up to five seconds for a pid to be gone, then answers whether it is. */
+function waitGone(pid) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return true;
+    execFileSync('sleep', ['0.05']);
+  }
+  return !isAlive(pid);
+}
+
+/**
+ * The manifest a desk's agent wrote, once the wrapper has stamped its pid.
+ *
+ * @param checkout the sandbox checkout.
+ * @param desk the desk's absolute path.
+ * @returns `{ file, json }`, or undefined if no stamped manifest appeared within five seconds.
+ */
+function stampedManifest(checkout, desk) {
+  const dir = path.join(checkout, '.plot', 'agents');
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    for (const name of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+      if (!name.endsWith('.json')) continue;
+      const file = path.join(dir, name);
+      let json;
+      try { json = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
+      if (fs.realpathSync(json.worktree ?? '/nonexistent-desk') !== fs.realpathSync(desk)) continue;
+      if (json.wrapperPid) return { file, json };
+    }
+    execFileSync('sleep', ['0.05']);
+  }
+  return undefined;
+}
+
+/**
+ * SIGKILLs every group a test's agents lead, then the pids themselves.
+ *
+ * A group is signalled only when its id equals one of the given pids, which is
+ * a group this test's launch created — never the test's own group, and never a
+ * group another process leads.
+ */
+function killAgentGroups(...pids) {
+  for (const pid of pids) {
+    if (pid === undefined) continue;
+    if (pgidOf(pid) === pid && pid !== pgidOf(process.pid)) {
+      try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+  killPids(...pids);
+}
+
+/**
+ * Spawns the dispatcher in a process group of its own, as `runProcess` does.
+ *
+ * @param args the arguments after the script name.
+ * @param cwd the checkout to run in.
+ * @returns the child, and `output()` — everything it printed so far.
+ */
+function spawnDetachedDispatch(args, cwd) {
+  const env = { ...process.env };
+  delete env.PLOT_REPO_ROOT;
+  const child = spawn('bash', [dispatch, ...args], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (b) => { out += b; });
+  child.stderr.on('data', (b) => { out += b; });
+  return { child, output: () => out };
+}
+
+/**
+ * Resolves once the output matches, rejects after the detached budget.
+ *
+ * @param run what `spawnDetachedDispatch` returned.
+ * @param pattern what to wait for.
+ */
+function readUntil(run, pattern) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no ${pattern} within ${DETACHED_TIMEOUT_MS} ms:\n${run.output()}`)), DETACHED_TIMEOUT_MS);
+    const check = () => {
+      if (pattern.test(run.output())) { clearTimeout(timer); resolve(run.output()); }
+    };
+    run.child.stdout.on('data', check);
+    run.child.stderr.on('data', check);
+    run.child.on('close', () => {
+      check();
+      clearTimeout(timer);
+      if (!pattern.test(run.output())) reject(new Error(`the run closed without ${pattern}:\n${run.output()}`));
+    });
+    check();
+  });
+}
+
+/** Resolves when a child has closed its streams and exited. */
+function closed(child) {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    else child.on('close', () => resolve());
+  });
+}
+
+test('dispatch: a started agent leads its own group and survives a SIGKILL to its starter\'s', async () => {
+  const { root, checkout } = repoForLiveStart('owngroup');
+  let pids = {};
+  try {
+    const run = spawnDetachedDispatch(['--start', '1'], checkout);
+    const out = await readUntil(run, /summary: agents=1 /);
+
+    const wrapper = waitForPid(checkout, 'wrapper');
+    assert.ok(wrapper !== undefined, `the wrapper must record its pid:\n${out}`);
+    const desk = path.join(checkout, '.worktrees', fs.readdirSync(path.join(checkout, '.worktrees'))[0]);
+    const manifest = stampedManifest(checkout, desk);
+    assert.ok(manifest !== undefined, 'the wrapper must stamp its pid into the manifest');
+
+    // THE WRAPPER'S PID IS ITS GROUP, and that group is neither the
+    // dispatcher's nor the test's.
+    const pgid = pgidOf(wrapper);
+    assert.equal(String(pgid), manifest.json.wrapperPid,
+      `the agent's group must be its wrapper's pid ${manifest.json.wrapperPid}, found ${pgid}`);
+    assert.notEqual(pgid, run.child.pid, 'the agent must not share the dispatcher\'s group');
+    assert.notEqual(pgid, pgidOf(process.pid), 'the agent must not share the test\'s group');
+
+    // THE FORCED KILL, AS `killGroup` SENDS IT. After the summary the
+    // dispatcher's group is often already empty, and `ESRCH` says exactly that.
+    // macOS answers `EPERM` instead when the group's only member is the
+    // dispatcher that exited and that node has not reaped yet — measured
+    // 2026-10-02. Both fall back to the child, as `killGroup` does.
+    try {
+      process.kill(-run.child.pid, 'SIGKILL');
+    } catch (err) {
+      if (err.code !== 'ESRCH' && err.code !== 'EPERM') throw err;
+      run.child.kill('SIGKILL');
+    }
+    await closed(run.child);
+    pids = deskPids(checkout);
+
+    execFileSync('sleep', ['0.5']);
+    assert.ok(isAlive(wrapper), 'the wrapper must survive a SIGKILL to its starter\'s group');
+    assert.ok(isAlive(pids.agent), 'the agent must survive a SIGKILL to its starter\'s group');
+  } finally {
+    killAgentGroups(pids.wrapper, pids.agent, ...Object.values(deskPids(checkout)));
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --stop from another group ends its own agent and its monitors, and no sibling', async () => {
+  // `--start 2` IN ITS OWN GROUP AND `--stop` FROM THE TEST'S. Before the fix
+  // both agents shared the dispatcher's group, `--stop` read a group that was
+  // not its own and signalled it whole, and the sibling died with its target.
+  const { root, checkout } = repoForLiveStart('siblings');
+  const wrappers = [];
+  const agents = [];
+  try {
+    const run = spawnDetachedDispatch(['--start', '2'], checkout);
+    const out = await readUntil(run, /summary: agents=2 /);
+    await closed(run.child);
+
+    const desksDir = path.join(checkout, '.worktrees');
+    const desks = fs.readdirSync(desksDir).sort().map((d) => path.join(desksDir, d));
+    assert.equal(desks.length, 2, `two desks:\n${out}`);
+
+    // EACH MANIFEST NAMES A BRANCH ITS DESK HAS CHECKED OUT, which is what
+    // `--stop <branch>` resolves through `git worktree list`.
+    const stamped = desks.map((desk, i) => {
+      const manifest = stampedManifest(checkout, desk);
+      assert.ok(manifest !== undefined, `desk ${desk} must carry a stamped manifest`);
+      const branch = `feature/sibling-${i}`;
+      git(desk, 'checkout', '-q', '-b', branch);
+      fs.writeFileSync(manifest.file,
+        fs.readFileSync(manifest.file, 'utf8').replace(/^  "branch": "[^"]*",$/m, `  "branch": "${branch}",`));
+      wrappers.push(Number(manifest.json.wrapperPid));
+      agents.push(Number(manifest.json.pid));
+      return { branch, json: manifest.json };
+    });
+
+    const env = { ...process.env };
+    delete env.PLOT_REPO_ROOT;
+    const stop = spawnSync('bash', [dispatch, '--stop', stamped[0].branch],
+      { cwd: checkout, env, encoding: 'utf8', timeout: 60_000 });
+    const stopOut = `${stop.stdout ?? ''}${stop.stderr ?? ''}`;
+    assert.match(stopOut, /stopped feature\/sibling-0/, stopOut);
+
+    // ITS OWN AGENT ENDS, WITH ITS MONITORS — the regression lock on #1084.
+    assert.ok(waitGone(wrappers[0]), `the stopped wrapper must end:\n${stopOut}`);
+    assert.ok(waitGone(agents[0]), `the stopped agent must end:\n${stopOut}`);
+    for (const key of ['workerMonitorPid', 'agentMonitorPid', 'buildMonitorPid']) {
+      const pid = Number(stamped[0].json[key]);
+      if (pid > 0) assert.ok(waitGone(pid), `the stopped agent's ${key} must end:\n${stopOut}`);
+    }
+
+    // AND THE SIBLING IS STILL RUNNING.
+    assert.ok(isAlive(wrappers[1]), `the sibling's wrapper must survive the stop:\n${stopOut}`);
+    assert.ok(isAlive(agents[1]), `the sibling's agent must survive the stop:\n${stopOut}`);
+  } finally {
+    killAgentGroups(...wrappers, ...agents, ...Object.values(deskPids(checkout)));
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: a brief started by a claim leads its own group', () => {
+  // THE SECOND LAUNCH SITE. The brief has no pid file, so the stand-in
+  // `Brief command` writes its own pid, and the test reads its group from it.
+  // `exec` keeps the stand-in in the process the launch started, so the pid it
+  // writes is the job's — the group leader once `set -m` is on.
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefgroup-')));
+  const pidFile = path.join(t, 'brief.pid');
+  const f = repoForBrief('briefgroup', { briefCommand: `exec sh -c 'echo $$ > ${pidFile}; exec sleep 600' plot-brief` });
+  let brief;
+  try {
+    const out = f.dispatch(['--offline', '--no-start', 'b'], { timeout: 120_000 });
+    assert.match(out, /Brief command/, `the run must name what it called:\n${out}`);
+
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && brief === undefined) {
+      if (fs.existsSync(pidFile)) {
+        const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+        if (Number.isInteger(pid) && pid > 0) brief = pid;
+      }
+      if (brief === undefined) execFileSync('sleep', ['0.05']);
+    }
+    assert.ok(brief !== undefined, `the brief must record its pid:\n${out}`);
+    assert.equal(pgidOf(brief), brief, `the brief must lead its own group, found group ${pgidOf(brief)}`);
+    assert.notEqual(pgidOf(brief), pgidOf(process.pid), 'the brief must not share the test\'s group');
+  } finally {
+    // Found by the sandbox's own pid file path, never a bare `sleep`.
+    const ps = spawnSync('pgrep', ['-f', pidFile], { encoding: 'utf8' });
+    const found = (ps.stdout ?? '').trim().split('\n').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    killAgentGroups(brief, ...found);
     f.cleanup();
     fs.rmSync(t, { recursive: true, force: true });
   }

@@ -77,7 +77,7 @@ Each export has 100% branch coverage in `packages/domain/test/`.
 
 ## Slices
 
-### The join is one rule (Branch: bug/the-join-is-one-rule) <!-- builds: deskManifest, the desk-to-manifest join -->
+### The join is one rule (Branch: bug/the-join-is-one-rule, PR: #1170) <!-- builds: deskManifest, the desk-to-manifest join -->
 
 `rules/desk-manifest.ts` (`manifestDirectory`, `deskManifest`) with unit tests; `plot_manifest_for_worktree` resolves through `--git-common-dir` and `Agent registry`; the corpus test; `registry.ts`, `manifest-stamp.ts` and `supervisor.ts` ask the rule; `joinManifestDir` removed; an `@plot-pm/board` patch and a `plot` patch changeset. Answers #1086.
 

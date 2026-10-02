@@ -57,7 +57,7 @@ Read on origin/main `0d2b4d5c` 2026-10-01; not yet measured on a Linux host (#11
 
 ## Slices
 
-### The unit stops only its daemon (Branch: infra/the-unit-stops-only-its-daemon) <!-- builds: KillMode=process in plot-registryd.service, with a CI restart measurement -->
+### The unit stops only its daemon (Branch: infra/the-unit-stops-only-its-daemon, PR: #1167) <!-- builds: KillMode=process in plot-registryd.service, with a CI restart measurement -->
 
 `KillMode=process` and its comment in `plot-registryd.service`; the CI step after `ci.yml:244`; the README paragraph and the `:178` correction; a `plot` patch changeset.
 
