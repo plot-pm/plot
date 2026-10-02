@@ -39,6 +39,19 @@ export interface QueuedSlice {
    */
   claimable: boolean;
   /**
+   * Whether the plan names this branch under no slice heading.
+   *
+   * **A PROPERTY OF THE PLAN RECORD, SO IT COSTS NO READING.** The caller
+   * already holds the plan it derived this slice from, and `unnamedBranches`
+   * answers from the slices alone — no host call, no ref and no file.
+   *
+   * The heading is the slice's name on the board and its PR title, so an agent
+   * handed such a slice meets the refusal at `openSlicePr` and writes the
+   * heading on its own branch. Held here instead, the repair stays on the
+   * default branch where every reader of the plan can see it.
+   */
+  unnamed: boolean;
+  /**
    * Whether the host says this branch's work already landed.
    *
    * **A SECOND QUESTION, NOT A SECOND OPINION ON {@link QueuedSlice.claimable}.**
@@ -168,6 +181,21 @@ export type QueueHold =
    */
   | 'merge-unknown'
   /**
+   * The plan names this branch under no slice heading.
+   *
+   * **THE SAME WORD THE APPROVAL REFUSES ON**, so an operator meeting it at the
+   * queue and at `/plot-approve` reads one vocabulary and one repair. A plan
+   * approved before that refusal existed can still hold such a branch, and the
+   * supervisor would otherwise hand it to an agent.
+   *
+   * **IT IS TESTED ONLY OF A SLICE THAT IS OTHERWISE CLAIMABLE**, which is what
+   * keeps it bounded by the queue. The hold means *this slice would be handed
+   * over if it had a name* — a slice no plan makes startable yet is held by
+   * `not-claimable` as before, and naming it here would move the estate's whole
+   * backlog into a new word and print it on every tick.
+   */
+  | 'slice-unnamed'
+  /**
    * An earlier slice of this plan holds a branch whose landing the host could
    * not answer this pass.
    *
@@ -203,6 +231,7 @@ export type QueueHold =
 export const QUEUE_HOLDS: readonly QueueHold[] = [
   'already-merged',
   'merge-unknown',
+  'slice-unnamed',
   'no-brief',
   'prior-unknown',
   'not-claimable',
@@ -265,6 +294,13 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * does; asked in either other order the hold would read `no-brief` or
  * `not-claimable` and send a reader to fix something that is already finished.
  *
+ * **AN UNNAMED SLICE IS ASKED ABOUT AFTER THE LANDING AND BEFORE THE BRIEF, AND
+ * ONLY WHERE IT IS CLAIMABLE.** A merged unnamed branch is finished and reads
+ * `already-merged`; a slice no plan makes startable reads `not-claimable`, which
+ * keeps the estate's backlog out of the new word; and a claimable unnamed slice
+ * with no brief reads `slice-unnamed`, because writing a brief would not release
+ * it.
+ *
  * **A SLICE'S OWN QUESTION OUTRANKS ITS PREDECESSOR'S.** `prior-unknown` is
  * tested only after {@link isHandOverReady}, so a claimable later slice keeps
  * whichever answer its own `landed` reading gave. A slice that may be handed
@@ -277,6 +313,14 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
 export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
   if (slice.landed === 'landed') return 'already-merged';
   if (slice.landed === 'unknown') return 'merge-unknown';
+  // AN UNNAMED SLICE IS HELD ONLY WHERE IT WOULD OTHERWISE BE HANDED OVER, and
+  // the claimable test is what bounds it to the queue: `not-claimable` covers
+  // the estate's backlog, and a plan that makes no slice startable yet is not
+  // the slice an agent would be given.
+  //
+  // BEFORE THE BRIEF, because the repair for `no-brief` is to write a brief and
+  // the writer would produce one for a slice that then stays held.
+  if (slice.claimable && slice.unnamed) return 'slice-unnamed';
   if (isHandOverReady(slice)) return null;
   if (!slice.claimable) return slice.priorUnknown ? 'prior-unknown' : 'not-claimable';
   return 'no-brief';

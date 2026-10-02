@@ -24,7 +24,12 @@ const plan = (file: string, slices: string[][], phase = 'approved'): PlanRecord 
   ({
     file,
     phase,
-    slices: slices.map((branches) => ({
+    // EVERY SLICE IS NAMED, because these stand for plans that reached
+    // `Approved`. An absent heading is what `unnamedBranches` counts, so an
+    // unnamed fixture would hold every slice here on `slice-unnamed` and assert
+    // the merge-subject proof against the wrong word.
+    slices: slices.map((branches, index) => ({
+      name: `Slice ${index + 1}`,
       branches: branches.map((branch) => ({ branch, deferred: false })),
     })),
   }) as unknown as PlanRecord;
@@ -274,7 +279,7 @@ describe('subjectProvenOf', () => {
     const deferred = {
       file: PLAN_A,
       phase: 'approved',
-      slices: [{ branches: [{ branch: 'feature/one', deferred: true }] }],
+      slices: [{ name: 'A named slice', branches: [{ branch: 'feature/one', deferred: true }] }],
     } as unknown as PlanRecord;
     expect(await subjectProvenOf(refsFixture(ESTATE), 'bitbucket', [deferred], new Set())).toEqual(new Map());
   });

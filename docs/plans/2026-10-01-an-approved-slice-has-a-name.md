@@ -80,7 +80,7 @@ A rule in `packages/domain/src/rules/` answers *which branches does this plan na
 
 The predicate, the `slice-unnamed` refusal in `approve`, the reading through `plot-approve.sh` and `entry/transition.ts`, and the tests above. <!-- builds: unnamedBranches, the slice-unnamed approval refusal -->
 
-### The queue holds an unnamed slice (Branch: bug/the-queue-holds-an-unnamed-slice) <!-- waits: bug/approval-refuses-an-unnamed-slice -->
+### The queue holds an unnamed slice (Branch: bug/the-queue-holds-an-unnamed-slice, PR: #1208) <!-- waits: bug/approval-refuses-an-unnamed-slice -->
 
 The `slice-unnamed` queue hold from the same predicate, in `queue.ts` and `queue-reading.ts`, and its word on the board. <!-- builds: the slice-unnamed queue hold -->
 

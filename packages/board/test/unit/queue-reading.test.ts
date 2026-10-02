@@ -28,7 +28,14 @@ const plan = (slices: string[][], phase = 'approved'): PlanRecord =>
   ({
     file: 'docs/plans/2026-09-04-a-plan.md',
     phase,
-    slices: slices.map((branches) => ({
+    // EVERY SLICE IS NAMED, because a named slice is what a plan that passed
+    // `/plot-approve` holds. The fixture omitted `name` entirely until the
+    // queue read it, and an absent heading is what `unnamedBranches` counts —
+    // so these cases would all have moved into `slice-unnamed` and asserted
+    // their holds against the wrong word. A case about an unnamed slice says
+    // `name: ''` at its own call site.
+    slices: slices.map((branches, index) => ({
+      name: `Slice ${index + 1}`,
       branches: branches.map((branch) => ({ branch, deferred: false })),
     })),
   }) as unknown as PlanRecord;
@@ -485,5 +492,97 @@ describe('a slice behind an unanswered landing names the host', () => {
 
     // A state with no cause would print `partial()`; something refused it.
     expect(readings.mergedSet).toEqual({ state: 'partial', kind: 'failed' });
+  });
+});
+
+/**
+ * THE QUEUE READS THE PLAN'S OWN HEADINGS.
+ *
+ * **THIS IS THE REACH TEST, AND IT CATCHES THE FAILURE THIS REPOSITORY KEEPS
+ * MEASURING.** `setSprintState` named nine refusals and had no caller outside
+ * its own test file, and a master agent wrote the field it guarded by hand.
+ * `whyNotReady`'s own tests are green against a `queueOfPlan` that never sets
+ * `unnamed` — so the hold is asserted here through `readQueue`, over a plan
+ * record whose slice carries no heading.
+ */
+describe('a slice its plan names under no heading is held by the queue', () => {
+  /** A plan whose single approved slice carries no `###` heading. */
+  const unnamedPlan = (): PlanRecord =>
+    ({
+      file: 'docs/plans/2026-10-02-an-unnamed-slice.md',
+      phase: 'approved',
+      slices: [{ name: '', branches: [{ branch: 'feature/nameless', deferred: false }] }],
+    }) as unknown as PlanRecord;
+
+  /** A world that answers everything a hand-over needs, and counts host calls. */
+  const asked = () => {
+    const calls = { listing: 0, landed: 0, views: 0 };
+    const world: QueueWorld = {
+      plans: async () => [unnamedPlan()],
+      claimedBranches: async () => new Set<string>(),
+      mergedBranches: async () => {
+        calls.listing += 1;
+        return wholeListing([]);
+      },
+      prIndexRows: async () => [],
+      viewLanded: async () => {
+        calls.views += 1;
+        return 'unknown';
+      },
+      briefPresent: async () => true,
+      sliceHasMerged: async () => false,
+      subjectProven: async () => null,
+      queuedHasLanded: async () => {
+        calls.landed += 1;
+        return 'not-landed';
+      },
+      workerAlive: async () => true,
+      blocked: async () => false,
+    };
+    return { world, calls };
+  };
+
+  it('carries the reading from the plan record onto the queued slice', async () => {
+    const readings = await readQueue([], asked().world);
+
+    const slice = readings.slices.find((s) => s.branch === 'feature/nameless');
+    expect(slice?.unnamed).toBe(true);
+    expect(whyNotReady(slice!)).toBe('slice-unnamed');
+  });
+
+  it('reads a named slice as named, so the hold fires on the heading alone', async () => {
+    // THE SAME WORLD, ONE READING CHANGED. A `queueOfPlan` hardcoding `true`
+    // passes the case above and fails this one.
+    const { world } = asked();
+    const readings = await readQueue([], {
+      ...world,
+      plans: async () => [plan([['feature/nameless']])],
+    });
+
+    const slice = readings.slices.find((s) => s.branch === 'feature/nameless');
+    expect(slice?.unnamed).toBe(false);
+    expect(whyNotReady(slice!)).toBeNull();
+  });
+
+  it('asks the host nothing extra — the heading is a property of the plan', async () => {
+    // THE READING COSTS NO CALL OF ITS OWN. It comes from the slices the plan
+    // store already parsed, so an unnamed slice costs exactly what the same
+    // slice costs when it is named — asserted as a COMPARISON rather than as a
+    // zero, because this slice is claimable and briefed and the per-branch
+    // landing question is asked of it either way, as it was before this hold.
+    const unnamedRun = asked();
+    await readQueue([], unnamedRun.world);
+
+    const namedRun = asked();
+    await readQueue([], {
+      ...namedRun.world,
+      plans: async () => [plan([['feature/nameless']])],
+    });
+
+    expect(unnamedRun.calls).toEqual(namedRun.calls);
+    // AND THE PASS MAKES THE ONE BUNDLED LISTING IT ALWAYS MADE, never a call
+    // per branch.
+    expect(unnamedRun.calls.listing).toBe(1);
+    expect(unnamedRun.calls.views).toBe(0);
   });
 });
