@@ -612,10 +612,12 @@ test('build.mjs, the script and the board contract name the same bundle set', ()
       `${bundle} is emitted by the build and not marked -merge`);
   }
 
-  // 5. `plot-monitor.mjs` IS NOT IN THE SET. Nothing rebuilds it, so it has no
-  //    deterministic rebuild — and that is the whole licence. Asserted rather
-  //    than assumed, because the natural mistake when widening a list is to
-  //    sweep in every file in the directory.
+  // 5. `plot-monitor.mjs` IS NOT IN THE SET. `bug/the-loop-reports-idle`
+  //    deletes the file outright, so this now holds trivially rather than
+  //    guarding "tracked but unbuilt" the way it once did — kept rather than
+  //    removed, because the natural mistake when widening a list is to sweep
+  //    in every file in the directory, and the name still reads as the
+  //    example the next author reaches for.
   assert.ok(!emitted.includes('skills/plot/scripts/board/plot-monitor.mjs'),
     'plot-monitor.mjs has no build output; including it asserts a rebuild that does not exist');
 });

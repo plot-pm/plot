@@ -2113,10 +2113,6 @@ export type StuckState = z.infer<typeof StuckStateSchema>;
  * property the contract exists for: `isBoardArtifact` below and its callers
  * read ONE name from ONE place.
  *
- * `plot-monitor.mjs` IS DELIBERATELY ABSENT, and now by construction rather
- * than by omission. It is committed and documented, and no `outfile` names it —
- * nothing rebuilds it. The deterministic rebuild is the whole licence, so a file
- * with none cannot be here, and the derivation cannot see it.
  */
 export { BOARD_ARTIFACT_PATHS } from './bundles.generated.js';
 import { BOARD_ARTIFACT_PATHS } from './bundles.generated.js';

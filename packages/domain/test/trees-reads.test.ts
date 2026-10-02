@@ -189,12 +189,13 @@ describe('treesGit: the desks this machine holds', () => {
     expect(await treesWithScripts().isClean(linked)).toEqual({ ok: true, value: false });
   });
 
-  it("drops the monitor's own record, so two quiet passes can agree", async () => {
-    // THE PROPERTY THE FILTER EXISTS FOR. `plot-worker-monitor.sh` appends its
-    // findings to `.plot-worker.monitor.worker.jsonl` INSIDE the worktree it
-    // watches, so an unfiltered listing changes every time the monitor
-    // publishes and `idle` — which needs the fingerprint equal across two
-    // passes — could never hold.
+  it("drops the watcher's own record, so a quiet tree can be read as quiet", async () => {
+    // THE PROPERTY THE FILTER EXISTS FOR. The loop's watcher (and, before
+    // `bug/the-loop-reports-idle`, the separate WorkerMonitor process) appends
+    // its findings to `.plot-worker.monitor.worker.jsonl` INSIDE the worktree
+    // it watches, so an unfiltered listing would change every time a finding
+    // publishes, and `idle` — which needs the tree reading quiet for at least
+    // the window — could never hold.
     fs.writeFileSync(path.join(linked, '.plot-worker.monitor.worker.jsonl'), '{}\n');
     fs.writeFileSync(path.join(linked, 'draft.ts.tmp1'), 'scratch\n');
 

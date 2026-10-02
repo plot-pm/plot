@@ -43,7 +43,6 @@
     "plot-state-receipt.sh",
     "plot-tmp.sh",
     "plot-transcript-quiet.sh",
-    "plot-worker-monitor.sh",
     "plot-worker-state.sh"
   ],
   "scripts": {

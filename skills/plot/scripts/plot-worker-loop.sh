@@ -75,16 +75,12 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="."
 
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
-# THE TRANSCRIPT READER, sourced for the MESSAGE and for nothing else. The loop
-# ends a worker on a signal from a watcher; this file is asked one question,
-# once, after that has already happened: *could the reading have been made at
-# all?* It sets no flag, ends nothing, and is not consulted on any path where
-# the worker keeps running.
-#
-# IT IS THE MONITOR'S OWN READER. `plot-worker-monitor.sh` sources the same
-# file to answer the same question, so the loop reports what the monitor saw
-# rather than a second opinion — a message naming a reading the monitor never
-# made would be worse than the one it replaces.
+# THE TRANSCRIPT READER. Until `bug/the-loop-reports-idle` this was sourced for
+# the ENDING MESSAGE alone, asked once after a signal had already fired:
+# *could the reading have been made at all?* The watcher below now reads it on
+# every pass too, through `plot_worker_idle_watch_pass` in
+# `plot-worker-state.sh` — the SAME file, so the loop's watcher and the loop's
+# own message report what the same reader saw rather than two opinions.
 #
 # ITS ABSENCE IS ITS OWN ANSWER. `[ -r ]` guards the source because a missing
 # reader is exactly the `unavailable` case: an adopting project whose checkout
@@ -129,52 +125,54 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 WORKER_BOUND_SECONDS=$(cfg "Worker bound" "28800")
 case "$WORKER_BOUND_SECONDS" in (*[!0-9]*|'') WORKER_BOUND_SECONDS=28800 ;; esac
 
-# HOW OFTEN THE LOOP RE-READS THE FINDINGS FILE, in seconds. The monitor's own
-# cadence is `PLOT_MONITOR_INTERVAL` (default 30) and it needs TWO passes to
-# publish `idle`, so the loop reading every 5s adds at most 5s to a ~60s
-# detection — under the plan's "within two monitor intervals" with room to
-# spare, and cheap: one `tail` of a file that is usually empty.
+# HOW OFTEN THE WATCHER TAKES A READING, in seconds. Until
+# `bug/the-loop-reports-idle` this was `PLOT_MONITOR_POLL_SECONDS` (5s),
+# because the loop was re-reading a file a SEPARATE process published to on its
+# own 30s cadence. There is no separate process any more: the watcher below
+# takes the six readings itself, so its own cadence IS the monitor's, and the
+# two variables collapsed into the one the WorkerMonitor always used.
 #
 # ENV, NOT PLOT CONFIG. This is a test seam and an implementation detail of the
 # reading, not a project's declared policy — `Worker bound` is the knob a
-# project sets (Principle 5), and adding a second one for the poll would ask
+# project sets (Principle 5), and adding a second one for the cadence would ask
 # operators to tune something they cannot observe.
-MONITOR_POLL_SECONDS="${PLOT_MONITOR_POLL_SECONDS:-5}"
-case "$MONITOR_POLL_SECONDS" in (*[!0-9]*|''|0) MONITOR_POLL_SECONDS=5 ;; esac
+MONITOR_INTERVAL_SECONDS="${PLOT_MONITOR_INTERVAL:-30}"
+case "$MONITOR_INTERVAL_SECONDS" in (*[!0-9]*|''|0) MONITOR_INTERVAL_SECONDS=30 ;; esac
+
+# HOW LONG A TRANSCRIPT OR A TREE MUST BE QUIET BEFORE `idle` CAN HOLD, in
+# seconds — the window `plot_worker_idle_now` is asked against. Moved here from
+# the WorkerMonitor along with the reading itself; the number and its reasoning
+# are unchanged; see `plot_worker_idle_now` in `plot-worker-state.sh` and the
+# measurement behind it in this file's own history.
+MONITOR_QUIET_SECONDS="${PLOT_MONITOR_QUIET_SECONDS:-900}"
+case "$MONITOR_QUIET_SECONDS" in (*[!0-9]*|'') MONITOR_QUIET_SECONDS=900 ;; esac
 
 # WHETHER AN `idle` READING MAY END A WORKER. Default 1, which is today's
 # behaviour; `PLOT_MONITOR_ENDS_WORKER=0` leaves the finding published and
 # ending the worker to `Worker bound` alone.
 #
-# THE SEAM EXISTS BECAUSE THE READING WAS NOT THE QUESTION, and as of
-# 2026-09-02 it is. `idle` used to mean the subtree burned no CPU across a 0.4 s
-# sample, taken twice ~30 s apart — and an agent waiting on a model response
-# burns no CPU in its subtree, so a false zero was the common reading rather
-# than the rare one and the rule could not tell `stuck` from `thinking`.
+# THE FLAG NOW GATES ONE THING, AND ONE THING ONLY: the `kill -USR1` to this
+# loop. Until `bug/the-loop-reports-idle` the flag also gated whether the
+# watcher subshell STARTED at all — `0` meant no watcher, which silently
+# stopped `idle` from being published, contradicting this very comment's
+# promise that `0` "leaves the finding published". That was safe only while a
+# SEPARATE WorkerMonitor process existed to publish regardless of what this
+# loop did; now the watcher below is the ONLY publisher of `idle`, so it must
+# run whatever this flag says, or `0` stops the finding from existing at all
+# rather than merely from ending the worker.
 #
-# Measured 2026-09-01 on this estate: SEVEN desks carried `reported idle on` in
-# their logs, every one of them holding real commits, and five had to be
-# finished by hand. `feature/the-gates-read-what-was-left-behind` was ended
-# 11 s after dispatch with 2 commits and an unwritten changeset. Eleven workers
-# went this way across two days.
+# So the watcher always starts. What `0` buys is unchanged in kind — an
+# operator who wants `Worker bound` alone, rather than the transcript reading,
+# can still have it — but it no longer costs the finding itself.
 #
-# `plot-worker-monitor.sh` now reads the agent's TRANSCRIPT and asks the CPU
-# only whether a child is on a core, so the reading answers the question the
-# kill was always making. The seam stays because it is cheap and because an
-# operator who wants `Worker bound` alone should be able to have it — but it is
-# no longer the workaround for a reading that could not be trusted.
-#
-# SO WHAT `0` NOW COSTS IS THE OPPOSITE OF WHAT IT SAVED, and an operator
-# choosing it should be told which trade they are making. Against the old rule
-# it bought back seven desks' work at the price of a stuck agent holding one for
-# eight hours. Against the transcript reading it buys nothing that reading does
-# not already give, and it spends the ending that names *the agent went quiet* —
-# every worker then reaches the floor, so the log says the bound expired for a
-# desk whose agent measurably stopped, and the difference the three sentences
-# below exist to draw is flattened back to one. `2026-09-01-an-idle-agent-is-not
-# -a-stalled-one` keeps it as an escape rather than removing it, because a
-# default flipped under a running fleet is a second failure — not because there
-# is a fleet it is still the right answer for.
+# THE READING ITSELF IS UNCHANGED FROM THE WorkerMonitor's. It reads the
+# agent's TRANSCRIPT and asks the CPU only whether a child is on a core
+# (`plot_worker_idle_now` in `plot-worker-state.sh`), for the reason recorded
+# there: an agent waiting on a model response burns no CPU in its subtree, so a
+# CPU sample alone could not tell `stuck` from `thinking`. Measured 2026-09-01
+# on this estate, under the OLD CPU-only rule: seven desks carried `reported
+# idle on` in their logs, every one of them holding real commits, and five had
+# to be finished by hand.
 MONITOR_ENDS_WORKER="${PLOT_MONITOR_ENDS_WORKER:-1}"
 case "$MONITOR_ENDS_WORKER" in (0|1) ;; (*) MONITOR_ENDS_WORKER=1 ;; esac
 
@@ -218,14 +216,14 @@ case "$WAIT_POLL_SECONDS" in (*[!0-9]*|''|0) WAIT_POLL_SECONDS=60 ;; esac
 # no prompt for it to have a finding about.
 #
 # THE ENV OVERRIDE IS A TEST SEAM, and it is one for the reason
-# `PLOT_MONITOR_POLL_SECONDS` is: a test that wants to watch a worker reach the
+# `PLOT_MONITOR_INTERVAL` is: a test that wants to watch a worker reach the
 # END of its wait would otherwise have to lower `Worker bound`, which bounds the
 # PROMPT too — so it would be asking about the wait and measuring the prompt.
 # The loop's own tests set it to end a one-pass run that has nothing to hop to,
 # which is every fixture in `workerloop.test.mjs`.
 #
-# NOT A PLOT CONFIG KEY, for the reason recorded at `MONITOR_POLL_SECONDS`: a
-# project's declared policy about how long its agents may live is
+# NOT A PLOT CONFIG KEY, for the reason recorded at `MONITOR_INTERVAL_SECONDS`:
+# a project's declared policy about how long its agents may live is
 # `Worker bound`, and a second key would ask an operator to tune a number they
 # have no separate opinion about.
 WAIT_BUDGET_SECONDS="${PLOT_WAIT_BUDGET_SECONDS:-$WORKER_BOUND_SECONDS}"
@@ -684,8 +682,9 @@ assigned_branch() { # $1=manifest → prints the branch, or nothing
 #
 # ONE PROBE, TWO READERS. `plot_transcript_exists` lives in
 # `plot-transcript-quiet.sh` and `session_handle` in `plot-agent-manifest.sh`,
-# because `plot-worker-monitor.sh` asks the same question with the same handle
-# before it calls a quiet desk idle. Two copies could disagree about whether a
+# because the watcher's own `plot_worker_idle_watch_pass`
+# (`plot-worker-state.sh`) asks the same question with the same handle before
+# it calls a quiet desk idle. Two copies could disagree about whether a
 # conversation exists.
 
 # The flag the prompt must carry for this invocation.
@@ -1963,17 +1962,20 @@ _kill_tree() { # $1 = root pid
 }
 
 # ---------------------------------------------------------------------------
-# THE MONITOR'S READING — the verdict this loop now ends on
+# THE WATCHER'S READING — the verdict this loop now ends on
 # ---------------------------------------------------------------------------
 #
-# `plot-worker-monitor.sh` answers the question the bound was guessing at, with
-# four conditions that must hold together: the pid is alive, its TRANSCRIPT has
-# been silent past the window with no child process burning CPU behind it across
-# two consecutive passes, the tree did not change between them, and commits
-# already exist on the branch. The loop READS that answer and does
-# not re-derive it — a second implementation of one measurement is the drift
-# this repo has already paid for, in the classification `plot-worker-state.sh`
-# was extracted to hold.
+# `plot_worker_idle_now` (`plot-worker-state.sh`) answers the question the
+# bound was guessing at, with six conditions that must hold together: the pid
+# is alive, the conversation has spoken, its TRANSCRIPT has been silent past
+# the window, no child process is burning CPU behind it, the tree has not
+# moved for at least the window either, and commits already exist on the
+# branch — one reading, since `bug/the-loop-reports-idle` removed the
+# WorkerMonitor process and the two-pass comparison it existed to hold. The
+# loop ASKS that rule through `plot_worker_idle_watch_pass` and does not
+# re-derive it — a second implementation of one measurement is the drift this
+# repo has already paid for, in the classification `plot-worker-state.sh` was
+# extracted to hold.
 #
 # WHERE THE FINDINGS ARE. `plot-dispatch.sh` passes the monitor no
 # `PLOT_MONITOR_FILE`, so a dispatched monitor writes to its own derived
@@ -1986,41 +1988,33 @@ monitor_findings_file() {
   printf '%s' "${PLOT_MONITOR_FILE:-${PLOT_WORKTREE:+$PLOT_WORKTREE/.plot-worker.monitor.worker.jsonl}}"
 }
 
-# Does the WorkerMonitor's LATEST finding say `idle`?
+# Take one watcher pass and report whether IT judged `idle` this time.
 #
-# THE LAST LINE, NEVER ANY LINE. The monitor publishes only on a CHANGE, and a
-# cleared finding is a publish too — so a worktree whose agent stalled and then
-# resumed carries `idle` followed by `clear`, both forever, in one file.
-# Grepping the file for the word would end every worker that had ever recovered,
-# which is worse than the bound it replaces: the bound at least waited an hour.
+# THE LOOP IS NOW THE ONLY PUBLISHER. Until `bug/the-loop-reports-idle` this
+# read a file a SEPARATE WorkerMonitor process wrote to on its own cadence, and
+# it read the LAST line because the monitor published a `clear` on recovery —
+# a worktree whose agent stalled and resumed carried `idle` followed by `clear`,
+# both forever, in one file. That file still exists and the board still reads
+# it the same way, but nothing writes to it from outside this process any
+# more: `plot_worker_idle_watch_pass` (`plot-worker-state.sh`) takes the six
+# readings itself and appends the SAME shape, so the board's reader and
+# `attention.ts` see no difference.
 #
-# THE MONITOR IS CHECKED BY NAME. The AgentMonitor writes beside this file under
-# the same `.plot-worker.monitor.` prefix and its vocabulary is not this one's —
-# it reports what an agent OWES, a Registry-side fact. Taking one of its
-# findings as a verdict on the process is exactly the Machine/Registry confusion
-# CLAUDE.md's split exists to prevent, so the match is anchored to the
-# `"monitor":"WorkerMonitor"` field the monitor stamps into every line.
+# ONE WORD BACK, NOT A FILE READ. The old function answered "what does the
+# file's last line say", which could be stale by a whole interval; this
+# answers "what did THIS pass just measure", which is what the caller needs to
+# decide whether to signal.
 #
-# `idle` AND ONLY `idle`. `gone` means the agent pid names no live process — and
-# when that is true the prompt child has already exited, so the loop is past
-# `wait` and asking `--next` on its own. Killing on `gone` would be the loop
-# racing to kill something already dead, and would end a worker whose agent
-# finished cleanly a moment before the monitor's next pass.
-#
-# GREP RATHER THAN A JSON PARSER. The line is written by `printf` in
-# `plot-worker-monitor.sh:publish` with a fixed field order, so the two fields
-# are at known positions in a known shape; a `node -e` per poll would fork an
-# interpreter every few seconds inside a worker whose whole point is to leave
-# the machine alone for the agent.
-monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
+# `idle` AND ONLY `idle`. A dead pid is not a reading this function can make at
+# all — the watcher's own pid is alive by construction while it runs
+# (`plot_worker_idle_watch_pass`'s own comment) — and `gone` is the wrapper's
+# finding now, published after `wait "$agent"` returns in `plot-dispatch.sh`,
+# never this loop's to read or act on.
+monitor_says_idle() { # → 0 idle | 1 not idle
   local f
   f=$(monitor_findings_file)
-  [ -n "$f" ] && [ -s "$f" ] || return 1
-  local last
-  last=$(grep '"monitor":"WorkerMonitor"' "$f" 2>/dev/null | tail -n 1)
-  [ -n "$last" ] || return 1
-  case "$last" in (*'"finding":"idle"'*) return 0 ;; esac
-  return 1
+  plot_worker_idle_watch_pass "${PLOT_WORKTREE:-$PWD}" "${PLOT_BRANCH:-}" "$f" \
+    "$MONITOR_QUIET_SECONDS" "$_prompt_started_at" "$_watch_loop_pid"
 }
 
 
@@ -2038,20 +2032,21 @@ monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
 # one `stat` per ended worker, and a slow or wrong answer costs prose rather than
 # work — which is why this may ask directly where the end condition may not.
 #
-# IT CLASSIFIES EXACTLY AS THE MONITOR DOES, and that is the whole
-# requirement. `sample_verdict` reaches `unknown` — the state that publishes
-# nothing and leaves the ending to the bound — on an empty answer and on a
-# non-numeric one as well as on the word itself (`plot-worker-monitor.sh:497`).
-# A digit is the only answer that means a reading was made. So the digit is what
-# this matches, and every other answer is `no`; matching only the literal word
+# IT CLASSIFIES EXACTLY AS THE WATCHER DOES, and that is the whole
+# requirement. `plot_worker_idle_watch_pass` withholds `idle` — publishing
+# nothing and leaving the ending to the bound — on an empty silence reading and
+# on a non-numeric one as well as on `unavailable` itself
+# (`plot-worker-state.sh`'s own guard on `silence`). A digit is the only answer
+# that means a reading was made. So the digit is what this matches, and every
+# other answer is `no`; matching only the literal word
 # would report *the reading was available* for a reader that failed silently,
 # which is the sentence this slice exists to stop printing.
 #
 # THE ANSWER IS ABOUT NOW, NOT ABOUT THE RUN. A transcript deleted between the
-# ending and this call reads `unavailable` though the monitor saw one all along.
+# ending and this call reads `unavailable` though the watcher saw one all along.
 # That window is the seconds between a signal and a message, and the correction
 # it would need — recording each pass's availability across a run — is a fact the
-# monitor holds and does not publish. The narrower claim is left as the honest
+# watcher holds and does not publish. The narrower claim is left as the honest
 # one rather than plumbing a channel for a sentence.
 ended_reading_available() { # → yes | no
   command -v plot_transcript_quiet_seconds >/dev/null 2>&1 || { printf 'no'; return 0; }
@@ -2080,14 +2075,16 @@ _on_alarm() {
 }
 trap _on_alarm ALRM
 
-# The WorkerMonitor published `idle`: the agent is alive, has committed, and its
-# transcript has been silent past the window with nothing burning CPU behind it,
-# across two consecutive passes with the tree unchanged. That is the reading the
-# bound was guessing at, and it is a verdict rather than an alarm.
+# The watcher published `idle`: the agent is alive, has committed, its
+# transcript has been silent past the window with nothing burning CPU behind
+# it, and its tree has not moved for at least the window either — one reading,
+# since `bug/the-loop-reports-idle` removed the WorkerMonitor process and the
+# two-pass comparison it existed to hold. That is the reading the bound was
+# guessing at, and it is a verdict rather than an alarm.
 _on_monitor() {
   _timed_out=1
   _ended_by='monitor'
-  _ended_detail='the WorkerMonitor reported idle'
+  _ended_detail='the watcher reported idle'
   [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
 }
 trap _on_monitor USR1
@@ -2257,29 +2254,39 @@ run_bounded() {
     _watchdog_pid=$!
   fi
 
-  # The monitor watcher: poll the findings file and signal on `idle`. It re-reads
-  # rather than tailing because a `tail -f` down a pipe is a process to manage on
-  # every exit path, and the file it watches is empty in the healthy case — the
-  # monitor publishes only on a change.
+  # The watcher: take the six readings every `MONITOR_INTERVAL_SECONDS`, ask
+  # `plot_worker_idle_now`, and publish into the findings file on a change.
   #
-  # IT EXITS AFTER SIGNALLING. One verdict is all there is to deliver; a watcher
-  # that kept polling would re-signal a loop already past its `wait` and into the
-  # next slice, killing a prompt on the strength of the PREVIOUS branch's
-  # finding. `_watch_loop_pid` is captured before the subshell so `$$` inside it
-  # names the loop rather than the subshell, exactly as the watchdog does.
+  # IT ALWAYS STARTS, REGARDLESS OF THE FLAG. Since `bug/the-loop-reports-idle`
+  # removed the WorkerMonitor process this watcher is the ONLY publisher of
+  # `idle` — there is no other process left to publish it if this one does not
+  # run. `MONITOR_ENDS_WORKER` now gates one thing, the `kill -USR1` below, and
+  # nothing about whether a pass is taken or a finding published.
+  #
+  # IT EXITS AFTER SIGNALLING, never before. A watcher that kept polling after
+  # signalling would re-signal a loop already past its `wait` and into the next
+  # slice, killing a prompt on the strength of the PREVIOUS branch's finding.
+  # `_watch_loop_pid` is captured before the subshell so `$$` inside it names
+  # the loop rather than the subshell, exactly as the watchdog does.
+  #
+  # `PLOT_WATCH_PUBLISHED` IS THE SUBSHELL'S OWN. `plot_worker_idle_watch_pass`
+  # holds the last-published finding in that variable so a held finding is
+  # published once rather than every pass — exactly the role `published` played
+  # inside the old monitor's own process. It dies with this subshell at the end
+  # of each prompt, which is fine: no finding is judged between prompts, and a
+  # fresh prompt starting a fresh watcher has nothing stale to carry over.
   local _watch_loop_pid=$$
-  if [ "$MONITOR_ENDS_WORKER" = "1" ]; then
-    (
-      while :; do
-        sleep "$MONITOR_POLL_SECONDS" || exit 0
-        if monitor_says_idle; then
-          kill -USR1 "$_watch_loop_pid" 2>/dev/null
-          exit 0
-        fi
-      done
-    ) &
-    _monitor_watcher_pid=$!
-  fi
+  (
+    unset PLOT_WATCH_PUBLISHED PLOT_WATCH_SINCE
+    while :; do
+      sleep "$MONITOR_INTERVAL_SECONDS" || exit 0
+      if monitor_says_idle && [ "$MONITOR_ENDS_WORKER" = "1" ]; then
+        kill -USR1 "$_watch_loop_pid" 2>/dev/null
+        exit 0
+      fi
+    done
+  ) &
+  _monitor_watcher_pid=$!
 
   # Block on the prompt. If either watcher fires first, its trap kills the prompt
   # and this `wait` returns (interrupted); if the prompt finishes first, `wait`
@@ -2486,10 +2493,10 @@ while true; do
     # `.plot-worker.log` triages them differently:
     #
     #   the agent went quiet   a verdict. The agent is alive, has committed, its
-    #                          transcript has been silent past the window and
-    #                          nothing burned CPU behind it, across two passes.
-    #                          The desk holds finished-looking work worth
-    #                          rescuing.
+    #                          transcript has been silent past the window with
+    #                          nothing burning CPU behind it, and its tree has
+    #                          not moved for at least the window either. The
+    #                          desk holds finished-looking work worth rescuing.
     #   the bound expired      only that time passed. The floor fires when the
     #                          monitor itself went silent, so nobody knows what
     #                          state the desk is in — but the reading WAS
@@ -2513,7 +2520,7 @@ while true; do
     # separates them.
     case "$_ended_by" in
       monitor)
-        echo "plot-worker-loop: the agent went quiet on ${PLOT_BRANCH:-?} — the WorkerMonitor reported idle: the agent is alive and has committed but its transcript has been silent past the window with nothing burning CPU behind it, across two passes; ending worker without hopping" >&2
+        echo "plot-worker-loop: the agent went quiet on ${PLOT_BRANCH:-?} — the watcher reported idle: the agent is alive and has committed but its transcript has been silent past the window with nothing burning CPU behind it, and its tree has not moved for at least the window either; ending worker without hopping" >&2
         # THE SAME THREE READINGS THE SENTENCES ABOVE DRAW, written where a
         # reader that outlives the process can find them. The log says it once
         # to whoever is watching; the record says it to whoever asks later.

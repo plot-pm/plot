@@ -28,14 +28,6 @@
 # #706 on 2026-09-06, after the brief had counted eight and named them. The
 # derivation found it; a hand-written list would have shipped the same hole
 # under a new filename, one day old. That is the argument, measured on itself.
-#
-# WHAT IT DOES NOT DEMAND: a tracked file that no `build.mjs` output names.
-# `plot-monitor.mjs` is committed and documented at `entry/monitor.ts:14`, and
-# appears in no `outfile`. Nothing rebuilds it, so it has no deterministic
-# rebuild — and the deterministic rebuild is the whole licence for `-merge`,
-# because "keep either side, then rebuild" is only safe when the rebuild
-# overwrites what was kept. Marking it would assert a rebuild that does not
-# exist. The gate reads the build, so it cannot ask for it.
 
 set -uo pipefail
 

@@ -17,7 +17,7 @@
 # `plot_session_id`, which `plot-dispatch.sh` calls to launch an agent and
 # `plot-worker-loop.sh` calls when a hop moves the agent to a new branch; and
 # `manifest_resume_id` with `session_handle`, the conversation handle that the
-# loop passes to the prompt and `plot-worker-monitor.sh` probes for a transcript.
+# loop passes to the prompt and the loop's own watcher probes for a transcript.
 
 # Clear `branch` when a slice finishes, so the window before the next one is
 # observable.
@@ -119,8 +119,8 @@ manifest_resume_id() { # $1=manifest → prints the handle, or nothing
 # the two answers are the same string and this reads as a no-op. It stops being
 # one the moment the handle diverges from the join key — which is what the two
 # fields exist to allow, and what a later `--fork-session` would do. The loop
-# and `plot-worker-monitor.sh` both call this, so the prompt and the idle
-# verdict ask about one conversation.
+# calls this for the prompt and its own watcher calls it for the idle verdict,
+# so both ask about one conversation.
 #
 # `$PLOT_SESSION_ID` IS THE FALLBACK, NOT THE SOURCE. A hand-started loop has no
 # manifest and a pre-`resumeId` manifest carries no handle; both are the launch

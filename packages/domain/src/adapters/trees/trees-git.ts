@@ -133,10 +133,10 @@ export const treesGit = (context: ShellContext): Trees => {
 
     // `plot_worker_dirty` is SOURCED and called, never reimplemented here. The
     // three exclusion patterns it applies are stated once in
-    // `plot-worker-state.sh`, where `plot-fleet-scan.sh` and
-    // `plot-worker-monitor.sh` already read them; a second copy in TypeScript
-    // is a second thing to keep in step, and the drift would show up as a
-    // monitor that reads its own findings file as the agent working.
+    // `plot-worker-state.sh`, where `plot-fleet-scan.sh` and the loop's own
+    // watcher already read them; a second copy in TypeScript is a second thing
+    // to keep in step, and the drift would show up as a watcher that reads its
+    // own findings file as the agent working.
     dirtyPaths: (path) =>
       runScript(
         'bash',
