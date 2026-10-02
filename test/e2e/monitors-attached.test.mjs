@@ -1,22 +1,36 @@
-// Flow test: every worker is born monitored.
+// Flow test: every worker is born monitored, and its process ending is born
+// reported.
 //
-// This is the claim the slice exists to make, and it is not one a review can
-// check. A reviewer reading `start_worker` sees two lines that start monitors
-// and concludes they run; what a reviewer cannot see is whether they SURVIVE
-// the quoting levels between here and a detached `sh -c`, or whether some other
-// path creates a worker without them.
+// REWRITTEN FOR `bug/the-loop-reports-idle`. Until this branch a worker was
+// born with THREE children started inside the wrapper: the WorkerMonitor (the
+// process), the AgentMonitor (the desk) and the BuildMonitor (the run). The
+// WorkerMonitor is now deleted: the loop's own watcher judges `idle` without a
+// process to hold it, and the wrapper itself appends `gone`/`clear` to the
+// SAME findings file right after `wait "$agent"` returns. So a dispatched
+// worker is now born with TWO monitor children (`1 + 2N` per the observable
+// result this plan targets being the AgentMonitor and the BuildMonitor; this
+// suite only drives the AgentMonitor, since the BuildMonitor needs a build to
+// watch and is out of this branch's scope), and the SAME findings file still
+// receives `gone`/`clear` — from the wrapper, not from a monitor.
 //
-// So the suite runs a real dispatch and reads what the monitors wrote.
+// This is not one a review can check. A reviewer reading `start_worker` sees a
+// line that starts the AgentMonitor and concludes it runs; what a reviewer
+// cannot see is whether it SURVIVES the quoting levels between here and a
+// detached `sh -c`, or whether some other path creates a worker without it —
+// or whether the wrapper's new `gone`/`clear` line actually reaches the file
+// past three levels of shell quoting.
+//
+// So the suite runs a real dispatch and reads what got written.
 //
 // THE MUTATION TEST IS THE POINT. `there is no code path that creates a worker
-// without them` is a claim about ABSENCE, and no positive assertion can
-// establish it — a green test proves the monitors ran on the path the test
-// took. What proves the gate is removing the monitor start from a COPY of
-// plot-dispatch.sh and showing the same assertion goes red. That is CLAUDE.md's
-// own test for a gate: can you answer "did I attach it?" without doing the
-// work? Here you cannot.
+// without the AgentMonitor` is a claim about ABSENCE, and no positive
+// assertion can establish it — a green test proves the monitor ran on the path
+// the test took. What proves the gate is removing the monitor start from a
+// COPY of plot-dispatch.sh and showing the same assertion goes red. That is
+// CLAUDE.md's own test for a gate: can you answer "did I attach it?" without
+// doing the work? Here you cannot.
 //
-// WHY THE MONITORS ARE THE WRAPPER'S CHILDREN, asserted rather than trusted:
+// WHY THE MONITOR IS THE WRAPPER'S CHILD, asserted rather than trusted:
 // `--stop` kills the AGENT and the wrapper must survive to record the exit
 // code. A monitor started as a SIBLING of the wrapper would be independently
 // mortal — killable with nothing noticing, which is the failure being fixed one
@@ -62,14 +76,16 @@ function dispatchablePlan(work, { slug = 'monitor-flow', date = '2026-08-30' } =
 }
 
 /**
- * Dispatch one worker and return the paths its monitors should have written to.
+ * Dispatch one worker and return the paths its monitor and its wrapper's own
+ * findings should have reached.
  *
  * `scripts` selects WHICH copy of the script directory to dispatch from, which
  * is what lets the mutation test run a sabotaged dispatcher through the exact
  * same flow as the honest one.
  *
- * The Worker command sleeps rather than exiting immediately: a worker that is
- * already gone makes "the monitors outlived the agent" unfalsifiable.
+ * The Worker command sleeps rather than exiting immediately where a test
+ * needs the agent still alive; where it needs the agent GONE, it exits at
+ * once and the wrapper's own `wait` reports it.
  */
 function dispatchOne(name, {
   scripts = SCRIPTS,
@@ -84,10 +100,10 @@ function dispatchOne(name, {
   dispatchablePlan(sb.work);
   // THE DESK IS LAID BY THE FIXTURE, not by the fan-out. Dispatch hands a slice
   // to the registry and cuts nothing; what these tests are about is the worker
-  // and its monitors once a desk exists, so the fixture provides one and every
+  // and its monitor once a desk exists, so the fixture provides one and every
   // assertion below stands unchanged.
   //
-  // THE MONITORS START BEFORE THE AGENT, deliberately (see
+  // THE MONITOR STARTS BEFORE THE AGENT, deliberately (see
   // plot-monitor-subject.sh), so a condition the WORKER creates is not
   // present at the first pass. A short interval is what lets the second
   // pass see it, and shortening it is honest here: 300 s is a choice about
@@ -97,8 +113,13 @@ function dispatchOne(name, {
   return {
     sb,
     worktree: wt,
+    // STILL ONE FILE, STILL THIS NAME. The wrapper's own `gone`/`clear` line
+    // and (before this branch) the WorkerMonitor's findings share the path the
+    // board's reader already knows — `attention.ts` and `findings.ts` see no
+    // difference between a monitor-published line and a wrapper-published one.
     workerFindings: path.join(wt, '.plot-worker.monitor.worker.jsonl'),
     agentFindings: path.join(wt, '.plot-worker.monitor.agent.jsonl'),
+    exitFile: path.join(wt, '.plot-worker.exit'),
   };
 }
 
@@ -116,24 +137,27 @@ function findings(file) {
   return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
 
-test('a dispatched worker gets both monitors without the operator asking', () => {
-  // THE WORKER COMMAND IS CHOSEN TO PROVOKE A FINDING ON BOTH MONITORS, and it
-  // has to be as of this slice. Each of them now publishes only when a finding
+test('a dispatched worker gets the AgentMonitor without the operator asking, and the wrapper reports its own exit', () => {
+  // THE WORKER COMMAND IS CHOSEN TO PROVOKE A FINDING FROM BOTH SOURCES, and it
+  // has to be as of this slice. The AgentMonitor publishes only when a finding
   // HOLDS — silence means healthy — so a worker that sleeps quietly and exits
-  // is correctly monitored and correctly silent on both files, and waiting for
-  // either to write something would fail against a working implementation.
-  //
-  // So the command is built to owe each monitor a different debt:
+  // is correctly monitored and correctly silent, and waiting for it to write
+  // something would fail against a working implementation. The wrapper, by
+  // contrast, ALWAYS reports its agent's exit — `gone` for non-zero, `clear`
+  // for zero — so an agent that exits at once is the simplest way to provoke
+  // that line.
   //
   //   the file    leaves the tree dirty, which is the AgentMonitor's
-  //               `holds unlanded work` — finding #2, and the cheapest one to
-  //               provoke: a filesystem read, no commits, no host, and reachable
-  //               in an `--offline` sandbox where `owes a review` is not.
-  //   the exit    kills the agent at once, so the WorkerMonitor's first pass
-  //               reads `gone` — the one finding a single sample can make.
+  //               `holds unlanded work` — the cheapest finding to provoke: a
+  //               filesystem read, no commits, no host, and reachable in an
+  //               `--offline` sandbox where `owes a review` is not.
+  //   the exit    the command exits 0 immediately, so the wrapper's own line
+  //               (after `wait "$agent"; rc=$?`) is `clear` — the ordinary
+  //               case, and the one that changed meaning under this branch:
+  //               the old WorkerMonitor published `gone` here, on any death.
   //
   // THE AGENTMONITOR NEEDS ITS SECOND PASS, which is why the interval is short.
-  // The monitors are started BEFORE the agent (plot-monitor-subject.sh explains
+  // The monitor is started BEFORE the agent (plot-monitor-subject.sh explains
   // why), so at the first pass the tree is still clean and the honest answer is
   // silence.
   //
@@ -145,17 +169,27 @@ test('a dispatched worker gets both monitors without the operator asking', () =>
   });
   try {
     assert.ok(waitForFile(run.workerFindings),
-      'the WorkerMonitor published nothing about a worker whose agent is already gone — a dispatched worker was born unmonitored');
+      'the wrapper published nothing about its agent exiting — a dispatched worker\'s exit was born unreported');
     assert.ok(waitForFile(run.agentFindings),
-      'the AgentMonitor published nothing about a desk holding an uncommitted file — a dispatched worker was born half-monitored');
+      'the AgentMonitor published nothing about a desk holding an uncommitted file — a dispatched worker was born unmonitored');
 
-    // Both, and each identifying ITSELF. The attention slice needs a
-    // WorkerMonitor finding to be distinguishable from an AgentMonitor one in
-    // the entry, which a shared label would make impossible.
+    // Both files still carry `"monitor":"WorkerMonitor"`/`"AgentMonitor"`, so
+    // the board's reader and `attention.ts` see no difference from before this
+    // branch — the attention slice needs a WorkerMonitor-named finding to be
+    // distinguishable from an AgentMonitor one in the entry, and a shared
+    // label would make that impossible.
     const worker = findings(run.workerFindings);
     const agent = findings(run.agentFindings);
     assert.equal(worker[0].monitor, 'WorkerMonitor');
     assert.equal(agent[0].monitor, 'AgentMonitor');
+
+    // THE EXIT WAS CLEAN, SO THE FINDING IS `clear`, NOT `gone`. This is the
+    // meaning change this branch makes in as many words: before it, ANY death
+    // of the watched pid — including an honest exit 0 — published `gone`,
+    // which the board reads as "restart it". An agent that finished cleanly
+    // must not ask for a restart.
+    assert.equal(worker[0].finding, 'clear',
+      'an agent that exited 0 was reported gone — the wrapper is reporting as the old WorkerMonitor did, not as this branch requires');
 
     // The finding is about the branch that was dispatched, not about whatever
     // the dispatcher happened to be sitting on.
@@ -166,40 +200,53 @@ test('a dispatched worker gets both monitors without the operator asking', () =>
   }
 });
 
-test('neither monitor announces its own emptiness any more', () => {
-  // THIS TEST HAS NOW FLIPPED FOR BOTH HALVES, and this slice is the second
-  // flip. It read `nothing measured yet` as a REQUIRED first line on the
-  // AgentMonitor until `feature/the-agent-monitor-reads-the-desk` gave that
-  // monitor its measurements — and the no-op slice that introduced the string
-  // said in as many words that it "disappears in the slice that gives it its
-  // first real measurement". This is that slice, so the assertion inverts
-  // rather than being deleted.
+test('an agent that exits non-zero is reported gone by the wrapper', () => {
+  // THE OTHER HALF OF THE MEANING CHANGE. A non-zero exit — 124, 137, or any
+  // other code — is what the board should still read as "restart it", and the
+  // wrapper is now the one source of that word.
+  const run = dispatchOne('monitors-gone', {
+    workerCommand: "sh -c 'exit 7'",
+  });
+  try {
+    assert.ok(waitForFile(run.workerFindings),
+      'the wrapper published nothing about an agent that exited non-zero');
+    const worker = findings(run.workerFindings);
+    assert.equal(worker[0].finding, 'gone',
+      `an agent that exited 7 was reported '${worker[0]?.finding}', not gone`);
+    assert.equal(worker[0].monitor, 'WorkerMonitor');
+  } finally {
+    run.sb.cleanup();
+  }
+});
+
+test('the AgentMonitor does not announce its own emptiness', () => {
+  // THIS TEST FLIPPED ONCE ALREADY, and stays flipped. It read `nothing
+  // measured yet` as a REQUIRED first line on the AgentMonitor until
+  // `feature/the-agent-monitor-reads-the-desk` gave that monitor its
+  // measurements — and the no-op slice that introduced the string said in as
+  // many words that it "disappears in the slice that gives it its first real
+  // measurement".
   //
   // WHY INVERTING IS NOT WEAKENING, which is the question a reviewer should
   // ask of a test that used to demand a line and now forbids it. The
   // announcement existed to keep a BLIND monitor distinguishable from a
   // watching one, because a monitor that measures nothing and says nothing is
   // indistinguishable from a monitor that is working. That risk is now carried
-  // by a different, stronger property: both monitors publish real findings, so
+  // by a different, stronger property: the monitor publishes real findings, so
   // the test above proves attachment by provoking one and reading it back.
   // Silence has stopped being ambiguous — it means healthy — and a monitor
   // still announcing its emptiness would now be publishing noise on every pass
   // of every healthy desk.
-  //
-  // IT GOES RED IN THE DIRECTION THAT MATTERS: either monitor regressing to a
-  // no-op that narrates its own blindness fails here, on the real dispatch
-  // path, whatever a unit test of the same monitor says.
   const run = dispatchOne('monitors-announce');
   try {
     // A healthy sleeping worker owes nothing, so this asserts over whatever
-    // each monitor published rather than over a required first line. An empty
+    // the monitor published rather than over a required first line. An empty
     // file — or no file — is the correct outcome and is not a failure here;
-    // attachment is proven by the test above, which provokes a real finding.
-    for (const file of [run.agentFindings, run.workerFindings]) {
-      if (!fs.existsSync(file)) continue;
-      for (const record of findings(file)) {
+    // attachment is proven by the tests above, which provoke real findings.
+    if (fs.existsSync(run.agentFindings)) {
+      for (const record of findings(run.agentFindings)) {
         assert.notEqual(record.finding, 'nothing measured yet',
-          `${path.basename(file)} still announces that it measures nothing, in a slice that gave both monitors their measurements`);
+          'the AgentMonitor still announces that it measures nothing, in a slice that gave it its measurements');
       }
     }
   } finally {
@@ -207,14 +254,14 @@ test('neither monitor announces its own emptiness any more', () => {
   }
 });
 
-test('MUTATION: removing the monitor start from start_worker turns this red', () => {
+test('MUTATION: removing the AgentMonitor start from start_worker turns this red', () => {
   // The "no other code path" claim, checked the only way a claim about absence
   // can be. A copy of the whole script directory is made, the monitor start is
   // cut out of plot-dispatch.sh, and the identical dispatch is run against it.
   //
-  // If the honest run above passes and this one ALSO produces findings, the
-  // monitors were coming from somewhere other than the line under test — and
-  // the gate would be an illusion.
+  // If the honest run above passes and this one ALSO produces a finding, the
+  // monitor was coming from somewhere other than the line under test — and the
+  // gate would be an illusion.
   const mutantDir = fs.mkdtempSync(path.join(REPO_ROOT, '.plot-mutant-'));
   const run = { sb: null };
   try {
@@ -223,56 +270,45 @@ test('MUTATION: removing the monitor start from start_worker turns this red', ()
     const dispatchFile = path.join(mutantDir, 'plot-dispatch.sh');
     const original = fs.readFileSync(dispatchFile, 'utf8');
     const mutated = original.replace(
-      // THE REGEX TRACKS THE LINE, and this test's own guard is what forced the
-      // update. `a-manifest-names-every-process` changed the monitor start from
-      // `… & fi;` to `… & wmon=$!; fi;` so the wrapper can record each monitor's
-      // pid in the manifest — the branch's entire purpose. The old pattern then
-      // matched nothing, and the assertion below caught it rather than letting
-      // the mutation test pass having sabotaged nothing.
-      //
-      // The capture assignments are matched loosely (`[^;]*`) because WHAT the
-      // line records is not what this test is about; that it STARTS the monitors
-      // is. A regex pinned to the exact assignment would need editing again the
-      // next time the manifest gains a field, and each of those edits is a
-      // chance to quietly stop sabotaging the right thing.
-      /if \[ -n "\$PLOT_WORKER_MONITOR" \]; then "\$PLOT_WORKER_MONITOR" &[^;]*; fi; if \[ -n "\$PLOT_AGENT_MONITOR" \]; then "\$PLOT_AGENT_MONITOR" &[^;]*; fi; /,
+      // THE REGEX TRACKS THE LINE. `bug/the-loop-reports-idle` left exactly one
+      // monitor start in the wrapper body now — the AgentMonitor's.
+      /if \[ -n "\$PLOT_AGENT_MONITOR" \]; then "\$PLOT_AGENT_MONITOR" &[^;]*; fi; /,
       '',
     );
     assert.notEqual(mutated, original,
       'the mutation matched nothing — this test no longer sabotages the line it claims to, so its green means nothing');
     fs.writeFileSync(dispatchFile, mutated);
 
-    const mutantRun = dispatchOne('monitors-mutant', { scripts: mutantDir });
+    const mutantRun = dispatchOne('monitors-mutant', {
+      scripts: mutantDir,
+      workerCommand: "sh -c 'echo unlanded > owed.txt; sleep 5'",
+    });
     run.sb = mutantRun.sb;
 
     // Give the sabotaged run at least as long as the honest one gets. A short
     // wait here would pass for the wrong reason — "not yet" rather than "never".
-    const appeared = waitForFile(mutantRun.workerFindings, 6000)
-      || waitForFile(mutantRun.agentFindings, 1000);
+    const appeared = waitForFile(mutantRun.agentFindings, 6000);
     assert.equal(appeared, false,
-      'a worker was still monitored after the monitor start was removed from start_worker — the monitors come from somewhere else, so start_worker is not the gate this slice claims');
+      'a worker was still monitored after the AgentMonitor start was removed from start_worker — the monitor comes from somewhere else, so start_worker is not the gate this slice claims');
   } finally {
     if (run.sb) run.sb.cleanup();
     fs.rmSync(mutantDir, { recursive: true, force: true });
   }
 });
 
-test('--stop kills the agent, and the monitors and the exit record survive it', () => {
+test('--stop kills the agent, and the monitor, the exit record and the wrapper\'s own finding survive it', () => {
   // The "never dies first" claim, checked against the one operation that would
-  // break it. The monitors are the wrapper's children and the wrapper must
-  // outlive the agent to write `.plot-worker.exit` — so stopping the agent must
-  // leave both intact. A sibling monitor would die here with nothing noticing.
-  // THE AGENT MUST OWE SOMETHING WHILE IT SLEEPS, because as of this slice
-  // NEITHER monitor speaks about a healthy desk. The previous draft leaned on
-  // the AgentMonitor being a no-op that published every pass; that is exactly
-  // what `feature/the-agent-monitor-reads-the-desk` removed, and a test whose
-  // proof of attachment is another component's blindness stops working the
-  // moment that component starts seeing.
+  // break it. The monitor is the wrapper's child and the wrapper must outlive
+  // the agent to write `.plot-worker.exit` AND to append its own `gone` line —
+  // so stopping the agent must leave all three intact. A sibling monitor would
+  // die here with nothing noticing.
   //
-  // So the worker leaves an uncommitted file and THEN sleeps: the desk holds
-  // unlanded work for the whole window, which is a finding that keeps holding
-  // while the agent is alive to be stopped. A `sleep` alone would leave both
-  // files empty and make the survival claim unfalsifiable.
+  // THE AGENT MUST OWE SOMETHING WHILE IT SLEEPS, because the AgentMonitor does
+  // not speak about a healthy desk. So the worker leaves an uncommitted file
+  // and THEN sleeps: the desk holds unlanded work for the whole window, which
+  // is a finding that keeps holding while the agent is alive to be stopped. A
+  // `sleep` alone would leave the file empty and make the survival claim
+  // unfalsifiable.
   const run = dispatchOne('monitors-survive-stop', {
     workerCommand: "sh -c 'echo unlanded > owed.txt; sleep 30'",
   });
@@ -288,31 +324,42 @@ test('--stop kills the agent, and the monitors and the exit record survive it', 
       { cwd: run.sb.work, encoding: 'utf8' });
 
     // The wrapper survived its agent: that is what an exit file IS.
-    const exitFile = path.join(run.worktree, '.plot-worker.exit');
-    assert.ok(waitForFile(exitFile, 20000),
+    assert.ok(waitForFile(run.exitFile, 20000),
       '--stop killed the agent and no exit code was recorded — the wrapper did not survive it');
 
-    // And the findings the monitors had already published are still there.
+    // And the findings the monitor had already published are still there.
     assert.ok(fs.existsSync(run.agentFindings) && findings(run.agentFindings).length > 0,
       'the monitor findings vanished when the agent was stopped');
+
+    // THE WRAPPER'S OWN LINE, SINCE THIS BRANCH. `--stop` sends SIGTERM to the
+    // whole group; the agent's child (`sleep`) dies non-zero, `wait` returns
+    // non-zero, and the wrapper appends `gone` — exactly the case the old
+    // WorkerMonitor's own `gone` arm existed for, now answered by the one
+    // process that was always watching: the wrapper that started it.
+    assert.ok(waitForFile(run.workerFindings, 5000),
+      '--stop ended the agent but the wrapper never reported it');
+    const worker = findings(run.workerFindings);
+    assert.equal(worker[worker.length - 1].finding, 'gone',
+      `--stop ended the agent and the wrapper's last line was '${worker[worker.length - 1]?.finding}', not gone`);
   } finally {
     run.sb.cleanup();
   }
 });
 
-test('a hand-made worktree gets neither monitor', () => {
+test('a hand-made worktree gets no monitor', () => {
   // Deliberate, and it falls out of the design rather than being enforced:
   // start_worker is the only thing that starts a wrapper, and a worktree nobody
-  // dispatched has no wrapper for a monitor to be a child of. Attaching to
-  // everything would mean watching worktrees carrying no claim and following no
-  // naming — the population plot-dispatch.sh already refuses to reason about.
+  // dispatched has no wrapper for a monitor to be a child of, and no wrapper to
+  // report an exit either. Attaching to everything would mean watching
+  // worktrees carrying no claim and following no naming — the population
+  // plot-dispatch.sh already refuses to reason about.
   const sb = makeSandbox({ name: 'monitors-handmade', config: PLAN_CONFIG });
   try {
     const wt = path.join(sb.root, 'hand-made');
     sh(sb.work, `git worktree add -q -b feature/by-hand ${wt}`);
 
     assert.equal(fs.existsSync(path.join(wt, '.plot-worker.monitor.worker.jsonl')), false,
-      'a worktree nobody dispatched acquired a WorkerMonitor');
+      'a worktree nobody dispatched acquired a wrapper-reported finding');
     assert.equal(fs.existsSync(path.join(wt, '.plot-worker.monitor.agent.jsonl')), false,
       'a worktree nobody dispatched acquired an AgentMonitor');
   } finally {
@@ -320,12 +367,17 @@ test('a hand-made worktree gets neither monitor', () => {
   }
 });
 
-test('--dry-run names which monitors it would attach to which worktree', () => {
+test('--dry-run names which monitor it would attach to which worktree', () => {
   // Behind `--monitors`, and the opt-in is the protection rather than a
   // preference: the DEFAULT --dry-run output stays byte-identical to a run from
   // before this change, which is what lets it be diffed against one. A line
   // added to the default would forfeit exactly that check on the largest script
   // in this repo, where a mistake starts no workers at all.
+  //
+  // ONLY THE AGENTMONITOR IS A SCRIPT ANY MORE. `bug/the-loop-reports-idle`
+  // removed `plot-worker-monitor.sh`, so `report_monitors` in plot-dispatch.sh
+  // no longer iterates `worker agent` — there is no script path left to name
+  // for the process the loop's own watcher now judges.
   const sb = makeSandbox({ name: 'monitors-dry-run', config: '' });
   try {
     fs.writeFileSync(
@@ -338,15 +390,15 @@ test('--dry-run names which monitors it would attach to which worktree', () => {
       [path.join(SCRIPTS, 'plot-dispatch.sh'), '--dry-run', '--monitors', '--offline', 'monitor-flow'],
       { cwd: sb.work, encoding: 'utf8' });
 
-    assert.match(withFlag, /would attach:.*plot-worker-monitor\.sh/,
-      '--monitors did not name the WorkerMonitor it would attach');
     assert.match(withFlag, /would attach:.*plot-agent-monitor\.sh/,
       '--monitors did not name the AgentMonitor it would attach');
-    // It names the WORKTREE too — "which monitors to which worktree" is the
+    assert.doesNotMatch(withFlag, /plot-worker-monitor\.sh/,
+      '--monitors still names plot-worker-monitor.sh, which this branch deletes');
+    // It names the WORKTREE too — "which monitor to which worktree" is the
     // question, and a monitor named without its subject only answers half. With
     // no `Worktree root` configured, the desk lies under `<repo>/.worktrees`.
     assert.match(withFlag, /would attach:.*→.*\.worktrees\/feature-watched/,
-      '--monitors named the monitors but not the worktree they would watch');
+      '--monitors named the monitor but not the worktree it would watch');
 
     // The control: without the flag, none of it appears. This is what makes the
     // byte-identity claim testable rather than merely asserted in a comment.

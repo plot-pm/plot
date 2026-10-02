@@ -32,7 +32,7 @@
 // export would change what `node --test` collects there.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -973,10 +973,28 @@ test('--status names a future reset and not a past one', serial, () => {
 // function is sourced and asked, with and without the record, and the two
 // answers must differ: that is the discriminating assertion, and it is the
 // smallest one that is.
-test('sample_verdict reads a waiting desk as busy and a silent one as quiet', serial, () => {
+// REPOINTED AT THE WATCHER'S OWN READING, `bug/the-loop-reports-idle`.
+// `plot-worker-monitor.sh` is deleted; its `sample_verdict` classification
+// (`gone|quiet|busy|unknown|unspoken`) is gone with it. The clamp this test
+// guards moved into `plot_worker_idle_watch_pass` (`plot-worker-state.sh`),
+// which folds the clamp straight into the final `idle`/`silent` verdict rather
+// than stopping at an intermediate word — so this asks the same question
+// ("does the clamp flip the verdict?") through the one function that now
+// answers it, with every OTHER condition satisfied so the clamp is the only
+// thing that can be moving.
+test('plot_worker_idle_watch_pass reads a waiting desk as not-idle and a silent one as idle', serial, () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
+    // A REAL FILE-TOUCHING COMMIT, not the empty claim alone. `claim()`'s own
+    // `--allow-empty` commit does not count for `plot_worker_has_commits`
+    // (the `-- .` pathspec excludes it, #538's own exclusion) — without this
+    // the commits condition refuses on every call and the clamp is never the
+    // thing under test.
+    fs.writeFileSync(path.join(wt, 'work.txt'), 'the agent did something\n');
+    git(wt, 'add', '-A');
+    git(wt, 'commit', '-qm', 'work the agent did');
+
     const home = path.join(sb.root, 'runtime-home');
     const slug = wt.replace(/[/.]/g, '-');
     const tdir = path.join(home, '.claude', 'projects', slug);
@@ -993,66 +1011,57 @@ test('sample_verdict reads a waiting desk as busy and a silent one as quiet', se
     // precisely the shape of a worker inside the wait.
     const sleeper = spawn('sleep', ['120'], { stdio: 'ignore' });
     try {
-      fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(sleeper.pid));
+      // ONE PASS, THROUGH THE SHIPPED FUNCTION. `plot_worker_idle_watch_pass`
+      // returns via exit code (0 idle, 1 not) and publishes a line as a side
+      // effect; a fresh findings file per call keeps each ask's publish from
+      // leaking into the next.
+      const ask = () => {
+        const findings = path.join(sb.root, `findings-${Math.random().toString(36).slice(2)}.jsonl`);
+        const rc = spawnSync('bash', ['-c', `
+          set -u
+          S=${JSON.stringify(scripts)}
+          . "$S/plot-transcript-quiet.sh"
+          . "$S/plot-agent-manifest.sh"
+          . "$S/plot-worker-state.sh"
+          plot_worker_idle_watch_pass ${JSON.stringify(wt)} feature/seam \
+            ${JSON.stringify(findings)} 1 '' ${sleeper.pid}
+        `], {
+          encoding: 'utf8', timeout: 30000,
+          env: {
+            // THE AMBIENT ENVIRONMENT IS BLANKED FIRST. A dispatched worker
+            // running this very suite carries its own `PLOT_MANIFEST_FILE` and
+            // `PLOT_SESSION_ID`, which `session_handle` would read ahead of
+            // the fixture's — asking about the WRONG conversation's transcript
+            // and reading `spoken=0` regardless of what this test sets up.
+            ...process.env,
+            PLOT_MANIFEST_FILE: '',
+            PLOT_TRANSCRIPT_HOME: home, PLOT_SESSION_ID: SESSION,
+          },
+        }).status;
+        return rc === 0 ? 'idle' : 'not-idle';
+      };
 
-      // THE MONITOR IS NOT SOURCEABLE — it runs its loop at the bottom of the
-      // file — so its FUNCTIONS are taken and its loop is not. `sed` stops at
-      // the first line that is neither a comment nor a definition after the
-      // last function, which is where the script's own body begins.
-      //
-      // Reaching in like this is the cost of asserting one function of a
-      // script that is a program rather than a library. The alternative was
-      // adding a source guard to shipped code for a test's benefit, which the
-      // brief's "no new script, the decision stays in the bundle" rules out in
-      // spirit: this slice may not reshape the monitor to be easier to test.
-      const ask = () => execFileSync('bash', ['-c', `
-        set -u
-        S=${JSON.stringify(scripts)}
-        . "$S/plot-worker-state.sh"
-        . "$S/plot-transcript-quiet.sh"
-        . "$S/plot-monitor-subject.sh"
-        worktree=${JSON.stringify(wt)}
-        branch=feature/seam
-        pid_file="$worktree/.plot-worker.pid"
-        monitor='WorkerMonitor'
-        interval=1
-        findings="$worktree/.plot-worker.monitor.worker.jsonl"
-        prev_verdict=''
-        prev_tree=''
-        : "\${PLOT_MONITOR_QUIET_SECONDS:=1}"
-        # Every function definition, and nothing that runs at load.
-        eval "$(sed -n '/^[a-z_]*() {/,/^}/p' "$S/plot-worker-monitor.sh")"
-        sample_verdict
-      `], {
-        encoding: 'utf8', timeout: 30000,
-        env: {
-          ...process.env,
-          PLOT_BRANCH: 'feature/seam', PLOT_WORKTREE: wt, PLOT_SESSION_ID: SESSION,
-          PLOT_TRANSCRIPT_HOME: home, PLOT_MONITOR_QUIET_SECONDS: '1',
-          PLOT_PID_FILE: path.join(wt, '.plot-worker.pid'),
-        },
-      }).trim();
-
-      // THE CONTROL: no record, an hour of silence, nothing on a core. The
-      // transcript alone says this agent stopped.
-      const silent = ask();
-      assert.notEqual(silent, 'busy',
-        `control: a silent desk with no limit record is not busy (got ${silent})`);
+      // THE CONTROL: no record, an hour of silence, nothing on a core, real
+      // commits. The transcript alone says this agent stopped — idle.
+      const control = ask();
+      assert.equal(control, 'idle',
+        `control: a silent desk with no limit record and real commits is idle (got ${control})`);
 
       // THE SAME DESK, WAITING. Silence is measured from the reset instead,
-      // the subtraction clamps to 0, and the verdict flips.
+      // the subtraction clamps to 0, the window (1s) is not reached, and the
+      // verdict flips to not-idle.
       const ahead = nowSeconds() + 3600;
       fs.writeFileSync(path.join(wt, LIMITED),
         `${ahead}\t${new Date(ahead * 1000).toISOString()}\tYou've hit your session limit\n`);
-      assert.equal(ask(), 'busy',
-        'a desk waiting on a reset an hour ahead is busy, not quiet');
+      assert.equal(ask(), 'not-idle',
+        'a desk waiting on a reset an hour ahead is not idle — the clamp holds the window open');
 
       // AND A RECORD WHOSE RESET HAS PASSED CHANGES NOTHING, so a worker
       // SIGKILLed mid-wait cannot hold its desk out of every finding forever.
       const behind = nowSeconds() - 3600;
       fs.writeFileSync(path.join(wt, LIMITED),
         `${behind}\t${new Date(behind * 1000).toISOString()}\tYou've hit your session limit\n`);
-      assert.equal(ask(), silent,
+      assert.equal(ask(), control,
         'a reset that has passed reads exactly as no record at all');
     } finally {
       sleeper.kill('SIGKILL');

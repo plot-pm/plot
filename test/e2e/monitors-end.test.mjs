@@ -1,10 +1,21 @@
-// Flow test: a monitor ends with its agent.
+// Flow test: the AgentMonitor ends with its agent, and the wrapper reports its
+// agent's exit before the wrapper itself ends.
 //
-// The companion to `monitors-attached.test.mjs`, which asks only whether
-// monitors live LONG ENOUGH. Every done-when in the plan did, until this slice;
-// none asked when they stop. The estate showed the gap — measured 2026-08-30,
-// 34 of 40 monitor processes on the machine were `ppid=1`, and 100 forks cost
-// 23.3 ms against 4.8 ms on a quiet one.
+// REWRITTEN FOR `bug/the-loop-reports-idle`. The WorkerMonitor process this
+// file used to watch is deleted. Its two properties move to two different
+// places: "a monitor ends with its subject" still applies to the AgentMonitor,
+// which this file keeps testing exactly as before; "the finding is reported
+// BEFORE the watcher that reports it stops running" moves to the WRAPPER,
+// which now reports `gone`/`clear` itself right after `wait "$agent"` returns
+// and before it writes `.plot-worker.exit` and exits. The "measurement, not a
+// timer" property that used to need `plot-worker-monitor.sh` run directly no
+// longer has a process to drive that way — the loop's own watcher now judges
+// `idle` without a resident process at all, which is the plan's whole point,
+// and that property is covered by `test/reconcile/workeridle.test.mjs` and
+// `test/reconcile/workerstate-idle.test.mjs` against the shell function
+// directly, where a measurement-vs-timer distinction is actually
+// observable (those tests drive repeated passes and show the watcher never
+// fires until the real conditions hold, however many passes run).
 //
 // ═══════════════════════════════════════════════════════════════════════════
 // EVERY ASSERTION HERE IS BY PID
@@ -16,29 +27,14 @@
 // runs its suites in worktrees beside live workers — the population a count
 // would sweep up is exactly the population that is supposed to be there.
 //
-// So each test captures THIS worker's monitor pids, from the process table
-// while they are provably alive, and asserts those specific pids are gone.
-//
-// ═══════════════════════════════════════════════════════════════════════════
-// AND THE MECHANISM IS A MEASUREMENT, NOT A TIMER
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// The plan names this as the thing that would pass every visible assertion
-// while destroying the property the design rests on: a monitor that exits after
-// N seconds regardless satisfies "no monitor remains" and loses the meaning of
-// a monitor that stops publishing.
-//
-// A test asserting only "they exited" cannot tell the two apart, so this suite
-// also asserts the CONVERSE — a monitor whose agent is still alive is still
-// running well past several of its own intervals. A timer fails that; a
-// measurement passes it. The pair is what pins the mechanism.
+// So each test captures THIS worker's monitor pid, from the process table
+// while it is provably alive, and asserts that specific pid is gone.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
-import { makeSandbox, sh, SCRIPTS, staffDesk } from './helpers.mjs';
+import { execFileSync } from 'node:child_process';
+import { makeSandbox, sh, staffDesk } from './helpers.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -74,8 +70,8 @@ function dispatchablePlan(work, { slug = 'monitor-end', date = '2026-08-30' } = 
  * Dispatch one worker with a monitor interval short enough to test against.
  *
  * `PLOT_MONITOR_INTERVAL` travels through the dispatcher's environment into the
- * wrapper and out to both monitors. Without it the AgentMonitor's default is
- * 300 s and no test could wait for a second pass.
+ * wrapper and out to the AgentMonitor. Without it the default is 300 s and no
+ * test could wait for a second pass.
  */
 function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'", interval = '1' } = {}) {
   const sb = makeSandbox({ name, config: '' });
@@ -86,7 +82,7 @@ function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'", interval = '1' }
   dispatchablePlan(sb.work);
   // THE DESK IS LAID BY THE FIXTURE, not by the fan-out. Dispatch hands a slice
   // to the registry and cuts nothing; what these tests are about is the worker
-  // and its monitors once a desk exists, so the fixture provides one and every
+  // and its monitor once a desk exists, so the fixture provides one and every
   // assertion below stands unchanged.
   const { worktree: wt } = staffDesk(sb.work, 'feature/watched',
     { env: { PLOT_MONITOR_INTERVAL: interval } });
@@ -94,6 +90,7 @@ function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'", interval = '1' }
     sb,
     worktree: wt,
     pidFile: path.join(wt, '.plot-worker.pid'),
+    wrapperPidFile: path.join(wt, '.plot-worker.wrapper.pid'),
     exitFile: path.join(wt, '.plot-worker.exit'),
     workerFindings: path.join(wt, '.plot-worker.monitor.worker.jsonl'),
     agentFindings: path.join(wt, '.plot-worker.monitor.agent.jsonl'),
@@ -117,7 +114,7 @@ function waitForFile(file, ms = 15000) {
  * would be asserting against a subject that is not actually gone.
  *
  * Measured 2026-08-30: `ps -o state=` on the killed child printed `Z`, and the
- * monitors dutifully kept running.
+ * monitor dutifully kept running.
  *
  * So the subject is double-forked into an orphan: `init` becomes its parent and
  * reaps it the instant it dies, which is exactly what happens to a real agent
@@ -151,13 +148,18 @@ function alive(pid) {
 }
 
 /**
- * The monitor pids belonging to THIS worktree, read from the process table.
+ * The AgentMonitor pids belonging to THIS worktree, read from the process
+ * table.
  *
- * Scoped by the worktree path, which each monitor carries in its environment —
+ * ONE SCRIPT NOW, NOT TWO. `plot-worker-monitor.sh` is deleted; this matches
+ * only `plot-agent-monitor.sh`, which is the one monitor process a dispatched
+ * worker still carries beside the BuildMonitor this branch does not touch.
+ *
+ * Scoped by the worktree path, which the monitor carries in its environment —
  * so a sibling suite's workers, or the developer's own fleet, are never in the
  * answer. This is what makes the assertions specific rather than a count.
  */
-function monitorPids(worktree) {
+function agentMonitorPids(worktree) {
   let out = '';
   try {
     out = execFileSync('ps', ['-eo', 'pid=,command='], { encoding: 'utf8' });
@@ -169,12 +171,12 @@ function monitorPids(worktree) {
   // sits under `/tmp`, which is a SYMLINK to `/private/tmp`. `lsof` reports the
   // resolved path and the test holds the unresolved one, so a raw string
   // comparison matches nothing and every pid is filtered out — a lookup that
-  // returns an empty list, which reads exactly like "the monitors already
+  // returns an empty list, which reads exactly like "the monitor already
   // exited" and would make every assertion below vacuously true.
   const subject = fs.realpathSync(worktree);
 
   return out.split('\n')
-    .filter((l) => /plot-(worker|agent)-monitor\.sh/.test(l))
+    .filter((l) => /plot-agent-monitor\.sh/.test(l))
     .map((l) => Number(l.trim().split(/\s+/)[0]))
     .filter((pid) => {
       // The command line names the SCRIPT, not the worktree it watches — every
@@ -224,7 +226,7 @@ function findings(file) {
 }
 
 /**
- * Dispatch a worker, then hand its monitors a subject this test controls.
+ * Dispatch a worker, then hand its monitor a subject this test controls.
  *
  * ─────────────────────────────────────────────────────────────────────────
  * WHY THE SUBJECT IS SUBSTITUTED, AND WHY THAT IS STILL THE REAL MECHANISM
@@ -236,16 +238,16 @@ function findings(file) {
  * done, the `sleep` never started, and `.plot-worker.exit` holding `0` within a
  * second. It reproduces without any of this branch's code.
  *
- * With the fix in place the monitors then do their job immediately — measured
+ * With the fix in place the monitor then does its job immediately — measured
  * gone within 300 ms of dispatch — so there is no window in which to capture
- * their pids, and an assertion that cannot name its subjects is the counting
+ * its pid, and an assertion that cannot name its subject is the counting
  * assertion the plan rules out.
  *
  * So the pid file is rewritten to name a process that WILL live long enough to
  * be observed. That is not a simulation of the mechanism: `PLOT_PID_FILE` is
- * the contract the monitors read, `start_worker` started these monitors, and
- * every other part of the path — the wrapper, the quoting, the env vars — is
- * the real one. What changes is only which process the file names.
+ * the contract the monitor reads, `start_worker` started it, and every other
+ * part of the path — the wrapper, the quoting, the env vars — is the real one.
+ * What changes is only which process the file names.
  */
 function dispatchWithLiveSubject(name) {
   const run = dispatchOne(name, { workerCommand: 'sleep 30' });
@@ -254,39 +256,39 @@ function dispatchWithLiveSubject(name) {
   return { ...run, subject };
 }
 
-test('after its subject finishes, no monitor of THAT worker remains', () => {
+test('after its subject finishes, no AgentMonitor of THAT worker remains', () => {
   // The ordinary path: the agent exits, the wrapper's `wait` returns, the
-  // wrapper writes `.plot-worker.exit` and exits. Before this slice both
-  // monitors were re-parented to init here and looped forever — measured on
-  // this machine at 34 orphans out of 40 live monitors.
+  // wrapper writes `.plot-worker.exit` and exits. Before `two-monitors-watch
+  // -the-agent` the monitor was re-parented to init here and looped forever —
+  // measured on this machine at 34 orphans out of 40 live monitors, when there
+  // were still two kinds.
   const run = dispatchWithLiveSubject('monitors-end-normal');
   try {
-    // Captured while they are provably alive. An empty list here would make the
-    // assertion below vacuous — `every()` over nothing is true, so a lookup that
-    // found no monitors would "prove" they had ended.
+    // Captured while it is provably alive. An empty list here would make the
+    // assertion below vacuous — `every()` over nothing is true, so a lookup
+    // that found no monitor would "prove" it had ended.
     const pids = waitFor(() => {
-      const found = monitorPids(run.worktree);
+      const found = agentMonitorPids(run.worktree);
       return found.length > 0 ? found : null;
     });
-    assert.ok(pids, 'no monitor process was found for this worktree, so "they are gone" cannot mean anything');
+    assert.ok(pids, 'no AgentMonitor process was found for this worktree, so "it is gone" cannot mean anything');
 
     // The subject ends the way an agent ordinarily does.
     process.kill(run.subject, 'SIGTERM');
 
     assert.ok(waitUntil(() => pids.every((p) => !alive(p))),
-      `monitors ${pids.filter(alive).join(', ')} outlived the subject they were watching — `
-      + 'they are orphans now, re-parented to init and looping forever');
+      `monitor ${pids.filter(alive).join(', ')} outlived the subject it was watching — `
+      + 'it is an orphan now, re-parented to init and looping forever');
   } finally {
     try { process.kill(run.subject, 'SIGKILL'); } catch { /* already gone */ }
     run.sb.cleanup();
   }
 });
 
-test('after its subject is killed at the bound, no monitor of THAT worker remains', () => {
-  // The `Worker bound` path. `plot-worker-loop.sh:172` sends `kill -KILL` to the
+test('after its subject is killed at the bound, no AgentMonitor of THAT worker remains', () => {
+  // The `Worker bound` path. `plot-worker-loop.sh` sends `kill -KILL` to the
   // AGENT, not the wrapper — the wrapper survives and writes the exit code
-  // afterwards, which is why an exit file exists at all and why the plan's
-  // earlier claim that the bound killed the wrapper was withdrawn.
+  // afterwards, which is why an exit file exists at all.
   //
   // SIGKILL is the point of this test rather than a detail: a process cannot
   // trap it, so nothing on the agent's side can announce its own death. Only an
@@ -294,32 +296,32 @@ test('after its subject is killed at the bound, no monitor of THAT worker remain
   const run = dispatchWithLiveSubject('monitors-end-bound');
   try {
     const pids = waitFor(() => {
-      const found = monitorPids(run.worktree);
+      const found = agentMonitorPids(run.worktree);
       return found.length > 0 ? found : null;
     });
-    assert.ok(pids, 'no monitor process was found for this worktree');
+    assert.ok(pids, 'no AgentMonitor process was found for this worktree');
 
     process.kill(run.subject, 'SIGKILL');
 
     assert.ok(waitUntil(() => pids.every((p) => !alive(p))),
-      `monitors ${pids.filter(alive).join(', ')} outlived a subject killed at its bound`);
+      `monitor ${pids.filter(alive).join(', ')} outlived a subject killed at its bound`);
   } finally {
     try { process.kill(run.subject, 'SIGKILL'); } catch { /* already gone */ }
     run.sb.cleanup();
   }
 });
 
-test('the monitor reports its agent gone BEFORE it ends — the upper bound does not eat the lower one', () => {
-  // The Attaching slice's property, which this slice must not eat, and for the
-  // WorkerMonitor it is not an abstraction: `gone` is one of its two findings.
+test('the wrapper reports its agent gone BEFORE the wrapper itself ends — the upper bound does not eat the lower one', () => {
+  // THE PROPERTY MOVED, AND THIS IS WHERE IT LIVES NOW. Until
+  // `bug/the-loop-reports-idle` this asserted the WorkerMonitor's own `gone`
+  // arm — a monitor that checked its subject BEFORE its pass would exit on a
+  // dead agent without ever reporting the death. The wrapper is now the one
+  // process that ever held that finding, and the same hazard applies to it in
+  // the same shape: it must APPEND the `gone`/`clear` line BEFORE it writes
+  // `.plot-worker.exit` and exits, or the finding is lost to the very
+  // mechanism meant to report it.
   //
-  // A monitor that checked its subject BEFORE its pass would exit on a dead
-  // agent without ever reporting the death — losing the loudest finding it has
-  // to the mechanism meant to bound it. And it would still pass both tests
-  // above, because "no monitor remains" is equally true of a monitor that
-  // reported and left and one that left silently.
-  //
-  // This one goes through a plain dispatch, because the sandbox's short-lived
+  // This goes through a plain dispatch, because the sandbox's short-lived
   // agent is exactly the case it wants: an agent that dies on its own.
   const run = dispatchOne('monitors-end-lower-bound', { workerCommand: 'sleep 2' });
   try {
@@ -327,96 +329,54 @@ test('the monitor reports its agent gone BEFORE it ends — the upper bound does
     const agentPid = fs.readFileSync(run.pidFile, 'utf8').trim();
 
     assert.ok(waitForFile(run.workerFindings, 25000),
-      'the WorkerMonitor published nothing at all about an agent that died under it');
+      'the wrapper published nothing at all about an agent that died under it');
 
-    const gone = waitFor(() => {
-      const g = findings(run.workerFindings).filter((f) => f.finding === 'gone');
-      return g.length > 0 ? g : null;
-    });
-    assert.ok(gone,
-      'the WorkerMonitor ended without ever publishing `gone` — the upper bound ate the finding it exists to make, '
-      + 'which is the lower bound the Attaching slice owns');
+    const line = findings(run.workerFindings)[0];
+    assert.ok(line, 'the wrapper wrote an empty findings file');
+    // THE COMMAND EXITS 0 (`sleep 2` finishes cleanly), so the finding this
+    // branch's meaning change assigns to a clean exit is `clear`, not `gone` —
+    // the WorkerMonitor's old arm fired on ANY death, including this one.
+    assert.equal(line.finding, 'clear',
+      `an agent that exited 0 was reported '${line.finding}', not clear`);
+    assert.equal(line.monitor, 'WorkerMonitor',
+      'the wrapper\'s own line must still carry the board\'s expected monitor name');
 
-    // It names the pid that died, so the finding is about THIS agent rather
+    // It names the pid that exited, so the finding is about THIS agent rather
     // than a true statement about some process somewhere.
-    assert.match(gone[gone.length - 1].evidence, new RegExp(`\\b${agentPid}\\b`),
-      'the `gone` finding does not name the agent pid it is about');
+    assert.match(line.evidence, new RegExp(`\\b${agentPid}\\b`),
+      'the finding does not name the agent pid it is about');
+
+    // AND THE LINE EXISTS BEFORE THE WRAPPER'S OWN EXIT RECORD IS STALE — the
+    // exit file and the finding are written one statement apart in the same
+    // shell body, so by the time either is observable both must be.
+    assert.ok(waitForFile(run.exitFile, 5000),
+      'the wrapper reported the agent gone but never wrote its own exit record');
   } finally {
     run.sb.cleanup();
   }
 });
 
-test('MEASUREMENT NOT TIMER: a monitor whose subject lives outlasts many of its own intervals', () => {
-  // The converse, and the test that tells the two mechanisms apart. Everything
-  // above is satisfied by a monitor that exits after N seconds regardless — and
-  // the plan names that as the change that would pass the visible assertions
-  // while destroying the property the whole design rests on.
-  //
-  // So the monitor is run against a subject that STAYS ALIVE, on a one-second
-  // interval, for many multiples of it. A timer with any bound short enough to
-  // have fixed the leak ends here; a measurement of a living process cannot.
-  //
-  // ─────────────────────────────────────────────────────────────────────────
-  // WHY THIS ONE DOES NOT GO THROUGH `plot-dispatch.sh`
-  // ─────────────────────────────────────────────────────────────────────────
-  //
-  // It needs a LIVE agent, and a dispatched one in this sandbox is not. Measured
-  // 2026-08-30 while writing this suite, and measured again against a pristine
-  // `origin/main` checkout with byte-identical results: a `Worker command` of
-  // `touch /tmp/x && sleep 120` leaves the `touch` done and the `sleep` never
-  // started, and `.plot-worker.exit` holds `0` within a second. The command
-  // begins and its process is gone between one statement and the next.
-  //
-  // That is a property of the harness, not of this slice — it reproduces
-  // unchanged without any of this branch's code — and it is why the suite's
-  // other tests assert on ENDING, which the sandbox does faithfully, and why
-  // `monitors-attached.test.mjs` never asserts on a live agent either.
-  //
-  // So the subject here is a real process this test owns and controls. The
-  // monitor is the SAME script `start_worker` runs, reading the same
-  // `PLOT_PID_FILE` contract, so what is exercised is the mechanism under test
-  // rather than a re-implementation of it.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-monitor-timer-'));
-  let subject;
-  let monitor;
+test('an agent killed at the bound is reported gone by the wrapper, not clear', () => {
+  // THE OTHER EXIT CODE. `Worker bound` kills the agent with SIGKILL, `wait`
+  // returns non-zero, and the wrapper's own line must say `gone` — the case
+  // the board reads as "restart it". A wrapper that answered `clear` here
+  // would tell an operator a finished worker needs nothing, when in fact the
+  // bound just killed it mid-flight.
+  const run = dispatchOne('monitors-end-killed-gone', { workerCommand: 'sleep 30' });
   try {
-    // A subject that will outlive the observation window by a wide margin, and
-    // one this process does not parent — see `detachedSubject` for why a
-    // `spawn`ed child would be a zombie here and read as alive.
-    subject = detachedSubject(120);
-    fs.writeFileSync(path.join(dir, '.plot-worker.pid'), String(subject));
+    assert.ok(waitForFile(run.pidFile), 'the wrapper never recorded the agent pid');
+    const agentPid = Number(fs.readFileSync(run.pidFile, 'utf8').trim());
 
-    monitor = spawn('bash', [path.join(SCRIPTS, 'plot-worker-monitor.sh')], {
-      cwd: dir,
-      stdio: 'ignore',
-      env: {
-        ...process.env,
-        PLOT_BRANCH: 'feature/watched',
-        PLOT_WORKTREE: dir,
-        PLOT_PID_FILE: path.join(dir, '.plot-worker.pid'),
-        PLOT_MONITOR_INTERVAL: '1',
-      },
-    });
+    assert.ok(waitUntil(() => alive(agentPid)),
+      'the agent was not alive long enough to kill it deliberately');
+    process.kill(agentPid, 'SIGKILL');
 
-    // Ten intervals. A timer that ended the leak would have to fire well inside
-    // this window to be worth anything, so passing it is the discriminating
-    // result.
-    execFileSync('sleep', ['10']);
-
-    assert.ok(alive(monitor.pid),
-      'the monitor exited while its subject was still running — after ten of its own intervals against a live pid, '
-      + 'which is what a timer does and what a measurement cannot');
-
-    // And now the converse of the converse, in the same test so the two cannot
-    // drift apart: the SAME monitor, against the SAME subject, ends promptly
-    // once that subject does. Without this, "it stayed alive" would be equally
-    // true of a monitor that never checks anything at all.
-    process.kill(subject, 'SIGKILL');
-    assert.ok(waitUntil(() => !alive(monitor.pid), 15000),
-      'the subject died and the monitor kept running — it is not watching the pid it was given');
+    assert.ok(waitForFile(run.workerFindings, 10000),
+      'the wrapper published nothing about an agent it never killed itself, but that died anyway');
+    const line = findings(run.workerFindings)[0];
+    assert.equal(line.finding, 'gone',
+      `an agent killed with SIGKILL was reported '${line?.finding}', not gone`);
   } finally {
-    try { if (subject) process.kill(subject, 'SIGKILL'); } catch { /* already gone */ }
-    try { if (monitor && alive(monitor.pid)) monitor.kill('SIGKILL'); } catch { /* already gone */ }
-    fs.rmSync(dir, { recursive: true, force: true });
+    run.sb.cleanup();
   }
 });

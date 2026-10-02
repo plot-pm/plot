@@ -712,10 +712,6 @@ jobs:
       # which would be a second place to forget.
       #
       # It found a ninth the plan had not — `plot-landed.mjs`, one day old.
-      #
-      # A tracked file the build does not emit is not demanded. `plot-monitor.mjs`
-      # appears in no `outfile`, so it has no deterministic rebuild, and that
-      # rebuild is the whole licence for `-merge`.
       - name: Every generated bundle is marked
         run: ./scripts/check-bundle-attributes.sh
 

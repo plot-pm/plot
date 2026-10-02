@@ -1359,12 +1359,14 @@ start_worker() {
   #
   # EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
   #
-  # Three monitors start INSIDE the wrapper, as its children, immediately before
-  # the agent: one watches the process (`plot-worker-monitor.sh`), one watches
-  # the desk (`plot-agent-monitor.sh`), one watches the run
-  # (`plot-build-monitor.sh`). Each has a subject the others do not and a
-  # cadence it cannot share — seconds on the process table, minutes on the host,
-  # seconds again on a run but only while one is live.
+  # Two monitors start INSIDE the wrapper, as its children, immediately before
+  # the agent: one watches the desk (`plot-agent-monitor.sh`), one watches the
+  # run (`plot-build-monitor.sh`). Each has a subject the other does not and a
+  # cadence it cannot share — minutes on the host, seconds on a run but only
+  # while one is live. The PROCESS is no longer a third monitor's subject:
+  # since `bug/the-loop-reports-idle` the loop's own watcher judges `idle`
+  # (`plot-worker-state.sh`'s `plot_worker_idle_watch_pass`), and the wrapper
+  # itself reports `gone`/`clear` after `wait "$agent"` returns, below.
   #
   # WHY INSIDE THE WRAPPER RATHER THAN BESIDE IT. The wrapper already outlives
   # its agent by construction — it must, or there would be no exit code to
@@ -1390,8 +1392,8 @@ start_worker() {
   # sub-millisecond gap after the wrapper starts and before `.plot-worker.pid`
   # is written, and a scan landing in it reads `none` — honest. The monitors
   # start inside that same window; they must never turn an unwritten pid file
-  # into a `gone` finding, which is why the no-op reads no pid at all and the
-  # next slice treats an absent pid file as *not yet*.
+  # into a finding of their own, which is why the no-op reads no pid at all and
+  # the next slice treats an absent pid file as *not yet*.
   #
   # THE PATHS TRAVEL AS ENV VARS, like every other path the wrapper needs. The
   # `sh -c` body is single-quoted and a path with spaces would not survive
@@ -1464,8 +1466,7 @@ start_worker() {
     fi
   fi
 
-  local worker_monitor='' agent_monitor='' build_monitor=''
-  [ -x "$script_dir/plot-worker-monitor.sh" ] && worker_monitor="$script_dir/plot-worker-monitor.sh"
+  local agent_monitor='' build_monitor=''
   [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
   # THE THIRD MONITOR, born the same way and for the same reason. It watches the
   # RUN — a Build is its own entity in the spec, so a monitor per entity is the
@@ -1500,6 +1501,19 @@ start_worker() {
   # comes after `agent=$!`, because an ignored signal is inherited by every child
   # started after it: set earlier, the monitors and the agent would ignore the
   # stop too. The wrapper then records the exit code and ends on its own.
+  #
+  # THE WRAPPER ALSO REPORTS `gone`/`clear` ITSELF, right after `wait "$agent"`
+  # returns inside the `sh -c` body below. It already knows the instant the
+  # agent ends, because it `wait`s on it — the same fact `workerAlive` reads in
+  # `rules/supervision.ts`. A non-zero exit (124, 137 for SIGKILL, anything
+  # else) appends `gone`; exit 0 appends `clear`, so a finished agent asks for
+  # no restart and no earlier `idle` stays the newest line. The appended line
+  # matches `publish()`'s own shape exactly (`monitor`, `branch`, `worktree`,
+  # `finding`, `since`, `evidence`, `measuredAt`, `monitor: "WorkerMonitor"`),
+  # so the board's reader cannot tell the difference. This replaces the
+  # WorkerMonitor process `bug/the-loop-reports-idle` removed — which published
+  # `gone` on ANY death of the watched pid, including an honest exit 0, where
+  # this reports `clear` instead.
   ( set -m; cd "$wt" && \
       # AN `export`, NOT AN ENV PREFIX, AND THE REASON IS A MEASUREMENT. Bash
       # recognises an assignment prefix BEFORE it expands parameters, so a
@@ -1524,13 +1538,13 @@ start_worker() {
       PLOT_EFFORT="$launch_effort" \
       PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
       PLOT_STAMP_STARTED="$stamp_now" \
-      PLOT_WORKER_MONITOR="$worker_monitor" \
       PLOT_AGENT_MONITOR="$agent_monitor" \
       PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
+      PLOT_MONITOR_FILE="$wt/.plot-worker.monitor.worker.jsonl" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
+      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -1563,7 +1577,7 @@ start_worker() {
         relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
         relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
         { print }
-      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
+      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; if [ -n "$PLOT_MONITOR_FILE" ]; then now=$(date -u +%Y-%m-%dT%H:%M:%SZ); if [ "$rc" -ne 0 ]; then f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; else f=clear; e="the agent pid $agent exited 0; the worker is finished"; fi; printf "{\"monitor\":\"WorkerMonitor\",\"branch\":\"%s\",\"worktree\":\"%s\",\"finding\":\"%s\",\"since\":\"%s\",\"evidence\":\"%s\",\"measuredAt\":\"%s\"}\n" "$PLOT_BRANCH" "$PLOT_WORKTREE" "$f" "$now" "$e" "$now" >> "$PLOT_MONITOR_FILE" 2>/dev/null; fi; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
       >"$log" 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null
   echo "    started worker (log: $log)"
   return 0
@@ -3875,7 +3889,11 @@ IN_FLIGHT_MAX_BRANCHES=8
 report_monitors() { # $1=worktree
   [ "$show_monitors" = 1 ] || return 0
   local wt="$1" m
-  for m in worker agent; do
+  # ONLY `agent` IS A SCRIPT ANY MORE. `bug/the-loop-reports-idle` removed
+  # `plot-worker-monitor.sh`: the PROCESS no longer has a monitor to report —
+  # the loop's own watcher judges `idle` and the wrapper itself reports
+  # `gone`/`clear`, neither of which this dry run can name as a script path.
+  for m in agent; do
     local script="$script_dir/plot-$m-monitor.sh"
     if [ -x "$script" ]; then
       echo "  would attach: $script → $wt"

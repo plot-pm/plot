@@ -96,6 +96,27 @@ function discard(dir) {
 }
 
 /**
+ * Make a fixture's desk one the real watcher can judge `idle` on: an
+ * `origin/main` ref `plot_worker_has_commits` can count against, and a REAL
+ * file-touching commit beyond it.
+ *
+ * `fixture()`'s own commit is the ONLY one on the branch until this runs, and
+ * `plot_worker_has_commits` excludes it on purpose — `plot-dispatch.sh`'s own
+ * claim commit is `--allow-empty`, and the `-- .` pathspec this fixture's
+ * commit is counted under is the same guard `workeridle.test.mjs` exercises.
+ * Without a SEPARATE commit that touches a file, every idle-aimed test here
+ * would be testing the no-commits refusal instead of the finding it names.
+ */
+function makeIdleDeskReady(dir) {
+  // `origin/main` stands in for a real remote, exactly as `workeridle.test.mjs`
+  // does it — `plot_worker_has_commits` only needs the ref to exist.
+  git(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  fs.writeFileSync(path.join(dir, 'work.txt'), 'the agent did something\n');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'work the agent did');
+}
+
+/**
  * Run the loop to completion (or until `killAfterMs`, when set, sends `signal`
  * to the loop process). Resolves with { code, signal, stdout, stderr, pid }.
  */
@@ -433,23 +454,32 @@ test('worker-loop: no stray sleep after the loop itself is killed', serial, asyn
 // which is `a-hung-child-does-not-hold-the-loop`'s 2026-08-25 property. An
 // implementation that reads the monitor by removing the bound fails them.
 //
-// THE MONITOR IS STUBBED, NOT RUN. Every state below — a subtree frozen for two
-// consecutive samples, an agent that commits every few minutes for an hour — is
-// one a real machine will not produce on demand, and a test that waits for real
-// time is a test nobody runs (the same refusal `workermonitor.test.mjs` makes
-// one level down). The seam is the findings FILE: the monitor's only output is
-// JSONL appended there, so a stub that writes a line on cue drives the loop's
-// new reading exactly as the real monitor would.
+// REPOINTED AT THE LOOP'S OWN WATCHER (`bug/the-loop-reports-idle`). The
+// separate WorkerMonitor PROCESS this section's tests used to stub is gone;
+// the loop's own watcher subshell takes the six readings itself, every
+// `PLOT_MONITOR_INTERVAL`, by calling `plot_worker_idle_watch_pass`
+// (`plot-worker-state.sh`). Most tests below now drive that REAL watcher over
+// a REAL desk — a file-touching commit, an `origin/main` ref, and an aged
+// transcript built by `makeIdleDeskReady`/`agedTranscriptHome` — with a short
+// `PLOT_MONITOR_QUIET_SECONDS`/`PLOT_MONITOR_INTERVAL` so the real six-reading
+// pass judges idle in seconds rather than the shipped 900s/30s. `publishFinding`
+// below survives for the two cases where hand-writing a line into the findings
+// file is still the right seam: a finding from a DIFFERENT monitor (the
+// AgentMonitor, a separate file this loop never reads) and a finding this
+// loop's watcher has no code path for at all (`gone`) — proving the loop
+// ignores content it did not itself measure, not simulating a judgement it now
+// makes itself.
 
 /**
  * Write one monitor finding into a worktree's findings file, in the exact
- * shape `plot-worker-monitor.sh:publish` emits.
+ * shape `plot_worker_publish_finding` (`plot-worker-state.sh`) emits.
  *
- * THE PATH IS THE MONITOR'S OWN DEFAULT, not a convention invented here:
- * `plot-dispatch.sh` passes no `PLOT_MONITOR_FILE`, so a dispatched monitor
- * falls back to `$PLOT_WORKTREE/.plot-worker.monitor.worker.jsonl`. A test that
- * agreed with the loop but not with the monitor would pass while the fleet
- * stayed broken.
+ * THE PATH IS THE WATCHER'S OWN DEFAULT, not a convention invented here:
+ * `monitor_findings_file` (`plot-worker-loop.sh`) falls back to
+ * `$PLOT_WORKTREE/.plot-worker.monitor.worker.jsonl` when no
+ * `PLOT_MONITOR_FILE` is given, exactly as a dispatched agent's loop does. A
+ * test that agreed with the loop but not with that default would pass while
+ * the fleet stayed broken.
  */
 function publishFinding(dir, finding, { monitor = 'WorkerMonitor', file } = {}) {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -517,18 +547,31 @@ test('worker-loop: a working agent is not ended at the default floor', serial, a
 test('worker-loop: an idle finding ends the prompt', serial, async () => {
   const secs = 61;
   reap(secs);
-  // A bound far longer than the test: the ending must come from the finding.
+  // A bound far longer than the test: the ending must come from the finding,
+  // not the floor.
   const dir = fixture('idle-ends', 900, `sleep ${secs}\n`);
+  makeIdleDeskReady(dir);
+  // Aged well past the (shortened) window, so the FIRST watcher pass judges
+  // idle rather than waiting out the window from a fresh transcript.
+  const home = agedTranscriptHome(dir, 4000, 'idle-ends');
   try {
-    setTimeout(() => publishFinding(dir, 'idle'), 900);
     const started = Date.now();
-    const r = await runLoop(dir);
+    const r = await runLoop(dir, {
+      env: {
+        PLOT_TRANSCRIPT_HOME: home,
+        PLOT_SESSION_ID: 'idle-ends',
+        PLOT_MANIFEST_FILE: '',
+        PLOT_MONITOR_QUIET_SECONDS: '2',
+        PLOT_MONITOR_INTERVAL: '1',
+      },
+    });
     const elapsed = Date.now() - started;
     assert.notEqual(r.code, 0, 'the loop ended the worker');
-    assert.equal(r.code, 124, 'ending a worker keeps the timeout(1) convention');
-    assert.ok(elapsed < 20000, `ended on the finding, not the 900s bound (${elapsed}ms)`);
+    assert.equal(r.code, 124, `ending a worker keeps the timeout(1) convention\n--- stderr ---\n${r.stderr}`);
+    assert.ok(elapsed < 40000, `ended on the finding, not the 900s bound (${elapsed}ms)`);
   } finally {
     reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
     discard(dir);
   }
 });
@@ -547,23 +590,43 @@ test('worker-loop: an idle finding ends the prompt', serial, async () => {
 // The pair of tests is the point: the same fixture and the same published
 // finding, differing only in the variable, so neither arm can pass by accident.
 test('worker-loop: PLOT_MONITOR_ENDS_WORKER=0 publishes idle and does not end', serial, async () => {
-  const secs = 8;
+  const secs = 20;
   reap(secs);
   // A bound LONGER than the body, so anything that ends this run early ended it
-  // on the finding. The body outlives two monitor polls and then exits cleanly.
+  // on the finding. The body outlives several watcher polls and then exits
+  // cleanly — long enough for the REAL watcher to judge idle at least once
+  // while `PLOT_MONITOR_ENDS_WORKER=0` keeps it from acting on that judgement.
   const dir = fixture('idle-not-ends', 900, `sleep ${secs}\n`);
+  makeIdleDeskReady(dir);
+  const home = agedTranscriptHome(dir, 4000, 'idle-not-ends');
   try {
-    setTimeout(() => publishFinding(dir, 'idle'), 900);
     const started = Date.now();
-    const r = await runLoop(dir, { env: { PLOT_MONITOR_ENDS_WORKER: '0' } });
+    const r = await runLoop(dir, {
+      env: {
+        PLOT_MONITOR_ENDS_WORKER: '0',
+        PLOT_TRANSCRIPT_HOME: home,
+        PLOT_SESSION_ID: 'idle-not-ends',
+        PLOT_MANIFEST_FILE: '',
+        PLOT_MONITOR_QUIET_SECONDS: '2',
+        PLOT_MONITOR_INTERVAL: '1',
+      },
+    });
     const elapsed = Date.now() - started;
     assertRanToItsOwnEnd(r, 'the worker ran to its own end');
-    assert.doesNotMatch(r.stderr, /reported idle on/,
-      'the loop ended the worker on a finding it was told not to end on');
+    // The watcher now ALWAYS publishes regardless of the flag — only the
+    // `kill -USR1` is gated — so the finding should still reach the file even
+    // though it must not end the worker.
+    const findings = path.join(dir, '.plot-worker.monitor.worker.jsonl');
+    const published = fs.existsSync(findings)
+      ? fs.readFileSync(findings, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      : [];
+    assert.ok(published.some((f) => f.finding === 'idle'),
+      `the watcher must still publish idle with the flag off: ${JSON.stringify(published)}`);
     assert.ok(elapsed >= secs * 1000 - 1500,
       `ran its full body rather than being cut short (${elapsed}ms for a ${secs}s body)`);
   } finally {
     reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
     discard(dir);
   }
 });
@@ -576,17 +639,31 @@ test('worker-loop: the message names the reading that ended the worker', serial,
   const secs = 62;
   reap(secs);
   const dir = fixture('idle-message', 900, `sleep ${secs}\n`);
+  makeIdleDeskReady(dir);
+  const home = agedTranscriptHome(dir, 4000, 'idle-message');
   try {
-    setTimeout(() => publishFinding(dir, 'idle'), 900);
-    const r = await runLoop(dir);
-    assert.equal(r.code, 124, 'ended');
-    assert.match(r.stderr, /WorkerMonitor/,
-      'the message names the monitor whose reading ended the worker');
+    const r = await runLoop(dir, {
+      env: {
+        PLOT_TRANSCRIPT_HOME: home,
+        PLOT_SESSION_ID: 'idle-message',
+        PLOT_MANIFEST_FILE: '',
+        PLOT_MONITOR_QUIET_SECONDS: '2',
+        PLOT_MONITOR_INTERVAL: '1',
+      },
+    });
+    assert.equal(r.code, 124, `ended\n--- stderr ---\n${r.stderr}`);
+    // "WorkerMonitor" is the PUBLISHED FINDING's own field
+    // (`plot_worker_publish_finding`'s `"monitor":"WorkerMonitor"`), which the
+    // watcher subshell prints to STDOUT via its `plot-watch …` line — never to
+    // stderr, where the loop's own ending message lives.
+    assert.match(r.stdout, /WorkerMonitor/,
+      'the published finding names the monitor whose reading ended the worker');
     assert.match(r.stderr, /idle/, 'the message names the finding');
     assert.doesNotMatch(r.stderr, /exceeded the \d+s bound/,
       'a monitor ending must not be reported as the wall-clock bound');
   } finally {
     reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
     discard(dir);
   }
 });
@@ -600,49 +677,57 @@ test('worker-loop: the message names the reading that ended the worker', serial,
 // ASSERTED AS THE LOOP'S HALF OF IT: silence does not end a worker. A loop that
 // ended on any monitor output — or on a `gone`, or on the AgentMonitor's
 // "nothing measured yet" — would fail here.
+// REWRITTEN FOR THE REAL WATCHER. The old fixture published every finding
+// EXCEPT `idle` by hand (an AgentMonitor placeholder, a bare WorkerMonitor
+// `clear`) to prove the loop reacts to none of them — but with the publisher
+// gone, nothing injects those by hand anymore, and the AgentMonitor case is
+// already covered on its own below. What the brief's "no commits" property
+// still needs is a desk the real watcher would call `idle` on EXCEPT for one
+// thing: no real commit beyond the fixture's own init. `plot_worker_has_commits`
+// must then refuse (unanswerable/no), withholding the finding regardless of how
+// quiet everything else reads.
 test('worker-loop: a quiet agent with no idle finding is not ended', serial, async () => {
   const marker = 'quiet-finished.marker';
+  const secs = 9;
   const dir = fixture('quiet-nocommits', 900,
-    `sleep 3; touch "$PLOT_WORKTREE/${marker}"; echo done\n`);
+    `sleep ${secs}; touch "$PLOT_WORKTREE/${marker}"; echo done\n`);
+  // Deliberately NOT calling makeIdleDeskReady: no `origin/main` ref and no
+  // extra commit, so `plot_worker_has_commits` answers `unanswerable` and
+  // `idle` can never fire no matter how old the transcript reads.
+  const home = agedTranscriptHome(dir, 4000, 'quiet-nocommits');
   try {
-    // Everything a monitored worktree may carry EXCEPT an `idle` finding: the
-    // AgentMonitor's placeholder, and a WorkerMonitor `clear`.
-    setTimeout(() => {
-      publishFinding(dir, 'nothing measured yet',
-        { monitor: 'AgentMonitor', file: path.join(dir, '.plot-worker.monitor.agent.jsonl') });
-      publishFinding(dir, 'clear');
-    }, 600);
-    const r = await runLoop(dir);
+    const r = await runLoop(dir, {
+      env: {
+        PLOT_TRANSCRIPT_HOME: home,
+        PLOT_SESSION_ID: 'quiet-nocommits',
+        PLOT_MANIFEST_FILE: '',
+        PLOT_MONITOR_QUIET_SECONDS: '2',
+        PLOT_MONITOR_INTERVAL: '1',
+      },
+    });
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the quiet prompt ran to completion');
-    assertRanToItsOwnEnd(r, 'silence is not a verdict');
-    assert.doesNotMatch(r.stderr, /WorkerMonitor/, 'nothing was read as a finding');
+    assertRanToItsOwnEnd(r, 'silence with no commits is not a verdict');
+    // The published finding's `"monitor":"WorkerMonitor"` line goes to stdout
+    // (the watcher's own `plot-watch …` line), so that is where a stray
+    // publish would show up.
+    assert.doesNotMatch(r.stdout, /WorkerMonitor/, 'nothing was read as a finding');
   } finally {
+    fs.rmSync(home, { recursive: true, force: true });
     discard(dir);
   }
 });
 
-// A RECOVERED WORKER IS NOT AN IDLE ONE. The monitor publishes only on a
-// CHANGE, so a worktree whose agent stalled and then resumed carries an `idle`
-// line followed by a `clear` line — both, forever, in the same file. A loop
-// that searched the file for the word `idle` would kill every worker that had
-// ever recovered, which is worse than the bound it replaces: the bound at least
-// waited an hour first.
-//
-// So the reading is the LAST finding, not any finding.
-test('worker-loop: an idle finding superseded by clear does not end the worker', serial, async () => {
-  const marker = 'recovered.marker';
-  const dir = fixture('idle-then-clear', 900,
-    `sleep 3; touch "$PLOT_WORKTREE/${marker}"; echo done\n`);
-  try {
-    publishFinding(dir, 'idle');
-    publishFinding(dir, 'clear');
-    const r = await runLoop(dir);
-    assert.ok(fs.existsSync(path.join(dir, marker)), 'the recovered prompt ran to completion');
-    assertRanToItsOwnEnd(r, 'a superseded finding is not a verdict');
-  } finally {
-    discard(dir);
-  }
-});
+// DROPPED (`bug/the-loop-reports-idle`). The property this guarded — "the
+// reading is the LAST finding, not any finding" — was about a SEPARATE
+// process's file carrying a stale `idle` line a second reader might grep for
+// instead of the newest one. With the WorkerMonitor process gone, the loop's
+// own watcher subshell is the ONLY writer of this file, and it holds its own
+// in-process `PLOT_WATCH_PUBLISHED` state rather than re-reading the file —
+// there is no longer a "some OTHER line in the file" for a recovered worker to
+// be confused with, because nothing outside the watcher's own pass writes
+// here at all. Forcing a real recovery (idle, then genuinely busy again) would
+// test the SAME `plot_worker_idle_now` logic `workeridle.test.mjs` already
+// covers over a real desk, not a loop-specific concern.
 
 // THE FINDINGS OF ANOTHER WORKER ARE NOT THIS ONE'S. The AgentMonitor writes
 // into the same worktree with the same file prefix, and its vocabulary is not
@@ -667,21 +752,28 @@ test('worker-loop: an AgentMonitor finding is not a WorkerMonitor verdict', seri
   }
 });
 
-// A `gone` FINDING IS NOT THIS LOOP'S BUSINESS. It means the agent pid names no
-// live process — and when that is true the prompt child has already exited, so
-// the loop is past `wait` and into `--next` on its own. Reading `gone` as a
-// reason to kill would be the loop racing to kill something already dead, and
-// would end a worker whose agent finished cleanly a moment before the monitor's
-// next pass.
+// A `gone` FINDING IS NOT THIS LOOP'S BUSINESS. `gone` is no longer published
+// by anything the loop's own watcher reads or reacts to — `plot_worker_idle_now`
+// has no `gone` arm at all (`plot-worker-state.sh`'s own comment: "a dead pid
+// answers `silent`"), and `gone` is now the DISPATCHER WRAPPER's own finding,
+// written after `wait "$agent"` returns, which this test's harness never runs.
+//
+// STILL WORTH KEEPING: a stray `gone` line sitting in the findings file —
+// however it got there — must be inert to the loop, which only ever reads
+// what its OWN watcher pass measures on its own schedule, never the file's
+// prior content. Pre-seeded rather than timed, since there is no longer a
+// separate monitor process to race against; the loop's watcher may read this
+// file's content on its own schedule but has no code path that acts on this
+// finding regardless of when it sees it.
 test('worker-loop: a gone finding does not end the worker', serial, async () => {
   const marker = 'gone-ignored.marker';
   const dir = fixture('gone', 900,
     `sleep 3; touch "$PLOT_WORKTREE/${marker}"; echo done\n`);
   try {
-    setTimeout(() => publishFinding(dir, 'gone'), 600);
+    publishFinding(dir, 'gone');
     const r = await runLoop(dir);
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the prompt ran to completion');
-    assertRanToItsOwnEnd(r, 'gone is the monitor reporting, not the loop killing');
+    assertRanToItsOwnEnd(r, 'gone is the wrapper reporting, not the loop killing');
   } finally {
     discard(dir);
   }
@@ -723,16 +815,28 @@ test('worker-loop: a zero bound keeps the monitor reading', serial, async () => 
   const secs = 64;
   reap(secs);
   const dir = fixture('zero-bound', 0, `sleep ${secs}\n`);
+  makeIdleDeskReady(dir);
+  const home = agedTranscriptHome(dir, 4000, 'zero-bound');
   try {
-    setTimeout(() => publishFinding(dir, 'idle'), 900);
     const started = Date.now();
-    const r = await runLoop(dir);
+    const r = await runLoop(dir, {
+      env: {
+        PLOT_TRANSCRIPT_HOME: home,
+        PLOT_SESSION_ID: 'zero-bound',
+        PLOT_MANIFEST_FILE: '',
+        PLOT_MONITOR_QUIET_SECONDS: '2',
+        PLOT_MONITOR_INTERVAL: '1',
+      },
+    });
     const elapsed = Date.now() - started;
-    assert.equal(r.code, 124, 'the monitor ended it though the floor was disabled');
-    assert.match(r.stderr, /WorkerMonitor/, 'and named the reading');
-    assert.ok(elapsed < 20000, `ended on the finding (${elapsed}ms)`);
+    assert.equal(r.code, 124, `the monitor ended it though the floor was disabled\n--- stderr ---\n${r.stderr}`);
+    // The published finding's `"monitor":"WorkerMonitor"` field is printed to
+    // stdout (the watcher's `plot-watch …` line), not stderr.
+    assert.match(r.stdout, /WorkerMonitor/, 'and named the reading');
+    assert.ok(elapsed < 40000, `ended on the finding (${elapsed}ms)`);
   } finally {
     reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
     discard(dir);
   }
 });
@@ -760,10 +864,19 @@ test('worker-loop: no stray sleeps after an idle ending', serial, async () => {
   reap(promptSecs);
   reap(boundSecs);
   const dir = fixture('watcher-leak', boundSecs, `sleep ${promptSecs}\n`);
+  makeIdleDeskReady(dir);
+  const home = agedTranscriptHome(dir, 4000, 'watcher-leak');
   try {
-    setTimeout(() => publishFinding(dir, 'idle'), 900);
-    const r = await runLoop(dir);
-    assert.equal(r.code, 124, 'ended on the finding');
+    const r = await runLoop(dir, {
+      env: {
+        PLOT_TRANSCRIPT_HOME: home,
+        PLOT_SESSION_ID: 'watcher-leak',
+        PLOT_MANIFEST_FILE: '',
+        PLOT_MONITOR_QUIET_SECONDS: '2',
+        PLOT_MONITOR_INTERVAL: '1',
+      },
+    });
+    assert.equal(r.code, 124, `ended on the finding\n--- stderr ---\n${r.stderr}`);
     await wait(500);
     assert.equal(sleepCount(promptSecs), 0, 'the prompt sleep was killed');
     assert.equal(sleepCount(boundSecs), 0,
@@ -771,6 +884,7 @@ test('worker-loop: no stray sleeps after an idle ending', serial, async () => {
   } finally {
     reap(promptSecs);
     reap(boundSecs);
+    fs.rmSync(home, { recursive: true, force: true });
     discard(dir);
   }
 });
@@ -986,6 +1100,49 @@ function transcriptHome(dir, { hasTranscript }) {
   return home;
 }
 
+/**
+ * A transcript home for `dir`, holding ONE session file aged `ageSeconds` in
+ * the past, named for `sessionId`.
+ *
+ * `transcriptHome` above always writes a FRESH-mtime file named `session.jsonl`
+ * — right for the floor's two arms, which only ask `ended_reading_available`
+ * whether ANY file exists in the directory. The real watcher's `idle` finding
+ * instead goes through `plot_worker_conversation_spoken`, which calls
+ * `plot_transcript_exists "$wt" "$handle"` — and that checks for
+ * `$dir/$id.jsonl` BY NAME, where `$id` is `session_handle`'s answer
+ * (`PLOT_SESSION_ID` here, since the fixture's `PLOT_MANIFEST_FILE` is blanked).
+ * A file named anything else reads as `spoken=0` (unspoken), which
+ * `plot_worker_idle_now` treats exactly like a live, chatty agent — never
+ * idle — so a mismatched filename silently withholds the finding forever.
+ * Measured while writing this: `session.jsonl` against `PLOT_SESSION_ID`
+ * `idle-ends` never found the file and the watcher reported `spoken=0` on
+ * every one of 16 passes across a 16s run.
+ *
+ * ALSO AGED, unlike `transcriptHome`. The real watcher's `idle` finding reads
+ * `plot_transcript_quiet_seconds`, which measures from the file's mtime, so a
+ * test that wants the watcher to judge `idle` quickly needs a transcript that
+ * is ALREADY old on disk — a fresh one would make the watcher wait out the
+ * full quiet window from scratch, same as a real desk would. `touch -t` sets
+ * the mtime directly, following `workeridle.test.mjs`'s own `touchStamp`
+ * pattern.
+ *
+ * Returns the home path; the caller discards it.
+ */
+function agedTranscriptHome(dir, ageSeconds, sessionId) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tqhome-aged-'));
+  const slug = dir.replace(/[/.]/g, '-');
+  const d = path.join(home, '.claude', 'projects', slug);
+  fs.mkdirSync(d, { recursive: true });
+  const transcript = path.join(d, `${sessionId}.jsonl`);
+  fs.writeFileSync(transcript, '{"type":"user"}\n');
+  const past = new Date(Date.now() - ageSeconds * 1000);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const stamp = `${past.getFullYear()}${p2(past.getMonth() + 1)}${p2(past.getDate())}` +
+    `${p2(past.getHours())}${p2(past.getMinutes())}.${p2(past.getSeconds())}`;
+  execFileSync('touch', ['-t', stamp, transcript]);
+  return home;
+}
+
 // The floor's FIRST arm — the reading was there and stayed silent.
 test('worker-loop: a readable transcript makes the floor say the bound expired', serial, async () => {
   const secs = 71;
@@ -1074,9 +1231,18 @@ test('worker-loop: the monitor sentence describes the transcript reading', seria
   const secs = 73;
   reap(secs);
   const dir = fixture('monitor-sentence', 900, `sleep ${secs}\n`);
+  makeIdleDeskReady(dir);
+  const home = agedTranscriptHome(dir, 4000, 'monitor-sentence');
   try {
-    setTimeout(() => publishFinding(dir, 'idle'), 900);
-    const r = await runLoop(dir);
+    const r = await runLoop(dir, {
+      env: {
+        PLOT_TRANSCRIPT_HOME: home,
+        PLOT_SESSION_ID: 'monitor-sentence',
+        PLOT_MANIFEST_FILE: '',
+        PLOT_MONITOR_QUIET_SECONDS: '2',
+        PLOT_MONITOR_INTERVAL: '1',
+      },
+    });
     assert.equal(r.code, 124, `the finding ended it\n--- stderr ---\n${r.stderr}`);
     assert.match(r.stderr, /the agent went quiet/,
       'the monitor ending names its own reading');
@@ -1089,6 +1255,7 @@ test('worker-loop: the monitor sentence describes the transcript reading', seria
       'a monitor verdict is neither floor arm');
   } finally {
     reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
     discard(dir);
   }
 });
