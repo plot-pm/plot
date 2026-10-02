@@ -596,3 +596,197 @@ describe('what kind of answer a refresh received', () => {
     expect(answerKind(delta, missing)).toBe('partial');
   });
 });
+
+describe('a terminal row takes the verdicts the store already holds', () => {
+  // WHY THIS RULE EXISTS, measured 2026-10-01 on this repository: the full read
+  // asked `--rich --state all --limit 1000` and took 43.0 s, where the same call
+  // without the rich fields took 7.3 s. All 1000 rows were terminal — 964
+  // `MERGED`, 36 `CLOSED`, 0 `OPEN` — so 36 s bought four verdicts about heads
+  // nobody can act on. The adapter now asks them of open PRs only, and a
+  // terminal row arrives carrying the absent values.
+  //
+  // THE FOLD IS WHERE THIS CAN LIVE AND NOWHERE ELSE. The adapter holds no
+  // store, so it cannot tell a verdict it never asked for from one the board
+  // already has; only the fold sees `held` and the incoming row together.
+  // Without this half the adapter alone passes every adapter test and erases
+  // every held verdict on the next whole fold.
+
+  /** A row as the plain GitHub call now produces it: terminal, verdicts absent. */
+  const plainTerminal = (number: number, state: string): PrIndexRow => row(number, {
+    state,
+    checks: 'unknown',
+    mergeable: 'unknown',
+    review: '',
+    failing_checks: [],
+    updatedAt: '2026-10-01T12:00:00Z',
+  });
+
+  /** The same PR as a full rich read once stored it. */
+  const richHeld = (number: number, state: string): PrIndexRow => row(number, {
+    state,
+    checks: 'green',
+    mergeable: 'mergeable',
+    review: 'APPROVED',
+    failing_checks: [],
+    updatedAt: '2026-09-30T09:00:00Z',
+  });
+
+  it('keeps a held MERGED row\'s verdicts across a full read', () => {
+    // THE ASSERTION THE ADAPTER HALF ALONE WOULD FAIL. A `whole` fold starts
+    // from an empty map, so the incoming row replaces the held one outright —
+    // and with the rich fields no longer asked, every one of the 964 merged rows
+    // would land carrying `unknown`.
+    const held = store([richHeld(7, 'MERGED')]);
+    const folded = foldPrIndex(held, {
+      connector: 'github',
+      kind: 'whole',
+      at: '2026-10-01T12:00:00Z',
+      rows: [plainTerminal(7, 'MERGED')],
+    });
+    expect(folded.rows).toHaveLength(1);
+    expect(folded.rows[0]).toMatchObject({
+      number: 7,
+      state: 'MERGED',
+      checks: 'green',
+      mergeable: 'mergeable',
+      review: 'APPROVED',
+      failing_checks: [],
+      // THE INCOMING ROW STILL OWNS EVERY OTHER FIELD. Only the four verdicts
+      // are held; the state, the stamp and the rest are what the host just said.
+      updatedAt: '2026-10-01T12:00:00Z',
+    });
+  });
+
+  it('keeps a held CLOSED row\'s verdicts too', () => {
+    // CLOSED IS TERMINAL FOR THE SAME REASON MERGED IS: no check can run against
+    // a head nobody will merge, so the verdicts cannot change either.
+    const held = store([richHeld(8, 'CLOSED')]);
+    const folded = foldPrIndex(held, {
+      connector: 'github',
+      kind: 'whole',
+      at: '2026-10-01T12:00:00Z',
+      rows: [plainTerminal(8, 'CLOSED')],
+    });
+    expect(folded.rows[0]).toMatchObject({
+      state: 'CLOSED', checks: 'green', mergeable: 'mergeable', review: 'APPROVED',
+    });
+  });
+
+  it('keeps the absent values on a terminal row with no held row', () => {
+    // ABSENT IS NOT FALSE. A PR this store has never seen has no verdict to
+    // carry, and `unknown` is the honest answer — never `green`, which would be
+    // a measurement nobody made.
+    const folded = foldPrIndex(store([richHeld(7, 'MERGED')]), {
+      connector: 'github',
+      kind: 'whole',
+      at: '2026-10-01T12:00:00Z',
+      rows: [plainTerminal(99, 'MERGED')],
+    });
+    const fresh = folded.rows.find((r) => r.number === 99);
+    expect(fresh).toMatchObject({
+      checks: 'unknown', mergeable: 'unknown', review: '', failing_checks: [],
+    });
+  });
+
+  it('keeps the absent values where there is no held store at all', () => {
+    const folded = foldPrIndex(null, {
+      connector: 'github',
+      kind: 'whole',
+      at: '2026-10-01T12:00:00Z',
+      rows: [plainTerminal(7, 'MERGED')],
+    });
+    expect(folded.rows[0]).toMatchObject({ checks: 'unknown', mergeable: 'unknown' });
+  });
+
+  it('never gives an OPEN row the held verdicts', () => {
+    // THE OPEN CALL IS THE RICH ONE, so a plain `OPEN` row means the two calls
+    // disagreed about the same PR — the open call did not list it and the all
+    // call did. Carrying a held `green` onto it would show a passing check on a
+    // PR whose head has moved since, which is the one direction a stale verdict
+    // is actively misleading in.
+    const held = store([richHeld(7, 'OPEN')]);
+    const folded = foldPrIndex(held, {
+      connector: 'github',
+      kind: 'whole',
+      at: '2026-10-01T12:00:00Z',
+      rows: [plainTerminal(7, 'OPEN')],
+    });
+    expect(folded.rows[0]).toMatchObject({
+      state: 'OPEN', checks: 'unknown', mergeable: 'unknown', review: '',
+    });
+  });
+
+  it('lets a terminal row that DID carry verdicts overwrite the held ones', () => {
+    // THE RULE IS ABOUT ABSENCE, NOT ABOUT THE STATE. A delta asks `--rich` and
+    // answers real verdicts for a terminal row, and those are newer than the
+    // held ones — so a row that answered wins, exactly as every other field
+    // does. Only the absent values reach back into the store.
+    const held = store([richHeld(7, 'MERGED')]);
+    const folded = foldPrIndex(held, {
+      connector: 'github',
+      kind: 'delta',
+      at: '2026-10-01T12:00:00Z',
+      rows: [row(7, {
+        state: 'MERGED', checks: 'failing', mergeable: 'mergeable',
+        review: 'CHANGES_REQUESTED', failing_checks: ['build'],
+      })],
+    });
+    expect(folded.rows[0]).toMatchObject({
+      checks: 'failing', review: 'CHANGES_REQUESTED', failing_checks: ['build'],
+    });
+  });
+
+  it('carries held verdicts on a delta as well as a whole read', () => {
+    // A DELTA KEEPS WHAT IT DID NOT SEE by holding the row whole, so this case
+    // only arises where the delta DID mention the row — and a mentioned row
+    // whose verdicts are absent is in exactly the position a full read's is.
+    // Asserted so the rule cannot quietly become whole-only.
+    const held = store([richHeld(7, 'MERGED')]);
+    const folded = foldPrIndex(held, {
+      connector: 'github',
+      kind: 'delta',
+      at: '2026-10-01T12:00:00Z',
+      rows: [plainTerminal(7, 'MERGED')],
+    });
+    expect(folded.rows[0]).toMatchObject({ checks: 'green', mergeable: 'mergeable' });
+  });
+
+  it('takes each verdict independently, so a partly-answered row keeps the rest', () => {
+    // FOUR FIELDS, FOUR DECISIONS — the rule `storeRow` already follows: *"Each
+    // guarded separately and each on its own absent value, so a row the host
+    // answered partially round-trips as partially answered."*
+    const held = store([richHeld(7, 'MERGED')]);
+    const folded = foldPrIndex(held, {
+      connector: 'github',
+      kind: 'whole',
+      at: '2026-10-01T12:00:00Z',
+      rows: [row(7, {
+        state: 'MERGED',
+        checks: 'failing',
+        mergeable: 'unknown',
+        review: '',
+        failing_checks: [],
+      })],
+    });
+    expect(folded.rows[0]).toMatchObject({
+      // Answered, so it wins.
+      checks: 'failing',
+      // Absent, so the held value is kept.
+      mergeable: 'mergeable',
+      review: 'APPROVED',
+    });
+  });
+
+  it('leaves a held row untouched where the answer never mentions it', () => {
+    // A `whole` answer that drops a PR is how a deletion reaches the store, and
+    // this rule must not resurrect one: it reads `held` for a row the update
+    // MENTIONED, never for one it did not.
+    const folded = foldPrIndex(store([richHeld(7, 'MERGED')]), {
+      connector: 'github',
+      kind: 'whole',
+      at: '2026-10-01T12:00:00Z',
+      rows: [plainTerminal(8, 'MERGED')],
+    });
+    expect(folded.rows.map((r) => r.number)).toEqual([8]);
+  });
+});

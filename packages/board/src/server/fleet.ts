@@ -3076,7 +3076,20 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
     // is byte-identical to the one this file has always made. `--since ""`
     // would reach GitHub as `--search "updated:>"`, a syntax error the host may
     // answer with everything or with nothing.
-    const args = ['pr-list', '--rich', '--state', 'all', '--limit', String(PR_LIMIT)];
+    // `--rich-open` ON THE FULL READ AND `--rich` ON THE DELTA, and the window
+    // is what tells them apart. A full read asks about a history that is almost
+    // entirely terminal — measured 2026-10-01, all 1000 rows were (964 `MERGED`,
+    // 36 `CLOSED`, 0 `OPEN`) — so asking a verdict of each cost 36 s of a 43 s
+    // call for answers about heads nobody can act on. A DELTA ASKS ABOUT THE
+    // ROWS THAT CHANGED, which is exactly the population whose verdicts are
+    // worth buying: it answered 0 rows in 0.8 s, so there is nothing to save and
+    // a changed terminal PR is one whose checks a reader may still be reading.
+    //
+    // STILL ONE `pr-list` CALL PER REFRESH, so `PR_REQUESTS_PER_REFRESH` needs
+    // no new arithmetic — the adapter makes two host calls inside the one
+    // question, and the budget counts questions.
+    const args = ['pr-list', window.since === null ? '--rich-open' : '--rich',
+      '--state', 'all', '--limit', String(PR_LIMIT)];
     if (window.since !== null) args.push('--since', window.since);
     const said = await withHostSlot(entry, () => scriptsFor(opts).hostSaid(args));
     // A refusal is thrown so the catch below keeps owning the backoff. It is one

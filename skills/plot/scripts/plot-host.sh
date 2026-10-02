@@ -71,7 +71,54 @@
 #   pr-merge <number> [--squash] [--delete-branch]
 #   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
-#   pr-list [--state open|merged|closed|all] [--limit N] [--rich]
+#   pr-list [--state open|merged|closed|all] [--limit N] [--rich|--rich-open]
+#                                 --rich-open asks the rich fields of the OPEN
+#                                 pull requests only, and emits every row in the
+#                                 --rich shape. A MERGED or CLOSED row carries
+#                                 checks:"unknown", mergeable:"unknown",
+#                                 review:"" and failing_checks:[] — the ABSENT
+#                                 values the Bitbucket arm already emits, which
+#                                 mean NOT ASKED and never "no checks".
+#                                 WHY: the four rich fields are verdicts about a
+#                                 PR's HEAD, and a terminal head is finished —
+#                                 no check will run against it and no review will
+#                                 change. Measured 2026-10-01 on this
+#                                 repository, `--rich --state all --limit 1000`
+#                                 took 43.0 s against 7.3 s without the rich
+#                                 fields, and all 1000 rows were terminal, so
+#                                 36 s bought answers nobody can use.
+#                                 Re-measured 2026-10-02 with 3 PRs open:
+#                                 `--rich --state open` 2.6-3.3 s, `--state all`
+#                                 8.6-10.5 s, the split read 12.2-13.5 s.
+#                                 ON GITHUB IT IS TWO CALLS and the terminal
+#                                 rows come from the plain one; a PR open in both
+#                                 payloads is emitted once, from the rich call.
+#                                 A FAILURE IN EITHER CALL PRINTS NO ROWS AND
+#                                 EXITS NON-ZERO — a half answer reported as
+#                                 whole is what would let a caller fold a store
+#                                 that lost every open PR.
+#                                 ON BITBUCKET IT ANSWERS EXACTLY AS --rich,
+#                                 because that arm asks the host no verdict: its
+#                                 rows are already `unknown` whatever the state,
+#                                 so there is no second call to save.
+#                                 THE CALLER STILL ASKS ONCE. One `pr-list`
+#                                 invocation is one host question however many
+#                                 calls this makes, so a caller's per-refresh
+#                                 arithmetic is unchanged.
+#                                 `--limit` BOUNDS EACH CALL, NOT THE UNION, so
+#                                 the row count can exceed it by up to the number
+#                                 of open pull requests. Measured 2026-10-02 with
+#                                 5 open: `--limit 5` answered 6 rows, where
+#                                 `--rich` answered 5 — the open call returned an
+#                                 open PR that fell outside the plain call's
+#                                 newest-5 page. It is NOT bounded per call and
+#                                 then trimmed, because trimming would drop
+#                                 either a verdict the rich call just bought or a
+#                                 terminal row the store needs, and the caller
+#                                 cannot say which. Harmless where `--limit`
+#                                 exceeds the open count, which is every caller
+#                                 today: the board asks 1000 against 5 open, and
+#                                 no other caller passes this flag.
 #                                 [--since <iso>] narrows the listing to pull
 #                                 requests the host has seen change since that
 #                                 stamp. Measured 2026-09-21 on this repository:
@@ -3740,6 +3787,10 @@ case "$op" in
   pr-list)
     state="open"
     rich=0
+    # Whether the rich fields are asked of the OPEN pull requests only. Set by
+    # `--rich-open`, which also sets `rich`: the flag narrows what is ASKED and
+    # never what is emitted.
+    rich_open=0
     # PIN THE LIST TO ONE REPOSITORY, the same `--repo` `pr-state` and
     # `pr-merged` already take. A checkout may carry several remotes on several
     # hosts, and an unpinned `gh pr list` resolves whichever of them it prefers
@@ -3764,6 +3815,22 @@ case "$op" in
         --state) state="${2:?}"; shift 2 ;;
         --limit) limit="${2:?}"; shift 2 ;;
         --rich) rich=1; shift ;;
+        # THE RICH FIELDS OF THE OPEN PRs AND THE PLAIN FIELDS OF THE REST.
+        # Measured 2026-10-01 on this repository: `--rich --state all --limit
+        # 1000` took 43.0 s and the same call without the rich fields took 7.3 s,
+        # while all 1000 rows were terminal — so 36 s bought four verdicts about
+        # heads nobody can act on. Re-measured 2026-10-02 with 3 PRs open:
+        # `--rich --state open` is 2.6-3.3 s and `--state all` is 8.6-10.5 s.
+        #
+        # IT IMPLIES `--rich`, so every row carries every rich field and no
+        # consumer has to ask which call produced it. A terminal row's verdicts
+        # arrive at the ABSENT values the Bitbucket arm already emits, which the
+        # store's schema accepts — so no `PR_INDEX_VERSION` bump follows.
+        #
+        # THE SPLIT IS ONLY WORTH MAKING OVER A SET THAT HOLDS TERMINAL ROWS.
+        # With `--state open` asked, both calls would list the same PRs and the
+        # second would be waste, so this collapses to plain `--rich` there.
+        --rich-open) rich=1; rich_open=1; shift ;;
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
         # `${2:?}` REFUSES AN EMPTY VALUE, and that is the point rather than
         # boilerplate. `--since ""` would reach GitHub as `--search "updated:>"`,
@@ -3842,6 +3909,57 @@ case "$op" in
     fi
 
     if [ "$be" = "github" ]; then
+      # THE SPLIT READ, AND IT IS TWO CALLS BECAUSE THE COST IS PER ROW.
+      # `gh pr list` pages internally and takes no page-size flag, so 1000 rich
+      # rows cost 1000 rows' worth of `statusCheckRollup` whatever the page.
+      # Narrowing the SET is the only lever: the rich fields are asked of the
+      # open pull requests, and everything else comes back plain.
+      #
+      # ORDER MATTERS — THE RICH ROWS GO FIRST. A PR that is open appears in
+      # both payloads, and a consumer keyed by number takes the last line it
+      # read; the second call is filtered to the terminal states instead, so no
+      # number is emitted twice and no rich row is overwritten by a plain one.
+      # Filtered rather than ordered, because a caller that sorts or de-dupes
+      # differently must not be able to reach a different answer.
+      #
+      # ASKED ONLY WHERE THE SET CAN HOLD A TERMINAL ROW. With `--state open`
+      # the two calls would list the same PRs, so this collapses to `--rich`.
+      if [ "$rich_open" = 1 ] && [ "$state" != "open" ]; then
+        # THE OPEN HALF, RICH. Asked with the caller's own `--limit` and
+        # `--since`: a window the caller set applies to both halves, or the two
+        # would answer about different populations.
+        #
+        # `|| exit $?` ON BOTH, and the rule `pr_list_call`'s header states is
+        # what makes it load-bearing here too: this runs in a command
+        # substitution, so a `die` inside leaves only that subshell and the
+        # outer script would carry on with an empty payload. A failing open call
+        # and a failing all call must each exit non-zero and print no rows.
+        _rich_open_out="$("$0" pr-list --rich --state open \
+          ${limit:+--limit "$limit"} ${since:+--since "$since"} \
+          ${repo_args[1]+--repo "${repo_args[1]}"} \
+          $(for _b in $branches; do printf -- '--branch %s ' "$_b"; done))" || exit $?
+        # THE REST, PLAIN, AND THE TERMINAL ROWS ARE THE ONES KEPT. `--state
+        # all` is asked rather than merged+closed separately: GitHub answers it
+        # in one call, and two calls would double a cost this exists to halve.
+        _plain_all_out="$("$0" pr-list --state "$state" \
+          ${limit:+--limit "$limit"} ${since:+--since "$since"} \
+          ${repo_args[1]+--repo "${repo_args[1]}"} \
+          $(for _b in $branches; do printf -- '--branch %s ' "$_b"; done))" || exit $?
+        [ -n "$_rich_open_out" ] && printf '%s\n' "$_rich_open_out"
+        # THE ABSENT VALUES ARE THE BITBUCKET ARM'S, not invented here: a
+        # terminal row carries every field a rich row carries, so one shape
+        # reaches every consumer. `checks:"unknown"` means NOT ASKED and never
+        # *no checks* — the board's fold takes the verdict it already holds for
+        # the same number, and a row with none reads as unavailable.
+        #
+        # `draft`, `url` and `updatedAt` are REAL here — the plain GitHub arm
+        # asks for them — so only the four verdicts are absent.
+        [ -n "$_plain_all_out" ] && printf '%s\n' "$_plain_all_out" \
+          | jq -c 'select(.state=="MERGED" or .state=="CLOSED")
+              | . + {checks:"unknown", mergeable:"unknown", review:"",
+                     failing_checks:[]}'
+        exit 0
+      fi
       if [ "$rich" = 1 ]; then
         # `checks` has FOUR states, and two of them mean "a person is the
         # blocker" rather than "a machine is busy":
@@ -3981,12 +4099,25 @@ case "$op" in
               }'
         fi
       else
+        # `isDraft`, `url` AND `updatedAt` TRAVEL ON THE PLAIN ARM TOO, and they
+        # are cheap: measured 2026-09-21, `number,updatedAt` over 937 PRs is
+        # 4715 ms against 5417 ms for the base fields, where
+        # `statusCheckRollup` alone is 18 842 ms. They are scalar columns on the
+        # PR node; the rollup is a per-row resolution, and that is the whole
+        # 36 s `--rich-open` removes.
+        #
+        # ASKED HERE BECAUSE `--rich-open`'S TERMINAL ROWS COME THROUGH THIS
+        # ARM, and a terminal row must carry every field a rich row carries —
+        # `updatedAt` most of all, since it is the field a durable store
+        # advances its watermark by. Without it a split full read would leave
+        # the store unable to narrow and the daily full read would never fall
+        # due against anything but a cold window.
         _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
-          --json number,title,state,headRefName,author)" || exit $?
+          --json number,title,state,headRefName,isDraft,url,updatedAt,author)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
         printf '%s' "$_gh_raw" \
-          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,author:(.author.login // "")}'
+          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,draft:.isDraft,url:.url,updatedAt:(.updatedAt // ""),author:(.author.login // "")}'
       fi
     else
       # `author` IS THE `nickname`, the one handle field a Bitbucket user
