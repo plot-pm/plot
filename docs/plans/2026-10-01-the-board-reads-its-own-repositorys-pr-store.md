@@ -11,6 +11,7 @@
 - **Issue:** #1112
 - **Review:** in-session
 - **Impl:** own branches
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-streaming-test-owns-its-store`
 
 ## Changelog
 
