@@ -916,6 +916,29 @@ await esbuild.build({
 fs.copyFileSync(promptExitArtifact, shippedPromptExit);
 fs.chmodSync(shippedPromptExit, 0o755);
 
+// plot-checks-verdict.mjs — whether an agent that finished a prompt still waits
+// for its PR's checks, for `plot-worker-loop.sh`. Its own bundle for the reason
+// the prompt-exit block gives: `plot-ask.mjs` runs the fleet scan to answer
+// anything. The loop asks once a minute while an agent waits; the entry reads
+// stdin, spawns nothing and opens nothing.
+const checksVerdictArtifact = path.join(here, 'dist/plot-checks-verdict.mjs');
+const shippedChecksVerdict = path.join(here, '../../skills/plot/scripts/board/plot-checks-verdict.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/checks-verdict.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: checksVerdictArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(checksVerdictArtifact, shippedChecksVerdict);
+fs.chmodSync(shippedChecksVerdict, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -1166,6 +1189,7 @@ const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(
 const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
 const startCommandKb = (fs.statSync(shippedStartCommand).size / 1024).toFixed(1);
 const promptExitKb = (fs.statSync(shippedPromptExit).size / 1024).toFixed(1);
+const checksVerdictKb = (fs.statSync(shippedChecksVerdict).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1195,4 +1219,5 @@ console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/p
 console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-start-command.mjs (${startCommandKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-prompt-exit.mjs (${promptExitKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-checks-verdict.mjs (${checksVerdictKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

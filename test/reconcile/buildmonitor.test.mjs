@@ -119,6 +119,42 @@ test('build failed fires when a run for the head reaches a failing conclusion', 
     'the evidence does not name the run, so a reader cannot go and look at it');
 });
 
+test('a free agent\'s monitor reports the branch its desk was handed, not the empty one it started with', () => {
+  // A free agent starts with PLOT_BRANCH empty and takes its slice later, in the
+  // same desk. A branch read once at start left `monitor_run_for_sha` with no
+  // branch to ask about, so no finding was ever published for that slice.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bmon-free-'));
+  const file = path.join(dir, 'findings.jsonl');
+  const desk = path.join(dir, 'desk');
+  try {
+    execFileSync('git', ['init', '-q', '-b', 'main', desk]);
+    execFileSync('git', ['-C', desk, 'checkout', '-q', '-b', 'feature/handed']);
+    const script = `
+      PLOT_MONITOR_NO_MAIN=1
+      . ${JSON.stringify(monitor)}
+      monitor_head_sha() { printf '%s' ${JSON.stringify(HEAD)}; }
+      monitor_run_for_sha() {
+        [ "$branch" = feature/handed ] || return 2
+        printf '%s' ${JSON.stringify(run({ conclusion: 'failure' }))}; return 0;
+      }
+      monitor_pass
+    `;
+    execFileSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: { ...process.env, PLOT_BRANCH: '', PLOT_WORKTREE: desk, PLOT_MONITOR_FILE: file },
+    });
+    const found = fs.existsSync(file)
+      ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      : [];
+    assert.equal(found.length, 1, `expected one finding for the handed branch, got ${JSON.stringify(found)}`);
+    assert.equal(found[0].finding, 'build failed');
+    assert.equal(found[0].branch, 'feature/handed');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('build passed fires when a run reaches success', () => {
   const { found } = drive(answers({ conclusion: 'success' }));
   assert.equal(found.length, 1);
