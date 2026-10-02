@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Approved:** 2026-10-02, jwloka, in-session
+- **Started:** 2026-10-02, Jan Wloka, `feature/a-slice-ends-when-its-checks-do`
 - **Type:** feature
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Review:** in-session
@@ -53,7 +54,7 @@ These are single readings taken while the fleet ran, not a recorded series.
 
 ### Approach
 
-**Slice 1, an agent keeps its slice until its checks finish.** After `plot-open-pr.sh` succeeds, the loop does not end the slice. It waits until the PR's checks for the pushed head are terminal, reading the BuildMonitor's findings, which already carry the head SHA and the conclusion. A failure is handed back through the existing correction path. A pass, or a PR whose checks are not terminal within `Worker bound`, ends the slice as today. The decision *is this slice finished* is a domain rule over the readings (PR state, the head, the monitor's latest finding, elapsed time); the loop asks it through a bundle, the way it asks `plot-prompt.mjs`. The wait holds a fleet slot for the length of a CI run, about 10-15 min on this repository, which the PR body measures.
+**Slice 1, an agent keeps its slice until its checks finish.** After a prompt ends, the loop calls `wait_for_checks` before it asks whether the build failed. It waits while the branch's head is on the remote, an open PR carries it, and the BuildMonitor has published no result for that head, up to `Checks wait` seconds (default 1800; `0` disables it). `checksVerdict` in `packages/domain/src/rules/checks-verdict.ts` decides, asked through `skills/plot/scripts/board/plot-checks-verdict.mjs` once a minute: one `node` start per minute per waiting agent, the cost `plot-prompt-exit.mjs` already pays once per prompt. The push and the PR are read once per finished prompt (one `git fetch` of the branch, one `plot-host.sh pr-state`). A failure then takes the existing correction path. **The BuildMonitor follows the desk's branch.** It read `PLOT_BRANCH` once at start, so for a free agent, which starts with none, it never asked the host and never published, and for an agent that hopped it reported the old branch. It now reads the desk's checked-out branch on every pass. The wait holds a fleet slot for the length of a CI run, about 10-15 min on this repository, which the PR body measures.
 
 **Slice 2, the checks a diff needs.** `localChecks` in `packages/domain/src/rules/local-checks.ts` takes readings as values and returns the commands to run:
 
@@ -96,9 +97,9 @@ The board's 24 `node --test` files and 63 integration files start the built arti
 
 ## Slices
 
-### An agent keeps its slice until its checks finish (Branch: feature/a-slice-ends-when-its-checks-do)
+### An agent keeps its slice until its checks finish (Branch: feature/a-slice-ends-when-its-checks-do, PR: #1171)
 
-- `feature/a-slice-ends-when-its-checks-do` — the slice-finished rule, its bundle verb, and the loop's wait after `plot-open-pr.sh` <!-- builds: sliceFinished, the wait for a PR's checks -->
+- `feature/a-slice-ends-when-its-checks-do` — `checksVerdict`, `plot-checks-verdict.mjs`, `wait_for_checks` in the loop, and the BuildMonitor reading the desk's branch on every pass <!-- builds: checksVerdict, the wait for a PR's checks -->
 
 Tests:
 
