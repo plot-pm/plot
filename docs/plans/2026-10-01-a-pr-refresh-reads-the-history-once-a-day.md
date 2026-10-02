@@ -103,7 +103,7 @@ This slice adds one flag and no op name and no script.
 
 ## Slices
 
-### A delta keeps the store whole (Branch: bug/a-delta-keeps-the-store-whole)
+### A delta keeps the store whole (Branch: bug/a-delta-keeps-the-store-whole, PR: #1180)
 
 `PrIndexUpdate.kind`, `PrIndex.wholeAt` and `PR_INDEX_VERSION` 3 in `packages/domain/src/entities/pr-index.ts`; the fold, the window, `PrWindow.kind`, `answerKind` and the failed-full-read fallback in `packages/domain/src/rules/pr-index.ts`; `fleet.ts:3007` calls `answerKind`, `fleet.ts:3039` tests `kind === 'whole'`, and the catch records a failed full read; every version-2 reader and both bundles named above; the stale comments at `plot-host.sh:89-99` and `fleet.ts:233-238`. <!-- builds: PrIndex.wholeAt, the whole/delta/partial answer kind -->
 

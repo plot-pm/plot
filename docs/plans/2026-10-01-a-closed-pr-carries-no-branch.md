@@ -61,7 +61,7 @@ No new script, no new host call: the one `pr-list` call already returns the stat
 
 ## Slices
 
-### A closed PR carries no branch (Branch: bug/a-closed-pr-carries-no-branch)
+### A closed PR carries no branch (Branch: bug/a-closed-pr-carries-no-branch, PR: #1177)
 
 - `bug/a-closed-pr-carries-no-branch` — `SlicePrRow`, `prs` and `closedPrs` in `packages/domain/src/rules/slice-pr.ts`; `prsFrom` in `packages/board/src/server/entry/slice-pr.ts`; the row array in `skills/plot/scripts/plot-open-pr.sh`; the rebuilt bundle; a changeset for `plot` and `@plot-pm/board`. <!-- builds: openSlicePr reads every PR row of a branch -->
 
