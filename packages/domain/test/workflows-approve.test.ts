@@ -49,6 +49,58 @@ const on = (over: Partial<ApproveInput> = {}): ApproveInput => ({
 });
 const kinds = (writes: readonly Write[]) => writes.map((w) => w.kind);
 
+describe('approve — an unnamed slice', () => {
+  const named = [{ name: 'A slice', branches: [{ branch: 'feature/one' }] }];
+  const unnamed = [{ name: '', branches: [{ branch: 'feature/nameless' }] }];
+
+  it('refuses a plan naming a branch under no heading, and names the branch', () => {
+    const out = approve(ready({ slices: unnamed }), on());
+    expect(refused(out) && out.reason).toBe('slice-unnamed');
+    expect(refused(out) && out.detail).toContain("'feature/nameless'");
+    expect(refused(out) && out.detail).toContain(
+      "add '### <name> (Branch: feature/nameless)' above it under '## Slices'",
+    );
+  });
+
+  it('WRITES NOTHING when it refuses — the plan is left exactly as it was found', () => {
+    const out = approve(ready({ slices: unnamed }), on());
+    expect(decided(out)).toBe(false);
+    expect(out).not.toHaveProperty('writes');
+  });
+
+  it('refuses a DEFERRED branch under no heading, which can return to the queue', () => {
+    const deferred = [{ name: '', branches: [{ branch: 'feature/given-up', deferred: true }] }];
+    const out = approve(ready({ slices: deferred }), on());
+    expect(refused(out) && out.reason).toBe('slice-unnamed');
+    expect(refused(out) && out.detail).toContain("'feature/given-up'");
+  });
+
+  it('refuses before the review channel, so every channel reports the real defect', () => {
+    const out = approve(ready({ slices: unnamed, review: 'in-session' }), on());
+    expect(refused(out) && out.reason).toBe('slice-unnamed');
+  });
+
+  it('refuses an already-approved plan that holds one, rather than repairing it', () => {
+    const out = approve(ready({ slices: unnamed, phase: 'approved' }), on());
+    expect(refused(out) && out.reason).toBe('slice-unnamed');
+  });
+
+  it('approves a plan whose every branch sits under a heading', () => {
+    const out = approve(ready({ slices: named }), on());
+    expect(decided(out)).toBe(true);
+  });
+
+  it('approves when no slices were read at all — absent is not false', () => {
+    const out = approve(ready(), on());
+    expect(decided(out)).toBe(true);
+  });
+
+  it('approves a plan that names no branch at all', () => {
+    const out = approve(ready({ slices: [], branches: [] }), on());
+    expect(decided(out)).toBe(true);
+  });
+});
+
 describe('approve — the refusals, each without a repository', () => {
   it('refuses a slug no plan file matched', () => {
     const out = approve(ready({ file: '' }), on());

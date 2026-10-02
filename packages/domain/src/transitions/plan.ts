@@ -3,6 +3,11 @@
 // VALUE import — a bundle taking one transition took `zod` with it, at 324 KB
 // for four lines of string handling. See `entities/version.ts`.
 import { normalizeVersion } from '../entities/version.js';
+import {
+  unnamedBranchDetail,
+  unnamedBranches,
+  type NamedSlice,
+} from '../rules/slice-name.js';
 
 /**
  * A plan's state as the parser normalizes it.
@@ -95,6 +100,7 @@ export type RefusalReason =
   | 'reason-missing'
   | 'successor-missing'
   | 'refs-swept'
+  | 'slice-unnamed'
   | 'precondition-unmet';
 
 /**
@@ -200,6 +206,16 @@ export interface ApproveInput {
   people: readonly string[];
   /** Readings an adapter measured, such as the plan PR's state. */
   preconditions?: readonly Precondition[];
+  /**
+   * The plan's slices, as the parser reported them.
+   *
+   * Absent means the caller did not read them, which is NOT the same as a plan
+   * whose slices are all named: a caller that cannot supply them gets the
+   * behaviour it had before this reading existed. {@link approvable} relies on
+   * that, since it asks whether the mechanical gates pass without reading a
+   * plan file.
+   */
+  slices?: readonly NamedSlice[];
 }
 
 /**
@@ -264,6 +280,20 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
         'state-wrong',
         `plan '${plan.slug}' is in state '${plan.phase}' — only a Draft or Design plan can be approved.`,
       );
+  }
+
+  // THE HEADING IS OWED BEFORE ANY AGENT STARTS, and it is asked here rather
+  // than beside the preconditions because it is read from the plan itself: no
+  // host answers it, and a `precondition-unmet` naming no branch gives the
+  // operator nothing to repair.
+  //
+  // Asked before the review channel so an unnamed branch is reported on every
+  // channel. A `Review: in-session` plan refuses `review-human` below, which
+  // would otherwise hide the real defect from the operator who then approves
+  // it by hand.
+  const unnamed = unnamedBranches(input.slices ?? []);
+  if (unnamed.length > 0) {
+    return refuse(plan.slug, 'slice-unnamed', unnamedBranchDetail(plan.slug, unnamed));
   }
 
   switch (plan.review) {

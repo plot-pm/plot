@@ -78,6 +78,63 @@ describe('approve', () => {
 
   // --- one test per refusal, named for it ---------------------------------
 
+  // THE SAME ASSERTIONS AS `workflows/approve.ts`, against the function the
+  // shell actually reaches. `plot-approve.sh` pipes its readings to
+  // `board/plot-transition.mjs`, which runs this `approve` — so a refusal
+  // proven only in the workflow passes its own test and never fires for an
+  // operator.
+  describe('an unnamed slice', () => {
+    const unnamed = [{ name: '', branches: [{ branch: 'feature/nameless' }] }];
+
+    it('refuses a branch under no heading, naming the branch and the repair', () => {
+      const result = approve(planWith(), approvedBy({ slices: unnamed }));
+      expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
+      expect(isRefusal(result) && result.detail).toContain("'feature/nameless'");
+      expect(isRefusal(result) && result.detail).toContain(
+        "add '### <name> (Branch: feature/nameless)' above it under '## Slices'",
+      );
+    });
+
+    it('decides no write when it refuses', () => {
+      const result = approve(planWith(), approvedBy({ slices: unnamed }));
+      expect(isDecision(result)).toBe(false);
+    });
+
+    it('refuses a DEFERRED branch under no heading', () => {
+      const result = approve(planWith(), approvedBy({ slices: [{ name: '', branches: [{ branch: 'feature/given-up', deferred: true }] }] }));
+      expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
+    });
+
+    it('refuses before the review channel, on every channel', () => {
+      const result = approve(planWith({ review: 'in-session' }), approvedBy({ slices: unnamed }));
+      expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
+    });
+
+    it('refuses an already-approved plan holding one', () => {
+      const result = approve(planWith({ phase: 'approved' }), approvedBy({ slices: unnamed }));
+      expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
+    });
+
+    it('approves a plan whose every branch sits under a heading', () => {
+      const result = approve(planWith(), approvedBy({ slices: [{ name: 'A slice', branches: [{ branch: 'feature/one' }] }] }));
+      expect(isDecision(result)).toBe(true);
+    });
+
+    it('approves when no slices were read — absent is not false', () => {
+      const result = approve(planWith(), approvedBy());
+      expect(isDecision(result)).toBe(true);
+    });
+
+    it('keeps the idempotent re-run: an approved plan with a record and named slices', () => {
+      const result = approve(planWith({ phase: 'approved', approvedRecord: '2026-08-01, Jan, pr' }), approvedBy({ slices: [{ name: 'A slice', branches: [{ branch: 'feature/one' }] }] }));
+      expect(isDecision(result) && result.alreadyRecorded).toBe(true);
+    });
+
+    it('leaves `approvable` answering true, since it reads no plan file', () => {
+      expect(approvable(planWith())).toBe(true);
+    });
+  });
+
   it('refuses state-terminal: a delivered plan has nothing to approve', () => {
     const result = approve(planWith({ phase: 'delivered' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     expect(isRefusal(result)).toBe(true);
