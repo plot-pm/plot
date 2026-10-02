@@ -57,6 +57,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [x] [a-landed-brief-frees-its-slot](../plans/2026-10-02-a-landed-brief-frees-its-slot.md) — [#1162](https://github.com/plot-pm/plot/issues/1162) — Auto-dispatch stops asking for briefs: asked briefs never leave the tally and free agents count against the budget.
 - [x] [an-agent-runs-the-tests-its-change-touches](../plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md) — Fleet agents run the checks their diff touches and keep their slice until its CI finishes; CI runs the full suites.
 - [ ] [a-branch-carries-no-built-bundle](../plans/2026-10-02-a-branch-carries-no-built-bundle.md) — A pull request carries no generated board bundle, and main rebuilds them after each merge, so a merge no longer makes every open PR conflict.
+- [ ] [an-agent-starts-with-what-it-reads](../plans/2026-10-02-an-agent-starts-with-what-it-reads.md) — Every session, worker and subagent starts without the ~20k tokens of CLAUDE.md and plugin context it does not use.
 
 ### Should Have
 
@@ -82,3 +83,4 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - 2026-10-02: Added #1162 to Must — it blocked the fleet from starting this sprint's approved slices; the operator asked for the fix.
 - 2026-10-02: Added `an-agent-runs-the-tests-its-change-touches` to Must — six of seven agents were inside full test suites at load 55-148 and none had finished a slice in 1h45; the operator moved the plan from the next sprint into 2.22.3.
 - 2026-10-02: Added `a-branch-carries-no-built-bundle` to Must — after one merge all 10 open PRs read DIRTY on the generated bundles, and seven green PRs needed a merge train (#1188) to land.
+- 2026-10-02: Added `an-agent-starts-with-what-it-reads` to Must — Plot carried 84% of 514M weighted tokens over 2026-10-01/02, and the Helper Scripts table is 60% of CLAUDE.md, read at every agent start.
