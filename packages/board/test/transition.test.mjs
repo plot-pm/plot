@@ -120,7 +120,7 @@ describe('the spoke refuses, and this is what it says', () => {
     const { code, said } = runApprove(tmp, 'needs-a-human');
     assert.notEqual(code, 0, 'a refusal must be a non-zero exit');
     assert.match(said, /in-session/);
-    assert.match(said, /human in the room/);
+    assert.match(said, /--who/);
     // The load-bearing assertion: a refusal that already wrote is not one.
     assert.equal(
       fs.readFileSync(path.join(tmp, 'docs/plans/2026-08-16-needs-a-human.md'), 'utf8'),
@@ -197,7 +197,7 @@ describe('POST /api/transition: the spoke\'s refusal reaches the caller intact',
     // typed there in the first place. Both lines travel: the cause and the
     // instruction are each half of the reason.
     assert.match(body.reason, /in-session/);
-    assert.match(body.reason, /human in the room/);
+    assert.match(body.reason, /--who/);
   });
 
   it('wrote nothing to the plan file', async () => {

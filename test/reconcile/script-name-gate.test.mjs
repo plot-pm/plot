@@ -43,9 +43,23 @@ const treeWith = (body, rel = 'packages/board/src/server/demo.ts') => {
   return dir;
 };
 
-/** Ten distinct script-name constants — one over the allowance. */
+/**
+ * One more than the gate's own declared allowance — distinct script-name
+ * constants, each pushing the count one over.
+ *
+ * READ FROM THE GATE RATHER THAN HARDCODED, which is the fix for the failure
+ * this fixture measured when `ALLOWED` moved from 9 to 10 (release.ts naming
+ * `plot-deliver.sh`, an-in-session-approval-has-a-controller slice 2): a
+ * literal `10` here encoded "the repo's nine, plus one" and silently stopped
+ * being over the allowance the moment the allowance itself became 10. The
+ * `'script-name gate: the allowance matches what the tree holds'` test below
+ * already reads `ALLOWED=` the same way, for the same reason.
+ */
+const ALLOWED = Number(
+  /^ALLOWED=(\d+)$/m.exec(readFileSync(gate, 'utf8'))?.[1],
+);
 const tenNames = Array.from(
-  { length: 10 },
+  { length: ALLOWED + 1 },
   (_, i) => `const S${i} = 'plot-filler-${i}.sh';`,
 ).join('\n');
 

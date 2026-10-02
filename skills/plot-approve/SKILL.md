@@ -47,7 +47,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2. Determine Review State | Small | plot-plan-meta.sh reports the channel |
 | 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design |
 | 3. Effect and Record (`pr`) | Small | One call to `plot-approve.sh`; read back its summary |
-| 3b. Record by hand (`in-session` / `ballot`) | Mid | The go or the tally, then the same records without a script |
+| 3. `Review: in-session` | Small | One call: `plot-approve.sh --who <handle>`; read back its summary |
+| 3b. Record by hand (`ballot` only) | Mid | The tally, then the same records without a script |
 | 4. Summary | Small | Orientation template |
 
 **What this skill judges and what the script collects.** Manifesto
@@ -106,6 +107,9 @@ stop if it is not.
 If the plan hasn't been walked through yet, do it now (section by
 section, surfacing open points). The approval is their explicit go —
 never infer it from silence or from "looks good" about something else.
+Once given, the mechanical half is `plot-approve.sh --who`'s (step 3) —
+it refuses an unnamed or undeclared reviewer itself, so do not
+pre-check that here either.
 
 **`Review: ballot`** — check the collected ballot files against the
 expected reviewers (plan Notes or the user). All in → report the tally.
@@ -213,13 +217,15 @@ verdict went unread rather than reporting no reject.
 > says nobody can be asked; it never says a check may be skipped.
 > `PLOT-UNASKED: Approve over a panel reject? — refused — no override exists; amend and re-question`
 
-**Why this lives in the skill and not in `plot-approve.sh`.** The script
-**dies** on `Review: in-session` (`plot-approve.sh:194`) and `Review: ballot`
-(`:197`) before doing any work — *"a script cannot stand in for a human reviewer
-or read a ballot."* So those two channels never reach it, and a gate inside it
-would be invisible to exactly the reviews that most need one. This plan's own
-`Review:` is `in-session`. The skill is where all three channels converge, so
-the gate is here.
+**Why this lives in the skill and not in `plot-approve.sh`.** The script knows
+nothing of a panel: it reads the plan's mechanical gates (the phase, the
+review channel, the slice headings) and, under `in-session`, the reviewer and
+the `People` directory — none of those can see whether `/challenge-the-plan`
+left a `reject` on the newest round. `Review: ballot` still has no script at
+all — *"a script cannot stand in for a human reviewer or read a ballot"* — so
+it reaches this gate through step 3b, by hand. The skill is where all three
+channels converge, so the panel gate is here regardless of which one a plan
+declares.
 
 ### 3. Effect and Record the Approval
 
@@ -269,16 +275,33 @@ on the work branch. If `## Plot Config` includes a project board, also
 update the plan PR status to "Done":
 `../plot/scripts/plot-update-board.sh <plan-pr-url> "Done" <owner> <number>`
 
-**`Review: in-session`** — ask for the explicit go, then write the same
-records by hand (step 3b). The channel value is `in-session`.
+**`Review: in-session`** — ask for the explicit go, then call the SAME script
+with the reviewer's name. Do not do this by hand:
+
+```bash
+../plot/scripts/plot-approve.sh --who <handle> <slug>
+```
+
+`<handle>` is the reviewer who just gave the go — a handle the project's
+`People` config key declares, never a default: there is no git-identity
+fallback for this channel, because a default would let the machine name the
+reviewer for a review that exists because a human is in the room. The script
+performs the same seven mechanical steps the `pr` flow gets, skipping the
+plan-PR steps (there is none to merge), and records `Approved: <date>,
+<handle>, in-session`. It refuses an empty or undeclared handle with its own
+reason, and it refuses outright under an unattended run — there is nobody to
+name. **There is no `--reviewer`**: `--who` is the one flag, the same flag the
+`pr` flow's default chain already reads.
 
 **`Review: ballot`** — the tally is the approval; the channel value is
-e.g. `ballot 3/3`. Then write the records by hand (step 3b).
+e.g. `ballot 3/3`. Then write the records by hand (step 3b) — the one channel
+with no script, because a script cannot read a ballot.
 
-### 3b. Record by hand — `in-session` and `ballot` only
+### 3b. Record by hand — `ballot` only
 
-Only these two channels get here. **Under `Review: pr` the script above
-did all of this** — repeating it by hand is how the two paths drift.
+Only this channel gets here. **Under `Review: pr` and `Review: in-session`
+the script already did all of this** — repeating it by hand is how the paths
+drift.
 
 The record lives in the plan file — the file is the truth in every flow;
 a merge commit merely coincides with it in the `pr` flow.
@@ -287,16 +310,15 @@ a merge commit merely coincides with it in the `pr` flow.
 
    ```bash
    bash ../plot/scripts/plot-state-receipt.sh --unowned <plan file> Approved \
-     "Review: in-session — plot-approve.sh refuses this channel by name"
+     "Review: ballot — a script cannot read a ballot"
    ```
 
    **`plot-state-gate.sh` refuses a `State:` line changed by anything but the
-   script that owns it**, and this channel has no script: `plot-approve.sh:190`
-   refuses `in-session` and `ballot` by name, because a script cannot stand in
-   for a human reviewer or read a ballot. The line above is the named escape, and
-   it is recorded — each use counts a routing gap rather than turning the gate
-   off. Under `Review: pr` you are not here at all; the script did this write and
-   left its own receipt.
+   script that owns it**, and `ballot` has no script: `plot-approve.sh` refuses
+   it by name, because a script cannot read a tally. The line above is the
+   named escape, and it is recorded — each use counts a routing gap rather than
+   turning the gate off. Under `Review: pr` and `Review: in-session` you are
+   not here at all; the script did this write and left its own receipt.
 2. Set the `Review:`/`Impl:` Status fields if they're missing (ask the
    two ceremony questions — see `/plot-idea` step 4 — rather than
    guessing; pre-Plot-2 plans land here)
@@ -308,8 +330,7 @@ a merge commit merely coincides with it in the `pr` flow.
    - **Approved:** <YYYY-MM-DD>, <who>, <channel>
    ```
 
-   `<who>`: the approving human's name. `<channel>`: `in-session` |
-   `ballot <n>/<m>`.
+   `<who>`: the approving human's name. `<channel>`: `ballot <n>/<m>`.
 4. Keep/insert the `## Approval` section with `- **Assignee:** <who>`
    (the board reads the assignee from there).
 5. Remove the `.plot/hold` entry for **each branch the plan names** —

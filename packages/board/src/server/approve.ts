@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
@@ -12,6 +13,7 @@ import {
 } from './dispatch.js';
 import { scriptsFor } from './board.js';
 import { recordActionReceipt } from './action-receipt.js';
+import { PlanMetaSchema } from '../contract/schema.js';
 
 /**
  * The board's SECOND state-changing route — and the one that acts on the git
@@ -103,6 +105,57 @@ export function approveAvailability(host: string): DispatchAvailability {
 /** Read the configured command, or "" — the one place that key is looked up. */
 export function approveCommand(opts: BuildBoardOptions): string {
   return readConfig(opts, APPROVE_COMMAND_KEY, '').trim();
+}
+
+/**
+ * The plan file a slug names, resolved the way `plot-approve.sh` resolves it
+ * under `Review: pr` and `in-session` alike — the active index first, then
+ * the date-prefixed file in the plan directory.
+ *
+ * A PRIVATE copy of `transition.ts`'s `resolvePlanBySlug` rather than an
+ * import, for the reason every other route's own copy states: that module
+ * does not export it, and a short copy that agrees by construction is the
+ * smaller change than reaching across to export one another worker owns.
+ */
+function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null {
+  const repoRoot = opts.repoRoot;
+  const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
+  const activeDir = readConfig(opts, 'Active index', 'docs/plans/active/');
+
+  const active = path.join(repoRoot, activeDir, `${slug}.md`);
+  if (fs.existsSync(active)) return active;
+
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(path.join(repoRoot, planDir));
+  } catch {
+    return null;
+  }
+  const hit = entries.find((e) => e.endsWith(`${slug}.md`));
+  return hit ? path.join(repoRoot, planDir, hit) : null;
+}
+
+/**
+ * The plan's declared `Review:` channel, read from the file — never inferred.
+ *
+ * Null where the plan cannot be found or parsed, which the 409 check below
+ * reads as "not in-session" (nothing to refuse on) rather than guessing: a
+ * plan this route cannot read is a plan `plot-approve.sh` will refuse for its
+ * own reason a moment later, and inventing a 409 for it here would report a
+ * cause this route never measured.
+ */
+function readReview(opts: BuildBoardOptions, slug: string): string | null {
+  const file = resolvePlanBySlug(opts, slug);
+  if (!file) return null;
+  try {
+    const answer = scriptsFor(opts).planMetaSync([file], { maxBuffer: 8 * 1024 * 1024 });
+    if (!answer.ok) return null;
+    const line = answer.value.split('\n').map((l) => l.trim()).find(Boolean);
+    if (!line) return null;
+    return PlanMetaSchema.parse(JSON.parse(line)).review || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -241,6 +294,31 @@ export async function handleApprove(
     return;
   }
 
+  // THE BOARD PASSES NO NAME OF ITS OWN. No config key or server field names
+  // the operator, so the person who clicks supplies `who` — and the domain
+  // (through `plot-approve.sh --who`) refuses a handle `People` does not
+  // declare. This does not authenticate anyone: the write routes are gated by
+  // loopback only, so an agent on the machine can send a declared handle. The
+  // `in-session-approvals.tsv` log makes it visible and does not prevent it.
+  const whoRaw = (body as { who?: unknown })?.who;
+  const who = typeof whoRaw === 'string' ? whoRaw : '';
+
+  // `POST /api/approve` ANSWERS 409 ON THE AGENT ARM FOR AN IN-SESSION PLAN.
+  // With an `Approve command` declared, the command arm below would run
+  // `claude -p /plot-approve` UNATTENDED, and `/plot-approve` refuses
+  // `in-session` under `PLOT_UNATTENDED=1` by its own rule (nobody is in the
+  // room). Spawning that agent would start a process that can only refuse, so
+  // this is read and refused here instead — spawning nothing, recording no
+  // receipt. The script arm (no `Approve command`) needs no such check:
+  // `plot-approve.sh --who` performs the write itself and refuses on its own
+  // terms if `who` is empty or undeclared.
+  if (approveCommand(opts) && readReview(opts, slug) === 'in-session') {
+    json(409, {
+      error: `plan '${slug}' declares 'Review: in-session' — the configured Approve command would run /plot-approve unattended, which refuses this channel by its own rule (nobody is in the room to approve it). Approve it from a session, or remove the 'Approve command' key so the board runs plot-approve.sh --who directly.`,
+    });
+    return;
+  }
+
   const log = approveLogPath(opts.repoRoot, slug);
   const statePath = approveStatePath(opts.repoRoot, slug);
   let out: number;
@@ -300,7 +378,21 @@ export async function handleApprove(
     child.on('exit', onExit);
     child.on('error', onError);
   } else {
-    scriptsFor(opts).start(APPROVE_SCRIPT, [slug], { log: out, onExit, onError });
+    // `--who` TRAVELS AS AN ARGUMENT, not folded into a shell string: this arm
+    // never builds one at all, and `plot-approve.sh` itself refuses an empty
+    // or undeclared handle on an in-session plan — this route supplies
+    // whatever the caller sent, unvalidated, because the script is the one
+    // place that rule is asked.
+    const args = who ? [slug, '--who', who] : [slug];
+    scriptsFor(opts).start(APPROVE_SCRIPT, args, {
+      log: out,
+      onExit,
+      onError,
+      // THE ENTRY, for `in-session-approvals.tsv`'s `board` column.
+      // `plot-approve.sh` reads this to tell a board click apart from a
+      // terminal run of the same script.
+      env: { ...process.env, PLOT_APPROVE_ENTRY: 'board' },
+    });
   }
   // `detached` WITHOUT `unref`, which is deliberate and not the contradiction
   // it looks like — the two flags answer different questions.

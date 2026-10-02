@@ -165,11 +165,17 @@ _action_receipt_dir() {
 # adapter — a script name in a controller is a boundary crossing no spawn
 # counter can see. So the shared filename is the action word, and mapping a
 # script back to it happens HERE, on the side that reads command lines.
+#
+# `plot-deliver.sh` maps to `deliver` here, same as always — `release` is a
+# SEPARATE action sharing that script, and only `plot-controller-gate.sh` can
+# tell the two calls apart (by whether `--release` rode along), so it passes
+# the action word directly rather than the script name for that one case.
 _action_of() { # $1=script name or action word → the action, or nothing
   case "${1##*/}" in
     plot-dispatch.sh|dispatch) printf 'dispatch\n' ;;
     plot-approve.sh|approve)   printf 'approve\n' ;;
     plot-deliver.sh|deliver)   printf 'deliver\n' ;;
+    release)                   printf 'release\n' ;;
   esac
 }
 
@@ -231,7 +237,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     action_reason="$*"
     if [ -z "$action_script" ] || [ -z "$action_subject" ] || [ -z "$action_reason" ]; then
       echo "plot-state-receipt: --unowned-action needs an action, a subject and a reason." >&2
-      echo "  usage: plot-state-receipt.sh --unowned-action <dispatch|approve|deliver> <slug> <reason>" >&2
+      echo "  usage: plot-state-receipt.sh --unowned-action <dispatch|approve|deliver|release> <slug> <reason>" >&2
       echo "" >&2
       echo "  The reason is required because each use names a routing gap, and a gap" >&2
       echo "  nobody wrote down is one nobody closes. Where the board IS running, the" >&2
@@ -240,13 +246,17 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     fi
     # The action word, or the script name — an operator reaching for this has
     # just read a refusal naming a script, so both spellings are accepted.
+    # `release` has no script of its own (`plot-deliver.sh --release` shares
+    # `plot-deliver.sh`, which already names `deliver`), so only the bare word
+    # is accepted for it.
     case "$action_script" in
       dispatch|plot-dispatch.sh) action_script="dispatch" ;;
       approve|plot-approve.sh)   action_script="approve" ;;
       deliver|plot-deliver.sh)   action_script="deliver" ;;
+      release)                   action_script="release" ;;
       *)
         echo "plot-state-receipt: '$action_script' is not a controller-owned action." >&2
-        echo "  The three are: dispatch, approve, deliver." >&2
+        echo "  The four are: dispatch, approve, deliver, release." >&2
         exit 2
         ;;
     esac
