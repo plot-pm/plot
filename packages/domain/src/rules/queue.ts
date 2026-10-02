@@ -174,7 +174,7 @@ export type QueueHold =
    * **IT NAMES THE HOST WHERE `not-claimable` NAMED THE PLAN.** Both words
    * describe a slice its plan's ordering blocks, and until this one existed
    * they were one word: under HTTP 429 on a Bitbucket estate the supervisor
-   * held 36 slices `not-claimable`, among them slices whose earlier waves had
+   * held 36 slices `not-claimable`, among them slices whose earlier slices had
    * merged days before (#1094). A reader sent to the plan found nothing wrong
    * with it.
    *
