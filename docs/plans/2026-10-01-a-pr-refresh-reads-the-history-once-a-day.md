@@ -115,7 +115,7 @@ Tests:
 - `test/reconcile/host.test.mjs`: a stubbed `bb` with `--since` answers all three states through `bb_window_listing` with no partial sentence, and the board folds it as `delta`.
 - The PR body shows the call sequence of three real refreshes from a running board's log.
 
-### The full read asks verdicts of open PRs only (Branch: bug/the-full-read-asks-verdicts-of-open-prs-only) <!-- waits: bug/a-delta-keeps-the-store-whole -->
+### The full read asks verdicts of open PRs only (Branch: bug/the-full-read-asks-verdicts-of-open-prs-only, PR: #1203) <!-- waits: bug/a-delta-keeps-the-store-whole -->
 
 `pr-list --rich-open` in `skills/plot/scripts/plot-host.sh` makes the two GitHub calls and emits terminal rows with `draft`, `url`, `updatedAt` and the absent verdict values; `foldPrIndex` carries held verdicts onto a terminal row with the same number; the full read in `refreshPrs` passes `--rich-open`. It waits on slice 1 because both change `refreshPrs` and the store's fold. <!-- builds: the two-call full read -->
 

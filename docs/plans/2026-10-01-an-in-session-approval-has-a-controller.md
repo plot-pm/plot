@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-transition-takes-the-reviewer`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-scripts-own-the-approval-and-the-release`
 
 ## Changelog
 
@@ -135,7 +136,7 @@ Tests that fail on `origin/main` today:
 
 The `in-session` arm split in `transitions/plan.ts` with `people` and `reviewer-undeclared`; the `channel` and `people` inputs and the PR skip in `workflows/approve.ts`, with a unit case that has no PR reading; one unit case per arm in each file: a declared `who` approves, an undeclared one refuses with `reviewer-undeclared`, an empty one refuses with `review-human`, and `ballot` refuses with `review-human`. Also the `people` column in `entry/transition.ts` and the changeset.
 
-### The scripts own the approval and the release (Branch: bug/the-scripts-own-the-approval-and-the-release) <!-- waits: bug/the-transition-takes-the-reviewer -->
+### The scripts own the approval and the release (Branch: bug/the-scripts-own-the-approval-and-the-release, PR: #1217) <!-- waits: bug/the-transition-takes-the-reviewer -->
 
 `plot-approve.sh --who` for in-session with the unattended refusal and `in-session-approvals.tsv`; `plot-deliver.sh --release` with the merge-commit check and the tag date; `POST /api/approve` with `who` and the 409 on the agent arm; `POST /api/release`; the gate's `release` action and the ` --release ` exemption scoped to `plot-dispatch.sh`; the contract tests in `test/reconcile/` and the board tests; the two SKILL.md steps, including the sentence at `plot-release/SKILL.md:404-409`.
 

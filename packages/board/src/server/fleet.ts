@@ -45,6 +45,7 @@ import {
   boundFromLimit,
   concurrencyBound,
   heldSlots,
+  listingSpend,
   localSpenders,
   loweredConcurrency,
   reactionTo,
@@ -69,6 +70,7 @@ import {
   type PrIndex,
   type PrIndexRow,
 } from '@plot-pm/domain';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
 // COMPUTER, not a fixture a caller substitutes — a board handed an in-memory
@@ -589,6 +591,58 @@ export interface CacheEntry {
    * is discarded the moment it disagrees.
    */
   terminal: string;
+  /**
+   * The pull-request listing the last successful scan fetched, carried from one
+   * pulse to the next in the scan's own `key<TAB>STATE<TAB>checks<TAB>draft`
+   * shape. Empty until the first listing arrives.
+   *
+   * THE BOARD HOLDS IT FOR `terminal`'s REASON, applied to a different fact. The
+   * scan is spawned fresh per pulse and can span none; the board is the only
+   * long-lived process here. What differs is WHY the answer is kept: a terminal
+   * fact is kept because it cannot change, and this is kept because the account
+   * cannot afford to ask again.
+   *
+   * Measured 2026-10-02 on the Bitbucket workspace `quatico`, two checkouts over
+   * one hour: the fleet scan spent 2949 of 3150 account calls, 93.6%, because the
+   * open listing sweeps one REST request per tracked branch per state on a 5 s
+   * pulse. 1764 of those were the per-branch sweep alone.
+   *
+   * IN MEMORY AND NOWHERE ELSE, and a restart re-fetches. A listing on disk
+   * would be a second source of truth about PR state, and {@link listingAt} is
+   * what makes its age reportable rather than implied.
+   */
+  listing: string;
+  /**
+   * When the listing in {@link listing} was fetched, in ms, or null where none
+   * has been. Null is what makes the first reading unconditional: a board that
+   * has not listed has nothing to reuse, and `listingSpend` permits the call.
+   *
+   * REPORTED, NEVER IMPLIED. A reused listing is older than the pulse by
+   * construction, and a board that showed it as fresh would be asserting a
+   * reading it did not take.
+   */
+  listingAt: number | null;
+  /**
+   * The interval this board is currently leaving between PR listings, in ms —
+   * the scan's own contribution, which is what it subtracts from the observed
+   * rate. Starts at the unstretched pulse and is re-derived on every scan.
+   */
+  listingIntervalMs: number;
+  /**
+   * How many branches the last listing swept, reported by the scan that made it.
+   * Decides what the next listing COSTS, which is what the cadence divides.
+   *
+   * MEASURED, NOT MODELLED. The sweep asks about every remote ref; a plan names a
+   * subset of them, so a count taken from the plans would under-count the cost
+   * and under-stretch the cadence. Starts at 0, where the cost falls back to the
+   * un-swept listing — the shape a first scan makes before any count exists.
+   */
+  listingBranches: number;
+  /**
+   * How much older than this pulse the listing it served is, in ms, or null where
+   * this pulse fetched its own. What the board reports rather than implies.
+   */
+  listingReusedAgeMs: number | null;
   pulse: FleetReading | null;
   ages: Map<string, number | null>;
   at: number | null;
@@ -2065,6 +2119,62 @@ export function prRequestsPerRefresh(backend: string): number {
 }
 
 /**
+ * What one fleet-scan listing costs on `backend`, in host requests.
+ *
+ * THE SWEEP IS THE COST, AND IT IS NOT A CONSTANT. `PR_REQUESTS_PER_REFRESH`
+ * names the cost of `refreshPrs`, which passes no branches and so makes three
+ * listings plus the issue call. The scan passes every tracked branch (#333), and
+ * the Bitbucket arm then asks its REST endpoint about each one BY NAME — so the
+ * cost is `branches x states` and the comment on that table already states the
+ * arithmetic: *"WHOEVER MOVES THIS FILE ONTO THE SWEEP MUST CHANGE THIS NUMBER,
+ * and the arithmetic is `branches x 3 + 1`."* The scan moved onto the sweep and
+ * the number was never changed; this is that change, for the scan's own cadence.
+ *
+ * Measured 2026-10-02 on the Bitbucket workspace `quatico`: the open listing
+ * alone sent 1764 per-branch requests in an hour against 276 `--state open` and
+ * 128 `--state merged` listings.
+ *
+ * GITHUB IS ONE REQUEST AND STAYS ONE. Its arm ignores the branches and makes
+ * the single GraphQL call it always made, so the multiplier is 1 there and the
+ * listing cadence this decides is the pulse it has always been.
+ *
+ * @param backend - the configured host.
+ * @param branches - how many branches the scan tracks.
+ * @returns the requests one listing spends; never 0, for
+ *   {@link prRequestsPerRefresh}'s reason.
+ */
+/**
+ * How many branches a reported listing swept, or null where it said nothing.
+ *
+ * Read from the scan's `.branches` note rather than counted off the listing's
+ * rows: the rows are the branches that HAVE a pull request, and the sweep asks
+ * about every tracked ref whether it has one or not. Counting rows would
+ * under-count the cost by exactly the branches nobody has opened a PR for, which
+ * on this estate is most of them.
+ *
+ * @param listed - the scan's reported listing, one note or branch per line.
+ * @returns the count, or null where the note is absent or not a count.
+ */
+export function listedBranchCount(listed: string): number | null {
+  for (const line of listed.split('\n')) {
+    const [key, value] = line.split('\t');
+    if (key !== '.branches') continue;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  }
+  return null;
+}
+
+export function scanListingCost(backend: string, branches: number): number {
+  // Not the table's value: that one counts an issue call this scan never makes.
+  if (backend !== 'bitbucket') return 1;
+  // Three states swept per branch — open, merged, declined — because `bb` has no
+  // `all`. A scan tracking no branches lists as before rather than costing zero.
+  const swept = Math.max(0, Math.trunc(branches)) * 3;
+  return swept > 0 ? swept : 3;
+}
+
+/**
  * How far before `prNextAt` an ordinary cadence tick may still be honoured, in
  * ms. Two percent of the period — 1.2 s at the 60 s cadence.
  *
@@ -2587,16 +2697,28 @@ function scheduleNextPr(
 }
 
 /**
- * THE ONE PR STORE THIS PROCESS WRITES, constructed here for `slotsFile`'s
- * reason: it is machine-local state rather than a fixture a caller substitutes,
- * and a board handed an in-memory one would keep a store no later process could
+ * THE PR STORE FOR ONE REPOSITORY, constructed here for `slotsFile`'s reason:
+ * it is machine-local state rather than a fixture a caller substitutes, and a
+ * board handed an in-memory one would keep a store no later process could
  * read — which is the entire point of having one. Seamed by
- * `PLOT_PR_INDEX_HOME`, which is how a test moves it.
+ * `PLOT_PR_INDEX_HOME`, which is how a test moves it and which keeps priority
+ * over `repoRoot` because the adapter checks it first on every call.
  *
- * Module-level rather than per-refresh so the `git rev-parse --git-common-dir`
- * lookup the adapter caches is made once per process rather than once a minute.
+ * Cached per `repoRoot` rather than per-refresh so the `git rev-parse
+ * --git-common-dir` lookup the adapter caches is made once per repository per
+ * process rather than once a minute — and keyed by `repoRoot` rather than
+ * module-level so one process holding entries for several repositories (keyed
+ * by `repoRoot` and `scriptsDir` at `cacheKey`) writes each to its own store
+ * instead of all of them to whichever repository started the process.
  */
-const prStore = prIndexFile();
+const prStores = new Map<string, PrIndexStore>();
+const prStoreFor = (repoRoot: string): PrIndexStore => {
+  const held = prStores.get(repoRoot);
+  if (held !== undefined) return held;
+  const created = prIndexFile({ cwd: repoRoot });
+  prStores.set(repoRoot, created);
+  return created;
+};
 
 /**
  * One host row reduced to what the store holds.
@@ -2681,12 +2803,15 @@ const recordOf = (row: PrIndexRow): PrRecord => {
  *
  * @param entry - the cache entry to seed.
  * @param connector - which connector's store to read.
+ * @param store - the repository's PR store.
  */
-const seedPrsFromStore = async (entry: CacheEntry, connector: string): Promise<void> => {
+const seedPrsFromStore = async (
+  entry: CacheEntry, connector: string, store: PrIndexStore,
+): Promise<void> => {
   if (entry.prsByNumber !== null) return;
   let held;
   try {
-    held = await prStore.read(connector);
+    held = await store.read(connector);
   } catch {
     return;
   }
@@ -2782,13 +2907,14 @@ const applyPrMaps = (entry: CacheEntry, maps: PrMaps): void => {
  * @param connector - which connector answered.
  * @param rows - the rows the host returned this pass.
  * @param complete - whether the answer covered every state asked about.
+ * @param store - the repository's PR store.
  * @returns the store as it was folded and written, or null where it could not be.
  */
 const writePrStore = async (
-  connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind,
+  connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind, store: PrIndexStore,
 ): Promise<PrIndex | null> => {
   try {
-    const held = await prStore.read(connector);
+    const held = await store.read(connector);
     // An unreadable store is merged into as if it were absent: a whole answer
     // replaces it anyway, and a partial one keeping nothing is the safe
     // direction — it under-claims rows rather than inventing them.
@@ -2805,7 +2931,7 @@ const writePrStore = async (
     // must cost the board time and not answers, and the merged view is correct
     // in memory whatever the filesystem did with it — refusing to serve it
     // because the write failed would turn a disk problem into a wrong board.
-    await prStore.write(connector, folded);
+    await store.write(connector, folded);
     return folded;
   } catch {
     // The adapter answers with values rather than throwing, so reaching this is
@@ -2841,6 +2967,10 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   // to only one of them would be obeyed by half the pass, which is the failure
   // a substitutable port exists to prevent.
   const host = hostFor(opts);
+  // RESOLVED ONCE PER PASS, from the entry's own repository. A store built per
+  // call would fork `git rev-parse --git-common-dir` for every read and write
+  // below; `prStoreFor` caches it per `repoRoot` for the life of the process.
+  const prStore = prStoreFor(opts.repoRoot);
   // THE CI CONNECTOR IS SEPARATE, and resolved beside the host rather than
   // from it. A team whose code is on Bitbucket and whose builds run on Jenkins
   // has two services; asking one for the other's answers is what left that
@@ -2882,7 +3012,7 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   // Outside the `try` because it is not the host: a store that cannot be read
   // must not reach the catch that owns the backoff and the banner, which report
   // the connector. It swallows its own failures for the same reason.
-  await seedPrsFromStore(entry, backend);
+  await seedPrsFromStore(entry, backend, prStore);
   // THE WINDOW, DECIDED BEFORE THE CALL AND FROM THE STORE THE CALL WILL FOLD
   // INTO. A second read is one local `readFile` against a host call measured at
   // 29 811 ms, and reading it here rather than reusing the seed's read is what
@@ -3082,7 +3212,7 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       // assert the file without racing it, and — since this slice — so the maps
       // it serves are derived from a fold that has already happened. The write
       // is one local `rename` against a host call measured at 29 811 ms.
-      const folded = await writePrStore(backend, rows, kind);
+      const folded = await writePrStore(backend, rows, kind, prStore);
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this
       // pass hold the same rows by construction. Deriving from the fold anyway
@@ -3365,6 +3495,73 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // partial map would quietly drop the branches it never reached — turning
     // a slow pulse into a cold cache on the pulse after it.
     let learned = '';
+    // What this pulse learns about the PR listing, accumulated apart from
+    // `entry.listing` and installed only on SUCCESS, for `learned`'s reason: a
+    // scan killed at the timeout has reported some branches and not others, and
+    // adopting a partial listing would license `NONE` for the ones it never
+    // reached — the fabricated answer this whole path exists to avoid.
+    let listed = '';
+    // WHETHER THIS SCAN MAY SPEND A LISTING, asked of the domain before it runs.
+    //
+    // Measured 2026-10-02 on the Bitbucket workspace `quatico`, two checkouts
+    // over one hour: this scan spent 2949 of the account's 3150 calls, 93.6% of
+    // all calls and 97.1% of network calls, while the board's PR refresh — which
+    // already follows the cadence — spent 17. The pulse stays at 5 s and the git
+    // work with it; only the host listing slows.
+    //
+    // THE RULE OWNS THE ARITHMETIC. `listingSpend` composes `refreshIntervalMs`,
+    // so `MAX_CADENCE_STRETCH` and `CADENCE_DAMPING` are the cadence's and this
+    // call site holds no copy of them to drift.
+    //
+    // THE RATE IS READ ONLY WHERE IT COULD CHANGE THE ANSWER, which is what keeps
+    // this off the 5 s clock. `spendRateFor` spawns one local `bash`; it asks no
+    // host and spends no request, but `docs/shell-and-domain.md` prices a hop
+    // paid by every agent on every pass, and `spendRateFor`'s own contract reads
+    // *"ONE LOCAL `bash` PER REFRESH, on the 60 s clock rather than the 5 s one."*
+    //
+    // The interval the last verdict decided is held in `listingIntervalMs`, so a
+    // pulse arriving before it has elapsed is going to reuse whatever the rate
+    // says — the rate can only ever lengthen the interval, never shorten it below
+    // the unstretched one. So the cheap test runs first and the read happens on
+    // the pulse that is actually about to spend: 60 s of pulses cost one `bash`
+    // where the cadence is unstretched, and fewer as it stretches.
+    const now = Date.now();
+    // The interval the LAST verdict decided. A pulse arriving inside it reuses
+    // whatever the record says, because the rate can only lengthen the interval
+    // and never shorten it below the unstretched one — so this test needs no
+    // reading, and the reading is bought only on the pulse about to spend.
+    const due = entry.listingAt === null || now >= entry.listingAt + entry.listingIntervalMs;
+    let spend = true;
+    let reusedAgeMs: number | null = null;
+    if (due) {
+      const backend = await resolveBackend(opts, entry);
+      const verdict = listingSpend({
+        intervalMs: REFRESH_MS,
+        // What the LAST listing cost, reported by the scan that made it. Modelling
+        // it from the plans would under-count: the sweep asks about every remote
+        // ref, and a plan names a subset of them.
+        costPerListing: scanListingCost(backend, entry.listingBranches),
+        rate: await spendRateFor(opts),
+        lastListedAt: entry.listingAt,
+        now,
+        currentIntervalMs: entry.listingIntervalMs,
+      });
+      entry.listingIntervalMs = verdict.intervalMs;
+      spend = verdict.spend;
+      reusedAgeMs = verdict.reuse?.ageMs ?? null;
+    } else {
+      // Not due, so the age is measured from the listing itself rather than from a
+      // verdict nobody asked for. `listingAt` is non-null here by the test above.
+      reusedAgeMs = Math.max(0, now - (entry.listingAt ?? now));
+      spend = false;
+    }
+    // THE CARRIED LISTING, HANDED IN THE WAY THE TERMINAL MAP IS. Empty where a
+    // fresh listing is permitted, so the scan spends it exactly as before. A
+    // reusing scan reports `host=ok`, because a carried listing arrived and was
+    // whole — the AGE is reported here, where the board knows it, and never by the
+    // scan, which is spawned fresh and cannot.
+    const reusing = !spend && entry.listing !== '';
+    entry.listingReusedAgeMs = reusing ? reusedAgeMs : null;
     await scriptsFor(opts).stream(FLEET_SCAN, ['--stream'],
       (line) => {
         // A line that does not parse is DROPPED, not fatal. The scan writes its
@@ -3390,12 +3587,21 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
         timeoutMs: FLEET_SCAN_BUDGET_MS,
         // The map this pulse starts from. `''` on the first pulse after a
         // restart, which is what makes a restart re-derive everything.
-        env: { PLOT_TERMINAL_CACHE: entry.terminal },
+        env: {
+          PLOT_TERMINAL_CACHE: entry.terminal,
+          // Empty unless this pulse is reusing, and empty is what makes the scan
+          // spend the listing as before — including on the first pulse, where
+          // there is nothing to reuse and the rule permits the call.
+          PLOT_PR_LISTING: reusing ? entry.listing : '',
+        },
         onErrorLine: (line) => {
           // Only the tagged notes are read; everything else on stderr is the
           // scan's ordinary prose and stays discarded.
           if (line.startsWith('terminal:')) {
             learned += `${line.slice('terminal:'.length).trim()}\n`;
+          }
+          if (line.startsWith('listing:')) {
+            listed += `${line.slice('listing:'.length).trim()}\n`;
           }
         },
       });
@@ -3411,6 +3617,23 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // merges. Merging would be the bug the plan names: an entry no scan
     // re-derived would survive on nothing but its own age.
     entry.terminal = learned;
+    // THE LISTING, ADOPTED ON THE SAME TERMS AND ONLY WHERE ONE WAS FETCHED.
+    //
+    // A REUSING SCAN REPORTS BACK WHAT IT WAS GIVEN, so the listing and its age
+    // both survive the pulse unchanged: the age must keep growing from the fetch
+    // that made the listing, not restart from the pulse that reused it. Stamping
+    // `listingAt` here would make a reused listing read one pulse old forever and
+    // the cadence would never come back.
+    //
+    // A SCAN THAT FETCHED AND REPORTED NOTHING KEEPS THE PREVIOUS LISTING. The
+    // report is written only where `.list-arrived` exists, so a throttled or
+    // failed listing reports nothing — and replacing a real listing with that
+    // silence would license `NONE` for every branch on the pulse after it.
+    if (!reusing && listed !== '') {
+      entry.listing = listed;
+      entry.listingAt = Date.now();
+      entry.listingBranches = listedBranchCount(listed) ?? entry.listingBranches;
+    }
     const complete: FleetReading = parsed;
     // Against `before`, captured at the top of this function — because
     // `entry.pulse` stopped being the previous answer the moment this scan
@@ -3597,6 +3820,10 @@ export function freshCacheEntry(): CacheEntry {
     // Empty at construction, which is the whole of "a restart re-derives
     // everything": nothing survives this process, so the first pulse is cold.
     terminal: '',
+    // Empty and null: no listing has been made, which is what lets the first
+    // scan spend one whatever the account's rate says.
+    listing: '', listingAt: null, listingIntervalMs: REFRESH_MS,
+    listingBranches: 0, listingReusedAgeMs: null,
     approvedAt: new Map(),
     ideaPlans: new Map(),
     versions: new Map(),

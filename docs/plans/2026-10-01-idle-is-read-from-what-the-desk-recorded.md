@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/idle-is-one-reading`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-loop-reports-idle`
 
 ## Changelog
 
@@ -95,7 +96,7 @@ The wrapper stops starting the WorkerMonitor (`plot-dispatch.sh:1452`, `:1496`, 
 
 `idleNow` in `packages/domain/src/rules/sample.ts` with unit cases for each condition (each one false alone answers `silent`; `dead` answers `silent`; every unreadable value answers `silent`), at 100% branch coverage. `plot_worker_idle_now` in `plot-worker-state.sh` holds the same rule, and `packages/domain/corpus/sample.corpus.test.ts` pairs the two. `plot-worker-monitor.sh` fills `treeQuietSeconds`, asks `plot_worker_idle_now`, and stops comparing `prev_tree`; it keeps its own one-sample `gone` arm until slice 2 (it keeps running as a process in this slice, so the slice ships alone). A contract test on a scratch desk: a tree untouched for the window with commits and a silent transcript publishes `idle` on the FIRST pass; a renamed file inside the window publishes nothing; a desk where only `.plot-worker.*` files change inside the window publishes `idle` on the first pass. <!-- builds: idleNow, a one-sample idle rule -->
 
-### The loop reports idle and the wrapper reports gone (Branch: bug/the-loop-reports-idle) <!-- waits: bug/idle-is-one-reading --> <!-- waits: bug/the-loop-waits-out-a-usage-limit -->
+### The loop reports idle and the wrapper reports gone (Branch: bug/the-loop-reports-idle, PR: #1218) <!-- waits: bug/idle-is-one-reading --> <!-- waits: bug/the-loop-waits-out-a-usage-limit -->
 
 The watcher subshell starts whatever `PLOT_MONITOR_ENDS_WORKER` says, judges `idle` itself every `PLOT_MONITOR_INTERVAL` through `plot_worker_idle_now`, and publishes into the same findings file; only its `kill -USR1` is gated by the flag. The wrapper appends `gone` after a non-zero `wait` and `clear` after exit 0. The wrapper no longer starts the WorkerMonitor. `plot-worker-monitor.sh`, `entry/monitor.ts` and `plot-monitor.mjs` are removed with their callers, their entries in `.gitattributes` and `.github/workflows/ci.yml`, and their tests rewritten (`test/e2e/monitors-attached.test.mjs`, `packages/board/test/unit/monitors.test.ts`). It also waits on `bug/the-loop-waits-out-a-usage-limit`, because that branch changes the silence reading this one moves. Tests: a dispatched agent shows three resident per-agent processes (the worker, the AgentMonitor, the BuildMonitor); a stalled prompt with commits is ended by the watcher within one window plus one interval; with `PLOT_MONITOR_ENDS_WORKER=0` the same prompt publishes `idle` and is not ended; an agent that exits 124 and an agent killed with SIGKILL each produce one `gone` line; an agent that exits 0 produces one `clear` line and no `gone`; no finding is published between prompts. <!-- builds: the loop's idle watcher and the wrapper's gone line -->
 

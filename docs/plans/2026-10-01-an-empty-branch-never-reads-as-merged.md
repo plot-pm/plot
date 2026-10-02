@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/an-empty-branch-is-not-asked`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-two-merge-lookups-agree`
 
 ## Changelog
 
@@ -82,7 +83,7 @@ Done when:
 - The test fails when the guard is removed from any one of the three functions.
 - The header comment of `plot-pr-merged.sh` names the guard and the reason in one paragraph.
 
-### The two merge lookups agree (Branch: bug/the-two-merge-lookups-agree) <!-- waits: bug/an-empty-branch-is-not-asked -->
+### The two merge lookups agree (Branch: bug/the-two-merge-lookups-agree, PR: #1212) <!-- waits: bug/an-empty-branch-is-not-asked -->
 
 - `bug/the-two-merge-lookups-agree` — `packages/domain/corpus/pr-merged.corpus.test.ts` comparing `pr_merged` against `host-shell.ts`'s `prMerged` over a built corpus; `docs/shell-and-domain.md` amended at `:9` to name the lookup pair, plus a section for this comparison <!-- builds: pr-merged.corpus.test.ts, a built corpus over the two merge lookups -->
 

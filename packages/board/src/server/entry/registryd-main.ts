@@ -1292,6 +1292,11 @@ export const run = async (
 const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
   'already-merged': 'queue',
   'merge-unknown': 'queue',
+  // QUEUE-SCOPED BECAUSE THE HOLD IS ONLY EVER ASKED OF A CLAIMABLE SLICE. It
+  // is proportional to the plans an operator is actually waiting on a branch
+  // for, never to the backlog, and the branch is the whole of the repair: the
+  // reader needs its name to write the heading.
+  'slice-unnamed': 'queue',
   'no-brief': 'queue',
   // QUEUE-SCOPED, SO A LOOPING TICK NAMES ITS BRANCHES. It is proportional to
   // the slices one outage left unanswered rather than to the backlog, and it is

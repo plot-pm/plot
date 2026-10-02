@@ -1282,6 +1282,174 @@ write_ending() { # $1=worktree $2=reason $3=actor $4=branch $5=detail
 }
 
 # ---------------------------------------------------------------------------
+# THE USAGE LIMIT — what the desk holds, and what the exit was
+# ---------------------------------------------------------------------------
+#
+# A HARNESS THAT STOPPED ON THE ACCOUNT'S USAGE LIMIT EXITS LIKE A PROMPT THAT
+# COULD NOT START, and the loop read it as one: measured 2026-10-01 in #1141, a
+# worker spent three retries in 974 ms and wrote a marker telling a person to
+# fix a prompt file that worked, on a desk holding two pushed commits and ten
+# uncommitted files. The limit message names its own reset time, and nothing
+# read it.
+#
+# THE DECISION IS THE BUNDLE'S AND THIS FILE PERFORMS IT. `promptExit` holds
+# every pattern, every clock comparison and all three refusals; the loop takes
+# the readings, asks, and acts. `docs/shell-and-domain.md` permits the hop here
+# because a prompt exit happens once per prompt and a prompt runs for minutes
+# or hours — it is not the idle pass the cost rule protects.
+
+# Where a waiting agent records the limit it is waiting out.
+#
+# INSIDE THE DESK AND UNDER THE `.plot-worker.` PREFIX, so `plot_worker_dirty`
+# drops it and a waiting agent does not read as holding unlanded work. The
+# monitor and `plot-fleetctl.sh --status` both read it, which is why it is a
+# file rather than a variable: they are separate processes.
+LIMITED_FILE_NAME='.plot-worker.limited'
+
+# Record the limit this desk is waiting out: reset epoch, reset ISO, limit line.
+#
+# OVERWRITTEN AT EACH LIMIT, never appended. The file answers *what is this
+# desk waiting for NOW*, and a second limit replaces the first rather than
+# joining it — a reader taking the newest of several lines would be a second
+# rule about one fact.
+write_limited_record() { # $1=worktree $2=reset epoch $3=reset iso $4=limit line
+  local wt="$1"
+  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  printf '%s\t%s\t%s\n' "$2" "$3" "$4" > "$wt/$LIMITED_FILE_NAME" 2>/dev/null || return 0
+}
+
+# Remove it. The slice ended, the agent hopped, or the worker is leaving.
+clear_limited_record() { # $1=worktree
+  local wt="$1"
+  [ -n "$wt" ] || return 0
+  rm -f "$wt/$LIMITED_FILE_NAME" 2>/dev/null || true
+  return 0
+}
+
+# What this desk holds that a person would want named.
+#
+# READ BEFORE THE SENTENCES CLAIM OTHERWISE. Until this slice the failure path
+# printed *"without the agent doing any work"*, *"the desk is untouched"* and
+# *"no slice was ever worked"* as constants — and #1141's desk held two pushed
+# commits and ten uncommitted files while all three were printed. The counts
+# are a reading, so they are taken rather than asserted.
+#
+# COMMITS ARE AGAINST `origin/<main>` AND PATH-LIMITED TO THE DESK, so the
+# claim commit the dispatcher pushes is counted like any other: it is a commit
+# the branch carries, and a sentence saying the desk is untouched is false
+# while it exists.
+desk_commit_count() { # $1=worktree → a number, 0 when it cannot be read
+  local wt="$1" n
+  [ -n "$wt" ] && [ -d "$wt" ] || { printf '0'; return 0; }
+  n=$(git -C "$wt" rev-list --count "origin/$main_branch..HEAD" -- . 2>/dev/null) || n=0
+  case "$n" in (''|*[!0-9]*) n=0 ;; esac
+  printf '%s' "$n"
+}
+
+# The desk's uncommitted work, through the ONE filter that decides what counts.
+#
+# `plot_worker_dirty` DROPS THE LOOP'S OWN `.plot-worker.*` FILES, which is
+# what keeps the log, the pid file, the ending record and the limit record out
+# of a count a person reads as work on the floor.
+desk_dirty_count() { # $1=worktree → a number
+  local wt="$1" out
+  [ -n "$wt" ] && [ -d "$wt" ] || { printf '0'; return 0; }
+  out=$(plot_worker_dirty "$wt" 2>/dev/null)
+  [ -n "$out" ] || { printf '0'; return 0; }
+  printf '%s' "$(printf '%s\n' "$out" | grep -c .)"
+}
+
+# One clause naming what the desk holds, or nothing at all.
+#
+# EMPTY WHERE BOTH COUNTS ARE ZERO, so a genuinely untouched desk keeps the
+# sentence it always had. A clause is added only where the reading contradicts
+# it — which is the whole repair: the old sentences were not wrong about every
+# desk, they were unconditional.
+desk_holding_clause() { # $1=worktree → " The desk holds N commit(s) and M …" | ""
+  local wt="$1" commits dirt parts=""
+  commits=$(desk_commit_count "$wt")
+  dirt=$(desk_dirty_count "$wt")
+  [ "$commits" = "0" ] && [ "$dirt" = "0" ] && return 0
+  [ "$commits" != "0" ] && parts="$commits commit$([ "$commits" = "1" ] || printf 's')"
+  if [ "$dirt" != "0" ]; then
+    [ -n "$parts" ] && parts="$parts and "
+    parts="$parts$dirt uncommitted file$([ "$dirt" = "1" ] || printf 's')"
+  fi
+  printf ' The desk holds %s.' "$parts"
+}
+
+# Ask the bundle what one prompt exit was.
+#
+# ALL SEVEN READINGS ON EVERY EXIT, including an exit from a prompt that never
+# waited: there the wait flag is 0 and the commit count is 0, and the rule
+# reads neither the run time nor the commits, so such an exit can never answer
+# `no-progress`.
+#
+# `${PLOT_HARNESS:-claude}` AND NEVER THE RAW VARIABLE. `plot-dispatch.sh:1516`
+# exports `PLOT_HARNESS="$launch_harness"`, and `launch_harness` is EMPTY on
+# every launch with no charter — which is every launch on this estate today.
+# The raw variable would look up `HARNESS_LIMIT_LINES[""]`, find no patterns,
+# and read every limit as a broken prompt: the defect, reintroduced one line
+# below its fix.
+#
+# AN UNASKABLE BUNDLE TAKES TODAY'S PATH. No node, no bundle, a non-zero exit
+# or an empty answer all mean the loop behaves exactly as it did before this
+# existed — `unstarted` for a non-zero status, `ran` for 0. A classification
+# that cannot be made is not a reason to stop a worker.
+ask_prompt_exit() { # $1=status $2=ran seconds $3=commits since wait → the answer line
+  local status="$1" ran="$2" commits="$3" bundle answer
+  bundle="$script_dir/board/plot-prompt-exit.mjs"
+  # TODAY'S PATH, named once and used by both refusals below. An `a && b || c`
+  # would print BOTH words if `b` ever failed, and the caller reads the first
+  # tab-separated field — so two words joined would read as neither.
+  by_status() { if [ "$status" -eq 0 ]; then printf 'ran'; else printf 'unstarted'; fi; }
+
+  if [ -z "$_prompt_out_file" ] || [ ! -r "$_prompt_out_file" ] || \
+     [ ! -r "$bundle" ] || ! command -v node >/dev/null 2>&1; then
+    by_status
+    return 0
+  fi
+  answer=$(tail -n 200 "$_prompt_out_file" 2>/dev/null | node "$bundle" \
+    "$status" "${PLOT_HARNESS:-claude}" "$(clock_now)" "$WORKER_BOUND_SECONDS" \
+    "$ran" "$_after_wait" "$commits" 2>/dev/null) || answer=""
+  # AN EMPTY ANSWER IS A REFUSAL, not an empty verdict. The bundle exits 2 on
+  # an argument it cannot read and writes nothing, which is the case a misread
+  # reading would otherwise turn into a decision.
+  if [ -z "$answer" ]; then
+    by_status
+    return 0
+  fi
+  printf '%s' "$answer"
+}
+
+# Sleep until the reset, in steps, comparing the clock after each one.
+#
+# STEPS OF AT MOST 60 s, EACH AS `_wait_sleep_pid`, for two reasons that are
+# one mechanism: `--stop` sends SIGTERM and the exit trap reaps that pid, so a
+# stopped agent leaves within one step rather than hours later; and the clock
+# is re-read between steps, so a machine that slept or a clock that jumped does
+# not leave the agent waiting out an interval that already passed.
+#
+# THE MARGIN IS ADDED ONCE, AT THE END. A reset is the instant the limit lifts,
+# and a prompt started in the same second has been measured meeting it again;
+# `PLOT_LIMIT_MARGIN_SECONDS` is the grace, defaulting to a minute.
+sleep_until_reset() { # $1=reset epoch
+  local target="$1" now remaining step
+  target=$(( target + ${PLOT_LIMIT_MARGIN_SECONDS-60} ))
+  while :; do
+    now=$(clock_now)
+    remaining=$(( target - now ))
+    [ "$remaining" -gt 0 ] || return 0
+    step=$remaining
+    [ "$step" -gt 60 ] && step=60
+    sleep "$step" &
+    _wait_sleep_pid=$!
+    wait "$_wait_sleep_pid" 2>/dev/null
+    _wait_sleep_pid=""
+  done
+}
+
+# ---------------------------------------------------------------------------
 # WHICH PROMPT THIS AGENT RUNS
 # ---------------------------------------------------------------------------
 #
@@ -1546,6 +1714,46 @@ wait_for_checks() {
   return 0
 }
 
+# THE WORKER'S RECORDS FOLLOW IT TO A NEW DESK. `start_worker`'s wrapper writes
+# `.plot-worker.pid` and `.plot-worker.wrapper.pid` into the desk the agent
+# starts in. A loop that cannot reset that desk cuts a new one and moves there,
+# and the old desk then still names the live pid: `plot-worker-state.sh` reads it
+# as `running`, `plot-reap.sh` refuses it as a live worker, and `--release`
+# refuses it too. Measured 2026-10-02: pid 60290 started at
+# `.worktrees/free-9cbeda11`, moved to a `plot-wt-` desk, and the old desk still
+# named 60290 after its PR #1197 merged.
+#
+# THE VALUES ARE COPIED, NOT RE-DERIVED. The wrapper recorded `$!` of the
+# subshell that runs this loop, and the monitors and the agent-liveness walk
+# read that pid; `$$` here can differ from it. A desk with no record names no
+# worker Plot started, so nothing moves.
+#
+# THE OLD FILES ARE EMPTIED, NOT DELETED. `plot-reap.sh` and
+# `plot-reconcile-scan.sh` §21 recognise a dispatch desk by `.plot-worker.pid`,
+# so a deleted file leaves the old desk unplaced and never reaped. Every reader
+# reads an empty file as no live worker.
+#
+# Each write goes to a temporary file in the same directory and is renamed into
+# place, so a reader sees the old content or the new and never a partial one.
+# A same-desk reset (`$2` = `$1`) changes nothing.
+move_worker_record() { # $1=the desk left, $2=the desk taken
+  local from="$1" to="$2" name value
+  [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ] || return 0
+  for name in .plot-worker.pid .plot-worker.wrapper.pid; do
+    [ -f "$from/$name" ] || continue
+    value=$(tr -d ' \n' < "$from/$name" 2>/dev/null) || value=""
+    [ -n "$value" ] || continue
+    printf '%s' "$value" > "$to/$name.tmp" 2>/dev/null && mv -f "$to/$name.tmp" "$to/$name" 2>/dev/null || {
+      rm -f "$to/$name.tmp" 2>/dev/null
+      echo "plot-worker-loop: could not record $name at $to — leaving $from as it is" >&2
+      continue
+    }
+    : > "$from/$name.tmp" 2>/dev/null && mv -f "$from/$name.tmp" "$from/$name" 2>/dev/null || \
+      rm -f "$from/$name.tmp" 2>/dev/null
+  done
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 #
 # `PLOT_WORKER_LOOP_SOURCED=1` STOPS HERE, so a test can take the definitions
@@ -1682,6 +1890,34 @@ _monitor_watcher_pid=""
 # prompt does, and a sleep that outlived the worker would be the same leak.
 _wait_sleep_pid=""
 _timed_out=0
+
+# THE PROMPT'S CAPTURED OUTPUT, and when it started.
+#
+# ONE CLOCK FUNCTION, ASKED EVERYWHERE. The wait compares a reset epoch against
+# now in four places — the answer, the sleep's own steps, the monitor's silence
+# and `--status` — and a second spelling of `date +%s` is a second answer
+# waiting to disagree. `PLOT_CLOCK_OFFSET_SECONDS` is the TEST SEAM, and it is
+# the only way to prove a reset two seconds ahead without spending two seconds
+# per assertion; it is not a Plot Config key, because a project has no opinion
+# about what time it is.
+_prompt_out_file=""
+_prompt_started_at=0
+clock_now() {
+  local now
+  now=$(date +%s)
+  printf '%s' "$(( now + ${PLOT_CLOCK_OFFSET_SECONDS:-0} ))"
+}
+
+# WHETHER THIS PROMPT FOLLOWS A LIMIT WAIT, and the desk's `HEAD` when it began.
+#
+# THE RULE READS BOTH ONLY TOGETHER. `promptExit` answers `no-progress` for a
+# prompt that waited, returned inside its progress window and committed
+# nothing; with the flag at 0 it reads neither, so an exit from a prompt that
+# never waited can never end a worker for want of progress. The pair is cleared
+# whenever the agent takes a new slice, because progress is asked about THIS
+# slice and a fresh one has its own.
+_after_wait=0
+_wait_head=""
 # THE PROMPT'S OWN EXIT CODE, set by `run_bounded` after its `wait` and read by
 # the loop below. It joins the file-scope run state rather than being a local,
 # for the reason `_ended_by` and `_ended_detail` are here: the caller reads it
@@ -1886,6 +2122,12 @@ _cleanup_on_exit() {
   _monitor_watcher_pid=""
   _prompt_child=""
   _wait_sleep_pid=""
+  # A WORKER THAT IS LEAVING IS NOT WAITING. The record says *this desk is
+  # waiting out a limit until <time>*, and a gone worker is waiting for
+  # nothing; the monitor and `--status` both read it, so a record left behind
+  # would report a wait that no process is serving. The `end-limited` path
+  # clears it before writing its marker for the same reason.
+  clear_limited_record "${PLOT_WORKTREE:-$PWD}"
 }
 # Through `plot-tmp.sh`'s one exit registry, which owns EXIT, INT and TERM. The
 # ALRM and USR1 traps above stay this script's own.
@@ -1924,6 +2166,14 @@ run_bounded() {
   _ended_detail=""
   _prompt_status=0
 
+  # THE PREVIOUS PROMPT'S CAPTURE GOES HERE, not when the exit was classified.
+  # The classifier reads the file AFTER this function returns, so removing it
+  # on the way out would leave nothing to read; removing it on the way in keeps
+  # exactly one prompt's output on disk at a time, which is what stops a long
+  # retry sequence or a hop from accumulating them.
+  [ -n "$_prompt_out_file" ] && rm -f "$_prompt_out_file" 2>/dev/null
+  _prompt_out_file=""
+
   # THE SESSION DECISION IS MADE HERE, ONCE PER PROMPT, and travels to the
   # prompt file as two exported variables it interpolates without knowing the
   # rule. `PLOT_SESSION_FLAG` is `--session-id` or `--resume`;
@@ -1956,9 +2206,44 @@ run_bounded() {
   export PLOT_CORRECTION_FILE
   PLOT_CORRECTION_FILE="${PLOT_WORKTREE:-$PWD}/$(correction_file_name)"
 
+  # THE PROMPT DOES NOT INHERIT `PLOT_REPO_ROOT`. The supervisor's unit sets it
+  # for the scripts the supervisor runs, and plain inheritance carried it into
+  # every test an agent ran. `plot-config.sh` prefers it over the sandbox's own
+  # repository, so a test that dispatched into a temp repo read the HOST's
+  # absolute `Agent registry` and wrote its manifest there. Measured 2026-10-02:
+  # 9 `feature/caps` manifests from `capabilities.test.mjs` in this estate's
+  # registry, which the supervisor counted against the cap and started nobody.
+  # The loop keeps the variable; only the agent's process tree loses it. `env`
+  # replaces itself with `bash`, so `$!` is still the prompt.
+  # THE OUTPUT IS CAPTURED AS WELL AS SHOWN, because the exit is now CLASSIFIED
+  # rather than read from the status alone. `promptExit` is asked what the last
+  # 200 lines say, and a harness that stopped on the account's usage limit says
+  # so in a line nothing read before #1141.
+  #
+  # PROCESS SUBSTITUTION, NEVER A PIPELINE. `… | tee … &` puts `$!` on `tee`,
+  # so `_prompt_child` would name the wrong process: the bound's `_kill_tree`
+  # would kill the tee and orphan the agent CLI, the idle watcher's signal
+  # would reach a process that is not the prompt, and `--stop` would leave the
+  # agent running. All three round-2 jurors measured that, and the test below
+  # the bound asserts no prompt process survives it.
+  #
+  # `tee -a` TO A FILE THE REGISTRY OWNS, through `plot-tmp.sh` like every
+  # other temp path here. The file is per-prompt and removed when the function
+  # returns, so a long slice's output does not accumulate across a hop.
+  # `plot_tmpfile` assigns BY NAME through `printf -v`, which is why the
+  # variable is not visibly written here — the substitution form is what
+  # `scripts/check-temp-paths.sh` refuses, because it removes or leaks the path.
+  #
+  # ONE TEE PER STREAM, so stdout stays stdout and stderr stays stderr. A
+  # `2>&1` into one tee sends the prompt's stderr to the loop's stdout, and a
+  # reader of the loop's stderr then sees nothing the prompt said there. Both
+  # tees append to the one capture file, which is all the classifier reads.
+  plot_tmpfile _prompt_out_file prompt-out
   # shellcheck source=/dev/null
-  bash -c '. "$1"' _ "$prompt_file" &
+  env -u PLOT_REPO_ROOT bash -c '. "$1"' _ "$prompt_file" \
+    > >(tee -a "$_prompt_out_file") 2> >(tee -a "$_prompt_out_file" >&2) &
   _prompt_child=$!
+  _prompt_started_at=$(clock_now)
 
   # The floor's watchdog: after the bound, signal the loop's own PID. A compound
   # subshell (`sleep; kill`) rather than `sleep && kill` so a killed sleep still
@@ -2290,20 +2575,104 @@ while true; do
   # THE EXIT IS 1 AND DELIBERATELY NOT 124. `plot-worker-state.sh` answers
   # `failed` on any non-zero code, which is all this path needs; 124 is the
   # bound's own number and reading it here would tell an operator a clock fired.
-  if [ "$_prompt_status" -ne 0 ]; then
+  # THE EXIT IS CLASSIFIED BEFORE THE STATUS IS TESTED, because a usage limit
+  # is not always a non-zero exit: a harness may print the limit line and exit
+  # 0, and the rule reads a status-0 run's LAST non-empty line for exactly
+  # that. Testing the status first would send such a run down the finished-slice
+  # path and seal a declaration for work the limit stopped.
+  _ran_seconds=$(( $(clock_now) - _prompt_started_at ))
+  [ "$_ran_seconds" -lt 0 ] && _ran_seconds=0
+  _commits_since_wait=0
+  if [ "$_after_wait" = "1" ] && [ -n "$_wait_head" ]; then
+    _commits_since_wait=$(git -C "${PLOT_WORKTREE:-$PWD}" rev-list --count \
+      "$_wait_head..HEAD" 2>/dev/null) || _commits_since_wait=0
+    case "$_commits_since_wait" in (''|*[!0-9]*) _commits_since_wait=0 ;; esac
+  fi
+  _exit_answer=$(ask_prompt_exit "$_prompt_status" "$_ran_seconds" "$_commits_since_wait")
+  _exit_verdict=${_exit_answer%%$'\t'*}
+
+  # ---------------------------------------------------------------------------
+  # THE ACCOUNT HIT ITS USAGE LIMIT — and the loop waits rather than retrying
+  # ---------------------------------------------------------------------------
+  #
+  # `attempts` IS NOT RAISED. The budget exists to stop a spin on a broken
+  # invocation, and a limit is the opposite reading: the invocation worked and
+  # the account is out of capacity. Spending the budget here is what made #1141
+  # end a working agent in 974 ms.
+  #
+  # THE SLICE IS NOT RELEASED AND THE DESK IS NOT RESET. `continue` re-enters
+  # the loop with `$PLOT_BRANCH` unchanged, so the agent resumes the same slice
+  # with its work still on the floor.
+  if [ "$_exit_verdict" = "wait" ]; then
+    _limit_reset=$(printf '%s' "$_exit_answer" | cut -f2)
+    _limit_iso=$(printf '%s' "$_exit_answer" | cut -f3)
+    _limit_line=$(printf '%s' "$_exit_answer" | cut -f4-)
+    write_limited_record "${PLOT_WORKTREE:-$PWD}" "$_limit_reset" "$_limit_iso" "$_limit_line"
+    # THE DESK'S `HEAD` AT THE START OF THE WAIT, which is what makes the next
+    # exit's progress reading possible: a limit that returns with no commit
+    # since this oid is a limit that is not lifting.
+    _wait_head=$(git -C "${PLOT_WORKTREE:-$PWD}" rev-parse HEAD 2>/dev/null) || _wait_head=""
+    _after_wait=1
+    echo "plot-worker-loop: usage limit on ${PLOT_BRANCH:-?} until $_limit_iso; waiting" >&2
+    sleep_until_reset "$_limit_reset"
+    continue
+  fi
+
+  # ---------------------------------------------------------------------------
+  # A LIMIT THE LOOP MAY NOT WAIT OUT — a sixth ending, and nothing to repair
+  # ---------------------------------------------------------------------------
+  #
+  # THREE GATES, AND THE RULE SAYS WHICH. `no-reset` is a limit whose reset
+  # could not be read, `past-bound` a reset further away than `Worker bound`,
+  # and `no-progress` a limit that returned without the desk gaining a commit.
+  #
+  # NO PROMPT FIX IS NAMED. That sentence is `unstarted`'s and it is false
+  # here: the invocation worked. The marker asks for time and names
+  # `--restart`, which is what resumes the slice once the limit lifts.
+  if [ "$_exit_verdict" = "end-limited" ]; then
+    _limit_reset=$(printf '%s' "$_exit_answer" | cut -f2)
+    _limit_iso=$(printf '%s' "$_exit_answer" | cut -f3)
+    _limit_cause=$(printf '%s' "$_exit_answer" | cut -f4)
+    _limit_line=$(printf '%s' "$_exit_answer" | cut -f5-)
+    _limit_until="with no reset time"
+    [ "$_limit_reset" != "unknown" ] && _limit_until="until $_limit_iso"
+    clear_limited_record "${PLOT_WORKTREE:-$PWD}"
+    echo "plot-worker-loop: the account hit its usage limit on ${PLOT_BRANCH:-?} $_limit_until ($_limit_cause) — the prompt ran and the harness stopped. The slice stays claimed and a person is asked; ending worker.$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}")" >&2
+    write_ending "${PLOT_WORKTREE:-$PWD}" limited agent "${PLOT_BRANCH:-}" \
+      "the harness stopped on the account's usage limit $_limit_until ($_limit_cause)"
+    write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
+      "PLOT-BLOCKED: the account hit its usage limit while \`${PLOT_BRANCH:-?}\` was being worked, $_limit_until. The harness reported:
+
+> $_limit_line
+
+Nothing is broken and there is nothing to fix in the prompt — the invocation worked and the account is out of capacity.$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}") The slice is still claimed by this agent and its work is still in the desk. Once the limit lifts, restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
+    exit 1
+  fi
+
+  if [ "$_exit_verdict" = "unstarted" ]; then
     _start_attempts=$(manifest_attempts "${PLOT_MANIFEST_FILE:-}")
     if [ "$_start_attempts" -lt "$START_ATTEMPT_BUDGET" ]; then
       raise_manifest_attempts "${PLOT_MANIFEST_FILE:-}"
-      echo "plot-worker-loop: the prompt failed to run on ${PLOT_BRANCH:-?} — the command exited $_prompt_status without the agent doing any work. The slice stays claimed and the desk is untouched; retrying ($(( _start_attempts + 1 )) of $START_ATTEMPT_BUDGET)." >&2
+      # THE SENTENCE READS THE DESK. It said *"the desk is untouched"*
+      # unconditionally until this slice, and #1141's desk held two pushed
+      # commits and ten uncommitted files while it was printed. The clause is
+      # empty where both counts are zero, so a genuinely untouched desk keeps
+      # the sentence it always had.
+      echo "plot-worker-loop: the prompt failed to run on ${PLOT_BRANCH:-?} — the command exited $_prompt_status without the agent doing any work. The slice stays claimed; retrying ($(( _start_attempts + 1 )) of $START_ATTEMPT_BUDGET).$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}")" >&2
       continue
     fi
-    echo "plot-worker-loop: the prompt never started on ${PLOT_BRANCH:-?} — the command exited $_prompt_status on each of $START_ATTEMPT_BUDGET attempts and no slice was ever worked. The slice stays claimed and a person is asked; ending worker." >&2
+    echo "plot-worker-loop: the prompt never started on ${PLOT_BRANCH:-?} — the command exited $_prompt_status on each of $START_ATTEMPT_BUDGET attempts. The slice stays claimed and a person is asked; ending worker.$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}")" >&2
     write_ending "${PLOT_WORKTREE:-$PWD}" unstarted agent "${PLOT_BRANCH:-}" \
       "the worker prompt exited $_prompt_status without running, on $START_ATTEMPT_BUDGET attempts"
     write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
-      "PLOT-BLOCKED: the worker prompt for \`${PLOT_BRANCH:-?}\` exited $_prompt_status without running, $START_ATTEMPT_BUDGET times. Nothing was implemented and the slice is still claimed by this agent. Read \`.plot-worker.log\` for what the runtime said, fix the invocation in the prompt file, then restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
+      "PLOT-BLOCKED: the worker prompt for \`${PLOT_BRANCH:-?}\` exited $_prompt_status without running, $START_ATTEMPT_BUDGET times.$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}") The slice is still claimed by this agent. Read \`.plot-worker.log\` for what the runtime said, fix the invocation in the prompt file, then restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
     exit 1
   fi
+
+  # THE PROMPT RAN. A limit record from an earlier wait is removed here: the
+  # slice is finishing, and a stale record would tell the monitor and
+  # `--status` that this desk is still waiting.
+  clear_limited_record "${PLOT_WORKTREE:-$PWD}"
 
   # ---------------------------------------------------------------------------
   # THE BUILD FAILED — a fifth ending, and the first one Plot corrects instead
@@ -2596,6 +2965,19 @@ while true; do
   if [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ]; then
     update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$hop_wt" "$(session_handle)" "${PLOT_BRANCH:-}"
   fi
+
+  # THE WAIT STATE BELONGS TO THE SLICE THAT WAITED, so the hop clears it.
+  # `no-progress` asks whether THIS slice gained a commit since ITS wait, and a
+  # flag carried across a hop would judge a fresh slice by the previous one's
+  # history. The record goes with it: a desk handed to a new slice is not
+  # waiting on anything.
+  clear_limited_record "${PLOT_WORKTREE:-$PWD}"
+  _after_wait=0
+  _wait_head=""
+
+  # The pid records follow the loop, so the desk it leaves names no live worker.
+  # After the claim push, because a rejected push leaves the loop where it is.
+  move_worker_record "$PLOT_WORKTREE" "$hop_wt"
 
   # Move to the desk and update environment for the next iteration. On a reset
   # this `cd` lands where the loop already stood; the export is what makes the
