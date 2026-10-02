@@ -1210,6 +1210,17 @@ test('worker-loop: an agent WITH a branch still runs its prompt', serial, async 
     'an agent holding a branch runs the prompt with it, exactly as before');
 });
 
+test('worker-loop: the prompt does not inherit PLOT_REPO_ROOT', serial, async () => {
+  // The loop runs with the variable set, as the supervisor's unit sets it; the
+  // prompt, and every test an agent starts from it, must not see it.
+  const t = fixture('no-repo-root', 5, 'echo "PROMPT-ROOT=[${PLOT_REPO_ROOT-unset}]" >&2\n');
+  const { stderr } = await runLoop(t, { env: { PLOT_BRANCH: 'feature/held', PLOT_REPO_ROOT: t } });
+  discard(t);
+
+  assert.match(stderr, /PROMPT-ROOT=\[unset\]/,
+    'the prompt runs without PLOT_REPO_ROOT, so a sandbox it builds reads its own config');
+});
+
 test('worker-loop: a branchless wait asks no fleet scan', serial, () => {
   // THE OUTLOOK COSTS 18.3 s AND HAS NOTHING TO SAY HERE. `--why-nothing` over
   // an empty slug walks the whole estate to name branches belonging to plans

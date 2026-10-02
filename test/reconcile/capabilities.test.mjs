@@ -183,6 +183,10 @@ const launched = (agent, charterBody) => {
 
   const dispatch = path.join(scripts, 'plot-dispatch.sh');
   const env = { ...process.env };
+  // The sandbox reads its own config: an inherited PLOT_REPO_ROOT would hand
+  // `plot-config.sh` the host's absolute `Agent registry`, and the manifest
+  // `--restart` writes would land in the host's registry.
+  delete env.PLOT_REPO_ROOT;
   delete env.PLOT_AGENT;
   if (agent !== null) env.PLOT_AGENT = agent;
   let out = '';
