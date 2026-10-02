@@ -1,0 +1,1 @@
+../2026-10-02-an-agent-runs-the-tests-its-change-touches.md
