@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1057
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/approval-refuses-an-unnamed-slice`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-queue-holds-an-unnamed-slice`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
