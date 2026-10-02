@@ -93,6 +93,8 @@ If slice 2 runs, it removes the largest named cost, and the cost decides the fix
 - Slice 1: a table on #1017 gives, for at least three board-shaped runs on a named `origin/main` commit, the wall time, the CPU time, the load average, and the host, git, shell and wait parts, with the largest single cost named.
 - Slice 2, if it runs: the median board-shaped wall time falls by at least the share slice 1 attributed to the removed cost, measured the same way at a comparable load, and the scan's output is unchanged for the same estate (`--json` compared before and after).
 - Slice 2, if deferred: its branch line carries `deferred:` with the measurement, and #1017 is closed with the same numbers.
+- Slice 2, as delivered (amended 2026-10-02, operator decision): the `pr-state` calls are removed entirely, and the median wall time falls by 28% against the 54–61% share slice 1 attributed to them. The remaining 26 host calls at 3.87 s each (about 101 s, 30% of the run before) come from the estate, not from the removed mechanism. #1196 is accepted on that measurement.
+- Slice 3: the median board-shaped wall time falls by at least the share the trace attributes to `plan_meta_index_of`, measured the same way at a comparable load, and the scan's `--json` output is unchanged for the same estate.
 
 ## Slices
 
@@ -103,6 +105,10 @@ The board-shaped scan timed on `origin/main` and split into host, git, shell and
 ### The scan drops its largest cost (Branch: bug/the-scan-drops-its-largest-cost, PR: #1196) <!-- waits: bug/the-scan-time-is-measured -->
 
 Removes the one cost slice 1 names, if it holds 30% of the median or the median is 45 s or more; deferred otherwise. A decision moves into `packages/domain`; shell overhead is fixed in place.
+
+### The plan index is read once (Branch: bug/the-plan-index-is-read-once) <!-- waits: bug/the-scan-drops-its-largest-cost -->
+
+Replaces the linear scan in `plan_meta_index_of` (`plot-fleet-scan.sh:2937-2938`, about 294 s over ~345,000 trace gaps in slice 1's trace) with one lookup built once per run. Shell overhead, fixed in place; no decision moves. <!-- builds: a plan-file index built once per scan -->
 
 ## Notes
 
