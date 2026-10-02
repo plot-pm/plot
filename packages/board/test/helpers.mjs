@@ -40,18 +40,28 @@ export const REPO_ROOT = path.resolve(here, '../../..');
 export const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
 export const ARTIFACT = path.join(SCRIPTS_DIR, 'board/board-server.mjs');
 
-/** Every process descending from `root`, read from one `ps` listing. */
-const descendantsOf = (root) => {
+/**
+ * Every process on the machine as `{ pid, ppid, pgid, stat }`, from one `ps`
+ * listing. An unreadable listing reads as no processes.
+ */
+const processTable = () => {
   let listing = '';
   try {
-    listing = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+    listing = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,pgid=,stat='], { encoding: 'utf8' });
   } catch {
     return [];
   }
+  return listing
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/))
+    .filter((fields) => fields.length >= 4 && Number(fields[0]) > 0)
+    .map(([pid, ppid, pgid, stat]) => ({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), stat }));
+};
+
+/** Every process in `table` descending from `root`. */
+const descendantsOf = (root, table) => {
   const children = new Map();
-  for (const line of listing.split('\n')) {
-    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
-    if (!pid) continue;
+  for (const { pid, ppid } of table) {
     if (!children.has(ppid)) children.set(ppid, []);
     children.get(ppid).push(pid);
   }
@@ -66,32 +76,43 @@ const descendantsOf = (root) => {
   return found;
 };
 
-/** Send `signal` to `pid`; a process already gone is the wanted state. */
+/**
+ * The process groups that members of `tree` lead.
+ *
+ * The server starts every script `detached`, so each script leads a group, and
+ * every subshell and command it forks joins that group, including one forked
+ * after `table` was read. A pid list misses that late child; its group does not.
+ * Only a group that a tree member leads is named. The test runner's group is
+ * led by an ancestor of the server, so it is never named.
+ */
+const ledGroups = (tree, table) =>
+  tree.filter((pid) => table.some((row) => row.pid === pid && row.pgid === pid));
+
+/** Send `signal` to `pid`, or to a group as `-pgid`; one already gone is the wanted state. */
 const signalPid = (pid, signal) => {
   try { process.kill(pid, signal); } catch { /* already gone */ }
 };
 
 /**
- * Blocks until none of `pids` is running, or for at most `ms`.
+ * Blocks until no process in `pids` and no process in a group of `groups` is
+ * running, or for at most `ms`. Returns whether they are all gone.
  *
  * Synchronous, so `kill()` stays a drop-in for the after-hooks that do not
  * await it. A zombie counts as gone: the server is this process's child and
  * stays one until the event loop reaps it.
  */
-const untilGoneSync = (pids, ms = 5_000) => {
+const untilGoneSync = (pids, groups, ms = 5_000) => {
   const stop = Date.now() + ms;
-  const running = () => {
-    let listing = '';
-    try {
-      listing = execFileSync('ps', ['-o', 'stat=', '-p', pids.join(',')], { encoding: 'utf8' });
-    } catch {
-      return false; // `ps -p` exits 1 when none of the pids exists
-    }
-    return listing.split('\n').some((stat) => stat.trim() !== '' && !stat.trim().startsWith('Z'));
-  };
-  while (pids.length && running() && Date.now() < stop) {
+  const running = () =>
+    processTable().some(
+      (row) => !row.stat.startsWith('Z') && (pids.includes(row.pid) || groups.includes(row.pgid)),
+    );
+  let alive = running();
+  while (alive && Date.now() < stop) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    alive = running();
   }
+  return !alive;
 };
 
 /**
@@ -150,13 +171,29 @@ export function startServer(cwd, env = {}) {
       // STOPPED FIRST, so the tree read is the whole tree: a stopped server
       // starts no child between the `ps` listing and its own death. Its TERM
       // stays pending until the CONT.
+      //
+      // THE GROUPS, NOT ONLY THE PIDS. The server is stopped, but its scripts
+      // are not: `plot-host.sh pr-list` runs `$(pr_list_call gh …)`, whose
+      // subshell forks the `gh` wrapper's subshell a few milliseconds later. A
+      // listing taken between the two holds the outer subshell only. TERM ends
+      // it at once, because a subshell does not keep the script's trap, and the
+      // inner one runs on unsignalled and appends to `PLOT_BUDGET_HOME` after
+      // the tree is removed. CI left `<repo>/.budget/budget.tsv` this way on
+      // 2026-10-02 (#1205). The late child is in its script's group, so the
+      // group is signalled and waited for.
       const kill = () => {
         signalPid(proc.pid, 'SIGSTOP');
-        const tree = descendantsOf(proc.pid);
+        const table = processTable();
+        const tree = descendantsOf(proc.pid, table);
+        const groups = ledGroups(tree, table);
+        for (const pgid of groups) signalPid(-pgid, 'SIGTERM');
         for (const pid of tree) signalPid(pid, 'SIGTERM');
         signalPid(proc.pid, 'SIGTERM');
         signalPid(proc.pid, 'SIGCONT');
-        untilGoneSync([proc.pid, ...tree]);
+        if (untilGoneSync([proc.pid, ...tree], groups)) return;
+        for (const pgid of groups) signalPid(-pgid, 'SIGKILL');
+        for (const pid of tree) signalPid(pid, 'SIGKILL');
+        untilGoneSync(tree, groups, 2_000);
       };
       resolve({
         port: Number(match[1]),
