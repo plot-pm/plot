@@ -3056,6 +3056,20 @@ plan_meta_phases=()
 plan_meta_types=()
 plan_meta_waves=()
 
+# THE POSITION OF EACH PARSED FILE, so a lookup costs one match and not one walk
+# over the whole estate. A newline-delimited string of `<file>\t<index>` records,
+# the idiom this script already uses at `:2027` and `:3536` — NO ASSOCIATIVE
+# ARRAY, for the reason the header above gives: `/bin/bash` on macOS is 3.2.
+#
+# BUILT IN THE PARENT SHELL, where `plan_meta_files+=()` runs. Every caller
+# invokes the lookup as `$(plan_meta_index_of …)`, so an index built lazily on
+# first call would be built in a child and lost — each call would rebuild it and
+# the fix would cost more than the walk it replaces.
+#
+# It carries a LEADING newline so the first record matches the same
+# `*$'\n'<key>$'\t'*` pattern every later one does, with no special case.
+plan_meta_index=$'\n'
+
 # Parses every plan file given, filling the four arrays above. Called ONCE.
 parse_plan_estate() { # $@=files to parse
   [ $# -gt 0 ] || return 0
@@ -3115,6 +3129,18 @@ for line in sys.stdin:
     [ -n "$kind" ] || continue
     case "$kind" in
       P)
+        # THE FIRST MATCH WINS, as the linear walk's `return` did: a path already
+        # in the index keeps its original position. A second `P` row for one path
+        # would otherwise move the answer, and the arrays still grow, so the
+        # later entry stays reachable by index and unreachable by name — exactly
+        # what the walk did.
+        #
+        # `"$file"` IS QUOTED INSIDE THE PATTERN. A plan path may hold `[`, `*`
+        # or `?`; unquoted it would be a glob and match the wrong record.
+        case "$plan_meta_index" in
+          *$'\n'"$file"$'\t'*) ;;
+          *) plan_meta_index+="$file"$'\t'"${#plan_meta_files[@]}"$'\n' ;;
+        esac
         plan_meta_files+=("$file")
         # `rest` is "<phase>\t<type>", two tokens with no tabs inside either.
         plan_meta_phases+=("${rest%%$'\t'*}")
@@ -3138,15 +3164,43 @@ for line in sys.stdin:
 }
 
 # The index of a parsed file in the arrays above, or "" when it was not parsed
-# (an unreadable file, or one the helper could not decode). Linear, over an
-# array the size of the plan directory — the estate is parsed once, so this
-# replaces a SUBPROCESS per lookup with a string compare per lookup.
+# (an unreadable file, or one the helper could not decode). ONE MATCH against
+# `plan_meta_index`, not one walk over `plan_meta_files`.
+#
+# THE WALK WAS QUADRATIC IN THE ESTATE AND NOT IN THE LIVE PLANS.
+# `add_plan_by_phase` asks `plan_phase_of`, and so this, once per CANDIDATE file
+# under the plan directory — 416 here against 26 live plans — and each ask
+# walked every parsed entry. Measured 2026-10-02 on this estate under
+# `--offline`: 1248 calls walking 260,208 entries between them, an average of
+# 208 per call. Slice 1's `PS4` trace put the line at 294.4 s over ~345,000
+# gaps, the largest single shell cost in the scan. A fix that only sped one
+# lookup would have kept that shape.
+#
+# ABSENT IS NOT FALSE. A file that was not parsed yields "", which every caller
+# already reads as "not a plan" (`:3547`, `:4096`). It must never be `0` — that
+# is the FIRST plan's index — and the function keeps exiting 0 on a miss, since
+# the callers test the string and not the status.
+#
+# THE KEY IS THE STORED STRING. A `P` row's file passed through `clean()`, which
+# turns tabs and newlines into spaces, and `plan_meta_files` holds that cleaned
+# form. A caller's raw path that the clean would have changed was never findable
+# by the walk and stays unfindable here — a tab in the key cannot match a record
+# whose own separator is a tab, and a newline cannot match one delimited by
+# newlines.
 plan_meta_index_of() { # $1=file → index on stdout, or ""
-  local i
-  for i in "${!plan_meta_files[@]}"; do
-    if [ "${plan_meta_files[$i]}" = "$1" ]; then printf '%s' "$i"; return 0; fi
-  done
-  printf ''
+  # `"$1"` IS QUOTED INSIDE BOTH PATTERNS, so a path holding `[`, `*` or `?`
+  # matches literally — as the `[ … = … ]` compare did. Unquoted it would be a
+  # glob and could match another plan's record.
+  case "$plan_meta_index" in
+    *$'\n'"$1"$'\t'*) ;;
+    *) printf ''; return 0 ;;
+  esac
+  # The record's value, taken from the FIRST occurrence of the key: strip
+  # everything up to and including it, then keep the digits before the next
+  # newline. `#` is the shortest match, so a key that appears twice yields the
+  # earliest entry — which the walk's `return` also did.
+  local rest="${plan_meta_index#*$'\n'"$1"$'\t'}"
+  printf '%s' "${rest%%$'\n'*}"
 }
 
 # The phase a file declares, or "" when it is not a plan. Read from the single
