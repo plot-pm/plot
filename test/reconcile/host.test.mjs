@@ -756,12 +756,36 @@ test('host: bitbucket reports unknown mergeability rather than claiming clean', 
   assert.equal(out.mergeable, 'unknown');
 });
 
-test('host: pr-list without --rich is unchanged', () => {
-  // The board is a new consumer; every existing caller must be untouched.
+test('host: pr-list without --rich carries no verdict, and never invents one', () => {
+  // THIS ASSERTED FIVE KEYS UNTIL 2026-10-02, and the contract genuinely
+  // changed: `--rich-open`'s terminal rows come through this arm, and a terminal
+  // row must carry every field a rich row carries. So `draft`, `url` and
+  // `updatedAt` are asked here too.
+  //
+  // WHAT IT STILL GUARANTEES IS THE EXPENSIVE HALF. The point of the plain arm
+  // is that it asks the host for no VERDICT — `statusCheckRollup` is the per-row
+  // resolution that cost 36 s of a 43 s full read, and `mergeable` and
+  // `reviewDecision` ride with it. The three fields added are scalar columns on
+  // the PR node: measured 2026-09-21, `number,updatedAt` over 937 PRs is
+  // 4715 ms against 5417 ms for the base fields and 18 842 ms for the rollup.
+  //
+  // THE ASSERTION IS THEREFORE ABOUT WHAT IS ABSENT, not about a key count. An
+  // added field cannot break a caller that reads fields by name; a verdict
+  // appearing here would mean the cheap call had quietly become the dear one.
   const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]') });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
-  // One field is added, `author`, which the domain's `Host.prList` reads.
-  assert.deepEqual(Object.keys(out).sort(), ['author', 'head', 'number', 'state', 'title']);
+  assert.deepEqual(Object.keys(out).sort(),
+    ['author', 'draft', 'head', 'number', 'state', 'title', 'updatedAt', 'url']);
+  // NO VERDICT, AND ABSENT RATHER THAN `unknown`: this arm did not ask, and a
+  // word here would be a claim. `--rich-open` fills them in as `unknown` for
+  // the rows it emits, which is a different statement made one layer up.
+  for (const verdict of ['checks', 'mergeable', 'review', 'failing_checks']) {
+    assert.ok(!(verdict in out), `the plain arm asks no verdict: ${verdict}`);
+  }
+  // The fields every existing caller already read are untouched.
+  assert.equal(out.number, 7);
+  assert.equal(out.head, 'feature/x');
+  assert.equal(out.state, 'OPEN');
 });
 
 test('host: pr-list --rich names WHICH checks failed', () => {
@@ -6181,4 +6205,259 @@ test('host: issue-list with Tracker: github-issues on github still calls gh', ()
   });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(argvOf(stubs.ghArgv).slice(0, 2), ['issue', 'list']);
+});
+
+// --- pr-list --rich-open: the verdicts of the open PRs only -----------------
+//
+// THE MEASUREMENT BEHIND THE FLAG. 2026-10-01 on this repository,
+// `--rich --state all --limit 1000` took 43.0 s and the same call without the
+// rich fields took 7.3 s, while all 1000 rows were terminal (964 `MERGED`, 36
+// `CLOSED`, 0 `OPEN`) — so 36 s bought four verdicts about heads nobody can act
+// on. Re-measured 2026-10-02 with 3 PRs open: `--rich --state open` is
+// 2.6-3.3 s and `--state all` is 8.6-10.5 s.
+//
+// The four rich fields are verdicts about a PR's HEAD, and a terminal head is
+// finished: no check will run against it and no review will change. So they are
+// asked of the open pull requests and everything else comes back plain.
+
+/**
+ * A `gh` stub that answers the two calls `--rich-open` makes, and records both.
+ *
+ * APPENDS one line per invocation, where `makeStubs` overwrites: the whole
+ * contract here is that TWO calls go out with different field lists, and an
+ * overwriting record would show only the second and hide the first entirely.
+ *
+ * A state may FAIL rather than answer, which is the shape the failure
+ * assertions need — a failing open call and a failing all call are two
+ * different implementations' bugs and must each exit non-zero with no rows.
+ */
+const makeSplitGhStub = ({ open = '[]', all = '[]', failOpen = null, failAll = null } = {}) => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-split-')));
+  const argvFile = path.join(dir, 'gh.argv');
+  const q = (s) => s.replace(/'/g, `'\\''`);
+  const arm = (payload, fail) => (fail != null
+    ? `  printf '%s\\n' '${q(fail)}' >&2\n  exit 1\n`
+    : `  printf '%s' '${q(payload)}'\n  exit 0\n`);
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${argvFile}"
+if [[ "$*" == *"--state open"* ]]; then
+${arm(open, failOpen)}fi
+if [[ "$*" == *"--state all"* ]]; then
+${arm(all, failAll)}fi
+printf '%s' '[]'
+`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, ghArgv: argvFile };
+};
+
+/** The `gh pr list` invocations one stub saw, in order. */
+const prListCallsOf = (stub) =>
+  (argvOf(stub.ghArgv) ?? []).filter((l) => l.startsWith('pr list'));
+
+const OPEN_RICH_ROW = '[{"number":7,"title":"Open","state":"OPEN",'
+  + '"headRefName":"feature/open","isDraft":false,'
+  + '"statusCheckRollup":[{"conclusion":"SUCCESS"}],'
+  + '"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED",'
+  + '"url":"https://example.invalid/7","updatedAt":"2026-10-01T12:00:00Z",'
+  + '"author":{"login":"jwloka"}}]';
+
+// `--state all` returns the open PR TOO — the host does not know about the
+// split — plus the terminal rows. The plain field list is what the plain arm
+// asks for.
+const ALL_PLAIN_ROWS = '[{"number":7,"title":"Open","state":"OPEN",'
+  + '"headRefName":"feature/open","isDraft":false,"url":"https://example.invalid/7",'
+  + '"updatedAt":"2026-10-01T12:00:00Z","author":{"login":"jwloka"}},'
+  + '{"number":6,"title":"Merged","state":"MERGED","headRefName":"feature/merged",'
+  + '"isDraft":false,"url":"https://example.invalid/6",'
+  + '"updatedAt":"2026-09-30T09:00:00Z","author":{"login":"jwloka"}},'
+  + '{"number":5,"title":"Closed","state":"CLOSED","headRefName":"feature/closed",'
+  + '"isDraft":true,"url":"https://example.invalid/5",'
+  + '"updatedAt":"2026-09-29T09:00:00Z","author":{"login":"eins78"}}]';
+
+const splitRows = (stub) =>
+  run(['pr-list', '--rich-open', '--state', 'all', '--limit', '1000'],
+    { env: { PLOT_HOST: 'github' }, stubs: stub })
+    .trim().split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
+
+test('host: pr-list --rich-open asks the rich fields of --state open only', () => {
+  const stub = makeSplitGhStub({ open: OPEN_RICH_ROW, all: ALL_PLAIN_ROWS });
+  splitRows(stub);
+  const calls = prListCallsOf(stub);
+  assert.equal(calls.length, 2, `two calls, got: ${JSON.stringify(calls)}`);
+
+  const openCall = calls.find((c) => c.includes('--state open'));
+  const allCall = calls.find((c) => c.includes('--state all'));
+  assert.ok(openCall, 'one call asks --state open');
+  assert.ok(allCall, 'one call asks --state all');
+
+  // THE RICH FIELD IS THE EXPENSIVE ONE, and it is what separates the two
+  // calls. `statusCheckRollup` is a per-row resolution; everything else on the
+  // plain list is a scalar column on the PR node.
+  assert.ok(openCall.includes('statusCheckRollup'),
+    'the open call asks for the rollup');
+  assert.ok(!allCall.includes('statusCheckRollup'),
+    'the all call does NOT ask for the rollup — that is the 36 s');
+  assert.ok(!allCall.includes('mergeable'), 'nor for mergeability');
+  assert.ok(!allCall.includes('reviewDecision'), 'nor for the review decision');
+});
+
+test('host: pr-list --rich-open gives a terminal row every field a rich row has', () => {
+  // A TERMINAL ROW MUST CARRY EVERY FIELD A RICH ROW CARRIES, so one shape
+  // reaches every consumer and nobody has to ask which call produced a row.
+  const stub = makeSplitGhStub({ open: OPEN_RICH_ROW, all: ALL_PLAIN_ROWS });
+  const rows = splitRows(stub);
+  const merged = rows.find((r) => r.number === 6);
+  assert.ok(merged, 'the merged row is emitted');
+
+  // The plain GitHub arm now asks for these, so they are REAL rather than absent.
+  assert.equal(merged.draft, false, 'draft comes from isDraft');
+  assert.equal(merged.url, 'https://example.invalid/6');
+  assert.equal(merged.updatedAt, '2026-09-30T09:00:00Z',
+    'updatedAt travels, or the store could never advance its watermark');
+  assert.equal(merged.head, 'feature/merged');
+  assert.equal(merged.author, 'jwloka');
+
+  // The four verdicts take the ABSENT values the Bitbucket arm already emits.
+  // `unknown` means NOT ASKED, never *no checks* — the board's fold takes the
+  // verdict it already holds for the same number.
+  assert.equal(merged.checks, 'unknown');
+  assert.equal(merged.mergeable, 'unknown');
+  assert.equal(merged.review, '');
+  assert.deepEqual(merged.failing_checks, []);
+
+  // A CLOSED row is terminal for the same reason, and its own `isDraft` travels.
+  const closed = rows.find((r) => r.number === 5);
+  assert.equal(closed.state, 'CLOSED');
+  assert.equal(closed.draft, true, 'the plain arm answers isDraft per row');
+  assert.equal(closed.checks, 'unknown');
+  assert.equal(closed.author, 'eins78');
+});
+
+test('host: pr-list --rich-open keeps the open row RICH and emits it once', () => {
+  // A PR THAT IS OPEN APPEARS IN BOTH PAYLOADS. The plain half is filtered to
+  // the terminal states, so the open row is emitted once — from the rich call —
+  // and no plain row can overwrite a rich one. Filtered rather than ordered,
+  // because a consumer that de-dupes differently must not reach a different
+  // answer.
+  const stub = makeSplitGhStub({ open: OPEN_RICH_ROW, all: ALL_PLAIN_ROWS });
+  const rows = splitRows(stub);
+  const sevens = rows.filter((r) => r.number === 7);
+  assert.equal(sevens.length, 1, 'the open PR is emitted exactly once');
+  assert.equal(sevens[0].checks, 'green', 'and it carries the verdict the rich call bought');
+  assert.equal(sevens[0].mergeable, 'mergeable');
+  assert.equal(sevens[0].review, 'APPROVED');
+
+  const numbers = rows.map((r) => r.number).sort((a, b) => a - b);
+  assert.deepEqual(numbers, [5, 6, 7], 'every PR once, none lost and none doubled');
+});
+
+test('host: pr-list --rich-open exits non-zero and prints no rows when the OPEN call fails', () => {
+  const stub = makeSplitGhStub({
+    all: ALL_PLAIN_ROWS, failOpen: 'gh: could not list open pull requests',
+  });
+  const res = runAllowFail(['pr-list', '--rich-open', '--state', 'all', '--limit', '1000'],
+    { env: { PLOT_HOST: 'github' }, stubs: stub });
+  assert.notEqual(res.code, 0, 'a failed half is not a whole answer');
+  assert.equal(res.stdout.trim(), '', 'no rows — the terminal half must not stand in');
+});
+
+test('host: pr-list --rich-open exits non-zero and prints no rows when the ALL call fails', () => {
+  // THE FIXTURE THAT CATCHES THE STREAMING IMPLEMENTATION. The open call
+  // SUCCEEDS here, so an adapter that printed its rows as they arrived would
+  // leave three open PRs on stdout and a caller reading emptiness would take
+  // that for the whole history. Both payloads are buffered and printed only
+  // after both calls answer.
+  const stub = makeSplitGhStub({
+    open: OPEN_RICH_ROW, failAll: 'gh: could not list pull requests',
+  });
+  const res = runAllowFail(['pr-list', '--rich-open', '--state', 'all', '--limit', '1000'],
+    { env: { PLOT_HOST: 'github' }, stubs: stub });
+  assert.notEqual(res.code, 0, 'a failed half is not a whole answer');
+  assert.equal(res.stdout.trim(), '',
+    'the open rows are NOT printed — a short list reported as whole is the quiet wrong answer');
+});
+
+test('host: pr-list --rich-open carries the caller\'s window to both calls', () => {
+  // A WINDOW THE CALLER SET APPLIES TO BOTH HALVES, or the two would answer
+  // about different populations and the union would be neither.
+  const stub = makeSplitGhStub({ open: OPEN_RICH_ROW, all: ALL_PLAIN_ROWS });
+  run(['pr-list', '--rich-open', '--state', 'all', '--limit', '1000',
+    '--since', '2026-09-20T18:42:10Z'], { env: { PLOT_HOST: 'github' }, stubs: stub });
+  const calls = prListCallsOf(stub);
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.ok(call.includes('updated:>2026-09-20T18:42:10Z'),
+      `the window reaches every call: ${call}`);
+    assert.ok(call.includes('--limit 1000'), `so does the limit: ${call}`);
+  }
+});
+
+test('host: pr-list --rich-open over --state open makes ONE call', () => {
+  // THE SPLIT IS ONLY WORTH MAKING OVER A SET THAT HOLDS TERMINAL ROWS. Asked
+  // about the open PRs alone, both calls would list the same population and the
+  // second would be pure waste, so this collapses to plain `--rich`.
+  const stub = makeSplitGhStub({ open: OPEN_RICH_ROW });
+  const out = run(['pr-list', '--rich-open', '--state', 'open'],
+    { env: { PLOT_HOST: 'github' }, stubs: stub });
+  assert.equal(prListCallsOf(stub).length, 1, 'one call, not two');
+  assert.equal(JSON.parse(out.trim()).checks, 'green', 'and it is the rich one');
+});
+
+test('host: bitbucket --rich-open emits the same rows as --rich', () => {
+  // BITBUCKET ASKS THE HOST NO VERDICT, so its rows are already `unknown`
+  // whatever the state and there is no second call to save. The flag therefore
+  // answers exactly as `--rich` does rather than growing a Bitbucket-shaped
+  // variant of a GitHub problem.
+  const bbRow = '[{"id":9,"title":"T","state":"MERGED",'
+    + '"source":{"branch":{"name":"feature/y"}},"updated_on":"2026-09-30T09:00:00Z",'
+    + '"links":{"html":{"href":"https://example.invalid/9"}},'
+    + '"author":{"nickname":"jwloka"}}]';
+  const env = { PLOT_HOST: 'bitbucket' };
+  const rich = run(['pr-list', '--rich', '--state', 'merged'],
+    { env, stubs: makeStubs({ bbJson: bbRow }) });
+  const richOpen = run(['pr-list', '--rich-open', '--state', 'merged'],
+    { env, stubs: makeStubs({ bbJson: bbRow }) });
+  assert.equal(richOpen, rich, 'byte-identical output');
+  const row = JSON.parse(richOpen.trim());
+  assert.equal(row.checks, 'unknown', 'unknown because the host cannot say, not because of the split');
+  assert.equal(row.head, 'feature/y');
+});
+
+test('host: pr-list --rich-open bounds each call, so the union may exceed --limit', () => {
+  // THE BEHAVIOUR CHANGE THE PLAN DID NOT ANTICIPATE, measured 2026-10-02 on
+  // this repository: with 5 PRs open, `--rich-open --limit 5` answered 6 rows
+  // where `--rich --limit 5` answered 5. The open call returned an open PR that
+  // fell outside the plain call's newest-5 page, so the union is larger than
+  // either page.
+  //
+  // IT IS NOT TRIMMED, AND THAT IS THE DECISION RATHER THAN AN OVERSIGHT.
+  // Trimming to `--limit` would drop either a verdict the rich call just bought
+  // or a terminal row the store needs, and this op cannot say which the caller
+  // wants. Over-answering is the safe direction: a caller joining against refs
+  // reads a row it did not expect, where a dropped row reads as *no PR* — the
+  // failure `pr_list_report_truncation` and #333 are both about.
+  //
+  // HARMLESS FOR EVERY CALLER TODAY. The board is the only one passing the flag
+  // and asks 1000 against 5 open.
+  const stub = makeSplitGhStub({
+    // The open call answers one PR the plain page does not carry.
+    open: '[{"number":99,"title":"Old open","state":"OPEN","headRefName":"feature/old-open",'
+      + '"isDraft":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}],'
+      + '"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"",'
+      + '"url":"https://example.invalid/99","updatedAt":"2026-01-01T00:00:00Z",'
+      + '"author":{"login":"jwloka"}}]',
+    // The plain page is full of terminal rows and does NOT include #99.
+    all: '[{"number":6,"title":"M","state":"MERGED","headRefName":"feature/m",'
+      + '"isDraft":false,"url":"u6","updatedAt":"2026-09-30T09:00:00Z",'
+      + '"author":{"login":"jwloka"}}]',
+  });
+  const rows = run(['pr-list', '--rich-open', '--state', 'all', '--limit', '1'],
+    { env: { PLOT_HOST: 'github' }, stubs: stub })
+    .trim().split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.number).sort((a, b) => a - b), [6, 99],
+    'both calls contribute; neither page is trimmed to the other');
+  // The open row keeps the verdict the rich call bought.
+  assert.equal(rows.find((r) => r.number === 99).checks, 'green');
+  // The terminal row carries the absent values.
+  assert.equal(rows.find((r) => r.number === 6).checks, 'unknown');
 });

@@ -2896,9 +2896,27 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # `Issue: #N`, so on a Jira tracker no returned key can ever match a parsed
 # number and every plan would read as clean. That is a silent false negative,
 # so the section refuses to evaluate rather than confirming an estate it cannot
-# compare. Extending the parser is a different change. The key is read the way
-# section 21 reads `Worktree root` — `plot-host.sh` exposes no scheme op, and
-# adding one belongs to whoever owns that file.
+# compare. Extending the parser is a different change.
+#
+# WHO LISTS THE ISSUES IS THE ENTRY'S ANSWER, NOT THIS SECTION'S. The scheme
+# was read here — `awk '{print tolower($1)}'` over `cfg "Tracker"` — which was a
+# second copy of a rule `board/plot-issue-source.mjs` holds, and the copies had
+# drifted: a repository declaring `Tracker: linear` had its plans compared
+# against the GIT HOST's open issues, a list from the wrong service. So the
+# entry is asked FIRST, and an unaskable tracker costs no process at all.
+#
+# THE BACKEND COMES FROM `plot-host.sh backend`. `issue-list` resolves its own
+# backend from the `Git host` key, and the entry's rule that `github-issues`
+# lists issues only on GitHub must judge the host THE CALL WOULD REACH. The
+# origin-URL `case` above answers a different question — which remote's PRs this
+# scan compares — so passing it would let the entry permit `github-issues`
+# while the call went to Bitbucket.
+#
+# THE VALUE GOES OVER WHOLE, not first-token: `Tracker: jira https://…` carries
+# a base URL, and the entry does its own splitting. READ THE EXIT CODE, never
+# stdout's emptiness — `nobody` exits 0 with a reason, and an unaskable rule is
+# the opposite answer. Neither may fall through to the host, which is what
+# `an-outage-is-not-an-answer` names.
 #
 # IT HONOURS `--offline`/`--no-pr` and names what that costs. The scan promises
 # no git-host network call under them and section 6 keeps the same promise by
@@ -2935,7 +2953,51 @@ if [ -n "$plan_json" ]; then
 fi
 oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 
-oi_scheme=$(cfg "Tracker" "" 2>/dev/null | awk '{print tolower($1)}')
+# WHO TO ASK, decided by the entry and nowhere else. Both readings are taken
+# before the branch: the `Tracker` value VERBATIM (the entry splits it; a
+# first-token form here loses the `jira https://…` URL case) and the backend
+# word the `issue-list` call would reach.
+#
+# The question is asked only where there is something to ask about, so a repo
+# with nothing finished and an offline run both cost no node start — the two
+# arms below stay first for that reason as well as their own.
+oi_ask=""
+oi_scheme=""
+oi_reason=""
+oi_entry="$script_dir/board/plot-issue-source.mjs"
+ask_issue_source() {
+  local declared backend out rc
+  declared=$(cfg "Tracker" "" 2>/dev/null)
+  backend=$(bash "$script_dir/plot-host.sh" backend 2>/dev/null </dev/null)
+  [ -f "$oi_entry" ] && command -v node >/dev/null 2>&1 || {
+    oi_ask=unaskable
+    oi_reason="board/plot-issue-source.mjs could not be run"
+    return 0
+  }
+  out=$(printf '%s' "$declared" | node "$oi_entry" "$backend" 2>/dev/null); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    oi_ask=unaskable
+    oi_reason="board/plot-issue-source.mjs exited $rc"
+    return 0
+  fi
+  # EXIT CODE FIRST, THEN THE WORD. A word outside the three means the entry
+  # answered something this section cannot act on, which is the same answer as
+  # a failure: ask nobody, and say so.
+  case "${out%%	*}" in
+    tracker)   oi_ask=tracker; oi_scheme=$(printf '%s' "$out" | cut -f2) ;;
+    git-host)  oi_ask=git-host ;;
+    nobody)    oi_ask=nobody; oi_reason=$(printf '%s' "$out" | cut -f2-) ;;
+    *)
+      oi_ask=unaskable
+      oi_reason="board/plot-issue-source.mjs answered '${out}', which is not one of tracker/git-host/nobody"
+      ;;
+  esac
+}
+
+# The two cheap arms are tested first, and the entry is asked only past them:
+# an estate with nothing finished and an offline run both ask nobody anything.
+if [ "$oi_plans" -gt 0 ] && [ "$PR_SOURCE" != off ]; then ask_issue_source; fi
+
 if [ "$oi_plans" -eq 0 ]; then
   echo "  (none — no delivered or released plan names an issue)"
 elif [ "$PR_SOURCE" = off ]; then
@@ -2946,7 +3008,19 @@ elif [ "$PR_SOURCE" = off ]; then
   echo "  note: $oi_plans finished plan(s) naming an issue went unchecked —"
   echo "        a plan's issue cannot be checked without asking the tracker."
   echo "        Re-run without --offline/--no-pr."
-elif [ "$oi_scheme" = "jira" ]; then
+elif [ "$oi_ask" = nobody ]; then
+  # THE RULE ANSWERED, and the answer is that nobody lists this tracker's
+  # issues. Reporting `(none)` would claim a clean estate the section never
+  # measured; the git host is NOT asked in its place, which is the whole point.
+  echo "  (not evaluated — $oi_reason)"
+  echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
+elif [ "$oi_ask" = unaskable ]; then
+  # A QUESTION THAT FAILED IS NOT AN EMPTY ESTATE, and it is never a
+  # fall-through to the host: a list bought because the rule could not be asked
+  # is a list measured against the wrong service.
+  echo "  (not evaluated — the tracker source could not be decided: $oi_reason)"
+  echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
+elif [ "$oi_ask" = tracker ] && [ "$oi_scheme" = "jira" ]; then
   # A SILENT CLEAN RESULT IS THE ONE ANSWER THIS MUST NOT GIVE. Numbers cannot
   # match keys, so every plan would read as clean for a reason that has nothing
   # to do with its issue.

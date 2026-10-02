@@ -4002,8 +4002,14 @@ exit 0
  * answer, fail, or refuse to be asked. `markerPath`, when the stub writes one,
  * is what proves `--no-pr` never asked at all — the absence of a call cannot
  * be asserted from output that is absent for either reason.
+ *
+ * `tracker` declares a `Tracker` key, which the section hands to
+ * `board/plot-issue-source.mjs` verbatim; an absent one is the repository that
+ * declares none and must see no change. `dropEntry` removes that bundle from
+ * the shim, which is how *the rule could not be asked* is reached — the shim
+ * copies `board/*.mjs`, so deleting one there is the only way in.
  */
-const issueFixture = (hostBody, scanArgs = ['--no-fetch']) => {
+const issueFixture = (hostBody, scanArgs = ['--no-fetch'], { tracker = '', dropEntry = false } = {}) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-'));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -4029,7 +4035,7 @@ const issueFixture = (hostBody, scanArgs = ['--no-fetch']) => {
 - **Plan directory:** plans/
 - **Active index:** plans/active/
 - **Delivered index:** plans/delivered/
-`);
+${tracker ? `- **Tracker:** ${tracker}\n` : ''}`);
 
   // #101 open → reported. Released is the phase the observed failure had.
   w('plans/2026-01-01-released-open.md', `# Released open\n\n${plan('Released', '#101')}`);
@@ -4053,6 +4059,7 @@ const issueFixture = (hostBody, scanArgs = ['--no-fetch']) => {
   const host = path.join(shim, 'scripts', 'plot-host.sh');
   fs.writeFileSync(host, hostBody);
   fs.chmodSync(host, 0o755);
+  if (dropEntry) fs.rmSync(path.join(shim, 'scripts', 'board', 'plot-issue-source.mjs'), { force: true });
 
   git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
 
@@ -4279,5 +4286,199 @@ test('section 23 sits below the marker and stays out of the delivery gate', () =
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+// --- Section 23: who lists the issues is the entry's answer, not the scan's --
+//
+// THE SECOND COPY IS THE DEFECT. The section read the `Tracker` key itself —
+// `awk '{print tolower($1)}'` over `cfg "Tracker"` — refused `jira`, and sent
+// every other scheme to `plot-host.sh issue-list`. So a repository declaring
+// `Tracker: linear` had its finished plans' `Issue: #N` compared against the
+// GIT HOST's open issues: a list from the wrong service, and a clean-looking
+// answer measured against something nobody asked about.
+//
+// `board/plot-issue-source.mjs` holds the rule, and it is the same entry
+// `plot-host.sh` asks since `48599fcfc`. The section asks it BEFORE any host
+// call, so an unaskable tracker costs no process at all.
+
+/**
+ * A `plot-host.sh` stub that records every call it receives.
+ *
+ * THE MARKER IS THE ONLY EVIDENCE OF A NON-CALL. An implementation that prints
+ * the right sentence AFTER asking `issue-list` passes every output assertion
+ * in this block — the output is identical. One line per invocation, holding the
+ * whole argument list, is what separates the two.
+ */
+const recordingHost = (marker, numbers = [101, 102, 106], backend = 'github') => `#!/usr/bin/env bash
+printf '%s\n' "$*" >> '${marker}'
+case "$1" in
+  backend) echo ${backend} ;;
+  default-branch) echo main ;;
+  issue-list)
+${numbers.map((n) => `    echo '{"number":${n},"title":"t","url":"u"}'`).join('\n')}
+    ;;
+  pr-list) ;;
+  *) echo "{}" ;;
+esac
+exit 0
+`;
+
+/** The lines the recording stub wrote, or `[]` when it was never run. */
+const callsTo = (marker) =>
+  (fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '').split('\n').filter(Boolean);
+
+/** A scratch directory holding one marker path, removed by the caller. */
+const markerFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-calls-')), 'calls');
+
+test('section 23 asks no host when no connector lists the declared tracker', () => {
+  // THE OBSERVED FAILURE, and the plan's `Done when` for this slice. `linear`
+  // is a tracker Plot has no connector for, so the git host must NOT be asked
+  // in its place — the whole point of the entry's `nobody` answer.
+  const marker = markerFile();
+  const f = issueFixture(recordingHost(marker), ['--no-fetch'], { tracker: 'linear' });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /\(not evaluated — no connector lists issues from the declared tracker `linear`/,
+      `the rule's own sentence carries the reason:\n${s}`);
+    // NOT THE ADAPTER'S WRAPPER. `issue-list` would exit 4 and the section
+    // would print "this host cannot be asked for issues" — true, but it names
+    // the host where the rule names the tracker, and it costs a process.
+    assert.doesNotMatch(s, /this host cannot be asked for issues/,
+      `the entry answered, so the adapter's exit-4 wording must not appear:\n${s}`);
+    assert.doesNotMatch(s, /\(none/, `an unmeasured estate must never print (none):\n${s}`);
+    assert.match(s, /note: 4 finished plan\(s\) naming an issue went unchecked/,
+      `the note counts plans, because "some plans" cannot be acted on:\n${s}`);
+    assert.match(f.report, /open_issues=0/, 'an unevaluated section counts zero findings');
+    assert.match(f.report, /attention=0/, 'the section still reports and never gates');
+
+    // THE NO-CALL ASSERTION. Printing the right sentence after asking the host
+    // satisfies every line above; only the marker distinguishes the two.
+    const calls = callsTo(marker);
+    assert.ok(!calls.some((c) => c.startsWith('issue-list')),
+      `no \`issue-list\` call may be made for a tracker nobody lists:\n${calls.join('\n')}`);
+    // AND THE BACKEND WAS ASKED. The entry judges the host the call WOULD
+    // reach, so `plot-host.sh backend` is the reading — not the scan's
+    // origin-URL `case`, which answers which remote's PRs are compared.
+    assert.ok(calls.includes('backend'),
+      `the backend reading comes from plot-host.sh:\n${calls.join('\n')}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 keeps the Jira refusal, and the URL after the scheme does not lose it', () => {
+  // THE WHOLE VALUE GOES TO THE ENTRY. An implementation reading only the first
+  // token before asking reproduces the drift this slice removes; `Tracker: jira
+  // https://…` is the shape that catches it, since the key carries a base URL.
+  const marker = markerFile();
+  const f = issueFixture(recordingHost(marker), ['--no-fetch'],
+    { tracker: 'jira https://example.atlassian.net' });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /\(not evaluated — plan Issue: numbers cannot be matched to Jira keys\)/,
+      `the Jira refusal's wording is unchanged:\n${s}`);
+    assert.match(s, /note: 4 finished plan\(s\) naming an issue went unchecked/,
+      `the note counts plans here too:\n${s}`);
+    assert.match(f.report, /open_issues=0/, 'a refused section counts zero findings');
+    const calls = callsTo(marker);
+    assert.ok(!calls.some((c) => c.startsWith('issue-list')),
+      `a Jira tracker is refused before the host is asked:\n${calls.join('\n')}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 says not evaluated when the entry cannot be asked, and calls no host', () => {
+  // THE BUNDLE IS GONE from the shim, which is the one way this arm is reached.
+  // A FALL-THROUGH TO THE HOST IS THE DEFECT: an unanswerable question must
+  // never become a list the section then measures plans against.
+  const marker = markerFile();
+  const f = issueFixture(recordingHost(marker), ['--no-fetch'],
+    { tracker: 'github-issues', dropEntry: true });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /\(not evaluated — the tracker source could not be decided/,
+      `an unaskable rule says so in its own arm:\n${s}`);
+    assert.doesNotMatch(s, /\(none/, `a question that failed must never print (none):\n${s}`);
+    assert.match(s, /note: 4 finished plan\(s\) naming an issue went unchecked/,
+      `the note counts plans on every unevaluated arm:\n${s}`);
+    assert.match(f.report, /open_issues=0/, 'an unevaluated section counts zero findings');
+    const calls = callsTo(marker);
+    assert.ok(!calls.some((c) => c.startsWith('issue-list')),
+      `an undecided source must not fall through to the host:\n${calls.join('\n')}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 still asks the git host when no Tracker key is declared', () => {
+  // THE REGRESSION LOCK. The entry answers `git-host` for empty stdin, so a
+  // repository declaring no tracker must behave exactly as before — read the
+  // exit code, never stdout's emptiness, or this arm prints "could not be
+  // decided" for every project that never configured a tracker.
+  const marker = markerFile();
+  const f = issueFixture(recordingHost(marker), ['--no-fetch']);
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /2026-01-01-released-open\.md — released, still open: #101/,
+      `an undeclared tracker still reaches the git host's issues:\n${s}`);
+    assert.match(f.report, /open_issues=3/, 'the findings are the same three as before');
+    assert.ok(callsTo(marker).some((c) => c.startsWith('issue-list')),
+      'the git host IS asked when the entry answers git-host');
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 asks the git host for github-issues on a GitHub repository', () => {
+  // `github-issues` is a tracker scheme the entry ALLOWS on GitHub, and the
+  // call it licenses is the same `issue-list` as before. The onlyOnHost rule
+  // lives in the entry; the scan lists no scheme of its own.
+  const marker = markerFile();
+  const f = issueFixture(recordingHost(marker), ['--no-fetch'], { tracker: 'github-issues' });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /2026-01-02-delivered-open\.md — delivered, still open: #102/,
+      `an allowed tracker scheme reaches the issue list:\n${s}`);
+    assert.match(f.report, /open_issues=3/, 'the findings are unchanged');
+    assert.ok(callsTo(marker).some((c) => c.startsWith('issue-list')),
+      'github-issues on GitHub is asked, not refused');
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 asks no host for github-issues when the backend is not GitHub', () => {
+  // THE BACKEND READING IS LOAD-BEARING. `github-issues` lists issues only
+  // where the git host is GitHub, and the entry judges the host the CALL would
+  // reach — `plot-host.sh backend`. Passing the scan's origin-URL answer
+  // instead would let the entry say `tracker github-issues` while `issue-list`
+  // goes to Bitbucket, which is the mismatch this slice exists to prevent.
+  const marker = markerFile();
+  const f = issueFixture(recordingHost(marker, [101, 102, 106], 'bitbucket'), ['--no-fetch'],
+    { tracker: 'github-issues' });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /\(not evaluated — the declared tracker `github-issues` lists issues only where the git host is `github`/,
+      `the entry's own sentence names both hosts:\n${s}`);
+    assert.match(f.report, /open_issues=0/, 'an unevaluated section counts zero findings');
+    const calls = callsTo(marker);
+    assert.ok(!calls.some((c) => c.startsWith('issue-list')),
+      `a tracker the host cannot serve is refused before the call:\n${calls.join('\n')}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
   }
 });

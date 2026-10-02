@@ -155,7 +155,17 @@ export const foldPrIndex = (held: PrIndex | null, update: PrIndexUpdate): PrInde
   // The answer's rows overwrite whatever was held for the same number: the host
   // has just spoken about them, and a stale row for a number the host answered
   // is the one row that is certainly wrong.
-  for (const row of update.rows) rows.set(row.number, row);
+  //
+  // EXCEPT THE FOUR VERDICTS OF A TERMINAL ROW, which the full read no longer
+  // asks for — see `withHeldVerdicts`. A held value is used only where the
+  // incoming row carries none, so every field the host DID answer still wins.
+  const heldByNumber = new Map<number, PrIndexRow>();
+  if (held !== null) {
+    for (const row of held.rows) heldByNumber.set(row.number, row);
+  }
+  for (const row of update.rows) {
+    rows.set(row.number, withHeldVerdicts(row, heldByNumber.get(row.number)));
+  }
   const merged = Array.from(rows.values()).sort((a, b) => a.number - b.number);
   const index: PrIndex = {
     v: PR_INDEX_VERSION,
@@ -172,6 +182,77 @@ export const foldPrIndex = (held: PrIndex | null, update: PrIndexUpdate): PrInde
   const wholeAt = whole ? update.at : held?.wholeAt;
   if (wholeAt !== undefined) index.wholeAt = wholeAt;
   return index;
+};
+
+/** The verdict fields, and the value each carries where it was not asked. */
+const ABSENT_VERDICTS = {
+  checks: 'unknown',
+  mergeable: 'unknown',
+  review: '',
+} as const;
+
+/**
+ * One incoming row, with any verdict it did not answer taken from the store.
+ *
+ * **THE FOUR VERDICTS ARE ABOUT A PR'S HEAD**, and a `MERGED` or `CLOSED` head
+ * is finished: no check will run against it, no review will change, and nothing
+ * will make it stop merging cleanly. So the full read stopped asking for them —
+ * measured 2026-10-01 on this repository, `--rich --state all --limit 1000` took
+ * 43.0 s against 7.3 s without the rich fields, and all 1000 rows were terminal
+ * (964 `MERGED`, 36 `CLOSED`, 0 `OPEN`). The adapter now asks the rich fields of
+ * open PRs only, so a terminal row arrives carrying the absent values.
+ *
+ * **ONLY THE FOLD CAN DO THIS.** The adapter holds no store, so it cannot tell a
+ * verdict it never asked for from one the board already has; the domain reaches
+ * no host, so it cannot make the cheaper call. Each half is useless alone, and
+ * the adapter half alone would erase every held verdict on the next whole fold.
+ *
+ * **AN `OPEN` ROW NEVER TAKES A HELD VERDICT.** The open call is the rich one, so
+ * a plain `OPEN` row means the two calls disagreed about the same PR. A held
+ * `green` carried onto it would show a passing check on a head that has since
+ * moved — the one direction in which a stale verdict actively misleads.
+ *
+ * **ABSENT IS NOT FALSE.** A terminal row with nothing held keeps `unknown`,
+ * which means *not asked* rather than *no checks*. Every reader already renders
+ * it as unavailable: `prStates` answers `['closed']` for a `CLOSED` row before
+ * reading `checks` at all, and a `MERGED` row with `mergeable: 'unknown'`
+ * answers `['unknown']`.
+ *
+ * **EACH FIELD INDEPENDENTLY**, the rule `storeRow` states: *"a row the host
+ * answered partially round-trips as partially answered."* A row answering
+ * `checks` and not `mergeable` keeps its own `checks` and the held `mergeable`.
+ *
+ * `failing_checks` is read as absent when it is missing OR empty: the rich arm
+ * emits `[]` for a row with no failures, so an empty array cannot be told from
+ * one nobody asked about. Taking the held list there costs nothing a reader can
+ * see — a terminal row's `checks` is held from the same store in the same pass,
+ * so the list and the word it explains stay from one reading.
+ *
+ * @param row - the row as the answer carried it.
+ * @param heldRow - the stored row with the same number, or undefined where none.
+ * @returns the row to store, with absent verdicts filled from the held row.
+ */
+const withHeldVerdicts = (
+  row: PrIndexRow,
+  heldRow: PrIndexRow | undefined,
+): PrIndexRow => {
+  // A row the store has never seen, and an OPEN row, each keep exactly what the
+  // answer said. `state` is the adapter's word passed through, so an unknown
+  // word is not terminal either — this takes the two states that ARE.
+  if (heldRow === undefined) return row;
+  if (row.state !== 'MERGED' && row.state !== 'CLOSED') return row;
+  const filled: PrIndexRow = { ...row };
+  if (row.checks === ABSENT_VERDICTS.checks) filled.checks = heldRow.checks;
+  if (row.review === ABSENT_VERDICTS.review) filled.review = heldRow.review;
+  // Absent on this field means the word OR the key missing, because an adapter
+  // predating it omits the key and the plain arm answers the word.
+  if (row.mergeable === undefined || row.mergeable === ABSENT_VERDICTS.mergeable) {
+    if (heldRow.mergeable !== undefined) filled.mergeable = heldRow.mergeable;
+  }
+  if (row.failing_checks === undefined || row.failing_checks.length === 0) {
+    if (heldRow.failing_checks !== undefined) filled.failing_checks = heldRow.failing_checks;
+  }
+  return filled;
 };
 
 /**
