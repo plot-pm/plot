@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/a-delta-keeps-the-store-whole`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-full-read-asks-verdicts-of-open-prs-only`
+- **Started:** 2026-10-02, Jan Wloka, `bug/a-host-timeout-names-no-login`
 
 ## Changelog
 
