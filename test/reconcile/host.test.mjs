@@ -5893,6 +5893,119 @@ for (const rich of [true, false]) {
   });
 }
 
+// --- plot-pr-merged.sh: an empty branch is not asked -------------------------
+//
+// `gh pr list --head ""` applies NO FILTER, so every PR in the repository
+// matches. Measured 2026-10-01 on `origin/main` (`56a978ea`): `pr_merged ""`
+// exited 0 — *merged* — and `pr_merged_heads ""` printed 98 lines, the head of
+// every merged PR in the repository. The guard that fixes it sits in the three
+// lookups and is pinned here.
+//
+// WHY THE STUB ANSWERS EVERY CALL THE SAME. The `gh` written below ignores its
+// arguments, exactly as the real `gh` does for `--head ""`, so these cases
+// reproduce the DEFECT rather than a stub's idea of it. It carries one merged
+// row and one open row in one listing, and both rows hold `mergedAt`, `number`
+// and `headRefOid` together: a real `gh` returns only the fields `--json`
+// asked for, and a stub that answered only one lookup's fields would make the
+// other read `none` for the wrong reason.
+//
+// AND IT RECORDS ITS ARGV ON EVERY CALL, so a missing `gh.argv` is positive
+// proof that no call was made. That is the assertion a naive implementation
+// fails: a guard placed AFTER `command -v gh`, or one that answers `none` after
+// asking, passes every return-value check below and writes the file anyway.
+
+// The three lookups are SOURCED, not run, so they need their own runner rather
+// than the `run` helper above, which spawns `plot-host.sh`.
+const prMergedLib = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-pr-merged.sh');
+
+function sourcedPrMerged(script, stubDir) {
+  const res = spawnSync('bash', ['-c', `source ${JSON.stringify(prMergedLib)}\n${script}`], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` },
+  });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+// One merged PR and one open PR in the same listing, every field in both rows.
+function makePrMergedStub() {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-')));
+  const argvFile = path.join(dir, 'gh.argv');
+  const rows = JSON.stringify([
+    { number: 101, mergedAt: '2026-01-01T00:00:00Z', headRefOid: 'a'.repeat(40) },
+    { number: 102, mergedAt: null, headRefOid: 'b'.repeat(40) },
+  ]);
+  writeFileSync(
+    path.join(dir, 'gh'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}\nprintf '%s' ${JSON.stringify(rows)}\n`,
+  );
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, argvFile };
+}
+
+test('plot-pr-merged: an empty branch refuses, and gh is never asked', () => {
+  const stub = makePrMergedStub();
+
+  // `unaskable`, never `none`. `rules/landed.ts` defines `unaskable` as *the
+  // lookup did not run, or did not answer*, and a lookup that refuses an empty
+  // branch did not run. `none` would claim the host spoke and found nothing,
+  // which `mayRemove` reads as permission to remove.
+  const merged = sourcedPrMerged('_plot_merged_lookup ""', stub.dir);
+  assert.equal(merged.stdout.trim(), 'unaskable', 'an empty branch is unaskable, not none');
+  const open = sourcedPrMerged('_plot_open_lookup ""', stub.dir);
+  assert.equal(open.stdout.trim(), 'unaskable', 'an empty branch is unaskable, not none');
+
+  // `pr_merged ""` returning 0 is the defect: every caller reads 0 as *merged*,
+  // and `plot-release-refs.sh` deletes remote refs on that answer.
+  assert.equal(sourcedPrMerged('pr_merged ""', stub.dir).code, 1, 'pr_merged "" refuses');
+
+  // `pr_open` VETOES, so 1 releases the veto — safe only because `pr_merged ""`
+  // refuses on the same branch, which `mayRemove` asserts. Returning 0 here to
+  // be "conservative" would block nothing real and contradict the plan.
+  assert.equal(sourcedPrMerged('pr_open ""', stub.dir).code, 1, 'pr_open "" has no veto to cast');
+
+  // Exit code and stdout are checked SEPARATELY: exit 1 means *cannot ask* and
+  // exit 0 with no output means *asked, nothing merged*, so emptiness alone
+  // cannot tell the two apart.
+  const heads = sourcedPrMerged('pr_merged_heads ""', stub.dir);
+  assert.equal(heads.code, 1, 'pr_merged_heads "" returns 1');
+  assert.equal(heads.stdout, '', 'pr_merged_heads "" prints nothing');
+
+  // THE ASSERTION A NAIVE GUARD FAILS. The stub appends its argv on every
+  // invocation, so the file exists if and only if `gh` ran at least once.
+  assert.equal(
+    existsSync(stub.argvFile), false,
+    `no gh call is made for an empty branch; argv recorded: ${
+      existsSync(stub.argvFile) ? readFileSync(stub.argvFile, 'utf8') : ''}`,
+  );
+});
+
+test('plot-pr-merged: a non-empty branch with a merged PR still reads as merged', () => {
+  // THE POLARITY CHECK. A guard with the test inverted, or one that refuses
+  // every branch, passes every assertion above and fails here.
+  const stub = makePrMergedStub();
+
+  assert.equal(
+    sourcedPrMerged('_plot_merged_lookup feature/x', stub.dir).stdout.trim(), 'found',
+    'a real branch still reaches the host',
+  );
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup feature/x', stub.dir).stdout.trim(), 'found',
+    'a real branch still reaches the host',
+  );
+  assert.equal(sourcedPrMerged('pr_merged feature/x', stub.dir).code, 0, 'a merged PR still reads as merged');
+
+  const heads = sourcedPrMerged('pr_merged_heads feature/x', stub.dir);
+  assert.equal(heads.code, 0, 'pr_merged_heads answers for a real branch');
+  assert.equal(heads.stdout.trim(), 'a'.repeat(40), 'only the MERGED row\'s head is printed');
+
+  // And the guard did not swallow the call.
+  assert.ok(existsSync(stub.argvFile), 'a non-empty branch does reach gh');
+  assert.ok(
+    readFileSync(stub.argvFile, 'utf8').includes('feature/x'),
+    'the branch travels in the call',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // WHO LISTS THE ISSUES — `issue-list` and `issue-view` ask the domain.
 //
