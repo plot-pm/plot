@@ -222,3 +222,61 @@ test('tmp helper: TERM while creating paths leaves nothing, over 100 runs', asyn
   rmSync(dir, { recursive: true, force: true });
   assert.deepEqual(left, []);
 });
+
+// A TERM INSIDE A SUBSHELL'S CREATION WAITS FOR THE REGISTRATION TOO. bash
+// resets caught traps in `$(…)`, so the guard above is not installed there.
+// `plot-host.sh` creates `plot-host-prlist-err.*` inside
+// `_raw="$(pr_list_call …)"`, and a board teardown sends the script's process
+// group TERM. A `mktemp` stand-in holds the subshell in the window: the path
+// exists and its name is printed, and the group signal lands before the
+// subshell registers it.
+const heldInWindow = (shell) => new Promise((resolve) => {
+  const dir = sandbox();
+  const tmp = path.join(dir, 'tmp');
+  const bin = path.join(dir, 'bin');
+  spawnSync('mkdir', ['-p', tmp, bin]);
+  const created = path.join(dir, 'created');
+  const finished = path.join(dir, 'finished');
+  writeFileSync(path.join(bin, 'mktemp'), [
+    '#!/bin/sh',
+    "trap '' TERM",
+    'name=$(/usr/bin/mktemp "$@") || exit $?',
+    'printf "%s\\n" "$name"',
+    'exec >&-',
+    `: > '${created}'`,
+    'sleep 1',
+    `: > '${finished}'`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  const file = writeScript(dir, ['out=$(plot_tmpfile f held; echo "$f")', 'echo "after $out"']);
+  const child = spawn(shell, [file], {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, TMPDIR: tmp, PATH: `${bin}:${process.env.PATH}` },
+  });
+  let stdout = '';
+  child.stdout.on('data', (b) => { stdout += b; });
+  const poll = setInterval(() => {
+    if (!existsSync(created)) return;
+    clearInterval(poll);
+    process.kill(-child.pid, 'SIGTERM');
+  }, 10);
+  child.on('exit', (code, signal) => {
+    const settle = setInterval(() => {
+      if (!existsSync(finished)) return;
+      clearInterval(settle);
+      const result = { code, signal, stdout, left: readdirSync(tmp) };
+      rmSync(dir, { recursive: true, force: true });
+      resolve(result);
+    }, 10);
+  });
+});
+
+for (const shell of ['/bin/bash', 'bash']) {
+  test(`tmp helper (${shell}): a group TERM between mktemp and the registration inside $(…) leaves nothing`, async () => {
+    const got = await heldInWindow(shell);
+    assert.ok(got.signal === 'SIGTERM' || got.code === 143, `status: ${JSON.stringify(got)}`);
+    assert.doesNotMatch(got.stdout, /after/, 'the owner ran a command after the signal');
+    assert.deepEqual(got.left, [], 'the subshell died with the path created and unregistered');
+  });
+}
