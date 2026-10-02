@@ -60,6 +60,20 @@ export interface QueuedSlice {
    * queue at once.
    */
   landed: LandedAnswer;
+  /**
+   * Whether an earlier slice of this plan holds a branch whose landing the host
+   * could not answer this pass.
+   *
+   * **IT SEPARATES TWO ESTATES THAT SHARE ONE WORD.** `claimable: false`
+   * answers *the plan's ordering blocks this*, which is true both of a plan
+   * whose earlier slice is genuinely unfinished and of a plan whose earlier
+   * slice nobody could ask about. The first is a queue waiting its turn; the
+   * second is a host outage, and a reader told `not-claimable` reads the plan
+   * when the fault is the host.
+   *
+   * {@link behindUnknownLanding} answers it per plan; the caller sets it.
+   */
+  priorUnknown: boolean;
 }
 
 /**
@@ -78,12 +92,43 @@ export interface QueueAgent {
   reading: AgentReading;
 }
 
+/**
+ * How fully the host answered *which branches merged* for one pass.
+ *
+ * **IT TRAVELS BESIDE THE SLICES BECAUSE IT EXPLAINS THEM.** Every `unknown`
+ * landing and every hold behind one comes from this answer, and a reader of the
+ * holds alone cannot tell a plan that is genuinely waiting from an estate whose
+ * host refused. Under HTTP 429 the supervisor held 36 slices and the tick line
+ * named no refusal (#1094).
+ *
+ * `partial` is *the listing answered and left a refusal behind*, so a branch
+ * missing from its rows may still have merged. `unaskable` is *the listing
+ * failed*, and its rows are empty.
+ */
+export interface MergedSetState {
+  /** `whole` answered in full; `partial` answered with a refusal; `unaskable` failed. */
+  state: 'whole' | 'partial' | 'unaskable';
+  /** The refusal's kind, or `null` where the listing answered whole. */
+  kind: 'throttled' | 'secondary' | 'failed' | null;
+}
+
 /** What the registry read when it asked whether it could hand anything over. */
 export interface QueueReadings {
   /** Every slice a dispatch handed over, in the order the plans name them. */
   slices: readonly QueuedSlice[];
   /** Every registered agent, in registry order. */
   agents: readonly QueueAgent[];
+  /**
+   * How fully the host answered which branches merged, where it was asked.
+   *
+   * **OPTIONAL BECAUSE IT IS A REPORT AND NOT A MATCHING INPUT.**
+   * {@link matchQueue} and the assignment workflow read the slices and the
+   * agents and never this; it travels with them so the tick line can name the
+   * refusal behind an `unknown` landing. Absent means no listing was read, and
+   * the line omits the field rather than claiming a state nothing measured —
+   * the rule its queue fields already follow.
+   */
+  mergedSet?: MergedSetState;
 }
 
 /** One slice, handed to one agent. */
@@ -121,16 +166,36 @@ export type QueueHold =
    * here would hand finished work to an agent. So an unreachable host costs
    * this pass its hand-overs and the next tick re-asks.
    */
-  | 'merge-unknown';
+  | 'merge-unknown'
+  /**
+   * An earlier slice of this plan holds a branch whose landing the host could
+   * not answer this pass.
+   *
+   * **IT NAMES THE HOST WHERE `not-claimable` NAMED THE PLAN.** Both words
+   * describe a slice its plan's ordering blocks, and until this one existed
+   * they were one word: under HTTP 429 on a Bitbucket estate the supervisor
+   * held 36 slices `not-claimable`, among them slices whose earlier slices had
+   * merged days before (#1094). A reader sent to the plan found nothing wrong
+   * with it.
+   *
+   * The slice stays held either way. The next tick re-asks, and an answer
+   * settles the earlier slice and frees this one.
+   */
+  | 'prior-unknown';
 
 /**
  * Every hold, in the order a reader should scan them.
  *
  * **IT EXISTS SO A COUNT CAN REPORT A ZERO.** Counting the holds that fired
  * names only what happened; a reader then cannot tell `no-brief: 0` from a
- * hold this build does not have. Reporting all six every pass makes the line's
- * shape constant, so a missing key is a version difference rather than a
+ * hold this build does not have. Reporting EVERY hold each pass makes the
+ * line's shape constant, so a missing key is a version difference rather than a
  * silence.
+ *
+ * **THE COUNT IS NOT WRITTEN DOWN HERE.** This comment said *"all six"* while
+ * the list held five, which is what a number maintained by hand beside a list
+ * does. The property is *every member of {@link QueueHold}*, and the type is
+ * where a reader counts.
  *
  * The order is the order {@link whyNotReady} tests them, which is the order the
  * answers were decided in.
@@ -139,6 +204,7 @@ export const QUEUE_HOLDS: readonly QueueHold[] = [
   'already-merged',
   'merge-unknown',
   'no-brief',
+  'prior-unknown',
   'not-claimable',
   'no-free-agent',
 ];
@@ -199,6 +265,12 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * does; asked in either other order the hold would read `no-brief` or
  * `not-claimable` and send a reader to fix something that is already finished.
  *
+ * **A SLICE'S OWN QUESTION OUTRANKS ITS PREDECESSOR'S.** `prior-unknown` is
+ * tested only after {@link isHandOverReady}, so a claimable later slice keeps
+ * whichever answer its own `landed` reading gave. A slice that may be handed
+ * over is not being held by anything, and one held by its own missing brief is
+ * not waiting on the host.
+ *
  * @param slice - the queued slice.
  * @returns the hold, or null when the slice is ready.
  */
@@ -206,7 +278,58 @@ export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
   if (slice.landed === 'landed') return 'already-merged';
   if (slice.landed === 'unknown') return 'merge-unknown';
   if (isHandOverReady(slice)) return null;
-  return slice.claimable ? 'no-brief' : 'not-claimable';
+  if (!slice.claimable) return slice.priorUnknown ? 'prior-unknown' : 'not-claimable';
+  return 'no-brief';
+};
+
+/**
+ * One plan's queued slices, in plan order, for {@link behindUnknownLanding}.
+ *
+ * Carries the slice index rather than relying on array position, because a
+ * plan's slice may name several branches and each one is a separate entry.
+ */
+export interface PlanOrderedSlice {
+  /** The branch, as the plan names it. */
+  branch: string;
+  /** The plan's slice this branch belongs to, zero-based, in plan order. */
+  slice: number;
+  /** Whether the slice may be started at all — the fleet scan's `isClaimable`. */
+  claimable: boolean;
+  /** What the host said about this branch's landing. */
+  landed: LandedAnswer;
+}
+
+/**
+ * The branches held behind a landing the host could not answer, for one plan.
+ *
+ * A branch qualifies when it is not claimable and some branch in an EARLIER
+ * slice of the same plan carries `landed: 'unknown'`. The earlier slice is what
+ * the host was asked about; this one is held by the plan's ordering behind it.
+ *
+ * **ONE PLAN PER CALL, WHICH IS WHAT KEEPS THE ANSWER PER PLAN.** An estate-wide
+ * flag would mark a second plan's slices from the first plan's outage: the two
+ * plans share a host and nothing else, and their orderings are independent.
+ *
+ * **A CLAIMABLE SLICE IS NEVER NAMED.** It may be handed over, or it is held by
+ * its own brief or its own `landed` answer — none of which is its predecessor's
+ * question. {@link whyNotReady} tests this reading last for the same reason.
+ *
+ * @param slices - one plan's queued branches, in plan order, with the plan's
+ *   slice index each belongs to.
+ * @returns the branches to mark, in the order given.
+ */
+export const behindUnknownLanding = (
+  slices: readonly PlanOrderedSlice[],
+): readonly string[] => {
+  // THE EARLIEST UNANSWERED SLICE, BY INDEX RATHER THAN BY POSITION. The
+  // entries arrive in plan order, but a slice naming three branches is three
+  // entries, so a later branch of the SAME slice is not behind the unknown one.
+  const unanswered = slices.filter((slice) => slice.landed === 'unknown').map((s) => s.slice);
+  if (unanswered.length === 0) return [];
+  const first = Math.min(...unanswered);
+  return slices
+    .filter((slice) => !slice.claimable && slice.slice > first)
+    .map((slice) => slice.branch);
 };
 
 /**

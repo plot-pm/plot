@@ -5,7 +5,9 @@ import {
   holdCounts,
   matchQueue,
   QUEUE_HOLDS,
+  behindUnknownLanding,
   whyNotReady,
+  type PlanOrderedSlice,
   type QueueHold,
   type FleetCap,
   type QueueAgent,
@@ -32,6 +34,7 @@ const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   briefPresent: true,
   claimable: true,
   landed: 'not-landed',
+  priorUnknown: false,
   ...over,
 });
 
@@ -474,27 +477,129 @@ describe('a refusal is counted so a zero can be read', () => {
     // `QUEUE_HOLDS` omits would be counted nowhere and reported as nothing —
     // exactly the silence this plan exists to remove.
     const answered = [
-      whyNotReady({ branch: 'b', slug: 's', claimable: true, briefPresent: true, landed: 'landed' }),
-      whyNotReady({ branch: 'b', slug: 's', claimable: true, briefPresent: true, landed: 'unknown' }),
-      whyNotReady({
-        branch: 'b',
-        slug: 's',
-        claimable: true,
-        briefPresent: false,
-        landed: 'not-landed',
-      }),
-      whyNotReady({
-        branch: 'b',
-        slug: 's',
-        claimable: false,
-        briefPresent: true,
-        landed: 'not-landed',
-      }),
+      whyNotReady(slice({ landed: 'landed' })),
+      whyNotReady(slice({ landed: 'unknown' })),
+      whyNotReady(slice({ briefPresent: false })),
+      whyNotReady(slice({ claimable: false })),
+      whyNotReady(slice({ claimable: false, priorUnknown: true })),
     ].filter((hold): hold is QueueHold => hold !== null);
 
     for (const hold of answered) expect(QUEUE_HOLDS).toContain(hold);
     // `no-free-agent` is `matchQueue`'s and not `whyNotReady`'s, so it is
     // asserted separately rather than folded into the loop above.
     expect(QUEUE_HOLDS).toContain('no-free-agent');
+    // AND THE LIST HOLDS NOTHING THE RULE CANNOT REACH, which the loop above
+    // cannot say: a hold added to `QUEUE_HOLDS` and never returned would print
+    // a key that is always zero, reporting a refusal that cannot happen.
+    expect([...answered, 'no-free-agent'].sort()).toEqual([...QUEUE_HOLDS].sort());
+  });
+});
+
+/**
+ * A SLICE HELD BEHIND A LANDING NOBODY COULD ASK ABOUT.
+ *
+ * Measured 2026-09-30 on a Bitbucket estate under HTTP 429: the supervisor held
+ * 36 slices `not-claimable`, among them slices whose earlier waves had merged
+ * days before (#1094). `not-claimable` is the word for *the plan's ordering
+ * blocks this*, so a reader went to the plan and found nothing wrong with it.
+ *
+ * The hold does not change — silence must not promote work — only the word.
+ */
+describe('behindUnknownLanding — which slices wait on an unanswered landing', () => {
+  const ordered = (over: Partial<PlanOrderedSlice> = {}): PlanOrderedSlice => ({
+    branch: 'feature/x',
+    slice: 0,
+    claimable: false,
+    landed: 'not-landed',
+    ...over,
+  });
+
+  it('marks a later slice held behind an unanswered one', () => {
+    const marked = behindUnknownLanding([
+      ordered({ branch: 'feature/one', slice: 0, claimable: true, landed: 'unknown' }),
+      ordered({ branch: 'feature/two', slice: 1 }),
+    ]);
+    expect(marked).toEqual(['feature/two']);
+  });
+
+  it('marks nothing when the earlier slice simply has not landed', () => {
+    // THE ASSERTION A RELABELLING WOULD PASS WITHOUT. A change that renamed
+    // every `not-claimable` would satisfy the test above and fail this one:
+    // slice 1 answered, it answered *not merged*, and slice 2 is waiting its
+    // turn rather than waiting on the host.
+    const marked = behindUnknownLanding([
+      ordered({ branch: 'feature/one', slice: 0, claimable: true, landed: 'not-landed' }),
+      ordered({ branch: 'feature/two', slice: 1 }),
+    ]);
+    expect(marked).toEqual([]);
+  });
+
+  it('never marks a claimable slice — it keeps its own landing question', () => {
+    const marked = behindUnknownLanding([
+      ordered({ branch: 'feature/one', slice: 0, claimable: true, landed: 'unknown' }),
+      ordered({ branch: 'feature/two', slice: 1, claimable: true }),
+    ]);
+    expect(marked).toEqual([]);
+  });
+
+  it('marks every later slice, not only the next one', () => {
+    const marked = behindUnknownLanding([
+      ordered({ branch: 'feature/one', slice: 0, claimable: true, landed: 'unknown' }),
+      ordered({ branch: 'feature/two', slice: 1 }),
+      ordered({ branch: 'feature/three', slice: 2 }),
+    ]);
+    expect(marked).toEqual(['feature/two', 'feature/three']);
+  });
+
+  it('leaves a sibling branch of the unanswered slice alone', () => {
+    // A SLICE NAMING TWO BRANCHES IS TWO ENTRIES AND ONE POSITION IN THE PLAN.
+    // The sibling is beside the unanswered branch rather than behind it, which
+    // is why the plan's slice index travels instead of the entry's position.
+    const marked = behindUnknownLanding([
+      ordered({ branch: 'feature/a', slice: 0, claimable: true, landed: 'unknown' }),
+      ordered({ branch: 'feature/b', slice: 0, claimable: true, landed: 'not-landed' }),
+      ordered({ branch: 'feature/two', slice: 1 }),
+    ]);
+    expect(marked).toEqual(['feature/two']);
+  });
+
+  it('marks nothing before the unanswered slice', () => {
+    const marked = behindUnknownLanding([
+      ordered({ branch: 'feature/one', slice: 0 }),
+      ordered({ branch: 'feature/two', slice: 1, claimable: true, landed: 'unknown' }),
+    ]);
+    expect(marked).toEqual([]);
+  });
+
+  it('measures from the EARLIEST unanswered slice when several did not answer', () => {
+    const marked = behindUnknownLanding([
+      ordered({ branch: 'feature/two', slice: 2, claimable: true, landed: 'unknown' }),
+      ordered({ branch: 'feature/one', slice: 1, claimable: true, landed: 'unknown' }),
+      ordered({ branch: 'feature/three', slice: 3 }),
+    ]);
+    expect(marked).toEqual(['feature/three']);
+  });
+
+  it('marks nothing in an empty queue', () => {
+    expect(behindUnknownLanding([])).toEqual([]);
+  });
+});
+
+describe('whyNotReady — the host is named where the plan was blamed', () => {
+  it('names the unanswered predecessor rather than the ordering', () => {
+    expect(whyNotReady(slice({ claimable: false, priorUnknown: true }))).toBe('prior-unknown');
+  });
+
+  it('still names the ordering when no predecessor went unanswered', () => {
+    expect(whyNotReady(slice({ claimable: false, priorUnknown: false }))).toBe('not-claimable');
+  });
+
+  it("keeps a slice's own answer ahead of its predecessor's", () => {
+    // A CLAIMABLE SLICE IS NEVER `prior-unknown`. Its own landing question was
+    // asked, and whatever it answered is the fact that decides.
+    expect(whyNotReady(slice({ landed: 'unknown', priorUnknown: true }))).toBe('merge-unknown');
+    expect(whyNotReady(slice({ landed: 'landed', priorUnknown: true }))).toBe('already-merged');
+    expect(whyNotReady(slice({ briefPresent: false, priorUnknown: true }))).toBe('no-brief');
+    expect(whyNotReady(slice({ priorUnknown: true }))).toBeNull();
   });
 });
