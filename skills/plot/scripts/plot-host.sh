@@ -2284,6 +2284,47 @@ tracker_scheme() {
   tracker_raw | awk '{print tolower($1)}'
 }
 
+# WHO ANSWERS THE OPEN-ISSUE LIST — the domain's answer, not this script's.
+#
+# `issue-list` and `issue-view` tested `tracker_scheme = jira` and sent every
+# other scheme to the git host. That test was a DRIFTED SECOND COPY of the rule:
+# measured 2026-10-01, `PLOT_HOST=github PLOT_TRACKER=linear issue-list` exited 0
+# having called `gh issue list`, so a repository tracking in Linear was shown
+# GitHub's issues under Linear's name — a list not wrong about any single row
+# and wrong about all of them.
+#
+# So the rule is ASKED rather than re-implemented. `issueSource` has eight unit
+# tests and the board already asks it (`fleet.ts:2369-2380`); a lister list in
+# shell would be the same copy one directory over, free to drift again the first
+# time a connector is added.
+#
+# THE ONE NODE HOP THIS SCRIPT MAKES, and the cost rule permits it: `plot-host.sh`
+# runs once per operator command or once per board PR refresh, never once per
+# agent per pass, and a shipped bundle answers in 39 ms
+# (`docs/shell-and-domain.md`).
+#
+# Prints the entry's line verbatim — `tracker\t<scheme>`, `git-host`, or
+# `nobody\t<reason>` — and exits 0. Exits 1, naming the entry, when the rule
+# CANNOT BE ASKED: no node, no bundle, a non-zero exit, or a word outside the
+# three. THAT CASE NEVER FALLS THROUGH TO THE GIT HOST — the fall-through is
+# the defect, and `an-outage-is-not-an-answer` is what a list saying *none*
+# because it could not ask reproduces.
+issue_source() {
+  local out rc
+  out="$(tracker_raw | node "$here/board/plot-issue-source.mjs" "$be" 2>/dev/null)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "plot-host: cannot ask board/plot-issue-source.mjs who lists this repository's issues (exit $rc); the question failed and the git host is not asked in its place" >&2
+    return 1
+  fi
+  case "${out%%$'\t'*}" in
+    tracker|git-host|nobody) printf '%s\n' "$out" ;;
+    *)
+      echo "plot-host: board/plot-issue-source.mjs answered '${out}', which is not one of tracker/git-host/nobody; the question failed and the git host is not asked in its place" >&2
+      return 1
+      ;;
+  esac
+}
+
 tracker_base_url() {
   # The base URL is the SECOND token; a bare `jira` with no URL yields "".
   # PLOT_JIRA_BASE_URL overrides, for a caller that has the URL separately.
@@ -4327,7 +4368,19 @@ case "$op" in
     done
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
-    if [ "$(tracker_scheme)" = "jira" ]; then
+    # WHO LISTS THESE ISSUES IS ASKED ONCE, HERE, BEFORE THE ARMS — after the
+    # argument parsing, so a caller's typo is still reported as a usage error
+    # rather than as a tracker refusal. The arms below then dispatch on the
+    # ANSWER, never on a second reading of the config.
+    source_said="$(issue_source)" || exit 1
+    if [ "${source_said%%$'\t'*}" = "nobody" ]; then
+      # Exit 4, the code this op already documents as *this host cannot be
+      # asked at all* — a configuration a person fixes, not a call to retry.
+      # NOTHING HAS BEEN SPENT: no `gh`, no `bb`, no curl has run yet.
+      echo "plot-host: ${source_said#*$'\t'}" >&2
+      exit 4
+    fi
+    if [ "$source_said" = $'tracker\tjira' ]; then
       # Jira, resolved through the REST API — DISPATCHED ON `Tracker`, never on
       # `backend()`: a Bitbucket repo tracking in Jira is the normal enterprise
       # case, so the git host is irrelevant here (see the Jira helpers up top).
@@ -4505,7 +4558,15 @@ case "$op" in
     # 4 to `unsupported` and anything else to `failed` must not need a second
     # table to read this op.
     num="${1:?issue-view needs an issue number}"; shift
-    if [ "$(tracker_scheme)" = "jira" ]; then
+    # Asked once, before the arms, exactly as issue-list does — the same
+    # question with the same three answers and the same exit codes. A consumer
+    # that maps 4 to `unsupported` needs no second table to read this op.
+    source_said="$(issue_source)" || exit 1
+    if [ "${source_said%%$'\t'*}" = "nobody" ]; then
+      echo "plot-host: ${source_said#*$'\t'}" >&2
+      exit 4
+    fi
+    if [ "$source_said" = $'tracker\tjira' ]; then
       # Jira, dispatched on `Tracker` not `backend()` — the same rule issue-list
       # follows. `num` is a Jira KEY (PROJ-123), read off issue-list moments ago.
       #
