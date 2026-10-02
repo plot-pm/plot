@@ -393,7 +393,7 @@ decide_transition() { # $1=file  → prints "<Phase>\t<record>\t<write|already>"
     || { echo "plot-deliver: cannot find $transition_mjs — run 'pnpm build:board'." >&2; return 1; }
   m=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null) || m=""
   [ -n "$m" ] || { echo "plot-deliver: cannot parse $f — refusing rather than guessing." >&2; return 1; }
-  answer=$(printf 'deliver\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t\n' \
+  answer=$(printf 'deliver\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t\t\n' \
     "$slug" \
     "$(printf '%s' "$m" | jq -r '.phase // ""')" \
     "$(printf '%s' "$m" | jq -r '.review // ""')" \
