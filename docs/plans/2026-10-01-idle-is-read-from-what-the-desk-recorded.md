@@ -91,7 +91,7 @@ The wrapper stops starting the WorkerMonitor (`plot-dispatch.sh:1452`, `:1496`, 
 
 ## Slices
 
-### Idle is one reading (Branch: bug/idle-is-one-reading)
+### Idle is one reading (Branch: bug/idle-is-one-reading, PR: #1183)
 
 `idleNow` in `packages/domain/src/rules/sample.ts` with unit cases for each condition (each one false alone answers `silent`; `dead` answers `silent`; every unreadable value answers `silent`), at 100% branch coverage. `plot_worker_idle_now` in `plot-worker-state.sh` holds the same rule, and `packages/domain/corpus/sample.corpus.test.ts` pairs the two. `plot-worker-monitor.sh` fills `treeQuietSeconds`, asks `plot_worker_idle_now`, and stops comparing `prev_tree`; it keeps its own one-sample `gone` arm until slice 2 (it keeps running as a process in this slice, so the slice ships alone). A contract test on a scratch desk: a tree untouched for the window with commits and a silent transcript publishes `idle` on the FIRST pass; a renamed file inside the window publishes nothing; a desk where only `.plot-worker.*` files change inside the window publishes `idle` on the first pass. <!-- builds: idleNow, a one-sample idle rule -->
 
