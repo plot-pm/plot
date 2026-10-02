@@ -70,6 +70,7 @@ import {
   type PrIndex,
   type PrIndexRow,
 } from '@plot-pm/domain';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
 // COMPUTER, not a fixture a caller substitutes — a board handed an in-memory
@@ -2719,16 +2720,28 @@ function scheduleNextPr(
 }
 
 /**
- * THE ONE PR STORE THIS PROCESS WRITES, constructed here for `slotsFile`'s
- * reason: it is machine-local state rather than a fixture a caller substitutes,
- * and a board handed an in-memory one would keep a store no later process could
+ * THE PR STORE FOR ONE REPOSITORY, constructed here for `slotsFile`'s reason:
+ * it is machine-local state rather than a fixture a caller substitutes, and a
+ * board handed an in-memory one would keep a store no later process could
  * read — which is the entire point of having one. Seamed by
- * `PLOT_PR_INDEX_HOME`, which is how a test moves it.
+ * `PLOT_PR_INDEX_HOME`, which is how a test moves it and which keeps priority
+ * over `repoRoot` because the adapter checks it first on every call.
  *
- * Module-level rather than per-refresh so the `git rev-parse --git-common-dir`
- * lookup the adapter caches is made once per process rather than once a minute.
+ * Cached per `repoRoot` rather than per-refresh so the `git rev-parse
+ * --git-common-dir` lookup the adapter caches is made once per repository per
+ * process rather than once a minute — and keyed by `repoRoot` rather than
+ * module-level so one process holding entries for several repositories (keyed
+ * by `repoRoot` and `scriptsDir` at `cacheKey`) writes each to its own store
+ * instead of all of them to whichever repository started the process.
  */
-const prStore = prIndexFile();
+const prStores = new Map<string, PrIndexStore>();
+const prStoreFor = (repoRoot: string): PrIndexStore => {
+  const held = prStores.get(repoRoot);
+  if (held !== undefined) return held;
+  const created = prIndexFile({ cwd: repoRoot });
+  prStores.set(repoRoot, created);
+  return created;
+};
 
 /**
  * One host row reduced to what the store holds.
@@ -2813,12 +2826,15 @@ const recordOf = (row: PrIndexRow): PrRecord => {
  *
  * @param entry - the cache entry to seed.
  * @param connector - which connector's store to read.
+ * @param store - the repository's PR store.
  */
-const seedPrsFromStore = async (entry: CacheEntry, connector: string): Promise<void> => {
+const seedPrsFromStore = async (
+  entry: CacheEntry, connector: string, store: PrIndexStore,
+): Promise<void> => {
   if (entry.prsByNumber !== null) return;
   let held;
   try {
-    held = await prStore.read(connector);
+    held = await store.read(connector);
   } catch {
     return;
   }
@@ -2914,13 +2930,14 @@ const applyPrMaps = (entry: CacheEntry, maps: PrMaps): void => {
  * @param connector - which connector answered.
  * @param rows - the rows the host returned this pass.
  * @param complete - whether the answer covered every state asked about.
+ * @param store - the repository's PR store.
  * @returns the store as it was folded and written, or null where it could not be.
  */
 const writePrStore = async (
-  connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind,
+  connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind, store: PrIndexStore,
 ): Promise<PrIndex | null> => {
   try {
-    const held = await prStore.read(connector);
+    const held = await store.read(connector);
     // An unreadable store is merged into as if it were absent: a whole answer
     // replaces it anyway, and a partial one keeping nothing is the safe
     // direction — it under-claims rows rather than inventing them.
@@ -2937,7 +2954,7 @@ const writePrStore = async (
     // must cost the board time and not answers, and the merged view is correct
     // in memory whatever the filesystem did with it — refusing to serve it
     // because the write failed would turn a disk problem into a wrong board.
-    await prStore.write(connector, folded);
+    await store.write(connector, folded);
     return folded;
   } catch {
     // The adapter answers with values rather than throwing, so reaching this is
@@ -2973,6 +2990,10 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   // to only one of them would be obeyed by half the pass, which is the failure
   // a substitutable port exists to prevent.
   const host = hostFor(opts);
+  // RESOLVED ONCE PER PASS, from the entry's own repository. A store built per
+  // call would fork `git rev-parse --git-common-dir` for every read and write
+  // below; `prStoreFor` caches it per `repoRoot` for the life of the process.
+  const prStore = prStoreFor(opts.repoRoot);
   // THE CI CONNECTOR IS SEPARATE, and resolved beside the host rather than
   // from it. A team whose code is on Bitbucket and whose builds run on Jenkins
   // has two services; asking one for the other's answers is what left that
@@ -3014,7 +3035,7 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   // Outside the `try` because it is not the host: a store that cannot be read
   // must not reach the catch that owns the backoff and the banner, which report
   // the connector. It swallows its own failures for the same reason.
-  await seedPrsFromStore(entry, backend);
+  await seedPrsFromStore(entry, backend, prStore);
   // THE WINDOW, DECIDED BEFORE THE CALL AND FROM THE STORE THE CALL WILL FOLD
   // INTO. A second read is one local `readFile` against a host call measured at
   // 29 811 ms, and reading it here rather than reusing the seed's read is what
@@ -3201,7 +3222,7 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       // assert the file without racing it, and — since this slice — so the maps
       // it serves are derived from a fold that has already happened. The write
       // is one local `rename` against a host call measured at 29 811 ms.
-      const folded = await writePrStore(backend, rows, kind);
+      const folded = await writePrStore(backend, rows, kind, prStore);
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this
       // pass hold the same rows by construction. Deriving from the fold anyway

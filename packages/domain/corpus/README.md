@@ -29,6 +29,9 @@ the rule re-scores the same readings; the two verdicts are compared.
 `sample.corpus.test.ts` is the fifth — `idleNow` against
 `plot-worker-state.sh`'s `plot_worker_idle_now`, over all 864 combinations of
 the six readings, including both window boundaries and the `''` activity word.
+`pr-merged.corpus.test.ts` compares two LOOKUPS rather than a rule and its
+copy — `pr_merged` against the host adapter's `prMerged`, both reaching the one
+`rules/landed.ts` — so what it holds is how each side asks the host.
 
 **Neither side is authoritative in either pair.** The test says they agree.
 

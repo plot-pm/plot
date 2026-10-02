@@ -67,7 +67,7 @@ The branch check is what makes an older pulse safe to use. A merged branch canno
 
 ## Slices
 
-### Delivery reads the last finished scan (Branch: bug/delivery-reads-the-last-finished-scan)
+### Delivery reads the last finished scan (Branch: bug/delivery-reads-the-last-finished-scan, PR: #1213)
 
 `entry.lastComplete`, the `deliveryPulse` rule, both callers, the tests. <!-- builds: deliveryPulse, the rule that picks the pulse a delivery is judged against -->
 
