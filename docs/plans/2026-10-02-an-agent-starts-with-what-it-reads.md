@@ -11,6 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Started:** 2026-10-02, jwloka, `infra/the-helper-table-leaves-claude-md`
 
 ## Changelog
 
