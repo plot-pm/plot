@@ -74,10 +74,16 @@ const askShell = (desk: string, from: string): ShellReading => {
     'done',
     'printf \'d\\t%s\\n\' "$(cd "$3" 2>/dev/null && pwd -P)"',
   ].join('\n');
+  // `PLOT_REPO_ROOT` is SCRUBBED rather than blanked — the idiom
+  // `test/reconcile/sandbox-scrubs-repo-root.test.mjs` gates, for the mechanism
+  // it documents: the variable travels from the launchd supervisor down to any
+  // suite a worker runs, and `plot-config.sh` prefers it over asking git.
+  const env: NodeJS.ProcessEnv = { ...process.env, PLOT_MANIFEST_DIR: '' };
+  delete env.PLOT_REPO_ROOT;
   const out = execFileSync('bash', ['-c', program, 'bash', WORKER_STATE, from, desk], {
     cwd: from,
     encoding: 'utf8',
-    env: { ...process.env, PLOT_MANIFEST_DIR: '', PLOT_REPO_ROOT: '' },
+    env,
     timeout: 120_000,
   });
   const lines = out.split('\n');

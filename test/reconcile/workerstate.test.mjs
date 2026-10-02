@@ -1006,6 +1006,15 @@ function sameFile(actual, expected, message) {
 }
 
 function askFromInside(desk, env = {}) {
+  // `PLOT_REPO_ROOT` IS SCRUBBED, not blanked. `plot-config.sh` prefers an
+  // exported one over asking git, and the launchd supervisor sets it so it
+  // travels supervisor -> dispatcher -> wrapper -> loop -> any suite a worker
+  // runs: a run inside a worker read THIS repository's config for a fixture's
+  // desk, and the registry case passed for the wrong reason. The `delete`
+  // follows the caller's spread, which is the idiom
+  // `sandbox-scrubs-repo-root.test.mjs` gates.
+  const sandboxEnv = { ...process.env, PLOT_MANIFEST_DIR: '', ...env };
+  delete sandboxEnv.PLOT_REPO_ROOT;
   const out = execFileSync('bash', ['-c',
     'cd "$1" || exit 9\n' +
     '. "$2"\n' +
@@ -1013,12 +1022,7 @@ function askFromInside(desk, env = {}) {
     'bash', desk, shared],
     {
       encoding: 'utf8',
-      // `PLOT_REPO_ROOT` IS CLEARED WITH IT. `plot-config.sh:222` prefers an
-      // exported one over asking git, and the fleet wrapper exports the
-      // dispatching repository's root into every agent — so a run inside a
-      // worker read THIS repository's config for a fixture's desk and the
-      // registry case passed for the wrong reason.
-      env: { ...process.env, PLOT_MANIFEST_DIR: '', PLOT_REPO_ROOT: '', ...env },
+      env: sandboxEnv,
       cwd: desk,
       timeout: 60_000,
     });
