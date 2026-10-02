@@ -693,7 +693,7 @@ describe('a tick starts agents when queued > running', () => {
         // reads it. `Approved` is what the file says; this is what the parser
         // emits, and the rule tests the parser's spelling.
         phase: 'approved',
-        slices: [{ branches: [{ branch: 'feature/waiting', deferred: false }] }],
+        slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false }] }],
       } as never,
     ],
     claimedBranches: async () => new Set<string>(),
@@ -858,7 +858,7 @@ describe('a tick says which hold refused each slice', () => {
       {
         file: 'docs/plans/2026-09-05-a-plan.md',
         phase: 'approved',
-        slices: [{ branches: [{ branch: 'feature/waiting', deferred: false }] }],
+        slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false }] }],
       } as never,
     ],
     claimedBranches: async () => new Set<string>(),
@@ -892,8 +892,40 @@ describe('a tick says which hold refused each slice', () => {
     expect(line).toContain('not-claimable=0');
     expect(line).toContain('already-merged=0');
     expect(line).toContain('merge-unknown=0');
+    expect(line).toContain('slice-unnamed=0');
     expect(line).toContain('prior-unknown=0');
     expect(line).toContain('no-free-agent=0');
+  });
+
+  it('reports a slice its plan left unnamed, and names the branch rather than only counting', async () => {
+    // THE SURFACE THE WORD REACHES AN OPERATOR THROUGH. No client file and no
+    // board payload field names a queue hold — measured on `origin/main` — and
+    // the plan adds none, so the supervisor's tick line is where the hold is
+    // read. A count alone would not say WHICH branch is owed a heading, and the
+    // branch is the whole of the repair.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({
+        plans: async () => [
+          {
+            file: 'docs/plans/2026-10-02-an-unnamed-slice.md',
+            phase: 'approved',
+            slices: [{ name: '', branches: [{ branch: 'feature/waiting', deferred: false }] }],
+          } as never,
+        ],
+      }),
+      now: () => 0,
+    });
+
+    const line = tickLine(report);
+    expect(line).toContain('slice-unnamed=1');
+    // AND IT IS NOT MISREPORTED AS A MISSING BRIEF. The brief is present here,
+    // and the repair for `no-brief` would not release the slice.
+    expect(line).toContain('no-brief=0');
+    expect(report.handOver?.detail.held).toEqual([
+      { branch: 'feature/waiting', hold: 'slice-unnamed' },
+    ]);
   });
 
   it('calls the count `held`, because the slices were refused and not queued', async () => {
@@ -1009,7 +1041,7 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
         {
           file: 'docs/plans/2026-09-05-a-plan.md',
           phase: 'approved',
-          slices: [{ branches: [{ branch: 'feature/waiting', deferred: false }] }],
+          slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false }] }],
         } as never,
       ],
       claimedBranches: async () => new Set<string>(),
