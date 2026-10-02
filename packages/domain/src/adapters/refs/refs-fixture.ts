@@ -1,9 +1,12 @@
+import { globToRegExp } from '../../rules/local-checks.js';
 import type { FleetReading } from '../../entities/fleet.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   BranchDate,
   BranchTip,
   CommitLine,
+  Containment,
+  MergeCommit,
   MergeStatus,
   RefScope,
   RefState,
@@ -34,6 +37,12 @@ export interface RefsFixture {
   shas?: Readonly<Record<string, string>>;
   /** Branch name to the files it changed. */
   changedFiles?: Readonly<Record<string, readonly string[]>>;
+  /** The working tree's changed paths. */
+  workingChanges?: readonly string[];
+  /** Search term to the files containing it; the globs are applied to these. */
+  filesNaming?: Readonly<Record<string, readonly string[]>>;
+  /** The paths whose `merge` attribute is unset. */
+  mergeUnset?: readonly string[];
   /** Files each commit changed, keyed by sha — what `commitFiles` answers. */
   commitFiles?: Readonly<Record<string, readonly string[]>>;
   /** `<ref>:<path>` to that file's content at that ref. */
@@ -92,6 +101,17 @@ export interface RefsFixture {
   remotes?: Readonly<Record<string, string>>;
   /** `<dir>\0<range>` to the commits that range holds, newest first. */
   commits?: Readonly<Record<string, readonly CommitLine[]>>;
+  /** Each file's repository-relative path to the commit that first added it. */
+  additions?: Readonly<Record<string, string>>;
+  /** The merge commits on the default branch, newest first. */
+  merges?: readonly MergeCommit[];
+  /**
+   * `<ancestor> <descendant>` to whether the first is contained in the second.
+   * A pair absent from the table reads `unknown`.
+   */
+  ancestry?: Readonly<Record<string, Containment>>;
+  /** The operations that fail on this estate, by port member name. */
+  failing?: readonly ('planAdditions' | 'mergeSubjects' | 'contains')[];
 }
 
 /** What a fixture reports when it was not told a default branch. */
@@ -154,6 +174,10 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
   const committedAt = fixture.committedAt ?? {};
   const remotes = fixture.remotes ?? {};
   const commits = fixture.commits ?? {};
+  const additions = fixture.additions ?? {};
+  const merges = fixture.merges ?? [];
+  const ancestry = fixture.ancestry ?? {};
+  const failing = new Set(fixture.failing ?? []);
 
   /**
    * The ref/sha pairs a scope covers, derived from the branches and tips this
@@ -197,6 +221,18 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     },
 
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),
+
+    workingChanges: async () => answered(fixture.workingChanges ?? []),
+
+    filesNaming: async (term, globs) => {
+      const patterns = globs.map(globToRegExp);
+      return answered((fixture.filesNaming?.[term] ?? []).filter((file) => patterns.some((p) => p.test(file))));
+    },
+
+    mergeUnset: async (paths) => {
+      const unset = new Set(fixture.mergeUnset ?? []);
+      return answered(paths.filter((path) => unset.has(path)));
+    },
 
     commitFiles: async (sha) => answered(commitFiles[sha] ?? []),
 
@@ -283,5 +319,23 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
 
     commitsSync: (dir, range, max) =>
       answered<readonly CommitLine[]>((commits[`${dir}\0${range}`] ?? []).slice(0, max)),
+
+    planAdditions: async (_ref, dir) => {
+      if (failing.has('planAdditions')) return failed<ReadonlyMap<string, string>>();
+      const prefix = dir.endsWith('/') ? dir : `${dir}/`;
+      return answered<ReadonlyMap<string, string>>(
+        new Map(Object.entries(additions).filter(([path]) => path.startsWith(prefix))),
+      );
+    },
+
+    mergeSubjects: async (_ref, max) =>
+      failing.has('mergeSubjects')
+        ? failed<readonly MergeCommit[]>()
+        : answered<readonly MergeCommit[]>(merges.slice(0, max)),
+
+    contains: async (ancestor, descendant) =>
+      failing.has('contains')
+        ? failed<Containment>()
+        : answered<Containment>(ancestry[`${ancestor} ${descendant}`] ?? 'unknown'),
   };
 };

@@ -1224,6 +1224,7 @@ describe('a tick asks the host about a branch once', () => {
         viewLanded: async () => 'unknown',
         briefPresent: async () => true,
         sliceHasMerged: queue.sliceHasMerged,
+        subjectProven: async () => null,
         queuedHasLanded: queue.queuedHasLanded,
         workerAlive: async () => true,
         blocked: async () => false,
@@ -1265,7 +1266,7 @@ describe('the queue world asks a known PR by number when the listing fails (#114
     location: async () => answered(''),
     read: async (connector) => {
       connectors.push(connector);
-      return answered({ v: 2, connector, watermark: null, complete: false, at: '', rows: [row] });
+      return answered({ v: 3, connector, watermark: null, complete: false, at: '', rows: [row] });
     },
     write: async () => answered(undefined),
   });

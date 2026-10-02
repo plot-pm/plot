@@ -444,7 +444,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 56 → 57 on 2026-10-01: `sprint-switch.browser.test.ts` (#1145). It swaps the
 // served payload under an open page with `mock.serve()` and waits on
 // `mock.served()`, and starts no board of its own.
-const EXPECTED_FILES = 57;
+// 57 → 58 on 2026-10-02: `a-handed-slice-reads-as-taken.browser.test.ts`
+// (#1150), for the hand-over note in a handed agent's own row. It serves its
+// state through the catalogue and starts no board.
+const EXPECTED_FILES = 58;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -625,7 +628,11 @@ const EXPECTED_FILES = 57;
 // `sprint-switch.browser.test.ts`, for a selected sprint that closes (#1145) —
 // one that it stops filtering and forgets the slug, one that a second selected
 // sprint keeps filtering. A file was added, so `EXPECTED_FILES` moves too.
-const EXPECTED_TESTS = 538;
+// 538 → 540 on 2026-10-02: two `it(` in the new
+// `a-handed-slice-reads-as-taken.browser.test.ts` (#1150) — one that the handed
+// agent's own row carries the note, one that NOT STARTED holds no row for the
+// branch. A file was added, so `EXPECTED_FILES` moves too.
+const EXPECTED_TESTS = 540;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

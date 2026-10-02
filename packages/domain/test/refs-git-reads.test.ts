@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { refsGit } from '../src/adapters/refs/refs-git.js';
+import { additionsOf, mergesOf, refsGit } from '../src/adapters/refs/refs-git.js';
 import { runBytes, runProcess, asText } from '../src/adapters/run-script.js';
 
 /**
@@ -417,5 +417,98 @@ describe('refsGit: the fingerprint and sweep readings', () => {
     // The fixture's `origin` points at the repository itself.
     expect(answer.ok && answer.value).toBe(repo);
     expect((await refs().remoteUrl('no-such-remote')).ok).toBe(false);
+  });
+});
+
+describe('refsGit: the merge-subject readings', () => {
+  let estate = '';
+
+  /** The full hash `ref` resolves to in the estate. */
+  const sha = (ref: string): string =>
+    execFileSync('git', ['rev-parse', ref], { cwd: estate }).toString().trim();
+
+  beforeAll(() => {
+    // A plan added, then renamed; a branch merged after the plan with a
+    // Bitbucket subject. `origin` points at the repository itself.
+    estate = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-subjects-'));
+    git(estate, ['init', '--quiet', '--initial-branch=main']);
+    git(estate, ['config', 'user.email', 'test@example.com']);
+    git(estate, ['config', 'user.name', 'Test']);
+    fs.mkdirSync(path.join(estate, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(path.join(estate, 'README.md'), 'readme\n');
+    git(estate, ['add', '-A']);
+    git(estate, ['commit', '--quiet', '-m', 'root']);
+    fs.writeFileSync(path.join(estate, 'docs/plans/2026-01-01-old.md'), '# a plan\n\nbody that survives a rename\n');
+    git(estate, ['add', '-A']);
+    git(estate, ['commit', '--quiet', '-m', 'add plan']);
+    git(estate, ['tag', 'added']);
+    git(estate, ['mv', 'docs/plans/2026-01-01-old.md', 'docs/plans/2026-01-01-new.md']);
+    git(estate, ['commit', '--quiet', '-m', 'retitle plan']);
+    git(estate, ['checkout', '--quiet', '-b', 'feature/one']);
+    fs.writeFileSync(path.join(estate, 'work.txt'), 'work\n');
+    git(estate, ['add', '-A']);
+    git(estate, ['commit', '--quiet', '-m', 'work']);
+    git(estate, ['checkout', '--quiet', 'main']);
+    git(estate, ['merge', '--no-ff', '--quiet', '-m', 'Merged in feature/one (pull request #5)', 'feature/one']);
+    git(estate, ['remote', 'add', 'origin', estate]);
+    git(estate, ['fetch', '--quiet', 'origin']);
+  });
+
+  afterAll(() => {
+    if (estate) fs.rmSync(estate, { recursive: true, force: true });
+  });
+
+  const subjects = () => refsGit({ repoRoot: estate, scriptDir: path.join(estate, 'scripts') });
+
+  it('maps a renamed plan to the commit that first added it', async () => {
+    const answer = await subjects().planAdditions('origin/main', 'docs/plans');
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value.get('docs/plans/2026-01-01-new.md')).toBe(sha('added'));
+  });
+
+  it('fails the additions walk for a ref that does not exist', async () => {
+    expect((await subjects().planAdditions('origin/nope', 'docs/plans')).ok).toBe(false);
+  });
+
+  it('reads the merges with their full hashes and subjects', async () => {
+    const answer = await subjects().mergeSubjects('origin/main', 10);
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value).toEqual([
+      { sha: sha('origin/main'), subject: 'Merged in feature/one (pull request #5)' },
+    ]);
+  });
+
+  it('answers containment yes, no and unknown', async () => {
+    const merge = sha('origin/main');
+    const added = sha('added');
+    expect(await subjects().contains(merge, added)).toEqual({ ok: true, value: 'no' });
+    expect(await subjects().contains(added, merge)).toEqual({ ok: true, value: 'yes' });
+    expect(await subjects().contains('no-such-commit', merge)).toEqual({ ok: true, value: 'unknown' });
+  });
+});
+
+describe('additionsOf', () => {
+  it('keeps the oldest add of a path the walk lists twice', () => {
+    expect(additionsOf('@new\n\nA\tp.md\n@old\n\nA\tp.md\n')).toEqual(new Map([['p.md', 'old']]));
+  });
+
+  it('follows a rename chain back to its add', () => {
+    const walk = '@c3\n\nR100\tb.md\tc.md\n@c2\n\nR090\ta.md\tb.md\n@c1\n\nA\ta.md\n';
+    expect(additionsOf(walk).get('c.md')).toBe('c1');
+  });
+
+  it('leaves out a chain that ends in no add, and survives a cycle', () => {
+    const walk = '@c2\n\nR100\ta.md\tb.md\n@c1\n\nR100\tb.md\ta.md\n';
+    expect(additionsOf(walk)).toEqual(new Map());
+  });
+});
+
+describe('mergesOf', () => {
+  it('drops a line with no subject', () => {
+    expect(mergesOf('abc Merged in x (pull request #1)\nlonely\n')).toEqual([
+      { sha: 'abc', subject: 'Merged in x (pull request #1)' },
+    ]);
   });
 });

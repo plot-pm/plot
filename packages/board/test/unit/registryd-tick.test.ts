@@ -700,6 +700,7 @@ describe('a tick starts agents when queued > running', () => {
     mergedBranches: async () => ({ merged: new Set<string>(), whole: true }),
     briefPresent: async () => true,
     sliceHasMerged: async () => false,
+    subjectProven: async () => null,
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
@@ -859,6 +860,7 @@ describe('a tick says which hold refused each slice', () => {
     mergedBranches: async () => ({ merged: new Set<string>(), whole: true }),
     briefPresent: async () => true,
     sliceHasMerged: async () => false,
+    subjectProven: async () => null,
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
@@ -946,6 +948,7 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
       briefPresent: async () => true,
       sliceHasMerged: async () => false,
       // THE HOST WOULD NOT ANSWER — the hold `merge-unknown` names.
+      subjectProven: async () => null,
       queuedHasLanded: async () => 'unknown',
       workerAlive: async () => true,
       blocked: async () => false,
