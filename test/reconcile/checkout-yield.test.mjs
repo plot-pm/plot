@@ -358,3 +358,48 @@ test('checkout-yield: exit 2 refuses even when stdout says yields', () => {
       'the marker must say the rule could not be asked');
   } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
 });
+
+// -----------------------------------------------------------------------
+// `--force` is absent, and git's refusal is the second line of defence
+// -----------------------------------------------------------------------
+//
+// THE CASE WHERE `--force` ACTUALLY DESTROYS SOMETHING is not a tree the rule
+// already refuses: there the removal is never reached, so `--force` changes
+// nothing and a mutation adding it survives (measured 2026-10-02).
+//
+// It is a tree whose contents the READING MISSES and git still sees.
+// `plot_worker_dirty` drops editor leftovers by design — `PLOT_EDITOR_LEFTOVER`
+// is `.(tmp[0-9]*|swp|orig|rej|bak)$` — because a stray `.tmp1` once restarted
+// a branch that was making progress. So a holder carrying only a `.bak` reads
+// CLEAN, the rule yields, and git refuses the plain removal.
+//
+// THAT REFUSAL IS THE DELIVERABLE. `reset_desk` says a guard that misjudges
+// must leave a desk the sweep reports, not deleted work. With `--force` the
+// file is gone and the branch is taken; without it the tree survives and a
+// person is told. This is the only case that separates the two.
+test('checkout-yield: a leftover the reading drops is still not force-removed', () => {
+  const sb = sandbox('force-guard');
+  try {
+    // PRECONDITION: the reading must call this tree clean, or the test would
+    // be asserting the `uncommitted-changes` refusal all over again.
+    fs.writeFileSync(path.join(sb.holder, 'notes.bak'), 'an editor left this\n');
+    const dirty = withLoopFns(sb.desk, `plot_worker_dirty ${JSON.stringify(sb.holder)}`);
+    assert.equal(dirty.trim(), '',
+      'precondition: the reading must drop the leftover, so the rule yields');
+
+    const out = withLoopFnsAll(sb.desk,
+      'reset_desk "$PWD" feature/handed && echo RESET_OK || echo RESET_FAILED');
+
+    assert.match(out, /RESET_FAILED/,
+      'git refuses the plain removal, and the loop must not route around it');
+    assert.equal(fs.existsSync(sb.holder), true, 'the checkout must survive');
+    assert.equal(fs.readFileSync(path.join(sb.holder, 'notes.bak'), 'utf8'),
+      'an editor left this\n', 'the file the reading missed must still be there');
+
+    // AND A PERSON IS TOLD, naming git's refusal rather than a condition the
+    // rule never reached.
+    const marker = fs.readFileSync(path.join(sb.desk, 'PLOT-BLOCKED.md'), 'utf8');
+    assert.match(marker, /git-refused/,
+      'the marker must say the rule allowed it and git did not');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
