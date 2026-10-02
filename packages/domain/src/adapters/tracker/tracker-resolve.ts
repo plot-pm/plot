@@ -1,21 +1,13 @@
 import type { Tracker } from '../../ports/tracker.js';
-import type { IssueLister } from '../../rules/issue-source.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerGithub } from './tracker-github.js';
 import { trackerJira } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
 
-/**
- * The schemes a connector lists open issues from — the reading `issueSource`
- * takes. It names the same schemes {@link trackerFor} maps onto a connector:
- * Jira lists from any git host, and GitHub issues only where GitHub is the git
- * host, because `plot-host.sh` reads them through that host's CLI.
- */
-export const TRACKER_LISTERS: readonly IssueLister[] = [
-  { scheme: 'jira' },
-  { scheme: 'github-issues', onlyOnHost: 'github' },
-];
+// RE-EXPORTED FROM ITS OWN MODULE, so every importer of this file is unchanged
+// while a shell entry can import the list without the connectors below it.
+export { TRACKER_LISTERS } from './tracker-listers.js';
 
 /** Where a repository declares which tracker it uses. */
 const TRACKER_KEY = 'Tracker';
