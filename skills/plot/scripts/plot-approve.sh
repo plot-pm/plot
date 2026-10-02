@@ -222,6 +222,12 @@ case "$review" in
       die "plan '$slug' declares 'Review: in-session' — the reviewer is a human in the room.
   Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve $slug"
     fi
+    # No reviewer named: refuse before any git work. The domain's `review-human`
+    # gate says the same thing later, after a booking worktree exists; asking
+    # here keeps a refusal local and cheap. `--who` has no default.
+    if [ -z "$(printf '%s' "$who_flag" | tr -d '[:space:]')" ]; then
+      die "plan '$slug' declares 'Review: in-session' — name the reviewer with --who."
+    fi
     in_session=1
     ;;
   ballot)
