@@ -414,3 +414,92 @@ test('a finding carries the four fields every monitor publishes', () => {
       `the published finding has no ${field}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// THE MONITOR FOLLOWS THE HOP — `watchedDesk`
+// ---------------------------------------------------------------------------
+//
+// `PLOT_WORKTREE` is fixed at launch, but a hop rewrites the manifest's
+// `worktree` field before the agent's next slice starts. A naive fix that
+// re-reads only the branch (`monitor_branch`, already per-pass) passes every
+// test above and fails this one: the finding must name the NEW desk's head
+// sha and land in the NEW desk's findings file, with nothing new in the old
+// one's.
+
+test('a hop moves both the head sha this monitor asks about and where it writes', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bmon-hop-'));
+  try {
+    const origin = path.join(sandbox, 'origin.git');
+    const repo = path.join(sandbox, 'repo');
+    execFileSync('git', ['init', '--bare', '-q', '-b', 'main', origin]);
+    execFileSync('git', ['clone', '-q', origin, repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'corpus@example.invalid']);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Plot Test']);
+    execFileSync('git', ['-C', repo, 'config', 'commit.gpgsign', 'false']);
+    fs.writeFileSync(path.join(repo, 'f.txt'), 'x\n');
+    execFileSync('git', ['-C', repo, 'add', '-A']);
+    execFileSync('git', ['-C', repo, 'commit', '-qm', 'init']);
+    execFileSync('git', ['-C', repo, 'push', '-q', 'origin', 'main']);
+
+    const deskA = path.join(sandbox, 'desk-a');
+    const deskB = path.join(sandbox, 'desk-b');
+    execFileSync('git', ['-C', repo, 'branch', 'slice-a']);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', deskA, 'slice-a']);
+    execFileSync('git', ['-C', repo, 'branch', 'slice-b']);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', deskB, 'slice-b']);
+    const headA = execFileSync('git', ['-C', deskA, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const headB = execFileSync('git', ['-C', deskB, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    const manifest = path.join(sandbox, 'manifest.json');
+    fs.writeFileSync(manifest, `{\n  "worktree": "${deskA}",\n  "pid": "1"\n}\n`);
+
+    // A stubbed plot-host.sh in the real script directory would affect every
+    // other test; instead copy only the files `plot-build-monitor.sh` and its
+    // sourced siblings need into a scratch directory, where the monitor
+    // resolves `plot-host.sh` and `plot-monitor-subject.sh` beside itself via
+    // `$(dirname "${BASH_SOURCE[0]}")`.
+    const scratchScripts = path.join(sandbox, 'scripts');
+    fs.mkdirSync(scratchScripts);
+    for (const name of ['plot-build-monitor.sh', 'plot-monitor-subject.sh']) {
+      fs.copyFileSync(path.join(scripts, name), path.join(scratchScripts, name));
+    }
+    fs.writeFileSync(path.join(scratchScripts, 'plot-host.sh'), `#!/usr/bin/env bash
+echo "{\\"sha\\":\\"$3\\",\\"status\\":\\"completed\\",\\"conclusion\\":\\"failure\\",\\"url\\":\\"https://ci/run\\",\\"startedAt\\":\\"t\\"}"
+`);
+    fs.chmodSync(path.join(scratchScripts, 'plot-host.sh'), 0o755);
+    const scratchMonitor = path.join(scratchScripts, 'plot-build-monitor.sh');
+
+    const { PLOT_BRANCH: _ignoredBranch, PLOT_WORKTREE: _ignoredWorktree, ...cleanEnv } = process.env;
+    const env = {
+      ...cleanEnv,
+      PLOT_BRANCH: 'slice-a',
+      PLOT_WORKTREE: deskA,
+      PLOT_MANIFEST_FILE: manifest,
+    };
+    execFileSync('bash', [scratchMonitor, '--once'], { encoding: 'utf8', timeout: 30_000, env });
+
+    // The hop: rewrite the manifest's worktree to desk B.
+    fs.writeFileSync(manifest, `{\n  "worktree": "${deskB}",\n  "pid": "1"\n}\n`);
+    execFileSync('bash', [scratchMonitor, '--once'], { encoding: 'utf8', timeout: 30_000, env });
+
+    const readFindings = (desk) => {
+      const f = path.join(desk, '.plot-worker.monitor.build.jsonl');
+      return fs.existsSync(f)
+        ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+        : [];
+    };
+    const foundA = readFindings(deskA);
+    const foundB = readFindings(deskB);
+
+    assert.equal(foundA.length, 1, `desk A should hold exactly its own pass: ${JSON.stringify(foundA)}`);
+    assert.match(foundA[0].evidence, new RegExp(headA));
+
+    assert.equal(foundB.length, 1,
+      `the second pass must land in desk B's findings file, not desk A's: ${JSON.stringify(foundB)}`);
+    assert.equal(foundB[0].worktree, deskB, 'the finding does not name desk B');
+    assert.match(foundB[0].evidence, new RegExp(headB),
+      'the finding asks about desk A\'s head instead of following the hop to desk B');
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
