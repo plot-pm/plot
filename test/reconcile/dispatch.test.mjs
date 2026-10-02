@@ -3356,13 +3356,20 @@ const endDesk = (wt) => {
   if (!fs.existsSync(file)) return;
   const wrapper = Number(fs.readFileSync(file, 'utf8').trim());
   if (!Number.isInteger(wrapper) || wrapper <= 0) return;
+  // SIGTERM FIRST: the loop's and the monitors' `plot-tmp.sh` traps remove
+  // their temp entries on it and cannot on SIGKILL, and the wrapper ignores it,
+  // records the exit and ends once its agent has. SIGKILL only if it has not.
+  const gone = () => { try { process.kill(wrapper, 0); return false; } catch { return true; } };
+  const waitGone = (ms) => {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline && !gone()) spawnSync('sleep', ['0.1']);
+    return gone();
+  };
+  try { process.kill(-wrapper, 'SIGTERM'); } catch { /* no such group */ }
+  if (waitGone(10_000)) return;
   try { process.kill(-wrapper, 'SIGKILL'); } catch { /* no such group */ }
   try { process.kill(wrapper, 'SIGKILL'); } catch { /* already gone */ }
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    try { process.kill(wrapper, 0); } catch { return; }
-    spawnSync('sleep', ['0.1']);
-  }
+  waitGone(5_000);
 };
 
 /**

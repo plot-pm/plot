@@ -98,14 +98,23 @@ const endDesks = (target) => {
       }
     })
     .filter((pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid && isWrapper(pid));
+  const waitGone = (ms) => {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline && wrappers.some(alive)) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  };
+  // SIGTERM FIRST: `plot-tmp.sh` traps remove their temp entries on it and
+  // cannot on SIGKILL; the wrapper ignores it and ends once its agent has.
   for (const pid of wrappers) {
+    try { process.kill(-pid, 'SIGTERM'); } catch { /* not a group leader, or gone */ }
+  }
+  waitGone(10_000);
+  for (const pid of wrappers.filter(alive)) {
     try { process.kill(-pid, 'SIGKILL'); } catch { /* not a group leader, or gone */ }
     try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
   }
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline && wrappers.some(alive)) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-  }
+  waitGone(5_000);
 };
 
 export const removeTree = (target, { retries = 10, delayMs = 25 } = {}) => {
