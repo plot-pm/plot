@@ -6,6 +6,7 @@ import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript
 import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from '../contract/schema.js';
 import { scriptsShell } from '@plot-pm/domain/adapters';
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
+import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-pm/domain/rules/desk-worker';
 
 /**
  * What the registry can say about an agent's liveness — one fact, computed once
@@ -152,6 +153,21 @@ export function deskPidAlive(worktree: string): boolean {
     return false;
   }
 }
+
+/**
+ * The pid a desk's `.plot-worker.pid` records, trimmed, or `''` when there is
+ * no readable record. Injected in tests; the default is {@link readDeskPid}.
+ */
+export type DeskPidReader = (worktree: string) => string | Promise<string>;
+
+/** Reads `$worktree/.plot-worker.pid`; `''` when the file is absent or unreadable. */
+export const readDeskPid: DeskPidReader = (worktree) => {
+  try {
+    return fs.readFileSync(path.join(worktree, '.plot-worker.pid'), 'utf8').trim();
+  } catch {
+    return '';
+  }
+};
 
 /**
  * Resolve liveness for a batch of worktrees, in the same order.
@@ -647,6 +663,12 @@ export interface ReadRegistryOptions {
    */
   pidAlive?: PidLiveness;
   /**
+   * The pid a desk's `.plot-worker.pid` records — read for every `running`
+   * entry so {@link placeWorkers} can ask `deskWorker` whether that worker
+   * runs at another desk. Injected in tests; default {@link readDeskPid}.
+   */
+  deskPid?: DeskPidReader;
+  /**
    * Enumerate the repo's worktrees, for Fix C — synthesizing an entry for a
    * worktree no manifest names. Injected in tests; in production the default
    * {@link gitWorktrees} runs `git worktree list --porcelain`. When it throws or
@@ -817,6 +839,10 @@ export async function readAgentRegistryWithInfo(
   const manifestReadings: ManifestReading[] = out
     .filter((e) => e.worktree)
     .map((e) => ({ path: e.worktree, worktree: e.worktree, worktreeReal: realpathOrUndefined(e.worktree) }));
+  // The same manifests with the pid each records, for `deskWorker`.
+  const workerReadings: ManifestWorkerReading[] = out
+    .filter((e) => e.worktree)
+    .map((e, i) => ({ worktree: e.worktree, worktreeReal: manifestReadings[i]!.worktreeReal, pid: e.pid }));
   let synthesizedCount = 0;
   {
     const lister = opts.worktrees ?? (() => gitWorktrees(repoRoot));
@@ -843,6 +869,7 @@ export async function readAgentRegistryWithInfo(
     }
   }
   await refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir), opts.pidAlive ?? deskPidAlive);
+  await placeWorkers(out, workerReadings, opts.deskPid ?? readDeskPid);
   // Drop settled workers: session ended AND worktree clean. A worker with either
   // condition outstanding — live session OR dirty/unpushed — stays visible.
   const filtered = await dropSettledWorkers(
@@ -952,6 +979,38 @@ async function refreshStates(
   checkable.forEach((entry, i) => {
     entry.state = refined[i] as AgentState;
   });
+}
+
+/**
+ * Reads `ended` for each `running` entry whose worker a manifest places at
+ * another desk, in place. The decision is `deskWorker`'s and
+ * `deskProcessState`'s; this takes the readings — the desk's pid record and
+ * realpath — and applies the answer. A pid reading that throws leaves the
+ * entry's state standing.
+ */
+async function placeWorkers(
+  entries: AgentEntry[],
+  manifests: readonly ManifestWorkerReading[],
+  deskPid: DeskPidReader,
+): Promise<void> {
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (entry.state !== 'running' || entry.worktree === '') return;
+      let pid: string;
+      try {
+        pid = await deskPid(entry.worktree);
+      } catch {
+        return;
+      }
+      const worker = deskWorker({
+        desk: entry.worktree,
+        deskReal: realpathOrUndefined(entry.worktree) ?? entry.worktree,
+        deskPid: pid,
+        manifests,
+      });
+      entry.state = deskProcessState('running', worker);
+    }),
+  );
 }
 
 /**

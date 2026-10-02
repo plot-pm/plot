@@ -535,13 +535,24 @@ on that judgment.
 | a commit on `origin/<branch>` that changes files | **refuse** — that is work, not a claim |
 | the desk holds unpushed commits or uncommitted changes | **refuse** — names the desk and the files |
 | a `PLOT-BLOCKED*` marker on the desk | **refuse** — the agent waits on a person |
-| none of the above | **release** — clear every manifest naming the branch, then delete the ref |
+| none of the above | **release** — clear every manifest naming the branch, then delete the ref, then detach a desk still holding the branch |
 
 A claim is an empty commit, so a claim-only ref changes no file and releases.
 No manifest naming the branch is not a failure: the ref is released and the
 output says so. A ref already deleted by hand with a manifest still naming the
 branch is released too — the manifest is the half that was missed. A refusal
-writes nothing, and the desk is never touched.
+writes nothing.
+
+**A released desk gives the branch up.** After the ref is deleted, a desk still
+on the branch holds at most empty claim commits. `--release` detaches it at
+`origin/<main>` and deletes the local branch, so the next agent handed the slice
+can check it out. Measured 2026-10-02: with the ref gone, the old desk had no
+upstream, `checkoutYield` read its claim commit as `unpushed-commits` and kept
+it, and 15 agents in a row wrote `PLOT-BLOCKED` for two released slices. The
+desk is detached only when its HEAD is the branch, no worker is alive in it, no
+commit beyond `origin/<main>` changes a file, and `desk_dirt` reads its tree
+clean; otherwise it is left as it is and the output names the reason. The
+worktree itself stays — removing it is `plot-reap.sh`'s act.
 
 ### Why restart is a separate verb
 

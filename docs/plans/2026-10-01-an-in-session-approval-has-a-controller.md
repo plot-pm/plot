@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-transition-takes-the-reviewer`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-scripts-own-the-approval-and-the-release`
 
 ## Changelog
 
