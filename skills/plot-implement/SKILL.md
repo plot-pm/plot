@@ -264,8 +264,12 @@ The plan's `## Done when` list is the specification. <Then lift the
 assertions that exist *because a naive implementation would pass without
 them*, and say for each what it catches.>
 
-Plus: <the repo's gates — test commands, build artifacts, changeset,
-platform constraints>.
+Plus: <the repo's gates — build artifacts, changeset, platform
+constraints>. For tests, name the local checks command,
+`node <plot scripts>/board/plot-local-checks.mjs` with the path resolved from
+this skill's directory, and say: run it before each push and run what it
+prints; the suites in the `CI suites` config key run in CI, and a failure there
+comes back as a correction. List no full suite.
 
 ### Bookkeeping
 

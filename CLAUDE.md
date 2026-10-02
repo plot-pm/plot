@@ -656,7 +656,7 @@ The trade is explicit: skipping it locally means an e2e failure is discovered
 after a push, costing one CI round trip. That cost is bounded and serialised. An
 unbounded local run is neither, and it takes the machine down with it.
 
-**Always install dependencies and run tests.** If `pnpm test` fails due to missing `node_modules`, install them and retry — never skip tests or dismiss the failure.
+**Always install dependencies and run the checks your change touches.** Before each push, run `node skills/plot/scripts/board/plot-local-checks.mjs` and run what it prints: the tests that name a changed file, the related tests and typecheck of a changed package, and the gate tests and `scripts/check-*.sh`. The suites in the `CI suites` key run in CI on every pull request; a fleet agent does not run them, and the controller gate refuses it at a fleet desk. If a check fails because `node_modules` is missing, install and retry — never skip a failing test or dismiss the failure.
 
 **The board is first-class.** Keeping it working — and considering board impact when planning changes to the plan format, template, helper scripts, or `docs/plans` layout — is part of the [Definition of Done](docs/definition-of-done.md), gated in CI.
 
