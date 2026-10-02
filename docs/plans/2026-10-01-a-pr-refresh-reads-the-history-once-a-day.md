@@ -141,6 +141,7 @@ Tests:
 - The full read on this repository takes at most 15 s over at least three runs, and spends fewer GraphQL points than the old full read, measured in slice 2's PR body.
 - A failed due full read is followed by a delta, not by the full read, on the next refresh.
 - On GitHub, while the host answers, `prAgeSeconds` stays at or below 120 s for one hour on a running board, including the refresh that makes the full read, measured in slice 2's PR body.
+- Slice 2, as delivered (amended 2026-10-02, operator decision): the full read takes 10.7–15.1 s over eight runs (median ≈ 12.5 s) against 39.6–42.3 s before. The 120 s freshness target is not met on this machine: `prRefreshMsFor` stretched the refresh interval to 225 s from the account's spend rate (≈ 950 calls/h, 2–3 spenders), and the interval bounds the data's age. #1203 is accepted on that measurement; the cadence stays bound to the spend rate.
 - A 504 from `pr-list` prints `host timed out` and no login advice.
 - No new `plot-*.sh` script; every host call goes through `plot-host.sh`.
 - `pnpm test`, `pnpm run test:contracts`, `pnpm run test:board`, `pnpm run typecheck` and the domain coverage gate pass. Each slice carries a changeset.

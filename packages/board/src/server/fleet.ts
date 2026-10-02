@@ -1005,6 +1005,29 @@ export interface CacheEntry {
    */
   pulseComplete: boolean;
   /**
+   * The pulse of the last scan that FINISHED, or null until one has.
+   *
+   * `pulse` is overwritten by every partial publication during a scan, so for
+   * most of every pulse the only answer the entry holds is incomplete. A
+   * delivery decision read from it is refused for that whole window — measured
+   * 2026-09-30 (#1113), 20 refusals in 20 minutes over a plan whose every
+   * branch had merged. This is the answer such a decision reads instead, and
+   * `deliveryPulse` is the rule that says when it may.
+   *
+   * SET ONLY WHERE A SCAN SUCCEEDED, beside `pulseComplete = true`, and in the
+   * bridge read, whose file is written on that same path. `publishPartial`
+   * never touches it, so a scan cut short at the timeout leaves the previous
+   * finished answer standing rather than replacing it with a fragment.
+   *
+   * Not a substitute for `before`, which `refresh` captures for `pulseShrink`:
+   * that one is null unless the PREVIOUS pulse was complete, and is scoped to
+   * one refresh. This survives across them.
+   *
+   * IN MEMORY AND NOWHERE ELSE, for `terminal`'s reason — a restart re-derives
+   * it, and until it does, `deliveryPulse` answers null and a delivery waits.
+   */
+  lastComplete: FleetReading | null;
+  /**
    * This machine's clock, or null before `ensureCache` started it.
    *
    * Replaces the `timer`/`prTimer` pair. Both cadences are subscribers on it
@@ -3663,6 +3686,11 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // the pulse it describes, never later — a gap between the two is a window
     // where a complete document reads as partial.
     entry.pulseComplete = true;
+    // THE SAME MOMENT, AND ONLY THIS MOMENT. A delivery decision reads this
+    // rather than `pulse`, which the next scan's first plan line will overwrite
+    // with a fragment. Written beside the flag it mirrors so the two can never
+    // disagree about which document finished.
+    entry.lastComplete = complete;
     entry.ages = await branchAges(opts);
     entry.branchUrlBase = await readBranchUrlBase(opts);
     entry.approvedAt = await approvalDates(opts, complete);
@@ -3855,6 +3883,12 @@ export function freshCacheEntry(): CacheEntry {
     // different answers, and `resolveBackend` distinguishes them to ask once.
     backend: null,
     pulseComplete: true,
+    // Null, NOT the cold-start `true` above: `pulseComplete` starts true so a
+    // null pulse reads as "nothing has arrived" exactly as before, while this
+    // field says no scan has finished in this process. `deliveryPulse` reads
+    // the pair and answers null, so a delivery waits for the first scan rather
+    // than being judged against nothing.
+    lastComplete: null,
     // Null, not a stopped clock: `ensureCache` starts the pulse, and a fresh
     // entry has not been through it yet.
     pulseClock: null, running: false, prRunning: false,
@@ -3894,6 +3928,11 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     entry.approvedAt = bridged.approvedAt;
     entry.ideaPlans = bridged.ideaPlans;
     entry.at = bridged.at;
+    // THE BRIDGED PULSE IS A FINISHED ONE. `writeBridge` is called on the
+    // success path only, past the terminal line, so the file can hold no
+    // partial document — which is what makes it an answer a delivery may read
+    // before this process's first scan lands.
+    entry.lastComplete = bridged.pulse;
   }
   // Warm at startup so the first person to open the tab does not wait a second
   // for it; until this lands the endpoint reports `ready: false`. Both sources
@@ -4013,6 +4052,25 @@ export function pulseFor(opts: BuildBoardOptions): FleetReading | null {
  */
 export function pulseCompleteFor(opts: BuildBoardOptions): boolean {
   return ensureCache(opts).pulseComplete;
+}
+
+/**
+ * The pulse of the last scan that FINISHED, or null until one has in this
+ * process.
+ *
+ * The third member of the pair above, and the one a DELIVERY decision needs.
+ * `pulseFor` answers *what is on screen* — which during a scan is a fragment —
+ * and this answers *what was last measured whole*. A merged branch cannot
+ * unmerge, so the older answer is still true about every branch it named; which
+ * is a different claim from being true about this plan, and `deliveryPulse` is
+ * the rule that tests the difference.
+ *
+ * Null on a cold cache, where `pulseCompleteFor` reports true over a null
+ * pulse. A caller must read the pair through `deliveryPulse` rather than
+ * choosing between them here.
+ */
+export function lastCompletePulseFor(opts: BuildBoardOptions): FleetReading | null {
+  return ensureCache(opts).lastComplete;
 }
 
 /** Stop the refresh clocks. Tests need this; the server never calls it. */
