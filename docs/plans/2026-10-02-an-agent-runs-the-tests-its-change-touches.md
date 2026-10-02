@@ -104,7 +104,7 @@ Tests:
 - Domain: a PR whose head's checks are pending is not finished; a passing run finishes it; a failed run for the current head is a correction; a failed run for a superseded head is ignored; a PR with no terminal checks inside `Worker bound` finishes it and says so.
 - `test/reconcile/`: a loop whose fake monitor publishes `build failed` for the pushed head writes `PLOT-CORRECTION.md` and resumes, instead of taking a new slice; a passing finding frees the agent.
 
-### The checks a diff needs (Branch: feature/the-checks-a-diff-needs) <!-- waits: feature/a-slice-ends-when-its-checks-do -->
+### The checks a diff needs (Branch: feature/the-checks-a-diff-needs, PR: #1176) <!-- waits: feature/a-slice-ends-when-its-checks-do -->
 
 - `feature/the-checks-a-diff-needs` — `localChecks`, the `Refs` working-tree extension, the `Local checks`, `Local checks limit` and `CI suites` keys, the entry and the `plot-local-checks.mjs` bundle, this repository's two config lines <!-- builds: localChecks, the checks a diff needs -->
 
