@@ -71,10 +71,9 @@ const SESSION = '5c7c41bd-ae8f-45ec-a220-2a23b5f1a16b';
  * formats as the CURRENT minute — measured 22 s into one, `+2 s` printed
  * `4:01am`, which resolves to `04:01:00` and is 22 s in the PAST. The rule's
  * grace then resolves it to now and the wait is zero, so a test written that
- * way asserts a wait it never served. `MINUTE_STEP` is therefore the unit: a
- * reset one minute out is the smallest one the message can express, and
- * `PLOT_CLOCK_OFFSET_SECONDS` is what moves the loop past it without the suite
- * sleeping.
+ * way asserts a wait it never served. So the reset is stated in whole minutes
+ * and `PLOT_CLOCK_OFFSET_SECONDS` moves the loop past it; `RESET_AHEAD` below
+ * states the window both must land in.
  */
 function limitLine(ahead, limit = 'session limit') {
   const at = new Date((nowSeconds() + ahead) * 1000);
@@ -90,21 +89,30 @@ function limitLine(ahead, limit = 'session limit') {
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 /**
- * A reset the message can actually state, and the offset that reaches it.
+ * A reset the message can actually state, and the clock that makes the wait
+ * short without making it something else.
  *
- * TWO MINUTES rather than one, because the reset is formatted when the FIXTURE
- * is written and read when the PROMPT runs — a one-minute reset written at
- * 59 s past the minute has already passed by the time the loop asks. Two
- * minutes is one whole minute of slack.
+ * **THE OFFSET MUST LAND IN A WINDOW, AND THE WINDOW IS NARROW.** The rule
+ * resolves the stated wall clock ON THE DATE OF NOW, and a resolved instant
+ * more than `PAST_RESET_GRACE_SECONDS` (120 s) behind now resolves to TOMORROW
+ * instead — 24 h out, which the `Worker bound` then refuses as `past-bound`.
+ * So for a reset `R` seconds ahead and a clock offset `O`:
  *
- * THE OFFSET IS LARGER THAN THE RESET, so the loop's `clock_now` is already
- * past it when `sleep_until_reset` compares: the wait is served, the record is
- * written, the flag is set, and the sleep returns at once. What is asserted is
- * that the loop WAITED rather than retried — the duration of the sleep is the
- * rule's arithmetic and is tested in `packages/domain/test/prompt-exit.test.ts`.
+ *     O > R          or the loop really sleeps, and the suite waits with it
+ *     O - R <= 120   or the reset resolves to tomorrow and `past-bound` fires
+ *
+ * Measured: `R = 120, O = 240` sits exactly on the second bound and the
+ * minute-rounding of the stated time pushed three tests over it — the log read
+ * `until 2026-10-03`, a day out, on a fixture meant to wait two minutes.
+ *
+ * SO THE RESET IS TEN MINUTES OUT AND THE OFFSET CLEARS IT BY SIXTY SECONDS,
+ * which leaves a whole minute of slack on BOTH bounds: the reset is far enough
+ * ahead that rounding cannot put it in the past, and the offset is close
+ * enough behind the grace that it cannot reach tomorrow. The sleep that
+ * remains is zero, because the offset clock is already past the reset.
  */
-const MINUTE_STEP = 120;
-const PAST_THE_RESET = { PLOT_CLOCK_OFFSET_SECONDS: String(MINUTE_STEP + 120) };
+const RESET_AHEAD = 600;
+const PAST_THE_RESET = { PLOT_CLOCK_OFFSET_SECONDS: String(RESET_AHEAD + 60) };
 
 /** The scripts directory, copied, with the fleet scan handing over one slice. */
 function shimmedScripts(root, manifest, handOver) {
@@ -147,7 +155,7 @@ function sandbox() {
 
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
-- **Worker bound:** 600
+- **Worker bound:** 1800
 `);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-10-01-limit.md'), `# Limit
@@ -325,7 +333,7 @@ test('a limit record names the reset while the desk waits', serial, () => {
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
 if [ "$n" = "1" ]; then
-  printf '%s\\n' ${JSON.stringify(limitLine(MINUTE_STEP))}
+  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
   exit 1
 fi
 cp "$PLOT_WORKTREE/${LIMITED}" "${log}/limited.tsv"
@@ -368,8 +376,8 @@ test('a limit with no reset ends at once and names the desk', serial, () => {
 
     // THE DESK HOLDS WORK, which is #1141's shape: two pushed commits and ten
     // uncommitted files while the message said the desk was untouched. One
-    // commit beyond the claim and two dirty files are enough to prove the
-    // counts are READ rather than asserted.
+    // real commit beyond the empty claim, and two source files on the floor,
+    // are enough to prove the counts are READ rather than asserted.
     fs.writeFileSync(path.join(wt, 'landed.txt'), 'committed work\n');
     git(wt, 'add', '-A');
     git(wt, 'commit', '-qm', 'real work');
@@ -412,11 +420,25 @@ exit 1
     assert.match(marker, /--restart feature\/seam/,
       `and the repair is the restart\n${marker}`);
 
-    // THE COUNTS ARE READ. One commit beyond `origin/main` and two files on
-    // the floor; the loop's own `.plot-worker.*` records are not among them.
-    assert.match(marker, /The desk holds 2 commits and 2 uncommitted files\./,
+    // THE COUNTS ARE READ, and both readings are narrower than they look.
+    //
+    // ONE COMMIT, NOT TWO. The count is `origin/<main>..HEAD -- .`, and the
+    // dispatcher's claim commit is `--allow-empty`: it touches no path, so the
+    // path limit excludes it. Measured — the same range without `-- .` answers
+    // 2. That is the right reading rather than an accident: an empty claim is
+    // not work on the desk, and a sentence naming it would overstate what a
+    // person would find there.
+    //
+    // THREE ENTRIES, NOT TWO FILES. `git status --porcelain` COLLAPSES AN
+    // UNTRACKED DIRECTORY TO ONE LINE, so `.plot/` — holding the prompt the
+    // fixture wrote — is a third entry beside the two source files. A desk's
+    // dirt count is entries rather than files; that is what
+    // `plot_worker_dirty` has always produced and `plot-fleet-scan.sh` has
+    // always consumed, and a different number here would be a second count
+    // beside the estate's own.
+    assert.match(marker, /The desk holds 1 commit and 3 uncommitted files\./,
       `the desk's contents are counted, not asserted away\n${marker}`);
-    assert.match(r.stderr, /The desk holds 2 commits and 2 uncommitted files\./,
+    assert.match(r.stderr, /The desk holds 1 commit and 3 uncommitted files\./,
       `and the log says the same\n${r.stderr}`);
 
     // AND NO RECORD SURVIVES. The desk is not waiting; it is blocked.
@@ -431,7 +453,7 @@ test('a reset past the Worker bound ends rather than waits', serial, () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
-    // THE BOUND IS 600 s IN THE FIXTURE'S CONFIG and the reset is four hours
+    // THE BOUND IS 1800 s IN THE FIXTURE'S CONFIG and the reset is four hours
     // out, so the wait would outlive the worker that is serving it.
     writePrompt(wt, `printf '%s\\n' ${JSON.stringify(limitLine(4 * 3600))}
 exit 1
@@ -446,12 +468,16 @@ exit 1
     const ending = JSON.parse(fs.readFileSync(path.join(wt, ENDING), 'utf8'));
     assert.equal(ending.reason, 'limited');
 
-    // A DESK HOLDING ONLY ITS CLAIM STILL NAMES ITS ONE COMMIT, because the
-    // claim IS a commit the branch carries and a sentence saying otherwise is
-    // false. What the clause must not do is appear for a desk holding nothing.
+    // A DESK CARRYING ONLY AN EMPTY CLAIM NAMES NO COMMIT, because
+    // `rev-list -- .` excludes a commit that touched no path — which is
+    // exactly what the dispatcher's `--allow-empty` claim is. The one entry is
+    // `.plot/`, the directory the fixture wrote its prompt into, and the
+    // SINGULAR form is what this case asserts.
     const marker = fs.readFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'utf8');
-    assert.match(marker, /The desk holds 1 commit\./,
-      `one commit is singular and no dirt is named\n${marker}`);
+    assert.match(marker, /The desk holds 1 uncommitted file\./,
+      `an empty claim is not work, and one entry is singular\n${marker}`);
+    assert.doesNotMatch(marker, /commit/,
+      `no commit is named for a desk that only claimed\n${marker}`);
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
@@ -470,7 +496,7 @@ test('a limit that returns with no commit since the wait ends on no-progress', s
     // that does not lift cannot hold an agent forever.
     writePrompt(wt, `n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
-printf '%s\\n' ${JSON.stringify(limitLine(MINUTE_STEP))}
+printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
@@ -507,14 +533,14 @@ test('a limit after a resumed prompt that committed waits again', serial, () => 
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
 if [ "$n" = "1" ]; then
-  printf '%s\\n' ${JSON.stringify(limitLine(MINUTE_STEP))}
+  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
   exit 1
 fi
 if [ "$n" = "2" ]; then
   echo "partial $n" > "$PLOT_WORKTREE/partial.txt"
   git -C "$PLOT_WORKTREE" add -A
   git -C "$PLOT_WORKTREE" commit -qm "partial work"
-  printf '%s\\n' ${JSON.stringify(limitLine(MINUTE_STEP))}
+  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
   exit 1
 fi
 echo "done" > "$PLOT_WORKTREE/work.txt"
@@ -559,7 +585,7 @@ test('a status-0 run whose last line is the limit waits', serial, () => {
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
 if [ "$n" = "1" ]; then
-  printf '%s\\n' ${JSON.stringify(limitLine(MINUTE_STEP))}
+  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
   exit 0
 fi
 echo "worked" > "$PLOT_WORKTREE/work.txt"
@@ -596,7 +622,7 @@ test('a status-0 run that quotes the limit line earlier finishes the slice', ser
     writePrompt(wt, `set -e
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
-printf '%s\\n' ${JSON.stringify(limitLine(MINUTE_STEP))}
+printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
 echo "I quoted the limit line above while reporting on the fix."
 echo "worked" > "$PLOT_WORKTREE/work.txt"
 git -C "$PLOT_WORKTREE" add -A
@@ -631,7 +657,7 @@ test('a missing bundle keeps today\'s retries', serial, () => {
     fs.mkdirSync(log, { recursive: true });
     writePrompt(wt, `n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
-printf '%s\\n' ${JSON.stringify(limitLine(MINUTE_STEP))}
+printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
@@ -686,7 +712,11 @@ exit 1
 
     // THE SENTENCE NAMES THE DESK AND COUNTS ONLY REAL WORK: one commit (the
     // claim) and one file (`floor.ts`), never the `.plot-worker.` leftovers.
-    assert.match(r.stderr, /The desk holds 1 commit and 1 uncommitted file\./,
+    // `floor.ts` and `.plot/` are two entries; `.plot-worker.scratch` is a
+    // third file on disk and is NOT among them, which is the assertion — the
+    // loop's own records must never be counted as work on the floor. No commit
+    // is named: the claim is empty and `rev-list -- .` excludes it.
+    assert.match(r.stderr, /The desk holds 2 uncommitted files\./,
       `the loop's own files are not work on the floor\n${r.stderr}`);
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
@@ -722,7 +752,7 @@ sleep 120
     // in the clone would leave the desk reading the 600 it was cut with.
     const claudeMd = path.join(wt, 'CLAUDE.md');
     fs.writeFileSync(claudeMd,
-      fs.readFileSync(claudeMd, 'utf8').replace('**Worker bound:** 600', '**Worker bound:** 3'));
+      fs.readFileSync(claudeMd, 'utf8').replace('**Worker bound:** 1800', '**Worker bound:** 3'));
     git(wt, 'add', '-A');
     git(wt, 'commit', '-qm', 'a three second bound');
 
