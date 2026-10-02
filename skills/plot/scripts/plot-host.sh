@@ -521,11 +521,22 @@ die6() { echo "plot-host: $*" >&2; exit 6; }
 # secondary message contains the phrase *"rate limit"* too — *"You have
 # exceeded a secondary rate limit"* — so a quota test applied first claims
 # every secondary refusal and the distinction is lost at the point it is made.
-host_failure_kind() { # $1=stderr text → throttled|secondary|failed
+#
+# FOUR ANSWERS, NOT THREE — #1087: a GraphQL 504 matched neither limit pattern,
+# so it came back `failed`, and `failed` is the one kind a command fixes —
+# `gh auth login`, wrong advice for a server that took too long to answer.
+# `timeout` is anchored on the HTTP status word (`HTTP 50[234]`), never a bare
+# `\b504\b`, which would match a run id or a line count just as well. It runs
+# AFTER both limit arms: a rate-limit message that also carries a 5xx status
+# must stay `throttled`, because patience until the reset is the right advice
+# for it, and `timeout` would counsel exactly the wrong patience — none.
+host_failure_kind() { # $1=stderr text → secondary|throttled|timeout|failed
   if LC_ALL=C grep -qiE 'secondary rate|exceeded a secondary|abuse detection|abuse-detection|too many requests|\b429\b' <<<"$1"; then
     echo secondary
   elif LC_ALL=C grep -qiE 'rate limit|ratelimit' <<<"$1"; then
     echo throttled
+  elif LC_ALL=C grep -qiE "HTTP 50[234]|couldn.t respond to your request in time" <<<"$1"; then
+    echo timeout
   else
     echo failed
   fi
@@ -604,6 +615,16 @@ pr_list_failed() { # $1=stderr text
       echo "  The window's quota is spent. Wait for the reset the message names," >&2
       echo "  or run against an account with quota left. No login will help." >&2
       exit 5
+      ;;
+    timeout)
+      # NO REPAIR NAMED, FOR THE SAME REASON SECONDARY NAMES NONE — #1087. A
+      # 504 means the server took too long, not that the credential is bad, so
+      # `host_repair`'s `gh auth login` would send a reader to fix a login
+      # that was never broken. The decision is to ask again, not to log in.
+      echo "plot-host: pr-list: host timed out — ${err:-the host took too long and said nothing}" >&2
+      echo "  Nothing is wrong with the login: the server took too long to answer." >&2
+      echo "  The next refresh asks again." >&2
+      exit 3
       ;;
   esac
   # THE ONE KIND A COMMAND FIXES. An auth gap and a DNS blip both land here, and
