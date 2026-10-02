@@ -14,10 +14,10 @@ export interface NamedBranchLine {
 /**
  * One slice, as the plan parser reports it.
  *
- * The parser's key is `waves[]`; a slice holds exactly one branch by the
- * design spec, and a plan that names several under one heading is the shape
- * `/plot-reslice` repairs. Both are read here, because the question is about
- * the heading rather than about how many branches sit under it.
+ * A slice holds exactly one branch by the design spec, and a plan that names
+ * several under one heading is the shape `/plot-reslice` repairs. Both are read
+ * here, because the question is about the heading rather than about how many
+ * branches sit under it. The caller maps the parser's own key onto this shape.
  */
 export interface NamedSlice {
   /** The `###` heading's text, or `''` where the branch sits under none. */
