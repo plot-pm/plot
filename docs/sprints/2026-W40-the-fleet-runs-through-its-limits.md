@@ -45,7 +45,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [the-board-reads-its-own-repositorys-pr-store](../plans/2026-10-01-the-board-reads-its-own-repositorys-pr-store.md) — [#1112](https://github.com/plot-pm/plot/issues/1112) — streaming-scan.test reads the machine's real PR index, so plot-resolve-artifact.sh never pushes on a machine with open PRs
 - [ ] [delivery-reads-the-last-finished-scan](../plans/2026-10-01-delivery-reads-the-last-finished-scan.md) — [#1113](https://github.com/plot-pm/plot/issues/1113) — /api/deliver answers scan-incomplete for 20 minutes while /api/fleet reports the scan complete
 - [ ] [the-issue-ops-ask-who-answers](../plans/2026-10-01-the-issue-ops-ask-who-answers.md) — [#1133](https://github.com/plot-pm/plot/issues/1133) — plot-host.sh issue ops fall through to the git host for a Tracker scheme no connector lists
-- [ ] [a-supervisor-restart-leaves-its-agents-running](../plans/2026-10-01-a-supervisor-restart-leaves-its-agents-running.md) — [#1148](https://github.com/plot-pm/plot/issues/1148) — On Linux, stopping the supervisor unit ends every agent it started: plot-registryd.service sets no KillMode
+- [x] [a-supervisor-restart-leaves-its-agents-running](../plans/2026-10-01-a-supervisor-restart-leaves-its-agents-running.md) — [#1148](https://github.com/plot-pm/plot/issues/1148) — On Linux, stopping the supervisor unit ends every agent it started: plot-registryd.service sets no KillMode
 - [ ] [the-queue-reads-the-order-the-scan-reads](../plans/2026-10-01-the-queue-reads-the-order-the-scan-reads.md) — [#1149](https://github.com/plot-pm/plot/issues/1149) — A long supervisor tick hands out a slice merged during the tick; the agent then reports a lock violation that did not happen
 - [ ] [a-start-step-leaves-no-claim-and-no-desk](../plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md) — [#1151](https://github.com/plot-pm/plot/issues/1151) — A worker-less checkout holding a slice's branch stops the agent it is handed to
 - [ ] [an-assignment-is-read-where-it-is-recorded](../plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md) — [#1152](https://github.com/plot-pm/plot/issues/1152) — --release races the supervisor's hand-over and produces a false REGISTRY LOCK VIOLATION
@@ -55,7 +55,8 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [ ] [a-slice-waits-on-every-branch-it-names](../plans/2026-10-02-a-slice-waits-on-every-branch-it-names.md) — [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
 
 - [ ] [a-landed-brief-frees-its-slot](../plans/2026-10-02-a-landed-brief-frees-its-slot.md) — [#1162](https://github.com/plot-pm/plot/issues/1162) — Auto-dispatch stops asking for briefs: asked briefs never leave the tally and free agents count against the budget.
-- [ ] [an-agent-runs-the-tests-its-change-touches](../plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md) — Fleet agents run the checks their diff touches and keep their slice until its CI finishes; CI runs the full suites.
+- [x] [an-agent-runs-the-tests-its-change-touches](../plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md) — Fleet agents run the checks their diff touches and keep their slice until its CI finishes; CI runs the full suites.
+- [ ] [a-branch-carries-no-built-bundle](../plans/2026-10-02-a-branch-carries-no-built-bundle.md) — A pull request carries no generated board bundle, and main rebuilds them after each merge, so a merge no longer makes every open PR conflict.
 
 ### Should Have
 
@@ -80,3 +81,4 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - 2026-10-02: Added #1153 to Must — found while correcting a plan whose slice waits on two branches; the operator asked for it in 2.22.3.
 - 2026-10-02: Added #1162 to Must — it blocked the fleet from starting this sprint's approved slices; the operator asked for the fix.
 - 2026-10-02: Added `an-agent-runs-the-tests-its-change-touches` to Must — six of seven agents were inside full test suites at load 55-148 and none had finished a slice in 1h45; the operator moved the plan from the next sprint into 2.22.3.
+- 2026-10-02: Added `a-branch-carries-no-built-bundle` to Must — after one merge all 10 open PRs read DIRTY on the generated bundles, and seven green PRs needed a merge train (#1188) to land.
