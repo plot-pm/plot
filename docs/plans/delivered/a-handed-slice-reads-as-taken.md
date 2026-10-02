@@ -1,0 +1,1 @@
+../2026-10-01-a-handed-slice-reads-as-taken.md
