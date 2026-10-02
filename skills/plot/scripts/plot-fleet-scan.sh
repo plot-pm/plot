@@ -864,9 +864,129 @@ pr_list_verdict_rank() {
   esac
 }
 
+# The listing a previous pulse made, handed in rather than spent again.
+#
+# THE BOARD DECIDES, NOT THIS SCRIPT. `listingSpend` in the domain answers
+# whether the account can afford a listing now, and the board — the only
+# long-lived process here — holds the previous one and hands it back. This scan
+# is spawned fresh per pulse and can span none, which is `PLOT_TERMINAL_CACHE`'s
+# reason (`fleet.ts:3380`) applied to the listing rather than to merge facts.
+#
+# Measured 2026-10-02 on the Bitbucket workspace `quatico`: this scan spent 2949
+# of one account's 3150 calls in an hour, 93.6%, because the open listing sweeps
+# one REST request per tracked branch per state and the pulse is 5 s. Cutting the
+# number of runs does not fix that; cutting the listings a run makes does.
+#
+# A CARRIED LISTING IS A FULL ANSWER OR IT IS NOT USED. It carries the same
+# per-branch lines `prefill_pr_states` would have written plus the markers that
+# license `NONE`, so every reader below is unchanged and none of them can tell a
+# carried listing from a fetched one. That is deliberate: the AGE is the board's
+# to report, because the board is what knows how old its own listing is.
+# An empty value means nothing was carried and the listing is spent as before.
+PLOT_PR_LISTING="${PLOT_PR_LISTING:-}"
+
+# Fill the cache from a carried listing. Prints nothing; returns 1 when there was
+# nothing to carry, so the caller spends the listing instead.
+#
+# ABSENT IS NOT EMPTY. A carried listing with no rows would license `NONE` for
+# every branch — the 2026-08-27 failure that refused four fully-merged plans —
+# so a value carrying no arrival marker is refused here and the host is asked.
+carried_listing() {
+  [ -n "$PLOT_PR_LISTING" ] || return 1
+  local key st chk dft arrived=0 complete=0
+  while IFS="	" read -r key st chk dft; do
+    case "$key" in
+      '') continue ;;
+      # The markers travel as lines rather than as files, because the board holds
+      # one string and not a directory.
+      .list-arrived) arrived=1; continue ;;
+      .list-complete) complete=1; continue ;;
+      # Every other dotted key is a note for the board and not a branch. Skipped
+      # rather than written: `git check-ref-format` rejects a branch name starting
+      # with a dot and the key encoding maps only `_` and `/`, so no branch key can
+      # begin with one and a dotted key is never a missed answer.
+      .*) continue ;;
+    esac
+    [ -n "$st" ] || continue
+    # The `-` sentinel back to empty, exactly as the host payload's plain rows are
+    # translated: an empty `checks` reads as `unknown` in `pr_ready` and degrades
+    # `--loose` to strict, which is the safe direction.
+    [ "$chk" = "-" ] && chk=""
+    [ "$dft" = "-" ] && dft=""
+    printf '%s\t%s\t%s' "$st" "$chk" "$dft" > "$HOST_STATE_CACHE/$key" 2>/dev/null || true
+  done <<EOF
+$PLOT_PR_LISTING
+EOF
+  # A listing that arrived with no rows is a real answer — a repository with no
+  # PRs — but it is indistinguishable here from a value truncated in transit, and
+  # the direction that errs costs a fabricated `NONE`. The MARKER carries the
+  # claim, so arrival decides and the row count does not.
+  [ "$arrived" = 1 ] || return 1
+  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+  [ "$complete" = 1 ] && { printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true; }
+  # `ok`, AND A NEW WORD HERE WOULD STOP THE FLEET. `reachFrom`
+  # (`entry/branch-state.ts:113`) maps any word it does not know to `failed`, so
+  # an invented `reused` would read as *the host could not be reached*: every
+  # branch with no ref would answer `unknown`, `--next` offers only `open`, and
+  # nothing would be handed out while the listing was being reused.
+  #
+  # `ok` IS ALSO THE TRUE ANSWER TO THE QUESTION THIS WORD ASKS. The verdict says
+  # how much evidence the scan holds about a branch, not how old the evidence is:
+  # a carried listing arrived and was whole, so it licenses exactly what a fetched
+  # one licenses. The AGE is the board's to report, because the board is what
+  # knows when it listed — this scan is spawned fresh and cannot know.
+  HOST_VERDICT=ok
+  return 0
+}
+
+# Report the listing this run fetched, for the next pulse to carry.
+#
+# ON STDERR AND TAGGED, exactly as the terminal map is reported: stdout is the
+# scan's document and a reader of it must not have to know this exists. The board
+# reads the tag; every other caller discards it with the scan's ordinary prose.
+#
+# REPORTED ONLY WHERE THE LISTING ARRIVED. A failed or throttled call writes no
+# `.list-arrived`, and carrying its empty cache forward would turn one refusal
+# into a listing the next pulse trusts.
+report_listing() {
+  [ -n "$HOST_STATE_CACHE" ] || return 0
+  [ -f "$HOST_STATE_CACHE/.list-arrived" ] || return 0
+  printf 'listing: %s\t%s\t%s\t%s\n' .list-arrived 1 - - >&2
+  [ -f "$HOST_STATE_CACHE/.list-complete" ] \
+    && printf 'listing: %s\t%s\t%s\t%s\n' .list-complete 1 - - >&2
+  # WHAT THE LISTING COST, MEASURED RATHER THAN MODELLED. The Bitbucket arm sweeps
+  # one request per tracked branch per state, and this scan is the only thing that
+  # knows how many branches it tracked. A board predicting the number from the
+  # plans would under-count: a plan names a subset of the remote refs, and the
+  # sweep asks about every one of them.
+  printf 'listing: %s\t%s\t%s\t%s\n' .branches \
+    "$(printf '%s' "$TRACKED_BRANCHES" | wc -w | tr -d ' ')" - - >&2
+  # One line per branch the listing answered for, in the cache's own key encoding
+  # and its own `STATE<TAB>checks<TAB>draft` shape, so what is carried back is what
+  # this run wrote and the carry path parses no JSON.
+  local f key rec _st _chk _dft
+  for f in "$HOST_STATE_CACHE"/*; do
+    [ -f "$f" ] || continue
+    key=${f##*/}
+    case "$key" in .*) continue ;; esac
+    rec=$(cat "$f" 2>/dev/null) || continue
+    IFS="	" read -r _st _chk _dft <<EOF
+$rec
+EOF
+    [ -n "$_st" ] || continue
+    # Empty fields are refilled with `-` so every field stays occupied: TAB is an
+    # IFS whitespace character, and `read` would otherwise slide the branch key
+    # along by one. The carry path translates them back, which is the same `-`
+    # sentinel the host payload's plain rows already use.
+    printf 'listing: %s\t%s\t%s\t%s\n' "$key" "$_st" "${_chk:--}" "${_dft:--}" >&2
+  done
+}
+
 prefill_pr_states() {
   [ "$HOST_LOOKUP_OK" = 1 ] || return 0
   [ -n "$HOST_STATE_CACHE" ] || return 0
+  # ASKED BEFORE THE HOST, and the only reason this function can cost nothing.
+  carried_listing && return 0
   local js br st key rc
   # Exit code first: non-zero is a transport failure and its stdout is not an
   # answer. A failed list leaves the cache EMPTY, so every branch falls through
@@ -1148,6 +1268,7 @@ EOF
        && [ "$_pr_open_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
     printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
   fi
+  report_listing
 }
 prefill_pr_states
 
