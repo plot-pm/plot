@@ -36,8 +36,10 @@
 #               PR (open or merged), a host it cannot ask, a live worker (named
 #               by pid), real work (a file-changing commit on origin/<br>, or
 #               unpushed commits or uncommitted changes on the local desk), and
-#               a PLOT-BLOCKED marker. A refusal writes nothing. The desk is
-#               never touched.
+#               a PLOT-BLOCKED marker. A refusal writes nothing. A desk still
+#               on <br> after the release is detached at origin/<main> and
+#               the local branch deleted, when it holds only empty claim
+#               commits, a clean tree and no live worker; the worktree stays.
 #   --migrate   move legacy worktrees into the configured `Worktree root:`. An
 #               idle worktree (no live worker, no unlanded work) is moved; a
 #               busy one is skipped with the reason. Requires a `Worktree root:`
@@ -186,6 +188,12 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # plot-fleet-scan.sh so a worker has ONE state, not one per reader.
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
+
+# `desk_dirt` — the reaper's reading of what counts as work on a desk's floor.
+# `--release` asks it before it detaches a desk, so the reaper and the release
+# read one tree the same way. Sourced; it defines one function on load.
+# shellcheck source=plot-desk-dirt.sh
+. "$script_dir/plot-desk-dirt.sh"
 
 # The controller receipt, for `spend_action_receipt` below. Sourced from the
 # ONE file that holds both receipt kinds, for the reason that file states: the
@@ -2162,11 +2170,76 @@ if [ "$mode" = "release" ]; then
   else
     echo "  origin/$br does not exist — only the assignment needed releasing"
   fi
-  if [ -n "$release_wt" ]; then
-    echo "  the desk at $release_wt still holds $br and is left as it is"
-  fi
+  # THE DESK THAT STILL HOLDS THE BRANCH IS DETACHED. Measured 2026-10-02: a
+  # released desk kept `$br` with only its empty claim commit. The next agent
+  # handed the slice asked `checkoutYield` whether that checkout yields; with
+  # the remote ref deleted it has no upstream, `unpushedCommits` reads
+  # `unknown`, and the rule keeps it. Fifteen agents in a row wrote
+  # PLOT-BLOCKED for two released slices between 13:46 and 14:59.
+  #
+  # Detaching at origin/<main> is the state a free agent's desk already has, so
+  # the desk stays usable and the branch is free for the next checkout. The
+  # worktree itself stays: removing it is the reaper's licence, not this one.
+  #
+  # FOUR READINGS, each asked again rather than inferred from the refusals
+  # above, so a change to those refusals cannot silently widen this write:
+  #   - the desk's HEAD is `refs/heads/$br` (a manifest's `worktree` may name a
+  #     desk on another branch);
+  #   - no live worker, through the shared classifier;
+  #   - no file-changing commit beyond origin/<main> — the count step 3 takes,
+  #     with origin/<main> as the base because the claim ref is now gone;
+  #   - a clean tree by `desk_dirt`, the reaper's reading.
+  # Any reading that fails keeps today's behaviour and names the reason.
+  detached_desks=0
+  release_holders=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$br" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) print path }')
+  [ -z "$release_holders" ] && [ -n "$release_wt" ] && release_holders="$release_wt"
+  while IFS= read -r desk; do
+    [ -n "$desk" ] || continue
+    keep_reason=""
+    if [ ! -d "$desk" ]; then
+      keep_reason="the directory does not exist"
+    elif [ "$(git -C "$desk" symbolic-ref -q HEAD </dev/null 2>/dev/null)" != "refs/heads/$br" ]; then
+      keep_reason="its HEAD is not refs/heads/$br"
+    else
+      case "$(plot_worker_state "$desk" "" | cut -f1)" in
+        running) keep_reason="a worker is alive in it" ;;
+      esac
+    fi
+    if [ -z "$keep_reason" ]; then
+      desk_work=$(git -C "$desk" rev-list --count "refs/remotes/origin/$MAIN..HEAD" -- . </dev/null 2>/dev/null) || desk_work=""
+      case "$desk_work" in
+        0) ;;
+        ''|*[!0-9]*) keep_reason="its commits beyond origin/$MAIN could not be counted" ;;
+        *) keep_reason="$desk_work commit(s) beyond origin/$MAIN change files" ;;
+      esac
+    fi
+    if [ -z "$keep_reason" ]; then
+      desk_floor=$(desk_dirt "$desk")
+      [ -n "$desk_floor" ] && keep_reason="uncommitted changes: $(printf '%s\n' "$desk_floor" | cut -c4- | tr '\n' ' ')"
+    fi
+    if [ -z "$keep_reason" ]; then
+      if ! git -C "$desk" checkout -q --detach "refs/remotes/origin/$MAIN" </dev/null 2>/dev/null; then
+        keep_reason="git refused to detach it at origin/$MAIN"
+      fi
+    fi
+    if [ -n "$keep_reason" ]; then
+      echo "  the desk at $desk still holds $br and is left as it is: $keep_reason"
+      continue
+    fi
+    detached_desks=$((detached_desks + 1))
+    # Only empty claim commits are lost, and the remote ref is already gone.
+    if git branch -q -D "$br" </dev/null 2>/dev/null; then
+      echo "  detached the desk at $desk at origin/$MAIN and deleted the local branch $br"
+    else
+      echo "  detached the desk at $desk at origin/$MAIN; the local branch $br could not be deleted"
+    fi
+  done <<EOF
+$release_holders
+EOF
   echo "released $br — the slice returns to the queue"
-  echo "summary: released=1 manifests=$released_manifests ref=$([ "$ref_present" = 1 ] && echo deleted || echo absent)"
+  echo "summary: released=1 manifests=$released_manifests ref=$([ "$ref_present" = 1 ] && echo deleted || echo absent) detached=$detached_desks"
   exit 0
 fi
 

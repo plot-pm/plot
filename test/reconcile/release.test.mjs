@@ -185,7 +185,7 @@ test('--release reproduces the measured sequence: assign, kill, release, re-assi
 
   const res = run(repo, ['--release', BRANCH]);
   assert.match(res.stdout, /released feature\/abandoned/);
-  assert.match(res.stdout, /summary: released=1 manifests=1 ref=deleted/);
+  assert.match(res.stdout, /summary: released=1 manifests=1 ref=deleted detached=0/);
   assert.equal(remoteRef(repo), '', 'the claim ref is gone');
   assert.equal(manifestBranch(manifest1), '', "agent 1's manifest no longer names the branch");
 
@@ -390,6 +390,87 @@ test('--release REFUSES a desk carrying a PLOT-BLOCKED marker', () => {
   assert.match(res.stdout, /blocked on a question/);
   assert.match(res.stdout, /PLOT-BLOCKED\.md/);
   assertUntouched(repo, manifest, refBefore);
+});
+
+// ---------------------------------------------------------------------------
+// The desk a release leaves behind
+// ---------------------------------------------------------------------------
+//
+// Measured 2026-10-02: after `--release` deleted `origin/<branch>`, the dead
+// agent's desk still held the branch with only its empty claim commit. The
+// next agent handed the slice asked #1198's `checkoutYield` whether that
+// checkout yields; with no upstream, `unpushedCommits` read `unknown`, so it
+// kept, and the agent wrote PLOT-BLOCKED and ended. Fifteen agents in a row did
+// that for two released slices.
+
+const headRef = (desk) => spawnSync('git', ['symbolic-ref', '-q', 'HEAD'], { cwd: desk, encoding: 'utf8' }).stdout.trim();
+const localBranch = (repo) => spawnSync('git', ['rev-parse', '-q', '--verify', `refs/heads/${BRANCH}`], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+
+test('--release detaches a clean desk holding only its claim commit at origin/main, and deletes the local branch', () => {
+  const { tmp, repo } = makeRepo();
+  const desk = path.join(tmp, 'desk-1');
+  claim(repo, desk);
+  const manifest = writeManifest(repo, 'agent-1', { worktree: fs.realpathSync(desk), pid: '999999' });
+
+  const res = run(repo, ['--release', BRANCH]);
+  assert.match(res.stdout, /detached the desk at .*desk-1 at origin\/main and deleted the local branch feature\/abandoned/);
+  assert.doesNotMatch(res.stdout, /left as it is/);
+  assert.match(res.stdout, /summary: released=1 manifests=1 ref=deleted detached=1/);
+  assert.equal(headRef(desk), '', 'the desk is detached');
+  assert.equal(git(desk, 'rev-parse', 'HEAD').trim(), git(repo, 'rev-parse', 'origin/main').trim(),
+    'the desk sits at origin/main');
+  assert.equal(localBranch(repo), '', 'the local branch is gone');
+  assert.ok(fs.existsSync(desk), 'the worktree itself stays — the reaper owns removal');
+  assert.equal(manifestBranch(manifest), '');
+});
+
+test('after that release, the next hand-over checks the branch out in a new desk', () => {
+  const { tmp, repo } = makeRepo();
+  const desk1 = path.join(tmp, 'desk-1');
+  claim(repo, desk1);
+  writeManifest(repo, 'agent-1', { worktree: fs.realpathSync(desk1), pid: '999999' });
+  run(repo, ['--release', BRANCH]);
+
+  assert.equal(nextBranch(repo), BRANCH, 'the released slice is claimable again');
+  // The hand-over's own step: `git worktree add -b <branch>` from origin/main.
+  // Before the fix git refused, because desk-1 still held the branch.
+  const second = claim(repo, path.join(tmp, 'desk-2'));
+  assert.equal(second.status, 0, `the second claim push must land:\n${second.stderr}`);
+  assert.notEqual(remoteRef(repo), '', 'agent 2 now holds the claim');
+});
+
+test('--release leaves a desk holding a file-changing commit untouched, because it still refuses', () => {
+  const { tmp, repo } = makeRepo();
+  const desk = path.join(tmp, 'desk-1');
+  claim(repo, desk);
+  fs.writeFileSync(path.join(desk, 'work.txt'), 'unpushed work\n');
+  git(desk, 'add', 'work.txt');
+  git(desk, 'commit', '-qm', 'unpushed work');
+  const manifest = writeManifest(repo, 'agent-1', { worktree: fs.realpathSync(desk), pid: '999999' });
+  const refBefore = remoteRef(repo);
+
+  const res = run(repo, ['--release', BRANCH], { expectFail: true });
+  assert.match(res.stdout, /holds work for feature\/abandoned/);
+  assert.doesNotMatch(res.stdout, /detached/);
+  assertUntouched(repo, manifest, refBefore);
+  assert.equal(headRef(desk), `refs/heads/${BRANCH}`, 'the desk still holds the branch');
+  assert.notEqual(localBranch(repo), '', 'the local branch stays');
+});
+
+test('--release keeps a desk whose tree the desk-dirt reading counts, and says why', () => {
+  const { tmp, repo } = makeRepo();
+  const desk = path.join(tmp, 'desk-1');
+  claim(repo, desk);
+  // An editor leftover: `plot_worker_dirty` drops it, so release does not
+  // refuse, while `desk_dirt` counts it, so the desk is not changed.
+  fs.writeFileSync(path.join(desk, 'notes.swp'), 'leftover\n');
+  writeManifest(repo, 'agent-1', { worktree: fs.realpathSync(desk), pid: '999999' });
+
+  const res = run(repo, ['--release', BRANCH]);
+  assert.match(res.stdout, /still holds feature\/abandoned and is left as it is: uncommitted changes/);
+  assert.equal(headRef(desk), `refs/heads/${BRANCH}`, 'the desk still holds the branch');
+  assert.notEqual(localBranch(repo), '', 'the local branch stays');
+  assert.ok(fs.existsSync(path.join(desk, 'notes.swp')));
 });
 
 test('--release requires an explicit branch, and refuses a bare slug', () => {
