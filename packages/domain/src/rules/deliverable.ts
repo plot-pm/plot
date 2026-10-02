@@ -183,3 +183,87 @@ const landed = (
   // work and has an answer about it.
   return merged + deferred > 0 ? 'merged' : 'not-merged';
 };
+
+/**
+ * The join key plus the slices this plan names — what {@link deliveryPulse}
+ * needs beyond a file path.
+ *
+ * Structurally typed for {@link PlanFile}'s reason, so a caller holding a
+ * richer plan record passes it unchanged. The branch shape is the PLAN's, not
+ * the pulse's: a plan file marks a branch given up with `deferred`, while a
+ * pulse reports `state: 'deferred'`.
+ */
+export interface PlanBranches extends PlanFile {
+  /** The plan's slices in document order, each naming its branches. */
+  slices: readonly {
+    readonly branches: readonly {
+      /** The branch's full ref name, as the plan wrote it. */
+      readonly branch: string;
+      /** Whether the plan gave this branch up. */
+      readonly deferred: boolean;
+    }[];
+  }[];
+}
+
+/**
+ * Which pulse may judge whether this plan's work has landed.
+ *
+ * A delivery decision must not depend on the moment it is asked. The live
+ * pulse is partial for most of every scan, and a partial pulse makes
+ * {@link allSlicesMerged} answer `'unknown'` — so a caller reading only the
+ * live pulse refuses a fully merged plan whenever a scan is running.
+ *
+ * An older FINISHED pulse may stand in because a merged branch cannot unmerge:
+ * a pulse that reported every slice `complete` stays true. The one way it goes
+ * stale is a plan that gained a slice since — the pulse never reported that
+ * branch — which is what the branch check below refuses.
+ *
+ * Deferred branches are exempt, matching {@link allSlicesMerged}'s own rule
+ * that a shelved branch is not outstanding work.
+ *
+ * @param meta The plan, by file path and by the branches it names NOW. Matched
+ *   against the pulse on basename, because the pulse names plans by their bare
+ *   filename.
+ * @param live The pulse the scan last published, or `null` on a cold cache.
+ * @param liveComplete Whether the scan behind `live` finished. True on a cold
+ *   cache, where `live` is `null`, which is why `live` is tested as well.
+ * @param lastComplete The pulse of the last scan that FINISHED, or `null` when
+ *   none has since this process started.
+ * @returns `live` where it exists and its scan finished; else `lastComplete`
+ *   where it exists and its entry for this plan names every non-deferred
+ *   branch the plan names now; else `null`, which {@link allSlicesMerged} and
+ *   {@link allSlicesConfirmed} read as `'unknown'`. The answer is the pulse, so
+ *   a caller passes `complete: true` alongside it.
+ */
+export const deliveryPulse = (
+  meta: PlanBranches,
+  live: FleetReading | null,
+  liveComplete: boolean,
+  lastComplete: FleetReading | null,
+): FleetReading | null => {
+  // `live` tested as well as `liveComplete`, because a COLD cache reports
+  // complete over a null pulse: the flag starts true so a cold start and a
+  // bridged pulse behave as they always did. Reading the flag alone would
+  // return null here and never consult `lastComplete`.
+  if (live && liveComplete) return live;
+  if (!lastComplete) return null;
+  // THE CHECK THAT MAKES AN OLDER PULSE SAFE. Without it a slice added since
+  // that scan — a branch the pulse never reported and therefore never judged —
+  // reads as done, because the rule beyond this one walks the PULSE's slices
+  // and a branch absent from them is a branch it never refuses.
+  const plan = lastComplete.plans.find((p) => p.file === basename(meta.file));
+  if (!plan) return null;
+  const reported = new Set(
+    plan.slices.flatMap((s) => s.branches.map((b) => b.branch)),
+  );
+  for (const slice of meta.slices) {
+    for (const branch of slice.branches) {
+      // Deferred branches exempt, for the reason `landed` states: work given
+      // up is not work awaiting a measurement, so a pulse that never named it
+      // is not a pulse with a gap.
+      if (branch.deferred) continue;
+      if (!reported.has(branch.branch)) return null;
+    }
+  }
+  return lastComplete;
+};

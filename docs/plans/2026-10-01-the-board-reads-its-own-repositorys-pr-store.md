@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -12,6 +12,8 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-streaming-test-owns-its-store`
+- **Started:** 2026-10-02, Jan Wloka, `bug/a-fleet-entry-reads-its-repositorys-store`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
@@ -58,7 +60,7 @@ Measured 2026-10-01 on origin/main `0d2b4d5c`:
 
 `fakeScan` creates `<fixture>/pr-index`, and each case stubs `PLOT_PR_INDEX_HOME` to it with `vi.stubEnv`, restored in `afterEach`. Test-only; no changeset. Answers #1112's test half.
 
-### A fleet entry reads its repository's store (Branch: bug/a-fleet-entry-reads-its-repositorys-store) <!-- builds: prStoreFor, a per-repository PR store lookup in fleet.ts -->
+### A fleet entry reads its repository's store (Branch: bug/a-fleet-entry-reads-its-repositorys-store, PR: #1216) <!-- builds: prStoreFor, a per-repository PR store lookup in fleet.ts -->
 
 `prStoreFor(repoRoot)` replaces the module-level `prStore` at `fleet.ts:2566`; the reads at `:2656`, `:2758` and `:2866` and the write at `:2775` use the entry's store; the comment at `:2556-2565` is rewritten; the two unit tests in Done when; an `@plot-pm/board` patch changeset.
 

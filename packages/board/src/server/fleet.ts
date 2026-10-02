@@ -70,6 +70,7 @@ import {
   type PrIndex,
   type PrIndexRow,
 } from '@plot-pm/domain';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
 // COMPUTER, not a fixture a caller substitutes — a board handed an in-memory
@@ -1003,6 +1004,29 @@ export interface CacheEntry {
    * saying it differently is the sort of duplicate this file removes.
    */
   pulseComplete: boolean;
+  /**
+   * The pulse of the last scan that FINISHED, or null until one has.
+   *
+   * `pulse` is overwritten by every partial publication during a scan, so for
+   * most of every pulse the only answer the entry holds is incomplete. A
+   * delivery decision read from it is refused for that whole window — measured
+   * 2026-09-30 (#1113), 20 refusals in 20 minutes over a plan whose every
+   * branch had merged. This is the answer such a decision reads instead, and
+   * `deliveryPulse` is the rule that says when it may.
+   *
+   * SET ONLY WHERE A SCAN SUCCEEDED, beside `pulseComplete = true`, and in the
+   * bridge read, whose file is written on that same path. `publishPartial`
+   * never touches it, so a scan cut short at the timeout leaves the previous
+   * finished answer standing rather than replacing it with a fragment.
+   *
+   * Not a substitute for `before`, which `refresh` captures for `pulseShrink`:
+   * that one is null unless the PREVIOUS pulse was complete, and is scoped to
+   * one refresh. This survives across them.
+   *
+   * IN MEMORY AND NOWHERE ELSE, for `terminal`'s reason — a restart re-derives
+   * it, and until it does, `deliveryPulse` answers null and a delivery waits.
+   */
+  lastComplete: FleetReading | null;
   /**
    * This machine's clock, or null before `ensureCache` started it.
    *
@@ -2696,16 +2720,28 @@ function scheduleNextPr(
 }
 
 /**
- * THE ONE PR STORE THIS PROCESS WRITES, constructed here for `slotsFile`'s
- * reason: it is machine-local state rather than a fixture a caller substitutes,
- * and a board handed an in-memory one would keep a store no later process could
+ * THE PR STORE FOR ONE REPOSITORY, constructed here for `slotsFile`'s reason:
+ * it is machine-local state rather than a fixture a caller substitutes, and a
+ * board handed an in-memory one would keep a store no later process could
  * read — which is the entire point of having one. Seamed by
- * `PLOT_PR_INDEX_HOME`, which is how a test moves it.
+ * `PLOT_PR_INDEX_HOME`, which is how a test moves it and which keeps priority
+ * over `repoRoot` because the adapter checks it first on every call.
  *
- * Module-level rather than per-refresh so the `git rev-parse --git-common-dir`
- * lookup the adapter caches is made once per process rather than once a minute.
+ * Cached per `repoRoot` rather than per-refresh so the `git rev-parse
+ * --git-common-dir` lookup the adapter caches is made once per repository per
+ * process rather than once a minute — and keyed by `repoRoot` rather than
+ * module-level so one process holding entries for several repositories (keyed
+ * by `repoRoot` and `scriptsDir` at `cacheKey`) writes each to its own store
+ * instead of all of them to whichever repository started the process.
  */
-const prStore = prIndexFile();
+const prStores = new Map<string, PrIndexStore>();
+const prStoreFor = (repoRoot: string): PrIndexStore => {
+  const held = prStores.get(repoRoot);
+  if (held !== undefined) return held;
+  const created = prIndexFile({ cwd: repoRoot });
+  prStores.set(repoRoot, created);
+  return created;
+};
 
 /**
  * One host row reduced to what the store holds.
@@ -2790,12 +2826,15 @@ const recordOf = (row: PrIndexRow): PrRecord => {
  *
  * @param entry - the cache entry to seed.
  * @param connector - which connector's store to read.
+ * @param store - the repository's PR store.
  */
-const seedPrsFromStore = async (entry: CacheEntry, connector: string): Promise<void> => {
+const seedPrsFromStore = async (
+  entry: CacheEntry, connector: string, store: PrIndexStore,
+): Promise<void> => {
   if (entry.prsByNumber !== null) return;
   let held;
   try {
-    held = await prStore.read(connector);
+    held = await store.read(connector);
   } catch {
     return;
   }
@@ -2891,13 +2930,14 @@ const applyPrMaps = (entry: CacheEntry, maps: PrMaps): void => {
  * @param connector - which connector answered.
  * @param rows - the rows the host returned this pass.
  * @param complete - whether the answer covered every state asked about.
+ * @param store - the repository's PR store.
  * @returns the store as it was folded and written, or null where it could not be.
  */
 const writePrStore = async (
-  connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind,
+  connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind, store: PrIndexStore,
 ): Promise<PrIndex | null> => {
   try {
-    const held = await prStore.read(connector);
+    const held = await store.read(connector);
     // An unreadable store is merged into as if it were absent: a whole answer
     // replaces it anyway, and a partial one keeping nothing is the safe
     // direction — it under-claims rows rather than inventing them.
@@ -2914,7 +2954,7 @@ const writePrStore = async (
     // must cost the board time and not answers, and the merged view is correct
     // in memory whatever the filesystem did with it — refusing to serve it
     // because the write failed would turn a disk problem into a wrong board.
-    await prStore.write(connector, folded);
+    await store.write(connector, folded);
     return folded;
   } catch {
     // The adapter answers with values rather than throwing, so reaching this is
@@ -2950,6 +2990,10 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   // to only one of them would be obeyed by half the pass, which is the failure
   // a substitutable port exists to prevent.
   const host = hostFor(opts);
+  // RESOLVED ONCE PER PASS, from the entry's own repository. A store built per
+  // call would fork `git rev-parse --git-common-dir` for every read and write
+  // below; `prStoreFor` caches it per `repoRoot` for the life of the process.
+  const prStore = prStoreFor(opts.repoRoot);
   // THE CI CONNECTOR IS SEPARATE, and resolved beside the host rather than
   // from it. A team whose code is on Bitbucket and whose builds run on Jenkins
   // has two services; asking one for the other's answers is what left that
@@ -2991,7 +3035,7 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
   // Outside the `try` because it is not the host: a store that cannot be read
   // must not reach the catch that owns the backoff and the banner, which report
   // the connector. It swallows its own failures for the same reason.
-  await seedPrsFromStore(entry, backend);
+  await seedPrsFromStore(entry, backend, prStore);
   // THE WINDOW, DECIDED BEFORE THE CALL AND FROM THE STORE THE CALL WILL FOLD
   // INTO. A second read is one local `readFile` against a host call measured at
   // 29 811 ms, and reading it here rather than reusing the seed's read is what
@@ -3178,7 +3222,7 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
       // assert the file without racing it, and — since this slice — so the maps
       // it serves are derived from a fold that has already happened. The write
       // is one local `rename` against a host call measured at 29 811 ms.
-      const folded = await writePrStore(backend, rows, kind);
+      const folded = await writePrStore(backend, rows, kind, prStore);
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this
       // pass hold the same rows by construction. Deriving from the fold anyway
@@ -3629,6 +3673,11 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // the pulse it describes, never later — a gap between the two is a window
     // where a complete document reads as partial.
     entry.pulseComplete = true;
+    // THE SAME MOMENT, AND ONLY THIS MOMENT. A delivery decision reads this
+    // rather than `pulse`, which the next scan's first plan line will overwrite
+    // with a fragment. Written beside the flag it mirrors so the two can never
+    // disagree about which document finished.
+    entry.lastComplete = complete;
     entry.ages = await branchAges(opts);
     entry.branchUrlBase = await readBranchUrlBase(opts);
     entry.approvedAt = await approvalDates(opts, complete);
@@ -3821,6 +3870,12 @@ export function freshCacheEntry(): CacheEntry {
     // different answers, and `resolveBackend` distinguishes them to ask once.
     backend: null,
     pulseComplete: true,
+    // Null, NOT the cold-start `true` above: `pulseComplete` starts true so a
+    // null pulse reads as "nothing has arrived" exactly as before, while this
+    // field says no scan has finished in this process. `deliveryPulse` reads
+    // the pair and answers null, so a delivery waits for the first scan rather
+    // than being judged against nothing.
+    lastComplete: null,
     // Null, not a stopped clock: `ensureCache` starts the pulse, and a fresh
     // entry has not been through it yet.
     pulseClock: null, running: false, prRunning: false,
@@ -3860,6 +3915,11 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     entry.approvedAt = bridged.approvedAt;
     entry.ideaPlans = bridged.ideaPlans;
     entry.at = bridged.at;
+    // THE BRIDGED PULSE IS A FINISHED ONE. `writeBridge` is called on the
+    // success path only, past the terminal line, so the file can hold no
+    // partial document — which is what makes it an answer a delivery may read
+    // before this process's first scan lands.
+    entry.lastComplete = bridged.pulse;
   }
   // Warm at startup so the first person to open the tab does not wait a second
   // for it; until this lands the endpoint reports `ready: false`. Both sources
@@ -3979,6 +4039,25 @@ export function pulseFor(opts: BuildBoardOptions): FleetReading | null {
  */
 export function pulseCompleteFor(opts: BuildBoardOptions): boolean {
   return ensureCache(opts).pulseComplete;
+}
+
+/**
+ * The pulse of the last scan that FINISHED, or null until one has in this
+ * process.
+ *
+ * The third member of the pair above, and the one a DELIVERY decision needs.
+ * `pulseFor` answers *what is on screen* — which during a scan is a fragment —
+ * and this answers *what was last measured whole*. A merged branch cannot
+ * unmerge, so the older answer is still true about every branch it named; which
+ * is a different claim from being true about this plan, and `deliveryPulse` is
+ * the rule that tests the difference.
+ *
+ * Null on a cold cache, where `pulseCompleteFor` reports true over a null
+ * pulse. A caller must read the pair through `deliveryPulse` rather than
+ * choosing between them here.
+ */
+export function lastCompletePulseFor(opts: BuildBoardOptions): FleetReading | null {
+  return ensureCache(opts).lastComplete;
 }
 
 /** Stop the refresh clocks. Tests need this; the server never calls it. */
