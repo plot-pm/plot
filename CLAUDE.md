@@ -69,7 +69,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      times. Under this mode nothing would have stopped it. The brief is
      therefore the only guard a worker has — keep its scope guards explicit. -->
 
-- **Idea command:** PLOT_UNATTENDED=1 claude -p ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Idea command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 
 <!-- `Idea command` runs `/plot-idea` on a tracker issue for the board's
      `Create plan` action. The board appends ONE argument naming a file it wrote
@@ -90,10 +90,10 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      nothing. Set, each skipped question takes the shape its author chose and
      names itself in the log. -->
 
-- **Story command:** PLOT_UNATTENDED=1 claude -p ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
-- **Brief command:** PLOT_UNATTENDED=1 claude -p ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
-- **Implement command:** PLOT_UNATTENDED=1 claude -p ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
-- **Interrogate command:** PLOT_UNATTENDED=1 claude -p ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Story command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Brief command:** PLOT_UNATTENDED=1 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Implement command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Interrogate command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 
 <!-- `Implement command` runs `/plot-implement <slug>` for the board's
      `Implement` control and for `WriteBriefButton`, which is the same route
