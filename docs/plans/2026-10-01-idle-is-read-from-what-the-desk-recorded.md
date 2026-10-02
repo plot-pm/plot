@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Started:** 2026-10-02, Jan Wloka, `bug/idle-is-one-reading`
 
 ## Changelog
 
