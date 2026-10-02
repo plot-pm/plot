@@ -52,6 +52,7 @@ function fixture(
   runs: () => string[];
   asks: () => string[];
   askArgv: () => string[][];
+  land: (branch: string) => void;
 } {
   // Nested one level down: the board writes a repo's agent logs into its parent.
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-repo-'));
@@ -110,8 +111,19 @@ function fixture(
   const lines = (f: string) =>
     fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];
 
+  // A brief reaching origin/main between two passes: committed and the remote
+  // ref moved, because the gate reads origin/<main> and never the filesystem.
+  const land = (branch: string) => {
+    const slug = branch.split('/').pop() ?? branch;
+    fs.writeFileSync(path.join(briefsDir, `${slug}.md`), `# Brief for ${branch}\n`);
+    execSync('git add .plot/briefs', { cwd: repoRoot, stdio: 'ignore' });
+    execSync(`git commit -m "brief ${slug}"`, { cwd: repoRoot, stdio: 'ignore' });
+    execSync('git update-ref refs/remotes/origin/main HEAD', { cwd: repoRoot, stdio: 'ignore' });
+  };
+
   return {
     opts: { repoRoot, scriptsDir },
+    land,
     runs: () => lines(marker),
     asks: () => lines(askMarker),
     // One inner array per invocation, holding that invocation's arguments.
@@ -257,7 +269,7 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     maybeAutoDispatch(f.opts, p, on(5), [], new Set(), undefined, asked);
     await settle(() => f.askArgv().length, 1);
     expect(f.askArgv()).toHaveLength(1);
-    expect(asked.has('needs-a-brief')).toBe(true);
+    expect(asked.has('feature/needs-a-brief')).toBe(true);
 
     // The same still-briefless pulse — the stub writer wrote no brief, exactly
     // as a real session that has not finished yet.
@@ -281,10 +293,19 @@ describe('maybeAutoDispatch — asking for the brief', () => {
   it('an ask already outstanding is charged against the budget', async () => {
     // The asks themselves count, which is what stops N pulses from starting N
     // writers for N plans while none has landed. Cap 1, one ask outstanding for
-    // another plan: the budget is spent before this plan is reached.
+    // another plan's branch whose brief is still missing: the budget is spent
+    // before this plan is reached.
     const f = fixture([], { briefCommand: '@writer' });
+    const p = pulse([
+      ['2026-09-12-asked-before.md', 'approved', [
+        slice('W', 'eligible', [['feature/asked-before', 'open']]),
+      ]],
+      ['2026-09-12-needs-a-brief.md', 'approved', [
+        slice('W', 'eligible', [['feature/needs-a-brief', 'open']]),
+      ]],
+    ]);
     maybeAutoDispatch(
-      f.opts, brieflessPulse(), on(1), [], new Set(), undefined, new Set(['some-other-plan']),
+      f.opts, p, on(1), [], new Set(), undefined, new Set(['feature/asked-before']),
     );
     await settle(() => f.askArgv().length, 0);
     expect(f.askArgv()).toEqual([]);
@@ -350,12 +371,13 @@ describe('maybeAutoDispatch — asking for the brief', () => {
 
   it('a plan whose brief HAS landed is dispatched, not asked for', async () => {
     // The next pulse after an ask: the brief is on origin/main, so the plan is
-    // no longer `no-brief` and the ordinary claim happens. The ask record still
-    // holds the slug — it is not consulted on this path, and the restart clears
-    // it — so this also proves a stale record cannot block a dispatch.
+    // no longer `no-brief` and the ordinary claim happens. The ask record
+    // drops the branch because its brief landed, so a landed ask cannot block a
+    // dispatch.
     const f = fixture(['feature/needs-a-brief'], { briefCommand: '@writer' });
+    const asked = new Set(['feature/needs-a-brief']);
     const next = maybeAutoDispatch(
-      f.opts, brieflessPulse(), on(5), [], new Set(), undefined, new Set(['needs-a-brief']),
+      f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked,
     );
     // Waits for the DISPATCH, which is what this test expects to happen — the
     // ask's absence is then asserted against a pass that demonstrably ran.
@@ -363,6 +385,73 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     expect(f.askArgv()).toEqual([]);
     expect(f.runs()).toEqual(['--max 1 needs-a-brief']);
     expect(next.has('feature/needs-a-brief')).toBe(true);
+    expect(asked.size).toBe(0);
+  });
+
+  it('A LANDED BRIEF FREES ITS SLOT for the next plan\'s ask', async () => {
+    // Measured 2026-10-02: after three asks the tally filled the budget and
+    // never emptied, so 22 slices waited on `no-brief` until a board restart.
+    // Cap 1: the first pass asks for plan A only. A's brief lands, and the
+    // second pass asks for plan B, because A's ask no longer holds a slot.
+    const f = fixture([], { briefCommand: '@writer' });
+    const p = pulse([
+      ['2026-10-02-plan-a.md', 'approved', [slice('W', 'eligible', [['feature/plan-a', 'open']])]],
+      ['2026-10-02-plan-b.md', 'approved', [slice('W', 'eligible', [['feature/plan-b', 'open']])]],
+    ]);
+    const asked = new Set<string>();
+
+    maybeAutoDispatch(f.opts, p, on(1), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 1);
+    expect(f.askArgv()).toHaveLength(1);
+    expect(f.askArgv()[0]![0]).toContain('/plot-implement plan-a');
+    expect([...asked]).toEqual(['feature/plan-a']);
+
+    f.land('feature/plan-a');
+
+    maybeAutoDispatch(f.opts, p, on(1), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 2);
+    expect(f.askArgv()).toHaveLength(2);
+    expect(f.askArgv()[1]![0]).toContain('/plot-implement plan-b');
+    expect([...asked]).toEqual(['feature/plan-b']);
+  });
+
+  it('A PLAN\'S LATER SLICE IS ASKED FOR after its first slice\'s brief landed', async () => {
+    // The ask is keyed by branch, not by plan, so the plan's first ask does not
+    // block the brief its second slice needs.
+    const f = fixture([], { briefCommand: '@writer' });
+    const asked = new Set<string>();
+    const first = pulse([['2026-10-02-two-slices.md', 'approved', [
+      slice('One', 'eligible', [['feature/slice-one', 'open']]),
+      slice('Two', 'blocked', [['feature/slice-two', 'open']]),
+    ]]]);
+
+    maybeAutoDispatch(f.opts, first, on(5), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 1);
+    expect(f.askArgv()).toHaveLength(1);
+    expect(f.askArgv()[0]![0]).toContain('feature/slice-one');
+
+    // Slice one's brief landed and the slice merged; slice two turns eligible.
+    f.land('feature/slice-one');
+    const later = pulse([['2026-10-02-two-slices.md', 'approved', [
+      slice('One', 'complete', [['feature/slice-one', 'merged']]),
+      slice('Two', 'eligible', [['feature/slice-two', 'open']]),
+    ]]]);
+
+    maybeAutoDispatch(f.opts, later, on(5), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 2);
+    expect(f.askArgv()).toHaveLength(2);
+    expect(f.askArgv()[1]![0]).toContain('feature/slice-two');
+    expect([...asked]).toEqual(['feature/slice-two']);
+  });
+
+  it('A FREE AGENT DOES NOT BLOCK the brief it waits for', async () => {
+    // Cap 1 and one live agent holding no branch: the dispatch budget counts it,
+    // the brief budget does not.
+    const f = fixture([], { briefCommand: '@writer' });
+    const free: AgentEntry = { ...running(''), session: 's-free' };
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(1), [free], new Set(), undefined, new Set());
+    await settle(() => f.askArgv().length, 1);
+    expect(f.askArgv()).toHaveLength(1);
   });
 });
 

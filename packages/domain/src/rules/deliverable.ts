@@ -63,6 +63,69 @@ export const allSlicesMerged = (
   meta: PlanFile,
   pulse: FleetReading | null,
   complete: boolean,
+): Landed => landed(meta, pulse, complete, false);
+
+/**
+ * Whether every one of a plan's non-deferred branches has landed, with the
+ * landing CONFIRMED rather than inferred from a merge commit's subject.
+ *
+ * {@link allSlicesMerged}'s answer, with one refusal added: a non-deferred
+ * branch carrying `evidence: 'subject'` makes the answer `'unknown'`.
+ *
+ * ## Why delivery reads this and the wave gate does not
+ *
+ * A merge subject on the default branch is positive evidence that a branch
+ * with no ref landed, and it is enough for every reversible decision — the
+ * wave gate opens the next slice, which can be closed again, and the plan's
+ * status word starts nothing. A delivery is not reversible: it flips a phase,
+ * moves an index symlink, and on the automatic path chains to a reap and a ref
+ * deletion.
+ *
+ * ## Why it answers `unknown` rather than `not-merged`
+ *
+ * `not-merged` says the work is measurably outstanding, and a caller may act
+ * on that. A subject-proven branch is probably landed and unconfirmed, so the
+ * honest answer is that nothing was measured — which is what makes a caller
+ * WAIT. Measured 2026-10-01: without the wait, the first tick starts a
+ * delivery the script refuses, the slug stays in `inFlight`, and no later tick
+ * delivers until the board restarts.
+ *
+ * A branch whose slice is unfinished is still `'not-merged'`: the refusals are
+ * ordered, and outstanding work is a stronger statement than weak proof.
+ *
+ * @param meta The plan, by file path, as {@link allSlicesMerged} takes it.
+ * @param pulse The scan's report, or `null` when none has been read.
+ * @param complete Whether the scan finished.
+ * @returns {@link allSlicesMerged}'s answer, except `'unknown'` where a
+ *   non-deferred branch of an otherwise landed plan carries
+ *   `evidence: 'subject'`.
+ */
+export const allSlicesConfirmed = (
+  meta: PlanFile,
+  pulse: FleetReading | null,
+  complete: boolean,
+): Landed => landed(meta, pulse, complete, true);
+
+/**
+ * The arithmetic both exported rules share.
+ *
+ * ONE BODY RATHER THAN TWO, because the deferred-branch and empty-slice
+ * arithmetic is subtle enough that two copies would drift: an all-deferred
+ * plan is deliverable, a slice naming no branch is not, and a deferred branch
+ * beside an unfinished one is refused by its slice. Eight tests pin those and
+ * each would have to be written twice.
+ *
+ * @param meta The plan, by file path.
+ * @param pulse The scan's report, or `null`.
+ * @param complete Whether the scan finished.
+ * @param confirmed Whether a merge subject alone is refused as proof.
+ * @returns the landing answer.
+ */
+const landed = (
+  meta: PlanFile,
+  pulse: FleetReading | null,
+  complete: boolean,
+  confirmed: boolean,
 ): Landed => {
   // Asked before the lookup: on a partial pulse an absent plan is one the scan
   // has not reached, which the lookup alone cannot tell from a real absence.
@@ -84,6 +147,11 @@ export const allSlicesMerged = (
   // slices and four of them reached `Released`, every one delivered by
   // `plot-deliver.sh`, which has always read the annotation this way.
   let deferred = 0;
+  // A LANDING NOTHING CONFIRMED, held until something does. Collected across
+  // every slice rather than returned at once, because the refusals are ordered:
+  // an unfinished slice answers `not-merged` even when another slice holds weak
+  // proof, since outstanding work is a stronger statement than weak proof.
+  let unconfirmed = 0;
   for (const slice of plan.slices) {
     const branches = slice.branches.filter((b) => b.state !== 'deferred');
     // A SLICE NAMING NO BRANCH IS NOT LANDED WORK, and it is refused here
@@ -101,7 +169,14 @@ export const allSlicesMerged = (
     if (branches.length === 0) continue;
     if (slice.verdict !== 'complete') return 'not-merged';
     merged += branches.length;
+    // READ FROM THE BRANCH, which the arithmetic above deliberately does not
+    // do: a slice's `verdict` carries the merge state, and this carries HOW it
+    // was proved, which no verdict can express. Deferred branches are already
+    // filtered out — work given up is not work awaiting confirmation.
+    if (confirmed) unconfirmed += branches.filter((b) => b.evidence === 'subject').length;
   }
+  // ASKED AFTER THE LOOP, so every stronger refusal above has had its say.
+  if (unconfirmed > 0) return 'unknown';
   // A PLAN THAT NAMES NO WORK IS NOT DELIVERABLE, which is the only case this
   // guard now refuses: `merged + deferred` is zero exactly when every slice
   // named no branch at all. A plan whose branches were all given up names

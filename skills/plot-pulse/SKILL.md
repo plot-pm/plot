@@ -181,8 +181,13 @@ so an `open` can be weighed rather than trusted blindly:
 | `pr-merge` | Conforming merge commits found and examined exhaustively — `open` means the branch really has no merge |
 | `truncated` | The merge walk hit its cap; a branch merged before that point may still read `open` |
 | `none` | The default branch carries no conforming merge commits at all (a squash/rebase repo) — `open` says nothing about whether work merged |
+| `unaskable` | The rule could not be asked at all, so no branch got a subject reading and every refless branch went to the host. A missing or silent `plot-merge-subject.mjs` is the case — run `pnpm build:board` |
 
-Under `truncated` or `none`, do not read `open` as "not started" when advising
+`unaskable` is not `none`. `none` is a measurement of this estate's history; `unaskable` says the question was never put, so it says nothing about the history either way.
+
+Which subjects count is the host's: `Merge pull request #N from <owner>/<branch>` on one, `Merged in <branch> (pull request #N)` on the other, and none at all on a host Plot has no form for. A subject also proves a branch only for a plan whose file the merge does not predate — `subject_predates_plan` counts the subjects refused for that reason, which is a later plan reusing a merged branch name.
+
+Under `truncated`, `none` or `unaskable`, do not read `open` as "not started" when advising
 the next action — say what the scan could not see.
 
 **The local walk is not the only source.** A squash merge leaves no merge
@@ -191,10 +196,20 @@ nothing local left to read — the scan asks the host once for that branch, and 
 PR reported `MERGED` reads `merged`. This is what lets a wave complete in a
 repo that squash-merges by default.
 
-The lookup is skipped entirely with `--offline`/`--no-fetch`, and when the host
-cannot answer — unreachable, or no PR found — the branch reads `open` exactly
-as it did before. An unreachable host never becomes a fabricated `merged`, so
-an `open` under those conditions still carries the caveat above.
+The lookup is skipped entirely with `--offline`/`--no-fetch`, and an unreachable
+host never becomes a fabricated `merged`.
+
+**A host that could not answer and a host that answered "no PR" are different
+words.** Where no PR was found the branch reads `open`, which is a claim: one
+was looked for and none exists. Where the host was *throttled, rate-limited or
+failed* the branch reads **`unknown`**, because that claim was never earned —
+and a branch measured on 2026-08-30 was merged while reading `open`, counted
+among the unfinished. Both are outstanding to the wave arithmetic, so no wave
+verdict moves; what changes is claimability, since `--next` offers only `open`
+branches and *nobody has started this* is precisely the claim that went
+unverified. A host that was never asked — none configured, or `--offline` —
+keeps reading `open`: a question that was not put is not a question that went
+unanswered.
 
 **Reaching that arm requires a pruned mirror.** `git fetch` does not remove
 remote-tracking refs for branches deleted upstream, so a branch merged with

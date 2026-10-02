@@ -243,6 +243,189 @@ jobs:
           systemd-analyze --user verify ~/.config/systemd/user/plot-registryd.service
           echo "The systemd unit verifies."
 
+      # ── The unit stops only its daemon: a measurement, not a parse. ──────────
+      #
+      # THE STEP ABOVE STARTS NOTHING, which is why `KillMode`'s absence was
+      # valid syntax with a wrong default for as long as the unit existed.
+      # systemd's `KillMode=control-group` signals every process in the cgroup
+      # on stop, restart or crash, and `--start-agents` puts every agent there.
+      # Nothing on #1148 was measured on a Linux host; this step is that
+      # measurement, and `ubuntu-latest` is the only place in this workflow
+      # where it can be taken.
+      #
+      # THE CONTROL IS WHAT MAKES IT DISCRIMINATING, PERMANENTLY. A second copy
+      # of the same filled unit with the `KillMode=` line deleted must LOSE its
+      # agent across the restart. Without it the step passes whatever the
+      # directive says — for example because no user manager ever started
+      # anything and every `systemctl` call failed quietly — and a green run
+      # would report a fix nobody made.
+      #
+      # EVERY DIRECTIVE EXCEPT `ExecStart` COMES FROM THE SHIPPED FILE, filled
+      # by the same `sed` as the step above. A step that writes its own unit
+      # proves nothing about the one operators install.
+      - name: The systemd unit keeps its agents across a restart
+        run: |
+          set -euo pipefail
+
+          # A USER MANAGER IS THE OPEN POINT, so it is probed and never
+          # assumed. `enable-linger` starts a manager for `runner` that
+          # outlives this shell; without `XDG_RUNTIME_DIR` the client cannot
+          # find its bus. If no manager answers, the unit is installed as a
+          # system unit with `User=runner` and driven with `sudo` — `KillMode`
+          # behaves the same under both managers, and the step says which it
+          # used.
+          sudo loginctl enable-linger "$USER" || true
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          if systemctl --user is-system-running >/dev/null 2>&1 \
+             || systemctl --user show-environment >/dev/null 2>&1; then
+            MANAGER=user
+            SCTL="systemctl --user"
+            UNIT_DIR="$HOME/.config/systemd/user"
+          else
+            MANAGER=system
+            SCTL="sudo systemctl"
+            UNIT_DIR=/etc/systemd/system
+          fi
+          echo "Manager: $MANAGER"
+          sudo mkdir -p "$UNIT_DIR"
+
+          # THE STAND-IN IS A SCRIPT FILE, NOT AN INLINE `sh -c`. systemd
+          # expands `$VAR` and `%` specifiers in `ExecStart` before the shell
+          # sees the line, so `$!` inline resolves to nothing. The path is
+          # absolute because systemd versions differ on how they resolve a
+          # relative one.
+          #
+          # IT WRITES THE PID ONLY WHEN THE FILE IS ABSENT, because `restart`
+          # runs a second copy whose own `sleep` would otherwise overwrite the
+          # pid the assertion is about.
+          #
+          # IT IS WRITTEN WITH `printf`, NOT A HEREDOC. A quoted heredoc inside
+          # this indented `run:` block would need its terminator at the block's
+          # indentation, which `sh` does not match, and an unquoted one would
+          # let this shell expand the `$!` the stand-in must write itself.
+          STANDIN=/tmp/plot-standin-daemon.sh
+          PIDFILE=/tmp/plot-standin-agent.pid
+          rm -f "$PIDFILE"
+          printf '%s\n' \
+            '#!/bin/sh' \
+            '# The stand-in agent: a process the daemon starts and does not' \
+            '# wait for, which is what an agent is to this daemon.' \
+            'sleep 600 &' \
+            "[ -f $PIDFILE ] || echo \$! > $PIDFILE" \
+            'while :; do sleep 3600; done' \
+            > "$STANDIN"
+          chmod +x "$STANDIN"
+          echo "The stand-in daemon:"; cat "$STANDIN"
+
+          fill() {   # $1 = destination, $2 = "control" to delete the KillMode line
+            sed -e "s|__REPO_ROOT__|$PWD|g" \
+                -e "s|__NODE__|$(command -v node)|g" \
+                -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
+                -e "s|__REGISTRYD__|$PWD/skills/plot/scripts/board/plot-registryd.mjs|g" \
+                -e "s|^ExecStart=.*|ExecStart=/bin/sh $STANDIN|" \
+                skills/plot/units/plot-registryd.service > /tmp/filled.service
+            if [ "${2:-}" = control ]; then
+              sed -i '/^KillMode=/d' /tmp/filled.service
+            fi
+            if [ "$MANAGER" = system ]; then
+              sed -i "/^\[Service\]/a User=$USER" /tmp/filled.service
+            fi
+            sudo cp /tmp/filled.service "$1"
+          }
+
+          # The pids are read into variables, so cleanup never depends on a
+          # file a second daemon may have rewritten. Never `pkill sleep`.
+          AGENT_PID=""; CONTROL_PID=""
+          cleanup() {
+            $SCTL stop plot-ci-killmode.service plot-ci-control.service 2>/dev/null || true
+            for p in $AGENT_PID $CONTROL_PID; do kill "$p" 2>/dev/null || true; done
+            sudo rm -f "$UNIT_DIR/plot-ci-killmode.service" "$UNIT_DIR/plot-ci-control.service"
+            $SCTL daemon-reload || true
+          }
+          trap cleanup EXIT
+
+          # ── The subject: the shipped unit, KillMode and all. ────────────────
+          fill "$UNIT_DIR/plot-ci-killmode.service"
+          $SCTL daemon-reload
+          $SCTL start plot-ci-killmode.service
+          # THE LOOP ENDS WITH `|| true`, so a pid file that never appears
+          # reaches the named error below instead of dying on `set -e` with no
+          # reason printed.
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [ -s "$PIDFILE" ]; then break; fi
+            sleep 1
+          done
+          AGENT_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
+          if [ -z "$AGENT_PID" ]; then
+            echo "::error::the stand-in wrote no pid — did the unit start?"
+            $SCTL status plot-ci-killmode.service || true
+            exit 1
+          fi
+          echo "Stand-in agent pid: $AGENT_PID"
+
+          # THE AGENT WAS IN THE UNIT'S CGROUP, asserted BEFORE the restart.
+          # This is the assertion a naive step leaves out: a stand-in whose
+          # agent started outside the cgroup was never at risk, so its survival
+          # measures nothing at all.
+          if ! grep -q 'plot-ci-killmode' "/proc/$AGENT_PID/cgroup"; then
+            echo "::error::the stand-in agent is not in the unit's cgroup — the step would measure nothing"
+            cat "/proc/$AGENT_PID/cgroup"
+            exit 1
+          fi
+          echo "The agent is in the unit's cgroup:"
+          cat "/proc/$AGENT_PID/cgroup"
+
+          $SCTL restart plot-ci-killmode.service
+          sleep 2
+          if ! kill -0 "$AGENT_PID" 2>/dev/null; then
+            echo "::error::restart ended the agent — KillMode=process did not keep it alive"
+            exit 1
+          fi
+          echo "The agent survived the restart."
+
+          $SCTL stop plot-ci-killmode.service
+          sleep 2
+          if ! kill -0 "$AGENT_PID" 2>/dev/null; then
+            echo "::error::stop ended the agent — KillMode=process did not keep it alive"
+            exit 1
+          fi
+          echo "The agent survived the stop."
+
+          # ── The control: the same unit with `KillMode=` deleted, which is
+          #    origin/main's unit. Its agent MUST be gone after the restart. ───
+          rm -f "$PIDFILE"
+          fill "$UNIT_DIR/plot-ci-control.service" control
+          # AN `if`, NOT `grep && exit`. Under `set -e` a `grep -q` that finds
+          # nothing — the correct case here — makes the `&&` list exit 1 and
+          # kills the step before the control has run at all.
+          if grep -q '^KillMode=' /tmp/filled.service; then
+            echo "::error::the control still carries KillMode"; exit 1
+          fi
+          $SCTL daemon-reload
+          $SCTL start plot-ci-control.service
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [ -s "$PIDFILE" ]; then break; fi
+            sleep 1
+          done
+          CONTROL_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
+          if [ -z "$CONTROL_PID" ]; then
+            echo "::error::the control wrote no pid — did the control unit start?"
+            $SCTL status plot-ci-control.service || true
+            exit 1
+          fi
+          if ! grep -q 'plot-ci-control' "/proc/$CONTROL_PID/cgroup"; then
+            echo "::error::the control agent is not in its unit's cgroup"
+            exit 1
+          fi
+          $SCTL restart plot-ci-control.service
+          sleep 2
+          if kill -0 "$CONTROL_PID" 2>/dev/null; then
+            echo "::error::the control agent survived — this step cannot tell KillMode from its absence"
+            exit 1
+          fi
+          echo "The control lost its agent, as origin/main's unit does."
+          echo "Measured under the $MANAGER manager."
+
       # ── Domain: the package the board now imports its entities from. Gated
       #    BEFORE the board, because the board resolves these shapes from here
       #    and a domain that does not hold cannot produce a meaningful board
