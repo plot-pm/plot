@@ -142,6 +142,21 @@ describe('deskManifest', () => {
     ).toEqual({ kind: 'unnamed' });
   });
 
+  it('ignores a realpath that came with an empty worktree field', () => {
+    // bash 5.2 answers `cd ""` with the current directory, so a reader asking
+    // from inside the desk resolves a missing field to the desk itself.
+    expect(
+      deskManifest({
+        desk: '/a/desk',
+        deskReal: '/a/desk',
+        manifests: [
+          manifest({ path: '/estate/.plot/agents/broken.json', worktree: '', worktreeReal: '/a/desk' }),
+          manifest({ worktree: '/a/desk' }),
+        ],
+      }),
+    ).toEqual({ kind: 'named', path: '/estate/.plot/agents/one.json' });
+  });
+
   it('answers unnamed when the desk itself is empty', () => {
     // The reading a caller takes of a desk that is gone. A manifest with no
     // worktree must not match a desk with no path.

@@ -134,7 +134,8 @@ export const manifestDirectory = (reading: ManifestDirectoryReading): string => 
  *
  * ABSENT IS NOT FALSE. An empty desk path, an empty `manifests` list and a
  * manifest carrying no `worktree` all answer `unnamed` rather than throwing or
- * guessing.
+ * guessing. A manifest whose `worktree` is empty names no desk even when the
+ * reading carries a `worktreeReal`.
  *
  * @param reading - the desk, its realpath, and the manifests that were read.
  * @returns `named` with the one path, `unnamed`, or `several` with every path.
@@ -145,6 +146,10 @@ export const deskManifest = (reading: DeskManifestReading): DeskManifest => {
 
   const matched: string[] = [];
   for (const manifest of reading.manifests) {
+    // A manifest with no `worktree` names no desk, whatever realpath came with
+    // it: `worktreeReal` resolves the field, so without the field it resolves
+    // nothing the manifest said.
+    if (manifest.worktree === '') continue;
     const forms = [manifest.worktree, manifest.worktreeReal ?? ''].filter((p) => p !== '');
     if (forms.some((form) => wanted.has(form))) matched.push(manifest.path);
   }

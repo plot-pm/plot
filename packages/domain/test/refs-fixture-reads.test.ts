@@ -168,3 +168,48 @@ describe('refsFixture: a tip lookup matches the pattern git was given', () => {
     expect(tips.value).toEqual([]);
   });
 });
+
+describe('refsFixture: the merge-subject readings', () => {
+  const refs = refsFixture({
+    additions: { 'docs/plans/a.md': 'add-a', 'docs/sprints/s.md': 'add-s' },
+    merges: [
+      { sha: 'm2', subject: 'Merged in b (pull request #2)' },
+      { sha: 'm1', subject: 'Merged in a (pull request #1)' },
+    ],
+    ancestry: { 'm1 add-a': 'no' },
+  });
+
+  it('answers the additions under the directory asked for', async () => {
+    expect(await refs.planAdditions('origin/main', 'docs/plans')).toEqual({
+      ok: true,
+      value: new Map([['docs/plans/a.md', 'add-a']]),
+    });
+    expect(await refs.planAdditions('origin/main', 'docs/plans/')).toEqual({
+      ok: true,
+      value: new Map([['docs/plans/a.md', 'add-a']]),
+    });
+  });
+
+  it('answers at most max merges, newest first', async () => {
+    const answer = await refs.mergeSubjects('origin/main', 1);
+    expect(answer.ok && answer.value.map((m) => m.sha)).toEqual(['m2']);
+  });
+
+  it('answers a stated containment, and unknown for any other pair', async () => {
+    expect(await refs.contains('m1', 'add-a')).toEqual({ ok: true, value: 'no' });
+    expect(await refs.contains('m2', 'add-a')).toEqual({ ok: true, value: 'unknown' });
+  });
+
+  it('fails each reading it is told to fail', async () => {
+    const broken = refsFixture({ failing: ['planAdditions', 'mergeSubjects', 'contains'] });
+    expect((await broken.planAdditions('origin/main', 'docs/plans')).ok).toBe(false);
+    expect((await broken.mergeSubjects('origin/main', 5)).ok).toBe(false);
+    expect((await broken.contains('a', 'b')).ok).toBe(false);
+  });
+
+  it('answers empty readings for an estate that states none', async () => {
+    const bare = refsFixture();
+    expect(await bare.planAdditions('origin/main', 'docs/plans')).toEqual({ ok: true, value: new Map() });
+    expect(await bare.mergeSubjects('origin/main', 5)).toEqual({ ok: true, value: [] });
+  });
+});

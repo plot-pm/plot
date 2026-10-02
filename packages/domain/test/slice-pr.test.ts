@@ -13,7 +13,7 @@ const readings = (over: Partial<SlicePrReadings> = {}): SlicePrReadings => ({
   planFile: 'docs/plans/2026-09-08-the-master-agent-uses-the-controllers.md',
   sliceName: "A slice's PR is opened by the fleet, not by hand",
   briefFile: '.plot/briefs/a-pr-is-opened-by-a-controller.md',
-  existingPr: 0,
+  prs: [],
   commits: 3,
   carriedWork: true,
   ...over,
@@ -108,11 +108,25 @@ describe('openSlicePr', () => {
     });
 
     it('refuses a branch a PR already carries, naming it', () => {
-      const result = openSlicePr(readings({ existingPr: 840 }), { draft: false });
+      const result = openSlicePr(
+        readings({ prs: [{ number: 840, state: 'OPEN' }] }),
+        { draft: false },
+      );
 
       if (!isSlicePrRefusal(result)) throw new Error('expected a refusal');
       expect(result.reason).toBe('pr-exists');
       expect(result.detail).toContain('#840');
+    });
+
+    it('refuses a MERGED row the same way, naming it', () => {
+      const result = openSlicePr(
+        readings({ prs: [{ number: 12, state: 'MERGED' }] }),
+        { draft: false },
+      );
+
+      if (!isSlicePrRefusal(result)) throw new Error('expected a refusal');
+      expect(result.reason).toBe('pr-exists');
+      expect(result.detail).toContain('#12');
     });
 
     it('refuses a branch holding no commit its base does not', () => {
@@ -132,15 +146,154 @@ describe('openSlicePr', () => {
 
     it('checks the plan before the wave and the PR before the commits', () => {
       const noPlanNoWave = openSlicePr(
-        readings({ planSlug: '', sliceName: '', existingPr: 12, commits: 0 }),
+        readings({
+          planSlug: '',
+          sliceName: '',
+          prs: [{ number: 12, state: 'OPEN' }],
+          commits: 0,
+        }),
         { draft: false },
       );
-      const prAndEmpty = openSlicePr(readings({ existingPr: 12, commits: 0 }), { draft: false });
+      const prAndEmpty = openSlicePr(
+        readings({ prs: [{ number: 12, state: 'OPEN' }], commits: 0 }),
+        { draft: false },
+      );
 
       if (!isSlicePrRefusal(noPlanNoWave)) throw new Error('expected a refusal');
       if (!isSlicePrRefusal(prAndEmpty)) throw new Error('expected a refusal');
       expect(noPlanNoWave.reason).toBe('plan-unknown');
       expect(prAndEmpty.reason).toBe('pr-exists');
+    });
+  });
+
+  describe('which PR row carries the branch', () => {
+    // #1093, measured 2026-09-30 on `bug/a-state-sweep-is-one-request`: PR
+    // #1089 was opened, closed 38 s later, and the branch force-pushed, so
+    // GitHub refuses to reopen it. A closed PR delivered nothing, so it carries
+    // no branch — and the state was in the row the whole time.
+
+    it('opens where the only row is CLOSED, and names it', () => {
+      const result = openSlicePr(
+        readings({ prs: [{ number: 1089, state: 'CLOSED' }] }),
+        { draft: false },
+      );
+
+      expect(result.outcome).toBe('decided');
+      if (isSlicePrRefusal(result)) throw new Error('expected a decision');
+      expect(result.closedPrs).toEqual([1089]);
+      expect(result.body).toContain('#1089');
+      expect(result.body).toContain('closed unmerged');
+    });
+
+    it('names every closed row, in the order the host gave them', () => {
+      const result = openSlicePr(
+        readings({
+          prs: [
+            { number: 1089, state: 'CLOSED' },
+            { number: 1104, state: 'CLOSED' },
+          ],
+        }),
+        { draft: false },
+      );
+
+      if (isSlicePrRefusal(result)) throw new Error('expected a decision');
+      expect(result.closedPrs).toEqual([1089, 1104]);
+      expect(result.body).toContain('#1089');
+      expect(result.body).toContain('#1104');
+    });
+
+    it('carries no closed numbers where no row is closed', () => {
+      const result = openSlicePr(readings(), { draft: false });
+
+      if (isSlicePrRefusal(result)) throw new Error('expected a decision');
+      expect(result.closedPrs).toEqual([]);
+    });
+
+    it('leaves the body byte-identical where no row is closed', () => {
+      // THE ORDINARY CASE IS UNCHANGED. A closed row is rare; every other PR
+      // this estate opens must read exactly as it did.
+      const withNoRows = openSlicePr(readings(), { draft: false });
+      const withAClosedRowRemoved = openSlicePr(readings({ prs: [] }), { draft: false });
+
+      if (isSlicePrRefusal(withNoRows)) throw new Error('expected a decision');
+      if (isSlicePrRefusal(withAClosedRowRemoved)) throw new Error('expected a decision');
+      expect(withNoRows.body).toBe(withAClosedRowRemoved.body);
+      expect(withNoRows.body).not.toContain('closed unmerged');
+    });
+
+    it('refuses an OPEN row whatever its position, so position cannot decide', () => {
+      // POSITION DOES NOT MATTER, STATE DOES. The script kept the FIRST
+      // matching row, so `[CLOSED, OPEN]` and `[OPEN, CLOSED]` gave different
+      // answers for one branch depending on how the host ordered its rows.
+      const closedFirst = openSlicePr(
+        readings({
+          prs: [
+            { number: 1089, state: 'CLOSED' },
+            { number: 1102, state: 'OPEN' },
+          ],
+        }),
+        { draft: false },
+      );
+      const openFirst = openSlicePr(
+        readings({
+          prs: [
+            { number: 1102, state: 'OPEN' },
+            { number: 1089, state: 'CLOSED' },
+          ],
+        }),
+        { draft: false },
+      );
+
+      if (!isSlicePrRefusal(closedFirst)) throw new Error('expected a refusal');
+      if (!isSlicePrRefusal(openFirst)) throw new Error('expected a refusal');
+      expect(closedFirst.reason).toBe('pr-exists');
+      expect(openFirst.reason).toBe('pr-exists');
+      expect(closedFirst.detail).toContain('#1102');
+      expect(openFirst.detail).toContain('#1102');
+    });
+
+    it('refuses a MERGED row sitting behind a CLOSED one, naming the merged number', () => {
+      // A fix that searches only for `OPEN` opens a duplicate PR here.
+      const result = openSlicePr(
+        readings({
+          prs: [
+            { number: 1089, state: 'CLOSED' },
+            { number: 1049, state: 'MERGED' },
+          ],
+        }),
+        { draft: false },
+      );
+
+      if (!isSlicePrRefusal(result)) throw new Error('expected a refusal');
+      expect(result.reason).toBe('pr-exists');
+      expect(result.detail).toContain('#1049');
+    });
+
+    it('names the first carrying row where several carry', () => {
+      const result = openSlicePr(
+        readings({
+          prs: [
+            { number: 1102, state: 'OPEN' },
+            { number: 1049, state: 'MERGED' },
+          ],
+        }),
+        { draft: false },
+      );
+
+      if (!isSlicePrRefusal(result)) throw new Error('expected a refusal');
+      expect(result.detail).toContain('#1102');
+    });
+
+    it('refuses a closed-only branch holding no commits on the commits rule', () => {
+      // THE REFUSAL ORDER IS FIXED: plan, wave, PR, commits. A closed row is
+      // not a PR refusal, so the next rule down is the one that fires.
+      const result = openSlicePr(
+        readings({ prs: [{ number: 1089, state: 'CLOSED' }], commits: 0 }),
+        { draft: false },
+      );
+
+      if (!isSlicePrRefusal(result)) throw new Error('expected a refusal');
+      expect(result.reason).toBe('branch-empty');
     });
   });
 
