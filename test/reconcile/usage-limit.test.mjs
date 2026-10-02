@@ -105,14 +105,43 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
  * minute-rounding of the stated time pushed three tests over it — the log read
  * `until 2026-10-03`, a day out, on a fixture meant to wait two minutes.
  *
- * SO THE RESET IS TEN MINUTES OUT AND THE OFFSET CLEARS IT BY SIXTY SECONDS,
- * which leaves a whole minute of slack on BOTH bounds: the reset is far enough
- * ahead that rounding cannot put it in the past, and the offset is close
- * enough behind the grace that it cannot reach tomorrow. The sleep that
- * remains is zero, because the offset clock is already past the reset.
+ * SO THE RESET IS TEN MINUTES OUT AND THE OFFSET CLEARS IT BY THIRTY SECONDS.
+ * The stated time is TRUNCATED TO ITS MINUTE, so the gap between the loop's
+ * clock and the resolved instant grows by however many seconds into the minute
+ * the test happened to start. Computed across all sixty:
+ *
+ *     offset = reset + 30  ->  gap 30..89   both bounds clear
+ *     offset = reset + 60  ->  gap 60..119  one second from `past-bound`
+ *     offset = reset + 90  ->  gap 90..149  fails for half the minute
+ *
+ * `+60` was tried first and three waits in one run resolved to the next day.
+ * `+30` is the middle of the safe band rather than its edge.
  */
 const RESET_AHEAD = 600;
-const PAST_THE_RESET = { PLOT_CLOCK_OFFSET_SECONDS: String(RESET_AHEAD + 60) };
+const PAST_THE_RESET = { PLOT_CLOCK_OFFSET_SECONDS: String(RESET_AHEAD + 30) };
+
+/**
+ * Shell that prints a limit line whose reset is `RESET_AHEAD` seconds past the
+ * LOOP'S clock, computed when the prompt runs.
+ *
+ * **A SECOND LIMIT CANNOT USE A BAKED-IN LINE.** `limitLine` states a time
+ * relative to the moment the fixture is WRITTEN, and the loop reads it with a
+ * clock already offset by `PAST_THE_RESET` — so by the second prompt the
+ * stated time is ~630 s behind the loop's now, resolves to tomorrow, and the
+ * wait the test is asserting becomes `past-bound`. Measured in run 6: a
+ * fixture meant to wait twice logged `until 2026-10-03`, four hours out.
+ *
+ * So the line is composed IN THE PROMPT, from the same offset the loop uses.
+ * `date` is asked for the 12-hour fields directly, which keeps the shell free
+ * of any 12-hour arithmetic of its own.
+ */
+const limitLineAtRuntime = (limit = 'session limit') => `
+  _at=$(( $(date +%s) + \${PLOT_CLOCK_OFFSET_SECONDS:-0} + ${RESET_AHEAD} ))
+  _hhmm=$(date -r "$_at" '+%-I:%M%p' 2>/dev/null || date -d "@$_at" '+%-I:%M%p')
+  _zone=$(readlink /etc/localtime | sed 's#.*zoneinfo/##')
+  printf "You've hit your ${limit} \u00b7 resets %s (%s)\\n" \
+    "$(printf '%s' "$_hhmm" | tr 'A-Z' 'a-z')" "$_zone"
+`;
 
 /** The scripts directory, copied, with the fleet scan handing over one slice. */
 function shimmedScripts(root, manifest, handOver) {
@@ -496,7 +525,7 @@ test('a limit that returns with no commit since the wait ends on no-progress', s
     // that does not lift cannot hold an agent forever.
     writePrompt(wt, `n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
-printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
+${limitLineAtRuntime()}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
@@ -533,14 +562,14 @@ test('a limit after a resumed prompt that committed waits again', serial, () => 
 n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
 if [ "$n" = "1" ]; then
-  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
+  ${limitLineAtRuntime()}
   exit 1
 fi
 if [ "$n" = "2" ]; then
   echo "partial $n" > "$PLOT_WORKTREE/partial.txt"
   git -C "$PLOT_WORKTREE" add -A
   git -C "$PLOT_WORKTREE" commit -qm "partial work"
-  printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
+  ${limitLineAtRuntime()}
   exit 1
 fi
 echo "done" > "$PLOT_WORKTREE/work.txt"
@@ -657,7 +686,7 @@ test('a missing bundle keeps today\'s retries', serial, () => {
     fs.mkdirSync(log, { recursive: true });
     writePrompt(wt, `n=$(cat "${log}/runs" 2>/dev/null || echo 0)
 n=$((n + 1)); printf '%s' "$n" > "${log}/runs"
-printf '%s\\n' ${JSON.stringify(limitLine(RESET_AHEAD))}
+${limitLineAtRuntime()}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
