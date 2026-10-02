@@ -137,3 +137,97 @@ export const publication = (
   if (verdict === published) return null;
   return verdict === 'silent' ? 'clear' : verdict;
 };
+
+/**
+ * One pass's readings of a desk, judged on their own.
+ *
+ * EVERY FIELD IS A DURATION OR A WORD THE DESK ALREADY RECORDS, which is what
+ * lets one reading answer what `sample` needed two for. The condition that
+ * required a comparison — *the tree did not move between passes* — is read here
+ * as `treeQuietSeconds`, seconds since the newest thing in the tree changed.
+ * That is a stronger statement than "unchanged across two passes 30 s apart",
+ * and the filesystem had been recording it all along.
+ *
+ * NOTHING HERE IS FETCHED. The caller takes the readings and this scores them,
+ * so the rule is a pure function of one value and testable without a clock.
+ */
+export interface DeskReading {
+  /** Whether the recorded pid names a live process. */
+  pid: PidStatus;
+  /**
+   * Whether THIS worker's conversation has written yet.
+   *
+   * A reading, never an absence. `false` means the probe ran and found no file;
+   * a probe that could not run at all is the caller's problem to report as
+   * something else, because `false` here withholds `idle` and a missing reading
+   * must not.
+   */
+  spoken: boolean;
+  /** Seconds since the newest transcript line, already clamped by the caller. */
+  silenceSeconds: number;
+  /**
+   * Whether a child of the agent is burning CPU — a VETO, not the verdict.
+   *
+   * True only where the sampler answered `working`. A frozen subtree clock and
+   * no child at all are both `false`: past the window, each is an agent that
+   * has stopped. That is the opposite of how `observe` reads the same sampler,
+   * and deliberately — `observe` belongs to the CPU-snapshot rule, where the
+   * absence of a child was not the presence of an idle one. Here the window has
+   * already elapsed before this field is consulted at all.
+   */
+  childOnCore: boolean;
+  /**
+   * Seconds since the newest of: HEAD's committer time, each dirty path's
+   * mtime, and each dirty path's parent directory's mtime below the desk root.
+   */
+  treeQuietSeconds: number;
+  /** Whether the branch already carries commits that touched a file. */
+  commits: CommitReading;
+}
+
+/**
+ * Whether this desk is idle, from one reading.
+ *
+ * SIX CONDITIONS, ALL OF THEM TOGETHER: the pid is alive, the conversation has
+ * spoken, the transcript has been silent for at least the window, no child is
+ * on a core, the tree has not moved for at least the window, and the branch
+ * already carries work. Anything else is `silent`, which is not a finding and
+ * is published nowhere.
+ *
+ * ONE READING IS NOT THE HAZARD THE OLD COMMENT WARNED ABOUT. *"A single idle
+ * reading is a process caught between syscalls"* was written about a 0.4 s CPU
+ * sample. Here each non-CPU condition is already a span of at least `window`
+ * seconds, and the CPU is only a veto: a process caught between syscalls has
+ * neither 900 seconds of transcript silence nor a 900-second-old tree.
+ *
+ * `≥ window`, NOT `>`. The window is the point at which the question becomes
+ * worth asking, so a desk exactly at it is eligible — the same boundary
+ * `quiet -lt window → busy` draws from the other side.
+ *
+ * A `dead` pid answers `silent` AND NOT `gone`. The wrapper that starts the
+ * agent already knows the instant it ends and publishes `gone` itself, so this
+ * rule has no `gone` arm and no caller needs one.
+ *
+ * AN UNREADABLE VALUE IS THE CALLER'S TO TRANSLATE, and every translation is
+ * `silent`: an `unrecorded` pid, no transcript, no tree and an `unanswerable`
+ * commit question each withhold the finding. A failure to observe is not
+ * evidence of something to see — the rule `plot_worker_task_state` reached the
+ * hard way after a fallback read every clean branch in a remote-less repository
+ * as `stalled`.
+ *
+ * The commits condition is where the false positives would have been. An agent
+ * given a hard first slice is quiet for a long time with nothing to show, and
+ * calling that a stall is the cry-wolf that costs the finding its readers.
+ *
+ * @param reading What one pass measured of the desk.
+ * @param window Seconds a duration must reach to count as quiet.
+ * @returns `idle` where every condition holds, `silent` otherwise.
+ */
+export const idleNow = (reading: DeskReading, window: number): MonitorVerdict => {
+  if (reading.pid !== 'alive') return 'silent';
+  if (!reading.spoken) return 'silent';
+  if (reading.silenceSeconds < window) return 'silent';
+  if (reading.childOnCore) return 'silent';
+  if (reading.treeQuietSeconds < window) return 'silent';
+  return reading.commits === 'yes' ? 'idle' : 'silent';
+};

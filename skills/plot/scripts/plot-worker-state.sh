@@ -439,6 +439,230 @@ plot_worker_dirty_filter() { # $1=`git status --porcelain` output → the real w
     | grep -vE "$PLOT_TOOL_SCRATCH" || true
 }
 
+# ---------------------------------------------------------------------------
+# THE ONE-SAMPLE `idle` RULE — the shell's half of a declared duplicate
+# ---------------------------------------------------------------------------
+#
+# A DECLARED DUPLICATE OF `idleNow`, and the pair is held by
+# `packages/domain/corpus/sample.corpus.test.ts`. `docs/shell-and-domain.md` §1
+# settles which side of the cost rule this falls on: the rule is asked once per
+# agent per pass, so a 39 ms `node` hop is paid by every agent on this machine
+# forever. Neither side is authoritative — on a disagreement the branch stops,
+# and adjusting either side to make the comparison pass is the one move
+# forbidden.
+#
+# WHY IT LIVES HERE RATHER THAN IN THE MONITOR. Two callers read it: the
+# WorkerMonitor sources this file today, and the loop's own watcher sources it
+# too. One function, two readers, one answer — the same split this file was
+# extracted to hold.
+
+# Seconds since the newest thing in a desk's tree changed.
+#
+# THIS IS WHAT REPLACED A COMPARISON BETWEEN TWO PASSES. The two-sample rule
+# asked *did the fingerprint change between pass N-1 and pass N*, which needs a
+# process to hold pass N-1. This asks *how long since anything moved*, which the
+# filesystem has been recording all along — and `at least the window` is a
+# stronger statement than `unchanged across two passes 30 s apart`.
+#
+# THREE SOURCES, AND THE NEWEST OF THEM WINS:
+#
+#   HEAD's committer time        an agent that commits has plainly done something
+#   each dirty path's mtime      an agent editing a file
+#   each dirty path's PARENT     an add, a removal or a rename, which does not
+#                                move any surviving file's own mtime
+#
+# THE DESK ROOT'S OWN MTIME IS NEVER READ, and that is the reading's one
+# deliberate blind spot. The loop writes `.plot-worker.*` records into the desk
+# root and replaces them (`plot-dispatch.sh`'s manifest `mv`), which moves the
+# root directory's mtime. `plot_worker_dirty_filter` drops those records from
+# the list, but a dirty path AT the root would still contribute its parent — the
+# root — and the loop's own bookkeeping would then read as tree activity, so
+# `idle` could never fire. A parent counts only BELOW the root; a root-level
+# dirty path contributes its own mtime instead. The stated cost: a removal or a
+# rename at the desk root alone does not move this number.
+#
+# `unreadable` WHERE THERE IS NO TREE TO READ, and that word travels to the
+# verdict rather than being collapsed into a number. A failure to observe is not
+# evidence of something to see; zero would read as *everything just moved* and
+# a huge number as *nothing has moved in years*, and both are inventions.
+plot_worker_tree_quiet_seconds() { # $1=worktree → seconds | unreadable
+  local wt="$1" status paths head_ct now newest
+  [ -n "$wt" ] && [ -d "$wt" ] || { printf 'unreadable'; return 0; }
+
+  # HEAD's committer time, which is the whole reading on a clean tree. A repo
+  # with no commit yet answers nothing and leaves the dirty paths to speak.
+  head_ct=$(git -C "$wt" log -1 --format=%ct 2>/dev/null)
+  case "$head_ct" in ''|*[!0-9]*) head_ct='' ;; esac
+
+  # `-uall` IS FOR THIS READING ONLY, AND IT IS A MEASUREMENT RATHER THAN A
+  # TIDINESS. Default porcelain collapses a wholly new untracked directory to
+  # one line, `?? brandnew/`, because once git knows the whole directory is
+  # untracked it stops descending — fine for a display, fatal for an mtime. A
+  # directory's mtime moves when an ENTRY is added or removed and not when a
+  # file inside it is written, so a file an agent is editing right now inside a
+  # directory it created earlier reads as untouched. Measured 2026-10-02: a
+  # directory aged 2 000 s holding a file 1 s old read `tree quiet: 2001`, which
+  # is a false `idle` on an agent mid-edit. `-uall` lists `brandnew/f.txt`, so
+  # the file's own mtime is read and its parent is read beside it.
+  #
+  # THE FINGERPRINT KEEPS THE DEFAULT, and the asymmetry is correct: it asked
+  # *did these path NAMES change*, and a collapsed directory's name changes when
+  # the directory appears. This asks *when did anything move*, which the name
+  # cannot answer. Recorded in the plan's Open Points rather than widened
+  # silently.
+  status=$(git -C "$wt" status --porcelain -uall 2>/dev/null)
+
+  # THE SAME FILTER THE FINGERPRINT USED, for the same reason: this script's own
+  # records and the monitor's findings file are not work an agent left, and a
+  # raw status would make the monitor watch itself.
+  paths=''
+  if command -v plot_worker_dirty_filter >/dev/null 2>&1; then
+    paths=$(plot_worker_dirty_filter "$status")
+  else
+    paths=$(printf '%s' "$status" | cut -c4-)
+  fi
+
+  # Every path to stat, one per line, absolute. Built in awk rather than a bash
+  # loop so a desk holding hundreds of dirty paths costs one fork.
+  #
+  # A RENAME ARRIVES AS `old -> new` and the NEW name is the one that exists.
+  # A path with unusual bytes arrives quoted by git; the quotes are stripped so
+  # `stat` sees the name, which is lossy for a true embedded quote and the
+  # alternative is parsing C escapes in awk.
+  #
+  # A DELETED PATH DOES NOT EXIST, so its own mtime is unreadable. It is still
+  # listed — `stat` simply says nothing for it — and its parent below the root
+  # carries the change, which is exactly what a removal moves.
+  local list
+  list=$(printf '%s\n' "$paths" | awk -v wt="$wt" '
+    { line = $0 }
+    line == "" { next }
+    # A rename: take the destination, which is the name on disk now.
+    {
+      i = index(line, " -> ")
+      if (i > 0) line = substr(line, i + 4)
+      # Git quotes a path holding unusual bytes. Drop the quotes; the escapes
+      # inside are left as they are, and such a path simply reads unreadable.
+      if (substr(line, 1, 1) == "\"" && substr(line, length(line), 1) == "\"")
+        line = substr(line, 2, length(line) - 2)
+      if (line == "") next
+      print wt "/" line
+      # THE PARENT, BUT ONLY BELOW THE ROOT. A path with no `/` in it sits at
+      # the desk root, and the root is the directory the loop keeps touching.
+      if (index(line, "/") > 0) {
+        n = line
+        sub(/\/[^\/]*$/, "", n)
+        if (n != "" && n != ".") print wt "/" n
+      }
+    }
+  ')
+
+  # ONE `stat` CALL OVER EVERY PATH, and the flavour is probed once against a
+  # directory that certainly exists.
+  #
+  # THE ORDER IS LOAD-BEARING AND CI MEASURED WHY. On Linux `stat -f` is not an
+  # unknown flag — it means FILESYSTEM info and it SUCCEEDS, printing
+  # `Namelen: 255  Type: ext2/ext3`, which a caller then subtracts from a clock
+  # (`plot-fleetctl.sh`, and two tests that passed on macOS). So GNU's own form
+  # is asked first, because GNU is the implementation that mis-parses the other's
+  # flag, and each answer is validated as digits rather than trusted.
+  newest="$head_ct"
+  if [ -n "$list" ]; then
+    local fmt='' mtimes
+    if [ -n "$(stat -c %Y "$wt" 2>/dev/null)" ]; then fmt='gnu'
+    elif [ -n "$(stat -f %m "$wt" 2>/dev/null)" ]; then fmt='bsd'
+    fi
+    if [ -n "$fmt" ]; then
+      # A missing path makes `stat` exit non-zero while still printing the
+      # others, so the exit code is deliberately not read.
+      if [ "$fmt" = 'gnu' ]; then
+        mtimes=$(printf '%s\n' "$list" | tr '\n' '\0' | xargs -0 stat -c %Y 2>/dev/null)
+      else
+        mtimes=$(printf '%s\n' "$list" | tr '\n' '\0' | xargs -0 stat -f %m 2>/dev/null)
+      fi
+      # The maximum, taken in awk: only lines that are entirely digits count, so
+      # a filesystem report or an error line cannot become a timestamp.
+      local max
+      max=$(printf '%s\n' "$mtimes" | awk '/^[0-9]+$/ { if ($0 > m) m = $0 } END { if (m != "") print m }')
+      if [ -n "$max" ]; then
+        if [ -z "$newest" ] || [ "$max" -gt "$newest" ] 2>/dev/null; then newest="$max"; fi
+      fi
+    fi
+  fi
+
+  # NO COMMIT AND NO READABLE PATH is no reading at all — a desk whose git
+  # directory cannot be read, or a worktree with no history yet and nothing on
+  # the floor. It is not a very long silence.
+  [ -n "$newest" ] || { printf 'unreadable'; return 0; }
+
+  now=$(date +%s)
+  local quiet=$(( now - newest ))
+  # A time in the future — clock skew across a mounted volume — reads as zero
+  # rather than negative. A comparison against a window would behave correctly
+  # by accident here and not elsewhere; clamping says what is meant.
+  [ "$quiet" -lt 0 ] && quiet=0
+  printf '%s' "$quiet"
+}
+
+# Is this desk idle, from ONE reading of it?
+#
+# THE SHELL'S COPY OF `idleNow`, argument for argument. Six readings in, one
+# word out:
+#
+#   $1 pid        alive | dead | unrecorded
+#   $2 spoken     1 spoken | 0 not  (a reading, never an absence)
+#   $3 silence    seconds since the newest transcript line, or any non-number
+#   $4 activity   the sampler's word: `working` vetoes, `idle` and `` do not
+#   $5 treeQuiet  seconds since the newest tree change, or any non-number
+#   $6 commits    yes | no | unanswerable
+#   $7 window     seconds a duration must reach
+#
+# ONE WORD ON STDOUT AND EXIT 0, ALWAYS. A caller that tests only for empty
+# output cannot tell `silent` from *the function was missing*, so read the exit
+# code: this prints `idle` or `silent` and returns 0, and a shell that never
+# sourced this file returns 127 having printed nothing.
+#
+# `≥ window`, NOT `>`. The window is where the question becomes worth asking, so
+# a desk exactly at it is eligible — the same boundary `quiet -lt window → busy`
+# draws from the other side.
+#
+# THE CPU IS A VETO AND NOT THE VERDICT. Only `working` refuses, because only
+# `working` says something is running. `idle` (a frozen subtree clock) and ``
+# (no child holding a clock at all) agree here: past the window, each is an
+# agent that has stopped. That is the opposite of how the old CPU-snapshot rule
+# read the empty answer, and deliberately so — this line is reached only after
+# the window has already elapsed.
+#
+# NO `gone` ARM. A dead pid answers `silent`: the wrapper that starts the agent
+# knows the instant it ends and publishes `gone` itself.
+#
+# AN UNREADABLE VALUE ANSWERS `silent`, every one of them. An `unrecorded` pid,
+# an `unavailable` transcript, an `unreadable` tree and an `unanswerable` commit
+# question each withhold the finding, because a failure to observe is not
+# evidence of something to see.
+plot_worker_idle_now() { # $1..$7 as above → idle | silent
+  local pid="$1" spoken="$2" silence="$3" activity="$4" tree="$5" commits="$6" window="$7"
+
+  [ "$pid" = 'alive' ]  || { printf 'silent'; return 0; }
+  [ "$spoken" = '1' ]   || { printf 'silent'; return 0; }
+
+  # A non-numeric duration is a reading that was not taken. `unavailable`,
+  # `unreadable` and an empty string all land here, and so would a filesystem
+  # report that slipped past the validation above.
+  case "$window"  in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
+  case "$silence" in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
+  [ "$silence" -ge "$window" ] || { printf 'silent'; return 0; }
+
+  [ "$activity" = 'working' ] && { printf 'silent'; return 0; }
+
+  case "$tree" in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
+  [ "$tree" -ge "$window" ] || { printf 'silent'; return 0; }
+
+  [ "$commits" = 'yes' ] || { printf 'silent'; return 0; }
+  printf 'idle'
+  return 0
+}
+
 # The total CPU time, in centiseconds, of a pid and every process descended from
 # it. Prints the number; prints `0` and returns non-zero when the pid names no
 # live process at all.
