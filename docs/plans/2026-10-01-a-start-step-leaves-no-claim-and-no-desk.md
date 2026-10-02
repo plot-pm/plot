@@ -11,6 +11,7 @@
 - **Issue:** #1090, #1151
 - **Review:** in-session
 - **Impl:** own branches
+- **Started:** 2026-10-02, Jan Wloka, `bug/a-worker-less-checkout-yields-its-branch`
 
 ## Changelog
 
