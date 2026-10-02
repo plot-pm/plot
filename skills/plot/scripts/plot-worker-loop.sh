@@ -1965,8 +1965,10 @@ run_bounded() {
   # `tee -a` TO A FILE THE REGISTRY OWNS, through `plot-tmp.sh` like every
   # other temp path here. The file is per-prompt and removed when the function
   # returns, so a long slice's output does not accumulate across a hop.
-  plot_tmpfile _prompt_out prompt-out
-  _prompt_out_file="$_prompt_out"
+  # `plot_tmpfile` assigns BY NAME through `printf -v`, which is why the
+  # variable is not visibly written here — the substitution form is what
+  # `scripts/check-temp-paths.sh` refuses, because it removes or leaks the path.
+  plot_tmpfile _prompt_out_file prompt-out
   # shellcheck source=/dev/null
   bash -c '. "$1"' _ "$prompt_file" > >(tee -a "$_prompt_out_file") 2>&1 &
   _prompt_child=$!

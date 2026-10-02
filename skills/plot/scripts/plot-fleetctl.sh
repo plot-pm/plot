@@ -787,6 +787,25 @@ if [ "$mode" = "status" ]; then
         touched=$(stat -f %m "$wt/.plot-worker.log" 2>/dev/null || stat -c %Y "$wt/.plot-worker.log" 2>/dev/null || echo "$now")
         quiet=" — quiet $((now - touched))s"
       fi
+      # A WAITING AGENT IS NAMED AS WAITING, because `quiet 2400s` on a worker
+      # that is doing exactly what it should reads as a worker that stopped.
+      # The loop writes `.plot-worker.limited` while it waits out a usage
+      # limit; the reset is the first field and the same instant as ISO text is
+      # the second, so this compares integers and prints the text.
+      #
+      # ONLY WHILE THE RESET IS AHEAD OF NOW. A record outliving its reset —
+      # a worker SIGKILLed mid-wait, which leaves no trap to remove it — would
+      # otherwise report a wait nothing is serving, for as long as the desk
+      # stands. A past reset falls through to the quiet reading, which is the
+      # honest one for a process that should have resumed and did not.
+      if [ -r "$wt/.plot-worker.limited" ]; then
+        lim_reset=$(cut -f1 < "$wt/.plot-worker.limited" 2>/dev/null | head -n1)
+        lim_iso=$(cut -f2 < "$wt/.plot-worker.limited" 2>/dev/null | head -n1)
+        case "$lim_reset" in
+          ''|*[!0-9]*) ;;
+          *) [ "$lim_reset" -gt "$(date +%s)" ] && quiet=" — waiting on a usage limit until $lim_iso" ;;
+        esac
+      fi
       echo "  $br  running (pid $pid)$quiet"
     else
       n_other=$((n_other + 1))
