@@ -71,7 +71,7 @@ Exit 2 means the git host argument is missing. The entry reaches no filesystem a
 
 ## Slices
 
-### The host script asks who lists issues (Branch: bug/the-host-script-asks-who-lists-issues) <!-- builds: plot-issue-source.mjs, the issueSource shell entry -->
+### The host script asks who lists issues (Branch: bug/the-host-script-asks-who-lists-issues, PR: #1184) <!-- builds: plot-issue-source.mjs, the issueSource shell entry -->
 
 `tracker-listers.ts` with the re-export; `entry/issue-source.ts` and its `build.mjs` target; the `issue_source` helper in `plot-host.sh` and its use in `issue-list` and `issue-view`; contract tests in `test/reconcile/host.test.mjs`; a unit test for the entry's three answers and its usage exit; a `plot` patch and an `@plot-pm/board` patch changeset.
 
