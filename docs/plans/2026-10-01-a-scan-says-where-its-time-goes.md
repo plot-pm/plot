@@ -95,7 +95,7 @@ If slice 2 runs, it removes the largest named cost, and the cost decides the fix
 
 ## Slices
 
-### The scan time is measured (Branch: bug/the-scan-time-is-measured)
+### The scan time is measured (Branch: bug/the-scan-time-is-measured, PR: #1174)
 
 The board-shaped scan timed on `origin/main` and split into host, git, shell and wait; the table goes on #1017 and into Notes. No shipped file changes. <!-- builds: a timed attribution of the fleet scan's wall time -->
 
