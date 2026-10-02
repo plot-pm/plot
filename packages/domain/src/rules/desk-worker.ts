@@ -39,19 +39,19 @@ export interface DeskWorkerReading {
 }
 
 /** The desk's pid record names a worker that is still at this desk, or that no manifest places elsewhere. */
-export interface WorkerHere {
+export interface DeskWorkerHere {
   readonly kind: 'here';
 }
 
 /** The desk's pid record names a worker that a manifest places at another desk. */
-export interface WorkerLeft {
+export interface DeskWorkerLeft {
   readonly kind: 'left';
   /** The `worktree` field of the first manifest that places the worker elsewhere. */
   readonly worktree: string;
 }
 
 /** Where the worker a desk's pid record names runs. */
-export type DeskWorker = WorkerHere | WorkerLeft;
+export type DeskWorker = DeskWorkerHere | DeskWorkerLeft;
 
 /**
  * Where the worker named by a desk's pid record runs.
