@@ -715,8 +715,9 @@ export interface CacheEntry {
    */
   deliverInFlight: Set<string>;
   /**
-   * The plan slugs this board has asked the `Brief command` to write a brief
-   * for, and whose brief no pulse has yet seen on `origin/<main>`.
+   * The branches this board has asked the `Brief command` to write a brief
+   * for, and whose brief the latest pass still found missing on
+   * `origin/<main>`. Each auto-dispatch pass prunes it to those branches.
    *
    * The same cross-pulse guard `deliverInFlight` is, for the same reason and
    * with the same lifetime. Measured 2026-09-11: a dispatch that timed out
@@ -724,8 +725,8 @@ export interface CacheEntry {
    * slug, and a board asking every five seconds would produce one per pulse.
    *
    * MUTATED IN PLACE by `maybeAutoDispatch` rather than reassigned, which is
-   * why there is no `entry.briefsAsked =` below: the set is a running tally this
-   * entry owns, not a value derived from each pulse.
+   * why there is no `entry.briefsAsked =` below: the pass adds each new ask and
+   * deletes each ask whose brief landed, so the entry holds the pruned set.
    *
    * IN MEMORY AND NOWHERE ELSE. A restart re-derives it: the brief either
    * reached `origin/<main>`, in which case the plan is no longer `no-brief`, or

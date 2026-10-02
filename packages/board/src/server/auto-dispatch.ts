@@ -13,6 +13,8 @@ import {
   deferralMessage,
   hasRoomToDispatch,
   ceilingFor,
+  outstandingAsks,
+  briefAskBudget,
   type Machine as MachineEntity,
 } from '@plot-pm/domain';
 import type { AgentEntry } from './registry.js';
@@ -1004,10 +1006,11 @@ export function maybeAutoDispatch(
   // THE ASK RECORD IS MUTATED, NOT RETURNED, and that is the one asymmetry in
   // this signature. The in-flight set is returned because its contents are
   // DERIVED each pulse — pruned, merged with the peers', and handed back as this
-  // board's own contribution. The ask record is not derived from anything: it is
-  // a running tally of asks this board made, and the caller holds the same set
-  // across pulses. Returning a second value would change the contract every
-  // existing caller reads, to express a lifetime the caller already owns.
+  // board's own contribution. The ask record holds the branches this board asked
+  // a brief for; the caller holds the same set across pulses, and each pass
+  // prunes it in place to the asks whose brief is still missing. Returning a
+  // second value would change the contract every existing caller reads, to
+  // express a lifetime the caller already owns.
   //
   // IN MEMORY AND PER-BOARD, the lifetime `deliverInFlight` already has and for
   // its reason: a restart loses it, the brief either landed or did not, and the
@@ -1176,6 +1179,13 @@ export function maybeAutoDispatch(
   // Log which branches auto-dispatch is skipping for missing briefs, once per
   // pulse. Same pattern as the claimed-branch skip above: a refusal nobody sees
   // is the defect this slice removes.
+  // AN ASK HOLDS ITS SLOT ONLY WHILE ITS BRIEF IS MISSING. Pruned here, after
+  // this pass read `origin/<main>` and before any budget reads the tally, and
+  // written back into the caller's set so the cache entry keeps the pruned
+  // record. A branch whose brief landed, or that left the candidates, drops.
+  const kept = outstandingAsks(briefsAsked, missingBriefs);
+  for (const branch of briefsAsked) if (!kept.has(branch)) briefsAsked.delete(branch);
+
   if (controls.autoDispatch && missingBriefs.size > 0) {
     const missing = [...missingBriefs];
     console.log(
@@ -1230,8 +1240,17 @@ export function maybeAutoDispatch(
       // the planner use — and the asks already outstanding are charged too,
       // which is what stops N pulses from starting N writers for N plans while
       // none of them has landed.
-      let askBudget =
-        controls.parallelAgents - (liveCount + allInFlight.size + briefsAsked.size);
+      //
+      // A FREE AGENT IS NOT CHARGED. It holds no branch and is waiting for
+      // exactly the brief this budget would otherwise refuse. The dispatch
+      // budget above keeps `liveCount`, because a free agent does take a slice.
+      const busyAgents = agents.filter((a) => LIVE_STATES.has(a.state) && a.branch).length;
+      let askBudget = briefAskBudget({
+        cap: controls.parallelAgents,
+        busyAgents,
+        inFlight: allInFlight.size,
+        outstanding: briefsAsked.size,
+      });
       // READ FRESH, never cached at startup: a key added while the board runs
       // takes effect on the next pulse. An unset or `none` command answers ''
       // and this whole block does nothing — today's behaviour exactly, which is
@@ -1239,16 +1258,17 @@ export function maybeAutoDispatch(
       const command = askBudget > 0 ? briefCommand(opts) : '';
       for (const plan of asking) {
         if (askBudget <= 0) break;
-        // ONE ASK PER PLAN, AND NEVER A SECOND WHILE ONE IS OUTSTANDING.
+        // ONE ASK PER BRANCH, AND NEVER A SECOND WHILE ONE IS OUTSTANDING.
         // Measured 2026-09-11: a foreground dispatch timed out at 2 minutes
         // while `timeout 300` on the inner script outlived it, and re-running
-        // produced two `claude -p` briefs for one slug.
-        if (briefsAsked.has(plan.slug)) continue;
+        // produced two `claude -p` briefs for one slug. Keyed by branch, so a
+        // plan's later slice is asked for once its first slice's brief landed.
         if (!command) continue;
         const branch = firstBrieflessBranch(pulse, plan.slug, missingBriefs);
         // A plan reported `no-brief` has one by construction; the guard is for a
         // caller that hands in a reason and a pulse that disagree.
         if (!branch) continue;
+        if (briefsAsked.has(branch)) continue;
         const log = askForBrief(
           opts,
           command,
@@ -1259,7 +1279,7 @@ export function maybeAutoDispatch(
         // '' rather than throwing, and marking anyway is the conservative
         // direction: a board that re-asked every pulse on a broken command would
         // write a process per pulse. The restart clears it.
-        briefsAsked.add(plan.slug);
+        briefsAsked.add(branch);
         askBudget -= 1;
         // THE ASK IS REPORTED, in the same voice as the skips above, so an
         // operator reading the console sees the fleet acting rather than idling.

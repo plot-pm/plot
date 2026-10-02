@@ -62,6 +62,7 @@ export * from './rules/acting.js';
 export * from './rules/free.js';
 export * from './rules/queue.js';
 export * from './rules/fleet-size.js';
+export * from './rules/brief-budget.js';
 export * from './rules/sweepable.js';
 export * from './rules/prompt.js';
 export * from './rules/panel.js';
