@@ -12,7 +12,7 @@ import {
   unnamedBranches,
   type NamedSlice,
 } from '@plot-pm/domain/rules/slice-name';
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /**
@@ -67,6 +67,15 @@ export interface Request {
   channel: string;
   /** The version to record — `release` only. */
   version: string;
+  /**
+   * The plan's slices, as the parser reported them — `approve` only.
+   *
+   * Supplied out of band (`--slices <file>`) rather than as a twelfth field,
+   * because {@link requestFrom} refuses any line that is not exactly eleven and
+   * does not pad. Absent means the caller did not read them, which the
+   * transition reads as unmeasured rather than as *all named*.
+   */
+  slices?: readonly NamedSlice[];
 }
 
 /** The `## Status` phase spelling each verb writes, as the plan file spells it. */
@@ -90,7 +99,7 @@ const SPELLING: Readonly<Record<Verb, string>> = {
  * @returns the request
  * @throws when the line is not eleven tab-separated fields, or names no verb
  */
-export const requestFrom = (text: string): Request => {
+export const requestFrom = (text: string, slices?: readonly NamedSlice[]): Request => {
   const fields = text.replace(/\n$/, '').split('\t');
   if (fields.length !== 11) {
     throw new Error(
@@ -127,6 +136,7 @@ export const requestFrom = (text: string): Request => {
     who,
     channel,
     version,
+    ...(slices === undefined ? {} : { slices }),
   };
 };
 
@@ -143,6 +153,7 @@ export const decide = (request: Request): TransitionResult => {
         on: request.on,
         who: request.who,
         channel: request.channel,
+        ...(request.slices === undefined ? {} : { slices: request.slices }),
       });
     case 'deliver':
       return deliver(request.plan, { on: request.on });
@@ -198,6 +209,41 @@ export const answer = (request: Request): string => {
 };
 
 /**
+ * Read the parser's slices from a JSON document.
+ *
+ * The caller may supply the whole `plot-plan-meta.sh` object or only its
+ * `waves[]`. Anything else answers `null`, which every caller refuses on:
+ * reading an unparseable document as a plan naming no branch would approve the
+ * very shape this gate exists for.
+ *
+ * @param text the JSON document
+ * @returns the slices, or `null` where the document names no `waves[]`
+ */
+export const slicesFrom = (text: string): readonly NamedSlice[] | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const waves = Array.isArray(parsed) ? parsed : (parsed as { waves?: unknown } | null)?.waves;
+  if (!Array.isArray(waves)) return null;
+  return waves.map((wave) => {
+    const w = (wave ?? {}) as { name?: unknown; branches?: unknown };
+    return {
+      name: typeof w.name === 'string' ? w.name : '',
+      branches: (Array.isArray(w.branches) ? w.branches : []).map((line) => {
+        const l = (line ?? {}) as { branch?: unknown; deferred?: unknown };
+        return {
+          branch: typeof l.branch === 'string' ? l.branch : '',
+          deferred: l.deferred === true,
+        };
+      }),
+    };
+  });
+};
+
+/**
  * Answer whether a plan names a branch under no slice heading.
  *
  * **A SECOND QUESTION ON ONE BUNDLE, ASKED BY ARGUMENT RATHER THAN BY FIELD.**
@@ -224,34 +270,9 @@ export const checkSlices = (
   slug: string,
   write: (s: string) => void = (s) => process.stderr.write(s),
 ): number => {
-  let slices: readonly NamedSlice[];
-  try {
-    const parsed: unknown = JSON.parse(text);
-    // The caller may pipe the whole meta object or just its `waves[]`. Either
-    // is read; anything else is refused rather than treated as a plan naming
-    // no branch, which would approve the very shape this gate exists for.
-    const waves = Array.isArray(parsed)
-      ? parsed
-      : (parsed as { waves?: unknown } | null)?.waves;
-    if (!Array.isArray(waves)) {
-      write("plot-transition: expected the parser's waves[] — refusing rather than guessing.\n");
-      return 2;
-    }
-    slices = waves.map((wave) => {
-      const w = (wave ?? {}) as { name?: unknown; branches?: unknown };
-      return {
-        name: typeof w.name === 'string' ? w.name : '',
-        branches: (Array.isArray(w.branches) ? w.branches : []).map((line) => {
-          const l = (line ?? {}) as { branch?: unknown; deferred?: unknown };
-          return {
-            branch: typeof l.branch === 'string' ? l.branch : '',
-            deferred: l.deferred === true,
-          };
-        }),
-      };
-    });
-  } catch {
-    write('plot-transition: cannot read the slices as JSON — refusing rather than guessing.\n');
+  const slices = slicesFrom(text);
+  if (slices === null) {
+    write("plot-transition: cannot read the parser's waves[] — refusing rather than guessing.\n");
     return 2;
   }
   const unnamed = unnamedBranches(slices);
@@ -269,15 +290,17 @@ export const checkSlices = (
  *
  * @param text the whole of stdin
  * @param write where the answer goes
+ * @param slices the plan's slices, where the caller read them
  * @returns the process exit code — 0 decided, 1 refused, 2 unreadable input
  */
 export const run = (
   text: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  slices?: readonly NamedSlice[],
 ): number => {
   let request: Request;
   try {
-    request = requestFrom(text);
+    request = requestFrom(text, slices);
   } catch (err) {
     process.stderr.write(`plot-transition: ${(err as Error).message}\n`);
     return 2;
@@ -303,6 +326,22 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   const text = Buffer.concat(chunks).toString('utf8');
-  const flag = process.argv.indexOf('--check-slices');
-  process.exit(flag === -1 ? run(text) : checkSlices(text, process.argv[flag + 1] ?? ''));
+  const check = process.argv.indexOf('--check-slices');
+  if (check !== -1) process.exit(checkSlices(text, process.argv[check + 1] ?? ''));
+  // `--slices <file>` rather than a twelfth stdin field, and a FILE rather than
+  // an inline argument: the parser's waves[] carry branch names and prose, and
+  // an argv limit is the one failure that would silently drop the reading.
+  const at = process.argv.indexOf('--slices');
+  let slices: readonly NamedSlice[] | undefined;
+  if (at !== -1) {
+    const parsed = slicesFrom(readFileSync(process.argv[at + 1] ?? '', 'utf8'));
+    if (parsed === null) {
+      process.stderr.write(
+        "plot-transition: cannot read the parser's waves[] from --slices — refusing rather than guessing.\n",
+      );
+      process.exit(2);
+    }
+    slices = parsed;
+  }
+  process.exit(run(text, (out) => process.stdout.write(out), slices));
 }

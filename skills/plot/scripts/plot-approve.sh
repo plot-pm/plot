@@ -550,6 +550,15 @@ decide_transition() { # $1=file $2=channel  → prints "<Phase>\t<record>\t<writ
     || { echo "plot-approve: cannot find $transition_mjs — run 'pnpm build:board'." >&2; return 1; }
   m=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null) || m=""
   [ -n "$m" ] || { echo "plot-approve: cannot parse $f — refusing rather than guessing." >&2; return 1; }
+  # THE SLICES TRAVEL WITH THE TRANSITION, not only with the early check above.
+  # Measured 2026-10-02 by disabling that check: this call approved an unnamed
+  # plan outright — merged, flipped and recorded — because the eleven-field line
+  # carries no slices and the domain reads an absent reading as unmeasured. So
+  # the rule is asked twice, the second time from the file this re-parses, which
+  # on the `pr` flow is the plan on the default branch.
+  local slices_file=""
+  plot_tmpfile slices_file approve-transition-slices
+  printf '%s' "$m" > "$slices_file"
   answer=$(printf 'approve\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n' \
     "$slug" \
     "$(printf '%s' "$m" | jq -r '.phase // ""')" \
@@ -558,8 +567,9 @@ decide_transition() { # $1=file $2=channel  → prints "<Phase>\t<record>\t<writ
     "$(printf '%s' "$m" | jq -r '.delivered_raw // ""')" \
     "$(printf '%s' "$m" | jq -r '.released_raw // ""')" \
     "$today" "$who" "$channel" \
-    | node "$transition_mjs" 2>&1)
+    | node "$transition_mjs" --slices "$slices_file" 2>&1)
   rc=$?
+  rm -f "$slices_file"
   # Exit 1 is the domain's refusal and its sentence, tab-separated after the
   # rule that fired. Exit 2 is this script handing it something unreadable,
   # which no operator can act on — so it reports as the bug it is.
