@@ -73,7 +73,7 @@ The shell asks it through one bundle, `skills/plot/scripts/board/plot-checkout-y
 
 `--brief-only` in `skills/plot-implement/SKILL.md` (step 3 skipped, its Model Guidance row and its unattended lines updated, `README.md` beside it), `composeImplementPrompt` in `packages/board/src/server/implement.ts`, the capability reason that names the Implement action's effect, and a `plot-implement` minor bump plus an `@plot-pm/board` patch in one changeset. Tests: a unit case that `composeImplementPrompt('x')` contains `--brief-only`; the existing dispatch test at `packages/board/test/dispatch.test.mjs:448` asserts the prompt argument its stub implement receives carries `--brief-only`.
 
-### A worker-less checkout yields its branch (Branch: bug/a-worker-less-checkout-yields-its-branch)
+### A worker-less checkout yields its branch (Branch: bug/a-worker-less-checkout-yields-its-branch, PR: #1198)
 
 `rules/checkout-yield.ts` with its unit tests, the bundle `board/plot-checkout-yield.mjs` and its entry under `packages/board/src/server/entry/`, its line in `packages/board/build.mjs` and `.gitattributes`, the `reset_desk` change in `plot-worker-loop.sh`, a row in `CLAUDE.md`'s Helper Scripts table for the bundle, and an `@plot-pm/board` patch changeset. Tests: a contract test in `test/reconcile/` holds the branch in a clean worker-less worktree, hands the slice to a stub loop, and asserts the loop checks the branch out and logs the removal; a second case holds it in a worktree with an uncommitted file and asserts the worktree survives and the marker names `uncommitted-changes`.
 
