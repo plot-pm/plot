@@ -57,21 +57,45 @@ const jobBlock = (yaml, name) => {
 /** Everything above `jobs:` — the triggers, permissions and concurrency block. */
 const preamble = (yaml) => yaml.slice(0, yaml.indexOf('\njobs:'));
 
+/**
+ * The text of one trigger under `on:`, from its own `  <name>:` line to the next
+ * key at that indentation, with comment lines dropped.
+ *
+ * SCOPED LIKE A JOB, AND FOR THE SAME REASON. The comment above
+ * `workflow_dispatch` names `changeset-release/main` as prose — it has to, it
+ * explains why the branch is no longer a push target — and a slice that ran to
+ * the end of the preamble read that sentence as a `push` entry.
+ */
+const triggerBlock = (yaml, name) => {
+  const lines = preamble(yaml).split('\n');
+  const start = lines.findIndex((l) => l === `  ${name}:`);
+  assert.notEqual(start, -1, `on.${name} must be declared`);
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^ {2}[A-Za-z_][A-Za-z0-9_-]*:/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  return lines
+    .slice(start, end)
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+};
+
 // ── ci.yml: the trigger ──────────────────────────────────────────────────────
 
 test('ci.yml declares workflow_dispatch with a required expected_sha input', () => {
-  const head = preamble(CI);
-  assert.match(head, /^ {2}workflow_dispatch:/m, 'ci.yml must declare a workflow_dispatch trigger');
-  assert.match(head, /^ {6}expected_sha:/m, 'the dispatch must take an expected_sha input');
+  const block = triggerBlock(CI, 'workflow_dispatch');
+  assert.match(block, /^ {6}expected_sha:/m, 'the dispatch must take an expected_sha input');
   // REQUIRED, because a gate that cannot be asked must fail rather than skip:
   // an empty `expected_sha` would otherwise dispatch an unpinned run.
-  const input = head.slice(head.indexOf('    expected_sha:'));
+  const input = block.slice(block.indexOf('      expected_sha:'));
   assert.match(input, /required: true/, 'expected_sha must be required');
 });
 
 test('ci.yml no longer lists changeset-release/main under push', () => {
-  const head = preamble(CI);
-  const push = head.slice(head.indexOf('\n  push:'));
+  const push = triggerBlock(CI, 'push');
   assert.doesNotMatch(
     push,
     /changeset-release\/main/,
