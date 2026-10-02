@@ -81,7 +81,7 @@ Nobody has measured whether GitHub holds a `workflow_dispatch` run started by `g
 
 ## Slices
 
-### The release workflow starts CI (Branch: infra/the-release-workflow-starts-ci)
+### The release workflow starts CI (Branch: infra/the-release-workflow-starts-ci, PR: #1227)
 
 The `workflow_dispatch` trigger with its SHA and ref guard, the `concurrency:` group and top-level permission in `ci.yml`, the `dispatch-ci` job, the rewritten comment, `release-pr-ci.test.mjs`, the `RELEASING.md` step, and a changeset.
 
