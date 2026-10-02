@@ -14,6 +14,7 @@ import {
   supersede,
   undeliver,
   undeliverable,
+  type ApproveInput,
   type TransitionPlan,
 } from '../src/transitions/plan.js';
 
@@ -28,13 +29,23 @@ const planWith = (over: Partial<TransitionPlan> = {}): TransitionPlan => ({
   ...over,
 });
 
+/**
+ * The approver's side of an approval, which each test varies in one way.
+ *
+ * `people` declares the handle `who` defaults to, so a test that says nothing
+ * about the reviewer gets a declared one and tests the gate it means to.
+ */
+const approvedBy = (over: Partial<ApproveInput> = {}): ApproveInput => ({
+  on: '2026-08-29',
+  who: 'jwloka',
+  channel: 'plan-PR #42 merged',
+  people: ['jwloka', 'eins78'],
+  ...over,
+});
+
 describe('approve', () => {
   it('returns a decision carrying the phase and its record together', () => {
-    const result = approve(planWith(), {
-      on: '2026-08-29',
-      who: 'Jan Wloka',
-      channel: 'plan-PR #42 merged',
-    });
+    const result = approve(planWith(), approvedBy({ who: 'Jan Wloka', channel: 'plan-PR #42 merged' }));
     expect(isDecision(result)).toBe(true);
     if (!isDecision(result)) return;
     expect(result.phase).toBe('approved');
@@ -43,29 +54,17 @@ describe('approve', () => {
   });
 
   it('approves a design plan, the forward exit from the transitional phase', () => {
-    const result = approve(planWith({ phase: 'design' }), {
-      on: '2026-08-29',
-      who: 'Jan Wloka',
-      channel: 'plan-PR #42 merged',
-    });
+    const result = approve(planWith({ phase: 'design' }), approvedBy({ who: 'Jan Wloka', channel: 'plan-PR #42 merged' }));
     expect(isDecision(result)).toBe(true);
   });
 
   it('treats an already-approved plan with no record as the repairable case', () => {
-    const result = approve(planWith({ phase: 'approved' }), {
-      on: '2026-08-29',
-      who: 'Jan Wloka',
-      channel: 'plan-PR #42 merged',
-    });
+    const result = approve(planWith({ phase: 'approved' }), approvedBy({ who: 'Jan Wloka', channel: 'plan-PR #42 merged' }));
     expect(isDecision(result)).toBe(true);
   });
 
   it('reports nothing to do when the phase is approved and the record is written', () => {
-    const result = approve(planWith({ phase: 'approved', approvedRecord: '2026-08-01, Jan, pr' }), {
-      on: '2026-08-29',
-      who: 'Jan Wloka',
-      channel: 'plan-PR #42 merged',
-    });
+    const result = approve(planWith({ phase: 'approved', approvedRecord: '2026-08-01, Jan, pr' }), approvedBy({ who: 'Jan Wloka', channel: 'plan-PR #42 merged' }));
     expect(isDecision(result)).toBe(true);
     if (!isDecision(result)) return;
     expect(result.alreadyRecorded).toBe(true);
@@ -73,11 +72,7 @@ describe('approve', () => {
   });
 
   it('accepts a plan whose review channel was never recorded', () => {
-    const result = approve(planWith({ review: 'none' }), {
-      on: '2026-08-29',
-      who: 'Jan Wloka',
-      channel: 'plan-PR #42 merged',
-    });
+    const result = approve(planWith({ review: 'none' }), approvedBy({ who: 'Jan Wloka', channel: 'plan-PR #42 merged' }));
     expect(isDecision(result)).toBe(true);
   });
 
@@ -176,11 +171,7 @@ describe('approve', () => {
   });
 
   it('refuses state-terminal: a delivered plan has nothing to approve', () => {
-    const result = approve(planWith({ phase: 'delivered' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+    const result = approve(planWith({ phase: 'delivered' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('state-terminal');
@@ -188,57 +179,105 @@ describe('approve', () => {
   });
 
   it('refuses state-terminal: a released plan has nothing to approve', () => {
-    const result = approve(planWith({ phase: 'released' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+    const result = approve(planWith({ phase: 'released' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('state-terminal');
   });
 
   it('refuses state-unreadable rather than guessing an empty phase', () => {
-    const result = approve(planWith({ phase: 'none' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+    const result = approve(planWith({ phase: 'none' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('state-unreadable');
   });
 
   it('refuses state-wrong for a phase that does not approve', () => {
-    const result = approve(planWith({ phase: 'rejected' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+    const result = approve(planWith({ phase: 'rejected' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('state-wrong');
     expect(result.detail).toContain('rejected');
   });
 
-  it('refuses review-human for an in-session channel', () => {
-    const result = approve(planWith({ review: 'in-session' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+  // Kept, with an empty `who`: the reason an in-session plan refuses is now
+  // that nobody is named, not that the channel is in-session.
+  it('refuses review-human for an in-session channel with no reviewer named', () => {
+    const result = approve(planWith({ review: 'in-session' }), approvedBy({ who: '' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('review-human');
     expect(result.detail).toContain('in-session');
+    expect(result.detail).toContain('--who');
   });
 
-  it('refuses review-human for a ballot channel', () => {
-    const result = approve(planWith({ review: 'ballot' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+  it('refuses review-human for an in-session channel whose reviewer is whitespace', () => {
+    const result = approve(planWith({ review: 'in-session' }), approvedBy({ who: '   ' }));
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('review-human');
+  });
+
+  it('approves an in-session plan whose reviewer the project declares', () => {
+    const result = approve(
+      planWith({ review: 'in-session' }),
+      approvedBy({ who: 'jwloka', channel: 'in-session' }),
+    );
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.record).toBe('2026-08-29, jwloka, in-session');
+  });
+
+  // Its own reason, because its repair is its own: `review-human` says a human
+  // is needed, this says the human named is not one the project declared.
+  it('refuses reviewer-undeclared for a reviewer the People key never named', () => {
+    const result = approve(
+      planWith({ review: 'in-session' }),
+      approvedBy({ who: 'someone-else', channel: 'in-session' }),
+    );
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('reviewer-undeclared');
+    expect(result.detail).toContain('someone-else');
+    expect(result.detail).toContain('People');
+  });
+
+  // Catches a membership test written `people.length === 0 || includes(who)`.
+  it('refuses a named reviewer when the project declares nobody', () => {
+    const result = approve(
+      planWith({ review: 'in-session' }),
+      approvedBy({ who: 'jwloka', channel: 'in-session', people: [] }),
+    );
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('reviewer-undeclared');
+  });
+
+  // The handle is the subject. The plan's text and the unowned-write log both
+  // record handles, so matching a spelling would record a name no log carries.
+  it('matches the handle and not the spelling the People key pairs with it', () => {
+    const result = approve(
+      planWith({ review: 'in-session' }),
+      approvedBy({ who: 'Jan Wloka', channel: 'in-session' }),
+    );
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('reviewer-undeclared');
+  });
+
+  it('trims the reviewer before matching, so a padded handle approves', () => {
+    const result = approve(
+      planWith({ review: 'in-session' }),
+      approvedBy({ who: '  jwloka  ', channel: 'in-session' }),
+    );
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    // Recorded as typed: trimming decides the match, it does not rewrite `who`.
+    expect(result.record).toBe('2026-08-29,   jwloka  , in-session');
+  });
+
+  it('refuses review-human for a ballot channel, whatever who names', () => {
+    const result = approve(planWith({ review: 'ballot' }), approvedBy({ who: 'jwloka' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('review-human');
@@ -246,11 +285,7 @@ describe('approve', () => {
   });
 
   it('refuses review-unrecognised rather than defaulting an unknown channel to pr', () => {
-    const result = approve(planWith({ review: 'carrier-pigeon' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+    const result = approve(planWith({ review: 'carrier-pigeon' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('review-unrecognised');
@@ -258,12 +293,7 @@ describe('approve', () => {
   });
 
   it('refuses precondition-unmet when a supplied reading refuses', () => {
-    const result = approve(planWith(), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-      preconditions: [{ name: 'plan-PR merged', met: false, detail: 'PR #42 is closed' }],
-    });
+    const result = approve(planWith(), approvedBy({ who: 'Jan', channel: 'pr', preconditions: [{ name: 'plan-PR merged', met: false, detail: 'PR #42 is closed' }] }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('precondition-unmet');
@@ -272,22 +302,12 @@ describe('approve', () => {
   });
 
   it('proceeds when every supplied reading is met', () => {
-    const result = approve(planWith(), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-      preconditions: [{ name: 'plan-PR merged', met: true }],
-    });
+    const result = approve(planWith(), approvedBy({ who: 'Jan', channel: 'pr', preconditions: [{ name: 'plan-PR merged', met: true }] }));
     expect(isDecision(result)).toBe(true);
   });
 
   it('names a failing precondition that carries no detail', () => {
-    const result = approve(planWith(), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-      preconditions: [{ name: 'plan-PR merged', met: false }],
-    });
+    const result = approve(planWith(), approvedBy({ who: 'Jan', channel: 'pr', preconditions: [{ name: 'plan-PR merged', met: false }] }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.detail).toBe("the reading 'plan-PR merged' is not met");
@@ -487,34 +507,26 @@ describe('the offer is separate from the act', () => {
   it('approve refuses on its own, for a caller that never asked approvable', () => {
     const plan = planWith({ phase: 'delivered' });
     expect(approvable(plan)).toBe(false);
-    expect(isRefusal(approve(plan, { on: '2026-08-29', who: 'Jan', channel: 'pr' }))).toBe(true);
+    expect(isRefusal(approve(plan, approvedBy({ who: 'Jan', channel: 'pr' })))).toBe(true);
   });
 });
 
 describe('a decision is assertable as a value', () => {
   it('carries the plan it is about, so a writer needs no second lookup', () => {
-    const result = approve(planWith({ slug: 'the-domain-moves-out' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+    const result = approve(planWith({ slug: 'the-domain-moves-out' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     if (!isDecision(result)) throw new Error('expected a decision');
     expect(result.slug).toBe('the-domain-moves-out');
   });
 
   it('is comparable by deep equality, carrying no functions or dates', () => {
     const twice = () =>
-      approve(planWith(), { on: '2026-08-29', who: 'Jan', channel: 'plan-PR #42 merged' });
+      approve(planWith(), approvedBy({ who: 'Jan', channel: 'plan-PR #42 merged' }));
     expect(twice()).toEqual(twice());
   });
 
   it('narrows to exactly one of the two shapes', () => {
-    const decision = approve(planWith(), { on: '2026-08-29', who: 'Jan', channel: 'pr' });
-    const refusal = approve(planWith({ phase: 'released' }), {
-      on: '2026-08-29',
-      who: 'Jan',
-      channel: 'pr',
-    });
+    const decision = approve(planWith(), approvedBy({ who: 'Jan', channel: 'pr' }));
+    const refusal = approve(planWith({ phase: 'released' }), approvedBy({ who: 'Jan', channel: 'pr' }));
     expect([isDecision(decision), isRefusal(decision)]).toEqual([true, false]);
     expect([isDecision(refusal), isRefusal(refusal)]).toEqual([false, true]);
   });

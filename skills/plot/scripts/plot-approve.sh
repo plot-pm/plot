@@ -552,14 +552,18 @@ decide_transition() { # $1=file $2=channel  → prints "<Phase>\t<record>\t<writ
   [ -n "$m" ] || { echo "plot-approve: cannot parse $f — refusing rather than guessing." >&2; return 1; }
   # THE SLICES TRAVEL WITH THE TRANSITION, not only with the early check above.
   # Measured 2026-10-02 by disabling that check: this call approved an unnamed
-  # plan outright — merged, flipped and recorded — because the eleven-field line
+  # plan outright — merged, flipped and recorded — because the field line
   # carries no slices and the domain reads an absent reading as unmeasured. So
   # the rule is asked twice, the second time from the file this re-parses, which
   # on the `pr` flow is the plan on the default branch.
+  #
+  # Out of band rather than a field of its own, which is why `People` widening
+  # the line to twelve did not touch this: the slices are a nested list, and
+  # `requestFrom` pads nothing.
   local slices_file=""
   plot_tmpfile slices_file approve-transition-slices
   printf '%s' "$m" > "$slices_file"
-  answer=$(printf 'approve\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n' \
+  answer=$(printf 'approve\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
     "$slug" \
     "$(printf '%s' "$m" | jq -r '.phase // ""')" \
     "$(printf '%s' "$m" | jq -r '.review // ""')" \

@@ -130,29 +130,32 @@ brief="${branch##*/}"
 brief_file=".plot/briefs/${brief}.md"
 [ -f "$repo_root/$brief_file" ] || brief_file=""
 
-# DOES A PR ALREADY CARRY THIS BRANCH? Asked of the host through the adapter, in
-# ONE call over every state: an open PR and a merged one both mean this branch
-# is already carried, and opening a second would give the fleet two answers.
-# A host that cannot be asked answers 0 — the refusal it would raise is not one
-# to raise on an outage, and the host itself refuses a duplicate PR.
-existing_pr=0
+# WHICH PRs HAVE CARRIED THIS BRANCH? Asked of the host through the adapter, in
+# ONE call over every state. EVERY matching row is passed on with its state, and
+# this script decides nothing: #1093 was exactly this shell keeping the number of
+# the first matching row and reading no state, so a branch whose earlier PR was
+# closed unmerged read as carried forever.
+# A host that cannot be asked answers no rows — the refusal it would raise is not
+# one to raise on an outage, and the host itself refuses a duplicate PR.
+pr_list='[]'
 pr_rows=$(bash "$script_dir/plot-host.sh" pr-list --state all --limit 200 2>/dev/null) || pr_rows=""
 if [ -n "$pr_rows" ]; then
-  existing_pr=$(printf '%s\n' "$pr_rows" | PLOT_BRANCH="$branch" node -e '
+  pr_list=$(printf '%s\n' "$pr_rows" | PLOT_BRANCH="$branch" node -e '
     let s = "";
     process.stdin.on("data", (d) => (s += d)).on("end", () => {
       const want = process.env.PLOT_BRANCH;
+      const rows = [];
       for (const line of s.split("\n")) {
         if (!line.trim().startsWith("{")) continue;
         let row;
         try { row = JSON.parse(line); } catch { continue; }
-        if (row.head === want) { console.log(row.number); return; }
+        if (row.head === want) rows.push({ number: row.number, state: row.state });
       }
-      console.log(0);
+      process.stdout.write(JSON.stringify(rows));
     });
-  ' 2>/dev/null) || existing_pr=0
+  ' 2>/dev/null) || pr_list='[]'
 fi
-[ -n "$existing_pr" ] || existing_pr=0
+[ -n "$pr_list" ] || pr_list='[]'
 
 # HOW MANY COMMITS THE BRANCH HOLDS THAT ITS BASE DOES NOT, and whether they
 # changed anything but a marker. The base is read from the remote where there is
@@ -201,7 +204,7 @@ plan_link="${plan_file#"$repo_root"/}"
 # tab-separated wire would mean re-assembling a shape the rule just composed.
 request=$(PLOT_BRANCH="$branch" PLOT_BASE="$base" PLOT_SLUG="$plan_slug" \
   PLOT_FILE="$plan_link" PLOT_SLICE="$slice_name" PLOT_BRIEF="$brief_file" \
-  PLOT_PR="$existing_pr" PLOT_COMMITS="$commits" PLOT_WORK="$carried_work" \
+  PLOT_PRS="$pr_list" PLOT_COMMITS="$commits" PLOT_WORK="$carried_work" \
   PLOT_DRAFT="$draft" node -e '
     const e = process.env;
     process.stdout.write(JSON.stringify({
@@ -213,7 +216,7 @@ request=$(PLOT_BRANCH="$branch" PLOT_BASE="$base" PLOT_SLUG="$plan_slug" \
         planFile: e.PLOT_FILE,
         sliceName: e.PLOT_SLICE,
         briefFile: e.PLOT_BRIEF,
-        existingPr: Number(e.PLOT_PR),
+        prs: JSON.parse(e.PLOT_PRS),
         commits: Number(e.PLOT_COMMITS),
         carriedWork: JSON.parse(e.PLOT_WORK),
       },
@@ -241,12 +244,20 @@ fi
 title=$(printf '%s' "$answer" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).title))')
 body=$(printf '%s' "$answer" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).body))')
 notice=$(printf '%s' "$answer" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).notice))')
+closed_prs=$(printf '%s' "$answer" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write((JSON.parse(s).closedPrs||[]).map(n=>"#"+n).join(", ")))')
 
 # The notice goes to the operator too, not only into the body: a person running
 # this reads their terminal, and the branch they just opened a PR for may be one
 # they meant to finish first.
 if [ "$notice" = "marker-only" ]; then
   echo "plot-open-pr: '$branch' carries no implementation outside a PLOT-BLOCKED marker — the PR says so." >&2
+fi
+
+# A CLOSED PR CARRIED THIS BRANCH AND CARRIES IT NO LONGER. The body says so for
+# a later reader; the terminal says so for the person running this, who is the
+# one who can tell an abandoned review from a mistaken close.
+if [ -n "$closed_prs" ]; then
+  echo "plot-open-pr: '$branch' had $closed_prs closed unmerged — opening a new PR" >&2
 fi
 
 if [ "$dry_run" = 1 ]; then

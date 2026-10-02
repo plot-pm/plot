@@ -19,6 +19,7 @@ export type ApproveRefusal =
   | 'state-unreadable'
   | 'state-wrong'
   | 'review-human'
+  | 'reviewer-undeclared'
   | 'review-unrecognised'
   | 'slice-unnamed'
   | 'pr-closed'
@@ -82,6 +83,20 @@ export interface ApproveInput {
   on: string;
   /** The name to record as approver. */
   who: string;
+  /**
+   * How the approval happened, recorded verbatim under `Review: in-session`.
+   *
+   * An in-session plan has no plan PR, so the `plan-PR #N` text a PR review
+   * records cannot be composed for one.
+   */
+  channel: string;
+  /**
+   * The handles the project declares, as the `People` config key spells them.
+   *
+   * An empty list declares no reviewer, so every in-session `who` is
+   * undeclared: absence is not permission.
+   */
+  people: readonly string[];
 }
 
 /** What an approval decided, beyond its writes. */
@@ -109,12 +124,18 @@ export interface ApproveDetail {
  * are the idempotent case the script exists to repair, since its one
  * irreversible step is the merge and every step after it is local.
  *
+ * `Review: in-session` approves when `input.who` names a handle `input.people`
+ * declares, and its decision reads no PR at all — such a plan carries none, so
+ * the PR refusals, the PR writes and the `plan-PR #N` channel text are all
+ * skipped and `input.channel` is recorded instead.
+ *
  * @param readings - what the adapters measured about the plan and its PR.
- * @param input - the date and approver to record.
+ * @param input - the date, approver, channel and declared handles to record
+ *   against.
  * @returns a decision naming every write, or a refusal naming the rule that
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
  *   `state-unreadable`, `state-wrong`, `slice-unnamed`, `review-human`,
- *   `review-unrecognised`, `pr-closed` or `pr-absent`.
+ *   `reviewer-undeclared`, `review-unrecognised`, `pr-closed` or `pr-absent`.
  */
 export const approve = (
   readings: ApproveReadings,
@@ -175,11 +196,22 @@ export const approve = (
     case 'NONE':
     case '':
       break;
-    case 'in-session':
-      return no(
-        'review-human',
-        `plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.`,
-      );
+    case 'in-session': {
+      const named = input.who.trim();
+      if (named === '') {
+        return no(
+          'review-human',
+          `plan '${slug}' declares 'Review: in-session' — name the reviewer with --who.`,
+        );
+      }
+      if (!input.people.includes(named)) {
+        return no(
+          'reviewer-undeclared',
+          `'${named}' is not a handle this project declares — add it to the 'People' config key, or name one it declares.`,
+        );
+      }
+      break;
+    }
     case 'ballot':
       return no('review-human', `plan '${slug}' declares 'Review: ballot' — the tally is the approval.`);
     default:
@@ -189,20 +221,27 @@ export const approve = (
       );
   }
 
-  switch (readings.pr.state) {
-    case 'MERGED':
-    case 'OPEN':
-      break;
-    case 'CLOSED':
-      return no(
-        'pr-closed',
-        `the plan PR for '${slug}' (#${readings.pr.number}) is closed. Reopen it or create a new one.`,
-      );
-    default:
-      return no(
-        'pr-absent',
-        `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
-      );
+  // An in-session plan is reviewed in the room and carries no plan PR, so the
+  // PR readings say nothing about it. Asking them anyway refuses `pr-absent`
+  // for the plan's intended shape.
+  const inSession = readings.review === 'in-session';
+
+  if (!inSession) {
+    switch (readings.pr.state) {
+      case 'MERGED':
+      case 'OPEN':
+        break;
+      case 'CLOSED':
+        return no(
+          'pr-closed',
+          `the plan PR for '${slug}' (#${readings.pr.number}) is closed. Reopen it or create a new one.`,
+        );
+      default:
+        return no(
+          'pr-absent',
+          `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
+        );
+    }
   }
 
   const sameBranch = readings.impl === 'same-branch';
@@ -210,7 +249,7 @@ export const approve = (
 
   // Step 2 — the PR. Skipped entirely under `same branch`, where merging here
   // would land an unfinished implementation on the default branch.
-  if (!sameBranch && readings.pr.state !== 'MERGED') {
+  if (!inSession && !sameBranch && readings.pr.state !== 'MERGED') {
     // Ready BEFORE merge, because the reverse cannot exist: a draft PR is not
     // mergeable on either host.
     if (readings.pr.draft) writes.push({ kind: 'pr-ready', pr: readings.pr.number });
@@ -228,9 +267,11 @@ export const approve = (
   // invisible to the scan.
   const recordWritten = readings.approvedRecord.trim() !== '';
   if (!recordWritten) {
-    const channel = sameBranch
-      ? `plan-PR #${readings.pr.number} reviewed`
-      : `plan-PR #${readings.pr.number} merged`;
+    const channel = inSession
+      ? input.channel
+      : sameBranch
+        ? `plan-PR #${readings.pr.number} reviewed`
+        : `plan-PR #${readings.pr.number} merged`;
     writes.push({
       kind: 'plan-record',
       file: readings.file,

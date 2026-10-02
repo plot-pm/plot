@@ -94,6 +94,7 @@ export type RefusalReason =
   | 'state-wrong'
   | 'state-unreadable'
   | 'review-human'
+  | 'reviewer-undeclared'
   | 'review-unrecognised'
   | 'version-missing'
   | 'reason-missing'
@@ -196,6 +197,13 @@ export interface ApproveInput {
   who: string;
   /** How the approval happened, e.g. `plan-PR #42 merged`. */
   channel: string;
+  /**
+   * The handles the project declares, as the `People` config key spells them.
+   *
+   * An empty list declares no reviewer, so every `Review: in-session` `who` is
+   * undeclared: absence is not permission.
+   */
+  people: readonly string[];
   /** Readings an adapter measured, such as the plan PR's state. */
   preconditions?: readonly Precondition[];
   /**
@@ -221,7 +229,7 @@ export interface ApproveInput {
  * @returns true when the mechanical gates would pass.
  */
 export const approvable = (plan: TransitionPlan): boolean =>
-  !isRefusal(approve(plan, { on: '', who: '', channel: '' }));
+  !isRefusal(approve(plan, { on: '', who: '', channel: '', people: [] }));
 
 /**
  * Decides the write that approving a plan calls for.
@@ -233,11 +241,19 @@ export const approvable = (plan: TransitionPlan): boolean =>
  * `approved` is not refused: it is the idempotent case, where a missing record
  * is still repairable.
  *
+ * `Review: in-session` approves when `input.who` names a handle `input.people`
+ * declares. An empty or whitespace `who` refuses `review-human`; a handle the
+ * project never declared refuses `reviewer-undeclared`. The two are separate
+ * reasons because they have separate repairs — name a reviewer, or declare the
+ * one named.
+ *
  * @param plan - the plan to approve.
- * @param input - the date, approver and channel to record, plus any readings.
+ * @param input - the date, approver, channel and declared handles to record
+ *   against, plus any readings.
  * @returns a decision carrying `approved` and its record, or a refusal naming
  *   the gate that fired: `state-terminal`, `state-unreadable`, `state-wrong`,
- *   `review-human`, `review-unrecognised` or `precondition-unmet`.
+ *   `review-human`, `reviewer-undeclared`, `review-unrecognised` or
+ *   `precondition-unmet`.
  */
 export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionResult => {
   switch (plan.phase) {
@@ -284,12 +300,29 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
     case 'pr':
     case 'none':
       break;
-    case 'in-session':
+    case 'in-session': {
+      const who = input.who.trim();
+      if (who === '') {
+        return refuse(
+          plan.slug,
+          'review-human',
+          `plan '${plan.slug}' declares 'Review: in-session' — name the reviewer with --who.`,
+        );
+      }
+      if (!input.people.includes(who)) {
+        return refuse(
+          plan.slug,
+          'reviewer-undeclared',
+          `'${who}' is not a handle this project declares — add it to the 'People' config key, or name one it declares.`,
+        );
+      }
+      break;
+    }
     case 'ballot':
       return refuse(
         plan.slug,
         'review-human',
-        `plan '${plan.slug}' declares 'Review: ${plan.review}' — the approval needs a human.`,
+        `plan '${plan.slug}' declares 'Review: ballot' — the tally is the approval.`,
       );
     default:
       return refuse(

@@ -76,6 +76,8 @@ export interface Request {
    * transition reads as unmeasured rather than as *all named*.
    */
   slices?: readonly NamedSlice[];
+  /** The handles the project declares, from the `People` config key. */
+  people: readonly string[];
 }
 
 /** The `## Status` phase spelling each verb writes, as the plan file spells it. */
@@ -87,27 +89,45 @@ const SPELLING: Readonly<Record<Verb, string>> = {
 
 /**
  * Parse one request: `verb TAB slug TAB phase TAB review TAB approved TAB
- * delivered TAB released TAB on TAB who TAB channel TAB version`.
+ * delivered TAB released TAB on TAB who TAB channel TAB version TAB people`.
  *
- * A line short of eleven fields is NOT padded. A missing record field would
+ * A line short of twelve fields is NOT padded. A missing record field would
  * read as `''` — the spelling for *no record written yet* — and the transition
  * would then decide to write one over a record that exists, replacing a dated
  * approval with today's. So a malformed line refuses the whole request rather
  * than inventing the most destructive reading for it.
  *
+ * `people` is comma-joined and goes last, so every sender appends one field and
+ * no existing field moves. A handle holds neither a comma nor a tab, and `''`
+ * yields `[]` — a project that declares nobody, which refuses every in-session
+ * reviewer rather than admitting one.
+ *
  * @param text the stdin document, one request
  * @returns the request
- * @throws when the line is not eleven tab-separated fields, or names no verb
+ * @throws when the line is not twelve tab-separated fields, or names no verb
  */
 export const requestFrom = (text: string, slices?: readonly NamedSlice[]): Request => {
   const fields = text.replace(/\n$/, '').split('\t');
-  if (fields.length !== 11) {
+  if (fields.length !== 12) {
     throw new Error(
-      `expected 11 tab-separated fields, got ${fields.length}: '${text.replace(/\n$/, '')}'`,
+      `expected 12 tab-separated fields, got ${fields.length}: '${text.replace(/\n$/, '')}'`,
     );
   }
-  const [verb, slug, phase, review, approved, delivered, released, on, who, channel, version] =
-    fields as [string, string, string, string, string, string, string, string, string, string, string];
+  const [verb, slug, phase, review, approved, delivered, released, on, who, channel, version, people] =
+    fields as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
   if (verb !== 'approve' && verb !== 'deliver' && verb !== 'release') {
     throw new Error(`unknown verb '${verb}' — expected approve, deliver or release`);
   }
@@ -137,6 +157,7 @@ export const requestFrom = (text: string, slices?: readonly NamedSlice[]): Reque
     channel,
     version,
     ...(slices === undefined ? {} : { slices }),
+    people: people.split(',').filter((h) => h !== ''),
   };
 };
 
@@ -154,6 +175,7 @@ export const decide = (request: Request): TransitionResult => {
         who: request.who,
         channel: request.channel,
         ...(request.slices === undefined ? {} : { slices: request.slices }),
+        people: request.people,
       });
     case 'deliver':
       return deliver(request.plan, { on: request.on });

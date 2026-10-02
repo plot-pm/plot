@@ -251,9 +251,12 @@ describe('a partial answer merges rather than replaces', () => {
     // pass that happens — asserting the fold's REPLACE rule, which is what the
     // test has always been for. A delta merging here is correct and is asserted
     // separately, in `the call asks only for the delta`.
+    //
+    // `wholeAt` IS THE CLOCK, so that is the stamp aged. `at` moves on every
+    // fold and no longer decides when a full read is due.
     const file = path.join(home, 'github.json');
     const held = decodePrIndex(fs.readFileSync(file, 'utf8'))!;
-    fs.writeFileSync(file, JSON.stringify({ ...held, at: '2026-01-01T00:00:00Z' }));
+    fs.writeFileSync(file, JSON.stringify({ ...held, wholeAt: '2026-01-01T00:00:00Z' }));
     await refresh(host([line()]), home);
     expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
   });
@@ -390,9 +393,23 @@ describe('the store seeds a cold process', () => {
 
   it('never moves a live map backwards', async () => {
     // Disk is older than a map this process already built, by construction.
+    //
+    // EACH PASS IS FORCED TO BE A FULL READ, by ageing the full read's own
+    // clock. The subject here is the SEED — that a process which has already
+    // heard from the host is never re-seeded from disk — and a delta would
+    // carry number 7 forward legitimately, through the fold rather than through
+    // the seed, which is the fold's rule and not this test's.
     const home = storeHome();
+    const file = path.join(home, 'github.json');
+    const forceFullRead = (): void => {
+      const held = decodePrIndex(fs.readFileSync(file, 'utf8'))!;
+      fs.writeFileSync(file, JSON.stringify({ ...held, wholeAt: '2026-01-01T00:00:00Z' }));
+    };
+
     await refresh(host([line({ number: 7, head: 'feature/old' })]), home);
+    forceFullRead();
     const entry = await refresh(host([line({ number: 8, head: 'feature/new' })]), home);
+    forceFullRead();
     // A second refresh on the SAME entry must not re-seed number 7 from disk.
     await refresh(host([line({ number: 8, head: 'feature/new' })]), home, entry);
     expect([...entry.prsByNumber!.keys()]).toEqual([8]);
@@ -471,23 +488,77 @@ describe('the call asks only for the delta', () => {
     expect(entry.prsByHead?.get('feature/b11')?.number).toBe(11);
   });
 
-  it('a delta never writes `complete: true`', async () => {
-    // THE DONE-WHEN. `foldPrIndex` REPLACES on a complete answer, so a delta
-    // claiming wholeness would delete every PR outside its window on the first
-    // refresh — #912 reproduced on disk, where the next process inherits it.
+  it('a delta leaves a whole store whole, and merges rather than replacing', async () => {
+    // THE DEFECT THIS SLICE REMOVES, and the test that pinned it. It read
+    // *a delta never writes `complete: true`* and asserted `complete: false`,
+    // because `refreshPrs` computed `window.complete && partialSaid === null`
+    // and a delta's window said `complete: false`. The store went partial, the
+    // next refresh read `!held.complete` and asked for everything, and the
+    // board made its 43 s full listing on every second refresh.
     //
-    // A successful delta exits 0 and carries no partial sentence, so reading
-    // completeness from `partialSaid === null` alone is exactly the mistake.
+    // THE MERGE IS STILL THE MERGE. A delta may not REPLACE — that would delete
+    // every PR outside its window, #912 reproduced on disk — and the two
+    // assertions below are the pair: the store stays whole AND keeps the row
+    // the window never mentioned.
     const home = storeHome();
     await refresh(host([line({ number: 1 }), line({ number: 2, head: 'feature/two' })]), home);
     expect(onDisk(home)?.complete).toBe(true);
 
     await refresh(host([line({ number: 2, head: 'feature/two', state: 'MERGED' })]),
       home, freshCacheEntry());
-    expect(onDisk(home)?.complete).toBe(false);
-    // The rows the window did not mention are still there, which is the same
-    // fact seen from the store's side.
+    expect(onDisk(home)?.complete).toBe(true);
+    // The rows the window did not mention are still there, which is what makes
+    // the wholeness claim true rather than merely written.
     expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1, 2]);
+    // And the full read's clock did NOT move, so the daily read still falls due.
+    const wholeAt = onDisk(home)?.wholeAt;
+    expect(wholeAt).toBeTruthy();
+    expect(onDisk(home)?.at).not.toBe(wholeAt);
+  });
+
+  it('three refreshes send one full call and two windows', async () => {
+    // THE BUG'S OWN SHAPE, AND A FOLD TEST ALONE PASSES WITHOUT IT. The store
+    // alternated: a full read wrote `complete: true`, the delta that followed
+    // wrote `complete: false`, and the third refresh asked for everything
+    // again. Asserting the FILE after two refreshes catches the fold; only the
+    // call sequence catches the controller still computing the kind itself.
+    //
+    // ONE scripts directory for all three, because the record is appended —
+    // three separate fake hosts would each show one call and hide the sequence.
+    const home = storeHome();
+    const shared = host([line({ updatedAt: '2026-09-20T12:00:00Z' })]);
+    for (let i = 0; i < 3; i += 1) await refresh(shared, home, freshCacheEntry());
+
+    const calls = argvOf(shared).filter((l) => l.startsWith('pr-list'));
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toBe('pr-list --rich --state all --limit 1000');
+    expect(calls[1]).toBe('pr-list --rich --state all --limit 1000 --since 2026-09-20T12:00:00Z');
+    expect(calls[2]).toBe('pr-list --rich --state all --limit 1000 --since 2026-09-20T12:00:00Z');
+    // Stated as the property rather than as three strings: exactly one full
+    // read, whatever the window stamps turn out to be.
+    expect(calls.filter((c) => !c.includes('--since'))).toHaveLength(1);
+  });
+
+  it('serves every stored PR after a window that answered about none', async () => {
+    // THE DEFECT A NAIVE FIX INTRODUCES. A delta fold now writes
+    // `complete: true`, so a controller reading the FOLDED STORE's flag would
+    // serve this pass's rows as the whole map — and a 0-row window would report
+    // every branch as having no PR. #912's shape, produced by the fix for it.
+    // `refreshPrs` therefore tests the ANSWER'S KIND, which describes the call.
+    const home = storeHome();
+    const many = Array.from({ length: 1000 }, (_, i) =>
+      line({ number: i + 1, head: `feature/b${i + 1}`, updatedAt: '2026-09-20T10:00:00Z' }));
+    await refresh(host(many), home);
+    expect(onDisk(home)?.rows).toHaveLength(1000);
+
+    // A quiet estate: the window answers about nothing at all.
+    const entry = await refresh(host([]), home, freshCacheEntry());
+    expect(entry.prsByNumber?.size).toBe(1000);
+    expect(entry.prs?.size).toBe(1000);
+    expect(entry.prsByHead?.get('feature/b1000')?.number).toBe(1000);
+    // And the store is still whole and still holds them all.
+    expect(onDisk(home)?.complete).toBe(true);
+    expect(onDisk(home)?.rows).toHaveLength(1000);
   });
 
   it('a delta returning zero rows is a success, not an outage', async () => {
@@ -537,14 +608,22 @@ describe('the call asks only for the delta', () => {
     // nothing, it simply stops being listed. Only a whole answer replaces the
     // store, and only a replacement drops the row.
     //
-    // The cadence is reached by ageing the store's `at` rather than by waiting:
-    // `at` is this machine's record of when it wrote the file, and a test that
-    // slept a day would be a test nobody runs.
+    // THE CLOCK IS `wholeAt`, AND AGEING `at` WOULD PASS WITH THE OLD ONE STILL
+    // IN PLACE. `at` moves on every fold, delta included, so once a delta keeps
+    // a store whole a healthy board's `at` is never more than one refresh old —
+    // and the daily full read would never fall due again. The fixture ages the
+    // full read's own stamp and deliberately leaves `at` fresh, which is the
+    // state a healthy board is actually in.
+    //
+    // Reached by ageing the stamp rather than by waiting: a test that slept a
+    // day would be a test nobody runs.
     const home = storeHome();
     await refresh(host([line({ number: 1 }), line({ number: 2, head: 'feature/two' })]), home);
     const file = path.join(home, 'github.json');
     const aged = decodePrIndex(fs.readFileSync(file, 'utf8'))!;
-    fs.writeFileSync(file, JSON.stringify({ ...aged, at: '2026-01-01T00:00:00Z' }));
+    fs.writeFileSync(file, JSON.stringify({
+      ...aged, wholeAt: '2026-01-01T00:00:00Z', at: new Date().toISOString(),
+    }));
 
     // The full read answers about ONE PR, and the other leaves the store —
     // which is the whole point of keeping a full read at all.
@@ -553,6 +632,86 @@ describe('the call asks only for the delta', () => {
     expect(prListCall(full)).toBe('pr-list --rich --state all --limit 1000');
     expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
     expect(onDisk(home)?.complete).toBe(true);
+    // And the full read stamped its own clock, so the next one is a day away.
+    expect(onDisk(home)?.wholeAt).not.toBe('2026-01-01T00:00:00Z');
+  });
+
+  it('a store written by an older Plot costs exactly one full read', async () => {
+    // `PR_INDEX_VERSION` 3. A version-2 store carries no `wholeAt`, so a reader
+    // accepting it would have to guess whether its full read was due — against
+    // `at`, the clock this slice removed. `decodePrIndex` reads it as null,
+    // which is *ask the host*, so the cost is ONE full read: not zero, which
+    // would serve a store this Plot cannot reason about, and not two, which
+    // would mean the replacement store was not written.
+    const home = storeHome();
+    fs.writeFileSync(path.join(home, 'github.json'), JSON.stringify({
+      v: 2, connector: 'github', watermark: '2026-09-20T12:00:00Z', complete: true,
+      at: new Date().toISOString(),
+      rows: [{
+        number: 9, head: 'feature/old', state: 'OPEN', draft: false,
+        checks: 'green', review: '', url: '',
+      }],
+    }));
+
+    const shared = host([line({ updatedAt: '2026-09-20T12:00:00Z' })]);
+    await refresh(shared, home, freshCacheEntry());
+    await refresh(shared, home, freshCacheEntry());
+
+    const calls = argvOf(shared).filter((l) => l.startsWith('pr-list'));
+    expect(calls.filter((c) => !c.includes('--since'))).toHaveLength(1);
+    expect(calls[0]).toBe('pr-list --rich --state all --limit 1000');
+    // The second refresh narrowed, which is what says the full read landed as a
+    // version-3 store rather than being paid again.
+    expect(calls[1]).toContain('--since 2026-09-20T12:00:00Z');
+    expect(onDisk(home)?.v).toBe(PR_INDEX_VERSION);
+    // The old store's row is gone: a full read REPLACES, and this one did.
+    expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
+  });
+
+  it('a full read that failed falls back to a window, and is asked again an hour later', async () => {
+    // A 504 IS NO RATE LIMIT, so `hostReaction` names no wait, the next refresh
+    // comes in 60 s and the full read is still due — the heaviest query on the
+    // estate, every minute. #1087 measured 46-68 s per full listing.
+    //
+    // ONE ENTRY ACROSS THE THREE REFRESHES, deliberately: the failure is this
+    // PROCESS's observation and lives on the entry, so a fresh entry is a
+    // process that never saw it and would ask the full read again at once.
+    const home = storeHome();
+    await refresh(host([line({ updatedAt: '2026-09-20T12:00:00Z' })]), home);
+    const file = path.join(home, 'github.json');
+    const stored = decodePrIndex(fs.readFileSync(file, 'utf8'))!;
+    const dueAgain = () => fs.writeFileSync(file, JSON.stringify({
+      ...stored, wholeAt: '2026-01-01T00:00:00Z', at: new Date().toISOString(),
+    }));
+
+    // The full read is due and the host times out.
+    dueAgain();
+    const entry = freshCacheEntry();
+    const failing = host([], 1, 'HTTP 504: We could not respond to your request in time');
+    await refresh(failing, home, entry);
+    expect(prListCall(failing)).toBe('pr-list --rich --state all --limit 1000');
+    expect(entry.prError).toContain('504');
+    expect(entry.prFullReadFailedAt).not.toBeNull();
+    // THE STORE IS UNTOUCHED by a failure, so the full read is still due.
+    expect(decodePrIndex(fs.readFileSync(file, 'utf8'))?.wholeAt).toBe('2026-01-01T00:00:00Z');
+
+    // The next refresh in the same process asks a WINDOW rather than repeating
+    // the query that just ran too long.
+    const after = host([]);
+    await refresh(after, home, entry);
+    expect(prListCall(after)).toBe(
+      'pr-list --rich --state all --limit 1000 --since 2026-09-20T12:00:00Z');
+
+    // AND THE OTHER HALF: one hour on, the full read is asked again. A fallback
+    // with no expiry would never see a deleted PR again — one permanent cost
+    // traded for one permanent blind spot.
+    entry.prFullReadFailedAt = Date.now() - 61 * 60 * 1000;
+    const later = host([line({ updatedAt: '2026-09-20T12:00:00Z' })]);
+    await refresh(later, home, entry);
+    expect(prListCall(later)).toBe('pr-list --rich --state all --limit 1000');
+    // A full read that answered clears the latch, so the next failure gets its
+    // own full hour rather than inheriting a spent one.
+    expect(entry.prFullReadFailedAt).toBeNull();
   });
 
   it('a partial store is never narrowed against', async () => {
@@ -560,10 +719,19 @@ describe('the call asks only for the delta', () => {
     // did not answer — and a window over `updated:>` would never see them
     // either, because they did not change. Narrowing against it makes the gap
     // permanent.
+    //
+    // THIS TEST PINNED STEP 3 OF THE ALTERNATION, and its subject is unchanged.
+    // What changed is which answers reach it: a PARTIAL answer still unproves
+    // the store, and a healthy delta no longer does. So the premise is stated
+    // rather than left implicit — the store is partial because a state did not
+    // answer, and for no other reason.
     const home = storeHome();
     await refresh(host([line({ updatedAt: '2026-09-20T18:42:10Z' })], 7, 'a state did not answer'), home);
     expect(onDisk(home)?.complete).toBe(false);
     expect(onDisk(home)?.watermark).toBe('2026-09-20T18:42:10Z');
+    // A partial answer at a cold store proves no full read, so there is no
+    // full-read clock either — and that alone would already force the full read.
+    expect(onDisk(home)).not.toHaveProperty('wholeAt');
 
     const next = host([line()]);
     await refresh(next, home, freshCacheEntry());
