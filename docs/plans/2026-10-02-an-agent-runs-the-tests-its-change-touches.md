@@ -125,7 +125,7 @@ Tests:
 - Domain: each `CI suites` entry is refused at the runner position, with and without `VAR=value` and `env -u NAME` prefixes; `grep test:contracts`, `git commit -m "… test:contracts …"` and `gh pr create --body "… test:board …"` pass; a suite not on the list passes; an empty key refuses nothing.
 - `test/reconcile/`: the hook run from a linked worktree holding `.plot-worker.pid` exits 2 with the refusal for a listed suite; the same command from the main checkout exits 0; the same command at the desk without `PLOT_UNATTENDED=1` exits 0; a command naming a gated script still meets the existing controller refusal.
 
-### Agents run their local checks (Branch: feature/agents-run-their-local-checks) <!-- waits: feature/a-ci-suite-is-refused-at-a-desk -->
+### Agents run their local checks (Branch: feature/agents-run-their-local-checks, PR: #1181) <!-- waits: feature/a-ci-suite-is-refused-at-a-desk -->
 
 - `feature/agents-run-their-local-checks` — the brief template line, both worker prompts, `CLAUDE.md` Testing, `docs/definition-of-done.md`
 
