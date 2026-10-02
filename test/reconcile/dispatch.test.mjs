@@ -3787,7 +3787,7 @@ test('dispatch: the bare value /plot-init writes starts the loop beside the scri
   const { root: install, scripts } = pluginInstall('bareloop');
   try {
     fs.writeFileSync(path.join(scripts, 'plot-worker-loop.sh'),
-      '#!/usr/bin/env bash\nprintf \'%s|%s|%s\\n\' "${PLOT_BRANCH-unset}" "${PLOT_UNATTENDED-unset}" "$0" > "$PLOT_WORKTREE/.stub-loop-ran"\n');
+      '#!/usr/bin/env bash\nprintf \'%s|%s|%s\\n\' "${PLOT_BRANCH-unset}" "${PLOT_UNATTENDED-unset}" "$0" > "$PLOT_WORKTREE/.stub-loop-ran.tmp" && mv "$PLOT_WORKTREE/.stub-loop-ran.tmp" "$PLOT_WORKTREE/.stub-loop-ran"\n');
     fs.chmodSync(path.join(scripts, 'plot-worker-loop.sh'), 0o755);
     const log = path.join(root, 'start.out');
     const childEnv = { ...process.env };
