@@ -36,10 +36,8 @@
 #               PR (open or merged), a host it cannot ask, a live worker (named
 #               by pid), real work (a file-changing commit on origin/<br>, or
 #               unpushed commits or uncommitted changes on the local desk), and
-#               a PLOT-BLOCKED marker. A refusal writes nothing. A desk still
-#               on <br> after the release is detached at origin/<main> and
-#               the local branch deleted, when it holds only empty claim
-#               commits, a clean tree and no live worker; the worktree stays.
+#               a PLOT-BLOCKED marker. A refusal writes nothing. A clean,
+#               claim-only desk left on <br> is detached at origin/<main>.
 #   --migrate   move legacy worktrees into the configured `Worktree root:`. An
 #               idle worktree (no live worker, no unlanded work) is moved; a
 #               busy one is skipped with the reason. Requires a `Worktree root:`
