@@ -91,8 +91,22 @@ printf '%s' '{}'
   };
 }
 
-/** A store directory holding one connector's file, written verbatim. */
-function storeWith(rows, { complete = true, v = 2, raw = null } = {}) {
+/**
+ * A store directory holding one connector's file, written verbatim.
+ *
+ * `v` DEFAULTS TO THE CURRENT `PR_INDEX_VERSION` and must be bumped with it:
+ * a store whose version this Plot does not recognise decodes as `null`, which
+ * means *ask the host* — so a stale default here does not fail the decoder, it
+ * silently turns every store-hit test into a host-fallback test that still
+ * reports the right answer. Measured 2026-10-02 on the bump to 3: five tests
+ * across this file and `scan-index.test.mjs` failed on their CALL COUNTS,
+ * which is the only assertion that could have caught it.
+ *
+ * It is written `v = 2` rather than `v: 2`, so a grep for the literal form the
+ * entity uses does not find it. The `{ v: 1 }` cases below are deliberate and
+ * stay: 1 is never the current version.
+ */
+function storeWith(rows, { complete = true, v = 3, raw = null } = {}) {
   const dir = tmp('prindex');
   const body = raw !== null ? raw : JSON.stringify({
     v,
