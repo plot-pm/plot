@@ -33,6 +33,10 @@ const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   slug: 'a-plan',
   briefPresent: true,
   claimable: true,
+  // A NAMED SLICE IS THE DEFAULT, because every case but the new hold's is
+  // about a plan that named its branch, and a fixture defaulting the other way
+  // would silently move them all into `slice-unnamed`.
+  unnamed: false,
   landed: 'not-landed',
   priorUnknown: false,
   ...over,
