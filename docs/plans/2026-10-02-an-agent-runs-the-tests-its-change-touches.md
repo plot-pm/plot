@@ -91,7 +91,7 @@ The board's 24 `node --test` files and 63 integration files start the built arti
 
 ### Open Points
 
-- [ ] Slice 2's PR body counts, over the last 50 merged fleet PRs whose first CI run failed, the failures in a file the selection would not have chosen. Slice 4 does not merge if that share is above one in five.
+- [x] Slice 2's PR body counts, over the last 50 merged fleet PRs whose first CI run failed, the failures in a file the selection would not have chosen. Slice 4 does not merge if that share is above two in five. Measured 2026-10-02 (#1176): 8 of 21 missed (38%), 6 of 19 (32%) without the two inline `ci.yml` steps; the misses are e2e, board integration and `node --test`, and the domain corpus, which this plan leaves to CI. The operator set the bound at two in five on 2026-10-02, after the first bound of one in five was measured against; with slice 1 each miss returns to its agent as a correction.
 - [ ] Slice 2's PR body reports how many changed paths hit `Local checks limit` over the last 20 merged PRs, and how long `vitest related` takes for a one-file change in each package.
 - [ ] Slice 1's PR body measures how long an agent holds its slot waiting for checks, over at least five slices.
 
@@ -140,7 +140,7 @@ Tests:
 - `plot-local-checks.mjs` on a branch that changes one shell script prints the reconcile tests naming it and no typecheck; on a branch that changes one domain rule it prints the domain `vitest related` command and the domain typecheck; on a branch that changes only a generated bundle it prints nothing but the report.
 - An agent at a fleet desk that runs `pnpm run test:contracts` is refused with the local checks command in the message; the same command in the main checkout runs.
 - A brief written after slice 4 names the local checks command and no full suite.
-- The share measured under Open Points is at most one in five before slice 4 merges.
+- The share measured under Open Points is at most two in five before slice 4 merges.
 - After slice 4 merges, one hour of the same sampling as the baseline, with 5 agents, is recorded in Notes beside the baseline before `/plot-deliver`.
 - No new `plot-*.sh` script; every decision is in `packages/domain/src/rules/`.
 - `pnpm test`, `pnpm run test:contracts`, `pnpm run test:board`, `pnpm run typecheck` and the domain coverage gate pass in CI. Each slice carries a changeset.
@@ -152,3 +152,5 @@ Written 2026-10-02 from the fleet run of sprint `the-fleet-runs-through-its-limi
 Panel round 1 (2026-10-02, three lenses: skeptic, operator, domain): unanimous `amend`. The moderation is `.plot/panels/2026-10-02-an-agent-runs-the-tests-its-change-touches/round1.md`. This version applies its nine amendments: corrected counts and the coverage command, a new first slice that keeps an agent on its slice until its checks finish, the `Refs` port instead of a new adapter, one `Local checks` key with per-glob checks, excluded generated paths and a limit, the named entry and bundle, the gate arm placed before both exits and decided at the desk, the slice order, and the load comparison against a recorded baseline.
 
 The same evening the operator set the parallel-agents cap from 8 to 5 and set a model per role in `## Plot Config` (`1ccbbab4`): the Brief command on sonnet, the Idea, Story, Implement and Interrogate commands on opus.
+
+Load baseline, recorded 2026-10-02 02:55-03:54 with the cap at 5 and 6-7 agents still running (agents above a lowered cap finish their slices): 60 one-minute samples, mean 1-minute load 66.8, peak 149.6, mean 5-minute load 68.4, on 16 cores.
