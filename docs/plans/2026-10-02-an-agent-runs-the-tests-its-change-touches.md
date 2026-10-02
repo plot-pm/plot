@@ -9,6 +9,7 @@
 - **Started:** 2026-10-02, Jan Wloka, `feature/a-slice-ends-when-its-checks-do`
 - **Started:** 2026-10-02, Jan Wloka, `feature/the-checks-a-diff-needs`
 - **Started:** 2026-10-02, Jan Wloka, `feature/a-ci-suite-is-refused-at-a-desk`
+- **Started:** 2026-10-02, Jan Wloka, `feature/agents-run-their-local-checks`
 - **Type:** feature
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Review:** in-session
