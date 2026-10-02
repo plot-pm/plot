@@ -83,11 +83,12 @@ describe('the subject rule has named callers', () => {
     expect(SOURCES.length).toBeGreaterThan(50);
   });
 
-  // THE RULE ITSELF. Reached by the bundle that answers for the scan, and by
-  // the host adapter's forms file, which is where the vendor words live.
+  // THE RULE ITSELF. Reached by the bundle that answers for the scan and by
+  // the supervisor's queue world, which reads the same rule.
   it('names `mergedBySubject` only where the rule is asked', () => {
     expect(callersOf('mergedBySubject')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
+      'packages/board/src/server/entry/registryd-main.ts',
       'packages/domain/src/rules/merge-subject.ts',
     ]);
   });
@@ -95,7 +96,26 @@ describe('the subject rule has named callers', () => {
   it('names `ownerOfRemote` only where the owner is read', () => {
     expect(callersOf('ownerOfRemote')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
+      'packages/board/src/server/entry/registryd-main.ts',
       'packages/domain/src/rules/remote-owner.ts',
+    ]);
+  });
+
+  // THE SUPERVISOR'S SEAM. The queue receives sets of branches through
+  // `subjectProven`, and the merges walk is a refs-port reading.
+  it('names `subjectProven` only in the queue and the world that answers it', () => {
+    expect(callersOf('subjectProven')).toEqual([
+      'packages/board/src/server/entry/registryd-main.ts',
+      'packages/board/src/server/queue-reading.ts',
+    ]);
+  });
+
+  it('names `mergeSubjects` only in the refs port, its adapters and the queue world', () => {
+    expect(callersOf('mergeSubjects')).toEqual([
+      'packages/board/src/server/entry/registryd-main.ts',
+      'packages/domain/src/adapters/refs/refs-fixture.ts',
+      'packages/domain/src/adapters/refs/refs-git.ts',
+      'packages/domain/src/ports/refs.ts',
     ]);
   });
 
@@ -111,14 +131,18 @@ describe('the subject rule has named callers', () => {
     expect(source).not.toContain('mergedBySubject');
     expect(source).not.toContain('ownerOfRemote');
     expect(source).not.toContain('mergeSubjectForms');
+    expect(source).not.toContain('subjectProven');
+    expect(source).not.toContain('mergeSubjects');
   });
 
   // THE FORMS, which carry the vendor words. They belong to the host adapter
-  // and to the bundle that asks it — a domain rule holding one would fail the
-  // vendor gate, and a controller holding one would be a second copy.
-  it('names `mergeSubjectForms` only in the adapter and the bundle', () => {
+  // and to the two entries that ask it — a domain rule holding one would fail
+  // the vendor gate, and `queue-reading.ts` holding one would put a vendor word
+  // outside the vendor gate's root.
+  it('names `mergeSubjectForms` only in the adapter and the two entries', () => {
     expect(callersOf('mergeSubjectForms')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
+      'packages/board/src/server/entry/registryd-main.ts',
       'packages/domain/src/adapters/host/merge-subjects.ts',
     ]);
   });

@@ -59,6 +59,22 @@ export interface CommitLine {
   subject: string;
 }
 
+/** One merge commit, as a merges walk reports it. */
+export interface MergeCommit {
+  /** The full object name. */
+  sha: string;
+  /** The subject line, unparsed. */
+  subject: string;
+}
+
+/**
+ * Whether one commit is contained in another.
+ *
+ * Three values, never a boolean: `unknown` is a test git could not run, and it
+ * proves nothing in either direction.
+ */
+export type Containment = 'yes' | 'no' | 'unknown';
+
 /**
  * Which refs a state reading covers.
  *
@@ -376,4 +392,37 @@ export interface Refs {
    * @returns the commits, newest first.
    */
   commitsSync(dir: string, range: string, max: number): PortResult<readonly CommitLine[]>;
+
+  /**
+   * The commit that first added each file under a directory, on one ref.
+   *
+   * A renamed file maps to the commit that added its ORIGINAL path, so a
+   * retitled file keeps its first age. A file whose rename chain ends in no
+   * add inside the walk is absent from the answer.
+   *
+   * @param ref - the revision to walk, such as `origin/main`.
+   * @param dir - the directory, relative to the repository root.
+   * @returns each file's repository-relative path to its adding commit.
+   */
+  planAdditions(ref: string, dir: string): Promise<PortResult<ReadonlyMap<string, string>>>;
+
+  /**
+   * The merge commits on a ref, newest first.
+   *
+   * @param ref - the revision to walk, such as `origin/main`.
+   * @param max - how many merges to read at most.
+   * @returns each merge's full hash and subject.
+   */
+  mergeSubjects(ref: string, max: number): Promise<PortResult<readonly MergeCommit[]>>;
+
+  /**
+   * Whether one commit is an ancestor of another.
+   *
+   * Evidence, not a verdict: the caller decides what containment means.
+   *
+   * @param ancestor - the commit that may be contained.
+   * @param descendant - the commit that may contain it.
+   * @returns `yes`, `no`, or `unknown` where git could not answer.
+   */
+  contains(ancestor: string, descendant: string): Promise<PortResult<Containment>>;
 }

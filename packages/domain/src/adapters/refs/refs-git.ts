@@ -4,6 +4,8 @@ import type {
   BranchDate,
   BranchTip,
   CommitLine,
+  Containment,
+  MergeCommit,
   MergeStatus,
   RefScope,
   RefState,
@@ -131,6 +133,58 @@ const oidsOf = (
  * @param context - where the scripts and the repository are.
  * @returns a `Refs` backed by git and the fleet scan.
  */
+/**
+ * Each file's first adding commit, from a newest-first
+ * `git log --diff-filter=AR --name-status --format=@%H` walk.
+ *
+ * An `A` line maps a path to its commit; the walk runs newest first, so the
+ * last `A` seen for a path is its first add. An `R` line maps a new path to an
+ * old one, and each chain is followed back to an `A` after the walk, because a
+ * rename may be listed before the add it renames from. A chain that ends in no
+ * `A` line leaves its path out.
+ *
+ * @param stdout - the walk's output.
+ * @returns each resolved path to its adding commit.
+ */
+export const additionsOf = (stdout: string): ReadonlyMap<string, string> => {
+  const added = new Map<string, string>();
+  const renamedFrom = new Map<string, string>();
+  let commit = '';
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('@')) {
+      commit = line.slice(1);
+      continue;
+    }
+    const fields = line.split('\t');
+    if (fields[0] === 'A' && fields.length === 2) added.set(fields[1], commit);
+    else if (fields[0].startsWith('R') && fields.length === 3) renamedFrom.set(fields[2], fields[1]);
+  }
+  const resolved = new Map(added);
+  for (const path of renamedFrom.keys()) {
+    let current = path;
+    const seen = new Set<string>();
+    while (renamedFrom.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = renamedFrom.get(current) as string;
+    }
+    const commitOf = added.get(current);
+    if (commitOf !== undefined) resolved.set(path, commitOf);
+  }
+  return resolved;
+};
+
+/**
+ * The merges a `git log --merges --format='%H %s'` walk printed.
+ *
+ * @param stdout - the walk's output.
+ * @returns each merge's hash and subject; a line with no subject is dropped.
+ */
+export const mergesOf = (stdout: string): readonly MergeCommit[] =>
+  asLines(stdout).flatMap((line) => {
+    const at = line.indexOf(' ');
+    return at <= 0 ? [] : [{ sha: line.slice(0, at), subject: line.slice(at + 1) }];
+  });
+
 export const refsGit = (context: ShellContext): Refs => {
   const scan = scriptPath(context, 'plot-fleet-scan.sh');
   const inRepo = { cwd: context.repoRoot };
@@ -427,5 +481,35 @@ export const refsGit = (context: ShellContext): Refs => {
           }),
         inRepo,
       ),
+
+    planAdditions: (ref, dir) =>
+      runScript(
+        'git',
+        ['log', ref, '--diff-filter=AR', '--name-status', '--format=@%H', '--', dir],
+        additionsOf,
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      ),
+
+    mergeSubjects: (ref, max) =>
+      runScript(
+        'git',
+        ['log', ref, '--merges', `--max-count=${max}`, '--format=%H %s'],
+        mergesOf,
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      ),
+
+    contains: async (ancestor, descendant): Promise<PortResult<Containment>> => {
+      const run = await runProcess(
+        'git',
+        // plot-ancestry: evidence — the caller's age rule decides; a wrong "yes"
+        // sends a branch to the host, a wrong "no" is the reused-name case the
+        // rule narrows, and `unknown` proves nothing.
+        ['merge-base', '--is-ancestor', ancestor, descendant],
+        inRepo,
+      );
+      if (run.code === 0) return answered<Containment>('yes');
+      if (run.code === 1) return answered<Containment>('no');
+      return answered<Containment>('unknown');
+    },
   };
 };
