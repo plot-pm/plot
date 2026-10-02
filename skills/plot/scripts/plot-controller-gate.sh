@@ -163,8 +163,8 @@ if [ "${PLOT_UNATTENDED:-}" = "1" ]; then
   ci_git_dir="$(git rev-parse --absolute-git-dir 2>/dev/null)" || ci_git_dir=""
   ci_git_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || ci_git_common=""
   if [ -n "$ci_top" ] && [ -f "$ci_top/.plot-worker.pid" ] && [ -n "$ci_git_dir" ] && [ "$ci_git_dir" != "$ci_git_common" ]; then
-    ci_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    ci_suites="$(cd "$ci_top" && "$ci_here/plot-config.sh" get "CI suites" "" 2>/dev/null)" || ci_suites=""
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    ci_suites="$(cd "$ci_top" && "$script_dir/plot-config.sh" get "CI suites" "" 2>/dev/null)" || ci_suites=""
     ci_hit=""
     if [ -n "$ci_suites" ]; then
       ci_old_ifs="$IFS"; IFS=';'
@@ -176,11 +176,11 @@ if [ "${PLOT_UNATTENDED:-}" = "1" ]; then
       done
       IFS="$ci_old_ifs"
     fi
-    if [ -n "$ci_hit" ] && [ -f "$ci_here/board/plot-local-checks.mjs" ]; then
+    if [ -n "$ci_hit" ] && [ -f "$script_dir/board/plot-local-checks.mjs" ]; then
       # `|| ci_rc=$?` RATHER THAN READING `$?` AFTER: the `ERR` trap above
       # turns any failing command into `exit 0`, and exit 3 is the answer here.
       ci_rc=0
-      ci_refusal="$(cd "$ci_top" && printf '%s' "$CMD_SCAN" | node "$ci_here/board/plot-local-checks.mjs" --ci-suite-refusal 2>/dev/null)" || ci_rc=$?
+      ci_refusal="$(cd "$ci_top" && printf '%s' "$CMD_SCAN" | node "$script_dir/board/plot-local-checks.mjs" --ci-suite-refusal 2>/dev/null)" || ci_rc=$?
       if [ "$ci_rc" -eq 3 ]; then
         printf '%s\n' "$ci_refusal" >&2
         exit 2
