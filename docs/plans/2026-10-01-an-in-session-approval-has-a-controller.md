@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-transition-takes-the-reviewer`
 
 ## Changelog
 
@@ -130,7 +131,7 @@ Tests that fail on `origin/main` today:
 
 ## Slices
 
-### The transition takes the reviewer (Branch: bug/the-transition-takes-the-reviewer)
+### The transition takes the reviewer (Branch: bug/the-transition-takes-the-reviewer, PR: #1185)
 
 The `in-session` arm split in `transitions/plan.ts` with `people` and `reviewer-undeclared`; the `channel` and `people` inputs and the PR skip in `workflows/approve.ts`, with a unit case that has no PR reading; one unit case per arm in each file: a declared `who` approves, an undeclared one refuses with `reviewer-undeclared`, an empty one refuses with `review-human`, and `ballot` refuses with `review-human`. Also the `people` column in `entry/transition.ts` and the changeset.
 
