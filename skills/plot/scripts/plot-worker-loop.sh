@@ -1191,16 +1191,24 @@ desk_holding_clause() { # $1=worktree → " The desk holds N commit(s) and M …
 ask_prompt_exit() { # $1=status $2=ran seconds $3=commits since wait → the answer line
   local status="$1" ran="$2" commits="$3" bundle answer
   bundle="$script_dir/board/plot-prompt-exit.mjs"
+  # TODAY'S PATH, named once and used by both refusals below. An `a && b || c`
+  # would print BOTH words if `b` ever failed, and the caller reads the first
+  # tab-separated field — so two words joined would read as neither.
+  by_status() { if [ "$status" -eq 0 ]; then printf 'ran'; else printf 'unstarted'; fi; }
+
   if [ -z "$_prompt_out_file" ] || [ ! -r "$_prompt_out_file" ] || \
      [ ! -r "$bundle" ] || ! command -v node >/dev/null 2>&1; then
-    [ "$status" -eq 0 ] && printf 'ran' || printf 'unstarted'
+    by_status
     return 0
   fi
   answer=$(tail -n 200 "$_prompt_out_file" 2>/dev/null | node "$bundle" \
     "$status" "${PLOT_HARNESS:-claude}" "$(clock_now)" "$WORKER_BOUND_SECONDS" \
     "$ran" "$_after_wait" "$commits" 2>/dev/null) || answer=""
+  # AN EMPTY ANSWER IS A REFUSAL, not an empty verdict. The bundle exits 2 on
+  # an argument it cannot read and writes nothing, which is the case a misread
+  # reading would otherwise turn into a decision.
   if [ -z "$answer" ]; then
-    [ "$status" -eq 0 ] && printf 'ran' || printf 'unstarted'
+    by_status
     return 0
   fi
   printf '%s' "$answer"
