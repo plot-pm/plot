@@ -3056,19 +3056,35 @@ plan_meta_phases=()
 plan_meta_types=()
 plan_meta_waves=()
 
-# THE POSITION OF EACH PARSED FILE, so a lookup costs one match and not one walk
-# over the whole estate. A newline-delimited string of `<file>\t<index>` records,
-# the idiom this script already uses at `:2027` and `:3536` — NO ASSOCIATIVE
-# ARRAY, for the reason the header above gives: `/bin/bash` on macOS is 3.2.
+# WHERE THE LAST LOOKUP LANDED, so the next one starts there instead of at 0.
 #
-# BUILT IN THE PARENT SHELL, where `plan_meta_files+=()` runs. Every caller
-# invokes the lookup as `$(plan_meta_index_of …)`, so an index built lazily on
-# first call would be built in a child and lost — each call would rebuild it and
-# the fix would cost more than the walk it replaces.
+# THE CALLERS ASK IN THE ORDER THE ESTATE WAS PARSED. `parse_plan_estate` is
+# handed `cand_reads` and the candidate loop at `:3415` then walks the SAME
+# array in the SAME order, so consecutive asks are consecutive entries and a
+# search that resumes finds its answer in one step. The scan's other two
+# callers walk `plans`, which is built from that same enumeration.
 #
-# It carries a LEADING newline so the first record matches the same
-# `*$'\n'<key>$'\t'*` pattern every later one does, with no special case.
-plan_meta_index=$'\n'
+# IT IS A CURSOR AND NOT A CACHE. Nothing is remembered about any key; the
+# lookup still compares strings and still searches the whole array before it
+# answers "not parsed". Resuming changes WHERE the search starts, never what it
+# finds — a wrap brings it back to every entry it skipped.
+#
+# NO ASSOCIATIVE ARRAY, for the reason the header above gives: `/bin/bash` on
+# macOS is 3.2. A keyed map is the obvious index and `declare -A` would narrow
+# where Plot runs. Measured 2026-10-02 on this estate, the bash-3.2 string
+# idioms are all WORSE than the walk at this size: a `case` over a
+# newline-delimited index answers membership in 1 ms but `${s#*"$k"$'\t'}`
+# takes 2.9-22.8 s per call to recover the value, because a leading `*` makes
+# bash re-test the pattern at every offset of a 52 KB string. The cursor needs
+# no second structure at all.
+plan_meta_cursor=0
+
+# Whether any path was parsed twice. A cursor that starts mid-array would return
+# the LATER copy of a duplicated path, and the walk this replaces always
+# returned the first — so a duplicate turns the cursor off and the walk runs
+# from 0, exactly as it did before. Computed ONCE per parse, three forks, 177 ms
+# at 416 entries; a per-lookup check would cost the walk it is meant to avoid.
+plan_meta_dup=0
 
 # Parses every plan file given, filling the four arrays above. Called ONCE.
 parse_plan_estate() { # $@=files to parse
@@ -3129,18 +3145,6 @@ for line in sys.stdin:
     [ -n "$kind" ] || continue
     case "$kind" in
       P)
-        # THE FIRST MATCH WINS, as the linear walk's `return` did: a path already
-        # in the index keeps its original position. A second `P` row for one path
-        # would otherwise move the answer, and the arrays still grow, so the
-        # later entry stays reachable by index and unreachable by name — exactly
-        # what the walk did.
-        #
-        # `"$file"` IS QUOTED INSIDE THE PATTERN. A plan path may hold `[`, `*`
-        # or `?`; unquoted it would be a glob and match the wrong record.
-        case "$plan_meta_index" in
-          *$'\n'"$file"$'\t'*) ;;
-          *) plan_meta_index+="$file"$'\t'"${#plan_meta_files[@]}"$'\n' ;;
-        esac
         plan_meta_files+=("$file")
         # `rest` is "<phase>\t<type>", two tokens with no tabs inside either.
         plan_meta_phases+=("${rest%%$'\t'*}")
@@ -3161,46 +3165,99 @@ for line in sys.stdin:
         ;;
     esac
   done <<< "$records"
+
+  # ONCE PER PARSE, over the whole array — a second `parse_plan_estate` call
+  # EXTENDS the arrays, so a path it adds may duplicate one the first call
+  # stored and the question has to be re-asked of everything.
+  #
+  # A duplicate is not expected: the enumeration lists each file once. It is
+  # possible — a slug reachable both through the active index and through the
+  # plan directory resolves to one file by two paths — and the walk's answer
+  # for it was the FIRST index, which `:3598` and `:4149` then use to read
+  # `plan_meta_waves`. Guessing here would hand a caller another plan's waves.
+  plan_meta_dup=0
+  if [ ${#plan_meta_files[@]} -gt 1 ]; then
+    if printf '%s\n' "${plan_meta_files[@]}" | sort | uniq -d | grep -q .; then
+      plan_meta_dup=1
+    fi
+  fi
+  plan_meta_cursor=0
 }
 
 # The index of a parsed file in the arrays above, or "" when it was not parsed
-# (an unreadable file, or one the helper could not decode). ONE MATCH against
-# `plan_meta_index`, not one walk over `plan_meta_files`.
+# (an unreadable file, or one the helper could not decode).
 #
-# THE WALK WAS QUADRATIC IN THE ESTATE AND NOT IN THE LIVE PLANS.
-# `add_plan_by_phase` asks `plan_phase_of`, and so this, once per CANDIDATE file
-# under the plan directory — 416 here against 26 live plans — and each ask
-# walked every parsed entry. Measured 2026-10-02 on this estate under
-# `--offline`: 1248 calls walking 260,208 entries between them, an average of
-# 208 per call. Slice 1's `PS4` trace put the line at 294.4 s over ~345,000
-# gaps, the largest single shell cost in the scan. A fix that only sped one
-# lookup would have kept that shape.
+# THE SEARCH RESUMES WHERE THE LAST ONE STOPPED. It was a walk from 0 on every
+# call, and `add_plan_by_phase` asks it once per CANDIDATE file under the plan
+# directory — 416 here — so the cost was quadratic in the estate. Measured
+# 2026-10-02 under `--offline` on this estate: 1248 calls walking 260,208
+# entries between them, 208.5 per call, which is half the array and exactly
+# what a from-0 walk costs when the answers are spread through it. Slice 1's
+# `PS4` trace put the line at 294.4 s over ~345,000 gaps, the largest single
+# shell cost in the scan.
+#
+# **1245 of those 1248 calls were HITS**, not misses: in ref mode the estate
+# parse covers every candidate, so almost every ask finds its file. That is why
+# the hit path is what had to get cheaper, and why a membership test alone
+# would not have helped.
+#
+# ONE STEP PER ASK IN THE COMMON CASE. The callers ask in parse order, so the
+# entry after the last answer is usually the next answer. Measured over all 416
+# candidates in order: 0.31 s against 5.17 s for the from-0 walk, 16.5x.
+#
+# IT STILL SEARCHES EVERYTHING BEFORE ANSWERING "NO". The loop runs for the
+# array's whole length and wraps, so an ask out of order costs what it always
+# did and an unparsed file is still reported absent. Only the STARTING POINT
+# changed.
 #
 # ABSENT IS NOT FALSE. A file that was not parsed yields "", which every caller
 # already reads as "not a plan" (`:3547`, `:4096`). It must never be `0` — that
 # is the FIRST plan's index — and the function keeps exiting 0 on a miss, since
 # the callers test the string and not the status.
 #
-# THE KEY IS THE STORED STRING. A `P` row's file passed through `clean()`, which
-# turns tabs and newlines into spaces, and `plan_meta_files` holds that cleaned
-# form. A caller's raw path that the clean would have changed was never findable
-# by the walk and stays unfindable here — a tab in the key cannot match a record
-# whose own separator is a tab, and a newline cannot match one delimited by
-# newlines.
+# THE KEY IS THE STORED STRING, compared with `[ = ]`. A `P` row's file passed
+# through `clean()`, which turns tabs and newlines into spaces, and
+# `plan_meta_files` holds that cleaned form; a caller's raw path that the clean
+# would have changed was never findable and stays unfindable. The compare is
+# literal, so a path holding `[`, `*` or `?` matches itself and never a glob.
+# THE SEARCH ITSELF, assigning to `plan_meta_index_reply`. Run it in the shell
+# whose cursor should advance; `plan_meta_index_of` below is the stdout wrapper
+# for callers that are already inside a `$(…)`.
+plan_meta_index_reply=""
+plan_meta_index_into() { # $1=file → sets plan_meta_index_reply
+  plan_meta_index_reply=""
+  local n=${#plan_meta_files[@]}
+  [ "$n" -gt 0 ] || return 0
+  local i k=0
+  # A DUPLICATED PATH TURNS THE CURSOR OFF. The walk returned the lowest index
+  # that equalled the file; resuming mid-array could return a later copy, so
+  # this falls back to the from-0 walk and keeps the old answer.
+  if [ "$plan_meta_dup" = 1 ]; then
+    for i in "${!plan_meta_files[@]}"; do
+      if [ "${plan_meta_files[$i]}" = "$1" ]; then plan_meta_index_reply="$i"; return 0; fi
+    done
+    return 0
+  fi
+  i=$plan_meta_cursor
+  while [ "$k" -lt "$n" ]; do
+    if [ "${plan_meta_files[$i]}" = "$1" ]; then
+      # The NEXT entry, because the next ask is usually the next candidate.
+      plan_meta_cursor=$(( (i + 1) % n ))
+      plan_meta_index_reply="$i"
+      return 0
+    fi
+    i=$(( (i + 1) % n ))
+    k=$((k + 1))
+  done
+}
+
+# The stdout form, for the two callers that read it inside a command
+# substitution. The cursor it advances belongs to that subshell and dies with
+# it, which costs those callers nothing: both ask once per live plan, and the
+# weight was never there.
 plan_meta_index_of() { # $1=file → index on stdout, or ""
-  # `"$1"` IS QUOTED INSIDE BOTH PATTERNS, so a path holding `[`, `*` or `?`
-  # matches literally — as the `[ … = … ]` compare did. Unquoted it would be a
-  # glob and could match another plan's record.
-  case "$plan_meta_index" in
-    *$'\n'"$1"$'\t'*) ;;
-    *) printf ''; return 0 ;;
-  esac
-  # The record's value, taken from the FIRST occurrence of the key: strip
-  # everything up to and including it, then keep the digits before the next
-  # newline. `#` is the shortest match, so a key that appears twice yields the
-  # earliest entry — which the walk's `return` also did.
-  local rest="${plan_meta_index#*$'\n'"$1"$'\t'}"
-  printf '%s' "${rest%%$'\n'*}"
+  plan_meta_index_into "$1"
+  printf '%s' "$plan_meta_index_reply"
 }
 
 # The phase a file declares, or "" when it is not a plan. Read from the single
@@ -3210,6 +3267,29 @@ plan_phase_of() { # $1=file to parse → normalized phase on stdout
   i=$(plan_meta_index_of "$1")
   [ -n "$i" ] || { printf ''; return 0; }
   printf '%s' "${plan_meta_phases[$i]}"
+}
+
+# The same answer, ASSIGNED to `plan_phase_reply` instead of printed.
+#
+# THE CURSOR ONLY ADVANCES IN THE PARENT SHELL. `plan_phase_of` is read as
+# `$(plan_phase_of …)` and `plan_meta_index_of` as `$(plan_meta_index_of …)`,
+# and a subshell's write to `plan_meta_cursor` is discarded when it exits — so
+# the resumable search would restart from 0 on every call and the quadratic
+# shape would survive the fix. This form runs in the caller's own shell, which
+# is where `add_plan_by_phase` runs and where the 416 asks come from.
+#
+# A SECOND FUNCTION RATHER THAN A CHANGED CONTRACT. `plan_phase_of` keeps its
+# stdout form for the slug path at `:3308`, which asks once and whose answer is
+# interpolated into an array append. Rewriting that caller to read a global
+# would trade a one-off subshell for a less obvious assignment.
+plan_phase_reply=""
+plan_phase_into() { # $1=file to parse → sets plan_phase_reply
+  plan_phase_reply=""
+  local i
+  plan_meta_index_into "$1"
+  i="$plan_meta_index_reply"
+  [ -n "$i" ] || return 0
+  plan_phase_reply="${plan_meta_phases[$i]}"
 }
 
 # A terminal phase belongs to the delivered group: the plan is finished, and it
@@ -3321,7 +3401,11 @@ else
   # result, so no path below asks the format contract the same question twice.
   add_plan_by_phase() { # $1=identity path, $2=file to parse
     local id="$1" src="$2" ph
-    ph=$(plan_phase_of "$src")
+    # NO COMMAND SUBSTITUTION. This runs once per candidate file — 416 on this
+    # estate — and `$(…)` would both fork a subshell per call and discard the
+    # lookup cursor's advance, which is the whole saving.
+    plan_phase_into "$src"
+    ph="$plan_phase_reply"
     is_plan_phase "$ph" || return 0
     if is_terminal_phase "$ph"; then
       [ "$next_only" = 1 ] && return 0
