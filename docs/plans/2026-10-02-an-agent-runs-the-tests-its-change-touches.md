@@ -97,7 +97,7 @@ The board's 24 `node --test` files and 63 integration files start the built arti
 
 ## Slices
 
-### An agent keeps its slice until its checks finish (Branch: feature/a-slice-ends-when-its-checks-do)
+### An agent keeps its slice until its checks finish (Branch: feature/a-slice-ends-when-its-checks-do, PR: #1171)
 
 - `feature/a-slice-ends-when-its-checks-do` — `checksVerdict`, `plot-checks-verdict.mjs`, `wait_for_checks` in the loop, and the BuildMonitor reading the desk's branch on every pass <!-- builds: checksVerdict, the wait for a PR's checks -->
 
