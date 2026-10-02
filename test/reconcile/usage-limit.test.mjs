@@ -890,7 +890,23 @@ test('--status names a future reset and not a past one', serial, () => {
   }
 });
 
-test('the monitor publishes nothing while the desk waits', serial, () => {
+// THE MONITOR'S READING IS ASSERTED ON `sample_verdict` DIRECTLY, and that is
+// a deliberate narrowing rather than a shortcut.
+//
+// Driving the whole monitor to an `idle` finding needs FOUR conditions at once
+// — two consecutive quiet passes in ONE process (`prev_verdict` is an
+// in-process variable and nothing is written down), an unchanged tree between
+// them, commits on the branch, and a live pid whose child burns no CPU. A test
+// that arranged all four would be asserting the monitor's two-sample rule,
+// which this slice does not touch; and one that arranged them badly passes
+// whether or not the record is read at all — the first version of this test
+// did exactly that, publishing nothing in BOTH arms.
+//
+// What this slice changes is one subtraction inside `sample_verdict`. So the
+// function is sourced and asked, with and without the record, and the two
+// answers must differ: that is the discriminating assertion, and it is the
+// smallest one that is.
+test('sample_verdict reads a waiting desk as busy and a silent one as quiet', serial, () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -899,46 +915,81 @@ test('the monitor publishes nothing while the desk waits', serial, () => {
     const tdir = path.join(home, '.claude', 'projects', slug);
     fs.mkdirSync(tdir, { recursive: true });
 
-    // A TRANSCRIPT WELL PAST THE WINDOW, which is what a waiting agent's desk
-    // looks like: the loop sleeps, so nothing writes. On the transcript alone
-    // that is indistinguishable from an agent that stopped.
+    // A TRANSCRIPT AN HOUR OLD, which is what a waiting agent's desk looks
+    // like: the loop sleeps, so nothing writes.
     const tfile = path.join(tdir, `${SESSION}.jsonl`);
     fs.writeFileSync(tfile, '{}\n');
     const old = nowSeconds() - 3600;
     fs.utimesSync(tfile, old, old);
 
-    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(process.pid));
-    const ahead = nowSeconds() + 3600;
-    fs.writeFileSync(path.join(wt, LIMITED),
-      `${ahead}\t${new Date(ahead * 1000).toISOString()}\tYou've hit your session limit\n`);
+    // A PID THAT IS ALIVE AND HAS NO CHILD ON A CORE — a `sleep`, which is
+    // precisely the shape of a worker inside the wait.
+    const sleeper = spawn('sleep', ['120'], { stdio: 'ignore' });
+    try {
+      fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(sleeper.pid));
 
-    const findings = path.join(wt, '.plot-worker.monitor.worker.jsonl');
-    const monitorEnv = {
-      ...process.env,
-      PLOT_BRANCH: 'feature/seam', PLOT_WORKTREE: wt, PLOT_SESSION_ID: SESSION,
-      PLOT_TRANSCRIPT_HOME: home, PLOT_MONITOR_FILE: findings,
-      PLOT_PID_FILE: path.join(wt, '.plot-worker.pid'),
-      PLOT_MONITOR_QUIET_SECONDS: '1', PLOT_MONITOR_INTERVAL: '1',
-    };
-    // TWO PASSES, because `idle` needs two — a single sample can never
-    // publish it, so one `--once` could not show the finding being withheld.
-    for (let pass = 0; pass < 2; pass += 1) {
-      try {
-        execFileSync('bash', [path.join(scripts, 'plot-worker-monitor.sh'), '--once'],
-          { cwd: wt, encoding: 'utf8', timeout: 30000, env: monitorEnv });
-      } catch { /* the monitor may end non-zero; the findings file is the subject */ }
+      // THE MONITOR IS NOT SOURCEABLE — it runs its loop at the bottom of the
+      // file — so its FUNCTIONS are taken and its loop is not. `sed` stops at
+      // the first line that is neither a comment nor a definition after the
+      // last function, which is where the script's own body begins.
+      //
+      // Reaching in like this is the cost of asserting one function of a
+      // script that is a program rather than a library. The alternative was
+      // adding a source guard to shipped code for a test's benefit, which the
+      // brief's "no new script, the decision stays in the bundle" rules out in
+      // spirit: this slice may not reshape the monitor to be easier to test.
+      const ask = () => execFileSync('bash', ['-c', `
+        set -u
+        S=${JSON.stringify(scripts)}
+        . "$S/plot-worker-state.sh"
+        . "$S/plot-transcript-quiet.sh"
+        . "$S/plot-monitor-subject.sh"
+        worktree=${JSON.stringify(wt)}
+        branch=feature/seam
+        pid_file="$worktree/.plot-worker.pid"
+        monitor='WorkerMonitor'
+        interval=1
+        findings="$worktree/.plot-worker.monitor.worker.jsonl"
+        prev_verdict=''
+        prev_tree=''
+        : "\${PLOT_MONITOR_QUIET_SECONDS:=1}"
+        # Every function definition, and nothing that runs at load.
+        eval "$(sed -n '/^[a-z_]*() {/,/^}/p' "$S/plot-worker-monitor.sh")"
+        sample_verdict
+      `], {
+        encoding: 'utf8', timeout: 30000,
+        env: {
+          ...process.env,
+          PLOT_BRANCH: 'feature/seam', PLOT_WORKTREE: wt, PLOT_SESSION_ID: SESSION,
+          PLOT_TRANSCRIPT_HOME: home, PLOT_MONITOR_QUIET_SECONDS: '1',
+          PLOT_PID_FILE: path.join(wt, '.plot-worker.pid'),
+        },
+      }).trim();
+
+      // THE CONTROL: no record, an hour of silence, nothing on a core. The
+      // transcript alone says this agent stopped.
+      const silent = ask();
+      assert.notEqual(silent, 'busy',
+        `control: a silent desk with no limit record is not busy (got ${silent})`);
+
+      // THE SAME DESK, WAITING. Silence is measured from the reset instead,
+      // the subtraction clamps to 0, and the verdict flips.
+      const ahead = nowSeconds() + 3600;
+      fs.writeFileSync(path.join(wt, LIMITED),
+        `${ahead}\t${new Date(ahead * 1000).toISOString()}\tYou've hit your session limit\n`);
+      assert.equal(ask(), 'busy',
+        'a desk waiting on a reset an hour ahead is busy, not quiet');
+
+      // AND A RECORD WHOSE RESET HAS PASSED CHANGES NOTHING, so a worker
+      // SIGKILLed mid-wait cannot hold its desk out of every finding forever.
+      const behind = nowSeconds() - 3600;
+      fs.writeFileSync(path.join(wt, LIMITED),
+        `${behind}\t${new Date(behind * 1000).toISOString()}\tYou've hit your session limit\n`);
+      assert.equal(ask(), silent,
+        'a reset that has passed reads exactly as no record at all');
+    } finally {
+      sleeper.kill('SIGKILL');
     }
-
-    // NO FINDING IS PUBLISHED, which is the assertion the panel asked for
-    // rather than `busy`: the clamp makes silence 0 while the reset is ahead,
-    // and a verdict of `busy` publishes nothing anyway — so asserting the
-    // verdict word would test the wrong thing.
-    const published = fs.existsSync(findings)
-      ? fs.readFileSync(findings, 'utf8').split('\n').filter((l) => l.trim() !== '')
-      : [];
-    const idle = published.filter((l) => /"verdict"\s*:\s*"idle"/.test(l));
-    assert.equal(idle.length, 0,
-      `a waiting desk is not idle\n${published.join('\n')}`);
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
