@@ -887,14 +887,20 @@ main_checkout_path() { # → the main worktree's path
 # that mistake. A manifest naming the path means another agent owns that desk
 # even with no live pid between two slices.
 #
-# Prints `1`, `0` or `unknown`, which is the bundle's own vocabulary: with no
-# manifest file of our own there is no directory to read, and a failure to
-# observe must not read as a measured absence.
+# Prints `1`, `0` or `unknown`, which is the bundle's own vocabulary.
+#
+# AN ABSENT DIRECTORY IS `0`, AND AN ABSENT VARIABLE IS `unknown`. The two look
+# alike and are not. With no `PLOT_MANIFEST_FILE` there is no directory to look
+# in, so the reading was never taken. A directory that does not exist HAS been
+# read: it holds no manifest, so no manifest names this path — the same answer
+# `plot_worker_blocked` gives a tree with no marker. Reading it as `unknown`
+# would refuse every removal in a repository that has not run the fleet, which
+# is every repository the first time, and the feature would never fire.
 checkout_is_registered() { # $1=worktree → 1 | 0 | unknown
   local wt="$1" dir
   [ -n "${PLOT_MANIFEST_FILE:-}" ] || { printf 'unknown'; return 0; }
   dir=$(dirname "$PLOT_MANIFEST_FILE")
-  [ -d "$dir" ] || { printf 'unknown'; return 0; }
+  [ -d "$dir" ] || { printf '0'; return 0; }
   # OUR OWN MANIFEST IS EXCLUDED. It names the desk this agent sits in, which
   # is never the holder tested here, but a desk reused across slices can carry
   # a stale path and that would refuse every case.
