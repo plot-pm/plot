@@ -76,7 +76,7 @@ Exit 2 means the git host argument is missing. The entry reaches no filesystem a
 
 `tracker-listers.ts` with the re-export; `entry/issue-source.ts` and its `build.mjs` target; the `issue_source` helper in `plot-host.sh` and its use in `issue-list` and `issue-view`; contract tests in `test/reconcile/host.test.mjs`; a unit test for the entry's three answers and its usage exit; a `plot` patch and an `@plot-pm/board` patch changeset.
 
-### The scan asks who lists issues (Branch: bug/the-scan-asks-who-lists-issues) <!-- waits: bug/the-host-script-asks-who-lists-issues -->
+### The scan asks who lists issues (Branch: bug/the-scan-asks-who-lists-issues, PR: #1219) <!-- waits: bug/the-host-script-asks-who-lists-issues -->
 
 Section 23 asks the entry before `issue-list`; contract tests in `test/reconcile/scan.test.mjs`; a `plot` patch changeset.
 
