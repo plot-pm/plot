@@ -727,6 +727,13 @@ jobs:
       - name: Plan headings say Slices
         run: ./scripts/check-plan-headings.sh
 
+      # A DESK MARKER IS NEVER COMMITTED. `PLOT-BLOCKED*` and
+      # `PLOT-CORRECTION.md` speak to one person about one desk; on main, a
+      # `PLOT-BLOCKED*` file makes every desk cut from main read as waiting on
+      # a person. Measured 2026-10-02: #1196 carried one onto main.
+      - name: No desk marker is tracked
+        run: ./scripts/check-desk-markers.sh
+
       # A TEARDOWN DOES NOT FAIL A SUITE — the gate that keeps the conversion.
       #
       # A raw recursive `fs.rmSync` in a test teardown races whatever child the
