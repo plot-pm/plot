@@ -131,7 +131,7 @@ The note format is new: `handed to agent` and `not taken up` occur nowhere in `p
 
 ## Slices
 
-### The row reads the hand-over (Branch: bug/the-row-reads-the-hand-over)
+### The row reads the hand-over (Branch: bug/the-row-reads-the-hand-over, PR: #1178)
 
 `handedTo` and its tests, `withHandOver` at the `rowsFromPulse` call site and its unit test, the browser test and the count pin, and the changeset.
 
