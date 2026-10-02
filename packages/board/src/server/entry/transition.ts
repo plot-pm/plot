@@ -7,6 +7,11 @@ import {
   type TransitionResult,
 } from '@plot-pm/domain/transitions/plan';
 import { planStateOf } from '@plot-pm/domain/entities/plan';
+import {
+  unnamedBranchDetail,
+  unnamedBranches,
+  type NamedSlice,
+} from '@plot-pm/domain/rules/slice-name';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -18,6 +23,11 @@ import { pathToFileURL } from 'node:url';
  * printf 'deliver\tslug\tapproved\tpr\t\t\t\t2026-09-02\t\t\t\n' | node plot-transition.mjs
  * Delivered	2026-09-02	write	no
  * ```
+ *
+ * It also answers ONE other question, by argument rather than by field:
+ * `--check-slices <slug>` reads the parser's `waves[]` as JSON and exits 1
+ * where the plan names a branch under no `###` heading. See
+ * {@link checkSlices} for why it is not a twelfth field.
  *
  * **A FIFTH artifact, for the reason the third and fourth ones give.**
  * `plot-ask.mjs` answers `board` and `fleet` by RUNNING `plot-fleet-scan.sh`,
@@ -188,6 +198,69 @@ export const answer = (request: Request): string => {
 };
 
 /**
+ * Answer whether a plan names a branch under no slice heading.
+ *
+ * **A SECOND QUESTION ON ONE BUNDLE, ASKED BY ARGUMENT RATHER THAN BY FIELD.**
+ * {@link requestFrom} refuses any line that is not exactly eleven fields and
+ * does not pad, so a twelfth field would have to be added to every sender in
+ * one commit. The slices are a different shape anyway — a nested list, not a
+ * scalar — so they arrive as the parser's own JSON and the tab-separated
+ * contract is untouched.
+ *
+ * Asked BEFORE the merge by `plot-approve.sh`, where the other three refusals
+ * sit. The transition itself asks the same rule, so a caller that skips this
+ * check is still refused; what this buys is a refusal the operator meets while
+ * the plan PR is still open and nothing has been written.
+ *
+ * @param text the stdin document — the parser's `waves[]` as JSON, or a whole
+ *   `plot-plan-meta.sh` object carrying it
+ * @param slug the plan the answer is about, for the refusal's wording
+ * @param write where the refusal goes
+ * @returns the process exit code — 0 every branch is named, 1 one is not,
+ *   2 the slices could not be read
+ */
+export const checkSlices = (
+  text: string,
+  slug: string,
+  write: (s: string) => void = (s) => process.stderr.write(s),
+): number => {
+  let slices: readonly NamedSlice[];
+  try {
+    const parsed: unknown = JSON.parse(text);
+    // The caller may pipe the whole meta object or just its `waves[]`. Either
+    // is read; anything else is refused rather than treated as a plan naming
+    // no branch, which would approve the very shape this gate exists for.
+    const waves = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { waves?: unknown } | null)?.waves;
+    if (!Array.isArray(waves)) {
+      write("plot-transition: expected the parser's waves[] — refusing rather than guessing.\n");
+      return 2;
+    }
+    slices = waves.map((wave) => {
+      const w = (wave ?? {}) as { name?: unknown; branches?: unknown };
+      return {
+        name: typeof w.name === 'string' ? w.name : '',
+        branches: (Array.isArray(w.branches) ? w.branches : []).map((line) => {
+          const l = (line ?? {}) as { branch?: unknown; deferred?: unknown };
+          return {
+            branch: typeof l.branch === 'string' ? l.branch : '',
+            deferred: l.deferred === true,
+          };
+        }),
+      };
+    });
+  } catch {
+    write('plot-transition: cannot read the slices as JSON — refusing rather than guessing.\n');
+    return 2;
+  }
+  const unnamed = unnamedBranches(slices);
+  if (unnamed.length === 0) return 0;
+  write(`slice-unnamed\t${unnamedBranchDetail(slug, unnamed)}\n`);
+  return 1;
+};
+
+/**
  * Read stdin, print the answer.
  *
  * Three exit codes rather than two, because the caller repairs them
@@ -229,5 +302,7 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8')));
+  const text = Buffer.concat(chunks).toString('utf8');
+  const flag = process.argv.indexOf('--check-slices');
+  process.exit(flag === -1 ? run(text) : checkSlices(text, process.argv[flag + 1] ?? ''));
 }
