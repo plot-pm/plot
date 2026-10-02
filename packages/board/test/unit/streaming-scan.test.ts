@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -75,6 +75,27 @@ function fakeScan(lines: string[], { exitCode = 0, delayMs = 0 } = {}): string {
   // any particular ref: an empty `refs/heads` is a valid answer and the scan
   // output is what supplies the plans.
   execFileSync('git', ['init', '--quiet'], { cwd: dir });
+  // THIS FIXTURE'S OWN PR STORE, because the fleet holds one module-level
+  // `prIndexFile()` built with no `cwd`. That store resolves
+  // `git rev-parse --git-common-dir` in the vitest worker's cwd, which is
+  // `packages/board`, so without this stub every case reads the OPERATOR'S real
+  // store and renders a row per open PR on their machine. Measured 2026-09-30
+  // (#1112): three open PRs, three extra rows, and `renders identically to a
+  // batch one` failed on the row list while passing on a machine with none.
+  //
+  // `vi.stubEnv` RATHER THAN AN ASSIGNMENT. `prIndexFile`'s `dirOf` reads the
+  // environment on every call and before its cached `git` answer, so a stub set
+  // long after the module loaded still takes effect — and `afterEach` restores
+  // it, where a direct assignment would leak into every later file sharing this
+  // worker.
+  //
+  // INSIDE THE FIXTURE rather than a shared temp directory: `owned-run.sh`
+  // points `PLOT_PR_INDEX_HOME` at one `pr-index` for the whole `test:board`
+  // run, so a file writing a store there changes what this file reads depending
+  // on order. The directory is left EMPTY, which the adapter reads as *no
+  // store* — the fleet then asks the host exactly as it does today.
+  fs.mkdirSync(path.join(dir, 'pr-index'));
+  vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
   temps.push(dir);
   return dir;
 }
@@ -82,6 +103,11 @@ function fakeScan(lines: string[], { exitCode = 0, delayMs = 0 } = {}): string {
 const temps: string[] = [];
 afterEach(() => {
   stopFleetRefresh();
+  // BEFORE the removal, and `vitest.config.ts` sets no `unstubEnvs`, so nothing
+  // restores this for you. Released first because the directory it names is
+  // about to stop existing: left stubbed, the next case points a store at a
+  // deleted path instead of at its own fixture.
+  vi.unstubAllEnvs();
   for (const d of temps.splice(0)) rmTree(d);
 });
 
