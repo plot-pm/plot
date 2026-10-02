@@ -70,13 +70,21 @@ function dispatchablePlan(work, { slug = 'monitor-sampling', date = '2026-08-30'
  * overridable precisely so that a test need not wait half a minute to observe
  * two passes.
  */
-function dispatchOne(name, { workerCommand, monitorInterval = '1', env = {} } = {}) {
+function dispatchOne(name, { workerCommand, prompt, monitorInterval = '1', env = {} } = {}) {
   const sb = makeSandbox({ name, config: '' });
   const command = typeof workerCommand === 'function' ? workerCommand(sb) : workerCommand;
   fs.writeFileSync(
     path.join(sb.work, 'CLAUDE.md'),
     `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${command}\n`,
   );
+  // THE PROMPT IS COMMITTED, so the desk cut from `origin/main` holds it and
+  // the loop reads it from the desk's own root. Committed rather than written
+  // into the desk afterwards: an untracked file the test wrote seconds ago is
+  // a dirty path, and its mtime would move the tree inside the window.
+  if (prompt) {
+    fs.mkdirSync(path.join(sb.work, '.plot'), { recursive: true });
+    fs.writeFileSync(path.join(sb.work, '.plot', 'worker-prompt.sh'), prompt(sb));
+  }
   dispatchablePlan(sb.work);
   // THE DESK IS LAID BY THE FIXTURE, not by the fan-out. Dispatch hands a slice
   // to the registry and cuts nothing; what these tests are about is the worker
@@ -163,11 +171,29 @@ test('the published findings file does not make the worktree read as dirty', () 
 // `docs/plans/2026-10-01-idle-is-read-from-what-the-desk-recorded.md`). A
 // commit made seconds ago moves the tree inside the window, so the worker
 // dates its commit through `GIT_COMMITTER_DATE` and the tree is clean after it.
+//
+// THE WORKER COMMAND IS THE REAL LOOP. The watcher lives in
+// `plot-worker-loop.sh`, so a Worker command that ran the script directly
+// would start no watcher at all: the positive half could never publish and
+// the negative half would pass for that reason alone. The loop runs the
+// script as its prompt, through `.plot/worker-prompt.sh`.
+//
+// THE WINDOW IS SHORTER THAN THE PROMPT. The watcher clamps silence to the
+// time the current prompt has run, so a prompt younger than the window has
+// not been silent for it, whatever the transcript's mtime says. A 3 s window
+// against a 15 s prompt leaves several passes past the clamp.
 const conversationDesk = (name, { spoken }) => dispatchOne(name, {
-  // Both travel through `staffDesk`'s env and reach the watcher by
-  // inheritance, as `PLOT_MONITOR_INTERVAL` does.
-  env: (sb) => ({ PLOT_TRANSCRIPT_HOME: path.join(sb.root, 'home'), PLOT_MONITOR_QUIET_SECONDS: '60' }),
-  workerCommand: (sb) => {
+  // These travel through `staffDesk`'s env and reach the watcher by
+  // inheritance, as `PLOT_MONITOR_INTERVAL` does. The two wait values end the
+  // loop promptly once the prompt is done and no slice follows.
+  env: (sb) => ({
+    PLOT_TRANSCRIPT_HOME: path.join(sb.root, 'home'),
+    PLOT_MONITOR_QUIET_SECONDS: '3',
+    PLOT_WAIT_POLL_SECONDS: '1',
+    PLOT_WAIT_BUDGET_SECONDS: '1',
+  }),
+  workerCommand: () => `bash ${path.join(SCRIPTS, 'plot-worker-loop.sh')}`,
+  prompt: (sb) => {
     const script = path.join(sb.root, 'worker.sh');
     fs.writeFileSync(script, `#!/usr/bin/env bash
 . ${JSON.stringify(path.join(SCRIPTS, 'plot-agent-manifest.sh'))}
@@ -181,9 +207,9 @@ touch -t 200001010000 "$dir/$handle.jsonl"` : ''}
 echo work > done.txt
 git add done.txt
 GIT_COMMITTER_DATE='2000-01-01T00:00:00 +0000' git -c user.email=a@b -c user.name=a commit -qm work
-sleep 8
+sleep 15
 `);
-    return `bash ${script}`;
+    return `bash ${JSON.stringify(script)}\n`;
   },
 });
 
@@ -210,7 +236,7 @@ test('a real dispatch whose conversation has not written is never published idle
   const run = conversationDesk(name, { spoken: false });
   const exitFile = path.join(run.worktree, '.plot-worker.exit');
   try {
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 60_000;
     while (!fs.existsSync(exitFile) && Date.now() < deadline) execFileSync('sleep', ['0.2']);
     assert.ok(fs.existsSync(exitFile), 'the worker never finished, so its silence proves nothing');
     const records = fs.existsSync(run.findingsFile)
