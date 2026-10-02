@@ -54,7 +54,7 @@ describe('approve — an unnamed slice', () => {
   const unnamed = [{ name: '', branches: [{ branch: 'feature/nameless' }] }];
 
   it('refuses a plan naming a branch under no heading, and names the branch', () => {
-    const out = approve(ready({ slices: unnamed }), on);
+    const out = approve(ready({ slices: unnamed }), on());
     expect(refused(out) && out.reason).toBe('slice-unnamed');
     expect(refused(out) && out.detail).toContain("'feature/nameless'");
     expect(refused(out) && out.detail).toContain(
@@ -63,40 +63,40 @@ describe('approve — an unnamed slice', () => {
   });
 
   it('WRITES NOTHING when it refuses — the plan is left exactly as it was found', () => {
-    const out = approve(ready({ slices: unnamed }), on);
+    const out = approve(ready({ slices: unnamed }), on());
     expect(decided(out)).toBe(false);
     expect(out).not.toHaveProperty('writes');
   });
 
   it('refuses a DEFERRED branch under no heading, which can return to the queue', () => {
     const deferred = [{ name: '', branches: [{ branch: 'feature/given-up', deferred: true }] }];
-    const out = approve(ready({ slices: deferred }), on);
+    const out = approve(ready({ slices: deferred }), on());
     expect(refused(out) && out.reason).toBe('slice-unnamed');
     expect(refused(out) && out.detail).toContain("'feature/given-up'");
   });
 
   it('refuses before the review channel, so every channel reports the real defect', () => {
-    const out = approve(ready({ slices: unnamed, review: 'in-session' }), on);
+    const out = approve(ready({ slices: unnamed, review: 'in-session' }), on());
     expect(refused(out) && out.reason).toBe('slice-unnamed');
   });
 
   it('refuses an already-approved plan that holds one, rather than repairing it', () => {
-    const out = approve(ready({ slices: unnamed, phase: 'approved' }), on);
+    const out = approve(ready({ slices: unnamed, phase: 'approved' }), on());
     expect(refused(out) && out.reason).toBe('slice-unnamed');
   });
 
   it('approves a plan whose every branch sits under a heading', () => {
-    const out = approve(ready({ slices: named }), on);
+    const out = approve(ready({ slices: named }), on());
     expect(decided(out)).toBe(true);
   });
 
   it('approves when no slices were read at all — absent is not false', () => {
-    const out = approve(ready(), on);
+    const out = approve(ready(), on());
     expect(decided(out)).toBe(true);
   });
 
   it('approves a plan that names no branch at all', () => {
-    const out = approve(ready({ slices: [], branches: [] }), on);
+    const out = approve(ready({ slices: [], branches: [] }), on());
     expect(decided(out)).toBe(true);
   });
 });

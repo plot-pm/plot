@@ -87,12 +87,7 @@ describe('approve', () => {
     const unnamed = [{ name: '', branches: [{ branch: 'feature/nameless' }] }];
 
     it('refuses a branch under no heading, naming the branch and the repair', () => {
-      const result = approve(planWith(), {
-        on: '2026-10-02',
-        who: 'Jan',
-        channel: 'pr',
-        slices: unnamed,
-      });
+      const result = approve(planWith(), approvedBy({ slices: unnamed }));
       expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
       expect(isRefusal(result) && result.detail).toContain("'feature/nameless'");
       expect(isRefusal(result) && result.detail).toContain(
@@ -101,67 +96,37 @@ describe('approve', () => {
     });
 
     it('decides no write when it refuses', () => {
-      const result = approve(planWith(), {
-        on: '2026-10-02',
-        who: 'Jan',
-        channel: 'pr',
-        slices: unnamed,
-      });
+      const result = approve(planWith(), approvedBy({ slices: unnamed }));
       expect(isDecision(result)).toBe(false);
     });
 
     it('refuses a DEFERRED branch under no heading', () => {
-      const result = approve(planWith(), {
-        on: '2026-10-02',
-        who: 'Jan',
-        channel: 'pr',
-        slices: [{ name: '', branches: [{ branch: 'feature/given-up', deferred: true }] }],
-      });
+      const result = approve(planWith(), approvedBy({ slices: [{ name: '', branches: [{ branch: 'feature/given-up', deferred: true }] }] }));
       expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
     });
 
     it('refuses before the review channel, on every channel', () => {
-      const result = approve(planWith({ review: 'in-session' }), {
-        on: '2026-10-02',
-        who: 'Jan',
-        channel: 'in-session',
-        slices: unnamed,
-      });
+      const result = approve(planWith({ review: 'in-session' }), approvedBy({ slices: unnamed }));
       expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
     });
 
     it('refuses an already-approved plan holding one', () => {
-      const result = approve(planWith({ phase: 'approved' }), {
-        on: '2026-10-02',
-        who: 'Jan',
-        channel: 'pr',
-        slices: unnamed,
-      });
+      const result = approve(planWith({ phase: 'approved' }), approvedBy({ slices: unnamed }));
       expect(isRefusal(result) && result.reason).toBe('slice-unnamed');
     });
 
     it('approves a plan whose every branch sits under a heading', () => {
-      const result = approve(planWith(), {
-        on: '2026-10-02',
-        who: 'Jan',
-        channel: 'pr',
-        slices: [{ name: 'A slice', branches: [{ branch: 'feature/one' }] }],
-      });
+      const result = approve(planWith(), approvedBy({ slices: [{ name: 'A slice', branches: [{ branch: 'feature/one' }] }] }));
       expect(isDecision(result)).toBe(true);
     });
 
     it('approves when no slices were read — absent is not false', () => {
-      const result = approve(planWith(), { on: '2026-10-02', who: 'Jan', channel: 'pr' });
+      const result = approve(planWith(), approvedBy());
       expect(isDecision(result)).toBe(true);
     });
 
     it('keeps the idempotent re-run: an approved plan with a record and named slices', () => {
-      const result = approve(planWith({ phase: 'approved', approvedRecord: '2026-08-01, Jan, pr' }), {
-        on: '2026-10-02',
-        who: 'Jan',
-        channel: 'pr',
-        slices: [{ name: 'A slice', branches: [{ branch: 'feature/one' }] }],
-      });
+      const result = approve(planWith({ phase: 'approved', approvedRecord: '2026-08-01, Jan, pr' }), approvedBy({ slices: [{ name: 'A slice', branches: [{ branch: 'feature/one' }] }] }));
       expect(isDecision(result) && result.alreadyRecorded).toBe(true);
     });
 
