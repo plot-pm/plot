@@ -1956,8 +1956,17 @@ run_bounded() {
   export PLOT_CORRECTION_FILE
   PLOT_CORRECTION_FILE="${PLOT_WORKTREE:-$PWD}/$(correction_file_name)"
 
+  # THE PROMPT DOES NOT INHERIT `PLOT_REPO_ROOT`. The supervisor's unit sets it
+  # for the scripts the supervisor runs, and plain inheritance carried it into
+  # every test an agent ran. `plot-config.sh` prefers it over the sandbox's own
+  # repository, so a test that dispatched into a temp repo read the HOST's
+  # absolute `Agent registry` and wrote its manifest there. Measured 2026-10-02:
+  # 9 `feature/caps` manifests from `capabilities.test.mjs` in this estate's
+  # registry, which the supervisor counted against the cap and started nobody.
+  # The loop keeps the variable; only the agent's process tree loses it. `env`
+  # replaces itself with `bash`, so `$!` is still the prompt.
   # shellcheck source=/dev/null
-  bash -c '. "$1"' _ "$prompt_file" &
+  env -u PLOT_REPO_ROOT bash -c '. "$1"' _ "$prompt_file" &
   _prompt_child=$!
 
   # The floor's watchdog: after the bound, signal the loop's own PID. A compound
