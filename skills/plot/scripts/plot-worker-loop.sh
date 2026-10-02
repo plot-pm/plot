@@ -2184,9 +2184,15 @@ run_bounded() {
   # `plot_tmpfile` assigns BY NAME through `printf -v`, which is why the
   # variable is not visibly written here — the substitution form is what
   # `scripts/check-temp-paths.sh` refuses, because it removes or leaks the path.
+  #
+  # ONE TEE PER STREAM, so stdout stays stdout and stderr stays stderr. A
+  # `2>&1` into one tee sends the prompt's stderr to the loop's stdout, and a
+  # reader of the loop's stderr then sees nothing the prompt said there. Both
+  # tees append to the one capture file, which is all the classifier reads.
   plot_tmpfile _prompt_out_file prompt-out
   # shellcheck source=/dev/null
-  bash -c '. "$1"' _ "$prompt_file" > >(tee -a "$_prompt_out_file") 2>&1 &
+  bash -c '. "$1"' _ "$prompt_file" \
+    > >(tee -a "$_prompt_out_file") 2> >(tee -a "$_prompt_out_file" >&2) &
   _prompt_child=$!
   _prompt_started_at=$(clock_now)
 

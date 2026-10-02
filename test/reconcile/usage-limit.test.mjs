@@ -510,7 +510,10 @@ exit 1
     const marker = fs.readFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'utf8');
     assert.match(marker, /The desk holds 1 uncommitted file\./,
       `an empty claim is not work, and one entry is singular\n${marker}`);
-    assert.doesNotMatch(marker, /commit/,
+    // `\d+ commits?` AND NOT A BARE `commit`: the clause asserted just above
+    // reads "uncommitted", which a bare `/commit/` matches, so the two
+    // assertions could never hold together.
+    assert.doesNotMatch(marker, /\b\d+ commits?\b/,
       `no commit is named for a desk that only claimed\n${marker}`);
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
@@ -545,7 +548,10 @@ exit 1
     // limit and the one that resumed and met it again.
     assert.equal(fs.readFileSync(path.join(log, 'runs'), 'utf8'), '2',
       `the loop waited once, resumed, and refused the second wait\n${r.stderr}`);
-    const waits = (r.stderr.match(/usage limit on feature\/seam until/g) ?? []).length;
+    // THE WAIT LINE ENDS `; waiting`. The ending line for the refused second
+    // wait also reads "usage limit on feature/seam until", so counting that
+    // prefix counts the refusal as a wait.
+    const waits = (r.stderr.match(/usage limit on feature\/seam until [^\n;]*; waiting/g) ?? []).length;
     assert.equal(waits, 1, `exactly one wait was served\n${r.stderr}`);
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
@@ -591,7 +597,9 @@ git -C ${sb.work} push -q origin main
 
     assert.equal(fs.readFileSync(path.join(log, 'runs'), 'utf8'), '3',
       `a committing prompt earns a second wait\n${r.stderr}`);
-    const waits = (r.stderr.match(/usage limit on feature\/seam until/g) ?? []).length;
+    // THE WAIT LINE ENDS `; waiting`, the same count the test above takes, so
+    // an ending line naming the limit is never counted as a wait.
+    const waits = (r.stderr.match(/usage limit on feature\/seam until [^\n;]*; waiting/g) ?? []).length;
     assert.equal(waits, 2, `both limits were waited out\n${r.stderr}`);
     assert.doesNotMatch(r.stderr, /no-progress/,
       `progress was made, so that gate never fires\n${r.stderr}`);
@@ -821,8 +829,13 @@ test('--stop during a wait ends the loop within one step', serial, async () => {
     // after the SIGTERM; the steps are at most 60 s and each is
     // `_wait_sleep_pid`, which the exit trap reaps — so the loop leaves at
     // once rather than at the reset.
+    //
+    // THE RESET IS TWENTY MINUTES OUT, INSIDE THE FIXTURE'S 1800 s BOUND. An
+    // hour out is `past-bound`: the loop ends on its own at once, the test
+    // stops nothing, and an `exit` emitted before the listener below was
+    // attached left the await pending forever.
     writePrompt(wt, `printf 'started\\n' > "${log}/started"
-printf '%s\\n' ${JSON.stringify(limitLine(3600))}
+printf '%s\\n' ${JSON.stringify(limitLine(1200))}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
@@ -841,18 +854,24 @@ exit 1
     });
     let stderr = '';
     child.stderr.on('data', (d) => { stderr += d; });
+    // THE LISTENER IS ATTACHED AT SPAWN, so an exit that happens before the
+    // SIGTERM is still observed rather than awaited forever.
+    const exited = new Promise((resolve) => child.on('exit', (c, s) => resolve(c ?? s)));
 
-    // Wait until the loop is demonstrably inside the wait.
+    // Wait until the loop is demonstrably inside the wait: the `; waiting`
+    // line, which only the wait prints.
+    const waiting = /usage limit on feature\/seam until [^\n;]*; waiting/;
     const deadline = Date.now() + 60000;
-    while (Date.now() < deadline && !/usage limit on feature\/seam/.test(stderr)) {
+    while (Date.now() < deadline && !waiting.test(stderr) && child.exitCode === null) {
       await new Promise((r) => setTimeout(r, 200));
     }
-    assert.match(stderr, /usage limit on feature\/seam/,
-      `the loop reached the wait\n${stderr}`);
+    if (!waiting.test(stderr)) child.kill('SIGKILL');
+    assert.match(stderr, waiting, `the loop reached the wait\n${stderr}`);
+    assert.equal(child.exitCode, null, `the loop is still waiting when stopped\n${stderr}`);
 
     const sentAt = Date.now();
     child.kill('SIGTERM');
-    const code = await new Promise((resolve) => child.on('exit', (c, s) => resolve(c ?? s)));
+    const code = await exited;
     const took = (Date.now() - sentAt) / 1000;
 
     // ONE STEP IS 60 s, so a margin above it proves the loop is not sleeping
@@ -878,13 +897,22 @@ test('--status names a future reset and not a past one', serial, () => {
     // `--status` READS A RUNNING WORKER'S DESK, so the pid file and manifest
     // must name a live process. This process is the stand-in: it is alive, and
     // what is asserted is which SENTENCE the reading produces.
+    //
+    // `startedAt` IS STAMPED BEFORE THE STAND-IN STARTED. `plot-worker-state.sh`
+    // finds this manifest from inside the desk (it resolves the main checkout's
+    // `.plot/agents`), and a pid whose process started before its manifest's
+    // `startedAt` reads as a REUSED pid and answers `ended`. A real dispatch
+    // stamps the manifest before the worker starts; stamping `now` for a
+    // process that has run for the whole suite is the reuse case, not this one.
+    const standInStart = Math.floor(Date.now() / 1000 - process.uptime()) - 60;
     fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(process.pid));
     fs.writeFileSync(path.join(wt, '.plot-worker.log'), 'log\n');
     const agents = path.join(sb.work, '.plot', 'agents');
     fs.mkdirSync(agents, { recursive: true });
     fs.writeFileSync(path.join(agents, `${SESSION}.json`), JSON.stringify({
       session: SESSION, branch: 'feature/seam', worktree: wt,
-      pid: String(process.pid), startedAt: new Date().toISOString(),
+      pid: String(process.pid),
+      startedAt: new Date(standInStart * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     }, null, 2) + '\n');
 
     // THE DESK ROOT IS A CONFIG KEY, resolved through `plot_desk_root` — so
