@@ -115,7 +115,7 @@ Tests:
 - A contract test runs the bundle in a scratch repository with two commits and an uncommitted file, and checks the printed commands and the summary.
 - The PR body carries the two measurements under Open Points.
 
-### A CI suite is refused at a desk (Branch: feature/a-ci-suite-is-refused-at-a-desk) <!-- waits: feature/the-checks-a-diff-needs -->
+### A CI suite is refused at a desk (Branch: feature/a-ci-suite-is-refused-at-a-desk, PR: #1179) <!-- waits: feature/the-checks-a-diff-needs -->
 
 - `feature/a-ci-suite-is-refused-at-a-desk` — `ciSuiteRefusal`, its bundle verb, and the arm in `plot-controller-gate.sh` <!-- builds: ciSuiteRefusal, the CI-suite gate arm -->
 
