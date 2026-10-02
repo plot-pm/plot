@@ -6,7 +6,7 @@ Plot's rules live in `packages/domain`. Its scripts live in `skills/plot/scripts
 2. **Where does the call go?**
 3. **How does a test prove a duplicate agrees?**
 
-It settles the estate's existing practice. `plot-pr-merged.sh` is sourced by four scripts while `rules/reapable.ts` and `rules/queue.ts` answer the same question in TypeScript — *did this land*, the most consequential refusal here, deliberately implemented twice. `plot-approve.sh` pays a `node` hop once per run and holds no copy of the transition rule. Both are correct, and the difference between them is measured rather than preferred.
+It settles the estate's existing practice. `plot-pr-merged.sh` is sourced by four scripts and asks `gh` itself, while the TypeScript host adapter's `prMerged` (`adapters/host/host-shell.ts`) asks `plot-host.sh pr-merged` — two LOOKUPS answering *did this land*, the most consequential refusal here, deliberately implemented twice and held together by `corpus/pr-merged.corpus.test.ts`. The RULE is not the duplicate: both sides reach `rules/landed.ts`, the shell through `board/plot-landed.mjs`, and one implementation cannot disagree with itself. `plot-approve.sh` pays a `node` hop once per run and holds no copy of the transition rule. Both are correct, and the difference between them is measured rather than preferred.
 
 ## 1. When a shell script calls the domain
 
@@ -84,6 +84,18 @@ It carried a declared divergence until 2026-09-08, and that divergence is now cl
 So each state is built in a real repository with a real origin, and read back through the loop's own `plot_worker_blocked` and `plot_worker_dirty`. **The shell under test is the shipped shell; only the estate it reads is made.** The rule stated in section 3 is unchanged — production supplies the readings and its own verdict, and the domain re-scores the same readings.
 
 **Where a subject cannot be checked in, the corpus builds it.** What must never be built is the READING: assembling `dirtyPath` from a `git status` written in the test would compare the domain against the test's idea of a dirty tree, and `plot_worker_dirty` drops editor leftovers and Plot's own `.plot-worker.*` records for measured reasons.
+
+## The merge-lookup comparison
+
+`corpus/pr-merged.corpus.test.ts` compares `pr_merged` (`plot-pr-merged.sh`) against the host adapter's `prMerged` (`adapters/host/host-shell.ts`). It is the one comparison here whose pair is two LOOKUPS rather than a rule and its shell copy: the rule moved into `rules/landed.ts` and both sides reach it, so what can still drift is how each asks the host. The shell calls `gh` directly — `plot-pr-merged.sh`'s header states why, and `scripts/check-host-cli-callers.sh` exempts it by name — and the adapter calls `plot-host.sh pr-merged`, which calls `gh` too. One stub `gh` on `PATH` is therefore reachable by both sides, and that is what makes a single-stub comparison possible.
+
+**The compared verdict is one boolean: may a caller treat this branch as merged.** The shell's is `pr_merged`'s exit code 0; the adapter's is an `ok` result whose value is `merged`, with a failed result, `not-merged` and `unknown` all refusing, exactly as `registryd-main.ts` maps them. The three-valued answer is deliberately not compared — the shell has no `not-merged`/`unknown` distinction at exit-code level, so unequal vocabularies could only be made to agree by translating one into the other, which is the permissive failure section 3 forbids wearing a different hat.
+
+**The corpus is built, for the reason the desk-reset one is**, and the reason is sharper here: the case the plan exists for is an EMPTY branch, and no branch on the estate is empty. Seven cases — an empty branch, one merged PR, a newer unmerged PR in front of a merged one, no PR, only an open PR, `gh` absent from `PATH`, and `gh` failing with an authentication error.
+
+**Two assertions exist because the verdict sweep alone would pass without them.** The empty-branch case asserts the shell recorded no `gh` call: the stub appends its argv on every invocation, so a guard moved after `command -v gh` answers the same boolean and fails here. And the stub HONOURS `--limit`, so a lookup regressed to `--limit 1` reads only the newer unmerged PR and reports *not merged* about a branch whose work is on main — the regression measured against the live host on 2026-08-27. Both were injected on 2026-10-02 and both were caught, naming opposite sides: `subject="" (empty) :: may-treat-as-merged :: adapter=false shell=true`, and `subject="feature/masked" (newer-unmerged-in-front) :: may-treat-as-merged :: adapter=true shell=false`.
+
+**What it leaves out is named in the file.** `pr_open` has no TypeScript counterpart to compare against, so `test/reconcile/host.test.mjs` holds `pr_open ""` instead; and the comparison covers `github` only, because `_plot_merged_lookup` asks `gh` on every backend while `plot-host.sh pr-merged` also serves Bitbucket.
 
 ## The listing-page comparison
 

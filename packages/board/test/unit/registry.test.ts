@@ -20,6 +20,7 @@ import {
 } from '../../src/server/registry.js';
 import { execFileSync } from 'node:child_process';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
+import { isLiveState } from '../../src/contract/schema.js';
 import { projectSlug } from '../../src/server/transcript.js';
 import { rmTree } from '../helpers.mjs';
 
@@ -644,6 +645,63 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     });
     assert.equal(got.length, 1);
     assert.equal(got[0].session, 's');
+  });
+});
+
+describe('a worker runs at one desk — a desk its worker left is not working', () => {
+  // Measured 2026-10-02: manifest 92bc2a43 names pid 60290 at its new desk, and
+  // the old desk free-9cbeda11 still records 60290 in `.plot-worker.pid`. Both
+  // read `running`, and `fleetControls.working` counted 4 workers for 3.
+  const worktrees = (list: { path: string; branch: string }[]) =>
+    () => list.map((w) => ({ ...w, isMain: false }));
+  const allRunning = (wts: string[]): string[] => wts.map(() => 'running');
+  const pids = (byDesk: Record<string, string>) => (wt: string): string => byDesk[wt] ?? '';
+
+  it('reads the old desk `ended` and counts one live worker', async () => {
+    manifest('a.json', { session: 'moved', pid: '60290', worktree: '/wt/new',
+      branch: 'bug/next', startedAt: '2026-10-02T08:35:29Z' });
+    const got = await readAgentRegistry(root, home, {
+      worktrees: worktrees([
+        { path: '/wt/new', branch: 'bug/next' },
+        { path: '/wt/old', branch: 'bug/done' },
+      ]),
+      liveness: allRunning,
+      deskPid: pids({ '/wt/new': '60290', '/wt/old': '60290' }),
+    });
+    assert.equal(got.find((e) => e.worktree === '/wt/new')!.state, 'running');
+    assert.equal(got.find((e) => e.worktree === '/wt/old')!.state, 'ended');
+    assert.equal(got.filter((e) => isLiveState(e.state)).length, 1);
+  });
+
+  it('keeps a live free loop with no manifest running and counted', async () => {
+    const got = await readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/free', branch: 'feature/free' }]),
+      liveness: allRunning,
+      deskPid: pids({ '/wt/free': '777' }),
+    });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].state, 'running');
+    assert.equal(got.filter((e) => isLiveState(e.state)).length, 1);
+  });
+
+  it('keeps a desk running when the manifest naming another desk records a different pid', async () => {
+    manifest('a.json', { session: 'other', pid: '1', worktree: '/wt/new', startedAt: '2026-10-02T08:00:00Z' });
+    const got = await readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/old', branch: 'bug/done' }]),
+      liveness: allRunning,
+      deskPid: pids({ '/wt/new': '1', '/wt/old': '2' }),
+    });
+    assert.equal(got.find((e) => e.worktree === '/wt/old')!.state, 'running');
+  });
+
+  it('keeps the state when the desk pid reading throws', async () => {
+    manifest('a.json', { session: 'moved', pid: '60290', worktree: '/wt/new', startedAt: '2026-10-02T08:00:00Z' });
+    const got = await readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/old', branch: 'bug/done' }]),
+      liveness: allRunning,
+      deskPid: () => { throw new Error('unreadable'); },
+    });
+    assert.equal(got.find((e) => e.worktree === '/wt/old')!.state, 'running');
   });
 });
 
