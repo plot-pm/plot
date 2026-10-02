@@ -11,6 +11,7 @@
 - **Issue:** #1082
 - **Review:** in-session
 - **Impl:** own branches
+- **Started:** 2026-10-02, Jan Wloka, `bug/an-empty-branch-is-not-asked`
 
 ## Changelog
 
@@ -69,7 +70,7 @@ No test holds the two lookups together. `grep -rn 'pr_merged\|prMerged' packages
 
 ## Slices
 
-### An empty branch is not asked (Branch: bug/an-empty-branch-is-not-asked)
+### An empty branch is not asked (Branch: bug/an-empty-branch-is-not-asked, PR: #1182)
 
 - `bug/an-empty-branch-is-not-asked` — guard in `_plot_merged_lookup`, `_plot_open_lookup` and `pr_merged_heads` that answers `unaskable` (or returns 1) for an empty branch before any `gh` call; a stubbed-`gh` contract test in `test/reconcile/host.test.mjs`; a changeset (`'plot': patch`, `bumps: skills: plot: patch`) <!-- builds: an empty-branch guard in plot-pr-merged.sh's three lookups -->
 

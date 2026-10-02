@@ -11,6 +11,7 @@
 - **Issue:** #1133
 - **Review:** in-session
 - **Impl:** own branches
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-host-script-asks-who-lists-issues`
 
 ## Changelog
 
