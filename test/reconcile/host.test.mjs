@@ -3388,9 +3388,21 @@ test('host: a GitHub page AT the requested limit is reported possibly truncated'
   assert.match(reports[0], /\b5\b/);
 });
 
-test('host: a GitHub page UNDER the requested limit is silent', () => {
-  // The pairing: fewer rows than the limit proves the host had no more, so the
-  // common path (a 1000 limit, a handful of PRs) reports nothing.
+// A completeness claim is the other half of the same decision, and it is a
+// machine-parseable stderr line for the same reason: `plot-fleet-scan.sh` reads
+// the sentence to license `.list-complete`, so its shape is a contract.
+const completeReports = (stderr) =>
+  stderr.split('\n').filter((l) => /page complete/i.test(l));
+
+test('host: a GitHub page UNDER the requested limit states that it is complete', () => {
+  // The pairing: fewer rows than the limit proves the host had no more.
+  //
+  // THIS TEST ASSERTED SILENCE UNTIL 2026-10-02, and the silence was the defect
+  // rather than the contract. A caller joining against the page could not tell
+  // "this holds every PR" from "this adapter has no opinion", so the scan read
+  // its own row count instead — which on a repository of 1064 PRs behind a
+  // 1000-row limit proved nothing and cost 26 `pr-state` calls a scan (#1017).
+  // The claim belongs here because the paging semantics do.
   const rows = Array.from({ length: 3 }, (_, i) => ({
     number: 100 + i, title: `t${i}`, state: 'MERGED', headRefName: `feature/f${i}`,
   }));
@@ -3401,6 +3413,43 @@ test('host: a GitHub page UNDER the requested limit is silent', () => {
   });
   assert.equal(res.status, 0, res.stderr);
   assert.equal(truncationReports(res.stderr).length, 0, '3 < 1000 proves the list is whole');
+  const reports = completeReports(res.stderr);
+  assert.equal(reports.length, 1, 'a provably whole page must say so, not stay silent');
+  assert.match(reports[0], /state=merged page complete \(3 rows below requested limit 1000\)/);
+});
+
+test('host: the two completeness sentences are never both emitted for one state', () => {
+  // ONE DECISION, TWO OUTCOMES. A reader that saw both would have no answer, and
+  // a reader that saw neither must be able to read that as "no claim owed".
+  const atLimit = makeStubs({
+    ghJson: JSON.stringify(Array.from({ length: 5 }, (_, i) => ({
+      number: 100 + i, title: `t${i}`, state: 'MERGED', headRefName: `feature/f${i}`,
+    }))),
+  });
+  const capped = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '5'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${atLimit.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(truncationReports(capped.stderr).length, 1);
+  assert.equal(completeReports(capped.stderr).length, 0,
+    'a capped page both warned and claimed completeness');
+
+  // NO `--limit` OWES NO CLAIM, and an empty page hides nothing. Both stay
+  // silent, which is why silence may not be read as either answer.
+  const noLimit = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${atLimit.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(completeReports(noLimit.stderr).length, 0, 'no --limit owes no completeness claim');
+  assert.equal(truncationReports(noLimit.stderr).length, 0, 'no --limit owes no truncation report');
+
+  const empty = makeStubs({ ghJson: '[]' });
+  const none = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '10'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${empty.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(completeReports(none.stderr).length, 0,
+    'an empty page is not a complete one — a host that answered nothing may have failed silently');
 });
 
 test('host: --rich reports truncation too and keeps the rich rows clean', () => {
