@@ -86,16 +86,19 @@
 #                                 two seconds fast excludes the PRs updated in
 #                                 that gap from every later window — forever,
 #                                 because the window never reopens.
-#                                 GITHUB NARROWS AND BITBUCKET'S BULK LISTING
-#                                 CANNOT. `gh pr list` takes `--search`; `bb pr
-#                                 list` has no query flag at all (verified
-#                                 against bb 1.9.0: `unknown flag: --query`), so
-#                                 only the per-branch sweep's REST `q=` can
-#                                 carry it. The bulk Bitbucket listing SAYS it
-#                                 could not narrow and answers in full, because
-#                                 a full answer reported as a delta is what
-#                                 would let a caller advance a watermark over a
-#                                 window it never applied.
+#                                 BOTH HOSTS NARROW, BY DIFFERENT ROUTES.
+#                                 `gh pr list` takes `--search`. `bb pr list`
+#                                 has no query flag (verified against bb 1.9.0:
+#                                 `unknown flag: --query`), so a windowed
+#                                 Bitbucket listing goes through
+#                                 `bb_window_listing`, which asks REST with
+#                                 `q=state="..." AND updated_on>="..."` and
+#                                 walks every page. It refuses a window whose
+#                                 rows fall short of the server's `size` rather
+#                                 than printing it as whole: a full answer
+#                                 reported as a delta is what would let a caller
+#                                 advance a watermark over a window it never
+#                                 applied.
 #                                 [--repo <owner/repo>] pins the list to ONE
 #                                 repository, exactly as pr-state and pr-merged
 #                                 do. A checkout with remotes on two hosts lets
