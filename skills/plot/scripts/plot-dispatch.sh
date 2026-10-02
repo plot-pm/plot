@@ -1487,6 +1487,13 @@ start_worker() {
   # agent, and `--stop` on one agent ends that wrapper's group and no sibling's.
   # It goes in this bash subshell and never in the `sh -c` body: dash refuses
   # `set -m` without a terminal.
+  #
+  # THE WRAPPER IGNORES SIGTERM, AND ONLY AFTER ITS CHILDREN EXIST. `--stop`
+  # signals this whole group, and the wrapper must outlive the agent to write
+  # `.plot-worker.exit` (`test/e2e/monitors-attached.test.mjs`). `trap "" TERM`
+  # comes after `agent=$!`, because an ignored signal is inherited by every child
+  # started after it: set earlier, the monitors and the agent would ignore the
+  # stop too. The wrapper then records the exit code and ends on its own.
   ( set -m; cd "$wt" && \
       # AN `export`, NOT AN ENV PREFIX, AND THE REASON IS A MEASUREMENT. Bash
       # recognises an assignment prefix BEFORE it expands parameters, so a
@@ -1517,7 +1524,7 @@ start_worker() {
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
+      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
