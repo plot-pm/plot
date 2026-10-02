@@ -8,6 +8,7 @@
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Started:** 2026-10-02, Jan Wloka, `feature/a-slice-ends-when-its-checks-do`
 - **Started:** 2026-10-02, Jan Wloka, `feature/the-checks-a-diff-needs`
+- **Started:** 2026-10-02, Jan Wloka, `feature/a-ci-suite-is-refused-at-a-desk`
 - **Type:** feature
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Review:** in-session
@@ -73,7 +74,7 @@ The board's 24 `node --test` files and 63 integration files start the built arti
 
 **The entry.** `packages/board/src/server/entry/local-checks.ts`, imported through the narrow path `@plot-pm/domain/rules/local-checks`, built by a `build.mjs` block like the panel's into `skills/plot/scripts/board/plot-local-checks.mjs`, with its `-merge` line in `.gitattributes` (gated by `scripts/check-bundle-attributes.sh`). It reads the readings through the `Refs` port and `Scripts` for the two config keys, prints one command per line, then a `summary:` line with the counts. Exit 0 always; 2 when not inside a git repository. The same bundle answers `ciSuiteRefusal` for slice 3 with a second verb. No new `plot-*.sh` script.
 
-**Slice 3, a CI suite is refused at a desk.** `ciSuiteRefusal(command, suites)` in `packages/domain/src/rules/ci-suite.ts` returns a refusal when the command, after leading `VAR=value` assignments and `env` options are stripped, starts with a `CI suites` entry. It matches only the runner position, so a `grep`, a quoted commit message and a `gh pr create --body` that mention a suite pass. `plot-controller-gate.sh` gains an arm placed **before** its `named_script` exit and before its linked-worktree exemption. The arm runs only inside a linked worktree that holds `.plot-worker.pid` (a fleet desk). As a shell prefilter it also needs `PLOT_UNATTENDED=1` and one `CI suites` word in the command, so other Bash calls start no `node`. The refusal names the suite, says CI runs it, and prints the local checks command by a path relative to the gate script, which resolves under a plugin install. The gate runs from the plugin cache, so it reaches this fleet after a release and a plugin update. It is a check against habit, not a boundary: a command spelled another way passes, and the tests name the forms that do.
+**Slice 3, a CI suite is refused at a desk.** `ciSuiteRefusal(command, suites)` in `packages/domain/src/rules/ci-suite.ts` returns a refusal when one of the command's simple commands (split on `&&`, `||`, `;`, `|` and new lines, after quoted text is removed), with leading `VAR=value` assignments and `env` options stripped, starts with a `CI suites` entry. It matches only the runner position, so a `grep`, a quoted commit message and a `gh pr create --body` that mention a suite pass. `plot-controller-gate.sh` gains an arm placed **before** its `named_script` exit and before its linked-worktree exemption. The arm runs only inside a linked worktree that holds `.plot-worker.pid` (a fleet desk). As a shell prefilter it also needs `PLOT_UNATTENDED=1` and one `CI suites` word in the command, so other Bash calls start no `node`. The refusal names the suite, says CI runs it, and prints the local checks command by a path relative to the gate script, which resolves under a plugin install. The gate runs from the plugin cache, so it reaches this fleet after a release and a plugin update. It is a check against habit, not a boundary: a command spelled another way passes, and the tests name the forms that do.
 
 **The slices land in order, 1 to 4, each waiting on the one before**, so slice 4 merges only after the return route, the checks and the gate exist.
 
@@ -114,7 +115,7 @@ Tests:
 - A contract test runs the bundle in a scratch repository with two commits and an uncommitted file, and checks the printed commands and the summary.
 - The PR body carries the two measurements under Open Points.
 
-### A CI suite is refused at a desk (Branch: feature/a-ci-suite-is-refused-at-a-desk) <!-- waits: feature/the-checks-a-diff-needs -->
+### A CI suite is refused at a desk (Branch: feature/a-ci-suite-is-refused-at-a-desk, PR: #1179) <!-- waits: feature/the-checks-a-diff-needs -->
 
 - `feature/a-ci-suite-is-refused-at-a-desk` — `ciSuiteRefusal`, its bundle verb, and the arm in `plot-controller-gate.sh` <!-- builds: ciSuiteRefusal, the CI-suite gate arm -->
 
