@@ -121,6 +121,32 @@ export interface Refs {
   changedFiles(branch: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Lists the paths the working tree changes against HEAD: modified, staged,
+   * and untracked files. A renamed file is listed by its new path.
+   *
+   * @returns the paths, relative to the repository root.
+   */
+  workingChanges(): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Lists the tracked files under the pathspecs that contain a fixed string.
+   *
+   * @param term - the text to find, matched literally.
+   * @param globs - path globs to search under; `*` within one segment, `**` across.
+   * @returns the matching paths, relative to the repository root; empty when none match.
+   */
+  filesNaming(term: string, globs: readonly string[]): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Lists the paths whose `merge` attribute is unset (`-merge` in
+   * `.gitattributes`), which this estate uses to mark generated files.
+   *
+   * @param paths - the paths to test.
+   * @returns the subset with `merge` unset.
+   */
+  mergeUnset(paths: readonly string[]): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Lists the files ONE COMMIT changed against its first parent.
    *
    * THE MERGE COMMIT, NOT THE BRANCH, and that is the whole reason this sits

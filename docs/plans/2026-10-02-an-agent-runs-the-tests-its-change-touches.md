@@ -7,6 +7,7 @@
 - **State:** Approved
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Started:** 2026-10-02, Jan Wloka, `feature/a-slice-ends-when-its-checks-do`
+- **Started:** 2026-10-02, Jan Wloka, `feature/the-checks-a-diff-needs`
 - **Type:** feature
 - **Sprint:** the-fleet-runs-through-its-limits
 - **Review:** in-session
@@ -64,12 +65,9 @@ These are single readings taken while the fleet ran, not a recorded series.
 - *checks*: the `Local checks` config key, `glob = command` pairs separated by `;`. A command carries `{tests}` (the selected test files under that glob) or `{changed}` (the changed paths under that glob, for runners that follow imports, such as `vitest related`), or neither (a check that runs when any changed path matches the glob, such as a typecheck). `plot-config.sh` strips parentheses and normalises commas in every value, so a command uses neither;
 - *limit*: `Local checks limit`, default 20. A changed path named by more test files than the limit selects none of them and is reported as *CI runs these N*.
 
-A changed test file selects itself. A changed path that selects nothing is reported as *untested here — CI runs it*. The rule decides; it reads no file and spawns nothing.
+A changed test file selects itself. A changed path that selects nothing is reported as *untested here — CI runs it*. The rule decides; it reads no file and spawns nothing. **Both placeholders are filled with absolute paths**, because a command such as `pnpm --filter <package> exec vitest related` runs in another directory: measured 2026-10-02, `vitest related` given a repo-relative path from there printed *No test files found* and exited 0, a pass that ran nothing.
 
-This repository declares, in slice 2:
-
-    Local checks: test/reconcile/*.test.mjs = node --test {tests}; packages/domain/** = pnpm --filter @plot-pm/domain exec vitest related --run {changed}; packages/domain/src/** = pnpm --filter @plot-pm/domain exec tsc --noEmit; packages/board/src/** = pnpm --filter @plot-pm/board exec vitest related --run {changed}; packages/board/src/** = pnpm run typecheck
-    CI suites: pnpm run test:e2e; pnpm run test:contracts; pnpm run test:board; pnpm --filter @plot-pm/domain exec vitest run --coverage; node --test test/reconcile/*.test.mjs
+This repository declares, in slice 2, one `Local checks` line: `node --test {tests}` for `test/reconcile/*.test.mjs`; `vitest related --run {changed}` and `tsc --noEmit` for the domain package; `vitest related --run {changed}` and `pnpm run typecheck` for the board's `src`; and, for any change (`**`), the gate tests `test/reconcile/*gate*.test.mjs` and the nine `scripts/check-*.sh` that CI runs as steps, 13 s together. `CI suites` lists `test:e2e`, `test:contracts`, `test:board`, the domain coverage run and `node --test test/reconcile/*.test.mjs`.
 
 The board's 24 `node --test` files and 63 integration files start the built artifact, so no change under `src` selects them; they are CI's, by design, and slice 2 counts what that costs.
 
@@ -106,7 +104,7 @@ Tests:
 - Domain: a PR whose head's checks are pending is not finished; a passing run finishes it; a failed run for the current head is a correction; a failed run for a superseded head is ignored; a PR with no terminal checks inside `Worker bound` finishes it and says so.
 - `test/reconcile/`: a loop whose fake monitor publishes `build failed` for the pushed head writes `PLOT-CORRECTION.md` and resumes, instead of taking a new slice; a passing finding frees the agent.
 
-### The checks a diff needs (Branch: feature/the-checks-a-diff-needs) <!-- waits: feature/a-slice-ends-when-its-checks-do -->
+### The checks a diff needs (Branch: feature/the-checks-a-diff-needs, PR: #1176) <!-- waits: feature/a-slice-ends-when-its-checks-do -->
 
 - `feature/the-checks-a-diff-needs` — `localChecks`, the `Refs` working-tree extension, the `Local checks`, `Local checks limit` and `CI suites` keys, the entry and the `plot-local-checks.mjs` bundle, this repository's two config lines <!-- builds: localChecks, the checks a diff needs -->
 
