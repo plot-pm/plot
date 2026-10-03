@@ -80,7 +80,7 @@
 
 `waitVerdict`, `prerequisiteCleared`, `WaitsReading[]` in `rules/branch-state.ts`, the `FleetBranch.waits_on` array with its legacy preprocess, `PlanRecordBranch.waitsOn: readonly string[]` and the `waits` hold in `rules/queue.ts`, `entry/branch-state.ts` reading a comma-separated waits column (one name is a one-item list), the board row sentence in `fleet.ts`, the corpus test, rebuilt bundles, a changeset for `plot` and `@plot-pm/board`. The scan still sends one name, so behaviour on `main` does not change until slice 2. <!-- builds: waitVerdict over a list of prerequisites -->
 
-### The parser reads every wait (Branch: bug/the-parser-reads-every-wait) <!-- waits: bug/every-wait-reaches-the-verdict -->
+### The parser reads every wait (Branch: bug/the-parser-reads-every-wait, PR: #1265) <!-- waits: bug/every-wait-reaches-the-verdict -->
 
 Both `waits:` blocks in `plot-plan-meta.sh` read every marker and every comma-separated name; the emitter writes `"waits_on":[…]`; `unread_waits[]`; the header comment at `:133`. In the same branch: the fleet-scan shim joins the list with commas into its column and the payload emits an array; `waits_pairs` in `plot-dispatch.sh` prints one pair per prerequisite; `branchOf` maps the array; reconcile's `unread_waits=` section and footer counter. Rebuilt bundles and a changeset. <!-- builds: the waits_on list and unread_waits -->
 
