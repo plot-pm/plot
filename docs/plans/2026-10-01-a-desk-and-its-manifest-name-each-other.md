@@ -91,7 +91,7 @@ Tests that fail on origin/main: a contract case in `test/reconcile/workerstate.t
 
 Tests that fail on origin/main: a contract case in `test/reconcile/` starts the BuildMonitor with `--once` on desk A, rewrites the manifest's `worktree` to desk B, runs `--once` again, and asserts the finding names desk B and lands in B's findings file, and a second case does the same for the AgentMonitor; a `workerloop.test.mjs` case drives the create path of the hop (`reset_desk` refused at step 1, #1085's third row) and asserts the loop's watcher publishes `idle` into the new desk's `.plot-worker.monitor.worker.jsonl`, which locks in what #1041 gives; a dispatch contract case hops an agent and lets it exit 124, and asserts the `gone` line lands in the new desk's `.plot-worker.monitor.worker.jsonl`.
 
-### A continued loop carries its manifest (Branch: bug/a-continued-loop-carries-its-manifest) <!-- builds: loopRegistration, the continue refusal --> <!-- waits: bug/the-join-is-one-rule -->
+### A continued loop carries its manifest (Branch: bug/a-continued-loop-carries-its-manifest, PR: #1256) <!-- builds: loopRegistration, the continue refusal --> <!-- waits: bug/the-join-is-one-rule -->
 
 `loopRegistration` in `rules/desk-manifest.ts` with unit tests; `continue.ts` asks `deskManifest`, passes `PLOT_MANIFEST_FILE`, refuses `unnamed` and `several`, and removes a stale `.plot-worker.wrapper.pid`; `wait_for_work` in `plot-worker-loop.sh` ends on `gone` with the ending `unregistered`; a corpus row for `loopRegistration`; `@plot-pm/board` and `plot` patch changesets. Answers #1101's loop half.
 
