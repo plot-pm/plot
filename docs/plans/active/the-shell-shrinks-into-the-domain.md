@@ -1,0 +1,1 @@
+../2026-10-03-the-shell-shrinks-into-the-domain.md
