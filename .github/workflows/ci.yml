@@ -136,9 +136,20 @@ jobs:
       - name: Validate skill frontmatter
         run: pnpm run validate
 
+      # A PR'S DIFF CARRIES NO GENERATED BUNDLE. Refused against the merge
+      # base, never `origin/main` alone — `origin/main` has moved on by the
+      # time a PR is reviewed, and diffing against it would blame a branch for
+      # bundles `main` itself changed after the branch was cut. Runs only on
+      # `pull_request`: a push to `main` has no PR diff to read, and `main`'s
+      # own bundle freshness is `scripts/main-bundles.sh main`'s question,
+      # asked further down.
+      - name: A PR carries no bundle
+        if: github.event_name == 'pull_request'
+        run: ./scripts/check-no-bundle-diff.sh
+
       # THE CHECKOUT HOLDS main'S BUILD, NOT A PR'S OWN. A PR's diff no longer
-      # carries the generated board bundles (`check-no-bundle-diff.sh`), so
-      # every test below that loads one — three corpus tests and 14 files
+      # carries the generated board bundles (`check-no-bundle-diff.sh` above),
+      # so every test below that loads one — three corpus tests and 14 files
       # under `test/` — needs this step to have run first, on every event this
       # workflow handles, not only on `pull_request`.
       - name: Build the board bundles
