@@ -1,6 +1,8 @@
-import { sliceVerdicts } from '@plot-pm/domain/rules/eligible';
 import {
   behindUnknownLanding,
+  planQueue,
+  settled,
+  type QueuedBranch,
   type PlanOrderedSlice,
   type QueueAgent,
   type MergedSetState,
@@ -15,7 +17,6 @@ import {
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
-import { unnamedBranches } from '@plot-pm/domain/rules/slice-name';
 import type { PlanRecord, PlanRecordSlice } from '@plot-pm/domain';
 
 import type { AgentEntry } from './registry.js';
@@ -147,125 +148,33 @@ export interface MergedListing {
   failed: boolean;
 }
 
-/**
- * The plan slug, as `plot-dispatch.sh` resolves it — the file's basename with
- * its date prefix and `.md` removed.
- *
- * The agent's own scope follows the slice, so the slug travels with the
- * assignment rather than being re-derived at the desk.
- *
- * @param file - the plan's path, relative to the repository root.
- * @returns the slug.
- */
-export const slugOf = (file: string): string => {
-  const base = (file.split('/').pop() ?? file).replace(/\.md$/, '');
-  return base.replace(/^\d{4}-\d{2}-\d{2}-/, '');
-};
+export type { QueuedBranch };
 
 /**
- * One branch the queue derived from a plan, before the asked readings.
+ * Derives the queue from one plan — the board's call into the domain's fold.
  *
- * **THE PLAN'S SLICE INDEX IS CARRIED, NOT THE ENTRY'S POSITION.** A plan slice
- * may name several branches, so one entry per branch cannot say which slices
- * are earlier — and *earlier* is the whole of what
- * {@link behindUnknownLanding} asks.
- */
-export type QueuedBranch = Omit<
-  QueuedSlice,
-  'briefPresent' | 'landed' | 'priorUnknown' | 'refused'
-> & {
-  /** The plan's slice this branch belongs to, zero-based, in plan order. */
-  slice: number;
-};
-
-/**
- * Derives the queue from one plan.
+ * **THE DECISION IS `planQueue`'s.** The slice order, the merged-only
+ * `settled` rule, the slug and the `waits:` hold live in
+ * `packages/domain/src/rules/queue.ts` as a pure function.
  *
- * **THE ORDERING IS THE PLAN'S, AND `sliceVerdicts` OWNS IT.** A slice is
- * `eligible` only where every slice before it is `complete`, so the fold is
- * the same one the fleet scan runs — re-implementing the ordering here would
- * give the queue and the board two answers about one plan.
- *
- * A branch the plan deferred is skipped: the plan gave it up rather than
- * finishing it, so it is not work waiting for anybody.
- *
- * **IT ANSWERS NONE OF THE ASKED READINGS**, which is what the `Omit` names:
- * the brief, the landing and the refusal are questions for the machine, the
- * host and a worker's own record, and this function reads one plan record.
+ * **IT ANSWERS NONE OF THE ASKED READINGS**, which is what `QueuedBranch`'s
+ * `Omit` names: the brief, the landing and the refusal are questions for the
+ * machine, the host and a worker's own record, and this function reads one
+ * plan record.
  * `readQueue` asks them, under the bound documented there.
  *
  * @param plan - the plan, as the plan store parsed it.
  * @param claimed - the remote branches that exist.
+ * @param merged - the branches the merged listing (and its fallback) named.
+ * @param listingWhole - whether the merged listing answered in full.
  * @returns one entry per branch this plan has queued, in plan order.
  */
 export const queueOfPlan = (
   plan: PlanRecord,
   claimed: ReadonlySet<string>,
   merged: ReadonlySet<string> = new Set<string>(),
-): readonly QueuedBranch[] => {
-  const slug = slugOf(plan.file);
-  // OUTSTANDING IS WHAT NOBODY HAS FINISHED, AND A REF ALONE CANNOT SAY IT.
-  //
-  // A ref means somebody took the slice. Its ABSENCE meant *unstarted* until
-  // 2026-09-06, and that is only true of a branch nobody has begun: merging
-  // deletes the ref, and `plot-release-refs.sh` deletes the rest deliberately
-  // — measured 218.5 s -> 111.5 s on the scan over nine branches. So a
-  // finished branch read as unstarted, its slice never reached `complete`, and
-  // `priorComplete &&= verdict === 'complete'` blocked every slice behind it.
-  //
-  // Measured that day: eight briefed slices held `not-claimable` against five
-  // free agents, while the board rendered all eight as eligible because it
-  // asks the host. The states are three — unstarted, in flight, landed — and
-  // the ref separates only the first two.
-  const settled = (line: { branch: string }): boolean =>
-    claimed.has(line.branch) || merged.has(line.branch);
-  const verdicts = sliceVerdicts(
-    plan.slices.map((slice: PlanRecordSlice) => ({
-      outstanding: slice.branches.filter((line) => !line.deferred && !settled(line)).length,
-      phase: plan.phase,
-      // EVERY branch the slice names, deferred ones included — the count that
-      // separates *all settled* from *none named*. Unfiltered on purpose: a
-      // slice whose branches were all deferred still names work, and calling
-      // it `empty` would report a decision as a malformed plan.
-      branches: slice.branches.length,
-    })),
-  );
-
-  // THE PLAN'S OWN UNNAMED BRANCHES, ASKED ONCE AND READ PER BRANCH. The
-  // predicate is `slice-unnamed`'s, the same one `/plot-approve` refuses on, so
-  // the queue and the approval can never name different branches. It reads the
-  // slices and nothing else: no host call, no ref, no file.
-  const unnamed = new Set(unnamedBranches(plan.slices));
-
-  const queued: QueuedBranch[] = [];
-  plan.slices.forEach((slice: PlanRecordSlice, index: number) => {
-    const claimable = verdicts[index] === 'eligible';
-    for (const line of slice.branches) {
-      if (line.deferred) continue;
-      // A CLAIMED BRANCH IS OUT OF THE QUEUE, and that is the derivation
-      // rather than a filter over it: the ref is what says somebody took the
-      // slice, and it is the same fact `isClaimable` reads as `state === 'open'`.
-      //
-      // A MERGED BRANCH LEAVES BY THE SAME DOOR FOR A DIFFERENT REASON — it is
-      // finished, not held — and neither may be offered to anybody. `landed`
-      // still exists for the branch that IS offered and turns out to have
-      // merged between two readings.
-      if (settled(line)) continue;
-      // THE PLAN'S SLICE INDEX TRAVELS WITH THE BRANCH, because a slice may
-      // name several and `behindUnknownLanding` asks which slices are EARLIER.
-      // Counting the entries instead would make two branches of one slice
-      // read as one before the other.
-      queued.push({
-        branch: line.branch,
-        slug,
-        claimable,
-        unnamed: unnamed.has(line.branch),
-        slice: index,
-      });
-    }
-  });
-  return queued;
-};
+  listingWhole = true,
+): readonly QueuedBranch[] => planQueue(plan, claimed, merged, listingWhole);
 
 /**
  * Reads the queue and the fleet, for one matching pass.
@@ -331,7 +240,7 @@ export const readQueue = async (
   const provenFor = await subjectProofOf(plans, claimed, merged, world);
   const answered = listing.whole
     ? new Map<string, LandedAnswer>()
-    : await landedWithoutListing(plans, claimed, merged, provenFor, world);
+    : await landedWithoutListing(plans, merged, provenFor, world);
 
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
@@ -342,7 +251,12 @@ export const readQueue = async (
     // once per plan and decides; nothing here does.
     const ofPlan: QueuedSlice[] = [];
     const ordered: PlanOrderedSlice[] = [];
-    for (const entry of queueOfPlan(plan, claimed, new Set([...merged, ...provenFor(plan)]))) {
+    for (const entry of queueOfPlan(
+      plan,
+      claimed,
+      new Set([...merged, ...provenFor(plan)]),
+      listing.whole,
+    )) {
       const briefPresent = entry.claimable ? await world.briefPresent(entry.branch) : false;
       const landed: LandedAnswer =
         // A BRANCH THE NUMBER LOOKUP ALREADY ANSWERED IS NOT ASKED AGAIN. Every
@@ -452,7 +366,6 @@ const subjectProofOf = async (
  * It writes nothing. The board's refresh is the only writer of the PR index.
  *
  * @param plans - every plan on the estate.
- * @param claimed - the remote branches that exist.
  * @param merged - the heads the listing named; landed branches are added to it.
  * @param provenFor - the branches a merge subject proves, per plan. A proven
  *   branch is settled for its own plan only, and is asked nothing.
@@ -461,7 +374,6 @@ const subjectProofOf = async (
  */
 const landedWithoutListing = async (
   plans: readonly PlanRecord[],
-  claimed: ReadonlySet<string>,
   merged: Set<string>,
   provenFor: (plan: PlanRecord) => ReadonlySet<string>,
   world: QueueWorld,
@@ -471,11 +383,13 @@ const landedWithoutListing = async (
   let views = 0;
   for (const plan of plans) {
     const proven = provenFor(plan);
-    const settled = (branch: string): boolean =>
-      claimed.has(branch) || merged.has(branch) || proven.has(branch);
+    // THE ORDER'S OWN RULE: merged-only, as `planQueue` reads it. A claimed
+    // branch still blocks this walk exactly as it blocks the queue's order.
+    const landedHere = (branch: string): boolean =>
+      settled(branch, merged) || proven.has(branch);
     const slices = plan.slices.map((slice: PlanRecordSlice) => slice.branches);
     for (;;) {
-      const needed = blockingBranches(plan.phase, slices, settled);
+      const needed = blockingBranches(plan.phase, slices, landedHere);
       let moved = needed.length > 0;
       for (const branch of needed) {
         const known = knownPrFor(rows, branch);

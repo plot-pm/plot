@@ -46,7 +46,12 @@ On push to `main`:
 
 1. **`release.yml`** runs `changesets/action`.
 2. If pending changesets exist, the action opens a `release: X.Y.Z` PR that contains the bumped versions and updated `CHANGELOG.md`.
-3. When that PR merges, the action's `publish` step runs `create-release.sh`, which tags the commit (`vX.Y.Z` plus `<skill>@<version>` for each skill) and creates a GitHub Release with the changelog.
+3. **`release.yml`'s `dispatch-ci` job** starts CI on `changeset-release/main`, pinned to the head commit the release job just wrote. Nothing else starts it: the pull request run is held at `action_required` because the PR is bot-authored, and a push run does not exist, because the branch is pushed with `secrets.GITHUB_TOKEN` and GitHub starts no workflow from an event that token caused. The dispatched run reports `validate`, which is the required check.
+4. **Wait for `validate` on the release PR's current head, then merge with `gh pr merge` and no `--admin`.**
+   - On red, fix the cause. To re-run against the same head: `gh workflow run ci.yml --ref changeset-release/main -f expected_sha=<head>`.
+   - A push to `main` while you wait regenerates the branch and dispatches a new run, so the wait starts again on the new head. Read the head fresh before merging.
+   - `--admin` is a named exception, not the routine: record each use in the release PR with its reason.
+5. When that PR merges, the action's `publish` step runs `create-release.sh`, which tags the commit (`vX.Y.Z` plus `<skill>@<version>` for each skill) and creates a GitHub Release with the changelog.
 
 ## Local commands
 

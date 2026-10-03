@@ -101,9 +101,13 @@ Started by plot-dispatch.sh inside the worker's wrapper. Reads its subject from
 the environment, exactly as the wrapper's other children do:
 
   PLOT_BRANCH        the branch whose builds this monitor will report
-  PLOT_WORKTREE      the desk it reads the head sha from
+  PLOT_WORKTREE      the desk it STARTS on; it follows the manifest's
+                     `worktree` from then on (PLOT_MANIFEST_FILE below)
+  PLOT_MANIFEST_FILE the manifest this agent is named in, re-read each pass;
+                     absent or unreadable keeps watching PLOT_WORKTREE
   PLOT_MONITOR_FILE  where findings are published (default:
-                     $PLOT_WORKTREE/.plot-worker.monitor.build.jsonl)
+                     $PLOT_WORKTREE/.plot-worker.monitor.build.jsonl). Set
+                     explicitly, it WINS and does not follow a hop.
   PLOT_MONITOR_INTERVAL  seconds between passes (default 30)
 
   --once   take one sample and exit, rather than looping. A test
@@ -127,7 +131,14 @@ branch="${PLOT_BRANCH:-}"
 # The branch at start, kept for a detached or unreadable desk; `monitor_branch`
 # re-reads the desk on every pass.
 start_branch="$branch"
-worktree="${PLOT_WORKTREE:-}"
+# THE DESK THIS MONITOR WAS LAUNCHED ON, FIXED FOR ITS WHOLE LIFE. `worktree`
+# itself is no longer fixed: `monitor_pass` reassigns it every pass by asking
+# `plot_watched_desk`, which follows a hop to the manifest's new `worktree`
+# field. This is the launch desk `plot_watched_desk` falls back to when the
+# manifest carries no override — never read directly after startup.
+launched_worktree="${PLOT_WORKTREE:-}"
+worktree="$launched_worktree"
+manifest_file="${PLOT_MANIFEST_FILE:-}"
 # THIRTY SECONDS IS AFFORDABLE ONLY BECAUSE OF THE SILENCE RULE. This cadence
 # matches the WorkerMonitor's rather than the AgentMonitor's, and it asks a HOST
 # — which would be the rate problem the AgentMonitor's 300 s exists to avoid,
@@ -135,7 +146,11 @@ worktree="${PLOT_WORKTREE:-}"
 # is bounded by how long a build takes, not by how long a worker lives.
 interval="${PLOT_MONITOR_INTERVAL:-30}"
 
-findings="${PLOT_MONITOR_FILE:-${worktree:+$worktree/.plot-worker.monitor.build.jsonl}}"
+# IF `PLOT_MONITOR_FILE` IS SET IT WINS AND DOES NOT FOLLOW THE DESK — the
+# existing contract this usage text already states. Otherwise `findings`
+# follows `worktree`, reassigned alongside it at the top of `monitor_pass`.
+monitor_file_override="${PLOT_MONITOR_FILE:-}"
+findings="${monitor_file_override:-${worktree:+$worktree/.plot-worker.monitor.build.jsonl}}"
 
 # THE SUBJECT, read the same way the other two monitors read it.
 pid_file="${PLOT_PID_FILE:-${worktree:+$worktree/.plot-worker.pid}}"
@@ -398,6 +413,13 @@ sample_finding() { # → prints "finding\tevidence", or nothing
 # One full pass: sample, publish only on a change of ANSWER-ABOUT-A-COMMIT.
 monitor_pass() {
   local row finding evidence head
+  # REASSIGNED ONCE, HERE, RATHER THAN THREADED THROUGH EACH READER. `worktree`
+  # feeds `monitor_head_sha`, `monitor_branch` and `publish()`'s own field, so a
+  # hop is picked up in one place rather than three. `PLOT_MONITOR_FILE`, when
+  # set, WINS and does not follow the desk — the existing contract the usage
+  # text states.
+  worktree=$(plot_watched_desk "$manifest_file" "$launched_worktree")
+  findings="${monitor_file_override:-${worktree:+$worktree/.plot-worker.monitor.build.jsonl}}"
   branch=$(monitor_branch)
   head=$(monitor_head_sha)
   row=$(sample_finding)

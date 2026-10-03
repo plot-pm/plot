@@ -4377,6 +4377,165 @@ test('dispatch: a brief started by a claim leads its own group', () => {
   }
 });
 
+// THE WRAPPER'S `gone`/`clear` LINE FOLLOWS A HOP
+// ---------------------------------------------------------------------------
+//
+// `PLOT_WORKTREE` is fixed at launch, but `update_manifest_on_hop` rewrites
+// the manifest's `worktree` field before the agent's next slice starts. The
+// wrapper reads the manifest ONCE, right after `wait "$agent"` returns, and
+// must write its `gone`/`clear` line into the WATCHED desk — never the launch
+// desk the agent may no longer be in.
+
+test('dispatch: the wrapper\'s gone line follows a hop to the new desk', () => {
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hop-')));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  const sentinel = path.join(t, 'agent.pid');
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** sh -c 'echo $$ > ${sentinel}; exec sleep 20'\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-h.md'),
+    '# H\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/hopreal` — one\n');
+  fs.symlinkSync('../2026-01-01-h.md', path.join(r, 'plans', 'active', 'h.md'));
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'hopreal.md'), 'spec\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-hopreal');
+  staff(r, 'feature/hopreal', wt);
+
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline
+    && !(fs.existsSync(sentinel) && fs.existsSync(path.join(wt, '.plot-worker.pid')))) {
+    execFileSync('sleep', ['0.1']);
+  }
+  assert.ok(fs.existsSync(sentinel), 'the agent command must have run and reported its own pid');
+  const agentPid = fs.readFileSync(sentinel, 'utf8').trim();
+
+  // The manifest `--restart` wrote for this agent: the newest file in the
+  // registry directory, found rather than computed, because the registry
+  // location is itself a reading (`Agent registry`, default `.plot/agents`
+  // under the main checkout) this test must not re-derive.
+  const registryDir = path.join(r, '.plot', 'agents');
+  const manifests = fs.readdirSync(registryDir).filter((f) => f.endsWith('.json'))
+    .map((f) => path.join(registryDir, f));
+  assert.ok(manifests.length >= 1, 'no manifest was written for the launch');
+  const manifest = manifests
+    .map((f) => ({ f, mtime: fs.statSync(f).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)[0].f;
+  assert.match(fs.readFileSync(manifest, 'utf8'), /"worktree": "/,
+    'the manifest written for this launch carries no worktree field to hop from');
+
+  // THE HOP: a second desk, and the manifest rewritten to name it — exactly
+  // what `update_manifest_on_hop` does, while the agent (and the wrapper
+  // waiting on it) are still running on the launch desk.
+  const wt2 = path.join(path.dirname(r), 'plot-wt-feature-hopreal-2');
+  git(r, 'worktree', 'add', '-q', wt2, '-b', 'plot-wt-hopreal-2', 'origin/main');
+  const raw = fs.readFileSync(manifest, 'utf8');
+  fs.writeFileSync(manifest, raw.replace(/"worktree": "[^"]*"/, `"worktree": "${wt2}"`));
+
+  // End the agent with a non-zero exit — `rc -ne 0`, the `gone` arm, the same
+  // shape a `Worker bound` kill or a `--stop` leaves.
+  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+
+  const findingsB = path.join(wt2, '.plot-worker.monitor.worker.jsonl');
+  const goneDeadline = Date.now() + 10_000;
+  while (Date.now() < goneDeadline && !fs.existsSync(findingsB)) {
+    execFileSync('sleep', ['0.1']);
+  }
+  assert.ok(fs.existsSync(findingsB),
+    'the gone line must land in the NEW desk\'s findings file after a hop');
+  const linesB = fs.readFileSync(findingsB, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(linesB.length, 1, `expected exactly one gone line in the new desk: ${JSON.stringify(linesB)}`);
+  assert.equal(linesB[0].finding, 'gone');
+  assert.equal(linesB[0].worktree, wt2, 'the gone line does not name the new desk');
+
+  const findingsA = path.join(wt, '.plot-worker.monitor.worker.jsonl');
+  assert.equal(fs.existsSync(findingsA), false,
+    `the launch desk must receive no line after the hop, found: ${fs.existsSync(findingsA) ? fs.readFileSync(findingsA, 'utf8') : ''}`);
+
+  endDesk(wt);
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+  fs.rmSync(wt2, { recursive: true, force: true });
+});
+
+test('dispatch: the wrapper\'s gone line falls back to the launch desk when the manifest is gone at exit', () => {
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hopnone-')));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  const sentinel = path.join(t, 'agent.pid');
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** sh -c 'echo $$ > ${sentinel}; exec sleep 20'\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-n.md'),
+    '# N\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/hopnone` — one\n');
+  fs.symlinkSync('../2026-01-01-n.md', path.join(r, 'plans', 'active', 'n.md'));
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'hopnone.md'), 'spec\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-hopnone');
+  staff(r, 'feature/hopnone', wt);
+
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline
+    && !(fs.existsSync(sentinel) && fs.existsSync(path.join(wt, '.plot-worker.pid')))) {
+    execFileSync('sleep', ['0.1']);
+  }
+  const agentPid = fs.readFileSync(sentinel, 'utf8').trim();
+
+  const registryDir = path.join(r, '.plot', 'agents');
+  const manifests = fs.readdirSync(registryDir).filter((f) => f.endsWith('.json'))
+    .map((f) => path.join(registryDir, f))
+    .map((f) => ({ f, mtime: fs.statSync(f).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+  const manifest = manifests[0].f;
+  // THE MANIFEST IS ABSENT AT EXIT — removed, not rewritten, which is the
+  // "manifest that is gone" shape `watchedDesk` falls back on.
+  fs.rmSync(manifest);
+
+  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+
+  const findingsA = path.join(wt, '.plot-worker.monitor.worker.jsonl');
+  const goneDeadline = Date.now() + 10_000;
+  while (Date.now() < goneDeadline && !fs.existsSync(findingsA)) {
+    execFileSync('sleep', ['0.1']);
+  }
+  assert.ok(fs.existsSync(findingsA),
+    'with no manifest to read, the gone line must still land at the launch desk');
+  const linesA = fs.readFileSync(findingsA, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(linesA.length, 1);
+  assert.equal(linesA[0].finding, 'gone');
+  // `cd "$wt"` inside the wrapper resolves through `pwd -P`, so the recorded
+  // path is physical (`/private/var/...` on macOS) where the fixture's `wt` is
+  // the logical one (`/var/...`) — realpath on both sides is what `wt` and
+  // `linesA[0].worktree` must agree on.
+  assert.equal(fs.realpathSync(linesA[0].worktree), fs.realpathSync(wt),
+    'the fallback did not name the launch desk');
+
+  endDesk(wt);
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
 // `--start` asks its rule through a tracked bundle
 // ---------------------------------------------------------------------------
 //

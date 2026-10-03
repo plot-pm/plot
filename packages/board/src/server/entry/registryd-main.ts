@@ -1329,6 +1329,7 @@ export const run = async (
 const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
   'already-merged': 'queue',
   'merge-unknown': 'queue',
+  waits: 'queue',
   // QUEUE-SCOPED BECAUSE THE HOLD IS ONLY EVER ASKED OF A CLAIMABLE SLICE. It
   // is proportional to the plans an operator is actually waiting on a branch
   // for, never to the backlog, and the branch is the whole of the repair: the
@@ -1439,7 +1440,16 @@ export const reportTick = (
       // reader of either learns how many were held and why.
       if (looping && HOLD_SCOPE[hold] === 'estate') continue;
       const named = looping ? branches.slice(0, KEPT_HOLD_NAMES) : branches;
-      for (const slice of named) write(`    ${slice.branch}\n`);
+      // THE `waits` HOLD NAMES THE PREREQUISITE, IN THIS EXACT FORM — IT IS
+      // GREPPED. Every other hold prints the branch alone; this one carries the
+      // one fact a reader needs to act, which is not the branch itself.
+      for (const slice of named) {
+        write(
+          hold === 'waits'
+            ? `    ${slice.branch} — waits on ${slice.waitsOn} (${slice.waitHeld})\n`
+            : `    ${slice.branch}\n`,
+        );
+      }
       const rest = branches.length - named.length;
       if (rest > 0) write(`    … and ${rest} more\n`);
     }

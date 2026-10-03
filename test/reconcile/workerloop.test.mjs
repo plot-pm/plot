@@ -1388,6 +1388,151 @@ test('worker-loop: the prompt does not inherit PLOT_REPO_ROOT', serial, async ()
     'the prompt runs without PLOT_REPO_ROOT, so a sandbox it builds reads its own config');
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// THE WATCHER FOLLOWS A HOP TAKEN ON THE CREATE PATH — locks in #1218
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// `bug/the-loop-reports-idle` already made the loop's own watcher subshell
+// read `${PLOT_WORKTREE:-$PWD}` fresh every pass, and the hop block re-exports
+// `PLOT_WORKTREE` to the new desk (`plot-worker-loop.sh:2994`) before the next
+// iteration. This is the regression lock for that property, on the CREATE
+// path specifically — #1085's third row: `desk_reset_refusal` finds
+// `uncommitted-changes` on the launch desk, so the loop leaves it exactly as
+// it is and cuts a brand-new `plot-wt-<suffix>` for the next branch, rather
+// than resetting in place. `bug/the-monitor-follows-the-hop` touches the two
+// remaining monitors and the wrapper's `gone`/`clear` line; it does not touch
+// this file.
+test('worker-loop: a hop on the create path moves the watcher to the new desk', serial, async () => {
+  const secs = 61;
+  reap(secs);
+  // A REAL ORIGIN, unlike `fixture()`'s bare local repo: `desk_reset_refusal`
+  // forcing the create path means the hop block runs `git push -u origin
+  // <branch>` for real (`plot-worker-loop.sh:2956`), and that push needs a
+  // remote that exists and accepts it — `fixture()`'s repo has none, so this
+  // test builds its own, the same shape `dispatch.test.mjs`'s fixtures use.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wloop-hop-create-'));
+  const origin = path.join(parent, 'origin.git');
+  const dir = path.join(parent, 'wt');
+  git(parent, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(parent, 'clone', '-q', origin, 'wt');
+  git(dir, 'config', 'user.email', 'test@example.invalid');
+  git(dir, 'config', 'user.name', 'Plot Test');
+  git(dir, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(dir, '.plot'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 900\n');
+  // `bug/x` finishes AT ONCE, which is what makes `clear_manifest_branch` run
+  // promptly and open the hand-over window. `bug/y` — the hop target — makes a
+  // REAL file-touching commit, the same shape `makeIdleDeskReady` gives every
+  // other idle-aimed fixture (`plot_worker_has_commits` excludes the empty
+  // `plot: claim` commit via its `-- .` pathspec), and then sleeps: the
+  // watcher needs a live, quiet subtree with a real commit behind it to judge
+  // `idle` against.
+  fs.writeFileSync(path.join(dir, '.plot', 'worker-prompt.sh'),
+    `if [ "$PLOT_BRANCH" = "bug/y" ]; then echo work > "$PLOT_WORKTREE/work.txt"; git -C "$PLOT_WORKTREE" add -A; git -C "$PLOT_WORKTREE" commit -qm work; sleep ${secs}; else exit 0; fi\n`);
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'init');
+  git(dir, 'push', '-q', 'origin', 'main');
+
+  // The prompt does nothing: `run_bounded` returns promptly, the loop seals
+  // the declaration for `bug/x`, and `clear_manifest_branch` empties the
+  // manifest's `branch` field before the wait begins — exactly as production
+  // does for an agent between slices. A test harness racing a WRITE of the
+  // next branch into THAT WINDOW is what hands over a slice; writing it
+  // up front would be erased by that same clear before the wait ever reads it.
+  const manifest = path.join(dir, 'manifest.json');
+  fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/x' }));
+  // THE REFUSAL: an uncommitted file on the launch desk is `uncommitted-changes`
+  // in `desk_reset_refusal`, which forces the CREATE path rather than a reset
+  // in place — the shape this test is pinned to, not the reset path #1218
+  // already covers via its own fixture.
+  fs.writeFileSync(path.join(dir, 'leftover.txt'), 'never committed\n');
+
+  // THE TRANSCRIPT IS FOUND BY WORKTREE PATH, NOT BY SESSION ID
+  // (`plot-transcript-quiet.sh`'s own header). After the hop the watcher asks
+  // about the NEW desk's path, so the aged transcript must be keyed on
+  // `hopWt`, not the launch desk — `wt_root=$(dirname "$PLOT_WORKTREE")` and
+  // `suffix=$(… tr '/' '-')` (`plot-worker-loop.sh:2885-2886`) make the hop
+  // path for `bug/y` fully predictable ahead of the run.
+  const hopWt = path.join(parent, 'plot-wt-bug-y');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tqhome-aged-'));
+
+  // THE HAND-OVER: poll for the manifest's `branch` to go empty (the loop's own
+  // `clear_manifest_branch`, run once the first slice is declared finished),
+  // then write the NEXT branch in — the shape the registry's hand-over takes
+  // in production, reproduced here without a registry. ONCE THE HOP LANDS, the
+  // manifest's `resumeId` is a FRESH id `update_manifest_on_hop` mints via
+  // `plot_session_id` for any genuine branch change (`plot-worker-loop.sh:316`)
+  // — `PLOT_SESSION_ID` stops being the join key the instant the branch
+  // changes, so the aged transcript must be named after THAT id, read back
+  // from the manifest, not guessed ahead of time.
+  const handOver = (async () => {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      let branch;
+      try { branch = JSON.parse(fs.readFileSync(manifest, 'utf8')).branch; } catch { branch = undefined; }
+      if (branch === '') { fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/y' })); break; }
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    if (Date.now() >= deadline) {
+      throw new Error('the manifest branch was never cleared — run_bounded did not finish the first slice');
+    }
+    const resumeDeadline = Date.now() + 15_000;
+    while (Date.now() < resumeDeadline) {
+      let resumeId;
+      try { resumeId = JSON.parse(fs.readFileSync(manifest, 'utf8')).resumeId; } catch { resumeId = undefined; }
+      if (typeof resumeId === 'string' && resumeId !== '') {
+        const slug = hopWt.replace(/[/.]/g, '-');
+        const d = path.join(home, '.claude', 'projects', slug);
+        fs.mkdirSync(d, { recursive: true });
+        const transcript = path.join(d, `${resumeId}.jsonl`);
+        fs.writeFileSync(transcript, '{"type":"user"}\n');
+        const past = new Date(Date.now() - 4000 * 1000);
+        const p2 = (n) => String(n).padStart(2, '0');
+        const stamp = `${past.getFullYear()}${p2(past.getMonth() + 1)}${p2(past.getDate())}` +
+          `${p2(past.getHours())}${p2(past.getMinutes())}.${p2(past.getSeconds())}`;
+        execFileSync('touch', ['-t', stamp, transcript]);
+        return;
+      }
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    throw new Error('the manifest never carried a resumeId after the hop');
+  })();
+
+  try {
+    const [r] = await Promise.all([
+      runLoop(dir, {
+        env: {
+          PLOT_MANIFEST_FILE: manifest,
+          PLOT_TRANSCRIPT_HOME: home,
+          PLOT_SESSION_ID: 'hop-create',
+          PLOT_MONITOR_QUIET_SECONDS: '2',
+          PLOT_MONITOR_INTERVAL: '1',
+          PLOT_WAIT_POLL_SECONDS: '1',
+          PLOT_WAIT_BUDGET_SECONDS: '10',
+        },
+      }),
+      handOver,
+    ]);
+    assert.equal(r.code, 124, `the new desk's idle finding must still end the loop\n--- stderr ---\n${r.stderr}`);
+
+    assert.ok(fs.existsSync(hopWt), 'the create path must cut a new desk beside the launch one');
+
+    const launchFindings = path.join(dir, '.plot-worker.monitor.worker.jsonl');
+    const hopFindings = path.join(hopWt, '.plot-worker.monitor.worker.jsonl');
+    assert.ok(fs.existsSync(hopFindings),
+      `the watcher must publish into the NEW desk after the hop, not the launch one: ${r.stderr}`);
+    const published = fs.readFileSync(hopFindings, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.ok(published.some((f) => f.finding === 'idle' && f.worktree === hopWt),
+      `the idle finding must name the new desk: ${JSON.stringify(published)}`);
+    assert.equal(fs.existsSync(launchFindings), false,
+      'the launch desk must receive no finding once the agent has hopped off it');
+  } finally {
+    reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
+    discard(dir);
+  }
+});
+
 test('worker-loop: a branchless wait asks no fleet scan', serial, () => {
   // THE OUTLOOK COSTS 18.3 s AND HAS NOTHING TO SAY HERE. `--why-nothing` over
   // an empty slug walks the whole estate to name branches belonging to plans

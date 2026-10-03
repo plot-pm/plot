@@ -1,5 +1,9 @@
 import { type AgentReading, isAgentFree } from './free.js';
+import { sliceVerdicts, waitVerdict, type PrereqAnswer } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
+import { unnamedBranches } from './slice-name.js';
+import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
+import { planIdOf } from '../entities/plan.js';
 
 /**
  * One slice waiting to be handed to an agent.
@@ -104,6 +108,22 @@ export interface QueuedSlice {
    * ages it out.
    */
   refused: boolean;
+  /**
+   * The branch this one's `<!-- waits: ... -->` annotation names, or `''`
+   * where it names none.
+   *
+   * Carried for the held-list line, which names the prerequisite.
+   */
+  waitsOn: string;
+  /**
+   * Whether `waitsOn` still holds the slice, and why — `''` where it does
+   * not, answered by {@link planQueue} from the merged listing.
+   *
+   * `'unmerged'` and `'unreachable'` are {@link PrereqAnswer}'s own words,
+   * kept apart rather than folded into {@link waitVerdict}'s `'waiting'`: the
+   * held-list line names which.
+   */
+  waitHeld: '' | 'unmerged' | 'unreachable';
 }
 
 /**
@@ -198,6 +218,15 @@ export type QueueHold =
    */
   | 'merge-unknown'
   /**
+   * The branch's `waits:` annotation names a prerequisite that has not merged,
+   * or that the merged listing could not answer for.
+   *
+   * Tested after the two landing holds and before `slice-unnamed` and
+   * `no-brief`: writing a brief or a heading does not release a slice whose
+   * prerequisite is still open.
+   */
+  | 'waits'
+  /**
    * The plan names this branch under no slice heading.
    *
    * **THE SAME WORD THE APPROVAL REFUSES ON**, so an operator meeting it at the
@@ -260,6 +289,7 @@ export type QueueHold =
 export const QUEUE_HOLDS: readonly QueueHold[] = [
   'already-merged',
   'merge-unknown',
+  'waits',
   'slice-unnamed',
   'refused',
   'no-brief',
@@ -274,6 +304,10 @@ export interface HeldSlice {
   branch: string;
   /** What held it. */
   hold: QueueHold;
+  /** The prerequisite this branch waits on where `hold` is `'waits'`; `''` otherwise. */
+  waitsOn: string;
+  /** `'unmerged'` or `'unreachable'` where `hold` is `'waits'`; `''` otherwise. */
+  waitHeld: '' | 'unmerged' | 'unreachable';
 }
 
 /** What one matching pass made of the queue. */
@@ -331,6 +365,10 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * with no brief reads `slice-unnamed`, because writing a brief would not release
  * it.
  *
+ * **`waits` IS TESTED NEXT, AFTER THE LANDING.** A slice held on a `waits:`
+ * prerequisite stays held whatever its brief or its heading says, so naming
+ * either would send a reader to a repair that releases nothing.
+ *
  * **A REFUSAL IS ASKED ABOUT RIGHT AFTER THE NAME, FOR THE SAME REASON AND THE
  * SAME BOUND.** An agent only refuses a slice it was actually handed, which
  * means claimable already held and named already held — so `refused` is bounded
@@ -351,6 +389,7 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
 export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
   if (slice.landed === 'landed') return 'already-merged';
   if (slice.landed === 'unknown') return 'merge-unknown';
+  if (slice.waitHeld !== '') return 'waits';
   // AN UNNAMED SLICE IS HELD ONLY WHERE IT WOULD OTHERWISE BE HANDED OVER, and
   // the claimable test is what bounds it to the queue: `not-claimable` covers
   // the estate's backlog, and a plan that makes no slice startable yet is not
@@ -464,7 +503,12 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
   for (const slice of readings.slices) {
     const hold = whyNotReady(slice);
     if (hold !== null) {
-      held.push({ branch: slice.branch, hold });
+      held.push({
+        branch: slice.branch,
+        hold,
+        waitsOn: hold === 'waits' ? slice.waitsOn : '',
+        waitHeld: hold === 'waits' ? slice.waitHeld : '',
+      });
       continue;
     }
 
@@ -473,7 +517,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
     // *one slice to one agent* half of the lock, held by the loop's shape
     // rather than by a check that could be forgotten.
     if (next >= free.length) {
-      held.push({ branch: slice.branch, hold: 'no-free-agent' });
+      held.push({ branch: slice.branch, hold: 'no-free-agent', waitsOn: '', waitHeld: '' });
       continue;
     }
 
@@ -515,4 +559,154 @@ export const holdCounts = (
   >;
   for (const slice of held) counts[slice.hold] += 1;
   return counts;
+};
+
+
+/**
+ * Whether a branch has landed — the one rule the queue's ordering and its
+ * fallback both apply.
+ *
+ * **MERGED-ONLY, AND THAT IS THE SCAN'S OWN RULE.** `plot-fleet-scan.sh`
+ * counts only a merged branch settled and every other state outstanding
+ * (`:233-236`, `:3887-3900`); a claimed-but-unmerged branch is work under way,
+ * not work finished, so it stays outstanding for the order the same way it
+ * does for the scan. Widening this to include a claimed branch to keep some
+ * other case green is the defect `the-queue-reads-the-order-the-scan-reads`
+ * exists to remove — a claimed first slice must not make a second slice
+ * `claimable`.
+ *
+ * `taken` is the separate reading that still keeps a branch out of the queue:
+ * {@link planQueue} tests `claimed.has(branch) || settled(branch, merged)`
+ * where it decides what to OFFER, so a claimed branch is not handed out twice
+ * even though it is not yet `settled` for the order.
+ *
+ * @param branch - the branch to test.
+ * @param merged - the branches the merged listing (and its fallback) named.
+ * @returns true only where the merged set names the branch.
+ */
+export const settled = (branch: string, merged: ReadonlySet<string>): boolean =>
+  merged.has(branch);
+
+/**
+ * What the merged listing says about a `waits:` prerequisite — the table
+ * {@link waitVerdict} reads.
+ *
+ * Tested in this order: a prerequisite the merged set names (after the
+ * `landedWithoutListing`-style fallback a caller may have folded into it)
+ * answers `merged`; otherwise a listing that did not answer whole answers
+ * `unreachable`; otherwise `unmerged`. The merged listing cannot tell *never
+ * had a PR* from *has an open PR*, so `none` is never answered here — that
+ * word is the scan's `blocked` to give, not the queue's.
+ *
+ * @param waitsOn - the prerequisite branch, already known non-empty.
+ * @param merged - the branches the merged listing (and its fallback) named.
+ * @param listingWhole - whether the merged listing answered in full.
+ * @returns the reading {@link waitVerdict} takes.
+ */
+const prerequisiteAnswer = (
+  waitsOn: string,
+  merged: ReadonlySet<string>,
+  listingWhole: boolean,
+): PrereqAnswer => {
+  if (merged.has(waitsOn)) return 'merged';
+  return listingWhole ? 'unmerged' : 'unreachable';
+};
+
+/**
+ * One branch {@link planQueue} derived from a plan, before the asked readings.
+ *
+ * **THE PLAN'S SLICE INDEX IS CARRIED, NOT THE ENTRY'S POSITION.** A plan slice
+ * may name several branches, so one entry per branch cannot say which slices
+ * are earlier — and *earlier* is the whole of what
+ * {@link behindUnknownLanding} asks.
+ */
+export type QueuedBranch = Omit<
+  QueuedSlice,
+  'briefPresent' | 'landed' | 'priorUnknown' | 'refused'
+> & {
+  /** The plan's slice this branch belongs to, zero-based, in plan order. */
+  slice: number;
+};
+
+/**
+ * Derives the queue from one plan — pure, reading nothing and spawning
+ * nothing.
+ *
+ * **THE ORDERING IS THE PLAN'S, AND `sliceVerdicts` OWNS IT.** A slice is
+ * `eligible` only where every slice before it is `complete`, so the fold is
+ * the same one the fleet scan runs — re-implementing the ordering here would
+ * give the queue and the board two answers about one plan.
+ *
+ * **THE QUEUE DOES NOT READ THE SCAN'S OUTPUT.** It applies the scan's rule —
+ * {@link settled}, merged-only — to the same plan records, so the two answer
+ * from one fold rather than from two readings that can disagree about which
+ * branch a claim ref alone cannot tell apart from a landing.
+ *
+ * A branch the plan deferred is skipped: the plan gave it up rather than
+ * finishing it, so it is not work waiting for anybody.
+ *
+ * @param plan - the plan, as the plan store parsed it.
+ * @param claimed - the remote branches that exist.
+ * @param merged - the branches the merged listing (and its fallback) named.
+ * @param listingWhole - whether the merged listing answered in full, for a
+ *   `waits:` prerequisite the merged set does not name.
+ * @returns one entry per branch this plan has queued, in plan order, missing
+ *   the fields only a caller with the brief and the landing readings can
+ *   supply.
+ */
+export const planQueue = (
+  plan: PlanRecord,
+  claimed: ReadonlySet<string>,
+  merged: ReadonlySet<string>,
+  listingWhole: boolean,
+): readonly QueuedBranch[] => {
+  const slug = planIdOf(plan.file);
+
+  // OUTSTANDING IS WHAT NOBODY HAS FINISHED, AND A REF ALONE CANNOT SAY IT —
+  // see `settled` above. A claimed branch stays outstanding for the ORDER,
+  // which is why this reads `settled` alone rather than `taken` below.
+  const verdicts = sliceVerdicts(
+    plan.slices.map((slice: PlanRecordSlice) => ({
+      outstanding: slice.branches.filter((line) => !line.deferred && !settled(line.branch, merged))
+        .length,
+      phase: plan.phase,
+      // EVERY branch the slice names, deferred ones included: a slice whose
+      // branches were all deferred still names work and is not `empty`.
+      branches: slice.branches.length,
+    })),
+  );
+
+  // THE PLAN'S OWN UNNAMED BRANCHES, the predicate `/plot-approve` refuses on.
+  const unnamed = new Set(unnamedBranches(plan.slices));
+
+  const queued: QueuedBranch[] = [];
+  plan.slices.forEach((slice: PlanRecordSlice, index: number) => {
+    const claimable = verdicts[index] === 'eligible';
+    for (const line of slice.branches) {
+      if (line.deferred) continue;
+      // A CLAIMED OR MERGED BRANCH IS OUT OF THE QUEUE — `taken`, not
+      // `settled`: a claimed branch is somebody's and must not be offered
+      // again even though the order still counts it outstanding.
+      if (claimed.has(line.branch) || settled(line.branch, merged)) continue;
+      const waitsOn = line.waitsOn;
+      let waitHeld: '' | 'unmerged' | 'unreachable' = '';
+      if (waitsOn !== '') {
+        const answer = prerequisiteAnswer(waitsOn, merged, listingWhole);
+        // `prerequisiteAnswer` never answers `merged` as `waiting` —
+        // `waitVerdict` clears on it — so `answer` here is always `unmerged`
+        // or `unreachable`, and the cast says why rather than narrowing silently.
+        if (waitVerdict(waitsOn, answer) === 'waiting') waitHeld = answer as 'unmerged' | 'unreachable';
+      }
+      queued.push({
+        branch: line.branch,
+        slug,
+        claimable,
+        unnamed: unnamed.has(line.branch),
+        slice: index,
+        waitsOn,
+        waitHeld,
+      });
+    }
+  });
+  return queued;
 };
