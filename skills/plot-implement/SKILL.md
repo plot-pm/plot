@@ -271,6 +271,12 @@ this skill's directory, and say: run it before each push and run what it
 prints; the suites in the `CI suites` config key run in CI, and a failure there
 comes back as a correction. List no full suite.
 
+Name the shell gate in the same paragraph: `scripts/check-shell-lines.sh`
+refuses a pull request whose shell under `skills/` is longer than at its
+merge base. When the slice touches a `.sh` file, say that growth is paid for
+in the same change — remove shell elsewhere, or write the rule in the domain
+and ask it through a bundle. The gate stores no number and has no override.
+
 ### Bookkeeping
 
 <The `→ #<number>` duty below, plus: push the first real commit as soon as

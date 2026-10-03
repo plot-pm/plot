@@ -131,3 +131,4 @@ The rows are tested in this order. A live holder is first because it is the only
 ## Notes
 
 Slice 1 waits on `bug/the-queue-reads-the-scans-order` because both change `queueOfPlan`, `QueueHold` and `HOLD_SCOPE`. Slice 2 waits on `bug/a-hand-over-is-checked-before-it-is-made` because both change the rejection branch at `plot-worker-loop.sh:2290`.
+- 2026-10-03, `scripts/check-shell-lines.sh` (`the-shell-shrinks-into-the-domain`, wave 1) refuses a pull request whose shell under `skills/` is longer than at its merge base. Offset the lines in the same change — remove shell elsewhere, or write the rule in the domain and ask it through a bundle. The gate stores no number and has no override.

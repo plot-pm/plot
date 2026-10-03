@@ -98,3 +98,4 @@ Each test below fails on `origin/main` today:
 
 - The field is the plan-format contract (CLAUDE.md, *A Shell Script Asks The Domain*). Every reader above is named and changed in one of the two slices; a reader found later belongs to slice 2.
 - This plan's own slice 1 declares one wait, so the parser on `main` reads it correctly before slice 2 lands.
+- 2026-10-03, `scripts/check-shell-lines.sh` (`the-shell-shrinks-into-the-domain`, wave 1) refuses a pull request whose shell under `skills/` is longer than at its merge base. Offset the lines in the same change — remove shell elsewhere, or write the rule in the domain and ask it through a bundle. The gate stores no number and has no override.
