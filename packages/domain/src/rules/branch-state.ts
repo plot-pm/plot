@@ -45,12 +45,8 @@ export type HostReach = 'ok' | 'unasked' | 'throttled' | 'secondary' | 'failed';
 export type PrReading = 'OPEN' | 'MERGED' | 'CLOSED' | 'none' | 'unreadable';
 
 /**
- * The prerequisite a plan's `waits:` annotation names, and what the host said
+ * One prerequisite a plan's `waits:` annotation names, and what the host said
  * about it.
- *
- * `null` where the plan declares no prerequisite — which is different from a
- * prerequisite whose pull request merged, and both leave the branch's own state
- * standing.
  */
 export interface WaitsReading {
   /** The branch this one waits on, as the plan named it. */
@@ -116,12 +112,12 @@ export interface BranchReadings {
    * `realCommits` in `empty-claim.ts` holds the definition.
    */
   realCommitsAhead: number;
-  /** The prerequisite the plan names, or `null` where it names none. */
-  waits: WaitsReading | null;
+  /** Every prerequisite the plan names, empty where it names none. */
+  waits: readonly WaitsReading[];
 }
 
 /**
- * What a prerequisite's pull request means for the branch waiting on it.
+ * What every prerequisite's pull request means for the branch waiting on them.
  *
  * `MERGED`          cleared — the annotation stops mattering, and the branch
  *                   keeps the state its own readings earned.
@@ -134,11 +130,16 @@ export interface BranchReadings {
  *                   `unreadable` counts here too: silence is not evidence in
  *                   either direction — not permission to start, and not proof
  *                   of a typo.
+ *
+ * `blocked` OUTRANKS `waiting`, in either order: a typo among several
+ * prerequisites needs a plan edit and no merge clears it, so it is the answer
+ * a reader must act on first. An empty list clears, the same as every member
+ * reading `MERGED`.
  */
-const waitVerdict = (pr: PrReading): BranchState | null => {
-  if (pr === 'MERGED') return null;
-  if (pr === 'none') return 'blocked';
-  return 'waiting';
+const waitVerdict = (prs: readonly PrReading[]): BranchState | null => {
+  if (prs.some((pr) => pr === 'none')) return 'blocked';
+  if (prs.some((pr) => pr !== 'MERGED')) return 'waiting';
+  return null;
 };
 
 /**
@@ -298,8 +299,8 @@ export const branchState = (readings: BranchReadings): BranchState => {
 
   const own = ownState(readings);
 
-  if (readings.waits !== null && REPLACEABLE_BY_PREREQUISITE.includes(own)) {
-    const verdict = waitVerdict(readings.waits.pr);
+  if (readings.waits.length > 0 && REPLACEABLE_BY_PREREQUISITE.includes(own)) {
+    const verdict = waitVerdict(readings.waits.map((w) => w.pr));
     if (verdict !== null) return verdict;
   }
 

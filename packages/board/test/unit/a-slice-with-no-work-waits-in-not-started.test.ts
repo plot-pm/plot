@@ -23,7 +23,7 @@ const QUIET = 30;
 const classifyBranch = (over: {
   state: BranchState;
   worker?: WorkerState;
-  waitsOn?: string;
+  waitsOn?: readonly string[];
   ageMinutes?: number | null;
   localAhead?: number;
 }) => classify(
@@ -31,19 +31,19 @@ const classifyBranch = (over: {
   false, over.localAhead ?? 0, 'approved',
   over.worker ?? 'none', '', over.worker === 'running' ? '4242' : '', false,
   [], '', false, '', false, '', false, false,
-  over.waitsOn ?? '',
+  over.waitsOn ?? [],
 );
 
 describe('a branch no worker holds waits in NOT STARTED, with its own sentence', () => {
   for (const worker of ['none', 'elsewhere'] as const) {
     it(`blocked, worker ${worker}: names the prerequisite and its missing PR`, () => {
-      const r = classifyBranch({ state: 'blocked', worker, waitsOn: 'bug/zero-ahead-is-not-merged' });
+      const r = classifyBranch({ state: 'blocked', worker, waitsOn: ['bug/zero-ahead-is-not-merged'] });
       expect(r.group).toBe('not-started');
       expect(r.note).toBe('waits for bug/zero-ahead-is-not-merged, which has no pull request');
     });
 
     it(`waiting, worker ${worker}: names the prerequisite`, () => {
-      const r = classifyBranch({ state: 'waiting', worker, waitsOn: 'feature/first' });
+      const r = classifyBranch({ state: 'waiting', worker, waitsOn: ['feature/first'] });
       expect(r.group).toBe('not-started');
       expect(r.note).toBe('waits for feature/first');
     });
@@ -58,7 +58,7 @@ describe('a branch no worker holds waits in NOT STARTED, with its own sentence',
   it('never reads any of the three as abandoned', () => {
     for (const state of ['blocked', 'waiting', 'unknown'] as const) {
       for (const ageMinutes of [null, 5, 5000]) {
-        const r = classifyBranch({ state, waitsOn: 'feature/first', ageMinutes });
+        const r = classifyBranch({ state, waitsOn: ['feature/first'], ageMinutes });
         expect(r.note, `${state} at age ${ageMinutes}`).not.toContain('no PR ever opened');
         expect(r.group, `${state} at age ${ageMinutes}`).toBe('not-started');
       }
@@ -68,6 +68,25 @@ describe('a branch no worker holds waits in NOT STARTED, with its own sentence',
   it('states an empty waits_on as an unnamed prerequisite rather than a blank', () => {
     expect(classifyBranch({ state: 'waiting' }).note).toBe('waits for an unnamed prerequisite');
   });
+
+  it('names every declared prerequisite, not only those still holding the slice', () => {
+    // THE PULSE CARRIES NO PER-PREREQUISITE VERDICT, only the plan's
+    // declaration — so the sentence names every `waits:` branch the plan
+    // declares, whether or not it is the one still blocking.
+    const two = classifyBranch({ state: 'waiting', waitsOn: ['bug/a', 'bug/b'] });
+    expect(two.note).toBe('waits for bug/a and bug/b');
+
+    const three = classifyBranch({ state: 'waiting', waitsOn: ['bug/a', 'bug/b', 'bug/c'] });
+    expect(three.note).toBe('waits for bug/a, bug/b and bug/c');
+  });
+
+  it('blocked with several prerequisites: "one of which" rather than "which"', () => {
+    // WITH ONE PREREQUISITE "which has no pull request" NAMES IT UNAMBIGUOUSLY.
+    // With several, only one of them may be the typo, so the sentence says so
+    // rather than accusing the whole list.
+    const r = classifyBranch({ state: 'blocked', waitsOn: ['bug/a', 'bug/b'] });
+    expect(r.note).toBe('waits for bug/a and bug/b, one of which has no pull request');
+  });
 });
 
 describe('a live agent outranks the branch state', () => {
@@ -75,7 +94,7 @@ describe('a live agent outranks the branch state', () => {
   // `waiting` branch would read NOT STARTED — this is the assertion that sees it.
   for (const state of ['blocked', 'waiting', 'unknown'] as const) {
     it(`${state} with a running worker reads WORKING`, () => {
-      expect(classifyBranch({ state, worker: 'running', waitsOn: 'feature/first' }).group).toBe('working');
+      expect(classifyBranch({ state, worker: 'running', waitsOn: ['feature/first'] }).group).toBe('working');
     });
   }
 });

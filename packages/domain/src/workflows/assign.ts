@@ -136,7 +136,7 @@ export const assign = (
     .map((assignment) => ({
       branch: assignment.branch,
       hold: 'no-free-agent' as const,
-      waitsOn: '',
+      waitsOn: [],
       waitHeld: '' as const,
     }));
 
