@@ -1086,6 +1086,39 @@ reset_desk() { # $1=worktree $2=branch → 0 when the desk now holds the branch
   # was asked.
   rm -f "$wt/$DECLARATION_FILE_NAME" 2>/dev/null || true
 
+  # STEP 0b — THE GENERATED BUNDLES ARE RESTORED BEFORE THE DETACH, path by
+  # path, never `git clean` or `git reset --hard` over the whole tree.
+  #
+  # WITHOUT THIS, THE CHECKOUT BELOW IS REFUSED ONCE main'S BUNDLES MOVE.
+  # `main` rebuilds and pushes its own bundles after every merge
+  # (`bug/main-builds-its-bundles`, #1249), so a desk that rebuilt one locally
+  # to test it holds a LOCAL MODIFICATION to a tracked path that differs from
+  # `origin/$main_branch`'s own build — exactly the case `git checkout
+  # --detach` refuses rather than silently overwrite. A leaked desk there is
+  # one the loop can never reclaim for the next slice.
+  #
+  # EACH PATH IS RESTORED FROM `HEAD`, the branch this desk is still on at this
+  # point in the function — never from `origin/$main_branch`, which may hold a
+  # bundle this desk's own branch never committed, and restoring from the
+  # wrong commit was a round 1 finding on the sibling slice this derivation is
+  # shared with. A path HEAD does not track (born on this desk, never
+  # committed) has nothing to restore FROM, so it is removed instead — `git
+  # rm --cached` would fail on an untracked path, so this is a plain `rm`.
+  #
+  # ONLY THE BUNDLES. A hand-written file beside them — a genuine source
+  # change the agent left uncommitted — is untouched here and is exactly what
+  # makes the checkout below fail on ITS OWN merits, which is the correct,
+  # existing refusal this step does not touch.
+  local bundle
+  while IFS= read -r bundle; do
+    [ -n "$bundle" ] || continue
+    if git -C "$wt" cat-file -e "HEAD:$bundle" 2>/dev/null; then
+      git -C "$wt" checkout HEAD -- "$bundle" 2>/dev/null || true
+    else
+      rm -f "$wt/$bundle" 2>/dev/null || true
+    fi
+  done < <(bundle_paths "$wt")
+
   # STEP 1 — the base, detached. Detached because the desk may not hold
   # `$main_branch` (another worktree usually does, and git refuses to check out
   # a branch twice), and because nothing here wants the base as a branch: it is
