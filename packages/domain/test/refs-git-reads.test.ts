@@ -116,6 +116,41 @@ describe('refsGit: merge status reads the exit code, and three answers stay apar
   });
 });
 
+describe('refsGit: remoteHead — a hand-over asks about the ref, not the host', () => {
+  it('answers present for a branch origin holds', async () => {
+    const answer = await refs().remoteHead('feature/ahead');
+    expect(answer.ok).toBe(true);
+    if (answer.ok) expect(answer.value).toBe('present');
+  });
+
+  it('answers absent for a branch origin does not hold', async () => {
+    const answer = await refs().remoteHead('no-such-branch');
+    expect(answer.ok).toBe(true);
+    if (answer.ok) expect(answer.value).toBe('absent');
+  });
+
+  it('answers unknown for a call that cannot reach origin', async () => {
+    // A repository with no `origin` remote at all makes `ls-remote` fail
+    // rather than answer empty — the failure a hand-over must not read as
+    // "the ref is gone".
+    const detached = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-git-no-origin-'));
+    git(detached, ['init', '--quiet', '--initial-branch=main']);
+    git(detached, ['config', 'user.email', 'test@example.com']);
+    git(detached, ['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(detached, 'a.md'), '# a\n');
+    git(detached, ['add', '-A']);
+    git(detached, ['commit', '--quiet', '-m', 'first']);
+    try {
+      const answer = await refsGit({ repoRoot: detached, scriptDir: path.join(detached, 'scripts') })
+        .remoteHead('main');
+      expect(answer.ok).toBe(true);
+      if (answer.ok) expect(answer.value).toBe('unknown');
+    } finally {
+      fs.rmSync(detached, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('refsGit: the tree and file readings the board renders from', () => {
   it('lists the blobs under a directory at a ref', async () => {
     const answer = await refs().listBlobs('origin/main', 'docs/plans/');

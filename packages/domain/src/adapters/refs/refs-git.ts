@@ -10,6 +10,7 @@ import type {
   RefScope,
   RefState,
   Refs,
+  RemoteHeadAnswer,
   TreeBlob,
 } from '../../ports/refs.js';
 import {
@@ -510,6 +511,16 @@ export const refsGit = (context: ShellContext): Refs => {
       if (run.code === 0) return answered<Containment>('yes');
       if (run.code === 1) return answered<Containment>('no');
       return answered<Containment>('unknown');
+    },
+
+    remoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> => {
+      const run = await runProcess(
+        'git',
+        ['ls-remote', '--heads', 'origin', branch],
+        inRepo,
+      );
+      if (run.code !== 0) return answered<RemoteHeadAnswer>('unknown');
+      return answered<RemoteHeadAnswer>(run.stdout.trim() === '' ? 'absent' : 'present');
     },
   };
 };

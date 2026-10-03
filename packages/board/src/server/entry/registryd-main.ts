@@ -22,7 +22,7 @@ import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
-import { landed } from '@plot-pm/domain/rules/landed';
+import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { viewLanded } from '@plot-pm/domain/rules/known-pr';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
@@ -40,7 +40,7 @@ import {
   type SupervisorWorld,
   type TreeReading,
 } from '../supervisor.js';
-import type { QueueWorld } from '../queue-reading.js';
+import type { QueueWorld, HandOverWorld } from '../queue-reading.js';
 import {
   tick,
   tickLine,
@@ -51,7 +51,12 @@ import {
 } from './registryd.js';
 import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
-import { QUEUE_HOLDS, type QueueHold } from '@plot-pm/domain/rules/queue';
+import {
+  QUEUE_HOLDS,
+  handOverCheck,
+  HAND_OVER_MAX_AGE_MS,
+  type QueueHold,
+} from '@plot-pm/domain/rules/queue';
 import {
   SUPERVISION_REPORT_VERSION,
   type SupervisionReport,
@@ -576,6 +581,51 @@ export const subjectProvenOf = async (
 };
 
 /**
+ * Whether the host merged any PR for a QUEUED branch — the join
+ * {@link QueueWorld.queuedHasLanded} and the hand-over check both need.
+ *
+ * **EXTRACTED SO THE HAND-OVER CHECK ASKS THE SAME QUESTION QUEUING DOES.** A
+ * second copy of the `LookupReading` mapping is exactly the drift the comment
+ * below used to warn about alone; this function is now the one place that
+ * turns `askMerged`'s answer into the domain's {@link LandedAnswer}.
+ *
+ * @param askMerged - asks the host (or a tick's memo) whether a branch merged.
+ * @param tally - the host-call counter this pass increments.
+ * @param branch - the branch to ask about.
+ * @returns the domain's landed answer, never a re-tested `=== 'merged'`.
+ */
+const queuedHasLandedOf = async (
+  askMerged: (branch: string) => ReturnType<Host['prMerged']>,
+  tally: HostTally,
+  branch: string,
+): Promise<LandedAnswer> => {
+  tally.calls += 1;
+  const answer = await askMerged(branch);
+  // THE DOMAIN DECIDES THE WORD, from a `LookupReading` this join takes.
+  // `landed` is the ONE answer to *did this land* — it reads the merge
+  // timestamp, never a PR's `state` and never ancestry — and consuming it
+  // here rather than re-testing `=== 'merged'` is what keeps the queue and
+  // the reaper from drifting to two answers about one branch.
+  //
+  // SILENCE REACHES THE RULE AS SILENCE. The subject here is work nobody
+  // holds, so an unreachable host must not be collapsed into *not merged* —
+  // that would offer every finished branch to a free agent the moment the
+  // host went quiet.
+  return landed({
+    merged:
+      !answer.ok || answer.value === 'unknown'
+        ? 'unaskable'
+        : answer.value === 'merged'
+          ? 'found'
+          : 'none',
+    // NOT READ BY `landed`, and named rather than guessed. `PrReadings`
+    // carries both questions because `mayRemove` couples them; this caller
+    // asks only whether the work landed, so the open lookup was never run.
+    open: 'unaskable',
+  });
+};
+
+/**
  * Builds the world the QUEUE is read through.
  *
  * A SECOND WORLD RATHER THAN MORE MEMBERS ON THE SUPERVISOR'S, because the two
@@ -704,33 +754,7 @@ export const queueWorldForRepo = (
       // agent stays holding its branch rather than being handed a second one.
       return answer.ok && answer.value === 'merged';
     },
-    queuedHasLanded: async (branch) => {
-      tally.calls += 1;
-      const answer = await askMerged(branch);
-      // THE DOMAIN DECIDES THE WORD, from a `LookupReading` this join takes.
-      // `landed` is the ONE answer to *did this land* — it reads the merge
-      // timestamp, never a PR's `state` and never ancestry — and consuming it
-      // here rather than re-testing `=== 'merged'` is what keeps the queue and
-      // the reaper from drifting to two answers about one branch.
-      //
-      // SILENCE REACHES THE RULE AS SILENCE. Above, `sliceHasMerged` collapses
-      // an unreachable host into *not merged* because the subject is an agent
-      // already holding its branch; here the subject is work nobody holds, and
-      // the same collapse would offer every finished branch to a free agent the
-      // moment the host went quiet.
-      return landed({
-        merged:
-          !answer.ok || answer.value === 'unknown'
-            ? 'unaskable'
-            : answer.value === 'merged'
-              ? 'found'
-              : 'none',
-        // NOT READ BY `landed`, and named rather than guessed. `PrReadings`
-        // carries both questions because `mayRemove` couples them; this caller
-        // asks only whether the work landed, so the open lookup was never run.
-        open: 'unaskable',
-      });
-    },
+    queuedHasLanded: (branch) => queuedHasLandedOf(askMerged, tally, branch),
     subjectProven: async (planList, claimed) => {
       // The backend word is a local read and costs no host request.
       const backend = await host.backend();
@@ -756,6 +780,43 @@ export const queueWorldForRepo = (
       // an agent waiting on a person who has not answered.
       return !answer.ok || answer.value.length > 0;
     },
+  };
+};
+
+/**
+ * Builds the world a hand-over is checked against, immediately before it is
+ * made.
+ *
+ * **ASKS THE HOST DIRECTLY, NEVER THROUGH THE TICK'S MEMO.** `queueWorldForRepo`
+ * reads `queuedHasLanded` once per queued branch while the tick derives the
+ * queue, and that answer is what `mergeMemoOver` caches for the rest of the
+ * pass. A hand-over's whole point is a SECOND, fresher reading of the same
+ * branch — sharing the memo would hand this check back the tick-start answer
+ * it exists to outdate. Only the `LookupReading` → {@link LandedAnswer}
+ * mapping is shared, through {@link queuedHasLandedOf}; the host call itself
+ * is not.
+ *
+ * @param repoRoot - the repository root.
+ * @param scriptsDir - where the helper scripts are.
+ * @param tally - the host-call counter this pass increments.
+ * @returns the world {@link startAgents} checks a hand-over against.
+ */
+export const handOverWorldForRepo = (
+  repoRoot: string,
+  scriptsDir: string,
+  tally: HostTally = { calls: 0 },
+): HandOverWorld => {
+  const context = { repoRoot, scriptDir: scriptsDir };
+  const refs = refsGit(context);
+  const host = hostShell(context);
+
+  return {
+    remoteHead: async (branch) => {
+      const answer = await refs.remoteHead(branch);
+      return answer.ok ? answer.value : 'unknown';
+    },
+    queuedHasLanded: (branch) => queuedHasLandedOf((b) => host.prMerged(b), tally, branch),
+    now: () => Date.now(),
   };
 };
 
@@ -959,8 +1020,17 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
  * there, which is the same recovery a `kill -9` gets. So a failure is reported
  * and the loop continues; there is nothing to retry and nothing to remember.
  *
+ * **A HAND-OVER IS CHECKED AGAIN, IMMEDIATELY BEFORE IT IS MADE.** #1149
+ * measured a 78-minute-old tick reading that handed a merged, refless branch
+ * to an agent. `handOverCheck` reads the reading's age plus a fresh
+ * `remoteHead` and `queuedHasLanded`, asked only for a branch about to be
+ * handed over — at most this tick's free agents. Every answer but
+ * `hand-over` withholds the write and reports why; nothing is retried or
+ * remembered, the same recovery a failed `assignSlice` call already gets.
+ *
  * @param report - what the tick decided.
  * @param performer - what starts an agent on this machine.
+ * @param world - what a hand-over is checked against, asked fresh per branch.
  * @param write - where the started agents are reported.
  * @param warn - where a start that could not be made is reported.
  * @returns how many agents were actually started.
@@ -968,13 +1038,36 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
 export const startAgents = async (
   report: TickReport,
   performer: Performer,
+  world: HandOverWorld,
   write: (s: string) => void,
   warn: (s: string) => void,
 ): Promise<number> => {
   let started = 0;
+  const startedAt = report.startedAt;
 
   for (const item of report.handOver?.writes ?? []) {
     if (item.kind !== 'agent-assign') continue;
+
+    // THE AGE IS TESTED BEFORE EITHER FRESH READING IS ASKED FOR. A stale
+    // reading withholds the hand-over whatever `remoteHead` and
+    // `queuedHasLanded` would answer, so a stale tick spends neither a git
+    // call nor a host call on a branch it is about to withhold anyway.
+    const ageMs = world.now() - startedAt;
+    if (ageMs > HAND_OVER_MAX_AGE_MS) {
+      write(`  ${item.branch}: not handed — stale\n`);
+      continue;
+    }
+
+    const [refNow, landedNow] = await Promise.all([
+      world.remoteHead(item.branch),
+      world.queuedHasLanded(item.branch),
+    ]);
+    const check = handOverCheck({ ageMs, refNow, landedNow });
+    if (check !== 'hand-over') {
+      write(`  ${item.branch}: not handed — ${check}\n`);
+      continue;
+    }
+
     const answer = await performer.assignSlice(item.session, item.branch, item.slug);
     if (!answer.ok) {
       warn(
@@ -1163,6 +1256,11 @@ export const run = async (
   const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
   const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
   const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges);
+  // SHARES `tally` WITH `queue` ABOVE so a hand-over's fresh `queuedHasLanded`
+  // call still counts toward the tick's host tally — but NOT `merges`: a
+  // hand-over asks the host again on purpose, and the tick's memo would hand
+  // back the very reading this check exists to outdate.
+  const handOverWorld = handOverWorldForRepo(repoRoot, scriptsDir, tally);
   const scripts = scriptsShell({ repoRoot, scriptDir: scriptsDir });
   // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
   // adapter is a closure over two paths and spawns only when it is called.
@@ -1260,7 +1358,7 @@ export const run = async (
     //
     // AFTER `reportTick`, so a tick whose report cannot be written still logs.
     await writeSupervisionReport(report, reportStore, warn);
-    if (args.startAgents) await startAgents(report, performer, write, warn);
+    if (args.startAgents) await startAgents(report, performer, handOverWorld, write, warn);
     if (args.sweepTemp) await sweepTempIfDue(tempSweep, Date.now(), write, warn);
 
     // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.

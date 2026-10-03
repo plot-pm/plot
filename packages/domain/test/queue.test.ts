@@ -9,6 +9,8 @@ import {
   QUEUE_HOLDS,
   behindUnknownLanding,
   whyNotReady,
+  handOverCheck,
+  HAND_OVER_MAX_AGE_MS,
   type PlanOrderedSlice,
   type QueueHold,
   type FleetCap,
@@ -16,6 +18,7 @@ import {
   type QueuedSlice,
   type PlanRecord,
   type HeldSlice,
+  type HandOverReading,
 } from '../src/index.js';
 
 /**
@@ -815,5 +818,63 @@ describe('whyNotReady — a slice with no name is held rather than handed over',
       { branch: 'feature/nameless', hold: 'slice-unnamed', waitsOn: '', waitHeld: '' },
     ]);
     expect(match.idle).toEqual(['s1']);
+  });
+});
+
+/**
+ * A HAND-OVER IS CHECKED BEFORE IT IS MADE.
+ *
+ * #1149: a Bitbucket tick of 78 minutes handed a branch to an agent after its
+ * PR had merged and its remote ref was gone. `handOverCheck` asks the age and
+ * two fresh readings at the moment of the hand-over, so a reading the tick
+ * took 78 minutes ago cannot authorise one.
+ */
+describe('handOverCheck — a hand-over is checked before it is made', () => {
+  const reading = (over: Partial<HandOverReading> = {}): HandOverReading => ({
+    ageMs: 0,
+    refNow: 'absent',
+    landedNow: 'not-landed',
+    ...over,
+  });
+
+  it('answers hand-over for a fresh reading of an absent, unlanded branch', () => {
+    expect(handOverCheck(reading())).toBe('hand-over');
+  });
+
+  it('answers hand-over exactly at the age bound', () => {
+    // CATCHES `>=` FOR `>`: the bound is 300 000 ms, and exactly that age must
+    // still hand over.
+    expect(handOverCheck(reading({ ageMs: HAND_OVER_MAX_AGE_MS }))).toBe('hand-over');
+  });
+
+  it('answers stale one millisecond past the age bound', () => {
+    expect(handOverCheck(reading({ ageMs: HAND_OVER_MAX_AGE_MS + 1 }))).toBe('stale');
+  });
+
+  it('answers stale even where the fresh readings would otherwise hand over', () => {
+    // THE AGE TEST IS FIRST. No fresh answer about one branch makes a
+    // 78-minute reading of the other branches current.
+    expect(
+      handOverCheck(reading({ ageMs: 300_001, landedNow: 'landed', refNow: 'present' })),
+    ).toBe('stale');
+  });
+
+  it('answers landed ahead of claimed, for a fresh reading', () => {
+    // `landedNow: 'landed'` WITH `refNow: 'present'` ANSWERS `landed`, NOT
+    // `claimed`: merging deletes the ref, but a reused branch name can still
+    // carry a ref after its PR merged, and the landing is what matters.
+    expect(handOverCheck(reading({ landedNow: 'landed', refNow: 'present' }))).toBe('landed');
+  });
+
+  it('answers unknown ahead of claimed, for an unreadable landing', () => {
+    expect(handOverCheck(reading({ landedNow: 'unknown', refNow: 'present' }))).toBe('unknown');
+  });
+
+  it('answers unknown for an unreadable ref', () => {
+    expect(handOverCheck(reading({ refNow: 'unknown' }))).toBe('unknown');
+  });
+
+  it('answers claimed for a present ref with no landing', () => {
+    expect(handOverCheck(reading({ refNow: 'present' }))).toBe('claimed');
   });
 });

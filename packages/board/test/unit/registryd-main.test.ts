@@ -21,7 +21,7 @@ import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { PortResult } from '@plot-pm/domain';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
-import { readQueue, type QueueWorld } from '../../src/server/queue-reading.js';
+import { readQueue, type QueueWorld, type HandOverWorld } from '../../src/server/queue-reading.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
@@ -711,6 +711,17 @@ describe('starting agents is the one write this daemon performs', () => {
     return { performer, asked };
   };
 
+  /**
+   * A hand-over world whose fresh readings always clear the check — a fresh
+   * tick, an absent ref and no landing — so a test asserting on the
+   * PERFORMER's behaviour is not also asserting on the hand-over check.
+   */
+  const handOverReady: HandOverWorld = {
+    remoteHead: async () => 'absent',
+    queuedHasLanded: async () => 'not-landed',
+    now: () => 0,
+  };
+
   /** A tick that decided one hand-over and one start. */
   const withAssign = (): TickReport => ({
     ...withStarts(0),
@@ -743,7 +754,7 @@ describe('starting agents is the one write this daemon performs', () => {
       },
     };
 
-    await startAgents(withAssign(), performer, () => {}, () => {});
+    await startAgents(withAssign(), performer, handOverReady, () => {}, () => {});
     expect(assigned).toEqual(['sess-1:feature/a']);
   });
 
@@ -756,14 +767,14 @@ describe('starting agents is the one write this daemon performs', () => {
       assignSlice: async () => answered(false),
     };
 
-    await startAgents(withAssign(), performer, (s) => out.push(s), (s) => out.push(s));
+    await startAgents(withAssign(), performer, handOverReady, (s) => out.push(s), (s) => out.push(s));
     expect(out.join('')).toContain('feature/a');
   });
 
   it('starts one agent per `worker-start` write and reports the count', async () => {
     const { performer, asked } = spy(async () => answered(1));
     const out: string[] = [];
-    const started = await startAgents(withStarts(2), performer, (s) => out.push(s), () => {});
+    const started = await startAgents(withStarts(2), performer, handOverReady, (s) => out.push(s), () => {});
     expect(started).toBe(2);
     expect(asked).toHaveLength(2);
     expect(out.join('')).toContain('started 2 free agent(s)');
@@ -773,7 +784,7 @@ describe('starting agents is the one write this daemon performs', () => {
     // NAMING THE KIND RATHER THAN FALLING THROUGH. This slice owns starting an
     // agent and nothing else; a reap or a correction is left for whoever does.
     const { performer, asked } = spy(async () => answered(1));
-    await startAgents(withStarts(1), performer, () => {}, () => {});
+    await startAgents(withStarts(1), performer, handOverReady, () => {}, () => {});
     expect(asked).toHaveLength(1);
   });
 
@@ -782,7 +793,7 @@ describe('starting agents is the one write this daemon performs', () => {
     // and answered *we start them by hand* — not an error to chase every tick.
     const { performer } = spy(async () => unaskable<number>());
     const err: string[] = [];
-    const started = await startAgents(withStarts(1), performer, () => {}, (s) => err.push(s));
+    const started = await startAgents(withStarts(1), performer, handOverReady, () => {}, (s) => err.push(s));
     expect(started).toBe(0);
     expect(err.join('')).toContain('Worker command');
     // A command that is not the loop answers `unaskable` too (#1124), so the
@@ -795,16 +806,82 @@ describe('starting agents is the one write this daemon performs', () => {
     // to remember: the next tick reads the queue and the fleet from disk again.
     const { performer } = spy(async () => failed<number>());
     const err: string[] = [];
-    expect(await startAgents(withStarts(1), performer, () => {}, (s) => err.push(s))).toBe(0);
+    expect(await startAgents(withStarts(1), performer, handOverReady, () => {}, (s) => err.push(s))).toBe(0);
     expect(err.join('')).toContain('the next tick re-derives');
   });
 
   it('starts nothing for a tick that named no start', async () => {
     const { performer, asked } = spy(async () => answered(1));
     const out: string[] = [];
-    expect(await startAgents(withStarts(0), performer, (s) => out.push(s), () => {})).toBe(0);
+    expect(await startAgents(withStarts(0), performer, handOverReady, (s) => out.push(s), () => {})).toBe(0);
     expect(asked).toEqual([]);
     expect(out).toEqual([]);
+  });
+
+  it('withholds a hand-over whose branch merged after the reading, and asks no further question', async () => {
+    // THE MEASURED DEFECT THIS SLICE CLOSES — #1149. The fresh readings say
+    // the branch landed, so `assignSlice` is never called.
+    const assigned: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async (session, branch) => {
+        assigned.push(`${session}:${branch}`);
+        return answered(true);
+      },
+    };
+    const world: HandOverWorld = {
+      remoteHead: async () => 'absent',
+      queuedHasLanded: async () => 'landed',
+      now: () => 0,
+    };
+    const out: string[] = [];
+    await startAgents(withAssign(), performer, world, (s) => out.push(s), () => {});
+    expect(assigned).toEqual([]);
+    expect(out.join('')).toContain('feature/a: not handed — landed');
+  });
+
+  it('withholds a hand-over from a reading over five minutes old, asking neither fresh reading', async () => {
+    const assigned: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async (session, branch) => {
+        assigned.push(`${session}:${branch}`);
+        return answered(true);
+      },
+    };
+    const asked: string[] = [];
+    const world: HandOverWorld = {
+      remoteHead: async (branch) => {
+        asked.push(`remoteHead:${branch}`);
+        return 'absent';
+      },
+      queuedHasLanded: async (branch) => {
+        asked.push(`queuedHasLanded:${branch}`);
+        return 'not-landed';
+      },
+      now: () => 301_000,
+    };
+    const out: string[] = [];
+    const report = { ...withAssign(), startedAt: 0 };
+    await startAgents(report, performer, world, (s) => out.push(s), () => {});
+    expect(assigned).toEqual([]);
+    expect(out.join('')).toContain('feature/a: not handed — stale');
+    expect(asked).toEqual([]);
+  });
+
+  it('still hands over a slice that passes the check', async () => {
+    const assigned: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async (session, branch) => {
+        assigned.push(`${session}:${branch}`);
+        return answered(true);
+      },
+    };
+    const out: string[] = [];
+    await startAgents(withAssign(), performer, handOverReady, (s) => out.push(s), () => {});
+    expect(assigned).toEqual(['sess-1:feature/a']);
+    expect(out.join('')).toContain('feature/a: handed to sess-1');
   });
 });
 

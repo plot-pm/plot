@@ -106,6 +106,22 @@ export interface QueueWorld {
   blocked(worktree: string): Promise<boolean>;
 }
 
+/**
+ * What a hand-over is checked against, immediately before it is made.
+ *
+ * **ASKED ONLY FOR A BRANCH ABOUT TO BE HANDED OVER**, so at most the tick's
+ * free agents pay for it — `startAgents` asks this world once per
+ * `agent-assign` write, not once per queued slice.
+ */
+export interface HandOverWorld {
+  /** The branch's remote ref, asked again at hand-over time. */
+  remoteHead(branch: string): Promise<'present' | 'absent' | 'unknown'>;
+  /** Whether the branch's work landed, asked again at hand-over time. */
+  queuedHasLanded(branch: string): Promise<LandedAnswer>;
+  /** The current time, epoch milliseconds — a parameter so a test can pin it. */
+  now(): number;
+}
+
 /** The merged listing: the heads it named, and whether it answered whole. */
 export interface MergedListing {
   /** Every head a merged PR names, from the rows that arrived. */
