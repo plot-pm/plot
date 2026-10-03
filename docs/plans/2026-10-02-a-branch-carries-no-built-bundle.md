@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, jwloka, `bug/main-builds-its-bundles`
+- **Started:** 2026-10-03, jwloka, `bug/a-pr-carries-no-bundle`
 
 ## Changelog
 
@@ -107,7 +108,7 @@
 
 ### A PR carries no bundle
 
-- `bug/a-pr-carries-no-bundle` — `scripts/check-no-bundle-diff.sh` refuses a generated path in a PR diff and prints the merge-base restore; CI builds before its first test; a commit-time gate refuses a staged generated path; one filter excuses the generated paths in every desk reader; `reset_desk` restores them; the board's automatic repair is switched off <!-- waits: bug/main-builds-its-bundles --> <!-- builds: check-no-bundle-diff.sh, the generated-path desk filter -->
+- `bug/a-pr-carries-no-bundle` — `scripts/check-no-bundle-diff.sh` refuses a generated path in a PR diff and prints the merge-base restore; CI builds before its first test; a commit-time gate refuses a staged generated path; one filter excuses the generated paths in every desk reader; `reset_desk` restores them; the board's automatic repair is switched off → #1257 <!-- waits: bug/main-builds-its-bundles --> <!-- builds: check-no-bundle-diff.sh, the generated-path desk filter -->
 
 ### The repair is retired
 

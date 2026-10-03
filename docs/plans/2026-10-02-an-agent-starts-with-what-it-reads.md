@@ -99,7 +99,7 @@ The changes remove context the model does not use. They do not lower reasoning e
 
 ### The master agent briefs rather than forks
 
-- `docs/the-master-agent-briefs-rather-than-forks` — the spawn rule and the Sonnet tier for mechanical subtasks in CLAUDE.md's master-agent section, measured seven days after it lands
+- `docs/the-master-agent-briefs-rather-than-forks` — the spawn rule and the Sonnet tier for mechanical subtasks in CLAUDE.md's master-agent section, measured seven days after it lands → #1254
 
 ## Notes
 
@@ -115,3 +115,4 @@ The changes remove context the model does not use. They do not lower reasoning e
   - **Switched off**, no use signal found: `agent-admin@quatico-internal-marketplace`, `bdd-methodology@quatico-internal-marketplace`, `code-review@claude-plugins-official`, `code-simplifier@claude-plugins-official`, `commit-commands@claude-plugins-official`, `document-skills@anthropic-agent-skills`, `elements-of-style@superpowers-marketplace`, `figma@claude-plugins-official`, `frontend-design@claude-plugins-official`, `playwright@claude-plugins-official`, `pr-review-toolkit@claude-plugins-official`, `quatico-internal@quatico-internal-marketplace`, `quatico-skills@quatico-marketplace`, `slack@claude-plugins-official`, `working-with-bitbucket-api@quatico-marketplace`, `working-with-jira-web@quatico-marketplace`.
   - **Kept, with reason and per-start cost:** `superpowers@superpowers-marketplace` — Agent spawn of its `code-reviewer` and Skill calls to `executing-plans`/`test-driven-development`/`using-superpowers`; per-start cost not separately measured this round. `oh-my-claudecode@omc` — Agent spawn of `code-reviewer`; per-start cost unchanged from the plan's figure, 13.6k chars of `hook_success` + 10.6k of `hook_additional_context`. `learning-output-style@claude-plugins-official` — fires its `SessionStart` hook on every worker; per-start cost not separately measured this round. `episodic-memory@superpowers-marketplace` was already `false` before this slice (slice 0 of this file, predating the plan) and stays `false`.
   - **This repository's measurement only**, per the plan's own rule — a second operator's enabled-plugin set is theirs to scan.
+- 2026-10-03, slice 3 landed (`docs/the-master-agent-briefs-rather-than-forks`, → #1254). The rule stands in `CLAUDE.md`'s *The Master Agent Uses The Controllers* section, mirrored to `AGENTS.md`. The seven-day measurement (master session's fork count and median fork start size, against 34 and 336k) is due on or after 2026-10-10.

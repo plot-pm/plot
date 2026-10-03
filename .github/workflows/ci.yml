@@ -4,21 +4,64 @@ on:
   pull_request:
     branches: [main]
   push:
-    # `changeset-release/main` IS HERE BECAUSE ITS PULL REQUEST CANNOT RUN CI.
-    #
-    # The release PR is opened by `app/github-actions`, and GitHub holds
-    # workflows on a bot-authored PR at `action_required` until a person
-    # approves each run. Measured 2026-09-23 on PR #957: twelve CI runs on that
-    # branch, ELEVEN stuck at `action_required` and never approved. `validate`
-    # is a required check on `main`, so the PR sat permanently BLOCKED while
-    # being MERGEABLE, and every release to date has gone in with `--admin`.
-    #
-    # A PUSH-TRIGGERED RUN IS NOT GATED THAT WAY. Changesets force-pushes this
-    # branch on every merge to main, so each update runs `validate` under the
-    # same job name, and the required check reports without anyone approving
-    # it. Nothing else changes: the check stays required, and every other pull
-    # request still runs it as a pull request.
-    branches: [main, changeset-release/main]
+    branches: [main]
+  # THE RELEASE PR'S CI RUN IS DISPATCHED, BECAUSE NOTHING ELSE STARTS IT.
+  #
+  # `validate` is a required check on `main`, and on the release PR it had
+  # never reported once. Two mechanisms were tried and neither runs:
+  #
+  #   • The PULL REQUEST run is held. `changeset-release/main`'s PR is opened
+  #     by `app/github-actions`, and GitHub holds workflows on a bot-authored
+  #     PR at `action_required` until a person approves each run. Measured
+  #     2026-10-01 over the 20 most recent runs on the branch: 18 ended
+  #     `action_required`, and the held runs create no check runs at all —
+  #     head `3141b813` carried zero.
+  #
+  #   • The PUSH run does not exist. `release.yml` pushes this branch with
+  #     `secrets.GITHUB_TOKEN`, and GitHub starts NO workflow from an event
+  #     that token caused, except `workflow_dispatch` and
+  #     `repository_dispatch`. Measured 2026-10-01 through the Actions API:
+  #     0 runs with `event=push` on that branch, ever. This file used to list
+  #     the branch here and claim the run "reports without anyone approving
+  #     it"; that run was never started, and every release to date merged with
+  #     `gh pr merge --admin`, which skips the check entirely.
+  #
+  # SO `release.yml` DISPATCHES THIS WORKFLOW ITSELF, in its own `dispatch-ci`
+  # job holding `actions: write` and nothing else. A dispatched run creates its
+  # check runs under the job name `validate`, which is the context the branch
+  # protection requires, so the required check reports and the merge stays a
+  # human act with nothing to override.
+  #
+  # The run is PINNED, and both pins are refusals in every job's first step:
+  # `expected_sha` is the head `release.yml` just wrote, and the ref must be
+  # `changeset-release/main`. That branch has no branch protection and no
+  # ruleset (404 on 2026-10-01), so any writer can push between the force-push
+  # and the dispatch — an unpinned run would report green on their commit.
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: The commit the dispatcher expects to test
+        required: true
+        type: string
+
+# A pinned permission replaces the inherited repository default, so a settings
+# change cannot widen a run on a bot-written ref. Neither job needs more: both
+# read the repository and neither writes anything back.
+permissions:
+  contents: read
+
+# EVERY DISPATCHED RUN SHARES ONE GROUP, so a regeneration cancels the
+# superseded release run. Measured 2026-10-01: the branch regenerated five
+# times between 22:23 and 22:39, and each regeneration starts a `validate` with
+# a 25-minute ceiling.
+#
+# EVERY OTHER RUN GETS ITS OWN GROUP — `github.run_id` is unique — so a `main`
+# push run and a pull request run are never cancelled. A group keyed on
+# `github.ref` would cancel pull request runs against each other, which is why
+# the ref does not appear here.
+concurrency:
+  group: ci-${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   # ── The corpus tier: do the adapters feed the domain the same readings
@@ -64,6 +107,47 @@ jobs:
     # looking like work — the lesson `validate`'s own ceiling records.
     timeout-minutes: 15
     steps:
+      # THE DISPATCH GUARD, AND IT IS THE FIRST STEP ON PURPOSE: a checkout
+      # ahead of it would clone an unpinned ref before anything refused.
+      #
+      # It is in EVERY job in this file rather than in `validate` alone.
+      # `corpus` is skipped on a dispatched run today, so a guard on
+      # `validate` only would be correct by accident of that skip, and the
+      # accident would end the first time `corpus` gained a dispatch path.
+      #
+      # TWO REFUSALS, and neither can be skipped:
+      #
+      #   • THE REF. Without it, a dispatch on any branch reports a `validate`
+      #     for a head commit — never a merge ref — under the name the branch
+      #     protection on `main` requires.
+      #
+      #   • THE SHA. `changeset-release/main` has no branch protection and no
+      #     ruleset (404 on 2026-10-01), so any writer can push between
+      #     `changesets/action`'s force-push and the dispatch. An unpinned run
+      #     would report green on their commit.
+      #
+      # An EMPTY `expected_sha` FAILS rather than skipping: `inputs.expected_sha`
+      # is `required: true`, and a gate that cannot be asked must refuse.
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # THE SCAN READS REFS, so a depth-1 clone gives it nothing to read.
@@ -104,6 +188,29 @@ jobs:
     # be re-run, while a hang has to be noticed first.
     timeout-minutes: 25
     steps:
+      # The dispatch guard, first step for the reason the `corpus` copy states:
+      # a checkout ahead of it would clone an unpinned ref before anything
+      # refused. The two refusals are the ref and the head SHA.
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # THE DOMAIN SUITE READS COMMITS BY SHA. `ports-real-state.test.ts`
@@ -1088,17 +1195,18 @@ jobs:
       - name: Board typecheck
         run: pnpm run typecheck
 
+      # A PULL REQUEST'S STALE BUNDLE IS AN ERROR. On a push to `main` it is a
+      # warning: until `build-bundles.yml` pushes the build, `main` holds the
+      # previous one for one workflow run, and failing there would make `main`
+      # red by design. The decision lives in `scripts/main-bundles.sh`.
       - name: Board build + artifact freshness
         timeout-minutes: 10
         run: |
-          pnpm run build:board
-          if ! git diff --quiet -- skills/plot/scripts/board/; then
-            stale=$(git --no-pager diff --name-only -- skills/plot/scripts/board/ | tr '\n' ' ')
-            echo "::error::Stale board artifacts: ${stale}— run 'pnpm build:board' and commit the result."
-            git --no-pager diff --stat -- skills/plot/scripts/board/
-            exit 1
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./scripts/main-bundles.sh pr
+          else
+            ./scripts/main-bundles.sh main
           fi
-          echo "Board artifact is fresh."
 
       # BOUNDED BECAUSE IT SPAWNS. This runs the board's `node --test` suites,
       # which start real `board-server.mjs` processes — the population that hung

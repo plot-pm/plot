@@ -34,8 +34,27 @@ import { rmTree } from '../helpers.mjs';
 
 const BRANCH = 'feature/continue-with-an-answer';
 
+/**
+ * A manifest directory holding one manifest naming the given worktree.
+ *
+ * Every fixture needs one since the refusal check landed: `/api/continue` now
+ * asks `deskManifestFor` before it writes anything, so a worktree with no
+ * manifest naming it is refused `no-manifest` rather than continued. A
+ * PRIVATE directory per worktree, never `/tmp/.plot/agents` — that path is
+ * shared across this whole file's tests and a second test's manifest there
+ * would read as `several` for the first.
+ */
+function manifestDirFor(wt: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-manifests-'));
+  fs.writeFileSync(
+    path.join(dir, 'sess.json'),
+    JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242' }),
+  );
+  return dir;
+}
+
 /** A worktree with a git repo, a marker, a brief and a previous run's records. */
-function worktree(opts: { marker?: boolean; pid?: string } = {}): string {
+function worktree(opts: { marker?: boolean; pid?: string; wrapperPid?: string } = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-'));
   const git = (...args: string[]) =>
     execFileSync('git', ['-C', dir, ...args], { stdio: ['ignore', 'pipe', 'ignore'] });
@@ -64,6 +83,9 @@ function worktree(opts: { marker?: boolean; pid?: string } = {}): string {
   fs.writeFileSync(path.join(dir, '.plot-worker.pid'), opts.pid ?? '424242');
   fs.writeFileSync(path.join(dir, '.plot-worker.exit'), '0');
   fs.writeFileSync(path.join(dir, '.plot-worker.log'), 'the previous run said this\n');
+  if (opts.wrapperPid !== undefined) {
+    fs.writeFileSync(path.join(dir, '.plot-worker.wrapper.pid'), opts.wrapperPid);
+  }
   return dir;
 }
 
@@ -177,9 +199,21 @@ const opts = {
   port: 7777,
 };
 
-async function post(body: unknown, d: ContinueDeps) {
+const manifestDirs: string[] = [];
+afterEach(() => {
+  while (manifestDirs.length) rmTree(manifestDirs.pop()!);
+});
+
+/** `opts` plus a manifest directory naming `wt` — the shape every post needs now. */
+function optsFor(wt: string) {
+  const manifestDir = manifestDirFor(wt);
+  manifestDirs.push(manifestDir);
+  return { ...opts, manifestDir };
+}
+
+async function post(body: unknown, d: ContinueDeps, wt: string) {
   const { res, out } = response();
-  await handleContinue(request(body), res, opts, d);
+  await handleContinue(request(body), res, optsFor(wt), d);
   // A 202 is the one answer that means a process was started, so it is also
   // the one that obliges teardown to wait for it. Recorded here rather than
   // per-test: a test that forgets would fail on CI and pass locally, which is
@@ -200,7 +234,7 @@ describe('answering starts a NEW run', () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
 
-    const out = await post({ branch: BRANCH, answer: 'use the existing endpoint' }, deps(wt));
+    const out = await post({ branch: BRANCH, answer: 'use the existing endpoint' }, deps(wt), wt);
     assert.equal(out.status, 202);
     const body = out.body as { ok: boolean; pid: string; previousPid: string };
     assert.equal(body.ok, true);
@@ -228,7 +262,7 @@ describe('answering starts a NEW run', () => {
     // with the worker's write.
     const wt = worktree();
     dirs.push(wt);
-    await post({ branch: BRANCH, answer: 'go' }, deps(wt, 'sleep 2'));
+    await post({ branch: BRANCH, answer: 'go' }, deps(wt, 'sleep 2'), wt);
     assert.equal(
       fs.existsSync(path.join(wt, '.plot-worker.exit')),
       false,
@@ -241,7 +275,7 @@ describe('answering starts a NEW run', () => {
     // destroy the context a reader needs to judge whether the answer was right.
     const wt = worktree();
     dirs.push(wt);
-    await post({ branch: BRANCH, answer: 'go' }, deps(wt));
+    await post({ branch: BRANCH, answer: 'go' }, deps(wt), wt);
     const log = fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8');
     assert.ok(log.includes('the previous run said this'), 'the previous log must survive');
   });
@@ -337,17 +371,20 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(m.previousPid, firstPid, 'the second relaunch displaced the first');
   });
 
-  it('does not fail the continuation when no manifest names the worktree', async () => {
-    // The manifest is a best-effort display fact. A worktree dispatched before
-    // manifests existed has none, and continuing it must still start a worker
-    // rather than 500 on a missing file.
+  it('refuses a continuation when no manifest names the worktree', async () => {
+    // THE ANTI-CONTRACT, REWRITTEN. The manifest was a best-effort display fact
+    // until #1101: a free loop started with no `PLOT_MANIFEST_FILE` never ends
+    // on a vanished registration, it just spins at `Worker bound` logging
+    // `free on ?`. So a continuation now REFUSES rather than spawns when the
+    // registry cannot name the manifest to hand the new loop.
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-nomani-'));
     roots.push(root);
     fs.mkdirSync(path.join(root, '.plot', 'agents'), { recursive: true });
     const out = await postTo(root, { branch: BRANCH, answer: 'go' }, deps(wt));
-    assert.equal(out.status, 202, 'a missing manifest is not a failure');
+    assert.equal(out.status, 409, 'a missing manifest is now a refusal, not a best-effort skip');
+    assert.equal((out.body as { reason: string }).reason, 'no-manifest');
   });
 });
 
@@ -379,7 +416,7 @@ describe('the prompt that reaches the worker', () => {
   it('is written into the worktree and named in the reply', async () => {
     const wt = worktree();
     dirs.push(wt);
-    const out = await post({ branch: BRANCH, answer: 'use the existing endpoint' }, deps(wt));
+    const out = await post({ branch: BRANCH, answer: 'use the existing endpoint' }, deps(wt), wt);
     const body = out.body as { prompt: string };
     assert.equal(body.prompt, path.join(wt, CONTINUATION_NAME));
     assert.ok(fs.existsSync(body.prompt), 'the prompt must exist before the worker starts');
@@ -390,7 +427,7 @@ describe('the prompt that reaches the worker', () => {
     // actually read rather than against the composer alone.
     const wt = worktree();
     dirs.push(wt);
-    await post({ branch: BRANCH, answer: 'use the existing endpoint, do not add a second' }, deps(wt));
+    await post({ branch: BRANCH, answer: 'use the existing endpoint, do not add a second' }, deps(wt), wt);
     const text = fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8');
 
     assert.ok(text.includes('Do it.'), 'the brief');
@@ -409,7 +446,7 @@ describe('the prompt that reaches the worker', () => {
   it('is bounded — a brief plus an answer, not a run’s worth of output', async () => {
     const wt = worktree();
     dirs.push(wt);
-    await post({ branch: BRANCH, answer: 'go' }, deps(wt));
+    await post({ branch: BRANCH, answer: 'go' }, deps(wt), wt);
     const bytes = fs.statSync(path.join(wt, CONTINUATION_NAME)).size;
     assert.ok(bytes < 32_000, `prompt was ${bytes} bytes`);
   });
@@ -420,7 +457,7 @@ describe('what cannot be continued is refused, never spawned', () => {
     (out.body as { reason: ContinueRefusal }).reason;
 
   it('refuses a branch the board has never heard of', async () => {
-    const out = await post({ branch: 'feature/nothing', answer: 'go' }, deps(null));
+    const out = await post({ branch: 'feature/nothing', answer: 'go' }, deps(null), '/tmp/no-such-worktree');
     assert.equal(out.status, 404);
     assert.equal(refusal(out), 'unknown-branch');
   });
@@ -428,7 +465,7 @@ describe('what cannot be continued is refused, never spawned', () => {
   it('refuses a branch this machine holds no worktree for', async () => {
     // A different statement from the one above, and it sends the reader
     // somewhere else: ask the machine that has it.
-    const out = await post({ branch: BRANCH, answer: 'go' }, deps(''));
+    const out = await post({ branch: BRANCH, answer: 'go' }, deps(''), '/tmp/no-such-worktree');
     assert.equal(out.status, 404);
     assert.equal(refusal(out), 'no-worktree');
   });
@@ -438,7 +475,7 @@ describe('what cannot be continued is refused, never spawned', () => {
     // a click could start a second agent in a worktree that holds a live one.
     const wt = worktree({ marker: false });
     dirs.push(wt);
-    const out = await post({ branch: BRANCH, answer: 'go' }, deps(wt));
+    const out = await post({ branch: BRANCH, answer: 'go' }, deps(wt), wt);
     assert.equal(out.status, 409);
     assert.equal(refusal(out), 'no-question');
     assert.equal(
@@ -451,7 +488,7 @@ describe('what cannot be continued is refused, never spawned', () => {
   it('refuses when no Worker command is configured', async () => {
     const wt = worktree();
     dirs.push(wt);
-    const out = await post({ branch: BRANCH, answer: 'go' }, deps(wt, ''));
+    const out = await post({ branch: BRANCH, answer: 'go' }, deps(wt, ''), wt);
     assert.equal(out.status, 409);
     assert.equal(refusal(out), 'no-worker-command');
   });
@@ -459,12 +496,70 @@ describe('what cannot be continued is refused, never spawned', () => {
   it('refuses `Worker command: none` — a repo that starts them by hand', async () => {
     const wt = worktree();
     dirs.push(wt);
-    const out = await post({ branch: BRANCH, answer: 'go' }, deps(wt, 'none'));
+    const out = await post({ branch: BRANCH, answer: 'go' }, deps(wt, 'none'), wt);
     assert.equal(refusal(out), 'no-worker-command');
   });
 
+  it('refuses a worktree no manifest names', async () => {
+    // THE NEW REFUSAL. The desk otherwise looks ready — a marker, a Worker
+    // command — but the registry cannot vouch for it, so the continuation must
+    // not spawn a loop it can hand no PLOT_MANIFEST_FILE.
+    const wt = worktree();
+    dirs.push(wt);
+    // An EMPTY, isolated manifest directory — never the shared `/tmp` default,
+    // which other tests in this file populate.
+    const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-empty-'));
+    manifestDirs.push(manifestDir);
+    const { res, out } = response();
+    await handleContinue(
+      request({ branch: BRANCH, answer: 'go' }),
+      res,
+      { ...opts, manifestDir },
+      deps(wt),
+    );
+    assert.equal(out.status, 409);
+    assert.equal(refusal(out), 'no-manifest');
+    assert.ok(
+      (out.body as { detail: string }).detail.includes(wt),
+      'the refusal names the desk',
+    );
+    assert.equal(
+      fs.existsSync(path.join(wt, CONTINUATION_NAME)),
+      false,
+      'a refusal must not leave a prompt behind — catches a refusal placed after the write',
+    );
+  });
+
+  it('refuses a worktree two manifests name, naming both', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-several-'));
+    manifestDirs.push(manifestDir);
+    const first = path.join(manifestDir, 'a.json');
+    const second = path.join(manifestDir, 'b.json');
+    fs.writeFileSync(first, JSON.stringify({ session: 'a', worktree: wt }));
+    fs.writeFileSync(second, JSON.stringify({ session: 'b', worktree: wt }));
+
+    const { res, out } = response();
+    await handleContinue(
+      request({ branch: BRANCH, answer: 'go' }),
+      res,
+      { ...opts, manifestDir },
+      deps(wt),
+    );
+    assert.equal(out.status, 409);
+    assert.equal(refusal(out), 'no-manifest');
+    const detail = (out.body as { detail: string }).detail;
+    assert.ok(detail.includes(first) && detail.includes(second), 'both manifests are named');
+    assert.equal(
+      fs.existsSync(path.join(wt, CONTINUATION_NAME)),
+      false,
+      'a refusal must not leave a prompt behind',
+    );
+  });
+
   it('gives each refusal its own reason', async () => {
-    // Four distinct reasons, four different next moves. Collapsing any two into
+    // Five distinct reasons, five different next moves. Collapsing any two into
     // one message is the defect the three-way answers elsewhere in this server
     // exist to prevent.
     const reasons: ContinueRefusal[] = [
@@ -472,6 +567,7 @@ describe('what cannot be continued is refused, never spawned', () => {
       'no-worktree',
       'no-question',
       'no-worker-command',
+      'no-manifest',
     ];
     assert.equal(new Set(reasons).size, reasons.length);
   });
@@ -480,7 +576,7 @@ describe('what cannot be continued is refused, never spawned', () => {
     const wt = worktree();
     dirs.push(wt);
     for (const answer of ['', '   ', '\n']) {
-      const out = await post({ branch: BRANCH, answer }, deps(wt));
+      const out = await post({ branch: BRANCH, answer }, deps(wt), wt);
       assert.equal(out.status, 400);
     }
   });
@@ -488,13 +584,13 @@ describe('what cannot be continued is refused, never spawned', () => {
   it('refuses an answer past its bound, naming the field', async () => {
     const wt = worktree();
     dirs.push(wt);
-    const out = await post({ branch: BRANCH, answer: 'x'.repeat(9_000) }, deps(wt));
+    const out = await post({ branch: BRANCH, answer: 'x'.repeat(9_000) }, deps(wt), wt);
     assert.equal(out.status, 400);
     assert.ok(/answer/.test((out.body as { error: string }).error), 'the error names the answer');
   });
 
   it('refuses a request with no branch', async () => {
-    assert.equal((await post({ answer: 'go' }, deps(null))).status, 400);
+    assert.equal((await post({ answer: 'go' }, deps(null), '/tmp/no-such-worktree')).status, 400);
   });
 });
 
@@ -553,6 +649,7 @@ describe('the environment the worker is started with', () => {
         wt,
         `printf '%s' "$${CONTINUATION_ENV}" > ${JSON.stringify(scratch)} && mv ${JSON.stringify(scratch)} ${JSON.stringify(witness)}`,
       ),
+      wt,
     );
 
     // Poll for the witness rather than sleeping for a guessed duration — the
@@ -580,5 +677,75 @@ describe('the environment the worker is started with', () => {
     }
     assert.ok(read() !== '', 'the worker did not report its environment within 10s');
     assert.equal(read(), path.join(wt, CONTINUATION_NAME));
+  });
+
+  it('names the manifest that names this desk in PLOT_MANIFEST_FILE', async () => {
+    // #1101: a loop with no PLOT_MANIFEST_FILE at all can never end on a
+    // vanished registration — `assigned_branch` returns 1 forever and the wait
+    // holds the desk for the full `Worker bound`, logging `free on ?`. Read
+    // from the WORKER'S OWN OUTPUT, not the route's reply: a test reading the
+    // reply would pass with the variable unset.
+    const wt = worktree();
+    dirs.push(wt);
+    const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-manifest-env-'));
+    manifestDirs.push(manifestDir);
+    const manifestPath = path.join(manifestDir, 'sess.json');
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242' }),
+    );
+
+    const witness = path.join(wt, 'manifest-witness.txt');
+    const scratch = path.join(wt, 'manifest-witness.part');
+    const { res, out } = response();
+    const d = deps(
+      wt,
+      `printf '%s' "$PLOT_MANIFEST_FILE" > ${JSON.stringify(scratch)} && mv ${JSON.stringify(scratch)} ${JSON.stringify(witness)}`,
+    );
+    await handleContinue(
+      request({ branch: BRANCH, answer: 'go' }),
+      res,
+      { ...opts, manifestDir },
+      d,
+    );
+    if (out.status === 202) {
+      const p = (out.body as { prompt?: string }).prompt;
+      if (p) spawned.add(path.dirname(p));
+    }
+    assert.equal(out.status, 202);
+
+    const read = (): string => {
+      try {
+        return fs.readFileSync(witness, 'utf8');
+      } catch {
+        return '';
+      }
+    };
+    const deadline = Date.now() + 10_000;
+    while (read() === '' && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.ok(read() !== '', 'the worker did not report PLOT_MANIFEST_FILE within 10s');
+    assert.equal(read(), manifestPath);
+  });
+});
+
+describe('a stale wrapper pid is cleared before the spawn', () => {
+  it('removes .plot-worker.wrapper.pid, which this route never starts one of', async () => {
+    // #1101's second measured defect: the route leaves the previous dispatch's
+    // wrapper pid file in place and starts no wrapper to replace it.
+    // `plot_worker_state` reads that file as proof a wrapper is watching, so a
+    // waiting loop with no agent beneath it reads `finished`.
+    const wt = worktree({ wrapperPid: '99999' });
+    dirs.push(wt);
+    assert.ok(fs.existsSync(path.join(wt, '.plot-worker.wrapper.pid')), 'the fixture set it up');
+
+    await post({ branch: BRANCH, answer: 'go' }, deps(wt), wt);
+
+    assert.equal(
+      fs.existsSync(path.join(wt, '.plot-worker.wrapper.pid')),
+      false,
+      'the stale wrapper pid must be gone after a continuation — this route starts no wrapper',
+    );
   });
 });

@@ -39,6 +39,14 @@ jobs:
     # a tag ref, where it may open a version PR or publish a stable release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Read by `dispatch-ci`, which starts CI on the release branch.
+    outputs:
+      pr_number: ${{ steps.changesets.outputs.pullRequestNumber }}
+      head_sha: ${{ steps.release-head.outputs.head_sha }}
+    # UNCHANGED, and deliberately without `actions: write`. This job runs
+    # `changesets/action`, `pnpm install` and `create-release.sh` and publishes
+    # to npm; widening it was the rejected alternative. The dispatch holds that
+    # permission in its own job instead.
     permissions:
       contents: write
       pull-requests: write
@@ -68,6 +76,10 @@ jobs:
           npm install -g npm@11.12.1
           node --version
           npm --version
+
+      # Tags only a tree whose generated bundles equal their build.
+      - name: Board bundles are fresh
+        run: ./scripts/main-bundles.sh release
 
       - name: Compute next release version
         id: nextver
@@ -107,12 +119,72 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read the release branch head
+        id: release-head
+        if: steps.changesets.outputs.pullRequestNumber
+        run: |
+          set -euo pipefail
+          # THE LOCAL REF, which `changesets/action` committed and pushed in the
+          # step above. It is never read from the remote, because the remote is
+          # the ref the guard distrusts: `changeset-release/main` carries no
+          # branch protection and no ruleset (404 on 2026-10-01), so any writer
+          # can push between that force-push and the dispatch, and reading the
+          # remote would pin the run to whatever they wrote.
+          #
+          # AN ABSENT LOCAL REF FAILS. A release PR exists at this point, so the
+          # branch does too; a missing ref means the assumption broke and the
+          # dispatch would otherwise go out unpinned.
+          HEAD_SHA=$(git rev-parse --verify refs/heads/changeset-release/main)
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "Release branch head: $HEAD_SHA"
+
       - name: Assign release PR
         if: steps.changesets.outputs.pullRequestNumber
         env:
           PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr edit "$PR_NUMBER" --add-assignee eins78
+
+  # ── Start CI on the release PR, because nothing else does ─────────────────
+  #
+  # `validate` is a required check on `main` and had never once reported on the
+  # release PR. The pull request run is held at `action_required` because the PR
+  # is bot-authored, and a push run does not exist at all: the push above is made
+  # with `secrets.GITHUB_TOKEN`, and GitHub starts no workflow from an event that
+  # token caused, except `workflow_dispatch` and `repository_dispatch`. Measured
+  # 2026-10-01 through the Actions API: 0 push runs on that branch, ever, and
+  # v2.22.0, v2.22.1 and v2.22.2 each merged with `gh pr merge --admin`.
+  #
+  # ITS OWN JOB, AND THAT IS THE POINT. `actions: write` lives here and nowhere
+  # else — the `release` job publishes to npm and runs `create-release.sh`, so
+  # widening it was the rejected alternative. This job checks nothing out, adds
+  # no action (`gh` is preinstalled on the runner, so every `uses:` in this file
+  # stays SHA-pinned), and holds no credential but `GITHUB_TOKEN`.
+  #
+  # A FAILED DISPATCH FAILS THIS JOB AND SO THE RELEASE RUN. It is the only
+  # signal that the release PR carries no check, so it is not a warning: no
+  # `continue-on-error`, no `|| true`.
+  dispatch-ci:
+    needs: release
+    if: ${{ needs.release.outputs.pr_number }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch CI on the release branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ needs.release.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.release.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # Printed BEFORE the call, so a run that reports on the wrong head is
+          # diagnosable from this log rather than from the Actions API.
+          echo "Dispatching CI for release PR #$PR_NUMBER at $HEAD_SHA"
+          gh workflow run ci.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref changeset-release/main \
+            -f expected_sha="$HEAD_SHA"
 
   board-release-candidate:
     # Publishes @plot-pm/board at the next X.Y.Z-rc.N to the npm `rc` dist-tag,

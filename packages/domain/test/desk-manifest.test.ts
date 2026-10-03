@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MANIFEST_DIR,
   deskManifest,
+  loopRegistration,
   manifestDirectory,
   watchedDesk,
   type ManifestReading,
@@ -232,5 +233,28 @@ describe('watchedDesk', () => {
     expect(watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '   ' })).toBe(
       '/estate/.worktrees/launch-one',
     );
+  });
+});
+
+describe('loopRegistration', () => {
+  it('answers unset for a hand-started loop with no manifest file at all', () => {
+    // Absent is not false: `PLOT_MANIFEST_FILE` empty is a supported shape and
+    // must not read as `gone`, or every hand-started loop would end at once.
+    expect(loopRegistration({ manifestFile: '', exists: true })).toBe('unset');
+    expect(loopRegistration({ manifestFile: '', exists: false })).toBe('unset');
+  });
+
+  it('answers registered when the named manifest exists', () => {
+    expect(
+      loopRegistration({ manifestFile: '/estate/.plot/agents/one.json', exists: true }),
+    ).toBe('registered');
+  });
+
+  it('answers gone when the named manifest is absent', () => {
+    // The one case this rule exists to end a wait on: the registry handed the
+    // loop a manifest at launch and it has since disappeared.
+    expect(
+      loopRegistration({ manifestFile: '/estate/.plot/agents/one.json', exists: false }),
+    ).toBe('gone');
   });
 });
