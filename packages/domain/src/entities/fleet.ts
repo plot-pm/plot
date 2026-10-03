@@ -186,18 +186,28 @@ export const BranchSchema = z.object({
    */
   deferred_reason: z.string().default(''),
   /**
-   * The branch this one waits on, as the plan's `waits:` annotation names it —
-   * "" where it declares nothing.
+   * Every branch this one waits on, as the plan's `waits:` annotation names
+   * them — `[]` where it declares nothing.
    *
    * THE DECLARATION, NOT THE VERDICT. It is present whatever `state` says, so a
    * branch whose prerequisite has merged still reports it: the plan still
    * declares the dependency, and a reader who sees a cleared one learns why the
    * slice became startable. `state` is what says whether the wait is live.
    *
+   * READ IN BOTH SHAPES. `plot-fleet-scan.sh` still emits one name as a bare
+   * string — `"bug/a"` — read here as `["bug/a"]`, and `""` as `[]`. A schema
+   * with no preprocess refuses the persisted pulse of every running board, since
+   * `.plot/state/last-pulse.json` holds the old shape until a fresh scan
+   * overwrites it. The array shape itself passes through unchanged, for the
+   * scan version that emits one once `the-parser-reads-every-wait` lands.
+   *
    * Defaulted, so a pulse from a scan predating the field still validates — the
    * same reason `deferred_reason` is.
    */
-  waits_on: z.string().default(''),
+  waits_on: z.preprocess(
+    (value) => (typeof value === 'string' ? (value === '' ? [] : [value]) : value),
+    z.array(z.string()),
+  ).default([]),
   /** Claim note from the plan, or "" — never null (house style). */
   claimed: z.string(),
   /**

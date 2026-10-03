@@ -263,7 +263,7 @@ const backendOfEstate = (): string => process.env.PLOT_HOST ?? 'github';
 const readingsFor = (
   branch: string,
   deferredByPlan: boolean,
-  waitsOn: string,
+  waitsOn: readonly string[],
 ): BranchReadings => {
   const refTip = refs.get(branch) ?? null;
   const mainTip = refs.get(mainBranch) ?? null;
@@ -281,7 +281,7 @@ const readingsFor = (
     prListComplete: prList.complete,
     commitsAhead: counts.total,
     realCommitsAhead: counts.real,
-    waits: waitsOn === '' ? null : { branch: waitsOn, pr: prFor(waitsOn) },
+    waits: waitsOn.map((branch) => ({ branch, pr: prFor(branch) })),
   };
 };
 
@@ -529,7 +529,7 @@ describe('the bundle answers the zero-ahead table as the rule does', () => {
     prListComplete: true,
     commitsAhead: 0,
     realCommitsAhead: 0,
-    waits: null,
+    waits: [],
   };
 
   const ROWS: ReadonlyArray<readonly [string, Partial<BranchReadings>]> = [

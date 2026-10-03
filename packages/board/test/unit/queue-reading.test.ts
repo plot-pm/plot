@@ -36,7 +36,7 @@ const plan = (slices: string[][], phase = 'approved'): PlanRecord =>
     // `name: ''` at its own call site.
     slices: slices.map((branches, index) => ({
       name: `Slice ${index + 1}`,
-      branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: '' })),
+      branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: [] })),
     })),
   }) as unknown as PlanRecord;
 
@@ -118,6 +118,7 @@ describe('the host is asked once per branch, and only where the answer decides',
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
+    refused: async () => false,
     ...over,
   });
 
@@ -202,6 +203,7 @@ describe('a known PR number is asked by number when the listing fails', () => {
       },
       workerAlive: async () => true,
       blocked: async () => false,
+      refused: async () => false,
     };
     return { world, asked };
   };
@@ -372,6 +374,7 @@ describe('a slice behind an unanswered landing names the host', () => {
       },
       workerAlive: async () => true,
       blocked: async () => false,
+      refused: async () => false,
     };
     return { world, asked };
   };
@@ -511,7 +514,7 @@ describe('a slice its plan names under no heading is held by the queue', () => {
     ({
       file: 'docs/plans/2026-10-02-an-unnamed-slice.md',
       phase: 'approved',
-      slices: [{ name: '', branches: [{ branch: 'feature/nameless', deferred: false, waitsOn: '' }] }],
+      slices: [{ name: '', branches: [{ branch: 'feature/nameless', deferred: false, waitsOn: [] }] }],
     }) as unknown as PlanRecord;
 
   /** A world that answers everything a hand-over needs, and counts host calls. */
@@ -538,6 +541,7 @@ describe('a slice its plan names under no heading is held by the queue', () => {
       },
       workerAlive: async () => true,
       blocked: async () => false,
+      refused: async () => false,
     };
     return { world, calls };
   };
@@ -587,18 +591,21 @@ describe('a slice its plan names under no heading is held by the queue', () => {
   });
 });
 
-describe('a `waits:` prerequisite holds a slice through the real join', () => {
-  const planWithWait = (waitsOn: string): PlanRecord =>
-    ({
-      file: 'docs/plans/2026-10-01-a-plan.md',
-      phase: 'approved',
-      slices: [
-        { name: 'A named slice', branches: [{ branch: 'feature/waiter', deferred: false, waitsOn }] },
-      ],
-    }) as unknown as PlanRecord;
-
+/**
+ * A SLICE AN AGENT WAS HANDED AND REFUSED.
+ *
+ * Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
+ * wrote `PLOT-BLOCKED.md` and stopped. The next pass read the slice as queued
+ * — no ref, nothing this reading could see — and handed it to another free
+ * agent, which met the same refusal. 250 desks came from one slice this way.
+ *
+ * The world answers by BRANCH, never by worktree: a desk's manifest cannot be
+ * trusted to still name the branch by the time the supervisor looks.
+ */
+describe('a slice an agent refused is held, by a reading that never latches', () => {
+  /** A world that answers everything a hand-over needs, over one branch. */
   const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
-    plans: async () => [planWithWait('feature/prereq')],
+    plans: async () => [plan([['feature/refused']])],
     claimedBranches: async () => new Set<string>(),
     mergedBranches: async () => wholeListing([]),
     prIndexRows: async () => [],
@@ -609,6 +616,88 @@ describe('a `waits:` prerequisite holds a slice through the real join', () => {
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
+    refused: async () => false,
+    ...over,
+  });
+
+  it('sets `refused: true` for the branch a world names', async () => {
+    const readings = await readQueue([], world({ refused: async (branch) => branch === 'feature/refused' }));
+
+    const slice = readings.slices.find((s) => s.branch === 'feature/refused');
+    expect(slice?.refused).toBe(true);
+    expect(whyNotReady(slice!)).toBe('refused');
+  });
+
+  it("leaves a sibling branch alone — the reading is per branch, not per plan", async () => {
+    // CATCHES A READING THAT MARKS EVERY BRANCH ONCE ONE IS REFUSED, rather
+    // than the one a world actually names.
+    const readings = await readQueue(
+      [],
+      world({
+        plans: async () => [plan([['feature/refused'], ['feature/clear']])],
+        refused: async (branch) => branch === 'feature/refused',
+      }),
+    );
+
+    expect(readings.slices.find((s) => s.branch === 'feature/refused')?.refused).toBe(true);
+    expect(readings.slices.find((s) => s.branch === 'feature/clear')?.refused).toBe(false);
+  });
+
+  it('reads `false` once the world clears the refusal — IT NEVER LATCHES', async () => {
+    // THE HOLD IS A READING THE CALLER TAKES FRESH EACH PASS, not a state this
+    // rule remembers. A world that answered `true` yesterday and `false` today
+    // is exactly what a cleared marker or a removed record line looks like.
+    const refusedPass = await readQueue([], world({ refused: async () => true }));
+    expect(refusedPass.slices.find((s) => s.branch === 'feature/refused')?.refused).toBe(true);
+
+    const clearedPass = await readQueue([], world({ refused: async () => false }));
+    expect(clearedPass.slices.find((s) => s.branch === 'feature/refused')?.refused).toBe(false);
+  });
+
+  it('asks nothing of an unclaimable slice — the same bound `briefPresent` keeps', async () => {
+    // THE SAME DISCIPLINE `briefPresent` AND THE LANDING QUESTION FOLLOW: an
+    // unclaimable slice reads `not-claimable` regardless, so asking the world
+    // would pay for an answer nothing reads.
+    let asked = 0;
+    const readings = await readQueue(
+      [],
+      world({
+        plans: async () => [plan([['feature/refused'], ['feature/blocked-by-plan']], 'draft')],
+        refused: async () => {
+          asked += 1;
+          return true;
+        },
+      }),
+    );
+
+    expect(asked).toBe(0);
+    expect(readings.slices.every((s) => s.refused === false)).toBe(true);
+  });
+});
+
+describe('a `waits:` prerequisite holds a slice through the real join', () => {
+  const planWithWait = (waitsOn: readonly string[]): PlanRecord =>
+    ({
+      file: 'docs/plans/2026-10-01-a-plan.md',
+      phase: 'approved',
+      slices: [
+        { name: 'A named slice', branches: [{ branch: 'feature/waiter', deferred: false, waitsOn }] },
+      ],
+    }) as unknown as PlanRecord;
+
+  const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [planWithWait(['feature/prereq'])],
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
     ...over,
   });
 
@@ -616,7 +705,7 @@ describe('a `waits:` prerequisite holds a slice through the real join', () => {
     const readings = await readQueue([], world());
     const slice = readings.slices.find((s) => s.branch === 'feature/waiter')!;
     expect(whyNotReady(slice)).toBe('waits');
-    expect(slice.waitsOn).toBe('feature/prereq');
+    expect(slice.waitsOn).toEqual(['feature/prereq']);
     expect(slice.waitHeld).toBe('unmerged');
   });
 

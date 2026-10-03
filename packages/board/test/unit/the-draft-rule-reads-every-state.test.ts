@@ -30,13 +30,13 @@ const classifyBranch = (over: {
   localLocked?: boolean;
   held?: boolean;
   deferredReason?: string;
-  waitsOn?: string;
+  waitsOn?: readonly string[];
 }) => classify(
   over.state, over.verdict ?? 'eligible', over.ageMinutes === undefined ? null : over.ageMinutes, QUIET, null,
   over.localDirty ?? false, over.localAhead ?? 0, over.planPhase ?? 'draft',
   over.worker ?? 'none', '', over.worker === 'running' ? '4242' : '', over.localLocked ?? false,
   [], '', over.held ?? false, '', false, over.deferredReason ?? '', false, false,
-  over.waitsOn ?? '',
+  over.waitsOn ?? [],
 );
 
 describe('a Draft plan\'s no-work states answer the draft rule', () => {
@@ -71,7 +71,7 @@ describe('a Draft plan\'s open branch with a held worktree', () => {
 
 describe('an Approved plan\'s blocked branch is unchanged', () => {
   it('still reads not-started naming its missing PR', () => {
-    expect(classifyBranch({ state: 'blocked', planPhase: 'approved', verdict: 'blocked', waitsOn: 'bug/x' }))
+    expect(classifyBranch({ state: 'blocked', planPhase: 'approved', verdict: 'blocked', waitsOn: ['bug/x'] }))
       .toEqual({ group: 'not-started', note: 'waits for bug/x, which has no pull request', verdict: 'blocked' });
   });
 });
