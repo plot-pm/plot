@@ -28,7 +28,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 
 - [x] [a-scan-says-where-its-time-goes](../plans/2026-10-01-a-scan-says-where-its-time-goes.md) — [#1017](https://github.com/plot-pm/plot/issues/1017) — A scan takes 21-37s on 27 plans, and ~19s of it is the script's own bash — its plan a-parsed-plan-joins-the-index was rejected by a panel; it needs a rephrased plan.
 - [ ] [an-assignment-is-read-where-it-is-recorded](../plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md) — [#1039](https://github.com/plot-pm/plot/issues/1039) — The only cross-tick assignment lock is the claim ref, and the queue never reads manifests
-- [ ] [the-release-pr-is-checked-before-it-merges](../plans/2026-10-01-the-release-pr-is-checked-before-it-merges.md) — [#1040](https://github.com/plot-pm/plot/issues/1040) — The release PR's push-triggered validate never reports, so every release merges with --admin
+- [x] [the-release-pr-is-checked-before-it-merges](../plans/2026-10-01-the-release-pr-is-checked-before-it-merges.md) — [#1040](https://github.com/plot-pm/plot/issues/1040) — The release PR's push-triggered validate never reports, so every release merges with --admin
 - [x] [idle-is-read-from-what-the-desk-recorded](../plans/2026-10-01-idle-is-read-from-what-the-desk-recorded.md) — [#1041](https://github.com/plot-pm/plot/issues/1041) — Reporting idle from the supervisor's tick needs persistent state the daemon does not have
 - [x] [an-approved-slice-has-a-name](../plans/2026-10-01-an-approved-slice-has-a-name.md) — [#1057](https://github.com/plot-pm/plot/issues/1057) — Board shows a slice as (unnamed): the ### heading lives on the slice branch, the board reads the main branch — its plan a-slice-row-finds-its-pr-by-head was rejected; it needs a rephrased plan.
 - [x] [a-shared-account-names-what-spends-it](../plans/2026-10-01-a-shared-account-names-what-spends-it.md) — [#1069](https://github.com/plot-pm/plot/issues/1069) — A shared Bitbucket workspace is at 2200 req/hr from another checkout, and Plot has no view of it — its plan a-spend-line-names-its-caller was rejected; it needs a rephrased plan.
@@ -57,7 +57,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [x] [a-landed-brief-frees-its-slot](../plans/2026-10-02-a-landed-brief-frees-its-slot.md) — [#1162](https://github.com/plot-pm/plot/issues/1162) — Auto-dispatch stops asking for briefs: asked briefs never leave the tally and free agents count against the budget.
 - [x] [an-agent-runs-the-tests-its-change-touches](../plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md) — Fleet agents run the checks their diff touches and keep their slice until its CI finishes; CI runs the full suites.
 - [ ] [a-branch-carries-no-built-bundle](../plans/2026-10-02-a-branch-carries-no-built-bundle.md) — A pull request carries no generated board bundle, and main rebuilds them after each merge, so a merge no longer makes every open PR conflict.
-- [ ] [an-agent-starts-with-what-it-reads](../plans/2026-10-02-an-agent-starts-with-what-it-reads.md) — Every session, worker and subagent starts without the ~20k tokens of CLAUDE.md and plugin context it does not use.
+- [x] [an-agent-starts-with-what-it-reads](../plans/2026-10-02-an-agent-starts-with-what-it-reads.md) — Every session, worker and subagent starts without the ~20k tokens of CLAUDE.md and plugin context it does not use.
 
 ### Should Have
 

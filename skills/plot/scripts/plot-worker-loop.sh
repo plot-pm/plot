@@ -1589,6 +1589,42 @@ resolve_prompt_file() { # $1 = repo root, $2 = agent name ('' when none)
   return 0
 }
 
+# WHETHER THE MANIFEST A WAITING LOOP POLLS STILL STANDS — `loopRegistration`
+# (`packages/domain/src/rules/desk-manifest.ts`), duplicated here for the
+# reason `docs/shell-and-domain.md` states: `wait_for_work` calls this once per
+# `WAIT_POLL_SECONDS` per agent, where a 39 ms `node` hop is a cost paid by
+# every waiting agent forever. `[ -f ]` answers it. `desk-manifest.corpus.test.ts`
+# holds the pair; on a disagreement the branch stops.
+#
+# DEFINED ABOVE THE `PLOT_WORKER_LOOP_SOURCED` GUARD, for `resolve_prompt_file`'s
+# own reason stated below: the guard returns before `wait_for_work` is defined,
+# so a function `wait_for_work` calls must sit above it too, or a test sourcing
+# this file for it gets `command not found` rather than the function.
+#
+# PRINTS THE WORD ON STDOUT, exactly as `assigned_branch` prints its branch —
+# the loop runs under `set -uo pipefail` with no `-e`, and a bare non-zero
+# return from a helper called inside an arithmetic or `[` context can leak past
+# the `case` that means to contain it. Returning the word on stdout and
+# `case`-ing on the CALLER side cannot leak a status anywhere.
+#
+# `unset` IS NOT `gone`. Absent is not false: `PLOT_MANIFEST_FILE` empty means
+# a hand-started loop, a supported shape `workerloop.test.mjs`'s wait tests
+# pin by blanking the variable in seven fixtures. Only a NAME pointing at a
+# missing file is `gone`.
+#
+# @param $1 PLOT_MANIFEST_FILE as the loop holds it, possibly empty
+# @return always 0; the word is what the caller reads
+loop_registration() { # $1=manifest file → prints registered|unset|gone
+  local manifest="$1"
+  if [ -z "$manifest" ]; then
+    printf 'unset'
+  elif [ -f "$manifest" ]; then
+    printf 'registered'
+  else
+    printf 'gone'
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # EVERYTHING ABOVE IS DEFINITIONS; EVERYTHING BELOW STARTS A WORKER
 # ---------------------------------------------------------------------------
@@ -2454,7 +2490,7 @@ run_bounded() {
 #
 # @param $1 the reason `--next` was silent, as `--why-nothing` reported it
 # @return 0 when a slice became available (the caller re-asks `--next`),
-#         124 when the budget ran out
+#         124 when the budget ran out, 124 when the manifest vanished mid-wait
 wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
   # THE SEPARATOR IS A VARIABLE, not a literal in a `case` pattern. A bare tab
   # inside `case ... in (*<TAB>*)` is read as a word separator by bash and the
@@ -2513,6 +2549,20 @@ wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
       echo "plot-worker-loop: taken up on ${PLOT_SLUG:-?} after waiting ${slept}s — the registry handed over a slice." >&2
       return 0
     fi
+
+    # THE MANIFEST ITSELF MAY HAVE VANISHED. `#1101` measured a continuation
+    # that spawned a loop with NO `PLOT_MANIFEST_FILE` at all — `unset`, which
+    # keeps waiting, exactly as it always has. This is the other shape: a NAME
+    # naming a manifest the registry has since removed. `unset` must not take
+    # this branch, which is why `loop_registration` reads `[ -z ]` before
+    # `[ -f ]` rather than folding the two into one test.
+    case "$(loop_registration "${PLOT_MANIFEST_FILE:-}")" in
+      gone)
+        echo "plot-worker-loop: the manifest named at ${PLOT_MANIFEST_FILE} is gone — ending worker. Nothing was cut short: no prompt was running and the agent holds no branch." >&2
+        write_ending "$PLOT_WORKTREE" 'unregistered' 'agent' "${PLOT_BRANCH:-}" "the manifest named at ${PLOT_MANIFEST_FILE} is gone"
+        return 124
+        ;;
+    esac
   done
 }
 

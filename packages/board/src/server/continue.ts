@@ -8,7 +8,7 @@ import { pulseFor } from './fleet.js';
 import type { FleetReading } from '../contract/schema.js';
 import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
-import { manifestForWorktree, writeManifestStamp } from './manifest-stamp.js';
+import { deskManifestFor, writeManifestStamp } from './manifest-stamp.js';
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 
@@ -113,7 +113,18 @@ export type ContinueRefusal =
    */
   | 'no-question'
   /** No `Worker command` is configured, so nothing can be started. */
-  | 'no-worker-command';
+  | 'no-worker-command'
+  /**
+   * No manifest names this desk, or more than one does.
+   *
+   * **A CONTINUATION NEEDS ONE NAME TO STAMP**, because the new worker's
+   * `PLOT_MANIFEST_FILE` is what lets its own wait end honestly if that
+   * manifest later vanishes — see `loopRegistration`. `unnamed` is an
+   * unregistered desk; `several` is an estate defect, two agents answering for
+   * one worktree. Neither is tie-broken: a first match would hide the defect,
+   * and the plan's second Open Point keeps this refusal rather than a guess.
+   */
+  | 'no-manifest';
 
 export interface ContinueOptions extends BuildBoardOptions {
   host: string;
@@ -459,6 +470,26 @@ export async function handleContinue(
     return;
   }
 
+  // ASKED BEFORE ANY WRITE, and that is the decision: a refused continuation
+  // must leave no `.plot-continuation.md`, no appended log and no removed
+  // `.plot-worker.exit`, or a reader finds a trace that looks like a started
+  // run. `deskManifestFor` answers `unnamed`/`several` apart so the sentence
+  // can name which one — see `ContinueRefusal.no-manifest`. `several` is
+  // refused rather than tie-broken: a first match would hide an estate defect
+  // the plan's second Open Point leaves open.
+  const manifestAnswer = deskManifestFor(opts.repoRoot, found.worktree, opts);
+  if (manifestAnswer.kind !== 'named') {
+    refuse(
+      409,
+      'no-manifest',
+      branch,
+      manifestAnswer.kind === 'several'
+        ? `more than one manifest names ${found.worktree}: ${manifestAnswer.paths.join(', ')}`
+        : `no manifest names ${found.worktree}`,
+    );
+    return;
+  }
+
   const rel = briefPathFor(branch);
   const landed = landedCommits(found.worktree, pulse?.main ?? '');
   const prompt = composeContinuation({
@@ -504,6 +535,20 @@ export async function handleContinue(
     /* a missing exit file is the normal case */
   }
 
+  // THE STALE WRAPPER PID, REMOVED BEFORE THE SPAWN. This route starts no
+  // wrapper — it spawns the agent directly — so the file can only be the
+  // previous dispatch's. `plot_worker_state` reads it as proof a wrapper is
+  // watching; left in place, a waiting loop with no agent beneath it reads
+  // `finished` rather than `waiting`. `force: true` because the file is only
+  // ever stale here, same as the `.plot-worker.exit` removal above. The pid
+  // file itself (`.plot-worker.pid`) is NOT removed — it is overwritten below
+  // with the new child's pid.
+  try {
+    fs.rmSync(path.join(found.worktree, '.plot-worker.wrapper.pid'), { force: true });
+  } catch {
+    /* a missing wrapper pid file is the normal case */
+  }
+
   // Spawned DETACHED and answered immediately, exactly as `/api/dispatch` is
   // and for the same reason: the run outlives this request by design, and
   // awaiting it would freeze this single-threaded server for the length of an
@@ -527,6 +572,11 @@ export async function handleContinue(
         PLOT_BRANCH: branch,
         PLOT_WORKTREE: found.worktree,
         PLOT_EXIT_FILE: exitFile,
+        // THE MANIFEST THAT NAMES THIS DESK, so the loop's own wait can end
+        // honestly if that file later vanishes — `loopRegistration`'s `gone`.
+        // Refused above when none or several name the desk, so `manifestAnswer`
+        // is `named` here and this is never empty.
+        PLOT_MANIFEST_FILE: manifestAnswer.path,
         [CONTINUATION_ENV]: promptPath,
       },
     },
@@ -550,9 +600,9 @@ export async function handleContinue(
     // fix does not reach it; the manifest that names this worktree would keep
     // pointing at the process that already exited. `stampManifest` is the same
     // contract the awk implements (parity-tested), so a continued worker and a
-    // dispatched one leave an identical manifest. A missing manifest is not a
-    // failure — an older worktree has none, and the worker runs regardless —
-    // which is why `writeManifestStamp` is a no-op there rather than a throw.
+    // dispatched one leave an identical manifest. `manifestAnswer` is already
+    // `named` — refused above otherwise — so its path is reused rather than
+    // re-reading the registry directory a second time.
     //
     // THE GROUP IS RECORDED EMPTY, AND THAT IS THE TRUE ANSWER. This route
     // spawns the agent DIRECTLY — no wrapper, no WorkerMonitor, no AgentMonitor
@@ -561,16 +611,13 @@ export async function handleContinue(
     // leave the PREVIOUS dispatch's wrapper and monitors on the row, naming
     // processes that belong to a run this one just replaced. The stamp re-emits
     // the group on every write precisely so a stale one cannot survive.
-    const manifest = manifestForWorktree(opts.repoRoot, found.worktree, opts);
-    if (manifest) {
-      writeManifestStamp(manifest, {
-        pid: String(pid),
-        startedAt: new Date().toISOString(),
-        wrapperPid: '',
-        workerMonitorPid: '',
-        agentMonitorPid: '',
-      });
-    }
+    writeManifestStamp(manifestAnswer.path, {
+      pid: String(pid),
+      startedAt: new Date().toISOString(),
+      wrapperPid: '',
+      workerMonitorPid: '',
+      agentMonitorPid: '',
+    });
   }
   json(202, {
     ok: true,

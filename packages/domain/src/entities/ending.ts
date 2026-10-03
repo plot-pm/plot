@@ -46,11 +46,17 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   `--restart` after the limit lifts resumes it. Measured 2026-10-01 in #1141,
  *   this exit read as `unstarted` and its marker told a person to fix a prompt
  *   file that worked.
+ * - `unregistered` — a FREE loop's manifest vanished out from under it while it
+ *   waited. `#1101` measured a continuation that spawned a loop with no
+ *   `PLOT_MANIFEST_FILE` at all, which is `unset` and keeps waiting — this is
+ *   the other shape: a NAME that pointed at a manifest the registry has since
+ *   removed. The loop itself finds this, between polls, which is why its actor
+ *   is `agent` alongside `unstarted` and `limited` rather than a third watcher.
  *
- * `unstarted` AND `limited` ARE THE REASONS NO WATCHER PRODUCED. The other four
- * are the floor firing or the monitor publishing; these two are the agent's own
- * process reporting its command's exit code, which is why their actor is
- * `agent`.
+ * `unstarted`, `limited` AND `unregistered` ARE THE REASONS NO WATCHER
+ * PRODUCED. The other four are the floor firing or the monitor publishing;
+ * these three are the agent's own process reporting what it found, which is
+ * why their actor is `agent`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -73,6 +79,7 @@ export const EndingReasonSchema = z.enum([
   'spent',
   'unstarted',
   'limited',
+  'unregistered',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 

@@ -97,6 +97,17 @@ export interface WatchedDeskReading {
   readonly manifestWorktree: string;
 }
 
+/** What a waiting loop read before asking whether its manifest still stands. */
+export interface LoopRegistrationReading {
+  /** `PLOT_MANIFEST_FILE` as the loop holds it, verbatim; empty when the loop was hand-started. */
+  readonly manifestFile: string;
+  /** Whether that path exists. The caller takes this reading; the rule does no I/O. */
+  readonly exists: boolean;
+}
+
+/** Whether a waiting loop's manifest still names it. */
+export type LoopRegistration = 'registered' | 'unset' | 'gone';
+
 /** Removes trailing `/` from a path, keeping a lone `/` intact. */
 const trimTrailing = (p: string): string => {
   let end = p.length;
@@ -190,4 +201,27 @@ export const deskManifest = (reading: DeskManifestReading): DeskManifest => {
 export const watchedDesk = (reading: WatchedDeskReading): string => {
   const worktree = reading.manifestWorktree.trim();
   return worktree === '' ? reading.launched : worktree;
+};
+
+/**
+ * Whether a waiting loop's manifest still stands.
+ *
+ * ABSENT IS NOT FALSE. An empty `manifestFile` means a hand-started loop —
+ * `#1101`'s continuation route is not the only way an agent comes to exist —
+ * and `unset` keeps it waiting forever, exactly as it does today. Only a NAME
+ * that points at nothing answers `gone`, because that is the one shape a
+ * registry can no longer vouch for: the manifest it handed the loop at launch
+ * has since disappeared out from under it.
+ *
+ * The caller takes the existence reading; this rule does no I/O. It mirrors
+ * {@link deskManifest}'s own split between a reading and the judgement made of
+ * it, so a wait that reads `gone` can end honestly rather than spin at
+ * `Worker bound` on a manifest nobody will ever restore.
+ *
+ * @param reading - the manifest path the loop holds, and whether it exists.
+ * @returns `registered`, `unset`, or `gone`.
+ */
+export const loopRegistration = (reading: LoopRegistrationReading): LoopRegistration => {
+  if (reading.manifestFile === '') return 'unset';
+  return reading.exists ? 'registered' : 'gone';
 };
