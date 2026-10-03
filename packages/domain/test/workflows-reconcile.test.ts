@@ -226,6 +226,22 @@ describe('reconcile — which desks are drift and which are noise', () => {
     expect(deskFindings(blocked)[0]?.repair).toBe('');
   });
 
+  it('reports an orphaned desk by its state and offers no command, because no tool detaches it', () => {
+    // Clean, unmerged, and its claim ref gone — `orphaned`, whose exit is
+    // `detach-then-reap`, which no existing command performs for a swept desk.
+    const evidence = { ...finishedDesk().evidence, hasMergedPr: false, claimRef: false };
+    const [finding] = deskFindings({ ...finishedDesk(), evidence });
+    expect(finding?.evidence).toBe('orphaned');
+    expect(finding?.repair).toBe('');
+  });
+
+  it('reports a blocked desk whose marker records no work, and names the reaper that copies it first', () => {
+    const evidence = { ...finishedDesk().evidence, blockedMarker: true, markerRecordsWork: false };
+    const [finding] = deskFindings({ ...finishedDesk(), evidence });
+    expect(finding?.evidence).toBe('refused-empty');
+    expect(finding?.repair).toBe('skills/plot/scripts/plot-reap.sh --yes');
+  });
+
   it('names the desk path, because the repair is per-directory', () => {
     expect(deskFindings(finishedDesk())[0]?.subject).toBe('/repo/.worktrees/one');
   });
