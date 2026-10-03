@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   deskManifest,
   manifestDirectory,
+  watchedDesk,
   type ManifestReading,
 } from '../src/rules/desk-manifest.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
@@ -402,3 +403,77 @@ describe('desk-manifest agrees with plot-worker-state.sh', () => {
 /** A path through `pwd -P`, the form the shell composes its directory from. */
 const physical = (p: string): string =>
   execFileSync('bash', ['-c', 'cd "$1" && pwd -P', 'bash', p], { encoding: 'utf8' }).trim();
+
+/**
+ * A FOURTH COMPARISON, ADDED FOR `the-monitor-follows-the-hop`: does
+ * `watchedDesk` agree with `plot_watched_desk` (`plot-monitor-subject.sh`),
+ * the shell twin both `plot-agent-monitor.sh` and `plot-build-monitor.sh`
+ * re-read every pass? The pair exists for the SAME cost reason as the two
+ * above: a monitor's pass runs every 30s/300s, so a bundle hop paid on every
+ * pass forever is what the shell duplicate avoids.
+ *
+ * THE SHAPES ARE STRING WORK, so no real worktree or manifest file is needed
+ * to drive a disagreement — `plot_watched_desk` only ever `grep`s one line out
+ * of a file whose path it is handed. A real manifest file is still used,
+ * because the shell function's own `[ -f "$manifest_file" ]` guard is part of
+ * what this comparison must exercise.
+ */
+describe('watchedDesk agrees with plot_watched_desk', () => {
+  const monitorSubject = `${SCRIPTS}/plot-monitor-subject.sh`;
+
+  /** Ask the shell function directly — no desk or manifest directory needed. */
+  const askWatchedDesk = (manifestFile: string, launched: string): string =>
+    execFileSync(
+      'bash',
+      ['-c', '. "$1"; plot_watched_desk "$2" "$3"', 'bash', monitorSubject, manifestFile, launched],
+      { encoding: 'utf8' },
+    );
+
+  const writeManifest = (dir: string, worktree: string): string => {
+    const file = join(dir, 'manifest.json');
+    writeFileSync(file, `{\n  "worktree": "${worktree}",\n  "pid": "1"\n}\n`);
+    return file;
+  };
+
+  let scratch = '';
+  beforeAll(() => { scratch = mkdtempSync(join(tmpdir(), 'plot-watched-desk-corpus-')); });
+  afterAll(() => { if (scratch !== '') rmSync(scratch, { recursive: true, force: true }); });
+
+  it('follows the manifest to a hop target, on both sides', () => {
+    const manifest = writeManifest(scratch, '/estate/.worktrees/hop-two');
+    const shell = askWatchedDesk(manifest, '/estate/.worktrees/launch-one');
+    const rule = watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '/estate/.worktrees/hop-two' });
+    expect(shell).toBe('/estate/.worktrees/hop-two');
+    expect(rule).toBe(shell);
+  });
+
+  it('falls back to the launch desk when the manifest field is empty, on both sides', () => {
+    const manifest = writeManifest(scratch, '');
+    const shell = askWatchedDesk(manifest, '/estate/.worktrees/launch-one');
+    const rule = watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '' });
+    expect(shell).toBe('/estate/.worktrees/launch-one');
+    expect(rule).toBe(shell);
+  });
+
+  it('falls back to the launch desk when no manifest file is named, on both sides', () => {
+    const shell = askWatchedDesk('', '/estate/.worktrees/launch-one');
+    const rule = watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '' });
+    expect(shell).toBe('/estate/.worktrees/launch-one');
+    expect(rule).toBe(shell);
+  });
+
+  it('falls back to the launch desk when the named manifest is gone, on both sides', () => {
+    const shell = askWatchedDesk(join(scratch, 'no-such-manifest.json'), '/estate/.worktrees/launch-one');
+    const rule = watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '' });
+    expect(shell).toBe('/estate/.worktrees/launch-one');
+    expect(rule).toBe(shell);
+  });
+
+  it('treats a whitespace-only field as absent, on both sides', () => {
+    const manifest = writeManifest(scratch, '   ');
+    const shell = askWatchedDesk(manifest, '/estate/.worktrees/launch-one');
+    const rule = watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '   ' });
+    expect(shell).toBe('/estate/.worktrees/launch-one');
+    expect(rule).toBe(shell);
+  });
+});

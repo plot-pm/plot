@@ -1515,10 +1515,14 @@ start_worker() {
   # `gone` on ANY death of the watched pid, including an honest exit 0, where
   # this reports `clear` instead.
   #
-  # THE PATH TRAVELS AS `PLOT_WRAPPER_FINDINGS_FILE`, NEVER `PLOT_MONITOR_FILE`.
-  # The AgentMonitor and the BuildMonitor are this wrapper's children and read
-  # `PLOT_MONITOR_FILE` as their own output path. Exported here, it sent both
-  # monitors' findings into the worker's file, and their own files stayed empty.
+  # THE LINE LANDS IN THE WATCHED DESK, ASKED ONCE, RIGHT AFTER `wait "$agent"`
+  # RETURNS. `PLOT_WORKTREE` is fixed at launch, but a hop rewrites the
+  # manifest's `worktree` field before the agent exits — so the wrapper sources
+  # `plot-monitor-subject.sh` off `$PATH` (set further down, before the agent
+  # starts) and asks `plot_watched_desk` for the desk to write into, exactly
+  # once. Reading it once here, rather than threading `PLOT_WORKTREE` through
+  # the publish, is what keeps a killed hopped agent's `gone` line landing where
+  # the loop's watcher (and the board's reader) actually look.
   ( set -m; cd "$wt" && \
       # AN `export`, NOT AN ENV PREFIX, AND THE REASON IS A MEASUREMENT. Bash
       # recognises an assignment prefix BEFORE it expands parameters, so a
@@ -1547,7 +1551,6 @@ start_worker() {
       PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
-      PLOT_WRAPPER_FINDINGS_FILE="$wt/.plot-worker.monitor.worker.jsonl" \
       PLOT_SCRIPT_DIR="$script_dir" \
       exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
@@ -1582,7 +1585,7 @@ start_worker() {
         relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
         relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
         { print }
-      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; if [ -n "$PLOT_WRAPPER_FINDINGS_FILE" ]; then now=$(date -u +%Y-%m-%dT%H:%M:%SZ); if [ "$rc" -ne 0 ]; then f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; else f=clear; e="the agent pid $agent exited 0; the worker is finished"; fi; printf "{\"monitor\":\"WorkerMonitor\",\"branch\":\"%s\",\"worktree\":\"%s\",\"finding\":\"%s\",\"since\":\"%s\",\"evidence\":\"%s\",\"measuredAt\":\"%s\"}\n" "$PLOT_BRANCH" "$PLOT_WORKTREE" "$f" "$now" "$e" "$now" >> "$PLOT_WRAPPER_FINDINGS_FILE" 2>/dev/null; fi; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
+      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; wd="$PLOT_WORKTREE"; . plot-monitor-subject.sh 2>/dev/null && wd=$(plot_watched_desk "$PLOT_MANIFEST_FILE" "$PLOT_WORKTREE"); wf="$wd/.plot-worker.monitor.worker.jsonl"; if [ -n "$wd" ]; then now=$(date -u +%Y-%m-%dT%H:%M:%SZ); if [ "$rc" -ne 0 ]; then f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; else f=clear; e="the agent pid $agent exited 0; the worker is finished"; fi; printf "{\"monitor\":\"WorkerMonitor\",\"branch\":\"%s\",\"worktree\":\"%s\",\"finding\":\"%s\",\"since\":\"%s\",\"evidence\":\"%s\",\"measuredAt\":\"%s\"}\n" "$PLOT_BRANCH" "$wd" "$f" "$now" "$e" "$now" >> "$wf" 2>/dev/null; fi; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
       >"$log" 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null
   echo "    started worker (log: $log)"
   return 0

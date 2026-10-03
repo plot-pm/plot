@@ -93,9 +93,13 @@ Started by plot-dispatch.sh inside the worker's wrapper. Reads its subject from
 the environment, exactly as the wrapper's other children do:
 
   PLOT_BRANCH        the branch whose debts this monitor will report
-  PLOT_WORKTREE      the desk it reads
+  PLOT_WORKTREE      the desk it STARTS on; it follows the manifest's
+                     `worktree` from then on (PLOT_MANIFEST_FILE below)
+  PLOT_MANIFEST_FILE the manifest this agent is named in, re-read each pass;
+                     absent or unreadable keeps watching PLOT_WORKTREE
   PLOT_MONITOR_FILE  where findings are published (default:
-                     $PLOT_WORKTREE/.plot-worker.monitor.agent.jsonl)
+                     $PLOT_WORKTREE/.plot-worker.monitor.agent.jsonl). Set
+                     explicitly, it WINS and does not follow a hop.
   PLOT_MONITOR_INTERVAL  seconds between passes (default 300)
 
   --once   take one sample and exit, rather than looping. A test
@@ -116,7 +120,14 @@ done
 monitor='AgentMonitor'
 
 branch="${PLOT_BRANCH:-}"
-worktree="${PLOT_WORKTREE:-}"
+# THE DESK THIS MONITOR WAS LAUNCHED ON, FIXED FOR ITS WHOLE LIFE. `worktree`
+# itself is no longer fixed: `monitor_pass` reassigns it every pass by asking
+# `plot_watched_desk`, which follows a hop to the manifest's new `worktree`
+# field. This is the launch desk `plot_watched_desk` falls back to when the
+# manifest carries no override — never read directly after startup.
+launched_worktree="${PLOT_WORKTREE:-}"
+worktree="$launched_worktree"
+manifest_file="${PLOT_MANIFEST_FILE:-}"
 # FIVE MINUTES IS A HOST BUDGET, NOT CAUTION. Its findings need a PR lookup, and
 # this repository has already measured what happens when host questions ride a
 # fast loop. Against a stall that lasted 50 minutes, five makes it visible 45
@@ -126,7 +137,11 @@ worktree="${PLOT_WORKTREE:-}"
 # prevent.
 interval="${PLOT_MONITOR_INTERVAL:-300}"
 
-findings="${PLOT_MONITOR_FILE:-${worktree:+$worktree/.plot-worker.monitor.agent.jsonl}}"
+# IF `PLOT_MONITOR_FILE` IS SET IT WINS AND DOES NOT FOLLOW THE DESK — the
+# existing contract this usage text already states. Otherwise `findings`
+# follows `worktree`, reassigned alongside it at the top of `monitor_pass`.
+monitor_file_override="${PLOT_MONITOR_FILE:-}"
+findings="${monitor_file_override:-${worktree:+$worktree/.plot-worker.monitor.agent.jsonl}}"
 
 # THE SUBJECT, read the same way the WorkerMonitor reads it: `.plot-worker.pid`
 # names the AGENT, and the wrapper passes its path in `PLOT_PID_FILE`.
@@ -478,7 +493,30 @@ sample_finding() { # → prints "finding\tevidence", or nothing
 
 # One full pass: sample, publish only on a change.
 monitor_pass() {
-  local row finding evidence
+  local row finding evidence new_worktree
+  # REASSIGNED ONCE, HERE, RATHER THAN THREADED THROUGH EACH READER.
+  # `worktree` feeds `plot_worker_dirty`, `plot_worker_blocked` and this
+  # monitor's transcript probe, so a hop is picked up in one place rather than
+  # three. `PLOT_MONITOR_FILE`, when set, WINS and does not follow the desk —
+  # the existing contract the usage text states.
+  new_worktree=$(plot_watched_desk "$manifest_file" "$launched_worktree")
+
+  # A DESK CHANGE RESETS `published`/`since` DELIBERATELY. The debt they
+  # remember is the OLD desk's: a finding like `holds unlanded work` is about
+  # commits and files on that specific tree, and after a hop the new desk has
+  # never been measured. Carrying the old `published` forward would compare
+  # the new desk's first reading against the old one's last and could publish
+  # `clear` for a debt that was never the new desk's to begin with — the exact
+  # trap the brief names. Resetting to blank treats the new desk as a fresh
+  # subject: a real finding there publishes as new, and a clean desk publishes
+  # nothing at all, which is silence rather than a false `clear`.
+  if [ "$new_worktree" != "$worktree" ]; then
+    published=''
+    since=''
+  fi
+  worktree="$new_worktree"
+  findings="${monitor_file_override:-${worktree:+$worktree/.plot-worker.monitor.agent.jsonl}}"
+
   row=$(sample_finding)
   finding="${row%%	*}"
   evidence=''

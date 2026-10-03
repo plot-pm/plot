@@ -4,6 +4,7 @@ import {
   DEFAULT_MANIFEST_DIR,
   deskManifest,
   manifestDirectory,
+  watchedDesk,
   type ManifestReading,
 } from '../src/rules/desk-manifest.js';
 
@@ -209,5 +210,27 @@ describe('deskManifest', () => {
       manifests: [manifest({ worktree: '/a/desk', worktreeReal: '/a/desk' })],
     });
     expect(answer).toEqual({ kind: 'named', path: '/estate/.plot/agents/one.json' });
+  });
+});
+
+describe('watchedDesk', () => {
+  it('follows the manifest to the new desk after a hop', () => {
+    expect(
+      watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '/estate/.worktrees/hop-two' }),
+    ).toBe('/estate/.worktrees/hop-two');
+  });
+
+  it('falls back to the launch desk when the manifest field is empty', () => {
+    // Absent is not false: a manifest that is gone, has no `worktree` field, or
+    // whose caller passed '' all read through here as empty.
+    expect(watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '' })).toBe(
+      '/estate/.worktrees/launch-one',
+    );
+  });
+
+  it('treats a whitespace-only field as absent, not as a desk', () => {
+    expect(watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '   ' })).toBe(
+      '/estate/.worktrees/launch-one',
+    );
   });
 });

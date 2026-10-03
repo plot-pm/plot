@@ -75,7 +75,7 @@ The rate was 17 to 19 desks an hour from 03:00 to 07:00. Removing `free-50562867
 
 ### A refused slice is held
 
-- `bug/a-refused-slice-is-held` — `QueueHold` gains `refused`; a slice an agent refused leaves the queue until a person clears the refusal (#1243) <!-- builds: refused, a QueueHold -->
+- `bug/a-refused-slice-is-held` — `QueueHold` gains `refused`; a slice an agent refused leaves the queue until a person clears the refusal (#1243) → #1251 <!-- builds: refused, a QueueHold -->
 
 ### The desk has a lifecycle
 
