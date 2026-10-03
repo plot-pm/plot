@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-02, jwloka, `bug/main-builds-its-bundles`
 - **Started:** 2026-10-03, jwloka, `bug/a-pr-carries-no-bundle`
 - **Started:** 2026-10-03, jwloka, `bug/the-artifact-repair-is-retired`
+- **Delivered:** 2026-10-03
 
 ## Changelog
 

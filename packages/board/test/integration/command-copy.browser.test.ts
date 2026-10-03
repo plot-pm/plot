@@ -71,7 +71,7 @@ function row(over: Partial<AgentRow> = {}): AgentRow {
     planFile: '2026-08-16-a-plan.md', wave: 'Log', state: 'wip', phase: null,
     group: 'working', ageMinutes: 3, note: 'claimed', pr: null, branchUrl: '',
     waitingDays: null, localDirty: false, localLocked: false, localAhead: 0,
-    waitingOn: null, blockedBy: null, stuck: null, repair: null,
+    waitingOn: null, blockedBy: null, stuck: null,
     ...over,
   } as AgentRow;
 }

@@ -22,12 +22,10 @@ a person confirms the order.
 Splitting the wave is mechanical; **naming the slices and ordering them is
 judgement**. `Gated`, `Marked`, `Fitted` are words a person chose for what
 each slice is *about*, and a wrong order blocks work that could have run in
-parallel. That is why the repair cannot be one of the board's two licensed
-write paths (wrapping a script, or a deterministic repair like
-`plot-resolve-artifact.sh`): judgement is present, so the deterministic
-licence is absent, and no script exists to wrap. The sanctioned third path is
-the one `/api/idea` already uses — spawn a Plot agent — and this command is
-what that agent runs.
+parallel. That is why the repair cannot be a board write that wraps a
+script: judgement is present, and no script exists to wrap. The sanctioned
+path is the one `/api/idea` already uses — spawn a Plot agent — and this
+command is what that agent runs.
 
 See Manifesto Principle 3 (skills interpret and adapt; scripts collect and
 report) and the memory `board-writes-wrap-scripts-or-are-licensed-repairs`.

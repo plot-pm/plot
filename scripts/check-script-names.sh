@@ -86,7 +86,11 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # `plot-deliver.sh --release` reuses the same dependency `plot-deliver.sh`
 # delivering already named rather than inventing a second constant for one
 # script.
-ALLOWED=10
+#
+# LOWERED TO 9 ON 2026-10-03: `bug/the-artifact-repair-is-retired` deleted
+# `resolver.ts`'s `REPAIR_SCRIPT = 'plot-resolve-artifact.sh'` along with the
+# script it named, so the tree holds nine sites and a declared ten is slack.
+ALLOWED=9
 
 ROOTS='packages/board/src packages/domain/src'
 
@@ -114,7 +118,6 @@ plot-approve.sh	no port answers this yet. Approving is a plan lifecycle write an
 plot-deliver.sh	no port answers this yet. Delivering is a plan lifecycle write and `plan-store` reads only.
 plot-reap.sh	no port answers this yet. Removing a desk is a `trees` write beside `add` and `prune`.
 plot-release-refs.sh	no port answers this yet. Deleting a remote ref is a `refs` write, and `refs` carries none.
-plot-resolve-artifact.sh	no port answers this yet. It merges, rebuilds and pushes — the widest of these, and the least like an existing port's question.
 MAP
 )
 

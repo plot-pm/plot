@@ -49,7 +49,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
   phase: 'Development', group: 'waiting-on-you', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
-  localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
+  localDirty: false, localLocked: false, stuck: null, ...over,
 });
 
 /**

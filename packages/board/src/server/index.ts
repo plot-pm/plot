@@ -4,8 +4,7 @@ import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
-import { planStoreFor, scriptsFor, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
-import { primeAgentSettings, repairEnabledFromEnv } from './resolver.js';
+import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { estateFromEnv } from './estate.js';
 import { buildAttention } from './attention.js';
@@ -68,11 +67,6 @@ let boundPort = REQUESTED_PORT;
 const opts: BuildBoardOptions = {
   repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
   scriptsDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
-  // Read ONCE, here, with the rest of this process's environment. Turning the
-  // repair off takes a restart, which is the honest cost of a board that can
-  // be trusted to have meant it: a repair started under one answer must not
-  // settle under the other.
-  repairEnabled: repairEnabledFromEnv(),
 };
 
 // ── The board's own log ──────────────────────────────────────────────────────
@@ -175,9 +169,9 @@ primeWorktreeRoot(opts.repoRoot, (key, fallback) =>
  * never rejects — a failed resolve leaves the variable unset and the agents
  * start exactly as they did before it existed.
  *
- * **A KEY CHANGE TAKES EFFECT AT THE NEXT BOARD START**, which is
- * `repairEnabled`'s bargain above for the same reason: a fleet started under one
- * answer must not have half its agents settle under the other.
+ * **A KEY CHANGE TAKES EFFECT AT THE NEXT BOARD START.** A fleet started under
+ * one answer must not have half its agents settle under the other, which is
+ * why this is read once here rather than consulted per spawn.
  */
 void primeAgentSettings(scriptsFor(opts));
 

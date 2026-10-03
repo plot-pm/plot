@@ -60,7 +60,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: APPROVED_SLUG, planFile: APPROVED_FILE,
   wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
-  localDirty: false, localLocked: false, stuck: null, repair: null, verdict: 'eligible',
+  localDirty: false, localLocked: false, stuck: null, verdict: 'eligible',
   ...over,
 });
 

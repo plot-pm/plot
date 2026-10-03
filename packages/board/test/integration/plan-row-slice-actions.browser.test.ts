@@ -34,7 +34,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'w1', state: 'open', phase: 'Approved', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: 'approved — nobody has taken it', pr: null,
   branchUrl: `${GH}/tree/feature/x`, waitingDays: 1, verdict: 'eligible',
-  localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
+  localDirty: false, localLocked: false, stuck: null, ...over,
 });
 
 const slice = (over: Partial<Slice> = {}): Slice => ({
