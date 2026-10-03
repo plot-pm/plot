@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #1242, #1243
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-03, jwloka, `bug/an-empty-claim-is-not-unlanded-work`
 - **Started:** 2026-10-03, jwloka, `bug/a-refused-slice-is-held`
 - **Started:** 2026-10-03, jwloka, `bug/the-desk-has-a-lifecycle`
+- **Delivered:** 2026-10-04
 
 ## Changelog
 
