@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Started:** 2026-10-03, Jan Wloka, `bug/every-wait-reaches-the-verdict`
 - **Started:** 2026-10-03, Jan Wloka, `bug/the-parser-reads-every-wait`
+- **Delivered:** 2026-10-04
 
 ## Changelog
 

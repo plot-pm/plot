@@ -52,7 +52,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 
 - [x] [a-draft-slice-waits-on-its-approval](../plans/2026-10-02-a-draft-slice-waits-on-its-approval.md) — [#1161](https://github.com/plot-pm/plot/issues/1161) — A Draft plan's waiting slice renders in NOT STARTED as approved — nobody has taken it.
 
-- [ ] [a-slice-waits-on-every-branch-it-names](../plans/2026-10-02-a-slice-waits-on-every-branch-it-names.md) — [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
+- [x] [a-slice-waits-on-every-branch-it-names](../plans/2026-10-02-a-slice-waits-on-every-branch-it-names.md) — [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
 
 - [x] [a-landed-brief-frees-its-slot](../plans/2026-10-02-a-landed-brief-frees-its-slot.md) — [#1162](https://github.com/plot-pm/plot/issues/1162) — Auto-dispatch stops asking for briefs: asked briefs never leave the tally and free agents count against the budget.
 - [x] [an-agent-runs-the-tests-its-change-touches](../plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md) — Fleet agents run the checks their diff touches and keep their slice until its CI finishes; CI runs the full suites.
