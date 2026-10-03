@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the six reasons apart', () => {
+  it('reads the seven reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -49,6 +49,7 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'spent',
       'unstarted',
       'limited',
+      'unregistered',
     ]);
   });
 
@@ -118,6 +119,23 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
     // `detail` carries the whole diagnosis, which is why no actor names the
     // runtime.
     expect(unstarted.read === 'ended' && unstarted.ending.detail).toContain('without running');
+  });
+
+  it('keeps a vanished manifest apart from every other reason', () => {
+    // #1101: a FREE loop whose manifest disappeared mid-wait is a reading no
+    // watcher produced, same family as unstarted and limited.
+    const unregistered = readEnding(ended({
+      reason: 'unregistered',
+      actor: 'agent',
+      detail: 'the manifest named at /estate/.plot/agents/free.json is gone',
+    }));
+
+    expect(unregistered.read).toBe('ended');
+    expect(unregistered).not.toEqual(readEnding(ended({ reason: 'unstarted', actor: 'agent' })));
+    expect(unregistered).not.toEqual(readEnding(ended({ reason: 'limited', actor: 'agent' })));
+    expect(unregistered).not.toEqual(readEnding(ended({ reason: 'bound' })));
+    expect(endedSpent(unregistered)).toBe(false);
+    expect(endedOnAReading(unregistered)).toBe(false);
   });
 
   it('refuses a reason nobody defined', () => {

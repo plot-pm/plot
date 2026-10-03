@@ -30,7 +30,7 @@ export const CONTINUE_HINT =
   'Starts a NEW worker in this worktree with your answer, the brief, and what already landed. ' +
   'The agent that asked has already exited — this continues the work, not a conversation.';
 
-/** What the panel says for each refusal — four reasons, four different moves. */
+/** What the panel says for each refusal — five reasons, five different moves. */
 export function refusalWord(reason: ContinueRefusal): string {
   switch (reason) {
     case 'unknown-branch':
@@ -44,6 +44,8 @@ export function refusalWord(reason: ContinueRefusal): string {
       return 'Nothing is waiting on an answer in that worktree — the marker is gone, so it may already have been answered.';
     case 'no-worker-command':
       return 'No `Worker command` is configured, so the board cannot start one — continue it yourself in the worktree.';
+    case 'no-manifest':
+      return 'No manifest names this worktree, or more than one does — the registry cannot vouch for this desk.';
   }
 }
 
