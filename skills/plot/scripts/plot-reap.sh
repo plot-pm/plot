@@ -275,6 +275,10 @@ git fetch origin "$DEFAULT" --quiet 2>/dev/null || true
 # read one tree the same way; the helper names each excused path.
 . "$(dirname "${BASH_SOURCE[0]}")/plot-desk-dirt.sh"
 
+# Is a commit an empty claim marker? SOURCED from `plot-empty-claim.sh`, the
+# same predicate `plot-worker-loop.sh`'s `yield_the_held_checkout` now asks.
+. "$(dirname "${BASH_SOURCE[0]}")/plot-empty-claim.sh"
+
 # Is an AGENT still working at a desk? SOURCED from `plot-worker-state.sh`,
 # the ONE classifier `plot-dispatch.sh --stop` also asks. Reading only whether
 # the recorded pid answers `ps` asked about the wrapper shell, which outlives
@@ -1036,21 +1040,16 @@ case "$ACTIVE_DIR_SWEEP" in /*) ;; *) ACTIVE_DIR_SWEEP="$ROOT/$ACTIVE_DIR_SWEEP"
 
 # Does this branch carry ONLY empty claim commits? The scan's definition,
 # applied to a LOCAL ref — this sweep runs over local branches, where the scan
-# reads `origin/`.
+# reads `origin/`. The per-commit predicate is SOURCED from
+# `plot-empty-claim.sh`, the same one `plot-worker-loop.sh`'s
+# `yield_the_held_checkout` now asks, so the two can never disagree about
+# which commits are real work.
 sweep_is_empty_claim() { # $1=branch
-  local br="$1" ahead c subj real=0
+  local br="$1" ahead c real=0
   ahead=$(git rev-list --count "origin/$DEFAULT..$br" 2>/dev/null || echo 0)
   [ "${ahead:-0}" -gt 0 ] || return 1   # nothing of its own → merged work, not a claim
   for c in $(git rev-list "origin/$DEFAULT..$br" </dev/null 2>/dev/null); do
-    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
-    case "$subj" in
-      "plot: claim "*)
-        # Titled AND empty. Both, or it counts as real work.
-        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
-             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
-          continue
-        fi ;;
-    esac
+    plot_is_empty_claim_commit "$c" && continue
     real=$((real+1))
   done
   [ "$real" = "0" ]
