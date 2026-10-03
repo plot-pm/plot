@@ -10,6 +10,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-10-03, jwloka, in-session
+- **Started:** 2026-10-03, jwloka, `bug/an-empty-claim-is-not-unlanded-work`
 
 ## Changelog
 
