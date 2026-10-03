@@ -990,6 +990,29 @@ await esbuild.build({
 fs.copyFileSync(checkoutYieldArtifact, shippedCheckoutYield);
 fs.chmodSync(shippedCheckoutYield, 0o755);
 
+// plot-empty-claim.mjs — how many of a branch's commits are real work rather
+// than empty claim markers, for `plot-worker-loop.sh`'s no-upstream reading and
+// `plot-reap.sh`'s orphaned-claim sweep. One call carries every branch the
+// caller asks about. It reads stdin, spawns nothing and opens nothing.
+const emptyClaimArtifact = path.join(here, 'dist/plot-empty-claim.mjs');
+// ONE LINE, for the bundle-set derivation's reason above.
+const shippedEmptyClaim = path.join(here, '../../skills/plot/scripts/board/plot-empty-claim.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/empty-claim.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: emptyClaimArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(emptyClaimArtifact, shippedEmptyClaim);
+fs.chmodSync(shippedEmptyClaim, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -1268,6 +1291,7 @@ const promptExitKb = (fs.statSync(shippedPromptExit).size / 1024).toFixed(1);
 const localChecksKb = (fs.statSync(shippedLocalChecks).size / 1024).toFixed(1);
 const checksVerdictKb = (fs.statSync(shippedChecksVerdict).size / 1024).toFixed(1);
 const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(1);
+const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1301,4 +1325,5 @@ console.log(`Built plot-prompt-exit.mjs (${promptExitKb} KB) → skills/plot/scr
 console.log(`Built plot-local-checks.mjs (${localChecksKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-checks-verdict.mjs (${checksVerdictKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

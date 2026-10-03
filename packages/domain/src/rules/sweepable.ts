@@ -124,6 +124,7 @@ export interface ClaimRefReadings {
    * its parent's. The subject alone is not evidence: a human commit titled
    * *"plot: claim handling refactor"* carrying real files would otherwise read
    * as an empty claim, and the sweep would offer to delete real work.
+   * `realCommits` in `empty-claim.ts` holds the definition.
    */
   isEmptyClaim: boolean;
   /** How the plan annotation classified it. */
