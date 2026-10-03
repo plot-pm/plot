@@ -293,6 +293,17 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     }))).toBe(true);
   });
 
+  it('accepts actor agent on unregistered, the manifest a FREE loop found gone', () => {
+    // #1101: a free loop polls its own manifest and finds the file gone. No
+    // clock expired and no monitor published a finding — a free loop runs no
+    // monitor at all — so the loop's own process is the only party that made
+    // the reading, same shape as unstarted and limited.
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'unregistered',
+    }))).toBe(true);
+  });
+
   it('accepts the two actors the watcher paths write', () => {
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'bound' }))).toBe(true);
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'monitor' }))).toBe(true);
