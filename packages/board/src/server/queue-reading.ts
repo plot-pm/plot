@@ -104,6 +104,22 @@ export interface QueueWorld {
   workerAlive(worktree: string): Promise<boolean>;
   /** Whether the desk carries a `PLOT-BLOCKED*` marker. */
   blocked(worktree: string): Promise<boolean>;
+  /**
+   * Whether an agent was handed this branch and wrote a marker rather than
+   * working it.
+   *
+   * **A BRANCH, NOT A WORKTREE.** By the time the supervisor looks, the desk
+   * that held the refusal may carry no manifest naming the branch at all — of
+   * 250 desks measured 2026-10-03 behind one refused slice, the manifests had
+   * already been cleared. {@link QueueWorld.blocked} answers for a desk an
+   * agent is REGISTERED to; this answers for a branch no agent may still be
+   * registered to, which is the queue's own question.
+   *
+   * Latches to false the moment the underlying record clears — the marker is
+   * gone, or the record naming the branch is removed — so a daemon reads the
+   * current refusal each pass rather than one it remembers.
+   */
+  refused(branch: string): Promise<boolean>;
 }
 
 /** The merged listing: the heads it named, and whether it answered whole. */
@@ -141,10 +157,11 @@ export type { QueuedBranch };
  * `settled` rule, the slug and the `waits:` hold live in
  * `packages/domain/src/rules/queue.ts` as a pure function.
  *
- * **IT ANSWERS NEITHER OF THE TWO ASKED READINGS**, which is what the `Omit`
- * names: the brief and the landing are questions for the machine and the host,
- * and this function reads one plan record. `readQueue` asks them, under the
- * bound documented there.
+ * **IT ANSWERS NONE OF THE ASKED READINGS**, which is what `QueuedBranch`'s
+ * `Omit` names: the brief, the landing and the refusal are questions for the
+ * machine, the host and a worker's own record, and this function reads one
+ * plan record.
+ * `readQueue` asks them, under the bound documented there.
  *
  * @param plan - the plan, as the plan store parsed it.
  * @param claimed - the remote branches that exist.
@@ -248,8 +265,12 @@ export const readQueue = async (
         entry.claimable && briefPresent
           ? answered.get(entry.branch) ?? (await world.queuedHasLanded(entry.branch))
           : 'not-landed';
+      // ASKED ONLY OF A CLAIMABLE SLICE, the same bound `whyNotReady` tests it
+      // under: an unclaimable slice reads `not-claimable` regardless, and asking
+      // would pay for an answer nothing reads.
+      const refused = entry.claimable ? await world.refused(entry.branch) : false;
       const { slice, ...queued } = entry;
-      ofPlan.push({ ...queued, briefPresent, landed, priorUnknown: false });
+      ofPlan.push({ ...queued, briefPresent, landed, priorUnknown: false, refused });
       ordered.push({ branch: entry.branch, slice, claimable: entry.claimable, landed });
     }
 

@@ -92,6 +92,23 @@ export interface QueuedSlice {
    */
   priorUnknown: boolean;
   /**
+   * Whether an agent was handed this slice and wrote a marker rather than
+   * working it.
+   *
+   * **A READING, LIKE EVERY OTHER FIELD HERE — THE QUEUE DOES NOT READ FILES.**
+   * Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
+   * wrote `PLOT-BLOCKED.md` and stopped, holding a checkout nothing else here
+   * had a hold for. The next pass read the slice as queued — no ref, no
+   * marker this rule could see — and handed it to another free agent, which
+   * hit the same refusal. 250 desks came from one slice this way, at 17 to 19
+   * an hour.
+   *
+   * **IT NEVER ENDS ON A TIMER.** The caller's reading clears when the marker
+   * is gone or the record naming it is removed, and only then; nothing here
+   * ages it out.
+   */
+  refused: boolean;
+  /**
    * Every branch this one's `<!-- waits: ... -->` annotation names, empty
    * where it names none.
    *
@@ -225,6 +242,18 @@ export type QueueHold =
    */
   | 'slice-unnamed'
   /**
+   * An agent was handed this slice and wrote a marker rather than working it.
+   *
+   * **BOUNDED TO `claimable` THE SAME WAY `slice-unnamed` IS**, and for the same
+   * reason: the refusal is read per branch, and a slice no plan makes startable
+   * yet is not where this hold belongs — it would otherwise move the estate's
+   * backlog into a word meant for a slice an agent actually touched.
+   *
+   * The repair is a person's, not a timer's: clear the marker or the record
+   * naming it, and the slice is queued again on the next pass.
+   */
+  | 'refused'
+  /**
    * An earlier slice of this plan holds a branch whose landing the host could
    * not answer this pass.
    *
@@ -262,6 +291,7 @@ export const QUEUE_HOLDS: readonly QueueHold[] = [
   'merge-unknown',
   'waits',
   'slice-unnamed',
+  'refused',
   'no-brief',
   'prior-unknown',
   'not-claimable',
@@ -339,6 +369,14 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * prerequisite stays held whatever its brief or its heading says, so naming
  * either would send a reader to a repair that releases nothing.
  *
+ * **A REFUSAL IS ASKED ABOUT RIGHT AFTER THE NAME, FOR THE SAME REASON AND THE
+ * SAME BOUND.** An agent only refuses a slice it was actually handed, which
+ * means claimable already held and named already held — so `refused` is bounded
+ * to a claimable slice for the reason `slice-unnamed` is, and tested right after
+ * it rather than before the landing: a merged or unanswerable slice names its
+ * own hold first, because the refusal is history once the branch is finished
+ * and a quiet host is a different problem than a person being asked one.
+ *
  * **A SLICE'S OWN QUESTION OUTRANKS ITS PREDECESSOR'S.** `prior-unknown` is
  * tested only after {@link isHandOverReady}, so a claimable later slice keeps
  * whichever answer its own `landed` reading gave. A slice that may be handed
@@ -360,6 +398,11 @@ export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
   // BEFORE THE BRIEF, because the repair for `no-brief` is to write a brief and
   // the writer would produce one for a slice that then stays held.
   if (slice.claimable && slice.unnamed) return 'slice-unnamed';
+  // SAME BOUND AS `slice-unnamed`, FOR THE SAME REASON: an agent only refuses a
+  // slice it was handed, which means claimable. Tested before the brief gate
+  // because the repair here is a person clearing the marker, not an agent
+  // writing one.
+  if (slice.claimable && slice.refused) return 'refused';
   if (isHandOverReady(slice)) return null;
   if (!slice.claimable) return slice.priorUnknown ? 'prior-unknown' : 'not-claimable';
   return 'no-brief';
@@ -577,7 +620,10 @@ const prerequisiteAnswer = (
  * are earlier — and *earlier* is the whole of what
  * {@link behindUnknownLanding} asks.
  */
-export type QueuedBranch = Omit<QueuedSlice, 'briefPresent' | 'landed' | 'priorUnknown'> & {
+export type QueuedBranch = Omit<
+  QueuedSlice,
+  'briefPresent' | 'landed' | 'priorUnknown' | 'refused'
+> & {
   /** The plan's slice this branch belongs to, zero-based, in plan order. */
   slice: number;
 };

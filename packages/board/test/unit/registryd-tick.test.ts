@@ -709,6 +709,7 @@ describe('a tick starts agents when queued > running', () => {
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
+    refused: async () => false,
     ...over,
   });
 
@@ -874,6 +875,7 @@ describe('a tick says which hold refused each slice', () => {
     queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
+    refused: async () => false,
     ...over,
   });
 
@@ -893,8 +895,24 @@ describe('a tick says which hold refused each slice', () => {
     expect(line).toContain('already-merged=0');
     expect(line).toContain('merge-unknown=0');
     expect(line).toContain('slice-unnamed=0');
+    expect(line).toContain('refused=0');
     expect(line).toContain('prior-unknown=0');
     expect(line).toContain('no-free-agent=0');
+  });
+
+  it('reports a slice an agent refused, by branch and not only by count', async () => {
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ refused: async () => true }),
+      now: () => 0,
+    });
+
+    const line = tickLine(report);
+    expect(line).toContain('refused=1');
+    expect(report.handOver?.detail.held).toEqual([
+      { branch: 'feature/waiting', hold: 'refused', waitsOn: [], waitHeld: '' },
+    ]);
   });
 
   it('reports a slice its plan left unnamed, and names the branch rather than only counting', async () => {
@@ -1053,6 +1071,7 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
       queuedHasLanded: async () => 'unknown',
       workerAlive: async () => true,
       blocked: async () => false,
+      refused: async () => false,
     };
     const report = await tick({ registry: async () => [], world: world(), queue, now: () => 0 });
     // AND THE ACCOUNT IS SPENDING HARD — the rate `account=` names.
