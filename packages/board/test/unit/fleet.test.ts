@@ -953,7 +953,7 @@ describe('classify', () => {
     }
   });
 
-  it('changes no state but `open` and `deferred` on a draft plan', () => {
+  it('changes no stale or merged state on a draft plan', () => {
     // A drafted plan whose branches already carry work is drift worth SEEING,
     // not smoothing over — the same rule `rowPhase` follows where a plan's
     // bookkeeping lags its git state. The phase may only answer for a branch
@@ -965,11 +965,16 @@ describe('classify', () => {
     // waits on is the approval, which lives on the plan head), while an approved
     // plan's stays. So `deferred` joins `open` as an arm where the two phases
     // diverge, and it is asserted on its own above rather than smoothed over
-    // here. What remains are the states where a draft plan carrying real work
-    // must still read as work, not as a pending review.
+    // here.
+    //
+    // `['wip', 'eligible', 5]` ALSO LEFT THIS LIST — `draftPlacement` now
+    // answers a FRESH `wip` branch of a draft plan, same as `claimed`, and it
+    // is asserted on its own below. What remains are the STALE states, where
+    // the arm's own abandonment or orphaned-claim note already says more than
+    // the generic draft one, so `draftPlacement` answers `null` and leaves the
+    // two phases identical.
     for (const args of [
       ['claimed', 'eligible', QUIET + 1],
-      ['wip', 'eligible', 5],
       ['wip', 'eligible', 200],
       ['merged', 'complete', 1],
     ] as const) {
@@ -977,6 +982,16 @@ describe('classify', () => {
       expect(classify(state, verdict, age, QUIET, null, false, 0, 'draft'))
         .toEqual(classify(state, verdict, age, QUIET, null, false, 0, 'approved'));
     }
+  });
+
+  it('answers waiting-on-you/DRAFT_PLAN_NOTE for a draft plan\'s fresh wip branch', () => {
+    // The one tuple pulled out of the loop above: a draft plan's FRESH `wip`
+    // branch now reads the draft note, where an approved plan's reads `last
+    // commit 5 min ago` in NOT STARTED. See `draftPlacement`.
+    expect(classify('wip', 'eligible', 5, QUIET, null, false, 0, 'draft'))
+      .toEqual({ group: 'waiting-on-you', note: DRAFT_PLAN_NOTE, verdict: 'eligible' });
+    expect(classify('wip', 'eligible', 5, QUIET, null, false, 0, 'approved'))
+      .toEqual({ group: 'not-started', note: 'last commit 5 min ago', verdict: 'eligible' });
   });
 
   it('leaves a PR to answer even when commits are unpushed', () => {
@@ -1199,7 +1214,7 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
       .toEqual(classify('open', 'blocked', null, QUIET, null, false, 0));
   });
 
-  it('changes no state that carries real work — a commit, a claim, a merge', () => {
+  it('changes no stale or merged state that carries real work — a commit, a claim, a merge', () => {
     // The phase may only answer for a branch that does not exist yet. A
     // finished plan whose branch carries commits, a claim or a PR is drift
     // worth SEEING rather than smoothing over — the same rule `rowPhase`
@@ -1210,9 +1225,13 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
     // a DECISION — the plan set it aside — so there is no git fact here for a
     // phase check to smooth over. See *a deferred row answers to the phase
     // too* below for what it does instead.
+    //
+    // `['wip', 'eligible', 5]` ALSO LEFT THIS LIST, for `draft` only — see the
+    // dedicated assertion below. `delivered` and `released` still equal
+    // `approved` for it here, because `draftPlacement` answers `null` for any
+    // phase but `draft`.
     for (const args of [
       ['claimed', 'eligible', QUIET + 1],
-      ['wip', 'eligible', 5],
       ['merged', 'complete', 1],
     ] as const) {
       const [state, verdict, age] = args;
@@ -1220,6 +1239,10 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
         expect(classify(state, verdict, age, QUIET, null, false, 0, phase))
           .toEqual(classify(state, verdict, age, QUIET, null, false, 0, 'approved'));
       }
+    }
+    for (const phase of ['delivered', 'released']) {
+      expect(classify('wip', 'eligible', 5, QUIET, null, false, 0, phase))
+        .toEqual(classify('wip', 'eligible', 5, QUIET, null, false, 0, 'approved'));
     }
   });
 
@@ -1253,11 +1276,15 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
       .toBe('not-started');
   });
 
-  // WORKING IS ABOUT AGENTS. A draft plan's local activity without a known
-  // worker goes to NOT STARTED.
-  it('puts a DRAFT plan\'s live worktree into not-started', () => {
-    expect(classify('open', 'eligible', null, QUIET, null, true, 0, 'draft').group)
-      .toBe('not-started');
+  // A DRAFT PLAN'S HELD WORKTREE NOW READS WAITING ON YOU, not NOT STARTED.
+  // `draftPlacement` answers above the worktree check in the `open` arm, so a
+  // held, dirty or locked worktree no longer reads `held in a local
+  // worktree` under *approved — nobody has taken it*, which is a section an
+  // unapproved plan's branch cannot honestly be in. See
+  // `the-draft-rule-reads-every-state`.
+  it('puts a DRAFT plan\'s held worktree into waiting-on-you with the draft note', () => {
+    expect(classify('open', 'eligible', null, QUIET, null, true, 0, 'draft'))
+      .toEqual({ group: 'waiting-on-you', note: DRAFT_PLAN_NOTE, verdict: 'eligible' });
   });
 });
 

@@ -69,6 +69,7 @@ import {
   type PrAnswerKind,
   type PrIndex,
   type PrIndexRow,
+  draftPlacement,
 } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
@@ -4805,7 +4806,7 @@ function classifyGroup(
     // arm states it, so the two arms answer a draft branch the same way and
     // neither has to remember to exclude it from a list meant for phases the
     // board cannot read.
-    if (planPhase === 'draft') {
+    {
       // THE ANNOTATION OUTRANKS THE PHASE, and only in this arm. A deferred
       // branch carries a reason somebody wrote; a draft phase is the absence of
       // an approval. Where both are present the written one is the specific
@@ -4826,10 +4827,22 @@ function classifyGroup(
       // belong. With NO reason the phase sentence still stands and so does the
       // placement: an unapproved plan's shelved branch genuinely waits on the
       // approval, which is #231's measurement and is untouched here.
-      if (deferredReason !== '') {
-        return { group: 'quiet', note: deferredReason };
+      //
+      // THE RULE DECIDES THIS NOW, not an inline `planPhase === 'draft'` check
+      // — see `draftPlacement`. It answers `null` for any non-draft phase, so
+      // the allowlist below still runs unchanged for those.
+      const placement = draftPlacement({
+        planPhase,
+        state: 'deferred',
+        deferredReason,
+        fresh: false,
+        local: false,
+      });
+      if (placement) {
+        return placement.group === 'quiet'
+          ? { group: 'quiet', note: placement.note }
+          : { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
       }
-      return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
     }
     // The allowlist, as in the `open` arm and for its reason: a phase the board
     // has not been taught is not startable, and the sentence NAMES it rather
@@ -5037,6 +5050,24 @@ function classifyGroup(
     // in NOT STARTED where it belongs. The path itself does not reach this
     // function — the row NAMES it through the pulse's `worktrees` list.
     //
+    // THE DRAFT RULE ANSWERS ABOVE THE WORKTREE CHECK, and that is the fix this
+    // slice makes to this arm: a held, dirty or locked worktree on a Draft
+    // plan's `open` branch now reads WAITING ON YOU rather than NOT STARTED's
+    // `held in a local worktree`. The comment this replaced argued that a
+    // branch being edited has someone working on it — but `localActivity`
+    // places that branch in NOT STARTED, not WORKING, so the argument did not
+    // survive: only a live worker says someone is working, and the worker
+    // block above already answers that question first.
+    {
+      const placement = draftPlacement({
+        planPhase,
+        state: 'open',
+        deferredReason: '',
+        fresh: false,
+        local: localDirty || localLocked || held || localAhead > 0,
+      });
+      if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+    }
     // WORKING IS ABOUT AGENTS. Agentless local activity goes to NOT STARTED
     // — the branch is eligible for dispatch but nobody has taken it yet. The
     // section means *an agent is working on this*, not *local activity
@@ -5075,13 +5106,15 @@ function classifyGroup(
     //
     // The TERMINAL phases answer at the top of this arm, above even the local
     // worktree check — see there for the measurement that put them there.
+    // `draft` now answers even earlier, above the worktree check itself — see
+    // `draftPlacement` above — so only an unrecognised phase reaches here.
     //
-    // `draft` and an unrecognised phase answer HERE, below it: a plan under
-    // review whose branch is being edited has someone working on it, and a
-    // phase the board cannot read is not evidence of anything. Both still sit
-    // ABOVE the slice verdict, because a slice's ordering is a question about an
-    // approved plan and neither of these is one — the verdict refines the
-    // answer WITHIN `approved`, which is exactly the scope it keeps below.
+    // An unrecognised phase answers HERE, below the worktree check: a phase
+    // the board cannot read is not evidence of anything, so it must not
+    // silently claim that live editing is debris. It still sits ABOVE the
+    // slice verdict, because a slice's ordering is a question about an
+    // approved plan and this is not one — the verdict refines the answer
+    // WITHIN `approved`, which is exactly the scope it keeps below.
     //
     // AN ALLOWLIST, like `prAsksNobody` and for its reason: a blocklist of
     // finished phases would silently start claiming "an agent may take this"
@@ -5093,25 +5126,10 @@ function classifyGroup(
     // guess — reading it as unstartable would empty the section wholesale
     // against an older scan. It falls through to the git answer, exactly as
     // before.
-    if (planPhase === 'draft') {
-      // A person, and the note names WHICH action — the reader's next question
-      // is *waiting on what*, and here the answer is a review rather than
-      // another branch. It also says what would unblock the row.
-      //
-      // BELOW the worktree check, unlike the terminal phases above. Draft is
-      // not finished: a plan under review whose branch is being edited right
-      // now has someone working on it, and only a terminal phase can say
-      // *nothing would move this forward*.
-      return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
-    }
     if (planPhase !== '' && planPhase !== 'approved') {
       // A phase the board has not been taught. Not startable — see the
       // allowlist note above — and the sentence says the board cannot place it
       // rather than inventing a reason it cannot know.
-      //
-      // Below the worktree check with `draft`, and for the same reason: an
-      // unrecognised phase may not be a finished one, so it must not silently
-      // claim that live editing is debris.
       return { group: 'done', note: unknownPhaseNote(planPhase) };
     }
     // An earlier slice keeps the first word, WITHIN an approved plan. That scope
@@ -5411,6 +5429,18 @@ function classifyGroup(
     // worker is NOT STARTED — an agent may take it. The claim ref exists, but
     // until `worker === 'running'` or `worker === 'waiting'`, no agent is on
     // it. See `every-section-has-one-subject`, slice Inverted.
+    //
+    // THE DRAFT RULE ANSWERS BEFORE EITHER RETURN BELOW, so a fresh claim and
+    // a claim with local activity both meet the phase first — see
+    // `draftPlacement`. A STALE claim (neither fresh nor local) answers
+    // `null`: the orphaned-claim path below already answers WAITING ON YOU
+    // with an abandonment note that says more than the generic draft one.
+    {
+      const fresh = ageMinutes !== null && ageMinutes <= quietMinutes;
+      const local = localDirty || localAhead > 0 || localLocked;
+      const placement = draftPlacement({ planPhase, state: 'claimed', deferredReason: '', fresh, local });
+      if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+    }
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
       return { group: 'not-started', note: unstarted };
     }
@@ -5481,6 +5511,18 @@ function classifyGroup(
   //
   // NOT `BLOCKED_NOTE`. That sentence answers the slice verdict — the wave's
   // eligibility — and this answers the branch's own state.
+  //
+  // THE DRAFT RULE ANSWERS BEFORE `blocked`, `waiting`, `unknown` AND THE
+  // UNRECOGNISED CATCH-ALL below — see `draftPlacement`. None of these arms
+  // read `planPhase` before this slice, which is the defect: each new no-work
+  // arm forgot the phase, and one rule called once here means a later arm
+  // cannot forget it again. NOT called for `wip` here: that state's `fresh`
+  // and `local` depend on its own quiet-window check below, so it asks the
+  // rule there instead, with the real readings rather than `false`/`false`.
+  if (state !== 'wip') {
+    const placement = draftPlacement({ planPhase, state, deferredReason: '', fresh: false, local: false });
+    if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+  }
   const prerequisite = waitsOn || 'an unnamed prerequisite';
   if (state === 'blocked') {
     return { group: 'not-started', note: `waits for ${prerequisite}, which has no pull request` };
@@ -5503,6 +5545,17 @@ function classifyGroup(
   // is NOT STARTED — an agent may take it. The commit shows activity, but
   // until `worker === 'running'` or `worker === 'waiting'`, no agent is on it.
   // See `every-section-has-one-subject`, slice Inverted.
+  //
+  // THE DRAFT RULE ANSWERS BEFORE EITHER RETURN BELOW, so a fresh commit and
+  // local activity both meet the phase first — see `draftPlacement`. A STALE
+  // `wip` branch (neither fresh nor local) answers `null`: the abandoned path
+  // further down already answers with its own note.
+  {
+    const fresh = ageMinutes !== null && ageMinutes <= quietMinutes;
+    const local = localDirty || localAhead > 0 || localLocked;
+    const placement = draftPlacement({ planPhase, state: 'wip', deferredReason: '', fresh, local });
+    if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+  }
   if (ageMinutes !== null && ageMinutes <= quietMinutes) {
     return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
