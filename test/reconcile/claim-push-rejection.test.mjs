@@ -170,7 +170,11 @@ test('claim push: a present remote branch keeps the registry-lock violation line
     git(other, 'config', 'user.email', 'test@example.invalid');
     git(other, 'config', 'user.name', 'Plot Test');
     git(other, 'checkout', '-q', '-b', 'feature/taken');
-    git(other, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/taken');
+    // ITS OWN MESSAGE, SO ITS OWN SHA. A commit with the loop's claim message,
+    // parent, author and second is byte-identical to the desk's claim commit,
+    // and the desk's push then answers "Everything up-to-date" instead of
+    // being rejected.
+    git(other, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/taken (the other agent)');
     git(other, 'push', '-qu', 'origin', 'feature/taken');
 
     const out = runOnce(wt, manifest);
