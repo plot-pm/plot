@@ -113,6 +113,7 @@ export interface BranchReadings {
    * Of those, the ones that are real work: a claim marker is titled
    * `plot: claim …` AND empty, and both facts are required. A human commit
    * titled `plot: claim handling refactor` carrying files is real work.
+   * `realCommits` in `empty-claim.ts` holds the definition.
    */
   realCommitsAhead: number;
   /** The prerequisite the plan names, or `null` where it names none. */

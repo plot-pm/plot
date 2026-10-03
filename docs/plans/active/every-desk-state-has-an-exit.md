@@ -1,0 +1,1 @@
+../2026-10-03-every-desk-state-has-an-exit.md

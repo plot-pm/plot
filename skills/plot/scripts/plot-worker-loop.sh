@@ -959,14 +959,23 @@ yield_the_held_checkout() { # $1=holder $2=branch → 0 when the holder is gone
     dirty=unknown
   fi
 
-  # NO UPSTREAM MEANS UNKNOWN, NOT ZERO. A branch whose claim push never
-  # happened has no `@{upstream}`, and its own commits are the work a removal
-  # would delete.
+  # WITH NO UPSTREAM, THE COMMITS BEYOND `origin/$main_branch` ARE COUNTED BY
+  # `board/plot-empty-claim.mjs`, which excludes only proven empty claim
+  # markers (#1242). A git or bundle failure reads `unknown`, which keeps.
   if unpushed=$(git -C "$holder" rev-list --count '@{upstream}..HEAD' 2>/dev/null); then
     case "$unpushed" in
       0) unpushed=0 ;;
       ''|*[!0-9]*) unpushed=unknown ;;
       *) unpushed=1 ;;
+    esac
+  elif unpushed=$(set -o pipefail
+      git -C "$holder" log --boundary --format='HEAD%x09%m%x09%H%x09%T%x09%P%x09%s' \
+        "origin/$main_branch..HEAD" -- 2>/dev/null |
+      node "$script_dir/board/plot-empty-claim.mjs" 2>/dev/null); then
+    case "$unpushed" in
+      ''|"HEAD	0") unpushed=0 ;;
+      "HEAD	"[1-9]*) unpushed=1 ;;
+      *) unpushed=unknown ;;
     esac
   else
     unpushed=unknown

@@ -36,7 +36,7 @@ const plan = (slices: string[][], phase = 'approved'): PlanRecord =>
     // `name: ''` at its own call site.
     slices: slices.map((branches, index) => ({
       name: `Slice ${index + 1}`,
-      branches: branches.map((branch) => ({ branch, deferred: false })),
+      branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: '' })),
     })),
   }) as unknown as PlanRecord;
 
@@ -511,7 +511,7 @@ describe('a slice its plan names under no heading is held by the queue', () => {
     ({
       file: 'docs/plans/2026-10-02-an-unnamed-slice.md',
       phase: 'approved',
-      slices: [{ name: '', branches: [{ branch: 'feature/nameless', deferred: false }] }],
+      slices: [{ name: '', branches: [{ branch: 'feature/nameless', deferred: false, waitsOn: '' }] }],
     }) as unknown as PlanRecord;
 
   /** A world that answers everything a hand-over needs, and counts host calls. */
@@ -584,5 +584,69 @@ describe('a slice its plan names under no heading is held by the queue', () => {
     // per branch.
     expect(unnamedRun.calls.listing).toBe(1);
     expect(unnamedRun.calls.views).toBe(0);
+  });
+});
+
+describe('a `waits:` prerequisite holds a slice through the real join', () => {
+  const planWithWait = (waitsOn: string): PlanRecord =>
+    ({
+      file: 'docs/plans/2026-10-01-a-plan.md',
+      phase: 'approved',
+      slices: [
+        { name: 'A named slice', branches: [{ branch: 'feature/waiter', deferred: false, waitsOn }] },
+      ],
+    }) as unknown as PlanRecord;
+
+  const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [planWithWait('feature/prereq')],
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    ...over,
+  });
+
+  it('holds the slice as `waits` with `unmerged` on a whole listing', async () => {
+    const readings = await readQueue([], world());
+    const slice = readings.slices.find((s) => s.branch === 'feature/waiter')!;
+    expect(whyNotReady(slice)).toBe('waits');
+    expect(slice.waitsOn).toBe('feature/prereq');
+    expect(slice.waitHeld).toBe('unmerged');
+  });
+
+  it('holds the slice as `waits` with `unreachable` on a partial listing', async () => {
+    // THE PARTIAL-LISTING ROW: the listing has rows but did not answer whole,
+    // and none of its rows name the prerequisite. Reading this as `unmerged`
+    // would be the same hold for the wrong reason.
+    const readings = await readQueue(
+      [],
+      world({
+        mergedBranches: async () => ({
+          merged: new Set(['unrelated/branch']),
+          whole: false,
+          kind: 'throttled',
+          failed: false,
+        }),
+      }),
+    );
+    const slice = readings.slices.find((s) => s.branch === 'feature/waiter')!;
+    expect(whyNotReady(slice)).toBe('waits');
+    expect(slice.waitHeld).toBe('unreachable');
+  });
+
+  it('clears the hold once the merged listing names the prerequisite', async () => {
+    const readings = await readQueue(
+      [],
+      world({ mergedBranches: async () => wholeListing(['feature/prereq']) }),
+    );
+    const slice = readings.slices.find((s) => s.branch === 'feature/waiter')!;
+    expect(whyNotReady(slice)).toBeNull();
+    expect(slice.waitHeld).toBe('');
   });
 });

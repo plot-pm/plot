@@ -2,6 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
 import { isClaimable, sliceVerdicts } from '../src/rules/eligible.js';
+import { planQueue } from '../src/rules/queue.js';
+import type { PlanRecord } from '../src/ports/plan-store.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
 import { readFleetScan, readListEligible, type Estate } from './production.js';
 
@@ -243,5 +245,95 @@ describe('--next and the board offer the same branches', () => {
       return !found || found.verdict !== 'eligible' || found.state !== 'open';
     });
     expect(wrong).toEqual([]);
+  });
+});
+
+describe('the queue agrees with the scan — a third surface over the same plans', () => {
+  /**
+   * Adapts one pulse plan into the shape `planQueue` reads.
+   *
+   * **THE PULSE ALREADY CARRIES EVERYTHING `planQueue` NEEDS** — `branch.state`
+   * is the scan's own classification of claimed vs. merged vs. open, and
+   * `branch.waits_on` is the same field `plan-store-shell.ts` maps. Building a
+   * second `PlanRecord` reader here would duplicate `plan-store-shell.ts`'s
+   * mapping rather than test the rule against an independent reading, so this
+   * reads the ONE wire field each input needs and nothing else.
+   *
+   * @param plan - one plan from the pulse.
+   * @returns the fields `planQueue` reads, under the port's shape.
+   */
+  const planRecordOf = (plan: FleetReading['plans'][number]): PlanRecord =>
+    ({
+      file: plan.file,
+      phase: plan.phase,
+      slices: plan.slices.map((slice) => ({
+        name: slice.name,
+        branches: slice.branches.map((branch) => ({
+          branch: branch.branch,
+          deferred: branch.deferred,
+          deferredReason: '',
+          claimed: branch.claimed,
+          waitsOn: branch.waits_on,
+        })),
+      })),
+    }) as unknown as PlanRecord;
+
+  it('claims exactly the branches the scan reports open under an eligible slice', () => {
+    const found: Disagreement[] = [];
+    let compared = 0;
+
+    for (const plan of pulse.plans) {
+      if (TERMINAL_PHASES.has(plan.phase)) continue;
+      // A branch with a ref on origin: the scan reads it `claimed` or `wip`,
+      // and production's `claimedBranches` reads the same refs.
+      const claimed = new Set(
+        plan.slices.flatMap((slice) =>
+          slice.branches
+            .filter((b) => b.state === 'claimed' || b.state === 'wip')
+            .map((b) => b.branch),
+        ),
+      );
+      const merged = new Set(
+        plan.slices.flatMap((slice) =>
+          slice.branches.filter((b) => b.state === 'merged').map((b) => b.branch),
+        ),
+      );
+      // THE PULSE IS TREATED AS A WHOLE LISTING. The scan reported every
+      // branch's state, so the fallback this tier cannot reach (a partial
+      // merged listing) is not the case this comparison is asking about —
+      // `the-queue-reads-the-order-the-scan-reads`'s own unit cases cover it.
+      const queued = planQueue(planRecordOf(plan), claimed, merged, true);
+      const byBranch = new Map(queued.map((entry) => [entry.branch, entry]));
+
+      for (const slice of plan.slices) {
+        for (const branch of slice.branches) {
+          compared += 1;
+          const fromQueue = byBranch.get(branch.branch);
+          // A SETTLED OR CLAIMED BRANCH LEAVES THE QUEUE ENTIRELY — the same
+          // door `isClaimable` reaches by reading `state`. Absence from the
+          // queue is therefore the predicted answer for one, not a defect.
+          // The queue offers a slice that is claimable and held by no `waits:` prerequisite.
+          const queueClaims = fromQueue?.claimable === true && fromQueue.waitHeld === '';
+          const scanClaims = isClaimable(slice.verdict, branch.state);
+          if (queueClaims !== scanClaims) {
+            found.push({
+              subject: `${plan.file} :: ${branch.branch}`,
+              field: 'claimable',
+              adapter: String(queueClaims),
+              production: String(scanClaims),
+            });
+          }
+        }
+      }
+    }
+
+    // THE SAME VACUITY GUARD AS THE SURFACE ABOVE, for the same reason: an
+    // empty backlog is the project succeeding, and a floor that fails on it
+    // reports the opposite of what happened.
+    const backlog = pulse.plans.filter((plan) => !TERMINAL_PHASES.has(plan.phase));
+    if (backlog.some((plan) => plan.slices.some((slice) => slice.branches.length > 0))) {
+      expect(compared).toBeGreaterThan(0);
+    }
+    expect(found.map(describeDisagreement)).toEqual([]);
   });
 });
