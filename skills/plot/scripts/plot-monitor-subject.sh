@@ -202,3 +202,45 @@ plot_monitor_wait() { # $1 = seconds to wait, $2 = pid file
   done
   return 0
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WHICH DESK A MONITOR WATCHES THIS PASS, AFTER A HOP MAY HAVE MOVED ITS AGENT
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# `PLOT_WORKTREE` is fixed at launch, but `update_manifest_on_hop` rewrites the
+# manifest's `worktree` field when the loop cuts a new desk — so a monitor that
+# never re-reads it watches the launch desk forever. This is the shell twin of
+# `watchedDesk` in `packages/domain/src/rules/desk-manifest.ts`, duplicated
+# rather than called for the reason `docs/shell-and-domain.md` gives: both
+# monitors re-read this every pass (30 s and 300 s), and a 39 ms bundle hop paid
+# on every pass forever is the cost the shell side exists to avoid.
+# `desk-manifest.corpus.test.ts` holds the pair; a disagreement stops the
+# branch rather than being adjusted away.
+#
+# `$1` = the manifest file this monitor was handed (`PLOT_MANIFEST_FILE`), may
+# be empty or absent.
+# `$2` = the desk this monitor was launched on (`PLOT_WORKTREE`).
+# Prints the desk to watch THIS pass.
+plot_watched_desk() { # $1 = manifest file, $2 = launch desk → prints the watched desk
+  local manifest_file="${1:-}" launched="${2:-}" field
+  # ABSENT IS NOT FALSE. No manifest file named, or one that is gone, both mean
+  # "watch what you were launched on" — never a crash and never "watch
+  # nothing". A hand-started monitor with no `PLOT_MANIFEST_FILE` is a supported
+  # shape, not an error.
+  if [ -n "$manifest_file" ] && [ -f "$manifest_file" ]; then
+    # Same grep-and-sed idiom `plot_manifest_for_worktree` uses: the manifest is
+    # pretty-printed one field per line, so this avoids parsing JSON in bash.
+    field=$(grep -m1 '"worktree":' "$manifest_file" 2>/dev/null | sed 's/.*"worktree": *"\([^"]*\)".*/\1/')
+  else
+    field=''
+  fi
+  # Whitespace-only reads as absent too, matching the rule: trim leading and
+  # trailing space before testing for emptiness.
+  field="${field#"${field%%[![:space:]]*}"}"
+  field="${field%"${field##*[![:space:]]}"}"
+  if [ -n "$field" ]; then
+    printf '%s' "$field"
+  else
+    printf '%s' "$launched"
+  fi
+}
