@@ -45,11 +45,11 @@ const SLICES: FleetReading['plans'][number]['slices'] = [{
     // `state: 'claimed'` on purpose: the two are independent, and a fixture
     // that let them agree by accident would not notice them being conflated.
     ref_held: false,
-    // WHAT THIS BRANCH WAITS ON, empty here. The field carries a `.default('')`
+    // WHAT THIS BRANCH WAITS ON, empty here. The field carries a `.default([])`
     // in the schema, so the bridge restores it whether or not a fixture names
     // it — and a fixture that stays silent asserts the round-trip is faithful
     // for one key fewer than it claims.
-    waits_on: '',
+    waits_on: [],
     worker_dirty_paths: [],
   }],
 }];

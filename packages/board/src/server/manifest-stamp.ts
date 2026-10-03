@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveManifestDir } from './registry.js';
-import { deskManifest, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
+import {
+  deskManifest,
+  type DeskManifest,
+  type ManifestReading,
+} from '@plot-pm/domain/rules/desk-manifest';
 
 /**
  * The launch stamp — ONE contract, and this is one of its two implementations.
@@ -178,38 +182,36 @@ export function stampManifest(text: string, stamp: Stamp): string {
 
 
 /**
- * The manifest file that names this worktree, or `''` when none does.
+ * Which manifest names a desk — `unnamed`, `named`, or `several` — read off
+ * this board's registry directory.
  *
- * `/api/continue` knows the WORKTREE it is relaunching in but not the session id
- * the manifest is named for, so the file is found by matching the `worktree`
- * field rather than by rebuilding a path. The dispatcher records the RESOLVED
- * worktree path (`realpathSync`), while a pulse may hand back either form, so the
- * match is tried against both the path as given and its realpath.
+ * THE COLLECTION LOOP LIVES HERE ONCE. `manifestForWorktree` is built on this
+ * and collapses `unnamed` and `several` to the same `''`, which served every
+ * caller until `/api/continue` needed the two apart to word two different
+ * refusals — a `several` desk is an estate defect worth naming, an `unnamed`
+ * one is simply unregistered. Copying the loop a second time would be the
+ * defect `deskManifest` itself was built to stop: four readers disagreeing on
+ * how to find a manifest.
  *
- * `''` on any failure — no agents directory, an unreadable file — because a
- * missing manifest is not an error: the worker runs regardless and the stamp is
- * a best-effort display fact. The caller treats `''` as *nothing to stamp*.
+ * THE DIRECTORY IS THE `Agent registry` KEY'S ANSWER, resolved by
+ * {@link resolveManifestDir}. `opts` defaults to `{}`, the same relative
+ * default as before.
  *
- * THE DIRECTORY IS THE `Agent registry` KEY'S ANSWER, resolved by the same
- * {@link resolveManifestDir} the reader uses. It was `path.join(repoRoot,
- * '.plot/agents')` until 2026-08-27, which meant a board whose configured
- * registry sits in another checkout looked in its own — and found nothing to
- * stamp for every worker the dispatcher had just registered elsewhere.
+ * `unnamed` on any read failure — no agents directory, an unreadable file —
+ * because a missing manifest is not an error: a caller may run the worker
+ * regardless and treat the stamp as best-effort.
  *
- * `opts` defaults to `{}`, which resolves to the same relative default as
- * before: a caller that passes nothing is unaffected.
- *
- * WHICH MANIFEST NAMES THE DESK IS `deskManifest`'s ANSWER, and this is a READER:
- * it collects `{ path, worktree, worktreeReal }` and asks the rule. It returned
- * the FIRST match until 2026-10-02; two manifests on one desk now answer `''`,
- * because that is an estate defect and a first match hides it.
+ * @param repoRoot - the board's own checkout, for resolving a relative registry.
+ * @param worktree - the desk to ask about.
+ * @param opts - `manifestDir`/`scriptsDir` overrides, as {@link resolveManifestDir} takes them.
+ * @returns which manifest names the desk, or that none or several do.
  */
-export function manifestForWorktree(
+export function deskManifestFor(
   repoRoot: string,
   worktree: string,
   opts: { manifestDir?: string; scriptsDir?: string } = {},
-): string {
-  if (!worktree) return '';
+): DeskManifest {
+  if (!worktree) return { kind: 'unnamed' };
   const dir = resolveManifestDir(repoRoot, opts);
   let real = worktree;
   try {
@@ -221,7 +223,7 @@ export function manifestForWorktree(
   try {
     names = fs.readdirSync(dir);
   } catch {
-    return '';
+    return { kind: 'unnamed' };
   }
   const manifests: ManifestReading[] = [];
   for (const name of names) {
@@ -241,7 +243,33 @@ export function manifestForWorktree(
       continue; // Not a manifest this reader recognises; skip it.
     }
   }
-  const answer = deskManifest({ desk: worktree, deskReal: real, manifests });
+  return deskManifest({ desk: worktree, deskReal: real, manifests });
+}
+
+/**
+ * The manifest file that names this worktree, or `''` when none or several do.
+ *
+ * `/api/continue` knows the WORKTREE it is relaunching in but not the session id
+ * the manifest is named for, so the file is found by matching the `worktree`
+ * field rather than by rebuilding a path. The dispatcher records the RESOLVED
+ * worktree path (`realpathSync`), while a pulse may hand back either form, so the
+ * match is tried against both the path as given and its realpath.
+ *
+ * `''` on any failure — no agents directory, an unreadable file — because a
+ * missing manifest is not an error: the worker runs regardless and the stamp is
+ * a best-effort display fact. The caller treats `''` as *nothing to stamp*.
+ *
+ * Built on {@link deskManifestFor} — see there for the directory resolution and
+ * the collection loop. `unnamed` and `several` collapse to `''` here, because
+ * this reader's only callers want a single path to stamp or nothing; a caller
+ * that needs the two apart asks {@link deskManifestFor} directly.
+ */
+export function manifestForWorktree(
+  repoRoot: string,
+  worktree: string,
+  opts: { manifestDir?: string; scriptsDir?: string } = {},
+): string {
+  const answer = deskManifestFor(repoRoot, worktree, opts);
   return answer.kind === 'named' ? answer.path : '';
 }
 

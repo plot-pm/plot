@@ -187,14 +187,31 @@ export const isClaimable = (
 export type PrereqAnswer = 'merged' | 'unmerged' | 'none' | 'unreachable';
 
 /**
- * What a branch's `waits:` annotation makes of it, given what the host said.
+ * One branch a plan's `waits:` annotation names, and what the host said about
+ * its pull requests.
+ */
+export interface WaitPrerequisite {
+  /** The prerequisite branch, as the plan names it. */
+  waitsOn: string;
+  /** What the host said about that branch's pull requests. */
+  answer: PrereqAnswer;
+}
+
+/**
+ * What a branch's `waits:` annotation makes of it, given what the host said
+ * about EVERY prerequisite it names.
  *
  * ```
- * ''        cleared — the prerequisite merged, so the annotation stops mattering
- * 'waiting' a wait with an end: the prerequisite exists and has not landed
- * 'blocked' no PR ever existed for the named branch — a typo, or a branch
+ * ''        cleared — every prerequisite merged, so the annotation stops mattering
+ * 'waiting' a wait with an end: some prerequisite exists and has not landed
+ * 'blocked' no PR ever existed for some named branch — a typo, or a branch
  *           nobody created
  * ```
+ *
+ * `blocked` OUTRANKS `waiting`, REGARDLESS OF ORDER. A plan with two
+ * prerequisites, one unmerged and one a typo, is not half-waiting: the typo
+ * needs a plan edit and no merge clears it, so it is the answer a reader must
+ * act on first.
  *
  * THE QUESTION IS PUT TO THE HOST, NEVER TO THE REFS, and the caller owes that
  * shape. `plot-release-refs.sh` deletes the remote refs of a delivered plan's
@@ -206,15 +223,16 @@ export type PrereqAnswer = 'merged' | 'unmerged' | 'none' | 'unreachable';
  * start, and it is equally not proof of a typo, so it answers `waiting`: a
  * refusal that resolves the moment the host can be asked again.
  *
- * @param waitsOn The branch this one waits on — "" where it declares none.
- * @param answer What the host said about that branch's pull requests.
+ * @param prerequisites Every branch this one waits on, and what the host said
+ *   of each. An empty list declares no prerequisite at all.
  * @returns "" where nothing holds the branch, else the state it is held in.
  */
 export const waitVerdict = (
-  waitsOn: string,
-  answer: PrereqAnswer,
+  prerequisites: readonly WaitPrerequisite[],
 ): '' | 'waiting' | 'blocked' => {
-  if (waitsOn === '') return '';
-  if (answer === 'merged') return '';
-  return answer === 'none' ? 'blocked' : 'waiting';
+  if (prerequisites.some((p) => p.answer === 'none')) return 'blocked';
+  if (prerequisites.some((p) => p.answer === 'unmerged' || p.answer === 'unreachable')) {
+    return 'waiting';
+  }
+  return '';
 };

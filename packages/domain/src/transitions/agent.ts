@@ -336,11 +336,11 @@ export interface EndingAttributionInput {
    * The reason the ending record names, as read — a string, for the same reason
    * {@link actor} is one.
    *
-   * **THE ACTOR ALONE CANNOT DECIDE THIS.** `agent` is attributable for two
+   * **THE ACTOR ALONE CANNOT DECIDE THIS.** `agent` is attributable for three
    * reasons and self-attributed for every other, so a rule reading only the
    * actor either refuses a legitimate ending or admits an agent claiming it
    * decided its own stop. Absent — an older caller, or a record that named no
-   * reason — reads as neither of those two, which keeps the refusal that was
+   * reason — reads as none of those three, which keeps the refusal that was
    * there before this field existed.
    */
   reason?: string;
@@ -380,6 +380,14 @@ export interface EndingAttributionInput {
  * from it for the repair's: measured 2026-10-01 in #1141, a limit recorded as
  * `unstarted` asked a person to fix a prompt file that worked.
  *
+ * **`unregistered` IS A THIRD READING NO WATCHER PRODUCES, for the same
+ * reason.** A FREE loop polls its own manifest and finds the file gone — no
+ * clock expired and no monitor published a finding, because a free loop runs no
+ * monitor at all. The loop's own process is the only party that made the
+ * reading, so `agent` is the honest actor here too. `#1101` is the plan that
+ * gives a vanished manifest an ending rather than the `Worker bound`'s silent
+ * `free on ?` forever.
+ *
  * The check survives every enum change because it reads STRINGS: an ending file
  * on a desk is bytes until something validates them, and a worker of an older
  * vintage may have written a value no type admits.
@@ -394,11 +402,16 @@ export const endingIsAttributable = (
   session: string,
   input: EndingAttributionInput,
 ): TransitionResult => {
-  if (input.actor === 'agent' && input.reason !== 'unstarted' && input.reason !== 'limited') {
+  if (
+    input.actor === 'agent' &&
+    input.reason !== 'unstarted' &&
+    input.reason !== 'limited' &&
+    input.reason !== 'unregistered'
+  ) {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted' or 'limited' ending names the agent, because no watcher produces those.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited' or 'unregistered' ending names the agent, because no watcher produces those.`,
     );
   }
 

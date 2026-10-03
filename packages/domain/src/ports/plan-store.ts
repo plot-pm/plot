@@ -73,8 +73,8 @@ export interface PlanRecordBranch {
   deferredReason: string;
   /** The claim annotation the plan carries, or `''`. */
   claimed: string;
-  /** The branch this one's `<!-- waits: ... -->` annotation names, or `''`. */
-  waitsOn: string;
+  /** Every branch this one's `<!-- waits: ... -->` annotation names, empty where it names none. */
+  waitsOn: readonly string[];
 }
 
 /**

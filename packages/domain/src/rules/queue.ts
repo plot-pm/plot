@@ -1,5 +1,5 @@
 import { type AgentReading, isAgentFree } from './free.js';
-import { sliceVerdicts, waitVerdict, type PrereqAnswer } from './eligible.js';
+import { sliceVerdicts, type PrereqAnswer } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
 import { unnamedBranches } from './slice-name.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
@@ -92,12 +92,29 @@ export interface QueuedSlice {
    */
   priorUnknown: boolean;
   /**
-   * The branch this one's `<!-- waits: ... -->` annotation names, or `''`
+   * Whether an agent was handed this slice and wrote a marker rather than
+   * working it.
+   *
+   * **A READING, LIKE EVERY OTHER FIELD HERE — THE QUEUE DOES NOT READ FILES.**
+   * Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
+   * wrote `PLOT-BLOCKED.md` and stopped, holding a checkout nothing else here
+   * had a hold for. The next pass read the slice as queued — no ref, no
+   * marker this rule could see — and handed it to another free agent, which
+   * hit the same refusal. 250 desks came from one slice this way, at 17 to 19
+   * an hour.
+   *
+   * **IT NEVER ENDS ON A TIMER.** The caller's reading clears when the marker
+   * is gone or the record naming it is removed, and only then; nothing here
+   * ages it out.
+   */
+  refused: boolean;
+  /**
+   * Every branch this one's `<!-- waits: ... -->` annotation names, empty
    * where it names none.
    *
-   * Carried for the held-list line, which names the prerequisite.
+   * Carried for the held-list line, which names every prerequisite.
    */
-  waitsOn: string;
+  waitsOn: readonly string[];
   /**
    * Whether `waitsOn` still holds the slice, and why — `''` where it does
    * not, answered by {@link planQueue} from the merged listing.
@@ -225,6 +242,18 @@ export type QueueHold =
    */
   | 'slice-unnamed'
   /**
+   * An agent was handed this slice and wrote a marker rather than working it.
+   *
+   * **BOUNDED TO `claimable` THE SAME WAY `slice-unnamed` IS**, and for the same
+   * reason: the refusal is read per branch, and a slice no plan makes startable
+   * yet is not where this hold belongs — it would otherwise move the estate's
+   * backlog into a word meant for a slice an agent actually touched.
+   *
+   * The repair is a person's, not a timer's: clear the marker or the record
+   * naming it, and the slice is queued again on the next pass.
+   */
+  | 'refused'
+  /**
    * An earlier slice of this plan holds a branch whose landing the host could
    * not answer this pass.
    *
@@ -262,6 +291,7 @@ export const QUEUE_HOLDS: readonly QueueHold[] = [
   'merge-unknown',
   'waits',
   'slice-unnamed',
+  'refused',
   'no-brief',
   'prior-unknown',
   'not-claimable',
@@ -274,8 +304,8 @@ export interface HeldSlice {
   branch: string;
   /** What held it. */
   hold: QueueHold;
-  /** The prerequisite this branch waits on where `hold` is `'waits'`; `''` otherwise. */
-  waitsOn: string;
+  /** Every prerequisite this branch waits on where `hold` is `'waits'`; `[]` otherwise. */
+  waitsOn: readonly string[];
   /** `'unmerged'` or `'unreachable'` where `hold` is `'waits'`; `''` otherwise. */
   waitHeld: '' | 'unmerged' | 'unreachable';
 }
@@ -339,6 +369,14 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * prerequisite stays held whatever its brief or its heading says, so naming
  * either would send a reader to a repair that releases nothing.
  *
+ * **A REFUSAL IS ASKED ABOUT RIGHT AFTER THE NAME, FOR THE SAME REASON AND THE
+ * SAME BOUND.** An agent only refuses a slice it was actually handed, which
+ * means claimable already held and named already held — so `refused` is bounded
+ * to a claimable slice for the reason `slice-unnamed` is, and tested right after
+ * it rather than before the landing: a merged or unanswerable slice names its
+ * own hold first, because the refusal is history once the branch is finished
+ * and a quiet host is a different problem than a person being asked one.
+ *
  * **A SLICE'S OWN QUESTION OUTRANKS ITS PREDECESSOR'S.** `prior-unknown` is
  * tested only after {@link isHandOverReady}, so a claimable later slice keeps
  * whichever answer its own `landed` reading gave. A slice that may be handed
@@ -360,6 +398,11 @@ export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
   // BEFORE THE BRIEF, because the repair for `no-brief` is to write a brief and
   // the writer would produce one for a slice that then stays held.
   if (slice.claimable && slice.unnamed) return 'slice-unnamed';
+  // SAME BOUND AS `slice-unnamed`, FOR THE SAME REASON: an agent only refuses a
+  // slice it was handed, which means claimable. Tested before the brief gate
+  // because the repair here is a person clearing the marker, not an agent
+  // writing one.
+  if (slice.claimable && slice.refused) return 'refused';
   if (isHandOverReady(slice)) return null;
   if (!slice.claimable) return slice.priorUnknown ? 'prior-unknown' : 'not-claimable';
   return 'no-brief';
@@ -522,7 +565,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
       held.push({
         branch: slice.branch,
         hold,
-        waitsOn: hold === 'waits' ? slice.waitsOn : '',
+        waitsOn: hold === 'waits' ? slice.waitsOn : [],
         waitHeld: hold === 'waits' ? slice.waitHeld : '',
       });
       continue;
@@ -533,7 +576,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
     // *one slice to one agent* half of the lock, held by the loop's shape
     // rather than by a check that could be forgotten.
     if (next >= free.length) {
-      held.push({ branch: slice.branch, hold: 'no-free-agent', waitsOn: '', waitHeld: '' });
+      held.push({ branch: slice.branch, hold: 'no-free-agent', waitsOn: [], waitHeld: '' });
       continue;
     }
 
@@ -636,7 +679,10 @@ const prerequisiteAnswer = (
  * are earlier — and *earlier* is the whole of what
  * {@link behindUnknownLanding} asks.
  */
-export type QueuedBranch = Omit<QueuedSlice, 'briefPresent' | 'landed' | 'priorUnknown'> & {
+export type QueuedBranch = Omit<
+  QueuedSlice,
+  'briefPresent' | 'landed' | 'priorUnknown' | 'refused'
+> & {
   /** The plan's slice this branch belongs to, zero-based, in plan order. */
   slice: number;
 };
@@ -701,22 +747,34 @@ export const planQueue = (
       // `settled`: a claimed branch is somebody's and must not be offered
       // again even though the order still counts it outstanding.
       if (claimed.has(line.branch) || settled(line.branch, merged)) continue;
-      const waitsOn = line.waitsOn;
-      let waitHeld: '' | 'unmerged' | 'unreachable' = '';
-      if (waitsOn !== '') {
-        const answer = prerequisiteAnswer(waitsOn, merged, listingWhole);
-        // `prerequisiteAnswer` never answers `merged` as `waiting` —
-        // `waitVerdict` clears on it — so `answer` here is always `unmerged`
-        // or `unreachable`, and the cast says why rather than narrowing silently.
-        if (waitVerdict(waitsOn, answer) === 'waiting') waitHeld = answer as 'unmerged' | 'unreachable';
-      }
+      const answers = line.waitsOn.map((waitsOn) => ({
+        waitsOn,
+        answer: prerequisiteAnswer(waitsOn, merged, listingWhole),
+      }));
+      // THE QUEUE CLEARS ONLY WHEN EVERY PREREQUISITE IS MERGED. `waitsOn` here
+      // names only the ones that still hold, so the held-list line names what a
+      // reader must act on rather than the full declaration — unlike the
+      // board's row sentence, which names every prerequisite the plan declares.
+      const unresolved = answers.filter((a) => a.answer !== 'merged');
+      // `prerequisiteAnswer` NEVER ANSWERS `none` — the merged listing cannot
+      // tell *never had a PR* from *has an open PR*, so it only ever says
+      // `merged`, `unmerged` or `unreachable`. `waitVerdict` therefore never
+      // reads `blocked` here, and a non-empty `unresolved` is always
+      // `waiting`: calling it would just re-derive what filtering out
+      // `merged` already established.
+      const waitHeld: '' | 'unmerged' | 'unreachable' =
+        unresolved.length === 0
+          ? ''
+          : unresolved.some((a) => a.answer === 'unreachable')
+            ? 'unreachable'
+            : 'unmerged';
       queued.push({
         branch: line.branch,
         slug,
         claimable,
         unnamed: unnamed.has(line.branch),
         slice: index,
-        waitsOn,
+        waitsOn: unresolved.map((a) => a.waitsOn),
         waitHeld,
       });
     }

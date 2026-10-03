@@ -21,9 +21,9 @@ const PREREQ = 'feature/a-slice-can-wait-on-another-plan';
 const move = (from: SliceVerdict, to: SliceVerdict, priorComplete = true) =>
   observeSliceVerdict(SLICE, from, { to, priorComplete });
 
-/** What the host said about the prerequisite, put to the rule. */
+/** What the host said about one prerequisite, put to the rule as a one-item list. */
 const waits = (waitsOn: string, answer: PrereqAnswer) =>
-  prerequisiteCleared(SLICE, { waitsOn, answer });
+  prerequisiteCleared(SLICE, waitsOn === '' ? [] : [{ waitsOn, answer }]);
 
 describe('the states are consumed, never redeclared', () => {
   it('names the verdicts the entity owns, in the diagram’s order', () => {
@@ -219,6 +219,27 @@ describe('A PREREQUISITE THAT MERGED AND WAS THEN REAPED STILL CLEARS', () => {
     expect(Object.keys(reading).sort()).toEqual(['answer', 'waitsOn']);
   });
 
+  it('refuses on the first unlanded prerequisite, in the plan’s order, and names it', () => {
+    const second = 'feature/a-second-prerequisite';
+    const result = prerequisiteCleared(SLICE, [
+      { waitsOn: PREREQ, answer: 'merged' },
+      { waitsOn: second, answer: 'unmerged' },
+    ]);
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('prerequisite-unlanded');
+    expect(result.detail).toContain(second);
+  });
+
+  it('a list of one is not a list of two: clears only when every prerequisite merged', () => {
+    const second = 'feature/a-second-prerequisite';
+    const result = prerequisiteCleared(SLICE, [
+      { waitsOn: PREREQ, answer: 'merged' },
+      { waitsOn: second, answer: 'merged' },
+    ]);
+    expect(isDecision(result)).toBe(true);
+  });
+
   it('holds while the prerequisite has a pull request and has not merged', () => {
     const result = waits(PREREQ, 'unmerged');
     expect(isRefusal(result)).toBe(true);
@@ -261,13 +282,13 @@ describe('A PREREQUISITE THAT MERGED AND WAS THEN REAPED STILL CLEARS', () => {
     // deadlocks a slice. Where that rule clears, this one decides; where it
     // holds, this one refuses.
     for (const answer of ['merged', 'unmerged', 'none', 'unreachable'] as const) {
-      const cleared = waitVerdict(PREREQ, answer) === '';
+      const cleared = waitVerdict([{ waitsOn: PREREQ, answer }]) === '';
       expect(isDecision(waits(PREREQ, answer))).toBe(cleared);
     }
   });
 
   it('refuses on a reading the caller measured and found unmet', () => {
-    const result = prerequisiteCleared(SLICE, { waitsOn: '', answer: 'none' }, [
+    const result = prerequisiteCleared(SLICE, [], [
       { name: 'plan-approved', met: false },
     ]);
     expect(isRefusal(result)).toBe(true);

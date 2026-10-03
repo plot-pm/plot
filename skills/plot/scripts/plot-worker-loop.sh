@@ -1029,12 +1029,65 @@ yield_the_held_checkout() { # $1=holder $2=branch → 0 when the holder is gone
   esac
 }
 
+# The refused-slices record: one branch per line, under the COMMON git dir's
+# `.plot/state/` — never a worktree's own, for `record_slice_spend`'s reason.
+# `plot-reap.sh` runs `git worktree remove --force` over a finished desk, so a
+# record written to one is destroyed by the reap that measured it.
+#
+# `--git-common-dir` answers relatively in the checkout it is run from, so it
+# is resolved against `$PLOT_WORKTREE` rather than trusted as absolute.
+#
+# A FAILED RESOLUTION RECORDS NOTHING AND SAYS NOTHING, the same refusal
+# `record_slice_spend` makes: this runs on the same path as the marker, whose
+# own contract is to leave the checkout untouched when a reading cannot be
+# taken, and a record is strictly less load-bearing than the marker it rides
+# beside.
+refused_slices_path() { # → the record's path, or nothing on a failed resolution
+  local wt="${PLOT_WORKTREE:-$PWD}" common
+  common=$(git -C "$wt" rev-parse --git-common-dir 2>/dev/null) || return 1
+  case "$common" in
+    /*) : ;;
+    *) common="$wt/$common" ;;
+  esac
+  printf '%s/.plot/state/refused-slices.tsv' "$common"
+}
+
+# Appends a branch to the refused-slices record, once.
+#
+# NEVER TWICE FOR ONE BRANCH. A second refusal on the same branch after a
+# person already cleared the first line would otherwise re-add it the moment
+# this function runs again — grepping first is what keeps the record a set
+# rather than a log, and what keeps *the record line is removed* a real way
+# for the hold to end.
+#
+# THE QUEUE READS THIS BY BRANCH, NEVER BY WORKTREE. By the time the
+# supervisor looks, the desk that held the refusal may carry no manifest
+# naming the branch at all — measured 2026-10-03, 250 desks behind one refused
+# slice had their manifests already cleared.
+record_refused_slice() { # $1=branch
+  local branch="$1" path
+  [ -n "$branch" ] || return 0
+  path=$(refused_slices_path) || return 0
+  mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
+  if [ -f "$path" ] && grep -qxF "$branch" "$path" 2>/dev/null; then
+    return 0
+  fi
+  printf '%s\n' "$branch" >> "$path" 2>/dev/null
+}
+
 # The marker for a checkout that kept our branch.
 #
 # IN OUR OWN DESK, never the holder's: the holder may belong to another agent,
 # and `write_blocked_marker` refuses to speak over an existing question anyway.
 # The pair of path and branch is what made the foreign-marker incident legible,
 # and the condition is the word an operator greps.
+#
+# THE RECORD NAMES THE BRANCH THE QUEUE MUST HOLD, NOT THE DESK THAT REFUSED
+# IT. Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
+# wrote this exact marker and stopped; the queue had no hold for a refused
+# slice, read the branch as still queued, and handed it to another free
+# agent — 250 desks from one slice, at 17 to 19 an hour. `record_refused_slice`
+# is what `rules/queue.ts`'s `refused` reading now finds.
 blocked_on_held_checkout() { # $1=holder $2=branch $3=condition $4=extra prose
   local holder="$1" branch="$2" condition="$3" extra="$4" text
   text="PLOT-BLOCKED: the worktree \`$holder\` holds \`$branch\`, and this agent was handed that slice. The checkout was kept because \`$condition\`."
@@ -1042,6 +1095,7 @@ blocked_on_held_checkout() { # $1=holder $2=branch $3=condition $4=extra prose
   text="$text Plot removes only a checkout that yields on all six conditions, and never with \`--force\`, so nothing in that tree was touched. Read it, land or discard what it holds, then \`git worktree remove $holder\` and restart this agent with \`/plot-dispatch --restart $branch\`."
   echo "plot-worker-loop: the checkout at $holder keeps $branch ($condition) — leaving it untouched and asking a person" >&2
   write_blocked_marker "${PLOT_WORKTREE:-$PWD}" "$text"
+  record_refused_slice "$branch"
 }
 
 # Take the desk over for a new branch.
@@ -1533,6 +1587,42 @@ resolve_prompt_file() { # $1 = repo root, $2 = agent name ('' when none)
       ;;
   esac
   return 0
+}
+
+# WHETHER THE MANIFEST A WAITING LOOP POLLS STILL STANDS — `loopRegistration`
+# (`packages/domain/src/rules/desk-manifest.ts`), duplicated here for the
+# reason `docs/shell-and-domain.md` states: `wait_for_work` calls this once per
+# `WAIT_POLL_SECONDS` per agent, where a 39 ms `node` hop is a cost paid by
+# every waiting agent forever. `[ -f ]` answers it. `desk-manifest.corpus.test.ts`
+# holds the pair; on a disagreement the branch stops.
+#
+# DEFINED ABOVE THE `PLOT_WORKER_LOOP_SOURCED` GUARD, for `resolve_prompt_file`'s
+# own reason stated below: the guard returns before `wait_for_work` is defined,
+# so a function `wait_for_work` calls must sit above it too, or a test sourcing
+# this file for it gets `command not found` rather than the function.
+#
+# PRINTS THE WORD ON STDOUT, exactly as `assigned_branch` prints its branch —
+# the loop runs under `set -uo pipefail` with no `-e`, and a bare non-zero
+# return from a helper called inside an arithmetic or `[` context can leak past
+# the `case` that means to contain it. Returning the word on stdout and
+# `case`-ing on the CALLER side cannot leak a status anywhere.
+#
+# `unset` IS NOT `gone`. Absent is not false: `PLOT_MANIFEST_FILE` empty means
+# a hand-started loop, a supported shape `workerloop.test.mjs`'s wait tests
+# pin by blanking the variable in seven fixtures. Only a NAME pointing at a
+# missing file is `gone`.
+#
+# @param $1 PLOT_MANIFEST_FILE as the loop holds it, possibly empty
+# @return always 0; the word is what the caller reads
+loop_registration() { # $1=manifest file → prints registered|unset|gone
+  local manifest="$1"
+  if [ -z "$manifest" ]; then
+    printf 'unset'
+  elif [ -f "$manifest" ]; then
+    printf 'registered'
+  else
+    printf 'gone'
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -2400,7 +2490,7 @@ run_bounded() {
 #
 # @param $1 the reason `--next` was silent, as `--why-nothing` reported it
 # @return 0 when a slice became available (the caller re-asks `--next`),
-#         124 when the budget ran out
+#         124 when the budget ran out, 124 when the manifest vanished mid-wait
 wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
   # THE SEPARATOR IS A VARIABLE, not a literal in a `case` pattern. A bare tab
   # inside `case ... in (*<TAB>*)` is read as a word separator by bash and the
@@ -2459,6 +2549,20 @@ wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
       echo "plot-worker-loop: taken up on ${PLOT_SLUG:-?} after waiting ${slept}s — the registry handed over a slice." >&2
       return 0
     fi
+
+    # THE MANIFEST ITSELF MAY HAVE VANISHED. `#1101` measured a continuation
+    # that spawned a loop with NO `PLOT_MANIFEST_FILE` at all — `unset`, which
+    # keeps waiting, exactly as it always has. This is the other shape: a NAME
+    # naming a manifest the registry has since removed. `unset` must not take
+    # this branch, which is why `loop_registration` reads `[ -z ]` before
+    # `[ -f ]` rather than folding the two into one test.
+    case "$(loop_registration "${PLOT_MANIFEST_FILE:-}")" in
+      gone)
+        echo "plot-worker-loop: the manifest named at ${PLOT_MANIFEST_FILE} is gone — ending worker. Nothing was cut short: no prompt was running and the agent holds no branch." >&2
+        write_ending "$PLOT_WORKTREE" 'unregistered' 'agent' "${PLOT_BRANCH:-}" "the manifest named at ${PLOT_MANIFEST_FILE} is gone"
+        return 124
+        ;;
+    esac
   done
 }
 
