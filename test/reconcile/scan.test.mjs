@@ -3004,6 +3004,10 @@ ${status('Approved')}
 ### Annotated already (Branch: bug/annotated-heading) <!-- waits: bug/stated-heading -->
 
 **This slice waits on the branch above**, and its line says so — the annotation is the fix, so this must be silent.
+
+### Annotated twice (Branch: bug/annotated-twice) <!-- waits: bug/stated-heading --> <!-- waits: bug/annotated-heading -->
+
+**This slice waits on both slices above**, and its line carries two markers — still annotated, so this must be silent too.
 `);
 
   // The list dialect: branch, annotation and body are ONE line.
@@ -3100,6 +3104,11 @@ test('scan: section 18 is silent on a slice that carries the annotation', () => 
     `an annotated heading is the fixed state:\n${swSections['18']}`);
   assert.doesNotMatch(swSections['18'], /bug\/annotated-list/,
     `and so is an annotated list item:\n${swSections['18']}`);
+  // A LINE WITH TWO MARKERS IS STILL ANNOTATED. The parser now reads every
+  // marker on a line (`the-parser-reads-every-wait`); section 18 reads the raw
+  // line for the presence of one, and that must not change.
+  assert.doesNotMatch(swSections['18'], /bug\/annotated-twice/,
+    `a two-marker line is annotated:\n${swSections['18']}`);
 });
 
 test('scan: section 18 does not match a wait whose subject is not the slice', () => {

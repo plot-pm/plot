@@ -48,7 +48,7 @@ interface RawBranch {
  * Renames one branch line into the port's shape.
  *
  * `waits_on` is ABSENT rather than empty on a branch declaring no wait — the
- * parser's own contract (`plot-plan-meta.sh:669-680`) — so the default below is
+ * parser's own contract (`plot-plan-meta.sh:677-688`) — so the default below is
  * what turns that absence into `PlanRecordBranch.waitsOn`'s `[]`.
  *
  * BOTH SHAPES ARE ACCEPTED. `plot-plan-meta.sh` now emits a list

@@ -219,7 +219,8 @@
 #                  is dropped from `waits_on` rather than silently discarding
 #                  it: a plan documenting the annotation as prose on a line with
 #                  no branch stays silent, since reporting that would fire on
-#                  every such plan. ALWAYS present; [] when none.
+#                  every such plan. A marker inside a code span is quoted, not
+#                  written, and is read nowhere. ALWAYS present; [] when none.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -357,10 +358,17 @@ function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 # `gensub` — both gawk-only. So this loops with plain `match()` plus `substr()`
 # over the remainder of the line, the same technique the rest of this parser
 # already uses for `prs` and `issues`.
+#
+# A MARKER INSIDE A CODE SPAN IS QUOTED, NOT WRITTEN: Markdown renders it as
+# text, so it annotates nothing. Spans are removed before the search. Measured
+# on `main`: `2026-09-01-a-slice-can-wait-on-another-plan.md` quotes
+# `<!-- waits: <branch> -->` on its own branch line, and without this strip it
+# reported as an unread wait.
 function parse_waits(s, outArr,   rest, raw, parts, np, i, v, j, dup, n_out) {
   n_out = 0
   delete pending_unread_value; pending_unread_n = 0
   rest = s
+  gsub(/`[^`]*`/, "", rest)
   while (match(rest, /<!--[ \t]*waits:[ \t]*/)) {
     raw = substr(rest, RSTART + RLENGTH)
     rest = substr(rest, RSTART + RLENGTH)

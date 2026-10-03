@@ -5,7 +5,7 @@ import { branchOf } from '../src/adapters/plan-store/plan-store-shell.js';
  * `branchOf` renames one branch line from `plot-plan-meta.sh`'s wire shape into
  * the port's. `waits_on` is the field under test: the parser emits it only on a
  * branch line carrying a `<!-- waits: ... -->` annotation
- * (`plot-plan-meta.sh:669-680`), so a declared-none branch's line carries no key
+ * (`plot-plan-meta.sh:677-688`), so a declared-none branch's line carries no key
  * at all rather than an empty string.
  */
 describe('branchOf — waits_on maps to waitsOn', () => {

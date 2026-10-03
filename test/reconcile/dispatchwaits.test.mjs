@@ -60,7 +60,7 @@ function makeRepo({ waitsOn = null, deferred = null, branch = 'feature/dependent
     + '- **Worker command:** none\n');
   fs.mkdirSync(path.join(repo, 'plans'), { recursive: true });
   const notes = [
-    waitsOn ? `<!-- waits: ${waitsOn} -->` : '',
+    ...[].concat(waitsOn ?? []).map((w) => `<!-- waits: ${w} -->`),
     deferred ? `<!-- deferred: ${deferred} -->` : '',
   ].filter(Boolean).join(' ');
   fs.writeFileSync(path.join(repo, 'plans', '2026-09-02-dependent.md'),
@@ -283,4 +283,86 @@ test('waits: a branch declaring nothing is asked nothing', () => {
     `an unannotated branch dispatches as it always did:\n${stdout}`);
   assert.doesNotMatch(stdout, /waiting on|blocked/,
     `and acquires no wait:\n${stdout}`);
+});
+
+// --- Two prerequisites -----------------------------------------------------
+//
+// THE PARSER EMITS A LIST, and `waits_pairs` must read every name in it. The
+// old pattern `"waits_on":"[^"]*"` does not match an array, so a dispatch left
+// unmigrated reads every slice as waiting on nothing and dispatches a held one
+// (#1153). `[merged, unmerged]` is the case that catches that: a dispatch that
+// reads nothing, or only the first name, lets it through.
+
+// A `gh` shim answering per prerequisite: `answers` maps a branch to `MERGED`
+// or `OPEN`. Every other branch reports no PR, for the reason `ghShim` gives.
+const ghShimMany = (answers) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waits-gh-'));
+  ctx.push(dir);
+  const arms = Object.entries(answers).map(([prereq, state]) =>
+    `    ${prereq}) printf '%s' '{"number":42,"state":"${state}","isDraft":false,`
+    + `"url":"https://example.invalid/pr/42","mergeCommit":{"oid":"deadbee"}}' ;;\n`).join('');
+  fs.writeFileSync(path.join(dir, 'gh'),
+    '#!/usr/bin/env bash\n'
+    + 'if [ "$1 $2" = "pr view" ]; then\n'
+    + '  case "$3" in\n'
+    + arms
+    + '    *) echo "no pull requests found" >&2; exit 1 ;;\n'
+    + '  esac\n'
+    + 'fi\n'
+    + 'echo "{}"\n');
+  fs.chmodSync(path.join(dir, 'gh'), 0o755);
+  return dir;
+};
+
+test('waits: [merged, unmerged] is refused and names only the unmerged one', () => {
+  const repo = makeRepo({ waitsOn: ['bug/first', 'bug/second'] });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'],
+    { gh: ghShimMany({ 'bug/first': 'MERGED', 'bug/second': 'OPEN' }) });
+
+  assert.match(stdout, /skipped feature\/dependent \(waiting on bug\/second\)/,
+    `the refusal must name the prerequisite that has not merged:\n${stdout}`);
+  assert.doesNotMatch(stdout, /waiting on bug\/first/,
+    `a merged prerequisite is not named:\n${stdout}`);
+  assert.doesNotMatch(stdout, /would dispatch feature\/dependent/,
+    `a branch with one unmerged prerequisite must not be offered:\n${stdout}`);
+  assert.match(stdout, /summary: dispatched=0 .*skipped=1/, stdout);
+});
+
+test('waits: [unmerged, merged] is refused too — the order does not decide', () => {
+  const repo = makeRepo({ waitsOn: ['bug/first', 'bug/second'] });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'],
+    { gh: ghShimMany({ 'bug/first': 'OPEN', 'bug/second': 'MERGED' }) });
+
+  assert.match(stdout, /skipped feature\/dependent \(waiting on bug\/first\)/, stdout);
+  assert.doesNotMatch(stdout, /would dispatch feature\/dependent/, stdout);
+});
+
+test('waits: [merged, merged] dispatches', () => {
+  const repo = makeRepo({ waitsOn: ['bug/first', 'bug/second'] });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'],
+    { gh: ghShimMany({ 'bug/first': 'MERGED', 'bug/second': 'MERGED' }) });
+
+  assert.match(stdout, /would dispatch feature\/dependent/,
+    `two cleared prerequisites must not hold the branch:\n${stdout}`);
+  assert.doesNotMatch(stdout, /waiting on|blocked/, stdout);
+});
+
+test('waits: two unmerged prerequisites refuse the branch ONCE and count it once', () => {
+  const repo = makeRepo({ waitsOn: ['bug/first', 'bug/second'] });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'],
+    { gh: ghShimMany({ 'bug/first': 'OPEN', 'bug/second': 'OPEN' }) });
+
+  assert.equal((stdout.match(/skipped feature\/dependent /g) ?? []).length, 1,
+    `one refusal line per branch, not per prerequisite:\n${stdout}`);
+  assert.match(stdout, /summary: dispatched=0 .*skipped=1/, stdout);
+});
+
+test('waits: --allow-waiting names every unmerged prerequisite it overrides', () => {
+  const repo = makeRepo({ waitsOn: ['bug/first', 'bug/second'] });
+  const { stdout } = run(repo, ['--dry-run', '--allow-waiting', 'dependent'],
+    { gh: ghShimMany({ 'bug/first': 'OPEN', 'bug/second': 'OPEN' }) });
+
+  assert.match(stdout, /waits on bug\/first .*--allow-waiting/, stdout);
+  assert.match(stdout, /waits on bug\/second .*--allow-waiting/, stdout);
+  assert.match(stdout, /would dispatch feature\/dependent/, stdout);
 });

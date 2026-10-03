@@ -2062,13 +2062,11 @@ test('plan-meta: a `waits:` syntax example in prose is not a declaration', () =>
     'a placeholder is not a branch name, so the plan declares no prerequisite');
   assert.deepEqual(byName['feature/real'].waits_on, ['bug/actual'],
     'and a real annotation on the next line is unaffected');
-  // THIS LINE NAMES A BRANCH (`feature/documenting` itself), so the marker it
-  // carries is reported rather than dropped, even though it is written as
-  // prose about the annotation: the parser cannot tell a syntax example on a
-  // branch's own line apart from a real one that happens to be unreadable, and
-  // `unread_waits` exists precisely so that case is surfaced, not guessed at.
-  assert.deepEqual(meta.unread_waits, [{ branch: 'feature/documenting', value: '<branch>' }],
-    'a marker on a branch line is reported whether or not it reads as prose');
+  // THIS LINE NAMES A BRANCH, AND THE MARKER IS STILL NOT REPORTED: it sits in
+  // a code span, which Markdown renders as text, so it annotates nothing. A
+  // report here would fire on this Released plan on `main` for a quotation.
+  assert.deepEqual(meta.unread_waits, [],
+    'a marker quoted in a code span is not an unread wait');
 });
 
 test('plan-meta: a `waits:` value the parser cannot read is reported, not dropped', () => {
@@ -2131,12 +2129,36 @@ test('plan-meta: a `waits:` syntax example on a prose line stays out of unread_w
 
 ## Branches
 
-A branch line writes \`<!-- waits: <branch> -->\` to name a prerequisite, as explained here in prose rather than on a branch's own line.
+A branch line writes <!-- waits: <branch> --> to name a prerequisite, as explained here in prose rather than on a branch's own line.
 
 - \`feature/real\` <!-- waits: bug/actual --> — the only actual branch in this plan.
 `);
   assert.deepEqual(meta.unread_waits, [],
     'a marker on a line with no branch claim is not reported');
+});
+
+test('plan-meta: a `waits:` marker inside a code span on a branch line is quoted, not read', () => {
+  // MARKDOWN RENDERS A CODE SPAN AS TEXT, so a marker inside one annotates
+  // nothing. The measured case: a Released plan quotes the syntax on the line
+  // of the branch that built it, and reconcile reported it as an unread wait.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/quotes-it\` — parses \`<!-- waits: <branch> -->\` beside \`deferred:\`.
+- \`feature/real\` <!-- waits: bug/actual --> — quotes \`<!-- waits: bug/quoted -->\` too.
+`);
+  const branches = meta.waves.flatMap((w) => w.branches);
+  const quotes = branches.find((b) => b.branch === 'feature/quotes-it');
+  const real = branches.find((b) => b.branch === 'feature/real');
+  assert.equal('waits_on' in quotes, false, 'a quoted marker declares no wait');
+  assert.deepEqual(real.waits_on, ['bug/actual'], 'a quoted name does not join the list');
+  assert.deepEqual(meta.unread_waits, [], 'and a quoted marker is not reported');
 });
 
 // `builds:` — what a slice creates, and the field slice 2 will search for.
