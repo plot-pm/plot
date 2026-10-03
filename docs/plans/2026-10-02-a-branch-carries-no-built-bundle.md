@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, jwloka, `bug/main-builds-its-bundles`
+- **Started:** 2026-10-03, jwloka, `bug/a-pr-carries-no-bundle`
 
 ## Changelog
 
