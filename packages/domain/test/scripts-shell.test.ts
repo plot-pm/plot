@@ -347,8 +347,8 @@ describe('the synchronous runners map through the same contract', () => {
 describe('pathOf names a script without running it', () => {
   it('resolves under the context directory', () => {
     const dir = scriptDir({});
-    expect(at(dir).pathOf('plot-resolve-artifact.sh'))
-      .toBe(path.join(dir, 'plot-resolve-artifact.sh'));
+    expect(at(dir).pathOf('plot-reap.sh'))
+      .toBe(path.join(dir, 'plot-reap.sh'));
   });
 });
 

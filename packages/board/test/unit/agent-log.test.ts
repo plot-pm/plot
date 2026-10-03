@@ -21,7 +21,6 @@ import { ideaLogPath, ideaPromptPath } from '../../src/server/idea.js';
 import { storyLogPath, storyPromptPath } from '../../src/server/story.js';
 import { commissionLogPath, commissionPromptPath } from '../../src/server/commission.js';
 import { resliceLogPath } from '../../src/server/reslice.js';
-import { repairLogPath } from '../../src/server/resolver.js';
 import { rmTree } from '../helpers.mjs';
 
 /**
@@ -125,14 +124,6 @@ describe('the nine modules ask the resolver', () => {
     ['storyPromptPath', storyPromptPath(repoRoot, 333), 'plot-story-issue-333.prompt.md'],
   ])('%s resolves through the one resolver', (_name, actual, expected) => {
     expect(actual).toBe(inDeskRoot(expected));
-  });
-
-  it('repairLogPath keys by branch with its slashes flattened', () => {
-    // The one caller whose id is not a slug or a number: a branch name would
-    // otherwise create directories.
-    expect(repairLogPath(repoRoot, 'infra/one-place-decides')).toBe(
-      inDeskRoot('plot-resolve-infra-one-place-decides.log'),
-    );
   });
 });
 

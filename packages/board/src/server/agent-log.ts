@@ -80,9 +80,9 @@ const scriptsDir = (): string =>
  * A record, so it is worth saying what makes it one that cannot go stale in a
  * way that matters. The value read is a line of `CLAUDE.md`, and changing it
  * relocates every future log; a board that honoured the change mid-process
- * would write half a run's three files either side of the move. Reading it once
- * per process is the same answer `repairEnabled` gives for the same reason —
- * the honest cost is a restart, and a restart is what makes the answer whole.
+ * would write half a run's three files either side of the move. Reading it
+ * once per process is the only way to keep that true: the honest cost is a
+ * restart, and a restart is what makes the answer whole.
  */
 const worktreeRootCache = new Map<string, string>();
 

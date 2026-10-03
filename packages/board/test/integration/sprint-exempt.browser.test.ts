@@ -19,7 +19,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', kind: 'pr', branch: 'feature/x', plan: 'member-plan', planFile: '2026-09-01-member-plan.md',
   wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you', ageMinutes: 10,
   waitingOn: 'you', note: 'PR green', pr: null, branchUrl: '', waitingDays: null,
-  localDirty: false, localLocked: false, stuck: null, repair: null, deferredReason: '',
+  localDirty: false, localLocked: false, stuck: null, deferredReason: '',
   ...over,
 } as unknown as AgentRow);
 

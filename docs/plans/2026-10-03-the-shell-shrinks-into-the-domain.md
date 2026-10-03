@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-10-03, jwloka, in-session
+- **Started:** 2026-10-03, Jan Wloka, `infra/the-shell-is-inventoried`
 
 ## Changelog
 
@@ -90,7 +91,7 @@ The gate stores no number, so it cannot drift, two pull requests that each shrin
 
 ### The shell cannot grow
 
-- `infra/the-shell-cannot-grow` <!-- waits: bug/a-pr-carries-no-bundle --> <!-- waits: bug/a-refused-slice-is-held --> <!-- waits: bug/a-continued-loop-carries-its-manifest --> <!-- waits: bug/a-hand-over-is-checked-before-it-is-made --> — `scripts/check-shell-lines.sh`: CI refuses a pull request above its merge base and reports a push range above its start; the Approved siblings that write shell and the brief template name the gate <!-- builds: check-shell-lines.sh, a shell code ratchet with no stored number -->
+- `infra/the-shell-cannot-grow` <!-- waits: bug/a-pr-carries-no-bundle --> <!-- waits: bug/a-refused-slice-is-held --> <!-- waits: bug/a-continued-loop-carries-its-manifest --> <!-- waits: bug/a-hand-over-is-checked-before-it-is-made --> — `scripts/check-shell-lines.sh`: CI refuses a pull request above its merge base and reports a push range above its start; the Approved siblings that write shell and the brief template name the gate → #1264 <!-- builds: check-shell-lines.sh, a shell code ratchet with no stored number -->
 
 ### The shell is inventoried
 

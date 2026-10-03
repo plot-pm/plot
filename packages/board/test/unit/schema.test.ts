@@ -6,6 +6,8 @@ import {
   AgentStateSchema, WorkerActivitySchema, isLiveState, isBrokenState,
 } from '../../src/contract/schema';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
+import { rowsFromPulse } from '../../src/server/fleet.js';
+import type { FleetReading } from '../../src/contract/schema';
 
 describe('ServerInfoSchema — the branch the server serves', () => {
   it('carries the branch the server reported', () => {
@@ -371,6 +373,36 @@ describe('AgentRowSchema.pr', () => {
     for (const s of ['green', 'pending', 'failing', 'none', 'conflicts', 'unknown']) {
       expect(row({ number: 1, url: '', state: s }).pr!.state).toBe(s);
     }
+  });
+});
+
+describe('AgentRowSchema — a branch row carries no repair', () => {
+  // `bug/the-artifact-repair-is-retired` removed the board's automatic bundle
+  // repair, and with it the row field that reported it. The client casts the
+  // fleet and never parses it, so a Zod default would hide a server that still
+  // sent the field: these assert the schema's shape, from which `AgentRow` is
+  // inferred, and the row the server builds.
+  it('declares no repair field', () => {
+    expect(Object.keys(AgentRowSchema.shape)).not.toContain('repair');
+  });
+
+  it('parses a branch row that has no repair field', () => {
+    const parsed = AgentRowSchema.parse({
+      repo: 'plot', branch: 'feature/x', plan: 'p', wave: 'One', state: 'wip',
+      group: 'waiting-on-you', ageMinutes: 3, note: 'n', pr: null,
+    });
+    expect(parsed).not.toHaveProperty('repair');
+  });
+
+  it('is built by the server without one', () => {
+    const pulse = { plans: [], summary: {} } as unknown as FleetReading;
+    const rows = rowsFromPulse(
+      pulse, new Map([['feature/x', 60]]), 'plot', 12 * 60, new Map() as never, '', null,
+      Date.now(), null, null, null, null, null, '', null, new Set(['feature/x']),
+    );
+    const row = rows.find((r) => r.branch === 'feature/x');
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('repair');
   });
 });
 
