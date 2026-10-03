@@ -47,6 +47,18 @@ export interface TreeReadings {
   dirtyPath: string;
   /** Whether the tree carries a `PLOT-BLOCKED*` marker. */
   blockedMarker: boolean;
+  /**
+   * Whether the desk holds anything besides its `PLOT-BLOCKED*` marker — a
+   * dirty path other than the marker itself, or a file-changing commit.
+   *
+   * Read only when {@link TreeReadings.blockedMarker} is true. Absent is not
+   * false: a caller that did not take this reading has not thereby reported an
+   * empty marker, so `blocked-marker` still refuses as it always has. Only an
+   * explicit `false` — the caller measured and found nothing else there —
+   * lets a marker through to `deskLifecycle`'s `refused-empty`, which is
+   * reapable once its text is saved. See `rules/desk-lifecycle.ts`.
+   */
+  markerRecordsWork?: boolean;
   /** What the host said about any PR for this branch. */
   merge: MergeReading;
   /**
@@ -101,7 +113,12 @@ export const reapProblems = (readings: TreeReadings): ReapProblem[] => {
   if (readings.workerPid !== null && readings.workerPid !== '') {
     problems.push({ refusal: 'live-worker', detail: readings.workerPid });
   }
-  if (readings.blockedMarker) {
+  // `markerRecordsWork === false` is the one reading that lets a marker
+  // through: the caller measured the desk and found nothing beside the
+  // marker, which is `deskLifecycle`'s `refused-empty` — reapable once the
+  // marker's text is saved. `undefined` is not `false`: a caller that took no
+  // such reading has not reported an empty marker, so this still refuses.
+  if (readings.blockedMarker && readings.markerRecordsWork !== false) {
     problems.push({ refusal: 'blocked-marker', detail: '' });
   }
   if (readings.dirtyPath !== '') {

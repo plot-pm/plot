@@ -85,6 +85,33 @@ const objectOr = (value: unknown): Record<string, unknown> =>
     : {};
 
 /**
+ * Read one optional boolean from a request, keeping absent distinct from
+ * `false`.
+ *
+ * `markerRecordsWork` and `claimRef` both need the three-way split a plain
+ * `=== true` test collapses: absent means the shell took no such reading,
+ * and `rules/desk-lifecycle.ts`'s own absent-is-not-false discipline depends
+ * on that distinction surviving the JSON round trip.
+ *
+ * @param value - what the field held.
+ * @returns `true`, `false`, or `undefined` where the field was absent or not
+ *   a boolean.
+ */
+const boolOrAbsent = (value: unknown): boolean | undefined =>
+  typeof value === 'boolean' ? value : undefined;
+
+/**
+ * Read one optional whole number from a request, keeping absent distinct
+ * from `0`.
+ *
+ * @param value - what the field held.
+ * @returns the number, or `undefined` where the field was absent or not a
+ *   finite number.
+ */
+const numberOrAbsent = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : undefined;
+
+/**
  * Read the scope a caller asked for.
  *
  * AN UNRECOGNISED KIND IS THE WORKSPACE, and that is the safe direction here
@@ -237,6 +264,9 @@ const candidateFrom = (value: unknown) => {
       unclassified: evidence.unclassified === true,
       manifest: stringOr(evidence.manifest),
       hasLog: evidence.hasLog === true,
+      claimRef: boolOrAbsent(evidence.claimRef),
+      markerRecordsWork: boolOrAbsent(evidence.markerRecordsWork),
+      fileChangingCommits: numberOrAbsent(evidence.fileChangingCommits),
     },
   };
 };

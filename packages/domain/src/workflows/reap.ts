@@ -49,6 +49,29 @@ export interface ReapEvidence {
    * `false` produces no write instead of a write that would find nothing.
    */
   hasLog: boolean;
+  /**
+   * Whether `origin/<branch>` still exists.
+   *
+   * Read only by {@link DriftFinding}'s desk reporting, through
+   * `rules/desk-lifecycle.ts`'s `claimRef` — {@link reap} itself does not read
+   * it. Optional and absent-is-not-true: a caller that did not measure this
+   * has not thereby reported a ref gone, so a desk lifecycle report built
+   * without it falls back to treating the branch as still named.
+   */
+  claimRef?: boolean;
+  /**
+   * Whether the desk holds anything besides its `PLOT-BLOCKED*` marker.
+   *
+   * Read only by the same reporting path, for `rules/desk-lifecycle.ts`'s
+   * reading of the same name. Absent is not false — see that rule's own
+   * field for why silence must not be read as an empty marker.
+   */
+  markerRecordsWork?: boolean;
+  /**
+   * Commits beyond the default branch that change a file — slice 1's
+   * `realCommits`, read only by the same reporting path.
+   */
+  fileChangingCommits?: number;
 }
 
 /** One worktree and what was measured of it. */

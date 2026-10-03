@@ -2613,6 +2613,49 @@ else
     d_detached=false
     [ -z "$dshort" ] && d_detached=true
 
+    # THE TWO READINGS THIS SLICE ADDS. `deskLifecycle` asks about a desk this
+    # section had never measured before: whether its claim ref survives, and
+    # whether it holds anything besides a marker.
+    #
+    # claimRef — does `origin/<branch>` still exist. A detached desk names no
+    # branch and so has none to check; reading it as present rather than
+    # absent is what keeps a free agent's desk out of `orphaned`, which is
+    # exactly right since it never held a branch to lose the ref of.
+    d_claimref=true
+    if [ -n "$dshort" ]; then
+      git show-ref -q --verify "refs/remotes/origin/$dshort" </dev/null 2>/dev/null \
+        || d_claimref=false
+    fi
+
+    # fileChangingCommits — slice 1's `realCommits`, counted against the LOCAL
+    # `HEAD` rather than `origin/$dshort`: the measured case (`free-50562867`)
+    # is exactly a desk whose remote ref is already gone, so a reading keyed
+    # on the ref would answer nothing for the tree this slice exists to catch.
+    d_filechanging=0
+    for _fcc in $(git -C "$dwt" rev-list "origin/$MAIN..HEAD" </dev/null 2>/dev/null); do
+      _fcc_subj=$(git -C "$dwt" log -1 --format=%s "$_fcc" </dev/null 2>/dev/null)
+      case "$_fcc_subj" in
+        "plot: claim "*)
+          if [ "$(git -C "$dwt" rev-parse "$_fcc^{tree}" </dev/null 2>/dev/null)" \
+               = "$(git -C "$dwt" rev-parse "$_fcc^^{tree}" </dev/null 2>/dev/null)" ]; then
+            continue
+          fi ;;
+      esac
+      d_filechanging=$((d_filechanging + 1))
+    done
+
+    # markerRecordsWork — does the desk hold anything besides its marker: a
+    # dirty path that is not the `PLOT-BLOCKED*` file itself, or a
+    # file-changing commit. `desk_dirt` does not exclude the marker (only
+    # `PLOT-CORRECTION.md`), so a bare `?? PLOT-BLOCKED.md` line is filtered
+    # here rather than read as "the desk is dirty".
+    d_markerrecordswork=false
+    if [ "$d_filechanging" -gt 0 ]; then
+      d_markerrecordswork=true
+    elif [ -n "$(desk_dirt "$dwt" | grep -v 'PLOT-BLOCKED' | head -1)" ]; then
+      d_markerrecordswork=true
+    fi
+
     # Did the host merge ANY PR for this branch? The estate's one answer,
     # from the merged-PR list this scan already bundled — never `state`, never
     # ancestry. Unreachable answers *not merged*, so silence is never
@@ -2636,9 +2679,10 @@ else
       d_merged=true
     fi
 
-    desk_rows+=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    desk_rows+=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$dwt" "$dshort" "$d_dispatch" "$d_unclassified" "$d_pid" \
-      "$d_marker" "$d_clean" "$d_main" "$d_detached" "$d_merged")
+      "$d_marker" "$d_clean" "$d_main" "$d_detached" "$d_merged" \
+      "$d_claimref" "$d_markerrecordswork" "$d_filechanging")
     desk_rows+=$'\n'
   done < <(git worktree list --porcelain \
             | awk -v OFS="\037" '/^worktree /{ if (p != "") print p, br, pr; p=$2; br=""; pr="no"; next }
@@ -2651,8 +2695,10 @@ const rows = [];
 for await (const chunk of process.stdin) rows.push(chunk);
 const text = rows.join("");
 const candidates = text.split("\n").filter((l) => l.trim() !== "").map((line) => {
-  const [path, branch, dispatch, unclassified, pid, marker, clean, isMain, detached, merged] =
-    line.split("\t");
+  const [
+    path, branch, dispatch, unclassified, pid, marker, clean, isMain, detached, merged,
+    claimRef, markerRecordsWork, fileChangingCommits,
+  ] = line.split("\t");
   return {
     tree: {
       path, branch, detached: detached === "true", isMain: isMain === "true",
@@ -2662,6 +2708,8 @@ const candidates = text.split("\n").filter((l) => l.trim() !== "").map((line) =>
       workerAlive: pid !== "", blockedMarker: marker === "true",
       hasMergedPr: merged === "true", isDispatchTree: dispatch === "true",
       unclassified: unclassified === "true", manifest: "", hasLog: false,
+      claimRef: claimRef === "true", markerRecordsWork: markerRecordsWork === "true",
+      fileChangingCommits: Number(fileChangingCommits) || 0,
     },
   };
 });

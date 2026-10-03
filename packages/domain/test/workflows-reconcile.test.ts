@@ -206,18 +206,24 @@ describe('reconcile — which desks are drift and which are noise', () => {
   // The case that strands finished code: measured twice on 2026-09-09, one desk
   // held 75 finished lines and another 324, both rescued by a person.
   it('reports a dirty desk as NEEDING A PERSON and offers no command', () => {
+    // Merged, with something left on the floor — `deskLifecycle`'s
+    // `holding-work`, whose exit is a person deciding whether to push it or
+    // let it go.
     const dirty = finishedDesk({ clean: false });
     const [finding] = deskFindings(dirty);
-    expect(finding?.evidence).toContain('uncommitted-changes');
+    expect(finding?.evidence).toContain('holding-work');
     expect(finding?.repair).toBe('');
   });
 
   it('reports a blocked desk, which is an agent waiting on an answer', () => {
+    // No `markerRecordsWork` reading supplied — absent is not false, so this
+    // reads `refused-with-work` rather than the reapable `refused-empty`.
     const blocked = {
       ...finishedDesk(),
       evidence: { ...finishedDesk().evidence, blockedMarker: true },
     };
-    expect(deskFindings(blocked)[0]?.evidence).toContain('blocked-marker');
+    expect(deskFindings(blocked)[0]?.evidence).toContain('refused-with-work');
+    expect(deskFindings(blocked)[0]?.repair).toBe('');
   });
 
   it('names the desk path, because the repair is per-directory', () => {
