@@ -1,5 +1,5 @@
 import { type AgentReading, isAgentFree } from './free.js';
-import { sliceVerdicts, waitVerdict, type PrereqAnswer } from './eligible.js';
+import { sliceVerdicts, type PrereqAnswer } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
 import { unnamedBranches } from './slice-name.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
@@ -651,18 +651,18 @@ export const planQueue = (
       // reader must act on rather than the full declaration — unlike the
       // board's row sentence, which names every prerequisite the plan declares.
       const unresolved = answers.filter((a) => a.answer !== 'merged');
-      let waitHeld: '' | 'unmerged' | 'unreachable' = '';
-      if (unresolved.length > 0) {
-        // `prerequisiteAnswer` never answers `merged` as `waiting` —
-        // `waitVerdict` clears on it — so a non-empty `unresolved` always
-        // yields `waiting`, and the cast says why rather than narrowing
-        // silently.
-        if (waitVerdict(answers) === 'waiting') {
-          waitHeld = unresolved.some((a) => a.answer === 'unreachable')
+      // `prerequisiteAnswer` NEVER ANSWERS `none` — the merged listing cannot
+      // tell *never had a PR* from *has an open PR*, so it only ever says
+      // `merged`, `unmerged` or `unreachable`. `waitVerdict` therefore never
+      // reads `blocked` here, and a non-empty `unresolved` is always
+      // `waiting`: calling it would just re-derive what filtering out
+      // `merged` already established.
+      const waitHeld: '' | 'unmerged' | 'unreachable' =
+        unresolved.length === 0
+          ? ''
+          : unresolved.some((a) => a.answer === 'unreachable')
             ? 'unreachable'
             : 'unmerged';
-        }
-      }
       queued.push({
         branch: line.branch,
         slug,
