@@ -3141,14 +3141,10 @@ for line in sys.stdin:
             # letters -- isinstance guards it, so that shape still passes
             # through as one name.
             waits_on = b.get("waits_on")
-            if isinstance(waits_on, list):
-                waits_col = ",".join(waits_on) if waits_on else "-"
-            else:
-                waits_col = waits_on or "-"
             print("\t".join(clean(x) for x in [
                 "W", f, str(i), ref, str(b.get("deferred")).lower(),
                 (b.get("deferred_reason") or "-"),
-                waits_col,
+                (",".join(waits_on) if isinstance(waits_on, list) else waits_on) or "-",
                 name or "-", b.get("claimed") or "-"]))
 ' 2>/dev/null) || records=""
 
@@ -4437,8 +4433,7 @@ for plan in "${plans[@]}"; do
       # equal length and throws otherwise, so a single answer for several names
       # would desync them. Field 11 is carried, unreplaced.
       waits_state=""
-      IFS=',' read -ra _waits_names <<< "$waits_br"
-      for _wn in "${_waits_names[@]}"; do
+      for _wn in ${waits_br//,/ }; do
         waits_state+="${waits_state:+,}$(waits_pr_state "$_wn")"
       done
       refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$waits_state	$(printf '%s' "$rd_line" | cut -f11)"$'\n'
@@ -4728,21 +4723,9 @@ for plan in "${plans[@]}"; do
         # and a reader who sees a cleared dependency learns why the slice is
         # now startable. Consumers test `state`, never the presence of this.
         #
-        # `$waits` IS COMMA-JOINED NAMES, never PR states: split on the same
-        # separator the shim joined with, each name JSON-escaped on its own.
-        json_waits_on="[]"
-        if [ -n "$waits" ] && [ "$waits" != "-" ]; then
-          json_waits_on="["
-          IFS=',' read -ra _waits_names_out <<< "$waits"
-          _wfirst=1
-          for _wn in "${_waits_names_out[@]}"; do
-            [ "$_wfirst" = 1 ] || json_waits_on+=","
-            json_waits_on+="\"$(json_str "$_wn")\""
-            _wfirst=0
-          done
-          json_waits_on+="]"
-        fi
-        json_branches+=",\"waits_on\":$json_waits_on"
+        # `$waits` IS COMMA-JOINED NAMES, never PR states: one name per line
+        # for `json_array`, which escapes each.
+        json_branches+=",\"waits_on\":$(json_array "${waits//,/$'\n'}")"
         json_branches+=",\"claimed\":\"$(json_str "$claim")\""
         # What this machine knows and the refs do not. Absent everywhere else:
         # `local_dirty:false` and `local_worktree:""` are what a branch checked

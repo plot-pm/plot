@@ -3075,12 +3075,9 @@ waits_pairs() { # → branch<TAB>prerequisite, one line per prerequisite
         if (rec ~ /"deferred":true/) continue
         if (match(rec, /"waits_on":\[[^]]*\]/)) {
           list = substr(rec, RSTART + 12, RLENGTH - 13)
-          m = split(list, names, /","/)
-          for (j = 1; j <= m; j++) {
-            w = names[j]
-            gsub(/^"|"$/, "", w)
-            if (w != "") print br "\t" w
-          }
+          gsub(/"/, "", list)
+          m = split(list, names, ",")
+          for (j = 1; j <= m; j++) if (names[j] != "") print br "\t" names[j]
         }
       }
     }'

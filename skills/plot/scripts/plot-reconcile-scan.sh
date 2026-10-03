@@ -3166,19 +3166,17 @@ echo
 # verdict either, so the slice holds no annotation at all until a person fixes
 # the value — a legibility gap, not a broken pointer.
 echo "== 24a. Unread waits (a waits: marker on a branch line the parser could not read) =="
-unread_waits_out=""
 if [ -n "$plan_json" ]; then
   while IFS="$US" read -r f branch value; do
     [ -n "$f" ] || continue
-    base=$(basename "$f")
-    unread_waits_out+="  $base — branch '$branch' names a waits: value the parser could not read: '$value'\n"
-    unread_waits_out+="    rewrite: the value as a branch name, with a configured prefix ($PREFIX_RE)\n"
+    printf "  %s — branch '%s' names a waits: value the parser could not read: '%s'\n    rewrite: the value as a branch name, with a configured prefix (%s)\n" \
+      "$(basename "$f")" "$branch" "$value" "$PREFIX_RE"
     n_unread_waits=$((n_unread_waits + 1))
   done < <(printf '%s\n' "$plan_json" \
     | jq -r 'select(.phase != "NONE") | .file as $f
-             | .unread_waits[]? | [$f, .branch, .value] | join("")')
+             | .unread_waits[]? | [$f, .branch, .value] | join("\u001f")')
 fi
-if [ -n "$unread_waits_out" ]; then printf '%b' "$unread_waits_out"; else echo "  (none — every waits: marker on a branch line was read)"; fi
+[ "$n_unread_waits" -gt 0 ] || echo "  (none — every waits: marker on a branch line was read)"
 echo
 
 # ---------------------------------------------------------------------------

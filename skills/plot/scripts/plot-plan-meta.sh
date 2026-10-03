@@ -364,31 +364,33 @@ function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 # on `main`: `2026-09-01-a-slice-can-wait-on-another-plan.md` quotes
 # `<!-- waits: <branch> -->` on its own branch line, and without this strip it
 # reported as an unread wait.
-function parse_waits(s, outArr,   rest, raw, parts, np, i, v, j, dup, n_out) {
+function parse_waits(s, outArr,   raw, parts, np, i, seen, n_out) {
   n_out = 0
   delete pending_unread_value; pending_unread_n = 0
-  rest = s
-  gsub(/`[^`]*`/, "", rest)
-  while (match(rest, /<!--[ \t]*waits:[ \t]*/)) {
-    raw = substr(rest, RSTART + RLENGTH)
-    rest = substr(rest, RSTART + RLENGTH)
+  gsub(/`[^`]*`/, "", s)
+  while (match(s, /<!--[ \t]*waits:[ \t]*/)) {
+    s = substr(s, RSTART + RLENGTH)
+    raw = s
     sub(/-->.*$/, "", raw)
-    raw = trim(raw)
-    np = split(raw, parts, /[ \t]*,[ \t]*/)
+    np = split(trim(raw), parts, /[ \t]*,[ \t]*/)
     for (i = 1; i <= np; i++) {
-      v = trim(parts[i])
-      if (v == "") continue
-      if (v ~ "^(" PREFIXES ")/[^ \t,]+$") {
-        dup = 0
-        for (j = 1; j <= n_out; j++) if (outArr[j] == v) { dup = 1; break }
-        if (!dup) outArr[++n_out] = v
-      } else {
-        pending_unread_value[++pending_unread_n] = v
-      }
+      if (parts[i] == "") continue
+      if (parts[i] !~ "^(" PREFIXES ")/[^ \t,]+$") pending_unread_value[++pending_unread_n] = parts[i]
+      else if (!(parts[i] in seen)) outArr[++n_out] = parts[i]
+      seen[parts[i]] = 1
     }
   }
   outArr[0] = n_out
   return n_out
+}
+# The value of the LAST `<!-- key: value -->` marker on a line, trimmed, the
+# text up to its closing `-->`. `key` is a regex alternation (`deferred|moved`).
+# Both slice dialects read `claimed:`, `deferred:`, `builds:` and `agent:`
+# through this one reader. Each caller keeps its own presence test.
+function marker_value(s, key) {
+  sub("^.*<!--[ \t]*(" key "):[ \t]*", "", s)
+  sub(/[ \t]*-->.*$/, "", s)
+  return trim(s)
 }
 # Value after the first colon, stripped of bold markers / quotes / space.
 function val_after_colon(s) {
@@ -1073,13 +1075,7 @@ section == "slices" && slice_shape != "heading" {
   # a reflection, not the claim: git refs remain authoritative. Computed before
   # the branch loop below — match() clobbers RSTART/RLENGTH, which that loop
   # needs to advance.
-  claim_note = ""
-  if (index($0, "claimed:") > 0) {
-    _c = $0
-    sub(/^.*<!--[ \t]*claimed:[ \t]*/, "", _c)
-    sub(/[ \t]*-->.*$/, "", _c)
-    claim_note = trim(_c)
-  }
+  claim_note = (index($0, "claimed:") > 0) ? marker_value($0, "claimed") : ""
   # THE REASON FOR THE DEFERRAL, and not merely the fact of one.
   #
   # `<!-- deferred: verified already implemented 2026-08-17 — startRepair() at
@@ -1108,13 +1104,7 @@ section == "slices" && slice_shape != "heading" {
   # The two words differ in what they tell a READER — given up, versus taken
   # somewhere else — and the reason is kept verbatim, so the distinction is not
   # lost by being read alike.
-  defer_note = ""
-  if (index($0, "deferred:") > 0 || index($0, "moved:") > 0) {
-    _d = $0
-    sub(/^.*<!--[ \t]*(deferred|moved):[ \t]*/, "", _d)
-    sub(/[ \t]*-->.*$/, "", _d)
-    defer_note = trim(_d)
-  }
+  defer_note = (index($0, "deferred:") > 0 || index($0, "moved:") > 0) ? marker_value($0, "deferred|moved") : ""
   # THE PREREQUISITES THIS BRANCH NAMES: `<!-- waits: bug/other-branch -->`.
   #
   # A LIST, not one name. Several `<!-- waits: … -->` comments on a line, or one
@@ -1168,15 +1158,8 @@ section == "slices" && slice_shape != "heading" {
   # `has_builds` carries presence separately from the value, exactly as
   # `waits:` does: a slice declaring nothing emits no key, so a consumer reads
   # a deliverable or nothing and never a blank string that looks like one.
-  builds_note = ""
-  has_builds = 0
-  if ($0 ~ /<!--[ \t]*builds:[ \t]*/) {
-    _bl = $0
-    sub(/^.*<!--[ \t]*builds:[ \t]*/, "", _bl)
-    sub(/[ \t]*-->.*$/, "", _bl)
-    builds_note = trim(_bl)
-    if (builds_note != "") has_builds = 1
-  }
+  builds_note = ($0 ~ /<!--[ \t]*builds:[ \t]*/) ? marker_value($0, "builds") : ""
+  has_builds = (builds_note != "")
   # WHICH KIND OF AGENT THIS SLICE NEEDS: `<!-- agent: reviewer -->`.
   #
   # `--agent <name>` was the only selector and only an operator could type it.
@@ -1206,15 +1189,8 @@ section == "slices" && slice_shape != "heading" {
   # `has_agent` carries presence separately from the value, as all three
   # annotations before it do: a slice naming no kind emits no key, so dispatch
   # reads a name or nothing and never a blank string that looks like one.
-  agent_note = ""
-  has_agent = 0
-  if ($0 ~ /<!--[ \t]*agent:[ \t]*/) {
-    _ag = $0
-    sub(/^.*<!--[ \t]*agent:[ \t]*/, "", _ag)
-    sub(/[ \t]*-->.*$/, "", _ag)
-    agent_note = trim(_ag)
-    if (agent_note != "") has_agent = 1
-  }
+  agent_note = ($0 ~ /<!--[ \t]*agent:[ \t]*/) ? marker_value($0, "agent") : ""
+  has_agent = (agent_note != "")
   # ONE LIST ITEM, AT MOST ONE CLAIM — an `if`, not the `while` this was.
   #
   # The old loop walked the line taking every backticked name on it, which is
@@ -1315,13 +1291,7 @@ section == "slices" && slice_shape == "heading" {
 
   # Claim/deferral annotations bind to the line carrying the branch name, which
   # is the heading. Read before any match() below, which clobbers RSTART/RLENGTH.
-  claim_note = ""
-  if (index($0, "claimed:") > 0) {
-    _c = $0
-    sub(/^.*<!--[ \t]*claimed:[ \t]*/, "", _c)
-    sub(/[ \t]*-->.*$/, "", _c)
-    claim_note = trim(_c)
-  }
+  claim_note = (index($0, "claimed:") > 0) ? marker_value($0, "claimed") : ""
   # `moved:` IS THE SAME ANSWER AS `deferred:`, and CLAUDE.md has said so since
   # the reconcile scan was written: *"`deferred:`/`moved:` in the plan means
   # reapable"*. `plot-reconcile-scan.sh:504` matches both in one arm; this
@@ -1333,16 +1303,7 @@ section == "slices" && slice_shape == "heading" {
   # The two words differ in what they tell a READER — given up, versus taken
   # somewhere else — and the reason is kept verbatim, so the distinction is not
   # lost by being read alike.
-  defer_note = ""
-  if (index($0, "deferred:") > 0 || index($0, "moved:") > 0) {
-    _d = $0
-    sub(/^.*<!--[ \t]*(deferred|moved):[ \t]*/, "", _d)
-    sub(/[ \t]*-->.*$/, "", _d)
-    defer_note = trim(_d)
-  }
-  # The prerequisite, read exactly as the list-item spelling reads it. Both
-  # dialects emit the same waves[], so a field added to one only would break
-  # that contract the first time a plan migrated.
+  defer_note = (index($0, "deferred:") > 0 || index($0, "moved:") > 0) ? marker_value($0, "deferred|moved") : ""
   # WHAT THIS SLICE BUILDS: `<!-- builds: normalizeVersion, a shared helper -->`.
   #
   # AN ANNOTATION, NOT A FIELD LINE, and that is what makes it work in BOTH
@@ -1367,15 +1328,8 @@ section == "slices" && slice_shape == "heading" {
   # `has_builds` carries presence separately from the value, exactly as
   # `waits:` does: a slice declaring nothing emits no key, so a consumer reads
   # a deliverable or nothing and never a blank string that looks like one.
-  builds_note = ""
-  has_builds = 0
-  if ($0 ~ /<!--[ \t]*builds:[ \t]*/) {
-    _bl = $0
-    sub(/^.*<!--[ \t]*builds:[ \t]*/, "", _bl)
-    sub(/[ \t]*-->.*$/, "", _bl)
-    builds_note = trim(_bl)
-    if (builds_note != "") has_builds = 1
-  }
+  builds_note = ($0 ~ /<!--[ \t]*builds:[ \t]*/) ? marker_value($0, "builds") : ""
+  has_builds = (builds_note != "")
   # The prerequisites, read exactly as the list-item spelling reads them — see
   # parse_waits() and the comment at the list-item block for why the value is a
   # list, why it stops at whitespace/comma, and how an unreadable value reaches
@@ -1386,15 +1340,8 @@ section == "slices" && slice_shape == "heading" {
   # dialects emit the same waves[], so a field added to one only would break that
   # contract the first time a plan migrated. See the list-item block for why the
   # value runs to the closing marker and why this one cannot validate itself.
-  agent_note = ""
-  has_agent = 0
-  if ($0 ~ /<!--[ \t]*agent:[ \t]*/) {
-    _ag = $0
-    sub(/^.*<!--[ \t]*agent:[ \t]*/, "", _ag)
-    sub(/[ \t]*-->.*$/, "", _ag)
-    agent_note = trim(_ag)
-    if (agent_note != "") has_agent = 1
-  }
+  agent_note = ($0 ~ /<!--[ \t]*agent:[ \t]*/) ? marker_value($0, "agent") : ""
+  has_agent = (agent_note != "")
 
   # The branch is the `Branch:` value, matched against the known prefixes exactly
   # as the old shape matched the backticked name. Written unquoted in the heading
