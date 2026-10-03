@@ -69,6 +69,30 @@ function sandbox(label) {
 }
 
 /**
+ * The measured case (#1242): a holder with NO `@{upstream}` — the claim was
+ * pushed, then the remote ref vanished, exactly as `git push` leaves a branch
+ * after the dispatcher's own ref is deleted or the remote branch is pruned.
+ *
+ * `git branch --unset-upstream` ALONE is not the fixture: the whole defect is
+ * that `rev-list --count '@{upstream}..HEAD'` fails, which happens when the
+ * upstream REF is gone, not merely when the branch forgets which ref to ask.
+ * Deleting `origin/feature/handed` after the push reproduces both at once —
+ * no ref to compare against AND no configured upstream once the next fetch
+ * prunes it.
+ *
+ * `extraCommits` runs in `holder` after the claim, before the upstream is
+ * severed — e.g. a commit that changes a file, standing in for real unpushed
+ * work the dispatcher's claim commit does not carry.
+ */
+function sandboxNoUpstream(label, extraCommits) {
+  const sb = sandbox(label);
+  if (extraCommits) extraCommits(sb.holder);
+  git(sb.work, 'push', '-q', 'origin', '--delete', 'feature/handed');
+  git(sb.holder, 'fetch', '-q', '--prune', 'origin');
+  return sb;
+}
+
+/**
  * The environment of an agent whose desk is `cwd`.
  *
  * `PLOT_WORKTREE` IS OVERRIDDEN RATHER THAN INHERITED, and that is the whole
@@ -401,5 +425,102 @@ test('checkout-yield: a leftover the reading drops is still not force-removed', 
     const marker = fs.readFileSync(path.join(sb.desk, 'PLOT-BLOCKED.md'), 'utf8');
     assert.match(marker, /git-refused/,
       'the marker must say the rule allowed it and git did not');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
+// -----------------------------------------------------------------------
+// A holder with NO `@{upstream}` — #1242
+// -----------------------------------------------------------------------
+//
+// Measured 2026-10-03: desk `free-50562867` held `bug/the-queue-reads-the-
+// scans-order`. Its only commit beyond `origin/main` was a `plot: claim ...`
+// marker, changing no file. Its worker was dead and the remote branch no
+// longer existed, so `@{upstream}` could not be read, `unpushed` came back
+// `unknown`, and `checkoutYield` kept the checkout — 250 times in about 24
+// hours. The fix measures `unpushed` against `origin/<default>` and excludes
+// only commits PROVEN to be empty claim markers.
+
+test('checkout-yield: a holder with no upstream and only an empty claim yields', () => {
+  const sb = sandboxNoUpstream('no-upstream-clean');
+  try {
+    // PRECONDITION: the measured defect is specifically the absence of
+    // `@{upstream}` — without this the case would silently fall back to
+    // exercising the has-upstream path and prove nothing new.
+    let hasUpstream = true;
+    try {
+      git(sb.holder, 'rev-parse', '--verify', '--quiet', '@{upstream}');
+    } catch { hasUpstream = false; }
+    assert.equal(hasUpstream, false, 'precondition: the holder must have no upstream');
+
+    const out = withLoopFnsAll(sb.desk,
+      'reset_desk "$PWD" feature/handed && echo RESET_OK || echo RESET_FAILED');
+
+    assert.match(out, /RESET_OK/, 'an empty claim with no upstream must not be read as unlanded work');
+    assert.equal(fs.existsSync(sb.holder), false, 'the worker-less checkout must be gone');
+    assert.match(out, /removed the worker-less checkout at .*leftover that held feature\/handed/,
+      'the log must say what was removed, and the removal must have happened without --force');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
+test('checkout-yield: a holder with no upstream and one real commit keeps', () => {
+  const sb = sandboxNoUpstream('no-upstream-real', (holder) => {
+    fs.writeFileSync(path.join(holder, 'landed.ts'), 'export const y = 2;\n');
+    git(holder, 'add', '-A');
+    git(holder, 'commit', '-qm', 'work nobody else can see');
+  });
+  try {
+    const out = withLoopFnsAll(sb.desk,
+      'reset_desk "$PWD" feature/handed && echo RESET_OK || echo RESET_FAILED');
+
+    assert.match(out, /RESET_FAILED/,
+      'a commit that changes a file must keep the checkout once the upstream is missing');
+    assert.equal(fs.existsSync(sb.holder), true, 'the checkout must survive');
+    const marker = fs.readFileSync(path.join(sb.desk, 'PLOT-BLOCKED.md'), 'utf8');
+    assert.match(marker, /unpushed-commits/, 'the marker must name unpushed-commits');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
+test('checkout-yield: a holder with no upstream and a claim-titled commit that changes a file keeps', () => {
+  const sb = sandboxNoUpstream('no-upstream-trust-subject', (holder) => {
+    fs.writeFileSync(path.join(holder, 'landed.ts'), 'export const y = 2;\n');
+    git(holder, 'add', '-A');
+    git(holder, 'commit', '-qm', 'plot: claim feature/handed');
+  });
+  try {
+    // A commit titled like a claim marker that ALSO changes a file must count
+    // as real work — the subject alone is never evidence, only subject AND an
+    // empty tree together are.
+    const out = withLoopFnsAll(sb.desk,
+      'reset_desk "$PWD" feature/handed && echo RESET_OK || echo RESET_FAILED');
+
+    assert.match(out, /RESET_FAILED/,
+      'a fix that trusts the subject alone would wrongly let this checkout go');
+    assert.equal(fs.existsSync(sb.holder), true, 'the checkout must survive');
+    const marker = fs.readFileSync(path.join(sb.desk, 'PLOT-BLOCKED.md'), 'utf8');
+    assert.match(marker, /unpushed-commits/, 'the marker must name unpushed-commits');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
+test('checkout-yield: an unreadable origin/<default> keeps a no-upstream holder', () => {
+  const sb = sandboxNoUpstream('no-upstream-no-default');
+  try {
+    // THE READING IS EXERCISED DIRECTLY, calling `yield_the_held_checkout`
+    // rather than driving it through `reset_desk`. `reset_desk` itself starts
+    // by detaching the DESK to `origin/$main_branch` (STEP 1), and worktrees of
+    // one repository share refs — so deleting `origin/main` to make the
+    // comparison unreadable for the holder would make the desk's own first
+    // step fail too, for an unrelated reason, before `yield_the_held_checkout`
+    // is ever reached. Pointing `$main_branch` at a branch no ref carries
+    // reproduces an unreadable `origin/<default>` for the reading under test
+    // without disturbing the desk.
+    const out = withLoopFnsAll(sb.desk,
+      `main_branch=no-such-default
+yield_the_held_checkout ${JSON.stringify(sb.holder)} feature/handed && echo YIELD_OK || echo YIELD_FAILED`);
+
+    assert.match(out, /YIELD_FAILED/,
+      'a failed comparison must read as unknown and keep, never as zero');
+    assert.equal(fs.existsSync(sb.holder), true, 'the checkout must survive');
+    const marker = fs.readFileSync(path.join(sb.desk, 'PLOT-BLOCKED.md'), 'utf8');
+    assert.match(marker, /unpushed-commits/, 'the marker must name unpushed-commits');
   } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
 });

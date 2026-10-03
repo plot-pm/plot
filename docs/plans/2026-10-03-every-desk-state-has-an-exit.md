@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-03, jwloka, in-session
 - **Started:** 2026-10-03, jwloka, `bug/an-empty-claim-is-not-unlanded-work`
+- **Started:** 2026-10-03, jwloka, `bug/a-refused-slice-is-held`
 
 ## Changelog
 
@@ -70,7 +71,7 @@ The rate was 17 to 19 desks an hour from 03:00 to 07:00. Removing `free-50562867
 
 ### An empty claim is not unlanded work
 
-- `bug/an-empty-claim-is-not-unlanded-work` — the loop reads `unpushedCommits` as file-changing commits not on `origin/<default>`, so a desk holding only a claim commit yields (#1242) → #1244 <!-- builds: a file-changing unpushed reading in plot-worker-loop.sh for checkoutYield -->
+- `bug/an-empty-claim-is-not-unlanded-work` — the loop reads `unpushedCommits` as file-changing commits not on `origin/<default>`, so a desk holding only a claim commit yields (#1242) → #1244 <!-- builds: isEmptyClaim, a domain rule asked through board/plot-empty-claim.mjs, and the file-changing unpushed reading it gives checkoutYield -->
 
 ### A refused slice is held
 
