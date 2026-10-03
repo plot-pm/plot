@@ -738,6 +738,12 @@ jobs:
       - name: The helper table stays out of CLAUDE.md
         run: ./scripts/check-helper-table.sh
 
+      # `AGENTS.md` IS `CLAUDE.md` FOR CODEX. Hand-kept until 2026-10-03, it
+      # held 6 of 12 sections and told agents to bump versions by hand. The
+      # mirror is generated; this refuses one that differs.
+      - name: AGENTS.md mirrors CLAUDE.md
+        run: ./scripts/check-agents-md.sh
+
       # A TEARDOWN DOES NOT FAIL A SUITE — the gate that keeps the conversion.
       #
       # A raw recursive `fs.rmSync` in a test teardown races whatever child the

@@ -49,7 +49,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Agent registry:** /Users/jwloka/Quatico/Agentic-Tools/plot/.plot/agents
 - **Board artifact:** skills/plot/scripts/board/board-server.mjs
 - **Agent settings:** .plot/agent-settings.json
-- **Local checks:** test/reconcile/*.test.mjs = node --test {tests}; packages/domain/** = pnpm --filter @plot-pm/domain exec vitest related --run {changed}; packages/domain/src/** = pnpm --filter @plot-pm/domain exec tsc --noEmit -p .; packages/board/src/** = pnpm --filter @plot-pm/board exec vitest related --run {changed}; packages/board/src/** = pnpm run typecheck; ** = node --test test/reconcile/*gate*.test.mjs; ** = ./scripts/check-script-names.sh && ./scripts/check-temp-paths.sh && ./scripts/check-ancestry-decisions.sh && ./scripts/check-host-cli-callers.sh && ./scripts/check-bundle-resolution.sh && ./scripts/check-state-declarations.sh && ./scripts/check-bundle-attributes.sh && ./scripts/check-plan-headings.sh && ./scripts/check-changeset-packages.sh && ./scripts/check-desk-markers.sh
+- **Local checks:** test/reconcile/*.test.mjs = node --test {tests}; packages/domain/** = pnpm --filter @plot-pm/domain exec vitest related --run {changed}; packages/domain/src/** = pnpm --filter @plot-pm/domain exec tsc --noEmit -p .; packages/board/src/** = pnpm --filter @plot-pm/board exec vitest related --run {changed}; packages/board/src/** = pnpm run typecheck; ** = node --test test/reconcile/*gate*.test.mjs; ** = ./scripts/check-script-names.sh && ./scripts/check-temp-paths.sh && ./scripts/check-ancestry-decisions.sh && ./scripts/check-host-cli-callers.sh && ./scripts/check-bundle-resolution.sh && ./scripts/check-state-declarations.sh && ./scripts/check-bundle-attributes.sh && ./scripts/check-plan-headings.sh && ./scripts/check-changeset-packages.sh && ./scripts/check-desk-markers.sh && ./scripts/check-agents-md.sh
 - **CI suites:** pnpm run test:e2e; pnpm run test:contracts; pnpm run test:board; pnpm --filter @plot-pm/domain exec vitest run --coverage; node --test test/reconcile/*.test.mjs
 - **Board command:** pnpm board
 - **CI:** github-actions
@@ -167,6 +167,8 @@ Plot is a hub-and-spoke skill system:
 | Command | `plot-implement/` | Start/resume implementation: staleness preflight, branch setup, hand-off brief, Started record |
 | Command | `plot-deliver/` | Verify all impl PRs merged (cross-repo aware), deliver the plan |
 | Command | `plot-release/` | Cut versioned release with changelog |
+| Command | `plot-reject/` | Move a prematurely delivered plan back to Approved |
+| Command | `plot-reconcile/` | Read-only hygiene sweep — plan/branch drift with remediating commands; prints the commands and runs none |
 | Coordination | `plot-sprint/` | Time-boxed sprint with MoSCoW priorities |
 | Coordination | `plot-dispatch/` | Fan out an approved plan: one worktree + one detached worker per eligible branch, each claimed by ref push (the writing half of the fleet) |
 | Coordination | `plot-merge-queue/` | Safe merge order + collision prediction for a plan's finished branches (read-only; merges nothing) |
@@ -613,6 +615,7 @@ adherence to prose, message clarity, real detached workers).
 - **Issues:** https://github.com/plot-pm/plot/issues
 - **Decision criteria:** Does the change pass the [manifesto's 9-question checklist](skills/plot/MANIFESTO.md#making-decisions)?
 - **Known gaps & improvements:** tracked in `skills/plot/README.md`
+- **Codex:** the repo-root `AGENTS.md` is generated from the file Claude Code loads, with that file's name rewritten. Change the text in the Claude Code file, then run `./scripts/check-agents-md.sh --write`; CI refuses a mirror that differs.
 - **Evolution history:** `skills/plot/changelog.md`
 
 ## Versioning
