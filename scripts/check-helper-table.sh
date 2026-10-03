@@ -105,7 +105,7 @@ fi
 #
 # BASELINE, measured by this script's own rule at the commit that introduced
 # it. Lower it when rows are written; never raise it.
-BASELINE="${PLOT_HELPER_ROW_BASELINE:-31}"
+BASELINE="${PLOT_HELPER_ROW_BASELINE:-18}"
 
 rows_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-helper-rows.XXXXXX")"
 files_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-helper-files.XXXXXX")"
