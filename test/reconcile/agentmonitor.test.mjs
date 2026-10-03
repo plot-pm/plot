@@ -337,3 +337,76 @@ test('a full pass writes nothing but the findings file', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// THE MONITOR FOLLOWS THE HOP — `watchedDesk`
+// ---------------------------------------------------------------------------
+//
+// `PLOT_WORKTREE` is fixed at launch, but a hop rewrites the manifest's
+// `worktree` field before the agent's next slice starts. This drives the real
+// `--once` CLI, over real worktrees, so `plot_worker_dirty` and
+// `plot_worker_blocked` read the actual desk rather than a stub — a naive fix
+// that only re-reads the branch would still read desk A's tree here.
+
+test('a debt on the new desk after a hop is reported there, naming it, with nothing new on the old desk', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-hop-'));
+  try {
+    const origin = path.join(sandbox, 'origin.git');
+    const repo = path.join(sandbox, 'repo');
+    execFileSync('git', ['init', '--bare', '-q', '-b', 'main', origin]);
+    execFileSync('git', ['clone', '-q', origin, repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'corpus@example.invalid']);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Plot Test']);
+    execFileSync('git', ['-C', repo, 'config', 'commit.gpgsign', 'false']);
+    fs.writeFileSync(path.join(repo, 'f.txt'), 'x\n');
+    execFileSync('git', ['-C', repo, 'add', '-A']);
+    execFileSync('git', ['-C', repo, 'commit', '-qm', 'init']);
+    execFileSync('git', ['-C', repo, 'push', '-q', 'origin', 'main']);
+
+    const deskA = path.join(sandbox, 'desk-a');
+    const deskB = path.join(sandbox, 'desk-b');
+    execFileSync('git', ['-C', repo, 'branch', 'slice-a']);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', deskA, 'slice-a']);
+    execFileSync('git', ['-C', repo, 'branch', 'slice-b']);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', deskB, 'slice-b']);
+
+    // Desk A is clean. Desk B holds uncommitted work — the debt that must be
+    // reported about B, never swallowed as a clearing of A's (non-existent)
+    // finding.
+    fs.writeFileSync(path.join(deskB, 'uncommitted.txt'), 'dirty\n');
+
+    const manifest = path.join(sandbox, 'manifest.json');
+    fs.writeFileSync(manifest, `{\n  "worktree": "${deskA}",\n  "pid": "1"\n}\n`);
+
+    const { PLOT_BRANCH: _b, PLOT_WORKTREE: _w, ...cleanEnv } = process.env;
+    const env = {
+      ...cleanEnv,
+      PLOT_BRANCH: 'slice-a',
+      PLOT_WORKTREE: deskA,
+      PLOT_MANIFEST_FILE: manifest,
+    };
+    execFileSync('bash', [monitor, '--once'], { encoding: 'utf8', timeout: 30_000, env });
+
+    // The hop: rewrite the manifest's worktree to desk B.
+    fs.writeFileSync(manifest, `{\n  "worktree": "${deskB}",\n  "pid": "1"\n}\n`);
+    execFileSync('bash', [monitor, '--once'], { encoding: 'utf8', timeout: 30_000, env });
+
+    const readFindings = (desk) => {
+      const f = path.join(desk, '.plot-worker.monitor.agent.jsonl');
+      return fs.existsSync(f)
+        ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+        : [];
+    };
+    const foundA = readFindings(deskA);
+    const foundB = readFindings(deskB);
+
+    assert.deepEqual(foundA, [],
+      `desk A was clean and must report nothing, including no false clear: ${JSON.stringify(foundA)}`);
+    assert.equal(foundB.length, 1,
+      `desk B's own debt must land in desk B's findings file: ${JSON.stringify(foundB)}`);
+    assert.equal(foundB[0].finding, 'holds unlanded work');
+    assert.equal(foundB[0].worktree, deskB, 'the finding does not name desk B');
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
