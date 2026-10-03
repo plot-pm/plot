@@ -385,9 +385,13 @@ test('refusal 2 unchanged: uncommitted changes keep the tree', () => {
   assert.ok(fs.existsSync(files.log), 'and keeps its log');
 });
 
-test('refusal 3 unchanged: a PLOT-BLOCKED marker keeps the tree', () => {
+test('refusal 3, narrowed: a PLOT-BLOCKED marker beside unlanded work keeps the tree', () => {
+  // `merged: false` keeps the branch's commit unlanded, so the marker reads
+  // `refused-with-work` (`rules/desk-lifecycle.ts`) rather than the reapable
+  // `refused-empty` — the narrowing this slice makes to the old blanket
+  // "any marker refuses" rule.
   const { repo, logDir } = makeRepo();
-  const wt = worktree(repo, 'feature/blocked');
+  const wt = worktree(repo, 'feature/blocked', { merged: false });
   const files = runFiles(logDir, 'feature/blocked');
   fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which way?\n');
 
@@ -396,6 +400,21 @@ test('refusal 3 unchanged: a PLOT-BLOCKED marker keeps the tree', () => {
   assert.match(out, /keep\s+feature\/blocked.*PLOT-BLOCKED/, `expected a marker refusal:\n${out}`);
   assert.ok(fs.existsSync(wt), 'a worker waiting on a person stays');
   assert.ok(fs.existsSync(files.log), 'and keeps the log a person will read');
+});
+
+test('refusal 3, the defect fixed: a bare marker on an already-landed desk is reaped, marker saved first', () => {
+  const { repo, logDir } = makeRepo();
+  const wt = worktree(repo, 'feature/blocked-but-landed');
+  const files = runFiles(logDir, 'feature/blocked-but-landed');
+  fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which way?\n');
+
+  const out = run(repo, '--yes');
+
+  assert.match(out, /reaped\s+feature\/blocked-but-landed/, `expected a reap:\n${out}`);
+  assert.ok(!fs.existsSync(wt), 'the desk is gone');
+  assert.ok(!fs.existsSync(files.log), 'its log is pure cleanup and goes with it');
+  const savedLog = fs.readFileSync(path.join(repo, '.plot', 'state', 'refusals.tsv'), 'utf8');
+  assert.match(savedLog, /which way\?/, `expected the marker's text saved:\n${savedLog}`);
 });
 
 test('refusal 4 unchanged: no merged PR keeps the tree', () => {

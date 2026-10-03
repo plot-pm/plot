@@ -186,8 +186,10 @@ test('desk: section 21 agrees with the reaper that a correction is not unlanded 
     assert.doesNotMatch(findingFor('free-corrected'), /uncommitted/);
 
     // The control: a real file beside the correction holds the desk in both.
+    // Section 21 now reports `rules/desk-lifecycle.ts`'s state rather than the
+    // raw refusal word — `holding-work`, whose exit is a person.
     assert.match(reapFor('free-dirty'), /^keep.*uncommitted: \?\? work\.txt/, reapOut);
-    assert.match(findingFor('free-dirty'), /uncommitted-changes/, section);
+    assert.match(findingFor('free-dirty'), /holding-work/, section);
   } finally {
     fs.rmSync(own, { recursive: true, force: true });
   }

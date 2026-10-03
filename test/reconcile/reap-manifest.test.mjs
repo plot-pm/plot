@@ -197,11 +197,14 @@ test('item 3: a REFUSED reap leaves the manifest alone', () => {
   assert.ok(fs.existsSync(file), 'and keeps its registration');
 });
 
-test('item 3: a PLOT-BLOCKED marker refuses the reap and keeps the manifest', () => {
+test('item 3: a PLOT-BLOCKED marker beside real work refuses the reap and keeps the manifest', () => {
   // One of the five refusals, driven end to end: the worker stopped to ask a
-  // person something, and its record must outlive the question.
+  // person something, and a marker beside unlanded work must outlive the
+  // question. `merged: false` keeps `work.txt`'s commit unlanded, so
+  // `markerRecordsWork` reads true — `rules/desk-lifecycle.ts`'s
+  // `refused-with-work`, which is not reapable.
   const { repo, registryDir } = makeRepo();
-  const wt = worktree(repo, 'feature/blocked');
+  const wt = worktree(repo, 'feature/blocked', { merged: false });
   fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which way?\n');
   const file = manifest(registryDir, 'sess-blocked', wt);
 
@@ -209,6 +212,27 @@ test('item 3: a PLOT-BLOCKED marker refuses the reap and keeps the manifest', ()
 
   assert.match(out, /keep\s+feature\/blocked.*PLOT-BLOCKED/, `expected a marker refusal:\n${out}`);
   assert.ok(fs.existsSync(file), 'a blocked worker keeps its registration');
+});
+
+test('item 3: a bare PLOT-BLOCKED marker on an already-merged desk is now reaped, marker saved', () => {
+  // THE DEFECT THIS SLICE FIXES. `worktree()` defaults to `merged: true`, so
+  // the branch's own commit is already an ancestor of origin/main — nothing
+  // is left unlanded beside the marker. `rules/desk-lifecycle.ts` reads this
+  // as `refused-empty`: the marker is evidence of a question, not of work,
+  // and the reap saves its text to `.plot/state/refusals.tsv` before removing
+  // the desk and its manifest.
+  const { repo, registryDir } = makeRepo();
+  const wt = worktree(repo, 'feature/blocked-but-landed');
+  fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which way?\n');
+  const file = manifest(registryDir, 'sess-blocked-landed', wt);
+
+  const out = run(repo, '--yes');
+
+  assert.match(out, /reaped\s+feature\/blocked-but-landed/, `expected a reap:\n${out}`);
+  assert.ok(!fs.existsSync(wt), 'the worktree is gone');
+  assert.ok(!fs.existsSync(file), 'the manifest is gone with it');
+  const log = fs.readFileSync(path.join(repo, '.plot', 'state', 'refusals.tsv'), 'utf8');
+  assert.match(log, /which way\?/, `expected the marker's text saved:\n${log}`);
 });
 
 test('item 3: uncommitted changes refuse the reap and keep the manifest', () => {

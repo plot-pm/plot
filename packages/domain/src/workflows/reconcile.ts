@@ -8,8 +8,9 @@ import {
   firstClaimRefusal,
   isUnownedDirtyTree,
 } from '../rules/sweepable.js';
+import { deskExit, deskState, type DeskReadings } from '../rules/desk-lifecycle.js';
 import { type Decision, type Refusal, decide, refuse } from './decision.js';
-import { type ReapReadings, reap } from './reap.js';
+import { type ReapCandidate, type ReapReadings } from './reap.js';
 
 /**
  * What a reconcile was asked about.
@@ -331,40 +332,56 @@ const sprintFindings = (sprint: SprintDrift): DriftFinding[] => {
 };
 
 /**
- * The kept-reasons a person must resolve, as opposed to simply waiting out.
+ * Reads one candidate's {@link DeskReadings}, for {@link deskState}.
  *
- * NOT EVERY REFUSAL IS DRIFT, and reporting all five would bury the two that
- * matter. `live-worker` is somebody working right now. `no-merged-pr` is a desk
- * that is merely unfinished — which is every active branch on the estate, so
- * reporting it would make the sweep's output grow with the fleet's health
- * rather than with its problems.
+ * Every field not carried by {@link ReapCandidate} today is read absent rather
+ * than guessed: `claimRef` defaults to `true` (a ref the shell did not check is
+ * not thereby reported gone) and `markerRecordsWork` defaults to `true` so an
+ * unmeasured marker still reads `refused-with-work` rather than the reapable
+ * `refused-empty` — the same absent-is-not-false direction `rules/reapable.ts`
+ * takes on its own field of the same name. `fileChangingCommits` falls back to
+ * `0` only when the tree is otherwise clean; a dirty, unmeasured tree is read
+ * as holding at least one, so the state is never read as cleaner than the
+ * caller found it.
  *
- * The three here each describe work that goes nowhere without a person:
- * `uncommitted-changes` is work that exists nowhere else (`plot-reap.sh:77`),
- * measured twice on 2026-09-09 — one desk held 75 finished lines of tests and
- * another 324, and both were rescued only because a person read the tree.
- * `blocked-marker` is an agent that stopped to ask something. `on-default-branch`
- * is a desk whose dispatched branch was never checked out, so nothing about its
- * state was ever measured.
+ * `manifestKnown` DEFAULTS TO `true` RATHER THAN READING `evidence.manifest`
+ * DIRECTLY — a discovery this slice's wiring surfaced rather than anticipated.
+ * `plot-reconcile-scan.sh` §21 has always passed `manifest: ""` for every
+ * desk, never populating it from the registry, so `evidence.manifest !== ''`
+ * would read EVERY desk through this path as `unplaced` — not because none is
+ * named, but because this caller never measured the question. `unplaced`'s
+ * reading (`rules/desk-lifecycle.ts`'s `manifestKnown`, answering
+ * `deskManifest`) stays real and tested in the domain; wiring §21 to actually
+ * resolve a manifest per desk is unbuilt and out of this slice's scope.
+ *
+ * @param candidate - one desk, as {@link reap} reads it.
+ * @returns the readings `deskState` needs.
  */
-const NEEDS_A_PERSON: ReadonlySet<string> = new Set([
-  'uncommitted-changes',
-  'blocked-marker',
-  'on-default-branch',
-]);
+const deskReadingsOf = ({ tree, evidence }: ReapCandidate): DeskReadings => ({
+  workerPid: evidence.workerAlive ? 'alive' : null,
+  dirtyPath: tree.clean ? '' : 'unlanded',
+  blockedMarker: evidence.blockedMarker,
+  merge: evidence.hasMergedPr ? 'merged' : 'not-merged',
+  fileChangingCommits: evidence.fileChangingCommits ?? (tree.clean ? 0 : 1),
+  claimRef: evidence.claimRef ?? true,
+  markerRecordsWork: evidence.markerRecordsWork ?? true,
+  manifestKnown: true,
+});
 
 /**
- * What has drifted about the desks, as {@link reap} judges them.
+ * What has drifted about the desks, through {@link deskState}.
  *
- * THE CONDITIONS COME FROM `reap()` AND THE WRITES ARE DISCARDED. That is
- * deliberate rather than wasteful: one condition set serves two blast radii.
- * `/plot-reap --yes` performs the writes; this reports what they would have
- * been, which is what lets a reconcile sweep the whole estate while the reaper
- * stays per-invocation.
+ * ASKS THE LIFECYCLE RULE DIRECTLY, rather than combining `reap()`'s kept
+ * reasons with a locally-kept set of which ones need a person. That set —
+ * `uncommitted-changes`, `blocked-marker`, `on-default-branch` — was this
+ * workflow's own re-derivation of a question `rules/desk-lifecycle.ts` now
+ * answers in one place, for the reaper and for this report alike.
  *
  * A DESK A LIVE WORKER SITS AT IS NOT REPORTED AT ALL — a finding an operator
- * cannot act on is noise — and a desk holding uncommitted work is reported with
- * NO repair command, because that is the shape that strands finished code.
+ * cannot act on is noise. `working`'s exit is `re-read`, so it is skipped
+ * rather than printed as drift. Every other state is reported: `finished` and
+ * `orphaned` name their reap, `refused-empty` names the copy that precedes it,
+ * and the three person-exits each carry the reason {@link deskExit} gives.
  *
  * AND A TREE NO RECOGNITION TEST PLACED IS REPORTED TOO, through
  * {@link unclassifiedFindings}. That population is the one `reap` skips before
@@ -372,46 +389,53 @@ const NEEDS_A_PERSON: ReadonlySet<string> = new Set([
  * named. Reporting it is what this workflow adds; classifying it is not.
  *
  * @param readings - the desks, as the reaper reads them.
- * @returns one finding per desk whose work has landed, whose tree needs a
- *   person, or which could not be classified at all.
+ * @returns one finding per desk whose state is not `working`, or which could
+ *   not be classified at all.
  */
 const deskFindings = (readings: ReapReadings): DriftFinding[] => {
-  const decision = reap(readings);
   const findings: DriftFinding[] = [];
 
-  // WHY A DESK IS FINISHED, and the two reasons are not the same sentence.
-  // A desk that held a slice is finished because its PR merged; a DETACHED one
-  // never held a slice and is finished because it carries nothing to land.
-  // Both reach `reaping`, and reporting the merged wording for a detached desk
-  // states a merge that never happened — the operator reading it goes looking
-  // for a PR that does not exist. The tree is read from the candidate rather
-  // than added to the decision, because the decision names what to do and this
-  // names why, which only the reporting layer needs.
-  const detachedPaths = new Set(
-    readings.candidates.filter((c) => c.tree.detached).map((c) => c.tree.path),
-  );
+  for (const candidate of readings.candidates) {
+    if (!candidate.evidence.isDispatchTree) continue;
+    const state = deskState(deskReadingsOf(candidate));
+    if (state === 'working') continue;
+    const exit = deskExit(state);
 
-  for (const path of decision.detail.reaping) {
-    findings.push({
-      kind: 'worktree',
-      subject: path,
-      evidence: detachedPaths.has(path)
+    // WHY A DESK IS FINISHED, and the two reasons are not the same sentence. A
+    // desk that held a slice is finished because its PR merged; a DETACHED one
+    // never held a slice and is finished because it carries nothing to land.
+    const evidence =
+      state === 'finished' && candidate.tree.detached
         ? 'the desk is finished — detached, carrying nothing to land, and nothing runs in it'
-        : 'the desk is finished — its PR merged and nothing runs in it',
-      repair: `git worktree remove ${path}`,
-      blocking: false,
-    });
-  }
-  for (const kept of decision.detail.kept) {
-    if (!NEEDS_A_PERSON.has(kept.reason)) continue;
+        : state === 'finished'
+          ? 'the desk is finished — its PR merged and nothing runs in it'
+          : exit.kind === 'person'
+            ? `${state}: ${exit.reason}`
+            : state;
+
+    // ONE REPAIR PER EXIT KIND, and no two are the same command. `reap` is a
+    // bare removal; `copy-then-reap` is `plot-reap.sh --yes`, which copies the
+    // marker's text to `.plot/state/refusals.tsv` before it removes anything.
+    // `detach-then-reap` names no command: the detach `plot-dispatch.sh
+    // --release` performs is scoped to the branch its OWN release names, and
+    // no existing tool detaches an arbitrary orphaned desk found by a sweep —
+    // printing one here would claim a fix that does not exist.
+    const repair =
+      exit.kind === 'reap'
+        ? `git worktree remove ${candidate.tree.path}`
+        : exit.kind === 'copy-then-reap'
+          ? 'skills/plot/scripts/plot-reap.sh --yes'
+          : '';
+
     findings.push({
       kind: 'worktree',
-      subject: kept.path,
-      evidence: `needs a person: ${kept.reason}`,
-      repair: '',
+      subject: candidate.tree.path,
+      evidence,
+      repair,
       blocking: false,
     });
   }
+
   findings.push(...unclassifiedFindings(readings));
   return findings;
 };

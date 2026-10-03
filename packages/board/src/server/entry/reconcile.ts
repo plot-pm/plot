@@ -85,6 +85,33 @@ const objectOr = (value: unknown): Record<string, unknown> =>
     : {};
 
 /**
+ * Read one optional boolean from a request, keeping absent distinct from
+ * `false`.
+ *
+ * `markerRecordsWork` and `claimRef` both need the three-way split a plain
+ * `=== true` test collapses: absent means the shell took no such reading,
+ * and `rules/desk-lifecycle.ts`'s own absent-is-not-false discipline depends
+ * on that distinction surviving the JSON round trip.
+ *
+ * @param value - what the field held.
+ * @returns `true`, `false`, or `undefined` where the field was absent or not
+ *   a boolean.
+ */
+const boolOrAbsent = (value: unknown): boolean | undefined =>
+  typeof value === 'boolean' ? value : undefined;
+
+/**
+ * Read one optional whole number from a request, keeping absent distinct
+ * from `0`.
+ *
+ * @param value - what the field held.
+ * @returns the number, or `undefined` where the field was absent or not a
+ *   finite number.
+ */
+const numberOrAbsent = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : undefined;
+
+/**
  * Read the scope a caller asked for.
  *
  * AN UNRECOGNISED KIND IS THE WORKSPACE, and that is the safe direction here
@@ -237,6 +264,9 @@ const candidateFrom = (value: unknown) => {
       unclassified: evidence.unclassified === true,
       manifest: stringOr(evidence.manifest),
       hasLog: evidence.hasLog === true,
+      claimRef: boolOrAbsent(evidence.claimRef),
+      markerRecordsWork: boolOrAbsent(evidence.markerRecordsWork),
+      fileChangingCommits: numberOrAbsent(evidence.fileChangingCommits),
     },
   };
 };
@@ -288,6 +318,56 @@ export const requestFrom = (text: string): Request => {
 };
 
 /**
+ * Read one desk row, as `plot-reconcile-scan.sh` §21 writes it.
+ *
+ * Thirteen tab-separated fields: path, branch, dispatch, unclassified, worker
+ * pid, marker, clean, isMain, detached, merged, claimRef, markerRecordsWork,
+ * fileChangingCommits. A boolean field reads true only as `true`. A
+ * `fileChangingCommits` that is not a whole number reads as `1`, so a count
+ * the shell could not take never reads as a desk holding nothing.
+ *
+ * @param line - one row.
+ * @returns the candidate, in the shape {@link readingsFrom} reads.
+ */
+export const deskRowFrom = (line: string) => {
+  const [
+    path = '', branch = '', dispatch, unclassified, pid = '', marker, clean, isMain, detached,
+    merged, claimRef, markerRecordsWork, fileChangingCommits = '',
+  ] = line.split('\t');
+  const count = /^\d+$/.test(fileChangingCommits) ? Number(fileChangingCommits) : 1;
+  return {
+    tree: {
+      path, branch, detached: detached === 'true', isMain: isMain === 'true',
+      clean: clean === 'true', agentSession: '', prunable: false,
+    },
+    evidence: {
+      workerAlive: pid !== '', blockedMarker: marker === 'true',
+      hasMergedPr: merged === 'true', isDispatchTree: dispatch === 'true',
+      unclassified: unclassified === 'true', manifest: '', hasLog: false,
+      claimRef: claimRef === 'true', markerRecordsWork: markerRecordsWork === 'true',
+      fileChangingCommits: count,
+    },
+  };
+};
+
+/**
+ * Read a workspace request from desk rows, for `--desk-rows <default-branch>`.
+ *
+ * @param text - one {@link deskRowFrom} row per line; blank lines are skipped.
+ * @param defaultBranch - the estate's default branch.
+ * @returns a workspace request whose only readings are the desks.
+ */
+export const requestFromDeskRows = (text: string, defaultBranch: string): Request => ({
+  scope: { kind: 'workspace' },
+  readings: readingsFrom({
+    desks: {
+      candidates: text.split('\n').filter((l) => l.trim() !== '').map(deskRowFrom),
+      defaultBranch,
+    },
+  }),
+});
+
+/**
  * Decide one reconcile.
  *
  * @param request - what the caller asked.
@@ -312,15 +392,19 @@ export const decide = (
  *
  * @param text - the whole of stdin.
  * @param write - where the answer goes.
+ * @param args - the command-line arguments; `--desk-rows <default-branch>`
+ *   reads stdin as desk rows rather than one JSON request.
  * @returns the process exit code — 0 answered, 1 refused, 2 unreadable input.
  */
 export const run = (
   text: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  args: readonly string[] = [],
 ): number => {
   let request: Request;
   try {
-    request = requestFrom(text);
+    request =
+      args[0] === '--desk-rows' ? requestFromDeskRows(text, args[1] ?? '') : requestFrom(text);
   } catch (err) {
     process.stderr.write(`plot-reconcile: ${(err as Error).message}\n`);
     return 2;
@@ -348,5 +432,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8')));
+  process.exit(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv.slice(2)));
 }

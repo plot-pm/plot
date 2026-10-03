@@ -70,6 +70,36 @@ describe('reapProblems — the five refusals, each triggerable alone', () => {
     expect(refusalsOf(landed({ blockedMarker: true }))).toEqual(['blocked-marker']);
   });
 
+  it('still refuses a marker when markerRecordsWork is not supplied — absent is not false', () => {
+    // A caller that took no such reading has not reported an empty marker.
+    expect(
+      refusalsOf(landed({ blockedMarker: true, markerRecordsWork: undefined })),
+    ).toEqual(['blocked-marker']);
+  });
+
+  it('still refuses a marker that records work — refused-with-work, not reapable', () => {
+    expect(
+      refusalsOf(landed({ blockedMarker: true, markerRecordsWork: true })),
+    ).toEqual(['blocked-marker']);
+  });
+
+  it('lets an empty marker through once the caller measures nothing else there', () => {
+    // THE DEFECT THIS SLICE FIXES. `blocked-marker` used to refuse every desk
+    // carrying a marker, whatever it recorded — this is `deskLifecycle`'s
+    // `refused-empty`, reapable once the marker's text is saved.
+    expect(
+      refusalsOf(landed({ blockedMarker: true, markerRecordsWork: false })),
+    ).toEqual([]);
+  });
+
+  it('widens no further than the measured case — one extra dirty path still refuses', () => {
+    expect(
+      refusalsOf(
+        landed({ blockedMarker: true, markerRecordsWork: false, dirtyPath: 'M a.ts' }),
+      ),
+    ).toEqual(['uncommitted-changes']);
+  });
+
   it('refuses a tree sitting on the default branch, whose dispatched branch was never measured', () => {
     // `origin/main..main` is empty, so an ancestry test would clear this tree
     // for a reason that is true and says nothing about the work it was

@@ -656,8 +656,25 @@ while IFS=$'\037' read -r wt br prunable; do
   # not about whether a worktree may go. The filter runs before `head`, so a
   # correction beside a real file names the real file.
   marker=false
-  ls "$wt"/PLOT-BLOCKED* >/dev/null 2>&1 && marker=true
-  dirty=$(desk_dirt "$wt" | head -1)
+  marker_file=$(ls "$wt"/PLOT-BLOCKED* 2>/dev/null | head -1)
+  [ -n "$marker_file" ] && marker=true
+  # The marker's own line is excluded from `dirty`, which otherwise answers
+  # `uncommitted-changes` for a desk this slice reads `refused-empty` instead:
+  # the marker is a question for a person, not unlanded work, and the two
+  # refusals must not both fire for the one line that names it.
+  dirty=$(desk_dirt "$wt" | grep -v 'PLOT-BLOCKED' | head -1)
+
+  # markerRecordsWork — does the desk hold anything besides its marker: a
+  # dirty path that is not the marker itself (`$dirty`, already filtered
+  # above), or a file-changing commit beyond the default branch. Read only
+  # when a marker is present — `firstReapRefusal` does not consult this field
+  # otherwise.
+  marker_records_work=false
+  if [ "$marker" = true ]; then
+    if [ -n "$dirty" ] || [ "$(real_commits "$wt" "origin/$DEFAULT..HEAD")" != 0 ]; then
+      marker_records_work=true
+    fi
+  fi
 
   # The host: whether ANY PR for this branch merged.
   #
@@ -726,6 +743,7 @@ while IFS=$'\037' read -r wt br prunable; do
   verdict=$(PLOT_BRANCH="$short" PLOT_DEFAULT="$DEFAULT" PLOT_PID="$pid" \
             PLOT_DIRTY="$dirty" PLOT_MARKER="$marker" PLOT_MERGE="$merge" \
             PLOT_UNPUSHED="$unpushed" PLOT_RULE="$RULE" \
+            PLOT_MARKER_RECORDS_WORK="$marker_records_work" \
             node --input-type=module - <<'NODE_EOF' 2>/dev/null
 // Imported from an ABSOLUTE path derived from this script, never from the
 // cwd. The reaper runs with its cwd wherever the operator invoked it and the
@@ -746,6 +764,7 @@ const problem = firstReapRefusal({
   workerPid: process.env.PLOT_PID === "" ? null : process.env.PLOT_PID,
   dirtyPath: process.env.PLOT_DIRTY,
   blockedMarker: process.env.PLOT_MARKER === "true",
+  markerRecordsWork: process.env.PLOT_MARKER_RECORDS_WORK === "true",
   merge: process.env.PLOT_MERGE,
   unpushed: process.env.PLOT_UNPUSHED === "unknown"
     ? "unknown"
@@ -791,6 +810,27 @@ NODE_EOF
   # real run would take. Empty when the branch left no log, which is silent —
   # a missing log is the desired state, not an event.
   logs=$(present_logs "$short")
+
+  # THE MARKER MOVES, IT IS NOT DROPPED. A tree that reached `reap` with
+  # `marker=true` passed `firstReapRefusal` only because `markerRecordsWork`
+  # was measured false — `rules/desk-lifecycle.ts`'s `refused-empty`. The
+  # marker's text is evidence of a question somebody asked even though the
+  # desk holding it is otherwise empty, so it is copied to REFUSALS_LOG before
+  # the worktree goes. A FAILED COPY KEEPS THE DESK: the marker is the only
+  # record of the question, and a reap that lost both would make the evidence
+  # exactly as unrecoverable as the desk it lived in.
+  if [ "$DRY" -eq 0 ] && [ "$marker" = true ] && [ -n "$marker_file" ]; then
+    refusals_log="$ROOT/.plot/state/refusals.tsv"
+    if mkdir -p "$(dirname "$refusals_log")" 2>/dev/null \
+       && printf '%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$label" \
+            "$(tr '\n\t' '  ' < "$marker_file" 2>/dev/null)" >> "$refusals_log" 2>/dev/null; then
+      why="$why, marker saved to .plot/state/refusals.tsv"
+    else
+      printf '%-8s %-52s %s\n' "keep" "$label" \
+        "could not save PLOT-BLOCKED text to .plot/state/refusals.tsv — desk kept"
+      kept=$((kept+1)); continue
+    fi
+  fi
 
   reap=$((reap+1))
   if [ "$DRY" -eq 1 ]; then
