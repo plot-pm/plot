@@ -3,6 +3,7 @@ import { sliceVerdicts, waitVerdict, type PrereqAnswer } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
 import { unnamedBranches } from './slice-name.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
+import { planIdOf } from '../entities/plan.js';
 
 /**
  * One slice waiting to be handed to an agent.
@@ -613,9 +614,7 @@ export const planQueue = (
   merged: ReadonlySet<string>,
   listingWhole: boolean,
 ): readonly QueuedBranch[] => {
-  const slug = (plan.file.split('/').pop() ?? plan.file)
-    .replace(/\.md$/, '')
-    .replace(/^\d{4}-\d{2}-\d{2}-/, '');
+  const slug = planIdOf(plan.file);
 
   // OUTSTANDING IS WHAT NOBODY HAS FINISHED, AND A REF ALONE CANNOT SAY IT —
   // see `settled` above. A claimed branch stays outstanding for the ORDER,

@@ -131,6 +131,38 @@ describe('planQueue — the order and the `waits:` hold, moved into the domain',
     expect(queued.find((q) => q.branch === 'feature/two')?.claimable).toBe(true);
   });
 
+  it('leaves a deferred branch out of the queue', () => {
+    const queued = planQueue(
+      ({
+        file: 'docs/plans/2026-10-01-a-plan.md',
+        phase: 'approved',
+        slices: [
+          {
+            branches: [
+              { branch: 'feature/given-up', deferred: true, waitsOn: '' },
+              { branch: 'feature/kept', deferred: false, waitsOn: '' },
+            ],
+          },
+        ],
+      }) as unknown as PlanRecord,
+      new Set<string>(),
+      new Set<string>(),
+      true,
+    );
+    expect(queued.map((q) => q.branch)).toEqual(['feature/kept']);
+    expect(queued[0].slug).toBe('a-plan');
+  });
+
+  it('carries the prerequisite onto the held record through matchQueue', () => {
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/waiter', waitsOn: 'feature/prereq', waitHeld: 'unreachable' })],
+      agents: [],
+    });
+    expect(match.held).toEqual([
+      { branch: 'feature/waiter', hold: 'waits', waitsOn: 'feature/prereq', waitHeld: 'unreachable' },
+    ]);
+  });
+
   it('does not re-offer a claimed branch, even though it is not yet settled', () => {
     const queued = planQueue(plan([['feature/one']]), new Set(['feature/one']), new Set<string>(), true);
     expect(queued.map((q) => q.branch)).not.toContain('feature/one');
