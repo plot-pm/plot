@@ -3099,8 +3099,18 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   # destroy the checkout the agent is standing in. A desk cut on the create path
   # is left for the sweep, which is the same treatment every other unaccounted
   # desk gets — one rule rather than two.
-  if ! git -C "$hop_wt" push -u origin "$next_branch" 2>/dev/null; then
-    echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2
+  push_err=""
+  if ! push_err=$(git -C "$hop_wt" push -u origin "$next_branch" 2>&1 >/dev/null); then
+    # AN ABSENT REMOTE BRANCH IS NOT A COLLISION. `remoteHead` asks the same
+    # question a hand-over checks at the moment it is made: a branch gone from
+    # origin was handed over from a reading already stale, not taken by a
+    # second agent. Telling a stale EMPTY claim from another agent's claim is
+    # #1152's; this message distinguishes only absent from present.
+    if [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then
+      echo "plot-worker-loop: the claim push for $next_branch was rejected and origin has no such branch: $push_err" >&2
+    else
+      echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2
+    fi
     continue
   fi
 

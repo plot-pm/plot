@@ -409,6 +409,65 @@ export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
 };
 
 /**
+ * Milliseconds a tick's reading may age before a hand-over withholds it —
+ * five tick intervals of 60 s.
+ *
+ * **A MEASUREMENT, NOT A PREFERENCE.** From `.plot/logs/registryd.log`,
+ * 2026-10-01: this repository logged 7 167 ticks, median 14.4 s, p95 115 s, 83
+ * ticks (1.2%) over 300 s, maximum 2 479 s; `ewz-kus-portal` logged 1 592
+ * ticks, 8 (0.5%) over 300 s, maximum 4 692 s — the tick that caused #1149. So
+ * this bound withholds about 1% of ticks' hand-overs, and the next tick hands
+ * them over.
+ */
+export const HAND_OVER_MAX_AGE_MS = 300_000;
+
+/** What {@link handOverCheck} reads before a hand-over is made. */
+export interface HandOverReading {
+  /** Milliseconds from the tick's `startedAt` to the moment of the check. */
+  ageMs: number;
+  /** The branch's remote ref, asked again at hand-over time. */
+  refNow: 'present' | 'absent' | 'unknown';
+  /** Whether the branch's work landed, asked again at hand-over time. */
+  landedNow: LandedAnswer;
+}
+
+/** What {@link handOverCheck} answers. */
+export type HandOverAnswer = 'stale' | 'landed' | 'unknown' | 'claimed' | 'hand-over';
+
+/**
+ * Whether a hand-over may still be made, from readings taken at the moment of
+ * the hand-over rather than at the start of the tick.
+ *
+ * **THE AGE TEST IS FIRST.** No fresh answer about one branch makes a
+ * 78-minute reading of the OTHER branches current — #1149 measured a tick that
+ * ran 78 minutes and then handed over a branch that had long since merged. A
+ * check that tested `landed` before `stale` would pass every single-branch
+ * case and still hand out from a stale reading.
+ *
+ * **EVERY ANSWER BUT `hand-over` WITHHOLDS THE WRITE**, and the next tick
+ * re-derives the queue from disk — the existing recovery for a failed start.
+ * Do not retry, remember or queue anything here.
+ *
+ * **`unknown` WITHHOLDS.** A ref that could not be asked, or a host that could
+ * not answer `landed`, is not permission — the repo's rule that absence is not
+ * falsehood. The Bitbucket tick that caused #1149 ran at a time its host was
+ * slow.
+ *
+ * @param reading - the age and the two readings taken at hand-over time.
+ * @returns `stale` where the reading is older than {@link HAND_OVER_MAX_AGE_MS};
+ *   `landed` where the branch's work has landed; `unknown` where either
+ *   reading could not be taken; `claimed` where the ref still exists;
+ *   `hand-over` otherwise.
+ */
+export const handOverCheck = (reading: HandOverReading): HandOverAnswer => {
+  if (reading.ageMs > HAND_OVER_MAX_AGE_MS) return 'stale';
+  if (reading.landedNow === 'landed') return 'landed';
+  if (reading.landedNow === 'unknown' || reading.refNow === 'unknown') return 'unknown';
+  if (reading.refNow === 'present') return 'claimed';
+  return 'hand-over';
+};
+
+/**
  * One plan's queued slices, in plan order, for {@link behindUnknownLanding}.
  *
  * Carries the slice index rather than relying on array position, because a

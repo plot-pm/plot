@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-queue-reads-the-scans-order`
 - **Started:** 2026-10-03, Jan Wloka, `bug/a-hand-over-is-checked-before-it-is-made`
+- **Delivered:** 2026-10-03
 
 ## Changelog
 
@@ -73,7 +74,7 @@ It answers, tested in this order: `stale` where `ageMs > HAND_OVER_MAX_AGE_MS` (
 
 **The bound and its cost.** `HAND_OVER_MAX_AGE_MS` is exported from `rules/queue.ts`, and `startAgents` makes no comparison of its own. Measured 2026-10-01 from `.plot/logs/registryd.log`: this repository logged 7 167 ticks, median 14.4 s, p95 115 s, and 83 ticks (1.2%) over 300 s, maximum 2 479 s; `ewz-kus-portal` logged 1 592 ticks, median 20.2 s, p95 103 s, and 8 (0.5%) over 300 s, maximum 4 692 s (#1149's tick). So the bound withholds the hand-overs of about 1% of ticks, and the next tick hands them over.
 
-**The readings.** The refs port gains `remoteHead(branch)`, `git ls-remote --heads origin <branch>` in `refs-git.ts`, answering `present`, `absent` or `unknown` on a failed call. A git call, not a host call: it spends no API budget. `queuedHasLanded` exists (`queue-reading.ts:66-75`). Both are asked only for a branch about to be handed over, at most the tick's free agents.
+**The readings.** The refs port gains `remoteHead(branch)`, `git rev-parse --verify --quiet refs/remotes/origin/<branch>` in `refs-git.ts`, answering `present`, `absent` or `unknown` on a failed call. It reads the last-fetched remote-tracking ref, which the scan's fetch keeps current, and makes no network call: `no-network.test.ts` forbids `ls-remote` in the server (#1252). A git call, not a host call: it spends no API budget. `queuedHasLanded` exists (`queue-reading.ts:66-75`). Both are asked only for a branch about to be handed over, at most the tick's free agents.
 
 **The write.** `startAgents` asks `handOverCheck` before each `performer.assignSlice` and writes `<branch>: not handed — <answer>` where it withholds. `tick` passes its `startedAt` through `TickReport` (`registryd.ts:233`), so the age is measured from the reading and not from the write.
 
