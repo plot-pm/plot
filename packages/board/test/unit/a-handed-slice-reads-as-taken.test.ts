@@ -139,6 +139,20 @@ describe('absence is not falsehood — #1090 holds wherever the registry says no
     expect(only(before, [agent({ branch: '' }), agent({ session: 'f00dbeef', branch: '' })]))
       .toEqual(before);
   });
+
+  it('leaves a not-started row whose slice a live UNNAMED desk has checked out', () => {
+    // #1101's other half: a synthesized entry's `branch` is `''` (the desk's
+    // checkout moved to `checkout`), so a live undeclared desk no longer
+    // matches any branch here and the slice stays `not-started` rather than
+    // reading `someone-is-on-it` for an agent the registry cannot name. This
+    // is intended, not a gap: `checkout` is display-only and no decision —
+    // including this one — reads it.
+    const before = row();
+    const synthesized = agent({
+      session: '', identity: 'synthesized', branch: '', checkout: BRANCH, state: 'running',
+    });
+    expect(only(before, [synthesized])).toEqual(before);
+  });
 });
 
 describe('the rule moves nothing it was not asked to move', () => {

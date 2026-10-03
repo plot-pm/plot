@@ -80,7 +80,7 @@ The rate was 17 to 19 desks an hour from 03:00 to 07:00. Removing `free-50562867
 
 ### The desk has a lifecycle
 
-- `bug/the-desk-has-a-lifecycle` — `rules/desk-lifecycle.ts` names each desk state and its exit; `reapable.ts` and reconcile §21 ask it <!-- builds: deskLifecycle, a domain rule -->
+- `bug/the-desk-has-a-lifecycle` — `rules/desk-lifecycle.ts` names each desk state and its exit; `reapable.ts` and reconcile §21 ask it (#1242, #1243) → #1262 <!-- builds: deskLifecycle, a domain rule -->
 
 ## Notes
 

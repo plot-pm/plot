@@ -13,6 +13,7 @@ import {
   UNNAMED_SLICE,
   isSpikeSlice,
   isBrokenState,
+  isLiveState,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
 import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, agentAvailability, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
@@ -29,6 +30,7 @@ import { briefAsked, briefAskedNote, briefGapNote, needsBrief, waitingTone } fro
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
 // second copy of it in a component.
 import { identityWasDeclared } from '@plot-pm/domain';
+import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
 import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
@@ -2447,7 +2449,24 @@ export function RegistryRow({
   // it is the channel that survives reduced motion and a screen reader; a worker
   // with no branch row has none. The PR's own condition is dropped from it, the
   // same `noteWithoutPr` the branch row applies.
-  const note = row ? noteWithoutPr(row.note, row.pr) : '';
+  //
+  // AN UNDECLARED DESK NAMES ITSELF HERE INSTEAD. `#1101`: a synthesized entry
+  // has no `row` (nothing joins it to a branch), so this slot is otherwise
+  // empty on exactly the row that most needs a sentence — `unnamedDeskLabel`
+  // is the rule's words, verbatim, and this component prints them without
+  // deciding any of its own. `agent.checkout` (the desk's own branch, display
+  // only) is what the label's "checked out" clause names, NEVER `agent.branch`
+  // — a synthesized entry's `branch` is always `''`.
+  //
+  // `agent.checkout ?? ''` RESTATES THE SCHEMA'S DEFAULT: the client CASTS
+  // `/api/fleet` rather than parsing it (`App.tsx`), so a pulse from before
+  // this field existed — or a stubbed route built as a plain object literal —
+  // hands this component `undefined` where the declared type says `string`.
+  const note = row
+    ? noteWithoutPr(row.note, row.pr)
+    : !identityWasDeclared(agent)
+      ? unnamedDeskLabel({ checkout: agent.checkout ?? '', live: isLiveState(agent.state) })
+      : '';
 
   return (
     <>

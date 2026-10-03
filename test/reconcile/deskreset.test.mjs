@@ -377,14 +377,20 @@ test('desk: the loop runs no destructive git command', () => {
 // only its backstop, so a rejection means two agents were handed one branch —
 // the estate is already broken at the moment this line runs, and a silent
 // `continue` guarantees nobody learns it.
-test('desk: a rejected claim push is named as a registry-lock violation', () => {
+test('desk: a rejected claim push is named as a registry-lock violation when the ref is present', () => {
+  // `a-hand-over-is-checked-before-it-is-made` taught this block a second
+  // message: a ref ABSENT from origin is a stale hand-over, named rather than
+  // folded into the violation line. The violation line itself is unchanged —
+  // this test now finds it rather than assuming it is the only one.
   const src = fs.readFileSync(loop, 'utf8');
-  const rejection = src.slice(src.indexOf('if ! git -C "$hop_wt" push'));
-  const line = rejection.split('\n').find((l) => l.includes('plot-worker-loop:'));
-  assert.ok(line, 'the rejection must print something');
-  assert.match(line, /REGISTRY LOCK VIOLATION/,
-    'the message must name the invariant that broke, not the race that no longer exists');
+  const rejection = src.slice(src.indexOf('if ! push_err=$(git -C "$hop_wt" push'));
+  const lines = rejection.split('\n').filter((l) => l.includes('plot-worker-loop:'));
+  const line = lines.find((l) => l.includes('REGISTRY LOCK VIOLATION'));
+  assert.ok(line, 'the rejection must still print a lock-violation line for a present ref');
   assert.match(line, /2>&1|>&2/, 'it must reach the log, not stdout');
+  const absent = lines.find((l) => l.includes('origin has no such branch'));
+  assert.ok(absent, 'the rejection must also print the absent-ref message, for the other case');
+  assert.match(absent, /2>&1|>&2/, 'it must reach the log, not stdout');
   // AND IT MUST NOT REMOVE THE DESK. On the reset path `$hop_wt` IS the desk
   // the agent is standing in, so the old removal would destroy its own checkout.
   const beforeContinue = rejection.slice(0, rejection.indexOf('continue'));
