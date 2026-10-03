@@ -514,13 +514,20 @@ export const refsGit = (context: ShellContext): Refs => {
     },
 
     remoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> => {
+      // The last-fetched `origin/<branch>`, read locally: `--verify --quiet`
+      // prints the SHA and exits 0 for a ref that exists, exits 1 silently for
+      // one that does not, and exits 128 outside a repository.
       const run = await runProcess(
         'git',
-        ['ls-remote', '--heads', 'origin', branch],
+        ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
         inRepo,
       );
-      if (run.code !== 0) return answered<RemoteHeadAnswer>('unknown');
-      return answered<RemoteHeadAnswer>(run.stdout.trim() === '' ? 'absent' : 'present');
+      if (run.code === 0 && run.stdout.trim() !== '') return answered<RemoteHeadAnswer>('present');
+      if (run.code !== 1) return answered<RemoteHeadAnswer>('unknown');
+      // `runProcess` also answers 1 for a git that could not start, so exit 1
+      // reads `absent` only where git proves it ran in a repository.
+      const repoCheck = await runProcess('git', ['rev-parse', '--git-dir'], inRepo);
+      return answered<RemoteHeadAnswer>(repoCheck.code === 0 ? 'absent' : 'unknown');
     },
   };
 };

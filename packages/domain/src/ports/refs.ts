@@ -36,7 +36,7 @@ export interface BranchTip {
 }
 
 /**
- * Whether a branch's remote ref exists right now.
+ * Whether a branch's remote-tracking ref existed at the last fetch.
  *
  * Three values, never a boolean: `unknown` is a call that failed, and it
  * proves neither presence nor absence — the caller that asks at hand-over time
@@ -437,16 +437,16 @@ export interface Refs {
   contains(ancestor: string, descendant: string): Promise<PortResult<Containment>>;
 
   /**
-   * Whether a branch's ref exists on `origin` right now.
+   * Whether the branch's last-fetched remote-tracking ref,
+   * `refs/remotes/origin/<branch>`, exists.
    *
-   * **A GIT CALL, NOT A HOST CALL.** `git ls-remote --heads origin <branch>`
-   * reaches the same remote a push or fetch would, and spends no host rate
-   * limit — the reason a hand-over may ask it on its own hot path rather than
-   * routing through `plot-host.sh`.
+   * **A LOCAL READ, NOT A NETWORK CALL.** The answer is only as current as the
+   * last fetch, which the scan makes on its own timer. It reaches neither the
+   * remote nor the host, so it spends no host rate limit.
    *
-   * @param branch - the branch to ask about.
-   * @returns `present` or `absent` where the call answered; `unknown` where it
-   *   failed.
+   * @param branch - the branch to ask about, without a remote prefix.
+   * @returns `present` where the ref resolves to a commit; `absent` where no
+   *   such ref exists; `unknown` where git could not answer.
    */
   remoteHead(branch: string): Promise<PortResult<RemoteHeadAnswer>>;
 }
