@@ -69,6 +69,10 @@ jobs:
           node --version
           npm --version
 
+      # Tags only a tree whose generated bundles equal their build.
+      - name: Board bundles are fresh
+        run: ./scripts/main-bundles.sh release
+
       - name: Compute next release version
         id: nextver
         run: |

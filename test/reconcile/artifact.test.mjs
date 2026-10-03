@@ -247,26 +247,24 @@ test('the artifact stays in git and CI still gates its freshness', () => {
   // Resolve by keeping a stale artifact and forget to rebuild, and CI must
   // fail — otherwise this trades a loud conflict for a silent regression.
   const workflow = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
-  assert.match(workflow, /pnpm run build:board/, 'CI must rebuild the artifact itself');
-  // THE DIRECTORY, NOT THE ONE FILE. The build writes 23 bundles into
-  // `skills/plot/scripts/board/` and this gate diffed exactly one of them:
-  // measured on PR #908, a change to `adapters/refs/refs-git.ts` restaled
-  // `board-server.mjs`, `plot-ask.mjs` and `plot-registryd.mjs`, and CI named
-  // only the first. Widening costs no false positives because the build's
-  // output set and this pathspec are now the same set.
+  // The freshness decision lives in `scripts/main-bundles.sh`, where a fixture
+  // test can run it; CI calls it in `pr` mode on a pull request.
+  assert.match(workflow, /\.\/scripts\/main-bundles\.sh pr/, 'CI must run the freshness check on a pull request');
+  const check = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'main-bundles.sh'), 'utf8');
+  assert.match(check, /pnpm run build:board/, 'CI must rebuild the artifact itself');
+  // EVERY GENERATED BUNDLE, NOT ONE FILE. Measured on PR #908, a change to
+  // `adapters/refs/refs-git.ts` restaled `board-server.mjs`, `plot-ask.mjs` and
+  // `plot-registryd.mjs`, and a one-file diff named only the first. The check
+  // derives the set from `build.mjs`'s `shipped*` declarations.
+  assert.match(check, /shipped\[A-Za-z\]\* = path\\\.join/, 'the check must derive every generated bundle from build.mjs');
   assert.match(
-    workflow,
-    /git diff --quiet -- skills\/plot\/scripts\/board\//,
-    'CI must byte-diff the rebuilt artifacts against the committed ones',
+    check,
+    /git status --porcelain --untracked-files=all -- "\$\{paths\[@\]\}"/,
+    'the check must compare every rebuilt bundle against the committed one',
   );
-  // And it must report what it FOUND rather than a constant. Naming one file
-  // is what made the three-bundle case cost two runs: the first repair fixed
-  // what the message named and failed again on the next run.
-  assert.match(
-    workflow,
-    /git --no-pager diff --name-only -- skills\/plot\/scripts\/board\//,
-    'CI must name the stale files it found, not a hardcoded filename',
-  );
+  // It reports what it FOUND rather than a constant, and a pull request fails.
+  assert.match(check, /Stale board bundles: \$\(printf '%s' "\$stale"/, 'the check must name the stale files it found');
+  assert.match(check, /pr\)\n\s+echo "::error::\$\(report\)[^\n]*\n\s+exit 1/, 'a stale bundle on a pull request must fail');
 
   // And the file must still be tracked: `pnpm board` starts it with no build
   // step and the plugin ships it. `-merge` changes how it merges, not whether
