@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-join-is-one-rule`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-monitor-follows-the-hop`
+- **Started:** 2026-10-03, Jan Wloka, `bug/a-continued-loop-carries-its-manifest`
 
 ## Changelog
 
