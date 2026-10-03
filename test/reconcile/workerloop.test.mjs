@@ -1556,3 +1556,88 @@ test('worker-loop: a branchless wait asks no fleet scan', serial, () => {
   assert.ok(code.slice(where, where + 4).some((l) => /wait_for_work none/.test(l)),
     'with a `none` outlook for the agent that holds none');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A CONTINUED LOOP CARRIES ITS MANIFEST — #1101
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// `/api/continue` used to spawn a loop with no `PLOT_MANIFEST_FILE` at all,
+// which is `unset` and keeps waiting forever — the registry can never hand it
+// a branch because `assigned_branch` always returns 1, and the wait holds the
+// desk for the full `Worker bound`, logging `free on ?`. This slice gives the
+// OTHER shape — a NAME whose manifest has since vanished — an honest ending
+// instead of the same silent hold.
+
+test('worker-loop: a free loop ends when its manifest vanishes mid-wait', serial, async () => {
+  const t = fixture('manifest-gone', 5, 'echo "PROMPT-RAN" >&2\n');
+  fs.mkdirSync(path.join(t, '.plot', 'agents'), { recursive: true });
+  const manifest = path.join(t, '.plot', 'agents', 'free.json');
+  fs.writeFileSync(manifest, JSON.stringify({ session: 'free', branch: '', worktree: t }));
+
+  // Delete the manifest DURING the wait, not before it: the loop must reach
+  // `wait_for_work`, poll once seeing `registered`, and only then find it gone.
+  const deleteDuringWait = (async () => {
+    await new Promise((r) => setTimeout(r, 800));
+    fs.rmSync(manifest, { force: true });
+  })();
+
+  const [r] = await Promise.all([
+    runLoop(t, {
+      env: {
+        PLOT_BRANCH: '',
+        PLOT_SLUG: '',
+        PLOT_MANIFEST_FILE: manifest,
+        PLOT_WAIT_POLL_SECONDS: '1',
+        PLOT_WAIT_BUDGET_SECONDS: '30',
+      },
+    }),
+    deleteDuringWait,
+  ]);
+
+  // ASSERTED BEFORE `discard`, which removes the whole fixture tree (the
+  // ending record lives IN `t`) — a pattern this file's hop test already
+  // follows for the same reason.
+  assert.equal(r.code, 124, `the vanished manifest must end the loop\n--- stderr ---\n${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /PROMPT-RAN/,
+    'this agent held no branch when it started, so its prompt never ran');
+  assert.match(r.stderr, new RegExp(manifest.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    'the log names the manifest path that went missing');
+  assert.doesNotMatch(r.stderr, /the wait ran out/,
+    'the manifest going missing is a different ending from the wait bound expiring');
+
+  const endingPath = path.join(t, '.plot-worker.ending.json');
+  assert.ok(fs.existsSync(endingPath), 'an ending record must be written');
+  const ending = JSON.parse(fs.readFileSync(endingPath, 'utf8'));
+  assert.equal(ending.reason, 'unregistered');
+  assert.equal(ending.actor, 'agent');
+  assert.ok(ending.detail.includes(manifest), 'the detail names the manifest path');
+
+  discard(t);
+});
+
+test('worker-loop: a hand-started loop with no manifest at all keeps waiting', serial, async () => {
+  // THE REGRESSION LOCK for `unset` staying apart from `gone`. Without
+  // `loop_registration` reading `[ -z ]` before `[ -f ]`, an empty
+  // `PLOT_MANIFEST_FILE` could be misread as "gone" and end every hand-started
+  // loop at once — the seven workerloop fixtures above that blank the variable
+  // must stay on the wait bound, not on `unregistered`.
+  const t = fixture('manifest-unset', 5, 'echo "PROMPT-RAN" >&2\n');
+  const { stderr, code } = await runLoop(t, {
+    env: {
+      PLOT_BRANCH: '',
+      PLOT_SLUG: '',
+      PLOT_MANIFEST_FILE: '',
+      PLOT_WAIT_POLL_SECONDS: '1',
+      PLOT_WAIT_BUDGET_SECONDS: '1',
+    },
+  });
+  discard(t);
+
+  assert.equal(code, 124, 'the wait still ends on its own bound');
+  assert.match(stderr, /the wait ran out/,
+    `an unset manifest must take the ordinary wait-bound ending, not 'unregistered': ${stderr}`);
+  assert.doesNotMatch(stderr, /is gone — ending worker/,
+    'an unset manifest must never be read as a gone one');
+  assert.equal(fs.existsSync(path.join(t, '.plot-worker.ending.json')), false,
+    'the ordinary wait-bound ending writes no ending record');
+});

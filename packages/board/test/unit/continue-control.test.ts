@@ -60,10 +60,11 @@ describe('every refusal says something different', () => {
     'no-worktree',
     'no-question',
     'no-worker-command',
+    'no-manifest',
   ];
 
   it('renders a distinct sentence for each', () => {
-    // Four reasons collapsed into one message is the defect the three-way
+    // Five reasons collapsed into one message is the defect the three-way
     // answers elsewhere in this server exist to prevent: each of these sends
     // the reader to a different place.
     const said = reasons.map(refusalWord);
