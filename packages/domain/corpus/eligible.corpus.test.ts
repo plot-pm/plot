@@ -284,9 +284,13 @@ describe('the queue agrees with the scan — a third surface over the same plans
 
     for (const plan of pulse.plans) {
       if (TERMINAL_PHASES.has(plan.phase)) continue;
+      // A branch with a ref on origin: the scan reads it `claimed` or `wip`,
+      // and production's `claimedBranches` reads the same refs.
       const claimed = new Set(
         plan.slices.flatMap((slice) =>
-          slice.branches.filter((b) => b.state === 'claimed').map((b) => b.branch),
+          slice.branches
+            .filter((b) => b.state === 'claimed' || b.state === 'wip')
+            .map((b) => b.branch),
         ),
       );
       const merged = new Set(
@@ -308,7 +312,8 @@ describe('the queue agrees with the scan — a third surface over the same plans
           // A SETTLED OR CLAIMED BRANCH LEAVES THE QUEUE ENTIRELY — the same
           // door `isClaimable` reaches by reading `state`. Absence from the
           // queue is therefore the predicted answer for one, not a defect.
-          const queueClaims = fromQueue?.claimable === true;
+          // The queue offers a slice that is claimable and held by no `waits:` prerequisite.
+          const queueClaims = fromQueue?.claimable === true && fromQueue.waitHeld === '';
           const scanClaims = isClaimable(slice.verdict, branch.state);
           if (queueClaims !== scanClaims) {
             found.push({
