@@ -344,13 +344,6 @@ update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree $4=resume
 # shellcheck source=plot-agent-manifest.sh
 . "$script_dir/plot-agent-manifest.sh"
 
-# Is a commit an empty claim marker? SOURCED from `plot-empty-claim.sh`, the
-# same predicate `plot-reap.sh`'s sweep uses, so `yield_the_held_checkout`'s
-# no-upstream reading and the reaper's orphaned-claim sweep can never disagree
-# about which commits are real work.
-# shellcheck source=plot-empty-claim.sh
-. "$script_dir/plot-empty-claim.sh"
-
 # ---------------------------------------------------------------------------
 # THE RETRY BUDGET — `attempts`, and why the loop writes it
 # ---------------------------------------------------------------------------
@@ -966,42 +959,26 @@ yield_the_held_checkout() { # $1=holder $2=branch → 0 when the holder is gone
     dirty=unknown
   fi
 
-  # WITH AN UPSTREAM, THE READING IS UNCHANGED: a branch whose claim push
-  # happened has a remote ref, and any commit beyond it is unpushed work.
-  #
-  # WITH NO UPSTREAM, MEASURE AGAINST `origin/$main_branch` INSTEAD OF READING
-  # `unknown` OUTRIGHT. Measured 2026-10-03 (#1242): a claim push that never
-  # happened leaves no `@{upstream}`, and the holder's only commit was
-  # `plot: claim ...`, changing no file. That commit is not work a removal
-  # would delete, but the old reading could not tell it apart from one that
-  # was, so EVERY no-upstream holder read `unknown` and kept forever — 250
-  # times in about 24 hours. The fix excludes only commits PROVEN to be empty
-  # claim markers (`plot_is_empty_claim_commit`, shared with `plot-reap.sh` so
-  # the two can never disagree): a commit that changes a file, whatever its
-  # subject, still counts.
-  if git -C "$holder" rev-parse --verify --quiet '@{upstream}' >/dev/null 2>&1; then
-    if unpushed=$(git -C "$holder" rev-list --count '@{upstream}..HEAD' 2>/dev/null); then
-      case "$unpushed" in
-        0) unpushed=0 ;;
-        ''|*[!0-9]*) unpushed=unknown ;;
-        *) unpushed=1 ;;
-      esac
-    else
-      unpushed=unknown
-    fi
-  elif ! git -C "$holder" rev-parse --verify --quiet "origin/$main_branch" >/dev/null 2>&1; then
-    # AN UNREADABLE `origin/<default>` IS UNKNOWN, NOT ZERO. Reading a failed
-    # comparison as "nothing unpushed" would remove a checkout nothing judged.
-    unpushed=unknown
+  # WITH NO UPSTREAM, THE COMMITS BEYOND `origin/$main_branch` ARE COUNTED BY
+  # `board/plot-empty-claim.mjs`, which excludes only proven empty claim
+  # markers (#1242). A git or bundle failure reads `unknown`, which keeps.
+  if unpushed=$(git -C "$holder" rev-list --count '@{upstream}..HEAD' 2>/dev/null); then
+    case "$unpushed" in
+      0) unpushed=0 ;;
+      ''|*[!0-9]*) unpushed=unknown ;;
+      *) unpushed=1 ;;
+    esac
+  elif unpushed=$(set -o pipefail
+      git -C "$holder" log --boundary --format='HEAD%x09%m%x09%H%x09%T%x09%P%x09%s' \
+        "origin/$main_branch..HEAD" -- 2>/dev/null |
+      node "$script_dir/board/plot-empty-claim.mjs" 2>/dev/null); then
+    case "$unpushed" in
+      ''|"HEAD	0") unpushed=0 ;;
+      "HEAD	"[1-9]*) unpushed=1 ;;
+      *) unpushed=unknown ;;
+    esac
   else
-    unpushed=0
-    while IFS= read -r c; do
-      [ -n "$c" ] || continue
-      if ! plot_is_empty_claim_commit "$c" "$holder"; then
-        unpushed=1
-        break
-      fi
-    done < <(git -C "$holder" rev-list "origin/$main_branch..HEAD" -- 2>/dev/null)
+    unpushed=unknown
   fi
 
   registered=$(checkout_is_registered "$holder")
