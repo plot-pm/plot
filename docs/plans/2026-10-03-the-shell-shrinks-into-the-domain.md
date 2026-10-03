@@ -95,7 +95,7 @@ The gate stores no number, so it cannot drift, two pull requests that each shrin
 
 ### The shell is inventoried
 
-- `infra/the-shell-is-inventoried` — the README script table lists all 58 scripts with kind, runs and replaced-by columns; `docs/shell-and-domain.md` and `CLAUDE.md` state the target; this plan names slice 4's script <!-- builds: kind, runs and replaced-by columns in skills/plot/scripts/README.md -->
+- `infra/the-shell-is-inventoried` — the README script table lists all 58 scripts with kind, runs and replaced-by columns; `docs/shell-and-domain.md` and `CLAUDE.md` state the target; this plan names slice 4's script → #1266 <!-- builds: kind, runs and replaced-by columns in skills/plot/scripts/README.md -->
 
 ### A command names its action in the domain
 
