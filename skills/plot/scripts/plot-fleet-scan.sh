@@ -3128,15 +3128,27 @@ for line in sys.stdin:
             # run of tabs collapses to one separator and only the LAST field
             # may be optional. "-" stands in for empty everywhere, so no run
             # can form.
-            # THE PREREQUISITE, from the `waits_on` key the parser emits —
-            # never re-parsed from the annotation. The key is ABSENT on a branch that
-            # declares nothing (`plot-plan-meta.sh` promises "a branch name or
-            # nothing — never a blank string"), and "-" stands in here for the
-            # same tab-collapse reason every other middle column does.
+            # THE PREREQUISITES, from the `waits_on` key the parser emits —
+            # never re-parsed from the annotation. The key is a LIST, ABSENT on
+            # a branch that declares nothing (`plot-plan-meta.sh` promises "a
+            # list of one or more names or no key at all — never []"), joined
+            # with commas into this one column: `entry/branch-state.ts` reads
+            # field 9 as a comma-separated name list, the shape it already
+            # expects for the parallel PR-state list in field 10. "-" stands in
+            # for absence here for the same tab-collapse reason every other
+            # middle column does. A plan parsed by an OLD parser still emits a
+            # bare string for this key, which ",".join would shred into
+            # letters -- isinstance guards it, so that shape still passes
+            # through as one name.
+            waits_on = b.get("waits_on")
+            if isinstance(waits_on, list):
+                waits_col = ",".join(waits_on) if waits_on else "-"
+            else:
+                waits_col = waits_on or "-"
             print("\t".join(clean(x) for x in [
                 "W", f, str(i), ref, str(b.get("deferred")).lower(),
                 (b.get("deferred_reason") or "-"),
-                (b.get("waits_on") or "-"),
+                waits_col,
                 name or "-", b.get("claimed") or "-"]))
 ' 2>/dev/null) || records=""
 
@@ -4418,8 +4430,18 @@ for plan in "${plans[@]}"; do
       # list may legitimately omit: its plan may be delivered and its ref gone.
       # `host_pr_state`'s run cache keeps this at one call per prerequisite per
       # run, never one per pass.
-      # Field 10 is replaced; field 11 is carried.
-      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$(waits_pr_state "$waits_br")	$(printf '%s' "$rd_line" | cut -f11)"$'\n'
+      #
+      # FIELD 9 IS A LIST, comma-joined, so field 10 answers each prerequisite
+      # IN THE SAME ORDER — one `waits_pr_state` call per name, joined the same
+      # way. `entry/branch-state.ts` reads the two columns as parallel lists of
+      # equal length and throws otherwise, so a single answer for several names
+      # would desync them. Field 11 is carried, unreplaced.
+      waits_state=""
+      IFS=',' read -ra _waits_names <<< "$waits_br"
+      for _wn in "${_waits_names[@]}"; do
+        waits_state+="${waits_state:+,}$(waits_pr_state "$_wn")"
+      done
+      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$waits_state	$(printf '%s' "$rd_line" | cut -f11)"$'\n'
     else
       refill+="$rd_line"$'\n'
     fi
@@ -4607,18 +4629,24 @@ for plan in "${plans[@]}"; do
       [ "$claim" = "-" ] && claim=""
       [ "$why" = "-" ] && why=""
       [ "$waits" = "-" ] && waits=""
+      # THE NOTE NAMES EVERY PREREQUISITE, not just one: `$waits` is comma-joined
+      # with no space (the shim's separator), and the sentence reads "a, b" —
+      # with one name both forms are byte-identical. The scan has the VERDICT
+      # and not the per-prerequisite answer here, so `blocked`'s sentence names
+      # every prerequisite rather than which one lacks a PR.
+      waits_prose="${waits//,/, }"
       n_branches=$((n_branches + 1))
       case "$st" in
         # WHAT IT WAITS ON, NAMED. A bare `waiting` tells a reader to come back
         # later without saying what would have to happen first, which is the
         # whole of what this state adds over `open`.
         waiting)  n_waiting=$((n_waiting + 1))
-                  note="waiting on $waits" ;;
+                  note="waiting on $waits_prose" ;;
         # A PREREQUISITE NOBODY DECLARED. The sentence says the host was asked
         # and answered, because that is what separates this from `waiting`: a
         # host that could not be asked holds the branch at `waiting` instead.
         blocked)  n_prereq_missing=$((n_prereq_missing + 1))
-                  note="blocked — no PR found for $waits" ;;
+                  note="blocked — no PR found for $waits_prose" ;;
         # The REASON, where the plan recorded one. A bare `deferred` beside a
         # branch with no commits reads as two unrelated facts when the first is
         # the reason for the second, and the sentence that says so was already
@@ -4689,15 +4717,32 @@ for plan in "${plans[@]}"; do
         # recorded — the flag says which of those two a reader is looking at.
         json_branches+=",\"deferred_reason\":\"$(json_str "$why")\""
         # WHAT THIS BRANCH WAITS ON, straight from the plan's `waits:`
-        # annotation. "" where the branch declares nothing, which is the answer
-        # every branch gave before this field existed.
+        # annotation. `[]` where the branch declares nothing — `FleetBranchSchema`
+        # carries the key on every branch since #1253, so absence is an empty
+        # list here rather than a missing key, unlike the parser's own
+        # `waits_on` which omits the key entirely.
         #
         # THE ANNOTATION, NOT THE VERDICT, and it is emitted whatever `state`
         # says. A branch whose prerequisite has MERGED reports `waits_on` with
         # its ordinary state — the declaration is still a fact about the plan,
         # and a reader who sees a cleared dependency learns why the slice is
         # now startable. Consumers test `state`, never the presence of this.
-        json_branches+=",\"waits_on\":\"$(json_str "$waits")\""
+        #
+        # `$waits` IS COMMA-JOINED NAMES, never PR states: split on the same
+        # separator the shim joined with, each name JSON-escaped on its own.
+        json_waits_on="[]"
+        if [ -n "$waits" ] && [ "$waits" != "-" ]; then
+          json_waits_on="["
+          IFS=',' read -ra _waits_names_out <<< "$waits"
+          _wfirst=1
+          for _wn in "${_waits_names_out[@]}"; do
+            [ "$_wfirst" = 1 ] || json_waits_on+=","
+            json_waits_on+="\"$(json_str "$_wn")\""
+            _wfirst=0
+          done
+          json_waits_on+="]"
+        fi
+        json_branches+=",\"waits_on\":$json_waits_on"
         json_branches+=",\"claimed\":\"$(json_str "$claim")\""
         # What this machine knows and the refs do not. Absent everywhere else:
         # `local_dirty:false` and `local_worktree:""` are what a branch checked

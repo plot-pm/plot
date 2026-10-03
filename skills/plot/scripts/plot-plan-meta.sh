@@ -130,14 +130,19 @@
 #                  `<!-- deferred -->` (bare, no colon) sets the flag with no
 #                  reason; `waves[].branches[].deferred_reason` carries the
 #                  sentence after the colon, "" where none was written.
-#                  `<!-- waits: bug/other -->` names ONE branch this branch
-#                  waits on, reported as `waves[].branches[].waits_on`. The key
-#                  is ABSENT where no annotation was written — never "" — and
-#                  the value is a branch name in this repo, not a plan slug and
-#                  not a cross-repo reference. The parser reports what the file
-#                  says: a prerequisite no plan declares still parses, and the
-#                  scan is what turns that into a verdict. `waits:` and
-#                  `deferred:` are independent — a branch may carry both.
+#                  `<!-- waits: bug/other -->` names branches this branch waits
+#                  on, reported as `waves[].branches[].waits_on`, A LIST, in the
+#                  line's order, duplicates removed — several `<!-- waits: … -->`
+#                  comments on one line, or one `<!-- waits: x, y -->`, give the
+#                  same list. The key is ABSENT where no annotation was written
+#                  — never `[]` — and each value is a branch name in this repo,
+#                  not a plan slug and not a cross-repo reference. The parser
+#                  reports what the file says: a prerequisite no plan declares
+#                  still parses, and the scan is what turns that into a verdict.
+#                  `waits:` and `deferred:` are independent — a branch may carry
+#                  both. A `waits:` value the parser cannot read as a branch, on
+#                  a line that names one, is reported in `unread_waits[]`
+#                  instead — never dropped silently.
 #                  `<!-- builds: normalizeVersion, a shared helper -->` names
 #                  what this slice BUILDS, reported as
 #                  `waves[].branches[].builds`. OPTIONAL, like `Sprint:` and
@@ -208,6 +213,13 @@
 #                  heading, which carries no `Branch:`. Covers both slice
 #                  consumers, so a heading lost to the first-heading latch
 #                  (#1042) is named too. ALWAYS present; [] when none.
+#   unread_waits   `{ branch, value }` pairs, in document order, for a `waits:`
+#                  marker on a line that names a branch whose value the parser
+#                  could not read as one — a report, not a refusal. The marker
+#                  is dropped from `waits_on` rather than silently discarding
+#                  it: a plan documenting the annotation as prose on a line with
+#                  no branch stays silent, since reporting that would fire on
+#                  every such plan. ALWAYS present; [] when none.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -294,7 +306,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -332,6 +344,44 @@ function jesc(s) {
   return s
 }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+# Every `<!-- waits: … -->` marker on a line, each value split on commas, in
+# the line order with duplicates removed, written into outArr/outN (outN is
+# outArr[0] — awk scalars are pass-by-value, so a count returned through a
+# parameter needs an array slot instead). A value that does not look like a
+# branch name is appended to the global pending_unread_value[] instead of
+# outArr, with its count in pending_unread_n; the caller (the branch match
+# below, which alone knows the branch this line names) drains it into
+# unread_waits_branch[]/unread_waits_value[].
+#
+# BWK awk (macOS) and POSIX awk elsewhere have no `match(s, re, arr)` and no
+# `gensub` — both gawk-only. So this loops with plain `match()` plus `substr()`
+# over the remainder of the line, the same technique the rest of this parser
+# already uses for `prs` and `issues`.
+function parse_waits(s, outArr,   rest, raw, parts, np, i, v, j, dup, n_out) {
+  n_out = 0
+  delete pending_unread_value; pending_unread_n = 0
+  rest = s
+  while (match(rest, /<!--[ \t]*waits:[ \t]*/)) {
+    raw = substr(rest, RSTART + RLENGTH)
+    rest = substr(rest, RSTART + RLENGTH)
+    sub(/-->.*$/, "", raw)
+    raw = trim(raw)
+    np = split(raw, parts, /[ \t]*,[ \t]*/)
+    for (i = 1; i <= np; i++) {
+      v = trim(parts[i])
+      if (v == "") continue
+      if (v ~ "^(" PREFIXES ")/[^ \t,]+$") {
+        dup = 0
+        for (j = 1; j <= n_out; j++) if (outArr[j] == v) { dup = 1; break }
+        if (!dup) outArr[++n_out] = v
+      } else {
+        pending_unread_value[++pending_unread_n] = v
+      }
+    }
+  }
+  outArr[0] = n_out
+  return n_out
+}
 # Value after the first colon, stripped of bold markers / quotes / space.
 function val_after_colon(s) {
   sub(/^[^:]*:/, "", s); sub(/^\**[ \t]*/, "", s)
@@ -442,14 +492,15 @@ function reset_state() {
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; n_waves = 0
   delete branch_heading
-  delete waits_of; delete waits_set
+  delete waits_of; delete waits_set; delete waits_n
+  delete unread_waits_branch; delete unread_waits_value; n_unread_waits = 0
   delete builds_of; delete builds_set
   delete agent_of; delete agent_set
   delete started; n_started = 0
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, i, j, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, i, j, k, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
   # THE PHASE IS READ FROM THE FIELD PLOT WRITES. A canonical `State:`/`Phase:`
   # outranks front matter, because every lifecycle script writes the canonical
   # body and none writes front matter: `plot-approve.sh` holds zero front-matter
@@ -615,11 +666,18 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       out = out (first ? "" : ",") "{\"branch\":\"" jesc(ordered_b[i]) "\",\"deferred\":" deferred_of[i] \
             ",\"deferred_reason\":\"" jesc(deferred_why[i]) "\"" \
             ",\"claimed\":\"" jesc(claimed_of[i]) "\""
-      # ABSENT, NOT EMPTY, where no prerequisite was declared. The key appears
-      # only on a branch whose line carries a `waits:` annotation, so a consumer
-      # reading `waits_on` gets a branch name or nothing — never a blank string
-      # that reads as a prerequisite with no name.
-      if (waits_set[i] == 1) out = out ",\"waits_on\":\"" jesc(waits_of[i]) "\""
+      # ABSENT, NOT EMPTY ARRAY, where no prerequisite was declared. The key
+      # appears only on a branch whose line carries a `waits:` annotation, so a
+      # consumer reading `waits_on` gets a list of one or more names or no key
+      # at all — never `[]`, which would read as a declared wait on nothing.
+      # waits_of is flattened as waits_of[i,k] (k = 1..waits_n[i]) since this
+      # awk has no nested arrays; store_waits() fills it per branch, in
+      # document order, duplicates removed.
+      if (waits_set[i] == 1) {
+        out = out ",\"waits_on\":["
+        for (k = 1; k <= waits_n[i]; k++) out = out (k > 1 ? "," : "") "\"" jesc(waits_of[i, k]) "\""
+        out = out "]"
+      }
       # ABSENT, NOT EMPTY, for the same reason `waits_on` is: a slice that
       # names no deliverable emits no key, so a consumer reads a name or
       # nothing. An empty string would read as a deliverable called "".
@@ -672,6 +730,17 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     }
   }
   out = out "]"
+  # unread_waits[]: a `waits:` marker on a branch line whose value the parser
+  # could not read as a branch, `{ branch, value }` in document order — a
+  # report, not a refusal. Filled by store_waits() as each branch is matched;
+  # a `waits:` syntax example on a PROSE line (no branch claim) never reaches
+  # store_waits(), so it stays silent, as today.
+  out = out ",\"unread_waits\":["
+  for (i = 1; i <= n_unread_waits; i++) {
+    out = out (i > 1 ? "," : "") "{\"branch\":\"" jesc(unread_waits_branch[i]) "\"" \
+          ",\"value\":\"" jesc(unread_waits_value[i]) "\"}"
+  }
+  out = out "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
@@ -702,6 +771,24 @@ function note_branch_heading(   h) {
   h = trim(substr($0, 4))
   sub(/[ \t]*<!--.*$/, "", h)
   branch_heading[n_waves] = h
+}
+# Copies the line-local waits list parse_waits() just filled (line_waits[],
+# line_waits[0] = count) into the flattened per-branch storage, and drains
+# pending_unread_value[] — the values parse_waits() could not read as a branch
+# — into unread_waits_branch[]/unread_waits_value[], now that the branch this
+# line claims (n = n_branches, b = the branch) is known. Called from both
+# slice dialects at the moment each claims a branch, so a `waits:` syntax
+# example on a line with NO branch claim never drains the queue and stays
+# silent — the same rule the old single-value reading followed.
+function store_waits(n, b,   k) {
+  waits_n[n] = line_waits[0] + 0
+  for (k = 1; k <= waits_n[n]; k++) waits_of[n, k] = line_waits[k]
+  waits_set[n] = (waits_n[n] > 0) ? 1 : 0
+  for (k = 1; k <= pending_unread_n; k++) {
+    unread_waits_branch[++n_unread_waits] = b
+    unread_waits_value[n_unread_waits] = pending_unread_value[k]
+  }
+  delete pending_unread_value; pending_unread_n = 0
 }
 # The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
 # a measurement: the longest legitimate name in the estate is `Offered first`
@@ -1020,17 +1107,18 @@ section == "slices" && slice_shape != "heading" {
     sub(/[ \t]*-->.*$/, "", _d)
     defer_note = trim(_d)
   }
-  # THE PREREQUISITE THIS BRANCH NAMES: `<!-- waits: bug/other-branch -->`.
+  # THE PREREQUISITES THIS BRANCH NAMES: `<!-- waits: bug/other-branch -->`.
   #
-  # ONE branch, never a list. A slice needing two prerequisites has not been cut
-  # finely enough, and a list invites a dependency graph nobody wants to debug.
-  # The greedy `.*` takes the LAST annotation when a line carries two, which is
-  # the same rule `deferred:` and `claimed:` already follow.
+  # A LIST, not one name. Several `<!-- waits: … -->` comments on a line, or one
+  # `<!-- waits: x, y -->`, give the same list in document order, duplicates
+  # removed — see parse_waits(). The old greedy `sub()` took only the LAST
+  # annotation when a line carried two, which silently dropped every other
+  # prerequisite a slice had cleared for merge eligibility by itself (#1153).
   #
-  # The value is a BRANCH NAME, so it stops at the first whitespace rather than
-  # running to the closing marker the way a deferral reason does: a reason is a
-  # sentence, a branch name is a token, and trailing prose inside the comment
-  # would silently become part of a name that then matches nothing.
+  # Each value is a BRANCH NAME, so it stops at the first whitespace or comma
+  # rather than running to the closing marker the way a deferral reason does: a
+  # reason is a sentence, a branch name is a token, and trailing prose inside
+  # the comment would silently become part of a name that then matches nothing.
   #
   # `deferred:` is a judgement and `waits:` is a checkable fact, so the two are
   # separate annotations and both may sit on one line. Read here, beside the
@@ -1039,7 +1127,15 @@ section == "slices" && slice_shape != "heading" {
   #
   # `has_waits` carries presence separately from the value, because ABSENT and
   # EMPTY are different answers — a branch declaring no prerequisite emits no
-  # `waits_on` key at all.
+  # `waits_on` key at all, never `[]`.
+  #
+  # A value that does not look like a branch is NOT dropped — parse_waits()
+  # queues it in pending_unread_value[], and once the branch this line claims is
+  # known (below), it is copied into unread_waits_branch[]/unread_waits_value[].
+  # A line with no branch claim never drains the queue, so a `waits:` syntax
+  # example in prose — not on a branch line — stays silent, as today.
+  delete line_waits
+  has_waits = (parse_waits($0, line_waits) > 0)
   # WHAT THIS SLICE BUILDS: `<!-- builds: normalizeVersion, a shared helper -->`.
   #
   # AN ANNOTATION, NOT A FIELD LINE, and that is what makes it work in BOTH
@@ -1072,26 +1168,6 @@ section == "slices" && slice_shape != "heading" {
     sub(/[ \t]*-->.*$/, "", _bl)
     builds_note = trim(_bl)
     if (builds_note != "") has_builds = 1
-  }
-  waits_note = ""
-  has_waits = 0
-  if ($0 ~ /<!--[ \t]*waits:[ \t]*/) {
-    _w = $0
-    sub(/^.*<!--[ \t]*waits:[ \t]*/, "", _w)
-    sub(/[ \t].*$/, "", _w)
-    sub(/-->.*$/, "", _w)
-    waits_note = trim(_w)
-    # THE VALUE MUST LOOK LIKE A BRANCH, and that check is what keeps a
-    # SYNTAX EXAMPLE from becoming a declaration. A plan that documents the
-    # annotation writes the literal marker in prose, and no comment-aware
-    # reading can tell that apart from the real thing on the same line — the
-    # branch prefixes can. `<branch>` is not a branch name; `bug/x` is.
-    #
-    # Reusing the branch prefixes rather than a new pattern: the prerequisite
-    # IS a branch in this repo, so the two must never disagree about what a
-    # branch name looks like.
-    if (waits_note ~ "^(" PREFIXES ")/[^ \t]+$") has_waits = 1
-    else waits_note = ""
   }
   # WHICH KIND OF AGENT THIS SLICE NEEDS: `<!-- agent: reviewer -->`.
   #
@@ -1164,10 +1240,10 @@ section == "slices" && slice_shape != "heading" {
     # Claim reflection, written by the worker after its ref push succeeds. This
     # is a reflection, not the claim: git refs remain authoritative.
     claimed_of[n_branches] = claim_note
-    # The prerequisite travels with the branch. Presence is tracked separately
-    # so a branch that declares none emits no key.
-    waits_of[n_branches] = waits_note
-    waits_set[n_branches] = has_waits
+    # The prerequisites travel with the branch, flattened as waits_of[n,1..k]
+    # since this awk has no nested arrays. Presence is tracked separately so a
+    # branch that declares none emits no key.
+    store_waits(n_branches, b)
     builds_of[n_branches] = builds_note
     builds_set[n_branches] = has_builds
     # The kind travels with the branch, presence tracked separately so a slice
@@ -1292,26 +1368,12 @@ section == "slices" && slice_shape == "heading" {
     builds_note = trim(_bl)
     if (builds_note != "") has_builds = 1
   }
-  waits_note = ""
-  has_waits = 0
-  if ($0 ~ /<!--[ \t]*waits:[ \t]*/) {
-    _w = $0
-    sub(/^.*<!--[ \t]*waits:[ \t]*/, "", _w)
-    sub(/[ \t].*$/, "", _w)
-    sub(/-->.*$/, "", _w)
-    waits_note = trim(_w)
-    # THE VALUE MUST LOOK LIKE A BRANCH, and that check is what keeps a
-    # SYNTAX EXAMPLE from becoming a declaration. A plan that documents the
-    # annotation writes the literal marker in prose, and no comment-aware
-    # reading can tell that apart from the real thing on the same line — the
-    # branch prefixes can. `<branch>` is not a branch name; `bug/x` is.
-    #
-    # Reusing the branch prefixes rather than a new pattern: the prerequisite
-    # IS a branch in this repo, so the two must never disagree about what a
-    # branch name looks like.
-    if (waits_note ~ "^(" PREFIXES ")/[^ \t]+$") has_waits = 1
-    else waits_note = ""
-  }
+  # The prerequisites, read exactly as the list-item spelling reads them — see
+  # parse_waits() and the comment at the list-item block for why the value is a
+  # list, why it stops at whitespace/comma, and how an unreadable value reaches
+  # unread_waits instead of being dropped.
+  delete line_waits
+  has_waits = (parse_waits($0, line_waits) > 0)
   # The agent kind, read exactly as the list-item spelling reads it. Both
   # dialects emit the same waves[], so a field added to one only would break that
   # contract the first time a plan migrated. See the list-item block for why the
@@ -1351,8 +1413,7 @@ section == "slices" && slice_shape == "heading" {
     deferred_of[n_branches] = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) ? "true" : "false"
     deferred_why[n_branches] = defer_note
     claimed_of[n_branches] = claim_note
-    waits_of[n_branches] = waits_note
-    waits_set[n_branches] = has_waits
+    store_waits(n_branches, b)
     builds_of[n_branches] = builds_note
     builds_set[n_branches] = has_builds
     agent_of[n_branches] = agent_note

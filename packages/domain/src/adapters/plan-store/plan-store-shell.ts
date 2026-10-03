@@ -41,20 +41,20 @@ interface RawBranch {
   deferred?: boolean;
   deferred_reason?: string;
   claimed?: string;
-  waits_on?: string;
+  waits_on?: string | readonly string[];
 }
 
 /**
  * Renames one branch line into the port's shape.
  *
  * `waits_on` is ABSENT rather than empty on a branch declaring no wait — the
- * parser's own contract (`plot-plan-meta.sh:619-623`) — so the default below is
+ * parser's own contract (`plot-plan-meta.sh:669-680`) — so the default below is
  * what turns that absence into `PlanRecordBranch.waitsOn`'s `[]`.
  *
- * THE PARSER STILL EMITS ONE NAME, NOT A LIST — wrapped here into the one-item
- * list the port's list-shaped field now takes. `the-parser-reads-every-wait`
- * owns teaching `plot-plan-meta.sh` to emit several; until then this is the
- * only mapping there is to do.
+ * BOTH SHAPES ARE ACCEPTED. `plot-plan-meta.sh` now emits a list
+ * (`the-parser-reads-every-wait`); a plan blob parsed by an OLDER copy of that
+ * script still emits one bare name, and a string here is wrapped into the
+ * one-item list the rest of the domain already expects.
  *
  * @param raw - one branch line from the parser.
  * @returns the record, with every absent field at its empty value.
@@ -64,7 +64,11 @@ export const branchOf = (raw: RawBranch): PlanRecordBranch => ({
   deferred: raw.deferred ?? false,
   deferredReason: raw.deferred_reason ?? '',
   claimed: raw.claimed ?? '',
-  waitsOn: raw.waits_on ? [raw.waits_on] : [],
+  waitsOn: Array.isArray(raw.waits_on)
+    ? raw.waits_on
+    : raw.waits_on
+      ? [raw.waits_on]
+      : [],
 });
 
 const sliceOf = (raw: RawSlice): PlanRecordSlice => ({
