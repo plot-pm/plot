@@ -138,8 +138,27 @@ const BRANCH_FIELDS = [
   'worker_dirty_paths',
   // What this branch waits on, read from the plan's `waits:` annotation. Empty
   // for a branch that names no prerequisite, which is most of them.
+  //
+  // MAPPED HERE FOR THE COMPLETENESS GATE BELOW, COMPARED SEPARATELY. The wire
+  // still emits one name as a bare string; `BranchSchema.waits_on` preprocesses
+  // it into a one-item list (`''` to `[]`, a name to `[name]`) so both the old
+  // wire shape and the eventual list one parse — see
+  // `every-wait-reaches-the-verdict`. The generic loop below compares through
+  // `JSON.stringify`, which would report every branch as a disagreement
+  // comparing the parsed array against the unwrapped wire string, so this field
+  // is skipped there and compared wrapped instead.
   'waits_on',
 ] as const;
+
+/**
+ * The wire's `waits_on` wrapped into the list shape {@link BranchSchema}
+ * reads it as — see the field's own comment in {@link BRANCH_FIELDS}.
+ *
+ * @param value - the wire's `waits_on`, read off the raw scan JSON.
+ * @returns the one-item (or empty) list the schema would produce.
+ */
+const wireWaitsOn = (value: unknown): readonly string[] =>
+  typeof value === 'string' && value !== '' ? [value] : [];
 
 /** The counters `summary` carries. */
 const SUMMARY_FIELDS = [
@@ -401,6 +420,10 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
           const theirBranch = theirBranches[position] ?? {};
           const subject = `${where}.branch[${position}] ${branch.branch}`;
           for (const field of BRANCH_FIELDS) {
+            // `waits_on` IS MAPPED BUT NOT COMPARED HERE — see its comment in
+            // {@link BRANCH_FIELDS}. The strict-equality loop would compare the
+            // parsed list against the wire's unwrapped bare string.
+            if (field === 'waits_on') continue;
             compareField(
               found,
               subject,
@@ -409,6 +432,13 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
               theirBranch[field],
             );
           }
+          compareField(
+            found,
+            subject,
+            'waits_on',
+            branch.waits_on,
+            wireWaitsOn(theirBranch.waits_on),
+          );
         });
       });
     });

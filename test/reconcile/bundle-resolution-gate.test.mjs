@@ -106,6 +106,28 @@ test('bundle gate: plot-board-probe.sh passes only because it is exempted by nam
     'the exemption names a line that no longer exists — delete the exemption');
 });
 
+test('bundle gate: plot-desk-dirt.sh and plot-bundle-commit-gate.sh pass only because they read build.mjs, not a bundle', () => {
+  // `$wt/packages/board/build.mjs` matches the SHAPE (`.../board/<name>.mjs`)
+  // without being a shipped bundle at all — it is the source the bundles are
+  // derived from, read against the worktree BEING ASKED ABOUT rather than this
+  // repository's own checkout. Exempted by name for that reason.
+  const line = 'bundle="$wt/packages/board/build.mjs"';
+  for (const rel of [
+    'skills/plot/scripts/plot-desk-dirt.sh',
+    'skills/plot/scripts/plot-bundle-commit-gate.sh',
+  ]) {
+    const exempt = treeWith(`#!/usr/bin/env bash\n${line}\n`, rel);
+    assert.equal(run(exempt).status, 0, `${rel} must pass: ${run(exempt).stdout}`);
+    rmSync(exempt, { recursive: true, force: true });
+  }
+
+  // THE SAME LINE UNDER ANY OTHER NAME FAILS, so the pass above is the
+  // exemption and not a blind spot the pattern itself has.
+  const other = treeWith(`#!/usr/bin/env bash\n${line}\n`, 'skills/plot/scripts/plot-other.sh');
+  assert.equal(run(other).status, 1, 'the same line must fail outside the exempted files');
+  rmSync(other, { recursive: true, force: true });
+});
+
 test("bundle gate: passes on the repository's own tree", () => {
   const got = run(repoRoot);
   assert.equal(got.status, 0, got.stdout);

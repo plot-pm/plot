@@ -247,9 +247,12 @@ test('the artifact stays in git and CI still gates its freshness', () => {
   // Resolve by keeping a stale artifact and forget to rebuild, and CI must
   // fail — otherwise this trades a loud conflict for a silent regression.
   const workflow = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
-  // The freshness decision lives in `scripts/main-bundles.sh`, where a fixture
-  // test can run it; CI calls it in `pr` mode on a pull request.
-  assert.match(workflow, /\.\/scripts\/main-bundles\.sh pr/, 'CI must run the freshness check on a pull request');
+  // A PULL REQUEST IS REFUSED FOR CARRYING A BUNDLE, not for a stale one: its
+  // diff carries no generated path, so its checkout holds main's build and
+  // `main-bundles.sh pr` only warns. Freshness is enforced where a build is
+  // committed — on main by the bundle workflow, and before a release tag.
+  assert.match(workflow, /\.\/scripts\/check-no-bundle-diff\.sh/, 'CI must refuse a PR whose diff carries a bundle');
+  assert.match(workflow, /\.\/scripts\/main-bundles\.sh pr/, 'CI must still rebuild and report on a pull request');
   const check = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'main-bundles.sh'), 'utf8');
   assert.match(check, /pnpm run build:board/, 'CI must rebuild the artifact itself');
   // EVERY GENERATED BUNDLE, NOT ONE FILE. Measured on PR #908, a change to
@@ -262,9 +265,9 @@ test('the artifact stays in git and CI still gates its freshness', () => {
     /git status --porcelain --untracked-files=all -- "\$\{paths\[@\]\}"/,
     'the check must compare every rebuilt bundle against the committed one',
   );
-  // It reports what it FOUND rather than a constant, and a pull request fails.
+  // It reports what it FOUND rather than a constant, and a release refuses.
   assert.match(check, /Stale board bundles: \$\(printf '%s' "\$stale"/, 'the check must name the stale files it found');
-  assert.match(check, /pr\)\n\s+echo "::error::\$\(report\)[^\n]*\n\s+exit 1/, 'a stale bundle on a pull request must fail');
+  assert.match(check, /release\)\n\s+echo "::error::\$\(report\)[^\n]*\n\s+exit 1/, 'a stale bundle must refuse a release tag');
 
   // And the file must still be tracked: `pnpm board` starts it with no build
   // step and the plugin ships it. `-merge` changes how it merges, not whether

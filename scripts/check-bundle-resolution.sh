@@ -41,6 +41,25 @@
 #   key, the checkout path is the last fallback after plugin and npm. The
 #   exemption rests on provenance, not on order: the probe names where the
 #   artifact came from, and a checkout is one place an artifact lives.
+#
+# `plot-desk-dirt.sh` and `plot-bundle-commit-gate.sh` — NOT A SHIPPED BUNDLE
+#   AT ALL. `$wt/packages/board/build.mjs` and `$root/packages/board/build.mjs`
+#   read `build.mjs`, the SOURCE the generated bundles are derived from — never
+#   one of the bundles under `skills/plot/scripts/board/` this gate exists to
+#   protect. It matches the pattern only because the path happens to end in
+#   `board/<name>.mjs`. `$wt` and `$root` are the worktree BEING ASKED ABOUT,
+#   not this repository's own checkout: a project with no `packages/board/` at
+#   all (Plot installed as a plugin, asked about a desk in that project) simply
+#   has no file there, and both derivations fail safe — `bundle_paths` prints
+#   nothing, the gate refuses nothing. There is no consumer path this could
+#   resolve wrongly, because there is no bundle involved in the read.
+#
+# `plot-install-hooks.sh` — A SCRATCH TEST FIXTURE, NOT A RESOLUTION. `--verify`
+#   builds a throwaway repo per gate and writes `$d/packages/board/build.mjs`
+#   into it to drive `plot-bundle-commit-gate.sh`'s own prober — `$d` is that
+#   fixture's root, never this repository or a consumer's. The same shape as
+#   the two exemptions above: a path ending in `board/<name>.mjs` with nothing
+#   shipped behind it.
 
 set -uo pipefail
 
@@ -56,7 +75,10 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # exactly that reason, and is correct.
 ROOTS='skills hooks'
 
-ALLOWED='skills/plot/scripts/plot-board-probe.sh'
+ALLOWED='skills/plot/scripts/plot-board-probe.sh
+skills/plot/scripts/plot-desk-dirt.sh
+skills/plot/scripts/plot-bundle-commit-gate.sh
+skills/plot/scripts/plot-install-hooks.sh'
 
 # The anchors that mean "this script's own directory".
 ANCHORS='script_dir here HERE'
@@ -82,7 +104,7 @@ while IFS= read -r hit; do
     '#'*) continue ;;
   esac
 
-  if [ "$file" = "$ALLOWED" ]; then
+  if printf '%s\n' "$ALLOWED" | grep -qxF "$file"; then
     exempt=$((exempt + 1))
     continue
   fi

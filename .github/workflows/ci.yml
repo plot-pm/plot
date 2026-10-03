@@ -173,6 +173,11 @@ jobs:
       - name: Fetch the default branch the scan reads
         run: git fetch --no-tags origin main:refs/remotes/origin/main
 
+      # THE CHECKOUT HOLDS main'S BUILD, NOT A PR'S OWN, same as `validate`:
+      # a PR's diff no longer carries the generated board bundles.
+      - name: Build the board bundles
+        run: pnpm run build:board
+
       - name: Corpus tier — adapters vs production
         timeout-minutes: 10
         run: pnpm --filter @plot-pm/domain run test:corpus
@@ -237,6 +242,25 @@ jobs:
 
       - name: Validate skill frontmatter
         run: pnpm run validate
+
+      # A PR'S DIFF CARRIES NO GENERATED BUNDLE. Refused against the merge
+      # base, never `origin/main` alone — `origin/main` has moved on by the
+      # time a PR is reviewed, and diffing against it would blame a branch for
+      # bundles `main` itself changed after the branch was cut. Runs only on
+      # `pull_request`: a push to `main` has no PR diff to read, and `main`'s
+      # own bundle freshness is `scripts/main-bundles.sh main`'s question,
+      # asked further down.
+      - name: A PR carries no bundle
+        if: github.event_name == 'pull_request'
+        run: ./scripts/check-no-bundle-diff.sh
+
+      # THE CHECKOUT HOLDS main'S BUILD, NOT A PR'S OWN. A PR's diff no longer
+      # carries the generated board bundles (`check-no-bundle-diff.sh` above),
+      # so every test below that loads one — three corpus tests and 14 files
+      # under `test/` — needs this step to have run first, on every event this
+      # workflow handles, not only on `pull_request`.
+      - name: Build the board bundles
+        run: pnpm run build:board
 
       # A CEILING AND A WITNESS, because the failure this catches reports NOTHING.
       #
@@ -1195,10 +1219,14 @@ jobs:
       - name: Board typecheck
         run: pnpm run typecheck
 
-      # A PULL REQUEST'S STALE BUNDLE IS AN ERROR. On a push to `main` it is a
-      # warning: until `build-bundles.yml` pushes the build, `main` holds the
-      # previous one for one workflow run, and failing there would make `main`
-      # red by design. The decision lives in `scripts/main-bundles.sh`.
+      # A PULL REQUEST'S REBUILD DIFFERING FROM ITS CHECKOUT IS A WARNING, NOT
+      # AN ERROR: `check-no-bundle-diff.sh` already refused a PR that commits
+      # one, so this checkout holds `main`'s build, and a PR that changes
+      # board source always rebuilds to something else. On a push to `main`
+      # it is also a warning, except on the App's own build commit, where it
+      # is an error: until the bundle workflow pushes the build, `main` holds
+      # the previous one for one workflow run, and failing there would make
+      # `main` red by design. The decision lives in `scripts/main-bundles.sh`.
       - name: Board build + artifact freshness
         timeout-minutes: 10
         run: |

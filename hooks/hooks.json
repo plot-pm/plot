@@ -19,6 +19,10 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-brief-name-gate.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-bundle-commit-gate.sh\""
           }
         ]
       }

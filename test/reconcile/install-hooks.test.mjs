@@ -288,6 +288,7 @@ const gateScripts = [
   'plot-state-gate.sh',
   'plot-controller-gate.sh',
   'plot-brief-name-gate.sh',
+  'plot-bundle-commit-gate.sh',
   'plot-phase-gate.sh',
   'plot-tmp.sh',
   'plot-state-receipt.sh',
