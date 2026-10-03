@@ -1950,7 +1950,11 @@ if [ "$mode" = "restart" ]; then
   # resets or stashes: a restart that discards that is worse than the missing
   # affordance, because it looks like a supported operation. The new worker's
   # brief already tells it to commit and push before verifying.
-  if [ -n "$(git -C "$restart_wt" status --porcelain </dev/null 2>/dev/null)" ]; then
+  # A REBUILT BUNDLE ALONE IS NOT "UNCOMMITTED WORK". `main` rebuilds and
+  # pushes every generated board bundle (`bug/main-builds-its-bundles`, #1249),
+  # so a desk that locally rebuilt one to test says nothing an agent left on
+  # the floor — excused path by path, same reading `desk_dirt` applies.
+  if [ -n "$(git -C "$restart_wt" status --porcelain </dev/null 2>/dev/null | exclude_bundle_paths "$restart_wt")" ]; then
     echo "  uncommitted work in the tree is kept — the new worker inherits it"
   fi
 
@@ -3655,10 +3659,22 @@ committed_files() { # $1=branch → paths, one per line
 
 # Files a branch holds only in its worktree — no ref carries these, so they are
 # invisible to every ref-based check including this script's own.
+#
+# A REBUILT BUNDLE IS EXCLUDED, path by path, same as `desk_dirt`: `main`
+# rebuilds and pushes every generated board bundle
+# (`bug/main-builds-its-bundles`, #1249), so it is never a branch's own
+# uncommitted work. The held-worktree gate below reads this list to decide
+# whether a worktree counts as held, and a rebuilt-but-unchanged bundle must
+# not be the reason a free worktree reads occupied.
 uncommitted_files() { # $1=worktree → paths, one per line
-  local wt="$1"
+  local wt="$1" bundles
   [ -d "$wt" ] || return 0
-  git -C "$wt" status --porcelain </dev/null 2>/dev/null | awk '
+  bundles=$(bundle_paths "$wt")
+  git -C "$wt" status --porcelain </dev/null 2>/dev/null | awk -v bundles="$bundles" '
+    BEGIN {
+      n = split(bundles, arr, "\n")
+      for (i = 1; i <= n; i++) if (arr[i] != "") excluded[arr[i]] = 1
+    }
     {
       # Porcelain v1: XY then a space then the path. A rename prints
       # "old -> new"; the new path is the one on disk.
@@ -3666,7 +3682,7 @@ uncommitted_files() { # $1=worktree → paths, one per line
       i = index(line, " -> ")
       if (i > 0) line = substr(line, i + 4)
       gsub(/^"|"$/, "", line)
-      if (line != "") print line
+      if (line != "" && !(line in excluded)) print line
     }'
 }
 

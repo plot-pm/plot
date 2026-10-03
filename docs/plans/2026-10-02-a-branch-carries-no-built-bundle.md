@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-10-02, jwloka, `bug/main-builds-its-bundles`
 - **Started:** 2026-10-03, jwloka, `bug/a-pr-carries-no-bundle`
+- **Started:** 2026-10-03, jwloka, `bug/the-artifact-repair-is-retired`
 
 ## Changelog
 
@@ -112,7 +113,7 @@
 
 ### The repair is retired
 
-- `bug/the-artifact-repair-is-retired` — removes `plot-resolve-artifact.sh`, the resolver, the `Repair` display and every listed reference; moves the freshness and set-equality assertions; `artifact-conflict` names the restore command <!-- waits: bug/a-pr-carries-no-bundle -->
+- `bug/the-artifact-repair-is-retired` — removes `plot-resolve-artifact.sh`, the resolver, the `Repair` display and every listed reference; moves the freshness and set-equality assertions; `artifact-conflict` names the restore command → #1263 <!-- waits: bug/a-pr-carries-no-bundle -->
 
 ## Notes
 

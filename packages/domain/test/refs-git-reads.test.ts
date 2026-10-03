@@ -116,6 +116,59 @@ describe('refsGit: merge status reads the exit code, and three answers stay apar
   });
 });
 
+describe('refsGit: remoteHead — a hand-over reads the last-fetched ref, not the network', () => {
+  it('answers present for a branch the last fetch recorded under origin', async () => {
+    const answer = await refs().remoteHead('feature/ahead');
+    expect(answer.ok).toBe(true);
+    if (answer.ok) expect(answer.value).toBe('present');
+  });
+
+  it('answers absent for a branch the last fetch did not record', async () => {
+    const answer = await refs().remoteHead('no-such-branch');
+    expect(answer.ok).toBe(true);
+    if (answer.ok) expect(answer.value).toBe('absent');
+  });
+
+  it('answers absent for a local branch with no remote-tracking ref', async () => {
+    // A local `refs/heads/<branch>` is not the remote's ref: the read names
+    // `refs/remotes/origin/<branch>` in full, so a short-name match cannot
+    // answer for it.
+    git(repo, ['branch', 'local/only']);
+    try {
+      const answer = await refs().remoteHead('local/only');
+      expect(answer.ok).toBe(true);
+      if (answer.ok) expect(answer.value).toBe('absent');
+    } finally {
+      git(repo, ['branch', '-D', 'local/only']);
+    }
+  });
+
+  it('answers unknown where git fails outside a repository', async () => {
+    // Exit 128, not 1: a failure a hand-over must not read as "the ref is gone".
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-git-no-repo-'));
+    try {
+      const answer = await refsGit({
+        repoRoot: outside,
+        scriptDir: path.join(outside, 'scripts'),
+      }).remoteHead('main');
+      expect(answer.ok).toBe(true);
+      if (answer.ok) expect(answer.value).toBe('unknown');
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('answers unknown where git cannot start, not absent', async () => {
+    // A process that cannot start reports exit 1, the same code `--verify
+    // --quiet` gives a missing ref; the second reading tells them apart.
+    const gone = path.join(os.tmpdir(), 'plot-refs-git-missing-dir-does-not-exist');
+    const answer = await refsGit({ repoRoot: gone, scriptDir: path.join(gone, 'scripts') })
+      .remoteHead('main');
+    expect(answer.ok).toBe(true);
+    if (answer.ok) expect(answer.value).toBe('unknown');
+  });
+});
+
 describe('refsGit: the tree and file readings the board renders from', () => {
   it('lists the blobs under a directory at a ref', async () => {
     const answer = await refs().listBlobs('origin/main', 'docs/plans/');

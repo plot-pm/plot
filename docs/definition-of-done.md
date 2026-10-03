@@ -29,42 +29,44 @@ an experiment. A change is not done if it breaks the board.
 
 ### Resolving a board artifact conflict
 
-`pnpm build:board` emits nine bundles into `skills/plot/scripts/board/`, and
+`pnpm build:board` emits 36 bundles into `skills/plot/scripts/board/`, and
 every one of them is generated output — minified, a few lines of many thousands
 of characters each. Git merges line by line, so **every** board change lands in
 the same handful of enormous lines: two branches touching entirely disjoint
 sources still collide there, and the diff cannot be read.
 
-`.gitattributes` marks all nine `-merge`, so git keeps one version whole and
+`.gitattributes` marks all 36 `-merge`, so git keeps one version whole and
 reports the conflict **without writing conflict markers into it**. The file
-stays valid JavaScript through the conflict, and the resolution is to rebuild:
+stays valid JavaScript through the conflict, and the resolution is to **restore
+from the merge base, never to commit a rebuild**: `main` builds and pushes its
+own bundles after every merge, so a PR's diff must carry none of them
+(`scripts/check-no-bundle-diff.sh`), and a commit staging one is refused at
+commit time too.
 
 ```bash
-git checkout --ours skills/plot/scripts/board/board-server.mjs   # either side
-pnpm build:board
-git add skills/plot/scripts/board/board-server.mjs
+git checkout "$(git merge-base HEAD origin/main)" -- <each conflicting generated path>
 ```
 
-**Do not read the diff, and do not think about which side to take.** Whichever
-version git kept is overwritten by the rebuild, so the choice cannot affect the
-result — which is why the first command may equally be `--theirs`.
+**Run `pnpm build:board` only to test the result locally.** The build is useful
+to confirm your source changes still work; its output must not be staged or
+pushed. If the gate ever refuses a staged generated path, the refusal prints
+this exact restore command with the paths filled in — run it, then continue.
 
-**Never phrase this resolution as "take ours".** Under `git merge`, *ours* is
-the branch being merged into; under `git rebase`, the roles invert and *ours*
-is the upstream. Agents in this repo rebase routinely, so a side-named
-instruction is correct in one flow and wrong in the other. The instruction is
-side-neutral on purpose: **take either version, then rebuild.**
+**Do not read the diff, and do not think about which side to take.** The merge
+base's version is what git will carry forward regardless of which side a
+conflict marker names, and `main` rebuilds every bundle from source again after
+the merge lands — so neither side's committed copy survives the next build
+either way.
 
-The freshness gate above is what keeps this honest. Resolve by keeping a stale
-artifact and forget to rebuild, and CI's no-diff check fails — the strategy
-removes the *conflict*, the gate still enforces *correctness*.
+The no-bundle-diff gate above is what keeps this honest: a generated path left
+in the diff, from either side, fails the PR rather than only a stale one.
 
 **The marked set is derived, never remembered.** `.gitattributes` named
-`board-server.mjs` alone until 2026-09-06 while `build.mjs` grew eight more
-outputs, and not one of them arrived here. Measured on one rebase, 2026-09-05:
-the marked file took zero conflict markers, `plot-ask.mjs` took five and
-`plot-registryd.mjs` took three, spliced into generated output that is
-committable, pushable, and not JavaScript.
+`board-server.mjs` alone until 2026-09-06 while `build.mjs` grew to 36
+outputs, and not one of the others arrived here on its own. Measured on one
+rebase, 2026-09-05: the marked file took zero conflict markers, `plot-ask.mjs`
+took five and `plot-registryd.mjs` took three, spliced into generated output
+that is committable, pushable, and not JavaScript.
 `scripts/check-bundle-attributes.sh` now reads the build's own
 `shippedX = path.join(…)` declarations and fails when one is unmarked, so
 adding an output marks it or fails CI.

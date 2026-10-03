@@ -1993,7 +1993,7 @@ while IFS=$'\t' read -r wt_branch wt_path; do
     # questions this block answers — *is anyone editing* and *when did the work
     # last change* — then read one list, which is what stopped them drifting
     # apart the last time.
-    if [ -n "$(plot_worker_dirty_filter "$wt_status")" ]; then wt_dirty=true; else wt_dirty=false; fi
+    if [ -n "$(plot_worker_dirty_filter "$wt_status" "$wt_path")" ]; then wt_dirty=true; else wt_dirty=false; fi
   elif [ "$wt_locked" = true ]; then
     # Status could not answer, but the lock says WHY, and that is an answer
     # rather than the absence of one: a write is in progress in this worktree at
@@ -2029,7 +2029,7 @@ while IFS=$'\t' read -r wt_branch wt_path; do
   # row after the first path with a tab in it. An integer cannot.
   wt_changed=""
   if [ -n "${wt_status:-}" ]; then
-    wt_dirty_paths=$(plot_worker_dirty_filter "$wt_status")
+    wt_dirty_paths=$(plot_worker_dirty_filter "$wt_status" "$wt_path")
     if [ -n "$wt_dirty_paths" ]; then
       wt_mtime_args=()
       wt_n=0

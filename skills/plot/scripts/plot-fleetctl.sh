@@ -1175,7 +1175,11 @@ if [ "$mode" = "stop" ]; then
     done
     elapsed=$(( $(date +%s) - started ))
     if [ "$exited" = 1 ]; then
-      dirty=$(git -C "$wt" status --porcelain 2>/dev/null | grep -c . || true)
+      # A REBUILT BUNDLE ALONE IS NOT "UNCOMMITTED WORK" — `main` rebuilds and
+      # pushes every generated board bundle (`bug/main-builds-its-bundles`,
+      # #1249), so a desk that locally rebuilt one to test holds nothing an
+      # agent left behind. Excused the same way `desk_dirt` excuses it.
+      dirty=$(git -C "$wt" status --porcelain 2>/dev/null | exclude_bundle_paths "$wt" | grep -c . || true)
       if [ "${dirty:-0}" -gt 0 ]; then
         printf ' ... exited (%ss), %s uncommitted file(s) kept\n' "$elapsed" "$dirty"
       else

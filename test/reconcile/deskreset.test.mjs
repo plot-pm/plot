@@ -231,6 +231,107 @@ test('desk: an existing branch is attached, never moved onto the base', () => {
   } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
 });
 
+// -----------------------------------------------------------------------
+// The generated bundles — restored before the detach, never discarded whole
+// -----------------------------------------------------------------------
+//
+// `main` rebuilds and pushes its own bundles after every merge
+// (`bug/main-builds-its-bundles`, #1249). A desk that rebuilt one locally to
+// test it holds a local MODIFICATION to a tracked path that the checkout
+// below refuses to overwrite — exactly the refusal these two tests reproduce
+// by moving `origin/main`'s own bundle forward past the desk's copy.
+
+/** Declares one bundle in `build.mjs` and commits it, with `body` as content. */
+function withBundle(work, body) {
+  fs.mkdirSync(path.join(work, 'packages', 'board'), { recursive: true });
+  fs.mkdirSync(path.join(work, 'skills', 'plot', 'scripts', 'board'), { recursive: true });
+  fs.writeFileSync(
+    path.join(work, 'packages', 'board', 'build.mjs'),
+    "const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');\n",
+  );
+  fs.writeFileSync(path.join(work, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'), body);
+}
+
+const BUNDLE_REL = path.join('skills', 'plot', 'scripts', 'board', 'board-server.mjs');
+
+/**
+ * A sandbox whose base already carries a committed bundle before the desk's
+ * branch is cut from it — so the desk's own HEAD tracks the bundle too, and
+ * only `origin/main`'s LATER rebuild is what the desk never saw.
+ */
+function sandboxWithBundle(label) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `plot-deskreset-${label}-`));
+  const origin = path.join(root, 'origin.git');
+  const work = path.join(root, 'work');
+  git(root, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(root, 'clone', '-q', origin, work);
+  git(work, 'config', 'user.email', 'test@example.invalid');
+  git(work, 'config', 'user.name', 'Plot Test');
+  git(work, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(work, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n');
+  withBundle(work, 'v1 bundle\n');
+  git(work, 'add', '-A');
+  git(work, 'commit', '-qm', 'init + board build + bundle');
+  git(work, 'push', '-q', 'origin', 'main');
+
+  const wt = path.join(root, 'desk');
+  git(work, 'worktree', 'add', '-q', '-b', 'feature/one', wt, 'origin/main');
+  git(wt, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/one');
+  git(wt, 'push', '-qu', 'origin', 'feature/one');
+  return { root, origin, work, wt };
+}
+
+test('desk: a rebuilt bundle no longer refuses the reset, once main has moved its own build', () => {
+  const sb = sandboxWithBundle('bundle');
+  try {
+    // main rebuilds its own bundle AFTER this desk's branch was cut from it.
+    fs.writeFileSync(path.join(sb.work, BUNDLE_REL), 'v2 bundle from main\n');
+    git(sb.work, 'add', '-A');
+    git(sb.work, 'commit', '-qm', 'plot: build the board artifact');
+    git(sb.work, 'push', '-q', 'origin', 'main');
+    git(sb.wt, 'fetch', '-q', 'origin');
+
+    // The desk rebuilt its OWN copy locally, to test — a plain local
+    // modification to a tracked path, never committed.
+    fs.writeFileSync(path.join(sb.wt, BUNDLE_REL), 'rebuilt locally to test\n');
+
+    // PRECONDITION: proves the premise. Without this fix, the plain checkout
+    // this reproduces is refused.
+    assert.throws(() => git(sb.wt, 'checkout', '--detach', 'origin/main'),
+      'precondition: the checkout must be refused before the fix runs');
+
+    withLoopFns(sb.wt, 'reset_desk "$PWD" feature/two || exit 1');
+
+    assert.equal(git(sb.wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'feature/two',
+      'the reset must complete despite the stale local bundle');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
+test('desk: a hand-written file beside the rebuilt bundle survives the reset', () => {
+  const sb = sandboxWithBundle('bundle-plus-source');
+  try {
+    fs.writeFileSync(path.join(sb.work, BUNDLE_REL), 'v2 bundle from main\n');
+    git(sb.work, 'add', '-A');
+    git(sb.work, 'commit', '-qm', 'plot: build the board artifact');
+    git(sb.work, 'push', '-q', 'origin', 'main');
+    git(sb.wt, 'fetch', '-q', 'origin');
+
+    fs.writeFileSync(path.join(sb.wt, BUNDLE_REL), 'rebuilt locally to test\n');
+    // THE HAND-WRITTEN FILE: real, uncommitted work beside the bundle. The
+    // bundle restore must touch only the generated path and leave this one
+    // exactly as the agent left it — not silently discarded.
+    fs.writeFileSync(path.join(sb.wt, 'my-source.ts'), 'uncommitted real work\n');
+
+    withLoopFns(sb.wt, 'reset_desk "$PWD" feature/two || exit 1');
+
+    assert.equal(
+      fs.readFileSync(path.join(sb.wt, 'my-source.ts'), 'utf8'),
+      'uncommitted real work\n',
+      'the hand-written file must survive the reset untouched',
+    );
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
 test('desk: the reset drops the previous slice’s declaration', () => {
   const sb = sandbox('decl');
   try {
@@ -276,14 +377,20 @@ test('desk: the loop runs no destructive git command', () => {
 // only its backstop, so a rejection means two agents were handed one branch —
 // the estate is already broken at the moment this line runs, and a silent
 // `continue` guarantees nobody learns it.
-test('desk: a rejected claim push is named as a registry-lock violation', () => {
+test('desk: a rejected claim push is named as a registry-lock violation when the ref is present', () => {
+  // `a-hand-over-is-checked-before-it-is-made` taught this block a second
+  // message: a ref ABSENT from origin is a stale hand-over, named rather than
+  // folded into the violation line. The violation line itself is unchanged —
+  // this test now finds it rather than assuming it is the only one.
   const src = fs.readFileSync(loop, 'utf8');
-  const rejection = src.slice(src.indexOf('if ! git -C "$hop_wt" push'));
-  const line = rejection.split('\n').find((l) => l.includes('plot-worker-loop:'));
-  assert.ok(line, 'the rejection must print something');
-  assert.match(line, /REGISTRY LOCK VIOLATION/,
-    'the message must name the invariant that broke, not the race that no longer exists');
+  const rejection = src.slice(src.indexOf('if ! push_err=$(git -C "$hop_wt" push'));
+  const lines = rejection.split('\n').filter((l) => l.includes('plot-worker-loop:'));
+  const line = lines.find((l) => l.includes('REGISTRY LOCK VIOLATION'));
+  assert.ok(line, 'the rejection must still print a lock-violation line for a present ref');
   assert.match(line, /2>&1|>&2/, 'it must reach the log, not stdout');
+  const absent = lines.find((l) => l.includes('origin has no such branch'));
+  assert.ok(absent, 'the rejection must also print the absent-ref message, for the other case');
+  assert.match(absent, /2>&1|>&2/, 'it must reach the log, not stdout');
   // AND IT MUST NOT REMOVE THE DESK. On the reset path `$hop_wt` IS the desk
   // the agent is standing in, so the old removal would destroy its own checkout.
   const beforeContinue = rejection.slice(0, rejection.indexOf('continue'));
