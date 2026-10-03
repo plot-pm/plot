@@ -109,6 +109,21 @@ export interface QueuedSlice {
    */
   refused: boolean;
   /**
+   * The agent a live manifest names this branch to, or `''` where none does.
+   *
+   * **A READING, TAKEN BEFORE THE REF IS.** A dispatch writes the manifest and
+   * only then pushes the claim commit, so between a hand-over and that push
+   * nothing a remote ref can see records the assignment — the queue would read
+   * the branch as unclaimed and hand it to a second agent. A manifest naming
+   * the branch closes that gap: it exists from the moment the hand-over is
+   * decided, before either write lands.
+   *
+   * **ONLY A LIVE MANIFEST COUNTS**, `running` or `waiting` — a dead agent's
+   * manifest is not an assignment, because a dead agent pushes nothing and
+   * counting it would hold the slice forever.
+   */
+  assignedTo: string;
+  /**
    * Every branch this one's `<!-- waits: ... -->` annotation names, empty
    * where it names none.
    *
@@ -179,6 +194,17 @@ export interface QueueReadings {
    * the rule its queue fields already follow.
    */
   mergedSet?: MergedSetState;
+  /**
+   * The branches carrying a claim ref nobody is working and nobody is coming
+   * back for, where they were asked about.
+   *
+   * **OPTIONAL FOR THE SAME REASON {@link QueueReadings.mergedSet} IS.** It
+   * travels beside the slices rather than feeding {@link matchQueue}: a claim
+   * is a branch ALREADY TAKEN — `planQueue`'s own `claimed.has(branch)` test —
+   * so it is never a queued slice and never an input to the assignment lock.
+   * Absent means nobody asked; an asked pass that found none is `[]`.
+   */
+  orphanedClaims?: readonly string[];
 }
 
 /** One slice, handed to one agent. */
@@ -217,6 +243,24 @@ export type QueueHold =
    * this pass its hand-overs and the next tick re-asks.
    */
   | 'merge-unknown'
+  /**
+   * A live manifest already names this branch — an agent holds it, even
+   * though no ref proves it yet.
+   *
+   * **TESTED AFTER THE TWO LANDING HOLDS AND BEFORE `waits`, SO IT OUTRANKS
+   * EVERY OTHER HOLD BUT THOSE TWO.** A branch an agent is already handling is
+   * not waiting on its own brief, its own heading or a `waits:` prerequisite —
+   * none of those describe why a second agent must not take it. Measured
+   * 2026-10-01: the supervisor handed agent `8111e3ec` a second slice while its
+   * manifest still named the first, because `readQueue` built the agent list
+   * from manifests and the queue's own hold from refs alone — a hand-over
+   * decided and not yet pushed was invisible to both.
+   *
+   * **ONLY A `running` OR `waiting` MANIFEST COUNTS.** #1039's negative control
+   * shows a dead agent pushes nothing, so counting its manifest would hold the
+   * slice forever with nobody ever claiming it.
+   */
+  | 'assigned'
   /**
    * The branch's `waits:` annotation names a prerequisite that has not merged,
    * or that the merged listing could not answer for.
@@ -289,6 +333,7 @@ export type QueueHold =
 export const QUEUE_HOLDS: readonly QueueHold[] = [
   'already-merged',
   'merge-unknown',
+  'assigned',
   'waits',
   'slice-unnamed',
   'refused',
@@ -308,6 +353,8 @@ export interface HeldSlice {
   waitsOn: readonly string[];
   /** `'unmerged'` or `'unreachable'` where `hold` is `'waits'`; `''` otherwise. */
   waitHeld: '' | 'unmerged' | 'unreachable';
+  /** The agent a live manifest names where `hold` is `'assigned'`; `''` otherwise. */
+  assignedTo: string;
 }
 
 /** What one matching pass made of the queue. */
@@ -383,12 +430,18 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * over is not being held by anything, and one held by its own missing brief is
  * not waiting on the host.
  *
+ * **`assignedTo` IS TESTED RIGHT AFTER THE TWO LANDING HOLDS, BEFORE `waits`.**
+ * A branch a live manifest already names is not waiting on its own brief, its
+ * own heading or a `waits:` prerequisite — a second agent must not take it
+ * regardless of what any of those answer.
+ *
  * @param slice - the queued slice.
  * @returns the hold, or null when the slice is ready.
  */
 export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
   if (slice.landed === 'landed') return 'already-merged';
   if (slice.landed === 'unknown') return 'merge-unknown';
+  if (slice.assignedTo !== '') return 'assigned';
   if (slice.waitHeld !== '') return 'waits';
   // AN UNNAMED SLICE IS HELD ONLY WHERE IT WOULD OTHERWISE BE HANDED OVER, and
   // the claimable test is what bounds it to the queue: `not-claimable` covers
@@ -567,6 +620,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
         hold,
         waitsOn: hold === 'waits' ? slice.waitsOn : [],
         waitHeld: hold === 'waits' ? slice.waitHeld : '',
+        assignedTo: hold === 'assigned' ? slice.assignedTo : '',
       });
       continue;
     }
@@ -576,7 +630,13 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
     // *one slice to one agent* half of the lock, held by the loop's shape
     // rather than by a check that could be forgotten.
     if (next >= free.length) {
-      held.push({ branch: slice.branch, hold: 'no-free-agent', waitsOn: [], waitHeld: '' });
+      held.push({
+        branch: slice.branch,
+        hold: 'no-free-agent',
+        waitsOn: [],
+        waitHeld: '',
+        assignedTo: '',
+      });
       continue;
     }
 
@@ -681,7 +741,7 @@ const prerequisiteAnswer = (
  */
 export type QueuedBranch = Omit<
   QueuedSlice,
-  'briefPresent' | 'landed' | 'priorUnknown' | 'refused'
+  'briefPresent' | 'landed' | 'priorUnknown' | 'refused' | 'assignedTo'
 > & {
   /** The plan's slice this branch belongs to, zero-based, in plan order. */
   slice: number;

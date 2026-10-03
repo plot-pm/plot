@@ -40,6 +40,16 @@ export interface AssignDetail {
    * **NULL IS *NOBODY ASKED***, the rule {@link AssignDetail.scaling} follows.
    */
   mergedSet: MergedSetState | null;
+  /**
+   * The branches carrying a claim ref nobody is working and nobody is coming
+   * back for, where they were asked about — or `null` where nobody asked.
+   *
+   * **CARRIED, NEVER READ.** Like {@link AssignDetail.mergedSet}, this is a
+   * report that travels beside the match rather than an input to it: a claim
+   * is a branch already taken, so {@link matchQueue} never sees it and it
+   * decides no hold.
+   */
+  orphanedClaims: readonly string[] | null;
 }
 
 /**
@@ -138,6 +148,7 @@ export const assign = (
       hold: 'no-free-agent' as const,
       waitsOn: [],
       waitHeld: '' as const,
+      assignedTo: '',
     }));
 
   const writes: Write[] = taken.map((assignment) => ({
@@ -173,6 +184,7 @@ export const assign = (
     idle,
     scaling,
     mergedSet: readings.mergedSet ?? null,
+    orphanedClaims: readings.orphanedClaims ?? null,
   });
 };
 

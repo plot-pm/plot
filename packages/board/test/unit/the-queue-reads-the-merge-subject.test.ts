@@ -95,6 +95,10 @@ const throttled = (
     workerAlive: async () => true,
     blocked: async () => false,
     refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
     ...over,
   };
   return { world, asked };

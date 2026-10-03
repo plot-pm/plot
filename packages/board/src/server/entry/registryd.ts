@@ -380,6 +380,15 @@ export const tickLine = (report: TickReport): string => {
     // the fleet was already the size it should be, which is a claim this tick
     // did not measure.
     if (queue.scaling !== null) fields.push(`started=${queue.scaling.start}`);
+    // `orphaned-claims=` IS OMITTED WHEN NOBODY ASKED, the same rule every
+    // queue field above follows: it answers a DIFFERENT question from every
+    // hold above it — those are about branches still IN the queue, and a claim
+    // ref is a branch `planQueue`'s own `claimed.has` test already took OUT of
+    // it. Zero is a measurement once asked.
+    //
+    // TESTED LOOSELY, LIKE `mergedSet` ABOVE: the field is declared
+    // non-optional, and a report assembled by hand can still omit it.
+    if (queue.orphanedClaims != null) fields.push(`orphaned-claims=${queue.orphanedClaims.length}`);
   }
 
   // `unclaimed=` IS OMITTED AT ZERO, and it is the one field here that is. The

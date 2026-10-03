@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { additionsOf, mergesOf, refsGit } from '../src/adapters/refs/refs-git.js';
+import { additionsOf, commitSubjectsOf, mergesOf, refsGit } from '../src/adapters/refs/refs-git.js';
 import { runBytes, runProcess, asText } from '../src/adapters/run-script.js';
 
 /**
@@ -542,6 +542,76 @@ describe('refsGit: the merge-subject readings', () => {
   });
 });
 
+describe('refsGit: commitSubjects — a reading, and no classification', () => {
+  let estate = '';
+
+  /** The tree id `ref` resolves to. */
+  const tree = (ref: string): string =>
+    execFileSync('git', ['rev-parse', `${ref}^{tree}`], { cwd: estate }).toString().trim();
+
+  beforeAll(() => {
+    estate = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-commit-subjects-'));
+    git(estate, ['init', '--quiet', '--initial-branch=main']);
+    git(estate, ['config', 'user.email', 'test@example.com']);
+    git(estate, ['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(estate, 'README.md'), 'readme\n');
+    git(estate, ['add', '-A']);
+    git(estate, ['commit', '--quiet', '-m', 'root']);
+    git(estate, ['checkout', '--quiet', '-b', 'feature/claimed']);
+    // AN EMPTY CLAIM MARKER: same tree as its parent, titled `plot: claim `.
+    git(estate, ['commit', '--quiet', '--allow-empty', '-m', 'plot: claim feature/claimed']);
+    // A REAL COMMIT ON TOP, so the branch carries one claim marker and one
+    // commit that changed a file — `claimTip`'s `work` case through a real walk.
+    fs.writeFileSync(path.join(estate, 'work.txt'), 'work\n');
+    git(estate, ['add', '-A']);
+    git(estate, ['commit', '--quiet', '-m', 'do the work']);
+    git(estate, ['checkout', '--quiet', 'main']);
+    git(estate, ['remote', 'add', 'origin', estate]);
+    git(estate, ['fetch', '--quiet', 'origin']);
+  });
+
+  afterAll(() => {
+    if (estate) fs.rmSync(estate, { recursive: true, force: true });
+  });
+
+  const subjects = () => refsGit({ repoRoot: estate, scriptDir: path.join(estate, 'scripts') });
+
+  it('reads a range with commits: newest first, with time, subject, tree and parent tree', async () => {
+    const answer = await subjects().commitSubjects('origin/main..origin/feature/claimed');
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value.map((c) => c.subject)).toEqual(['do the work', 'plot: claim feature/claimed']);
+    const [workCommit, claimCommit] = answer.value;
+    // THE CLAIM MARKER'S TREE EQUALS ITS PARENT'S — the boundary commit on
+    // `origin/main`, resolved from the SAME walk rather than a second call.
+    expect(claimCommit.tree).toBe(tree('origin/main'));
+    expect(claimCommit.parentTree).toBe(tree('origin/main'));
+    // THE WORK COMMIT'S TREE DIFFERS FROM ITS PARENT'S (the claim marker).
+    expect(workCommit.tree).not.toBe(claimCommit.tree);
+    expect(workCommit.parentTree).toBe(claimCommit.tree);
+    // A TIME FOR EVERY COMMIT, AND NO CLASSIFICATION — this reads facts, and
+    // `isEmptyClaim`/`claimTip` are what a caller applies to them.
+    for (const commit of answer.value) expect(typeof commit.at).toBe('number');
+  });
+
+  it('answers an empty list for a range with no commits', async () => {
+    const answer = await subjects().commitSubjects('origin/main..origin/main');
+    expect(answer).toEqual({ ok: true, value: [] });
+  });
+
+  it('fails for a range naming a ref that does not exist', async () => {
+    expect((await subjects().commitSubjects('origin/main..origin/no-such-branch')).ok).toBe(false);
+  });
+
+  it("answers `null` for a root commit's parent tree — no parent to read", async () => {
+    const answer = await subjects().commitSubjects('origin/feature/claimed');
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    const root = answer.value.find((c) => c.subject === 'root');
+    expect(root?.parentTree).toBeNull();
+  });
+});
+
 describe('additionsOf', () => {
   it('keeps the oldest add of a path the walk lists twice', () => {
     expect(additionsOf('@new\n\nA\tp.md\n@old\n\nA\tp.md\n')).toEqual(new Map([['p.md', 'old']]));
@@ -563,5 +633,41 @@ describe('mergesOf', () => {
     expect(mergesOf('abc Merged in x (pull request #1)\nlonely\n')).toEqual([
       { sha: 'abc', subject: 'Merged in x (pull request #1)' },
     ]);
+  });
+});
+
+describe('commitSubjectsOf — the %m boundary walk, parsed without a second call per commit', () => {
+  it('excludes the boundary commit and resolves its parent tree from the same stream', () => {
+    const stdout = [
+      '>|aaa|bbbb2|bbb|200|second',
+      '-|bbb|aaaa1||100|first',
+      '',
+    ].join('\n');
+    expect(commitSubjectsOf(stdout)).toEqual([
+      { at: 200_000, subject: 'second', tree: 'bbbb2', parentTree: 'aaaa1' },
+    ]);
+  });
+
+  it('reads only the first parent of a multi-parent line', () => {
+    const stdout = ['>|aaa|bbbb2|bbb ccc|200|merge-ish', '-|bbb|aaaa1||100|left', ''].join('\n');
+    expect(commitSubjectsOf(stdout)[0]?.parentTree).toBe('aaaa1');
+  });
+
+  it('answers `null` for a parent not present in the stream', () => {
+    const stdout = ['>|aaa|bbbb2|deadbeef|200|second', ''].join('\n');
+    expect(commitSubjectsOf(stdout)[0]?.parentTree).toBeNull();
+  });
+
+  it('answers `null` for a root commit with no parent at all', () => {
+    const stdout = ['>|aaa|aaaa1||100|root', ''].join('\n');
+    expect(commitSubjectsOf(stdout)[0]?.parentTree).toBeNull();
+  });
+
+  it('drops a line that does not match the format', () => {
+    expect(commitSubjectsOf('not a commit line\n')).toEqual([]);
+  });
+
+  it('answers an empty list for empty output', () => {
+    expect(commitSubjectsOf('')).toEqual([]);
   });
 });
