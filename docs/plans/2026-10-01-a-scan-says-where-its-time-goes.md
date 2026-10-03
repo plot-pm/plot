@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1017
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-scan-time-is-measured`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-scan-drops-its-largest-cost`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-plan-index-is-read-once`
+- **Delivered:** 2026-10-03
 
 ## Changelog
 
