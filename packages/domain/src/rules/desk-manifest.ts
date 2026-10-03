@@ -89,6 +89,14 @@ export interface SeveralDesk {
 /** Which manifest names a desk, or that none or several do. */
 export type DeskManifest = NamedDesk | UnnamedDesk | SeveralDesk;
 
+/** What a monitor read before asking which desk to watch this pass. */
+export interface WatchedDeskReading {
+  /** The desk this monitor was launched on, fixed for its whole life. */
+  readonly launched: string;
+  /** The manifest's `worktree` field this pass, verbatim; empty when absent, unset, or unreadable. */
+  readonly manifestWorktree: string;
+}
+
 /** Removes trailing `/` from a path, keeping a lone `/` intact. */
 const trimTrailing = (p: string): string => {
   let end = p.length;
@@ -157,4 +165,29 @@ export const deskManifest = (reading: DeskManifestReading): DeskManifest => {
   if (matched.length === 0) return { kind: 'unnamed' };
   if (matched.length === 1) return { kind: 'named', path: matched[0]! };
   return { kind: 'several', paths: matched };
+};
+
+/**
+ * Which desk a monitor reads THIS PASS, after a hop may have moved its agent.
+ *
+ * The manifest's `worktree` when it is non-empty, else the desk the monitor
+ * was launched on. A monitor's `PLOT_WORKTREE` is fixed at launch, but
+ * `update_manifest_on_hop` rewrites the manifest when the loop cuts a new
+ * desk — so a monitor that never re-reads the manifest watches the launch
+ * desk forever, asking the host about commits its agent no longer makes.
+ *
+ * ABSENT IS NOT FALSE: a hand-started monitor with no `PLOT_MANIFEST_FILE`, a
+ * manifest that is gone, and a manifest whose `worktree` is empty all answer
+ * `launched` — "watch what you were launched on" — never "watch nothing" and
+ * never a crash. Whitespace-only is the same absence, trimmed first. A
+ * `worktree` naming a directory that does not exist is NOT answered here —
+ * this is string work, and the caller's own `[ -d … ]` guard is what answers
+ * that case.
+ *
+ * @param reading - the launch desk, and the manifest's `worktree` this pass.
+ * @returns the desk to watch this pass.
+ */
+export const watchedDesk = (reading: WatchedDeskReading): string => {
+  const worktree = reading.manifestWorktree.trim();
+  return worktree === '' ? reading.launched : worktree;
 };

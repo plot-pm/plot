@@ -75,7 +75,7 @@
 
 ## Slices
 
-### Every wait reaches the verdict (Branch: bug/every-wait-reaches-the-verdict) <!-- waits: bug/the-queue-reads-the-scans-order -->
+### Every wait reaches the verdict (Branch: bug/every-wait-reaches-the-verdict) → #1253 <!-- waits: bug/the-queue-reads-the-scans-order -->
 
 `waitVerdict`, `prerequisiteCleared`, `WaitsReading[]` in `rules/branch-state.ts`, the `FleetBranch.waits_on` array with its legacy preprocess, `PlanRecordBranch.waitsOn: readonly string[]` and the `waits` hold in `rules/queue.ts`, `entry/branch-state.ts` reading a comma-separated waits column (one name is a one-item list), the board row sentence in `fleet.ts`, the corpus test, rebuilt bundles, a changeset for `plot` and `@plot-pm/board`. The scan still sends one name, so behaviour on `main` does not change until slice 2. <!-- builds: waitVerdict over a list of prerequisites -->
 
