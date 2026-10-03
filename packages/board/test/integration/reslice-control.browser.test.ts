@@ -33,7 +33,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'Implementation', state: 'open', phase: 'Approved', group: 'waiting-on-you',
   ageMinutes: 30, waitingOn: 'you', note: 'PR #12 green', pr: null,
   branchUrl: `${GH}/tree/feature/x`, waitingDays: null, verdict: 'blocked',
-  localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
+  localDirty: false, localLocked: false, stuck: null, ...over,
 });
 
 /** The wave-level stuck state, with every field the schema carries. */

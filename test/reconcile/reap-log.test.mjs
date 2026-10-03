@@ -6,7 +6,7 @@
 // NOT ONE belonging to live work. Nothing had ever removed one.
 //
 // WHICH LOG, since the estate holds two shapes of one. `plot-resolve-<branch>`
-// is keyed by BRANCH with its slashes flattened (`repairLogPath`), so it maps
+// is keyed by BRANCH with its slashes flattened (`agentLogPath`), so it maps
 // one-to-one onto the worktree this reaper removes. `plot-dispatch-<slug>.log`
 // is keyed by PLAN and opened for APPEND across every dispatch of that plan —
 // `dispatch.ts:150` states it: "a dispatcher log belongs to a plan, a worker log
@@ -194,7 +194,7 @@ test('item 1: the log is found under a configured Worktree root', () => {
 });
 
 test('item 1: a branch whose name has slashes finds its flattened log', () => {
-  // `repairLogPath` flattens `/` to `-`. A reaper that used the branch verbatim
+  // The log name flattens `/` to `-`. A reaper that used the branch verbatim
   // would compose a path with a directory that does not exist and remove
   // nothing, silently — the whole population is branches with a prefix.
   const { repo, logDir } = makeRepo();

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { type AgentRow, type WaitingGroup } from '../../../contract/schema.js';
 import { ACTIVITY_MARK_PLACE, type ActivityPace } from './activity.js';
 import { stuckEvidence, stuckWord } from './stuck.js';
-import { repairWord } from './actions.js';
 
 export function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: ActivityPace; place?: 'row' | 'heading'; inTrack?: boolean }) {
   const fast = pace === 'fast';
@@ -261,17 +260,10 @@ export function StuckCell({
   row: AgentRow;
 }) {
   const stuck = row.stuck;
-  const repairLine = repairWord(row.repair);
-  // NOT `if (!stuck)` alone, and the difference is the whole point of reporting
-  // repairs at all. A SUCCESSFUL repair ends by pushing, which unsticks the
-  // branch — so on the very next pulse `stuck` is null while the repair is the
-  // freshest thing that happened to it. Returning early there would hide the
-  // report at exactly the moment it explains what a reader is looking at, and
-  // an automatic write nobody can see is the defect this plan exists to remove.
-  if (!stuck && !repairLine) return null;
+  if (!stuck) return null;
 
-  const word = stuck ? stuckWord(stuck.state) : '';
-  const evidence = stuck ? stuckEvidence(stuck) : [];
+  const word = stuckWord(stuck.state);
+  const evidence = stuckEvidence(stuck);
 
   return (
     <span
@@ -325,20 +317,6 @@ export function StuckCell({
           {line}
         </span>
       ))}
-      {/* WHAT THE MACHINE DID, on the same line as why it was stuck. A repair
-          is an event on this branch, and separating it from the state that
-          caused it would make a reader join two places to learn that the
-          conflict they are looking at is already being handled — or was, and
-          the handling gave up. */}
-      {repairLine && (
-        <span
-          data-repair={row.repair?.state ?? ''}
-          data-repair-outcome={row.repair?.outcome ?? ''}
-          className="min-w-0 text-slate-500 max-sm:whitespace-normal dark:text-slate-400"
-        >
-          {repairLine}
-        </span>
-      )}
       {/* THE CUE STAYS IN THE ROW while the action it used to sit beside now
           lives in the three-dot menu. It is state, not an action — it says
           *this one is waiting on you*, and a signal reachable only by opening a

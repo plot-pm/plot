@@ -31,7 +31,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   // several branches, which is the other case and equally deliberate.
   wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
-  localDirty: false, localLocked: false, stuck: null, repair: null,
+  localDirty: false, localLocked: false, stuck: null,
   // The default is startable (open + click), so `startability: 'start-work'`. Blocked
   // rows override to `startability: null`.
   startability: 'start-work' as const,

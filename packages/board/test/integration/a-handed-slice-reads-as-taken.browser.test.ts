@@ -35,7 +35,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   // `elsewhere` while the registry already names the agent.
   worker: 'elsewhere',
   waitingDays: null, localDirty: false, localLocked: false, localAhead: 0,
-  stuck: null, repair: null, deferredReason: '',
+  stuck: null, deferredReason: '',
   ...over,
 } as unknown as AgentRow);
 

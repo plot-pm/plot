@@ -33,7 +33,6 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { repairFor, startRepair } from './resolver.js';
 import { workingTreeSprints, planStatusBySlug, planEstate, readConfigAsync, scriptsFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
@@ -3346,54 +3345,6 @@ async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Prom
   }
 }
 
-/**
- * Offer every branch in a landed pulse to the resolver, which refuses every
- * state unconditionally — the automatic repair is switched off, since
- * `bug/a-pr-carries-no-bundle` means a PR's diff must never carry a rebuilt
- * bundle, which is the one write this call used to be permitted to make.
- *
- * **This function classifies NOTHING.** It calls `stuckState` — slice 1's
- * detector, the same call `rowsFromPulse` makes with the same inputs — and hands
- * the answer to `mayResolve`. Two consequences, both deliberate:
- *
- * *The entry condition lives in one place.* A local `conflicts.includes(...)`
- * here would pass every artifact-only assertion and silently repair merges that
- * need judgement as a whole, while the fence in `stuck.ts` still read correctly.
- *
- * *A branch is offered on the same facts the row shows.* If the board says
- * `artifact conflict` and nothing is repaired, that is `mayResolve` refusing for
- * a reason a reader can check against the set printed on the row — not two
- * detectors disagreeing.
- *
- * The PR map is passed for one reason and used for none of the deciding: it is
- * what makes `prState` available to `stuckState`, and `prState === 'conflicts'`
- * is precisely the input that must produce a plain `conflict` — a host verdict
- * with NO OBSERVED SET, which this path may never act on.
- */
-function maybeRepair(
-  opts: BuildBoardOptions,
-  pulse: FleetReading,
-  prs: Map<string, PrRecord> | null,
-): void {
-  for (const plan of pulse.plans) {
-    for (const wave of plan.slices) {
-      for (const b of wave.branches) {
-        const pr = prs?.get(b.branch) ?? null;
-        const stuck = stuckState({
-          state: b.state,
-          conflicts: b.conflicts,
-          conflictsKnown: b.conflicts_known,
-          localAhead: b.local_ahead,
-          prState: pr ? prState(pr) : null,
-          changedPaths: b.changed_paths,
-          failingChecks: pr?.failing_checks ?? [],
-        });
-        startRepair(b.branch, stuck, opts);
-      }
-    }
-  }
-}
-
 async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.running) return;
   entry.running = true;
@@ -3737,30 +3688,15 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
       approvedAt: entry.approvedAt,
       ideaPlans: entry.ideaPlans,
     });
-    // THE ONE AUTOMATIC WRITE, and it rides this timer rather than a request.
+    // THE ONE AUTOMATIC WRITE — auto-dispatch.
     //
-    // On the SCAN's clock and inside its success path, for the reason the bridge
-    // write above is: a repair may only be started from a pulse that actually
-    // landed. Starting one from a failed scan would act on the last good
-    // answer — refs that may have moved — which is the stale-prediction mistake
-    // this plan named and then licensed nothing on top of.
-    //
-    // Off the REQUEST path entirely, which is what keeps the guard on
-    // `/api/dispatch` untouched. That route asks *where is the caller*, and a
-    // firing interval passes that trivially — so this deliberately never becomes
+    // On the SCAN's clock, inside its success path, from a pulse that actually
+    // landed — a dispatch from a failed scan would act on refs that may have
+    // moved. Off the REQUEST path entirely, which is what keeps the guard on
+    // `/api/dispatch` untouched: that route asks *where is the caller*, and a
+    // firing interval passes that trivially, so this deliberately never becomes
     // a route at all. It is not reachable over the network, from any binding,
     // localhost included: there is nothing to reach.
-    //
-    // `startRepair` decides. This loop only offers it every branch and it
-    // refuses every state now — see `mayResolve`.
-    maybeRepair(opts, complete, entry.prs);
-
-    // THE SECOND AUTOMATIC WRITE — slice 3, the switch that does something.
-    //
-    // Beside `maybeRepair` and of the same kind: on the SCAN's clock, inside its
-    // success path, from a pulse that actually landed — a dispatch from a failed
-    // scan would act on refs that may have moved. Off the request path entirely,
-    // so it is a route nobody can reach.
     //
     // Reads the controls FRESH so a switch flipped this pulse takes effect now,
     // and counts liveness from `entry.agents`, the registry this same refresh
@@ -7436,12 +7372,6 @@ export function rowsFromPulse(
               ? wave.branches.map((x) => x.branch)
               : [],
           }),
-          // WHAT THE MACHINE DID ABOUT IT — beside the state, never folded into
-          // it. A silent automatic write is indistinguishable from a defect, so
-          // the row says a repair ran and how it ended, whether it pushed or
-          // gave up. Null for every branch nothing was attempted on, which is
-          // nearly all of them.
-          repair: repairFor(b.branch, now),
           // WHAT THE SCAN FOUND OUT ABOUT A WORKER, forwarded onto the row.
           //
           // Read four lines above already — `classify` takes it — and then
@@ -7725,11 +7655,6 @@ export function rowsFromPulse(
         failingChecks: pr.failing_checks ?? [],
         runHistory: runs?.get(branch) ?? [],
       }),
-      // A planless branch can never reach `artifact-conflict` — no conflict set
-      // was computed for it, so `conflictsKnown` is false two lines up and the
-      // resolver was never offered it. The field is present and null rather than
-      // absent: *nothing was attempted*, which is true and checkable.
-      repair: repairFor(branch, now),
       // NO LOCAL PROCESS CAN BE CLAIMED HERE, and the host one is the whole of
       // what this row knows. `worker: 'elsewhere'` eleven lines up says the
       // worktree scan never visited this branch, so `machineProcesses` is given
@@ -7991,7 +7916,6 @@ export function rowsFromPulse(
         failingChecks: [],
         runHistory: runs?.get(branch) ?? [],
       }),
-      repair: repairFor(branch, now),
       // No worktree and no open PR, so neither entity this can report exists —
       // `elsewhere` says the local side was never looked at, and a null PR
       // supplies no pending check. An empty list is what both facts add up to.

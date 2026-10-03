@@ -56,7 +56,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => buildRow({
   // CAST its payload, so it reached the renderer as a word no branch reads.
   ageMinutes: 120, waitingOn: null, note: 'merged', pr: null,
   branchUrl: '', waitingDays: null, verdict: 'blocked',
-  localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
+  localDirty: false, localLocked: false, stuck: null, ...over,
 });
 
 /**
