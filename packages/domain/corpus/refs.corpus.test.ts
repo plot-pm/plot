@@ -140,25 +140,29 @@ const BRANCH_FIELDS = [
   // for a branch that names no prerequisite, which is most of them.
   //
   // MAPPED HERE FOR THE COMPLETENESS GATE BELOW, COMPARED SEPARATELY. The wire
-  // still emits one name as a bare string; `BranchSchema.waits_on` preprocesses
-  // it into a one-item list (`''` to `[]`, a name to `[name]`) so both the old
-  // wire shape and the eventual list one parse — see
-  // `every-wait-reaches-the-verdict`. The generic loop below compares through
-  // `JSON.stringify`, which would report every branch as a disagreement
-  // comparing the parsed array against the unwrapped wire string, so this field
-  // is skipped there and compared wrapped instead.
+  // emits a list since `the-parser-reads-every-wait`, and an older scan emitted
+  // one name as a bare string; `BranchSchema.waits_on` preprocesses the string
+  // into a one-item list (`''` to `[]`, a name to `[name]`) so both shapes
+  // parse. The generic loop below compares through `JSON.stringify`, which
+  // would report a disagreement on the old string shape, so this field is
+  // skipped there and compared in list form instead.
   'waits_on',
 ] as const;
 
 /**
- * The wire's `waits_on` wrapped into the list shape {@link BranchSchema}
- * reads it as — see the field's own comment in {@link BRANCH_FIELDS}.
+ * The wire's `waits_on` in the list shape {@link BranchSchema} reads it as —
+ * see the field's own comment in {@link BRANCH_FIELDS}.
  *
- * @param value - the wire's `waits_on`, read off the raw scan JSON.
- * @returns the one-item (or empty) list the schema would produce.
+ * @param value - the wire's `waits_on`, read off the raw scan JSON: a list, or
+ *   a bare name from an older scan.
+ * @returns the list the schema would produce.
  */
 const wireWaitsOn = (value: unknown): readonly string[] =>
-  typeof value === 'string' && value !== '' ? [value] : [];
+  Array.isArray(value)
+    ? value.filter((name): name is string => typeof name === 'string')
+    : typeof value === 'string' && value !== ''
+      ? [value]
+      : [];
 
 /** The counters `summary` carries. */
 const SUMMARY_FIELDS = [

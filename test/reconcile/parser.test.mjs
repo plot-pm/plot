@@ -1868,12 +1868,12 @@ test('plan-meta: `waits:` reports the branch it names, and is absent otherwise',
 - \`feature/first\` — nothing blocks it.
 `);
   const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
-  assert.equal(byName['feature/second'].waits_on,
-    'bug/the-budget-knows-which-bucket-it-spent',
-    'the annotation names one branch, and that branch is reported');
-  // ABSENT, NOT EMPTY. The board distinguishes the two elsewhere, and a
-  // `waits_on: ""` would read as "waits on a branch whose name is blank"
-  // rather than "declares no prerequisite".
+  assert.deepEqual(byName['feature/second'].waits_on,
+    ['bug/the-budget-knows-which-bucket-it-spent'],
+    'the annotation names one branch, and that branch is reported as a one-item list');
+  // ABSENT, NOT EMPTY ARRAY. The board distinguishes the two elsewhere, and a
+  // `waits_on: []` would read as "declares a wait with no names" rather than
+  // "declares no prerequisite".
   assert.ok(!('waits_on' in byName['feature/first']),
     'a branch with no annotation carries no waits_on key at all');
 });
@@ -1897,11 +1897,11 @@ test('plan-meta: `waits:` and `deferred:` on one branch do not clobber each othe
 - \`feature/defer-first\` <!-- deferred: not now --> <!-- waits: bug/other --> — the other order.
 `);
   const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
-  assert.equal(byName['feature/both'].waits_on, 'bug/prereq', 'waits survives a deferral beside it');
+  assert.deepEqual(byName['feature/both'].waits_on, ['bug/prereq'], 'waits survives a deferral beside it');
   assert.equal(byName['feature/both'].deferred, true, 'and the deferral still binds');
   assert.equal(byName['feature/both'].deferred_reason, 'superseded 2026-09-01',
     'with its reason intact');
-  assert.equal(byName['feature/defer-first'].waits_on, 'bug/other', 'order does not matter');
+  assert.deepEqual(byName['feature/defer-first'].waits_on, ['bug/other'], 'order does not matter');
   assert.equal(byName['feature/defer-first'].deferred_reason, 'not now',
     'and the reason survives the annotation that follows it');
 });
@@ -1921,16 +1921,14 @@ test('plan-meta: `waits:` naming a branch no plan declares still parses', () => 
 
 - \`feature/hopeful\` <!-- waits: feature/nobody-declares-this --> — waiting on a stranger.
 `);
-  assert.equal(meta.waves[0].branches[0].waits_on, 'feature/nobody-declares-this',
+  assert.deepEqual(meta.waves[0].branches[0].waits_on, ['feature/nobody-declares-this'],
     'an undeclared prerequisite is reported, not refused');
 });
 
-test('plan-meta: one prerequisite per branch — a second `waits:` wins', () => {
-  // ONE PREREQUISITE, NEVER A LIST. A slice needing two has not been cut finely
-  // enough, and a list invites a dependency graph nobody wants to debug. The
-  // parse does not fail on a second annotation — it takes the LAST one, which
-  // is what the greedy read shared with `deferred:` and `claimed:` produces.
-  // Pinned so the shape is a decision rather than an accident.
+test('plan-meta: several `waits:` markers on one line all reach waits_on, in order', () => {
+  // A SLICE WITH TWO PREREQUISITES READS ELIGIBLE WHILE THE FIRST HAS NOT
+  // MERGED (#1153) when the parser keeps only the last marker. The fix is a
+  // LIST, in the line's order, duplicates removed — not a second field.
   const meta = parseSource(`# Plan
 
 ## Status
@@ -1940,10 +1938,32 @@ test('plan-meta: one prerequisite per branch — a second `waits:` wins', () => 
 
 ## Branches
 
-- \`feature/greedy\` <!-- waits: bug/first --> <!-- waits: bug/second --> — two written, one read.
+- \`feature/two-markers\` <!-- waits: bug/first --> <!-- waits: bug/second --> — two markers, two names.
+- \`feature/one-marker-two-names\` <!-- waits: bug/a, bug/b --> — one marker, comma-separated.
 `);
-  assert.equal(meta.waves[0].branches[0].waits_on, 'bug/second',
-    'the later annotation wins; the field is never a list');
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.deepEqual(byName['feature/two-markers'].waits_on, ['bug/first', 'bug/second'],
+    'both markers are read, in document order');
+  assert.deepEqual(byName['feature/one-marker-two-names'].waits_on, ['bug/a', 'bug/b'],
+    'a comma-separated value gives the same list as two markers would');
+});
+
+test('plan-meta: `waits:` order holds and a repeated name is not duplicated', () => {
+  // A reader that sorts or keeps the repeat passes a two-name test and fails
+  // this one — pinned so order and dedup are each a decision, not an accident.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/reordered\` <!-- waits: bug/b --> <!-- waits: bug/a, bug/b --> — repeats bug/b.
+`);
+  assert.deepEqual(meta.waves[0].branches[0].waits_on, ['bug/b', 'bug/a'],
+    'document order holds, and the repeated name is not duplicated');
 });
 
 test('plan-meta: `waits:` binds in the `## Waves` heading spelling too', () => {
@@ -1966,8 +1986,33 @@ test('plan-meta: `waits:` binds in the `## Waves` heading spelling too', () => {
   assert.deepEqual(meta.waves.map((w) => w.name), ['Declaring', 'Consuming']);
   assert.ok(!('waits_on' in meta.waves[0].branches[0]),
     'the first slice waits on nothing');
-  assert.equal(meta.waves[1].branches[0].waits_on, 'feature/declaring',
+  assert.deepEqual(meta.waves[1].branches[0].waits_on, ['feature/declaring'],
     'the heading annotation binds like the list-item one');
+});
+
+test('plan-meta: the `## Waves` heading spelling reads several `waits:` markers too', () => {
+  // BOTH DIALECTS SHARE ONE BLOCK OF CODE for this annotation — a fix applied
+  // to only one would pass the other dialect's single-wait test while still
+  // dropping every wait but the last in the heading spelling.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Waves
+
+### Declaring one (Branch: feature/declaring-one, PR: #601)
+
+### Declaring two (Branch: feature/declaring-two, PR: #602)
+
+### Consuming (Branch: feature/consuming) <!-- waits: feature/declaring-one --> <!-- waits: feature/declaring-two -->
+`);
+  const byName = Object.fromEntries(meta.waves.flatMap((w) => w.branches).map((b) => [b.branch, b]));
+  assert.deepEqual(byName['feature/consuming'].waits_on,
+    ['feature/declaring-one', 'feature/declaring-two'],
+    'both markers on the heading line are read, in document order');
 });
 
 test('plan-meta: a `waits:` value stops at the comment, not at the prose after it', () => {
@@ -1986,7 +2031,7 @@ test('plan-meta: a `waits:` value stops at the comment, not at the prose after i
 
 - \`feature/tidy\` <!-- waits:   bug/spaced   --> — leading and trailing space around the name.
 `);
-  assert.equal(meta.waves[0].branches[0].waits_on, 'bug/spaced',
+  assert.deepEqual(meta.waves[0].branches[0].waits_on, ['bug/spaced'],
     'whitespace inside the annotation is not part of the branch name');
 });
 
@@ -2015,8 +2060,105 @@ test('plan-meta: a `waits:` syntax example in prose is not a declaration', () =>
   const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
   assert.ok(!('waits_on' in byName['feature/documenting']),
     'a placeholder is not a branch name, so the plan declares no prerequisite');
-  assert.equal(byName['feature/real'].waits_on, 'bug/actual',
+  assert.deepEqual(byName['feature/real'].waits_on, ['bug/actual'],
     'and a real annotation on the next line is unaffected');
+  // THIS LINE NAMES A BRANCH, AND THE MARKER IS STILL NOT REPORTED: it sits in
+  // a code span, which Markdown renders as text, so it annotates nothing. A
+  // report here would fire on this Released plan on `main` for a quotation.
+  assert.deepEqual(meta.unread_waits, [],
+    'a marker quoted in a code span is not an unread wait');
+});
+
+test('plan-meta: a `waits:` value the parser cannot read is reported, not dropped', () => {
+  // A WAIT THE PARSER CANNOT READ IS REPORTED, NEVER DROPPED — unlike the prose
+  // case above, THIS marker sits on a branch's own line, so its failure to
+  // parse as a branch name is itself a finding: unread_waits names the branch
+  // and the unreadable value, and the good neighbour still reaches waits_on.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/mixed\` <!-- waits: bug/a --> <!-- waits: <branch> --> — one good, one not.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.deepEqual(byName['feature/mixed'].waits_on, ['bug/a'],
+    'the readable prerequisite still reaches waits_on');
+  assert.deepEqual(meta.unread_waits, [{ branch: 'feature/mixed', value: '<branch>' }],
+    'the unreadable value is reported against the branch that named it, not dropped');
+});
+
+test('plan-meta: the two live plans #1153 was measured on both parse with both waits', () => {
+  // THIS IS THE MEASUREMENT THAT KILLED THE SINGLE-VALUE READING. Both are
+  // real Draft plans on `main` in this sprint, each with a slice carrying two
+  // `<!-- waits: … -->` markers on its heading — the exact shape a greedy
+  // single-value `sub()` silently reduced to one.
+  const repoRoot = path.join(here, '..', '..');
+  const hop = path.join(repoRoot, 'docs', 'plans', '2026-10-01-a-desk-and-its-manifest-name-each-other.md');
+  const idle = path.join(repoRoot, 'docs', 'plans', '2026-10-01-idle-is-read-from-what-the-desk-recorded.md');
+
+  const hopMeta = JSON.parse(execFileSync('bash', [parser, hop], { encoding: 'utf8' }));
+  const hopByBranch = Object.fromEntries(hopMeta.waves.flatMap((w) => w.branches).map((b) => [b.branch, b]));
+  assert.deepEqual(hopByBranch['bug/the-monitor-follows-the-hop'].waits_on,
+    ['bug/the-join-is-one-rule', 'bug/the-loop-reports-idle'],
+    'both prerequisites this slice names are read, in document order');
+
+  const idleMeta = JSON.parse(execFileSync('bash', [parser, idle], { encoding: 'utf8' }));
+  const idleByBranch = Object.fromEntries(idleMeta.waves.flatMap((w) => w.branches).map((b) => [b.branch, b]));
+  assert.deepEqual(idleByBranch['bug/the-loop-reports-idle'].waits_on,
+    ['bug/idle-is-one-reading', 'bug/the-loop-waits-out-a-usage-limit'],
+    'both prerequisites this slice names are read, in document order');
+});
+
+test('plan-meta: a `waits:` syntax example on a prose line stays out of unread_waits', () => {
+  // THE SAME MARKER, ON A LINE WITH NO BRANCH CLAIM, STAYS SILENT — reporting
+  // it would fire on every plan that documents the annotation in prose, which
+  // is the plan that introduced this field and likely others after it. A
+  // narrative line under `## Branches` (no leading backticked branch item)
+  // never reaches store_waits(), so pending_unread_value[] is never drained.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+A branch line writes <!-- waits: <branch> --> to name a prerequisite, as explained here in prose rather than on a branch's own line.
+
+- \`feature/real\` <!-- waits: bug/actual --> — the only actual branch in this plan.
+`);
+  assert.deepEqual(meta.unread_waits, [],
+    'a marker on a line with no branch claim is not reported');
+});
+
+test('plan-meta: a `waits:` marker inside a code span on a branch line is quoted, not read', () => {
+  // MARKDOWN RENDERS A CODE SPAN AS TEXT, so a marker inside one annotates
+  // nothing. The measured case: a Released plan quotes the syntax on the line
+  // of the branch that built it, and reconcile reported it as an unread wait.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/quotes-it\` — parses \`<!-- waits: <branch> -->\` beside \`deferred:\`.
+- \`feature/real\` <!-- waits: bug/actual --> — quotes \`<!-- waits: bug/quoted -->\` too.
+`);
+  const branches = meta.waves.flatMap((w) => w.branches);
+  const quotes = branches.find((b) => b.branch === 'feature/quotes-it');
+  const real = branches.find((b) => b.branch === 'feature/real');
+  assert.equal('waits_on' in quotes, false, 'a quoted marker declares no wait');
+  assert.deepEqual(real.waits_on, ['bug/actual'], 'a quoted name does not join the list');
+  assert.deepEqual(meta.unread_waits, [], 'and a quoted marker is not reported');
 });
 
 // `builds:` — what a slice creates, and the field slice 2 will search for.
@@ -2128,7 +2270,7 @@ test('plan-meta: `builds:` and the other annotations do not clobber each other',
   const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
   assert.equal(byName['feature/all'].builds, 'normalizeVersion',
     'builds survives two annotations after it');
-  assert.equal(byName['feature/all'].waits_on, 'bug/prereq', 'and waits still binds');
+  assert.deepEqual(byName['feature/all'].waits_on, ['bug/prereq'], 'and waits still binds');
   assert.equal(byName['feature/all'].deferred_reason, 'superseded 2026-09-01',
     'and the deferral reason is intact');
   assert.equal(byName['feature/reordered'].builds, 'computeStatusDrift',
@@ -2318,7 +2460,7 @@ test('plan-meta: `agent:` and the other annotations do not clobber each other', 
   assert.equal(byName['feature/all'].agent, 'reviewer',
     'agent survives three annotations after it');
   assert.equal(byName['feature/all'].builds, 'normalizeVersion', 'and builds still binds');
-  assert.equal(byName['feature/all'].waits_on, 'bug/prereq', 'and waits still binds');
+  assert.deepEqual(byName['feature/all'].waits_on, ['bug/prereq'], 'and waits still binds');
   assert.equal(byName['feature/all'].deferred_reason, 'superseded 2026-09-01',
     'and the deferral reason is intact');
   assert.equal(byName['feature/reordered'].agent, 'reviewer', 'order does not matter');

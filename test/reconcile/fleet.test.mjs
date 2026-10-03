@@ -1450,6 +1450,92 @@ esac
   f.cleanup();
 });
 
+// A SLICE WAITS ON EVERY BRANCH IT NAMES — end to end through the scan, not
+// just the parser: a branch with two prerequisites reports `waiting` while
+// EITHER has not merged, and the payload carries both names regardless of
+// which one is still open. Both orders are asserted: a scan reading only the
+// first or only the last name would pass one of these and fail the other.
+test('fleet: a branch waiting on two prerequisites reports waiting while the FIRST is open', () => {
+  const f = makeRepo('plot-fleet-twowaits-a-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/dependent` <!-- waits: bug/first --> <!-- waits: bug/second --> — needs both.\n');
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      bug/first)  echo '{"state":"OPEN"}' ;;
+      bug/second) echo '{"number":9,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/dependent'), / — waiting on bug\/first, bug\/second$/,
+    'the note names both prerequisites, not only the open one');
+  const json = execFileSync('bash', [h.scan, 'p', '--json'], { encoding: 'utf8', cwd: f.dir });
+  const b = JSON.parse(json).plans[0].waves[0].branches
+    .find((x) => x.branch === 'feature/dependent');
+  assert.deepEqual(b.waits_on, ['bug/first', 'bug/second'],
+    'the payload carries both names regardless of which one is still open');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a branch waiting on two prerequisites reports waiting while the SECOND is open', () => {
+  const f = makeRepo('plot-fleet-twowaits-b-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/dependent` <!-- waits: bug/first --> <!-- waits: bug/second --> — needs both.\n');
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      bug/first)  echo '{"number":9,"state":"MERGED","draft":false,"url":"x"}' ;;
+      bug/second) echo '{"state":"OPEN"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/dependent'), / — waiting on bug\/first, bug\/second$/,
+    'a merged FIRST prerequisite must not clear the branch while the second has not landed');
+  const json = execFileSync('bash', [h.scan, 'p', '--json'], { encoding: 'utf8', cwd: f.dir });
+  const b = JSON.parse(json).plans[0].waves[0].branches
+    .find((x) => x.branch === 'feature/dependent');
+  assert.deepEqual(b.waits_on, ['bug/first', 'bug/second'],
+    'the payload carries both names in document order, whichever merged');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a branch with both prerequisites merged reads open, not waiting', () => {
+  const f = makeRepo('plot-fleet-twowaits-clear-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/dependent` <!-- waits: bug/first --> <!-- waits: bug/second --> — needs both.\n');
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      bug/first|bug/second) echo '{"number":9,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/dependent'), / — open$/,
+    'both prerequisites merged clears the branch exactly as a single cleared wait would');
+  h.cleanup();
+  f.cleanup();
+});
+
 test('fleet: a host reporting NONE or CLOSED leaves the branch open', () => {
   // The other two arms of the three-way reply. Only an explicit MERGED may
   // move a branch off `open`: a lookup miss means no PR was ever opened, and a

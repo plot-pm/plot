@@ -15,7 +15,7 @@
 #         below the marker are NOT in printed order — the number is a label and
 #         the marker is the boundary.
 #         The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -222,6 +222,14 @@
 #                                 REPORTS AND NEVER GATES — the plan is not
 #                                 broken, its slice is invisible — so it
 #                                 carries `unread_headings=` and stays out of
+#                                 `attention`.
+#  24a. Unread waits            — a `waits:` marker on a branch line whose value
+#                                 the parser could not read as a branch, read
+#                                 from the parser field `unread_waits`. A marker
+#                                 on a prose line (no branch claim) stays silent.
+#                                 REPORTS AND NEVER GATES — the annotation is
+#                                 unreadable, not the slice broken — so it
+#                                 carries `unread_waits=` and stays out of
 #                                 `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
@@ -2942,6 +2950,7 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # it outlived its plan, and only one of those ends in a close.
 n_open_issues=0
 n_unread=0
+n_unread_waits=0
 # THE WINDOW, stated rather than implied. `PLOT_ISSUE_LIMIT` raises it; the
 # default is far above `gh`'s own 30 and above this estate's open count.
 ISSUE_LIMIT=${PLOT_ISSUE_LIMIT:-200}
@@ -3135,6 +3144,39 @@ if [ -n "$plan_json" ]; then
              | .unread_branch_headings[]? | [$f, .] | join("\u001f")')
 fi
 if [ -n "$unread_out" ]; then printf '%b' "$unread_out"; else echo "  (none — every heading that names a branch was read)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 24a. Unread waits
+#
+# A `<!-- waits: … -->` marker on a line that names a branch, whose VALUE the
+# parser could not read as a branch — read from `unread_waits[]`, the field
+# `plot-plan-meta.sh` fills precisely for this: a prerequisite is reported, not
+# dropped, when it fails the branch-prefix shape check (a typo, or a syntax
+# example written on the branch's own line rather than in surrounding prose).
+#
+# A MARKER ON A PROSE LINE STAYS SILENT, as it always has: `unread_waits` is
+# filled only when a line both carries the marker AND claims a branch, so a
+# plan documenting the annotation in its narrative text — the shape most plans
+# that mention `waits:` use — reports nothing here.
+#
+# REPORTS AND NEVER GATES. Below `== blocking sections end ==`, out of
+# `attention=`, with its own counter (`unread_waits=`), beside `unread_headings=`
+# for the same reason: a wait the parser cannot read never reaches the scan's
+# verdict either, so the slice holds no annotation at all until a person fixes
+# the value — a legibility gap, not a broken pointer.
+echo "== 24a. Unread waits (a waits: marker on a branch line the parser could not read) =="
+if [ -n "$plan_json" ]; then
+  while IFS="$US" read -r f branch value; do
+    [ -n "$f" ] || continue
+    printf "  %s — branch '%s' names a waits: value the parser could not read: '%s'\n    rewrite: the value as a branch name, with a configured prefix (%s)\n" \
+      "$(basename "$f")" "$branch" "$value" "$PREFIX_RE"
+    n_unread_waits=$((n_unread_waits + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r 'select(.phase != "NONE") | .file as $f
+             | .unread_waits[]? | [$f, .branch, .value] | join("\u001f")')
+fi
+[ "$n_unread_waits" -gt 0 ] || echo "  (none — every waits: marker on a branch line was read)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -3341,5 +3383,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues unread_headings=$n_unread temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues unread_headings=$n_unread unread_waits=$n_unread_waits temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0

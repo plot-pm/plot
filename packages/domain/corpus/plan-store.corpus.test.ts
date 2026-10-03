@@ -74,6 +74,8 @@ const KNOWN_UNCARRIED = [
   'changelog',
   'long_wave_names',
   'unread_branch_headings',
+  // Read by reconcile's section 24a from the shell; no domain rule decides on it.
+  'unread_waits',
   'rounds',
   'waves',
   'slices',

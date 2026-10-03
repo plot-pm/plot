@@ -3052,13 +3052,20 @@ prereq_answer() { # $1=prerequisite branch → merged|unmerged|none|unreachable
 }
 
 # Every branch the plan annotates `waits:`, with what it waits on — read from
-# the same blob, in the plan's own order, one line of `branch<TAB>prerequisite`.
+# the same blob, in the plan's own order, one line of `branch<TAB>prerequisite`
+# PER PREREQUISITE: a branch naming two prints two lines, in the plan's order.
+#
+# `waits_on` IS A LIST (`["bug/a","bug/b"]`), never the one-name string this
+# used to match. The old `"waits_on":"[^"]*"` pattern does not match an array,
+# so an unmigrated reader here would read every slice as waiting on nothing and
+# dispatch a held slice — the defect this plan exists to remove, reintroduced
+# by the parser's own fix had this not moved with it (#1153).
 #
 # NON-DEFERRED ONLY. `deferred:` is a JUDGEMENT — somebody gave the branch up —
 # and it outranks a wait for the same reason the scan lets it: a branch nobody
 # will start does not need to be told what it is waiting for. The two
 # annotations sit on one line and neither reads the other's value.
-waits_pairs() { # → branch<TAB>prerequisite, one per annotated branch
+waits_pairs() { # → branch<TAB>prerequisite, one line per prerequisite
   printf '%s' "$gate_meta" | awk '
     {
       n = split($0, parts, /\{"branch":"/)
@@ -3066,9 +3073,11 @@ waits_pairs() { # → branch<TAB>prerequisite, one per annotated branch
         rec = parts[i]
         br = rec; sub(/".*$/, "", br)
         if (rec ~ /"deferred":true/) continue
-        if (match(rec, /"waits_on":"[^"]*"/)) {
-          w = substr(rec, RSTART + 12, RLENGTH - 13)
-          if (w != "") print br "\t" w
+        if (match(rec, /"waits_on":\[[^]]*\]/)) {
+          list = substr(rec, RSTART + 12, RLENGTH - 13)
+          gsub(/"/, "", list)
+          m = split(list, names, ",")
+          for (j = 1; j <= m; j++) if (names[j] != "") print br "\t" names[j]
         }
       }
     }'
@@ -3150,13 +3159,22 @@ run_waits_preflight() { # → prints refusals; fills waits_held, adds to n_skipp
       none)   held=blocked ;;
       *)      held=waiting ;;
     esac
-    # `--allow-waiting` SAYS SO ON THE LINE IT OVERRIDES. An override nobody can
-    # see in the output is an override nobody can audit.
+    # `--allow-waiting` SAYS SO ON THE LINE IT OVERRIDES, ONCE PER PREREQUISITE
+    # — an override nobody can see in the output is an override nobody can
+    # audit, and a branch with two unmerged prerequisites names both so the
+    # audit trail is complete.
     if [ "$allow_waiting" = 1 ]; then
       echo "$br waits on $prereq ($held) — dispatching anyway (--allow-waiting)"
       waits_freed+=("$br")
       continue
     fi
+    # ONE REFUSAL PER BRANCH, NOT PER PREREQUISITE. `waits_pairs` prints one
+    # line per unmerged prerequisite in the plan's order, so a branch with
+    # `[merged, unmerged]` reaches this loop once — but `[unmerged, unmerged]`
+    # would reach it twice, and a branch already held names only the FIRST
+    # prerequisite that held it: `is_waits_held` guards both the second refusal
+    # line and the double-count in `n_skipped`.
+    if is_waits_held "$br"; then continue; fi
     waits_held+=("$br")
     n_skipped=$((n_skipped + 1))
     if [ "$held" = "blocked" ]; then
