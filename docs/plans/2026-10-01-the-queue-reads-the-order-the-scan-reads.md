@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-queue-reads-the-scans-order`
+- **Started:** 2026-10-03, Jan Wloka, `bug/a-hand-over-is-checked-before-it-is-made`
 
 ## Changelog
 
