@@ -11,6 +11,7 @@ import type {
   RefScope,
   RefState,
   Refs,
+  RemoteHeadAnswer,
   TreeBlob,
 } from '../../ports/refs.js';
 
@@ -112,6 +113,14 @@ export interface RefsFixture {
   ancestry?: Readonly<Record<string, Containment>>;
   /** The operations that fail on this estate, by port member name. */
   failing?: readonly ('planAdditions' | 'mergeSubjects' | 'contains')[];
+  /**
+   * The branches whose `remoteHead` call fails, answering `unknown`.
+   *
+   * Separate from {@link remoteBranches} because the real adapter's failure is
+   * a call that could not be made, not a ref the call found absent — a set
+   * alone cannot express both.
+   */
+  unknownRemoteHead?: readonly string[];
 }
 
 /** What a fixture reports when it was not told a default branch. */
@@ -178,6 +187,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
   const merges = fixture.merges ?? [];
   const ancestry = fixture.ancestry ?? {};
   const failing = new Set(fixture.failing ?? []);
+  const unknownRemoteHead = new Set(fixture.unknownRemoteHead ?? []);
+  const remoteBranchSet = new Set(remoteBranches);
 
   /**
    * The ref/sha pairs a scope covers, derived from the branches and tips this
@@ -337,5 +348,10 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       failing.has('contains')
         ? failed<Containment>()
         : answered<Containment>(ancestry[`${ancestor} ${descendant}`] ?? 'unknown'),
+
+    remoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> =>
+      unknownRemoteHead.has(branch)
+        ? answered<RemoteHeadAnswer>('unknown')
+        : answered<RemoteHeadAnswer>(remoteBranchSet.has(branch) ? 'present' : 'absent'),
   };
 };
