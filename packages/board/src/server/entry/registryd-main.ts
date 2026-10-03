@@ -817,6 +817,16 @@ export const queueWorldForRepo = (
       return !answer.ok || answer.value.length > 0;
     },
     refused: async (branch) => branchIsRefused(repoRoot, branch),
+    remoteHead: async (branch) => {
+      const answer = await refs.remoteHead(branch);
+      return answer.ok ? answer.value : 'unknown';
+    },
+    commitSubjects: (range) => refs.commitSubjects(range),
+    now: () => Date.now(),
+    defaultBranch: async () => {
+      const answer = await refs.defaultBranch();
+      return answer.ok ? answer.value : 'main';
+    },
   };
 };
 
@@ -1427,6 +1437,10 @@ export const run = async (
 const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
   'already-merged': 'queue',
   'merge-unknown': 'queue',
+  // QUEUE-SCOPED FOR THE SAME REASON AS `slice-unnamed` AND `refused`: it only
+  // ever fires on a slice a live manifest actually names, never on the
+  // estate's backlog.
+  'assigned': 'queue',
   waits: 'queue',
   // QUEUE-SCOPED BECAUSE THE HOLD IS ONLY EVER ASKED OF A CLAIMABLE SLICE. It
   // is proportional to the plans an operator is actually waiting on a branch
@@ -1548,12 +1562,24 @@ export const reportTick = (
         write(
           hold === 'waits'
             ? `    ${slice.branch} — waits on ${slice.waitsOn.join(', ')} (${slice.waitHeld})\n`
-            : `    ${slice.branch}\n`,
+            : hold === 'assigned'
+              ? `    ${slice.branch}: assigned to ${slice.assignedTo}\n`
+              : `    ${slice.branch}\n`,
         );
       }
       const rest = branches.length - named.length;
       if (rest > 0) write(`    … and ${rest} more\n`);
     }
+  }
+  // AN ORPHANED CLAIM IS NAMED ON EVERY TICK, NOT CAPPED LIKE THE HELD SLICES
+  // ABOVE. It answers a DIFFERENT question — a branch nobody is working, not a
+  // slice waiting its turn — and the population it is proportional to is
+  // whatever a dead agent or a lost push left behind, which this file exists to
+  // surface rather than to drain.
+  //
+  // IT NAMES, AND NEVER RELEASES: the command is the repair a PERSON runs.
+  for (const branch of report.handOver?.detail?.orphanedClaims ?? []) {
+    write(`  ${branch}: claim with no agent — plot-dispatch.sh --release ${branch}\n`);
   }
   return 0;
 };

@@ -10,6 +10,25 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 import { VIEWS_PER_PASS } from '@plot-pm/domain/rules/known-pr';
+import type { AgentEntry } from '../../src/server/registry.js';
+
+/** One registry manifest, in the shape `plot-dispatch.sh` writes it. */
+const manifest = (over: Partial<AgentEntry> = {}): AgentEntry =>
+  ({
+    session: 'a1b2c3',
+    resumeId: 'a1b2c3',
+    identity: 'manifest',
+    branch: 'feature/one',
+    worktree: '/estate/.worktrees/feature-one',
+    command: 'plot-worker-loop.sh',
+    startedAt: '2026-09-04T10:00:00Z',
+    pid: '4242',
+    previousPid: '',
+    relaunches: 0,
+    attempts: 0,
+    state: 'none',
+    ...over,
+  }) as AgentEntry;
 
 /**
  * A MERGED BRANCH HAS NO REF, AND THE QUEUE COUNTED THAT AS UNSTARTED.
@@ -119,6 +138,10 @@ describe('the host is asked once per branch, and only where the answer decides',
     workerAlive: async () => true,
     blocked: async () => false,
     refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
     ...over,
   });
 
@@ -204,6 +227,10 @@ describe('a known PR number is asked by number when the listing fails', () => {
       workerAlive: async () => true,
       blocked: async () => false,
       refused: async () => false,
+      remoteHead: async () => 'absent',
+      commitSubjects: async () => ({ ok: true, value: [] }),
+      now: () => 0,
+      defaultBranch: async () => 'main',
     };
     return { world, asked };
   };
@@ -375,6 +402,10 @@ describe('a slice behind an unanswered landing names the host', () => {
       workerAlive: async () => true,
       blocked: async () => false,
       refused: async () => false,
+      remoteHead: async () => 'absent',
+      commitSubjects: async () => ({ ok: true, value: [] }),
+      now: () => 0,
+      defaultBranch: async () => 'main',
     };
     return { world, asked };
   };
@@ -542,6 +573,10 @@ describe('a slice its plan names under no heading is held by the queue', () => {
       workerAlive: async () => true,
       blocked: async () => false,
       refused: async () => false,
+      remoteHead: async () => 'absent',
+      commitSubjects: async () => ({ ok: true, value: [] }),
+      now: () => 0,
+      defaultBranch: async () => 'main',
     };
     return { world, calls };
   };
@@ -617,6 +652,10 @@ describe('a slice an agent refused is held, by a reading that never latches', ()
     workerAlive: async () => true,
     blocked: async () => false,
     refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
     ...over,
   });
 
@@ -636,6 +675,10 @@ describe('a slice an agent refused is held, by a reading that never latches', ()
       world({
         plans: async () => [plan([['feature/refused'], ['feature/clear']])],
         refused: async (branch) => branch === 'feature/refused',
+        remoteHead: async () => 'absent',
+        commitSubjects: async () => ({ ok: true, value: [] }),
+        now: () => 0,
+        defaultBranch: async () => 'main',
       }),
     );
 
@@ -698,6 +741,10 @@ describe('a `waits:` prerequisite holds a slice through the real join', () => {
     workerAlive: async () => true,
     blocked: async () => false,
     refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
     ...over,
   });
 
@@ -737,5 +784,130 @@ describe('a `waits:` prerequisite holds a slice through the real join', () => {
     const slice = readings.slices.find((s) => s.branch === 'feature/waiter')!;
     expect(whyNotReady(slice)).toBeNull();
     expect(slice.waitHeld).toBe('');
+  });
+});
+
+/**
+ * THE QUEUE READS THE ASSIGNMENT, NOT ONLY THE CLAIM REF.
+ *
+ * Measured 2026-10-01: the supervisor handed agent `8111e3ec` a second slice
+ * while its manifest still named the first, because `readQueue` read claim
+ * refs and never manifests. A dispatch writes the manifest before its claim
+ * push lands, so between a hand-over and that push nothing a remote ref can
+ * see recorded the assignment.
+ */
+describe('readQueue — a live manifest closes the gap before the claim push lands', () => {
+  const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    // TWO INDEPENDENT PLANS, EACH A SINGLE SLICE — so neither branch's ordering
+    // depends on the other, and `not-claimable` cannot be mistaken for the
+    // assignment hold this test is about.
+    plans: async () => [
+      plan([['bug/x']]),
+      { ...plan([['bug/y']]), file: 'docs/plans/2026-09-04-a-second-plan.md' } as PlanRecord,
+    ],
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    ...over,
+  });
+
+  it('holds the branch a LIVE agent’s manifest names `assigned`, and offers the dead agent’s', async () => {
+    // A NAIVE FILTER ON "manifest names a branch" PASSES THE FIRST HALF AND
+    // HOLDS THE SECOND FOREVER. `bug/x`'s agent is alive (`workerAlive: true`);
+    // `bug/y`'s is dead (`workerAlive: false` for that one worktree) — #1039's
+    // negative control, so `bug/y` must read as queued rather than `assigned`.
+    const entries = [
+      manifest({ session: 'live', branch: 'bug/x', worktree: '/estate/.worktrees/bug-x' }),
+      manifest({ session: 'dead', branch: 'bug/y', worktree: '/estate/.worktrees/bug-y' }),
+    ];
+    const readings = await readQueue(
+      entries,
+      world({
+        workerAlive: async (worktree) => worktree === '/estate/.worktrees/bug-x',
+      }),
+    );
+
+    const x = readings.slices.find((s) => s.branch === 'bug/x')!;
+    const y = readings.slices.find((s) => s.branch === 'bug/y')!;
+    expect(x.assignedTo).toBe('live');
+    expect(whyNotReady(x)).toBe('assigned');
+    expect(y.assignedTo).toBe('');
+    expect(whyNotReady(y)).toBeNull();
+  });
+
+  it('holds the branch a WAITING agent’s manifest names, too — blocked still holds a slot', async () => {
+    const entries = [manifest({ session: 'blocked', branch: 'bug/x' })];
+    const readings = await readQueue(entries, world({ blocked: async () => true }));
+
+    const x = readings.slices.find((s) => s.branch === 'bug/x')!;
+    expect(x.assignedTo).toBe('blocked');
+    expect(whyNotReady(x)).toBe('assigned');
+  });
+
+  it('reads the branch unassigned once no live manifest names it — the reading never latches', async () => {
+    const assignedPass = await readQueue(
+      [manifest({ session: 'a', branch: 'bug/x' })],
+      world(),
+    );
+    expect(assignedPass.slices.find((s) => s.branch === 'bug/x')?.assignedTo).toBe('a');
+
+    const clearedPass = await readQueue([], world());
+    expect(clearedPass.slices.find((s) => s.branch === 'bug/x')?.assignedTo).toBe('');
+  });
+});
+
+/**
+ * THE TICK REPLAY OF THE 2026-10-01 SEQUENCE.
+ *
+ * Agent A is handed `bug/x` (its manifest names it) and its claim push has not
+ * yet landed — no remote ref. A second tick, with a second free agent, must not
+ * hand `bug/x` to it too. This FAILS ON `main` TODAY: the queue reads claim
+ * refs and never manifests, so `bug/x` reads as unclaimed and a second agent
+ * takes it.
+ */
+describe('the tick replay — a hand-over decided but not yet pushed is not re-handed', () => {
+  it('does not hand the already-assigned branch to a second free agent', async () => {
+    const entries = [
+      // AGENT A HOLDS `bug/x` BY MANIFEST ALONE — no claim ref exists yet.
+      manifest({ session: 'agent-a', branch: 'bug/x', worktree: '/estate/.worktrees/bug-x' }),
+      // AGENT B IS FREE AND ABOUT TO BE MATCHED AGAINST THE QUEUE.
+      manifest({ session: 'agent-b', branch: '', worktree: '/estate/.worktrees/agent-b' }),
+    ];
+    const world: QueueWorld = {
+      plans: async () => [plan([['bug/x']])],
+      claimedBranches: async () => new Set<string>(),
+      mergedBranches: async () => wholeListing([]),
+      prIndexRows: async () => [],
+      viewLanded: async () => 'unknown',
+      briefPresent: async () => true,
+      sliceHasMerged: async () => false,
+      subjectProven: async () => null,
+      queuedHasLanded: async () => 'not-landed',
+      workerAlive: async () => true,
+      blocked: async () => false,
+      refused: async () => false,
+      remoteHead: async () => 'absent',
+      commitSubjects: async () => ({ ok: true, value: [] }),
+      now: () => 0,
+      defaultBranch: async () => 'main',
+    };
+
+    const readings = await readQueue(entries, world);
+    const x = readings.slices.find((s) => s.branch === 'bug/x')!;
+
+    expect(x.assignedTo).toBe('agent-a');
+    expect(whyNotReady(x)).toBe('assigned');
   });
 });

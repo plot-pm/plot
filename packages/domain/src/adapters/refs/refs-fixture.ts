@@ -5,6 +5,7 @@ import type {
   BranchDate,
   BranchTip,
   CommitLine,
+  CommitSubject,
   Containment,
   MergeCommit,
   MergeStatus,
@@ -102,6 +103,8 @@ export interface RefsFixture {
   remotes?: Readonly<Record<string, string>>;
   /** `<dir>\0<range>` to the commits that range holds, newest first. */
   commits?: Readonly<Record<string, readonly CommitLine[]>>;
+  /** Range to the commit subjects it holds, newest first — {@link Refs.commitSubjects}. */
+  commitSubjects?: Readonly<Record<string, readonly CommitSubject[]>>;
   /** Each file's repository-relative path to the commit that first added it. */
   additions?: Readonly<Record<string, string>>;
   /** The merge commits on the default branch, newest first. */
@@ -112,7 +115,7 @@ export interface RefsFixture {
    */
   ancestry?: Readonly<Record<string, Containment>>;
   /** The operations that fail on this estate, by port member name. */
-  failing?: readonly ('planAdditions' | 'mergeSubjects' | 'contains')[];
+  failing?: readonly ('planAdditions' | 'mergeSubjects' | 'contains' | 'commitSubjects')[];
   /**
    * The branches whose `remoteHead` call fails, answering `unknown`.
    *
@@ -183,6 +186,7 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
   const committedAt = fixture.committedAt ?? {};
   const remotes = fixture.remotes ?? {};
   const commits = fixture.commits ?? {};
+  const commitSubjects = fixture.commitSubjects ?? {};
   const additions = fixture.additions ?? {};
   const merges = fixture.merges ?? [];
   const ancestry = fixture.ancestry ?? {};
@@ -330,6 +334,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
 
     commitsSync: (dir, range, max) =>
       answered<readonly CommitLine[]>((commits[`${dir}\0${range}`] ?? []).slice(0, max)),
+
+    commitSubjects: async (range) =>
+      failing.has('commitSubjects')
+        ? failed<readonly CommitSubject[]>()
+        : answered<readonly CommitSubject[]>(commitSubjects[range] ?? []),
 
     planAdditions: async (_ref, dir) => {
       if (failing.has('planAdditions')) return failed<ReadonlyMap<string, string>>();

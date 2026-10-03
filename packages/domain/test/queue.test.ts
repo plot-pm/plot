@@ -46,6 +46,11 @@ const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   unnamed: false,
   landed: 'not-landed',
   priorUnknown: false,
+  // UNASSIGNED IS THE DEFAULT, for the same reason `refused: false` is: every
+  // case but the new hold's is about a slice no live manifest names, and a
+  // fixture defaulting the other way would silently move them all into
+  // `assigned`.
+  assignedTo: '',
   // AN UNREFUSED SLICE IS THE DEFAULT, for the same reason `unnamed: false` is:
   // every case but the new hold's is about a slice nobody refused, and a
   // fixture defaulting the other way would silently move them all into
@@ -167,7 +172,7 @@ describe('planQueue — the order and the `waits:` hold, moved into the domain',
       agents: [],
     });
     expect(match.held).toEqual([
-      { branch: 'feature/waiter', hold: 'waits', waitsOn: ['feature/prereq'], waitHeld: 'unreachable' },
+      { branch: 'feature/waiter', hold: 'waits', waitsOn: ['feature/prereq'], waitHeld: 'unreachable', assignedTo: '' },
     ]);
   });
 
@@ -321,7 +326,7 @@ describe('whyNotReady — a finished slice leaves the queue', () => {
       agents: [agent('a')],
     });
     expect(match.assignments).toEqual([]);
-    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged', waitsOn: [], waitHeld: '' }]);
+    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged', waitsOn: [], waitHeld: '', assignedTo: '' }]);
     expect(match.idle).toEqual(['a']);
   });
 
@@ -363,7 +368,7 @@ describe('whyNotReady — a finished slice leaves the queue', () => {
       agents: [agent('a')],
     });
     expect(match.assignments.map((a) => a.branch)).toEqual(['feature/open']);
-    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged', waitsOn: [], waitHeld: '' }]);
+    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged', waitsOn: [], waitHeld: '', assignedTo: '' }]);
   });
 });
 
@@ -389,7 +394,7 @@ describe('matchQueue — one slice to one agent', () => {
     const sessions = match.assignments.map((a) => a.session);
     expect(new Set(sessions).size).toBe(sessions.length);
     expect(match.assignments).toHaveLength(1);
-    expect(match.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent', waitsOn: [], waitHeld: '' }]);
+    expect(match.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' }]);
   });
 
   it('never hands one slice to two agents', () => {
@@ -413,7 +418,7 @@ describe('matchQueue — one slice to one agent', () => {
     });
 
     expect(match.assignments).toEqual([]);
-    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-free-agent', waitsOn: [], waitHeld: '' }]);
+    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' }]);
     expect(match.idle).toEqual([]);
   });
 
@@ -426,7 +431,7 @@ describe('matchQueue — one slice to one agent', () => {
     expect(match.assignments).toEqual([
       { session: 's1', worktree: '/desks/s1', branch: 'feature/b', slug: 'a-plan' },
     ]);
-    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '' }]);
+    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '', assignedTo: '' }]);
   });
 
   it('takes agents in registry order and slices in plan order', () => {
@@ -491,7 +496,7 @@ describe('assign — the hand-over workflow', () => {
 
     expect(decision.outcome).toBe('decided');
     expect(decision.writes).toEqual([]);
-    expect(decision.detail.held).toEqual([{ branch: 'feature/x', hold: 'no-free-agent', waitsOn: [], waitHeld: '' }]);
+    expect(decision.detail.held).toEqual([{ branch: 'feature/x', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' }]);
   });
 
   it('bounds a pass, and reports what the bound held rather than dropping it', () => {
@@ -505,7 +510,7 @@ describe('assign — the hand-over workflow', () => {
 
     expect(decision.writes).toHaveLength(1);
     expect(decision.detail.assignments.map((a) => a.branch)).toEqual(['feature/a']);
-    expect(decision.detail.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent', waitsOn: [], waitHeld: '' }]);
+    expect(decision.detail.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' }]);
     expect(decision.detail.idle).toEqual(['s2']);
   });
 
@@ -542,8 +547,8 @@ describe('assign — the tick starts agents when queued > running', () => {
     );
 
     expect(decision.detail.held).toEqual([
-      { branch: 'feature/a', hold: 'no-free-agent', waitsOn: [], waitHeld: '' },
-      { branch: 'feature/b', hold: 'no-free-agent', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/a', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' },
+      { branch: 'feature/b', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' },
     ]);
     expect(decision.writes).toEqual([
       { kind: 'worker-start', branch: '', worktree: '/desks/new-1' },
@@ -581,7 +586,7 @@ describe('assign — the tick starts agents when queued > running', () => {
     // `refused` must not be read as work waiting for capacity.
     const decision = assign({ slices: [slice({ refused: true })], agents: [] }, { fleet: cap() });
     expect(decision.detail.scaling?.start).toBe(0);
-    expect(decision.detail.held).toEqual([{ branch: 'feature/x', hold: 'refused', waitsOn: [], waitHeld: '' }]);
+    expect(decision.detail.held).toEqual([{ branch: 'feature/x', hold: 'refused', waitsOn: [], waitHeld: '', assignedTo: '' }]);
   });
 
   it('asks for the CAP and never for the queue — 456 slices do not start 456 agents', () => {
@@ -662,7 +667,7 @@ describe('a refusal is counted so a zero can be read', () => {
    * manually. A key per hold makes `no-brief=0` a measurement.
    */
   it('gives every hold a key, including the ones that did not fire', () => {
-    const counts = holdCounts([{ branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '' }]);
+    const counts = holdCounts([{ branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '', assignedTo: '' }]);
     expect(Object.keys(counts).sort()).toEqual([...QUEUE_HOLDS].sort());
     expect(counts['no-brief']).toBe(1);
     expect(counts['not-claimable']).toBe(0);
@@ -676,9 +681,9 @@ describe('a refusal is counted so a zero can be read', () => {
 
   it('sums the holds it was given, and the total is the slices held', () => {
     const held: HeldSlice[] = [
-      { branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '' },
-      { branch: 'feature/b', hold: 'no-brief', waitsOn: [], waitHeld: '' },
-      { branch: 'feature/c', hold: 'already-merged', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '', assignedTo: '' },
+      { branch: 'feature/b', hold: 'no-brief', waitsOn: [], waitHeld: '', assignedTo: '' },
+      { branch: 'feature/c', hold: 'already-merged', waitsOn: [], waitHeld: '', assignedTo: '' },
     ];
     const counts = holdCounts(held);
     expect(counts['no-brief']).toBe(2);
@@ -693,6 +698,7 @@ describe('a refusal is counted so a zero can be read', () => {
     const answered = [
       whyNotReady(slice({ landed: 'landed' })),
       whyNotReady(slice({ landed: 'unknown' })),
+      whyNotReady(slice({ assignedTo: 'agent-a' })),
       whyNotReady(slice({ waitsOn: ['feature/prereq'], waitHeld: 'unmerged' })),
       whyNotReady(slice({ briefPresent: false })),
       whyNotReady(slice({ unnamed: true })),
@@ -880,7 +886,7 @@ describe('whyNotReady — a slice with no name is held rather than handed over',
 
     expect(match.assignments).toEqual([]);
     expect(match.held).toEqual([
-      { branch: 'feature/nameless', hold: 'slice-unnamed', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/nameless', hold: 'slice-unnamed', waitsOn: [], waitHeld: '', assignedTo: '' },
     ]);
     expect(match.idle).toEqual(['s1']);
   });
@@ -965,7 +971,7 @@ describe('whyNotReady — a refused slice is held rather than handed to another 
       agents: [agent('s1')],
     });
     expect(match.assignments).toEqual([]);
-    expect(match.held).toEqual([{ branch: 'feature/refused', hold: 'refused', waitsOn: [], waitHeld: '' }]);
+    expect(match.held).toEqual([{ branch: 'feature/refused', hold: 'refused', waitsOn: [], waitHeld: '', assignedTo: '' }]);
     expect(match.idle).toEqual(['s1']);
   });
 
@@ -1009,3 +1015,64 @@ describe('whyNotReady — a refused slice is held rather than handed to another 
     expect(Object.keys(counts)).toContain('refused');
   });
 });
+
+/**
+ * A LIVE MANIFEST ALREADY NAMES THIS BRANCH.
+ *
+ * Measured 2026-10-01: the supervisor handed agent `8111e3ec` a second slice
+ * while its manifest still named the first — the queue read claim refs and
+ * never manifests, so nothing closed the gap between a hand-over being decided
+ * and the agent's own claim push landing.
+ */
+describe('whyNotReady — a slice a live manifest already names is held, not re-handed', () => {
+  it('holds a claimable, briefed slice a live manifest names, with agents free', () => {
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/assigned', assignedTo: 'agent-a' })],
+      agents: [agent('s1')],
+    });
+    expect(match.assignments).toEqual([]);
+    expect(match.held).toEqual([
+      { branch: 'feature/assigned', hold: 'assigned', waitsOn: [], waitHeld: '', assignedTo: 'agent-a' },
+    ]);
+    expect(match.idle).toEqual(['s1']);
+  });
+
+  it('hands the same slice over once no manifest names it', () => {
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/clear', assignedTo: '' })],
+      agents: [agent('s1')],
+    });
+    expect(match.assignments.map((a) => a.branch)).toEqual(['feature/clear']);
+    expect(match.held).toEqual([]);
+  });
+
+  it('names the merge first, so a finished slice is not reported as somebody else’s', () => {
+    expect(whyNotReady(slice({ landed: 'landed', assignedTo: 'agent-a' }))).toBe('already-merged');
+  });
+
+  it('names the unanswered host first, because silence is not an assignment', () => {
+    expect(whyNotReady(slice({ landed: 'unknown', assignedTo: 'agent-a' }))).toBe('merge-unknown');
+  });
+
+  it('outranks `waits`: an assigned slice is held on its assignment even while it also waits', () => {
+    expect(
+      whyNotReady(slice({ assignedTo: 'agent-a', waitsOn: ['feature/prereq'], waitHeld: 'unmerged' })),
+    ).toBe('assigned');
+  });
+
+  it('gives `assigned` a key in holdCounts, zero where none fired', () => {
+    const counts = holdCounts([]);
+    expect(counts['assigned']).toBe(0);
+    expect(Object.keys(counts)).toContain('assigned');
+  });
+});
+
+/**
+ * A DEAD AGENT'S MANIFEST IS NOT AN ASSIGNMENT.
+ *
+ * #1039's negative control: a dead agent pushes nothing, so a filter counting
+ * ANY manifest naming a branch would hold its slice forever. This is asserted
+ * at the `readQueue` boundary (`packages/board/test/`), because `assignedTo`
+ * itself is a plain string here — the `running`/`waiting` filter is the
+ * caller's, built in `readQueue` before this field is ever set.
+ */

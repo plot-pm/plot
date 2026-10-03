@@ -710,6 +710,10 @@ describe('a tick starts agents when queued > running', () => {
     workerAlive: async () => true,
     blocked: async () => false,
     refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
     ...over,
   });
 
@@ -729,7 +733,7 @@ describe('a tick starts agents when queued > running', () => {
     });
 
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'no-free-agent', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/waiting', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' },
     ]);
     expect(report.handOver?.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(3);
   });
@@ -784,7 +788,7 @@ describe('a tick starts agents when queued > running', () => {
 
     expect(report.handOver?.detail.assignments).toEqual([]);
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'already-merged', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/waiting', hold: 'already-merged', waitsOn: [], waitHeld: '', assignedTo: '' },
     ]);
     expect(report.handOver?.writes.some((w) => w.kind === 'worker-start')).toBe(false);
   });
@@ -802,7 +806,7 @@ describe('a tick starts agents when queued > running', () => {
 
     expect(report.handOver?.detail.assignments).toEqual([]);
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'merge-unknown', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/waiting', hold: 'merge-unknown', waitsOn: [], waitHeld: '', assignedTo: '' },
     ]);
   });
 
@@ -876,6 +880,10 @@ describe('a tick says which hold refused each slice', () => {
     workerAlive: async () => true,
     blocked: async () => false,
     refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
     ...over,
   });
 
@@ -911,7 +919,7 @@ describe('a tick says which hold refused each slice', () => {
     const line = tickLine(report);
     expect(line).toContain('refused=1');
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'refused', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/waiting', hold: 'refused', waitsOn: [], waitHeld: '', assignedTo: '' },
     ]);
   });
 
@@ -942,7 +950,7 @@ describe('a tick says which hold refused each slice', () => {
     // and the repair for `no-brief` would not release the slice.
     expect(line).toContain('no-brief=0');
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'slice-unnamed', waitsOn: [], waitHeld: '' },
+      { branch: 'feature/waiting', hold: 'slice-unnamed', waitsOn: [], waitHeld: '', assignedTo: '' },
     ]);
   });
 
@@ -1064,6 +1072,8 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
       ],
       claimedBranches: async () => new Set<string>(),
       mergedBranches: async () => ({ merged: new Set<string>(), whole: true, kind: null, failed: false }),
+      prIndexRows: async () => [],
+      viewLanded: async () => 'unknown',
       briefPresent: async () => true,
       sliceHasMerged: async () => false,
       // THE HOST WOULD NOT ANSWER — the hold `merge-unknown` names.
@@ -1072,6 +1082,10 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
       workerAlive: async () => true,
       blocked: async () => false,
       refused: async () => false,
+      remoteHead: async () => 'absent',
+      commitSubjects: async () => ({ ok: true, value: [] }),
+      now: () => 0,
+      defaultBranch: async () => 'main',
     };
     const report = await tick({ registry: async () => [], world: world(), queue, now: () => 0 });
     // AND THE ACCOUNT IS SPENDING HARD — the rate `account=` names.
