@@ -3347,8 +3347,10 @@ async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Prom
 }
 
 /**
- * Offer every branch in a landed pulse to the resolver, which refuses all but
- * one state.
+ * Offer every branch in a landed pulse to the resolver, which refuses every
+ * state unconditionally — the automatic repair is switched off, since
+ * `bug/a-pr-carries-no-bundle` means a PR's diff must never carry a rebuilt
+ * bundle, which is the one write this call used to be permitted to make.
  *
  * **This function classifies NOTHING.** It calls `stuckState` — slice 1's
  * detector, the same call `rowsFromPulse` makes with the same inputs — and hands
@@ -3750,7 +3752,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // localhost included: there is nothing to reach.
     //
     // `startRepair` decides. This loop only offers it every branch and it
-    // refuses all but one state — see `mayResolve`.
+    // refuses every state now — see `mayResolve`.
     maybeRepair(opts, complete, entry.prs);
 
     // THE SECOND AUTOMATIC WRITE — slice 3, the switch that does something.

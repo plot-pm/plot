@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  parseManifest, readAgentRegistry, gitWorktrees, AGENT_MANIFEST_DIR,
+  parseManifest, readAgentRegistry, gitWorktrees, bashCleanliness, AGENT_MANIFEST_DIR,
 } from '../../src/server/registry.js';
 import { execFileSync } from 'node:child_process';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
@@ -1103,5 +1103,65 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
     });
     assert.equal(got.length, 2);
     assert.deepEqual(got.map((e) => e.session), ['running', 'dirty']);
+  });
+});
+
+describe('bashCleanliness — a rebuilt bundle is excused, a source change beside it is not', () => {
+  // ONE OF THE FOUR READERS `bug/a-pr-carries-no-bundle` NAMES. `main` rebuilds
+  // and pushes every generated board bundle (`bug/main-builds-its-bundles`,
+  // #1249), so a desk that locally rebuilt one to test holds nothing an agent
+  // put there — the board's drop rule must not keep that desk visible on a
+  // rebuilt bundle alone. Against a REAL git worktree and a REAL
+  // `packages/board/build.mjs`, not a stubbed status string: the set is
+  // derived from the build's own `shipped*` declarations, the same reading
+  // `check-bundle-attributes.sh` and `scripts/check-no-bundle-diff.sh` share.
+  let repo = '';
+  afterEach(() => {
+    if (repo) rmTree(repo);
+    repo = '';
+  });
+
+  /** A real repo with a build.mjs declaring one bundle, committed. */
+  function buildTree(): string {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bashclean-'));
+    const g = (...a: string[]) =>
+      execFileSync('git', ['-C', repo, ...a], { stdio: ['ignore', 'pipe', 'ignore'] });
+    fs.mkdirSync(path.join(repo, 'packages', 'board'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'skills', 'plot', 'scripts', 'board'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, 'packages', 'board', 'build.mjs'),
+      "const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');\n",
+    );
+    fs.writeFileSync(
+      path.join(repo, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+      'original bundle\n',
+    );
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
+    g('config', 'user.email', 't@e.x');
+    g('config', 'user.name', 'T');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'init');
+    return repo;
+  }
+
+  it('reads clean for a desk holding only a rebuilt bundle', async () => {
+    const wt = buildTree();
+    fs.writeFileSync(
+      path.join(wt, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+      'rebuilt locally\n',
+    );
+    const [clean] = await bashCleanliness([wt]);
+    assert.equal(clean, true, 'a rebuilt bundle alone is not unlanded work');
+  });
+
+  it('reads dirty for a desk holding a source change beside the rebuilt bundle', async () => {
+    const wt = buildTree();
+    fs.writeFileSync(
+      path.join(wt, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+      'rebuilt locally\n',
+    );
+    fs.writeFileSync(path.join(wt, 'my-source.ts'), 'real work\n');
+    const [clean] = await bashCleanliness([wt]);
+    assert.equal(clean, false, 'a source change beside the bundle is still unlanded work');
   });
 });
