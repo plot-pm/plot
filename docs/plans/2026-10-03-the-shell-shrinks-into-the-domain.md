@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-10-03, jwloka, in-session
+- **Started:** 2026-10-03, Jan Wloka, `infra/the-shell-is-inventoried`
 
 ## Changelog
 
