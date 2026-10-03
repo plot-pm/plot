@@ -45,7 +45,7 @@ describe('a failed scan keeps the last sections', () => {
     // `claimed` while the pulse can see that commit. Its PR reads MERGED: that
     // is the reading under which a zero-ahead ref answers `merged`.
     const fresh = branchState({
-      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: null,
+      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: [],
       mergeSubjectFound: false, hostReach: 'ok',
       commitsAhead: 1, realCommitsAhead: 0,
     } as never);
@@ -54,7 +54,7 @@ describe('a failed scan keeps the last sections', () => {
     // The SAME branch, read from a pulse taken before the claim was pushed:
     // `commitsAhead` is 0, so `:215` is never reached and `:264` answers.
     const stale = branchState({
-      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: null,
+      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: [],
       mergeSubjectFound: false, hostReach: 'ok',
       commitsAhead: 0, realCommitsAhead: 0,
     } as never);
@@ -85,7 +85,7 @@ describe('a failed scan keeps the last sections', () => {
     // classify sends to `done`; the row was `not-started` when last seen, and
     // that is what it keeps.
     const stale = branchState({
-      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: null,
+      refTip: 'aaa111', mainTip: 'main999', pr: 'MERGED', prListComplete: true, waits: [],
       mergeSubjectFound: false, hostReach: 'ok',
       commitsAhead: 0, realCommitsAhead: 0,
     } as never);

@@ -32,7 +32,7 @@ const unstarted: BranchReadings = {
   prListComplete: true,
   commitsAhead: 0,
   realCommitsAhead: 0,
-  waits: null,
+  waits: [],
 };
 
 const reading = (over: Partial<BranchReadings>): BranchReadings => ({ ...unstarted, ...over });
@@ -67,11 +67,11 @@ describe('each of the eight states is produced from readings', () => {
   });
 
   it('waiting — the prerequisite has an open pull request', () => {
-    expect(branchState(reading({ waits: { branch: 'feature/first', pr: 'OPEN' } }))).toBe('waiting');
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'OPEN' }] }))).toBe('waiting');
   });
 
   it('blocked — the host has never seen a pull request for the prerequisite', () => {
-    expect(branchState(reading({ waits: { branch: 'feature/typo', pr: 'none' } }))).toBe('blocked');
+    expect(branchState(reading({ waits: [{ branch: 'feature/typo', pr: 'none' }] }))).toBe('blocked');
   });
 
   it('produces nothing outside the eight the entity declares', () => {
@@ -85,8 +85,8 @@ describe('each of the eight states is produced from readings', () => {
       reading({ refTip: 'bbb' }),
       reading({ deferredByPlan: true }),
       reading({ hostReach: 'failed', pr: 'unreadable' }),
-      reading({ waits: { branch: 'feature/first', pr: 'CLOSED' } }),
-      reading({ waits: { branch: 'feature/typo', pr: 'none' } }),
+      reading({ waits: [{ branch: 'feature/first', pr: 'CLOSED' }] }),
+      reading({ waits: [{ branch: 'feature/typo', pr: 'none' }] }),
     ];
     for (const one of every) {
       expect(BranchStateSchema.options).toContain(branchState(one));
@@ -116,14 +116,14 @@ describe("a plan's deferred: beats a merged ref", () => {
     // Somebody gave the branch up, which is a decision, while waiting is a
     // measurement.
     expect(
-      branchState(reading({ deferredByPlan: true, waits: { branch: 'feature/first', pr: 'OPEN' } })),
+      branchState(reading({ deferredByPlan: true, waits: [{ branch: 'feature/first', pr: 'OPEN' }] })),
     ).toBe('deferred');
   });
 });
 
 describe("a prerequisite's state beats open and unknown, and nothing else", () => {
   it('replaces open', () => {
-    expect(branchState(reading({ waits: { branch: 'feature/first', pr: 'OPEN' } }))).toBe('waiting');
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'OPEN' }] }))).toBe('waiting');
   });
 
   it('replaces unknown', () => {
@@ -132,7 +132,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
         reading({
           hostReach: 'failed',
           pr: 'unreadable',
-          waits: { branch: 'feature/first', pr: 'OPEN' },
+          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
         }),
       ),
     ).toBe('waiting');
@@ -145,7 +145,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
           refTip: 'bbb',
           commitsAhead: 2,
           realCommitsAhead: 2,
-          waits: { branch: 'feature/first', pr: 'OPEN' },
+          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
         }),
       ),
     ).toBe('wip');
@@ -158,7 +158,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
           refTip: 'bbb',
           commitsAhead: 1,
           realCommitsAhead: 0,
-          waits: { branch: 'feature/first', pr: 'OPEN' },
+          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
         }),
       ),
     ).toBe('claimed');
@@ -171,7 +171,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
           refTip: 'bbb',
           mainTip: 'aaa',
           pr: 'MERGED',
-          waits: { branch: 'feature/first', pr: 'OPEN' },
+          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
         }),
       ),
     ).toBe('merged');
@@ -182,20 +182,20 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
     // verdict applies to it like to any unstarted branch.
     expect(
       branchState(
-        reading({ refTip: 'bbb', mainTip: 'aaa', waits: { branch: 'feature/first', pr: 'OPEN' } }),
+        reading({ refTip: 'bbb', mainTip: 'aaa', waits: [{ branch: 'feature/first', pr: 'OPEN' }] }),
       ),
     ).toBe('waiting');
   });
 
   it('clears when the prerequisite merged', () => {
-    expect(branchState(reading({ waits: { branch: 'feature/first', pr: 'MERGED' } }))).toBe('open');
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'MERGED' }] }))).toBe('open');
   });
 
   it('waits rather than blocks on a closed pull request', () => {
     // The host has seen the branch, so nothing is misspelt: somebody withdrew
     // the work, and that resolves by reopening it rather than by editing the
     // plan.
-    expect(branchState(reading({ waits: { branch: 'feature/first', pr: 'CLOSED' } }))).toBe(
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'CLOSED' }] }))).toBe(
       'waiting',
     );
   });
@@ -203,9 +203,68 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
   it('waits rather than blocks on an unreadable host', () => {
     // Silence is not evidence in either direction: not permission to start, and
     // not proof of a typo.
-    expect(branchState(reading({ waits: { branch: 'feature/first', pr: 'unreadable' } }))).toBe(
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'unreadable' }] }))).toBe(
       'waiting',
     );
+  });
+
+  it('a list of one is not a list of two: both prerequisites are read', () => {
+    expect(
+      branchState(
+        reading({
+          waits: [
+            { branch: 'feature/first', pr: 'MERGED' },
+            { branch: 'feature/second', pr: 'OPEN' },
+          ],
+        }),
+      ),
+    ).toBe('waiting');
+    expect(
+      branchState(
+        reading({
+          waits: [
+            { branch: 'feature/first', pr: 'OPEN' },
+            { branch: 'feature/second', pr: 'MERGED' },
+          ],
+        }),
+      ),
+    ).toBe('waiting');
+  });
+
+  it('blocked outranks waiting in both orders', () => {
+    expect(
+      branchState(
+        reading({
+          waits: [
+            { branch: 'feature/first', pr: 'OPEN' },
+            { branch: 'feature/typo', pr: 'none' },
+          ],
+        }),
+      ),
+    ).toBe('blocked');
+    expect(
+      branchState(
+        reading({
+          waits: [
+            { branch: 'feature/typo', pr: 'none' },
+            { branch: 'feature/first', pr: 'OPEN' },
+          ],
+        }),
+      ),
+    ).toBe('blocked');
+  });
+
+  it('clears only when every prerequisite merged', () => {
+    expect(
+      branchState(
+        reading({
+          waits: [
+            { branch: 'feature/first', pr: 'MERGED' },
+            { branch: 'feature/second', pr: 'MERGED' },
+          ],
+        }),
+      ),
+    ).toBe('open');
   });
 });
 
@@ -346,7 +405,7 @@ describe('a ref behind main is decided by the host', () => {
   });
 
   it('lets a merged prerequisite leave the open standing', () => {
-    expect(branchState(at({ waits: { branch: 'feature/first', pr: 'MERGED' } }))).toBe('open');
+    expect(branchState(at({ waits: [{ branch: 'feature/first', pr: 'MERGED' }] }))).toBe('open');
   });
 });
 
@@ -354,7 +413,7 @@ describe('the four probe rows: host ok, no pull request, no wait', () => {
   // The probe of 2026-09-26 that measured the defect, kept as cases. Row 2 read
   // `merged` and withheld three approved slices from dispatch.
   const probe = (over: Partial<BranchReadings>): BranchReadings =>
-    reading({ hostReach: 'ok', pr: 'none', waits: null, mainTip: 'aaa', ...over });
+    reading({ hostReach: 'ok', pr: 'none', waits: [], mainTip: 'aaa', ...over });
 
   it('a claim ref with its claim commit pushed is claimed', () => {
     expect(branchState(probe({ refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('claimed');

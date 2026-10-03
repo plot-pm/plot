@@ -145,6 +145,25 @@ describe('a branch from an older scan still validates', () => {
     expect(BranchSchema.safeParse({ ...bareBranch, state: 'nearly' }).success).toBe(false);
   });
 
+  it('defaults waits_on to an empty list for a branch declaring none', () => {
+    expect(BranchSchema.parse(bareBranch).waits_on).toEqual([]);
+  });
+
+  it('reads the old bare-string waits_on, both the empty and the named form', () => {
+    // `.plot/state/last-pulse.json` persists the old shape until a fresh scan
+    // overwrites it — a schema with no preprocess refuses the pulse of every
+    // running board.
+    expect(BranchSchema.parse({ ...bareBranch, waits_on: '' }).waits_on).toEqual([]);
+    expect(BranchSchema.parse({ ...bareBranch, waits_on: 'bug/a' }).waits_on).toEqual(['bug/a']);
+  });
+
+  it('reads the array shape unchanged', () => {
+    expect(BranchSchema.parse({ ...bareBranch, waits_on: ['bug/a', 'bug/b'] }).waits_on).toEqual([
+      'bug/a',
+      'bug/b',
+    ]);
+  });
+
   it('requires the fields that have no honest default', () => {
     // `branch` names the thing; there is no value that could stand in for it.
     expect(BranchSchema.safeParse({ state: 'open', deferred: false, claimed: '' }).success).toBe(false);

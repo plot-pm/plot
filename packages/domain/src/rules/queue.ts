@@ -1,5 +1,5 @@
 import { type AgentReading, isAgentFree } from './free.js';
-import { sliceVerdicts, waitVerdict, type PrereqAnswer } from './eligible.js';
+import { sliceVerdicts, type PrereqAnswer } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
 import { unnamedBranches } from './slice-name.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
@@ -109,12 +109,12 @@ export interface QueuedSlice {
    */
   refused: boolean;
   /**
-   * The branch this one's `<!-- waits: ... -->` annotation names, or `''`
+   * Every branch this one's `<!-- waits: ... -->` annotation names, empty
    * where it names none.
    *
-   * Carried for the held-list line, which names the prerequisite.
+   * Carried for the held-list line, which names every prerequisite.
    */
-  waitsOn: string;
+  waitsOn: readonly string[];
   /**
    * Whether `waitsOn` still holds the slice, and why — `''` where it does
    * not, answered by {@link planQueue} from the merged listing.
@@ -304,8 +304,8 @@ export interface HeldSlice {
   branch: string;
   /** What held it. */
   hold: QueueHold;
-  /** The prerequisite this branch waits on where `hold` is `'waits'`; `''` otherwise. */
-  waitsOn: string;
+  /** Every prerequisite this branch waits on where `hold` is `'waits'`; `[]` otherwise. */
+  waitsOn: readonly string[];
   /** `'unmerged'` or `'unreachable'` where `hold` is `'waits'`; `''` otherwise. */
   waitHeld: '' | 'unmerged' | 'unreachable';
 }
@@ -506,7 +506,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
       held.push({
         branch: slice.branch,
         hold,
-        waitsOn: hold === 'waits' ? slice.waitsOn : '',
+        waitsOn: hold === 'waits' ? slice.waitsOn : [],
         waitHeld: hold === 'waits' ? slice.waitHeld : '',
       });
       continue;
@@ -517,7 +517,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
     // *one slice to one agent* half of the lock, held by the loop's shape
     // rather than by a check that could be forgotten.
     if (next >= free.length) {
-      held.push({ branch: slice.branch, hold: 'no-free-agent', waitsOn: '', waitHeld: '' });
+      held.push({ branch: slice.branch, hold: 'no-free-agent', waitsOn: [], waitHeld: '' });
       continue;
     }
 
@@ -688,22 +688,34 @@ export const planQueue = (
       // `settled`: a claimed branch is somebody's and must not be offered
       // again even though the order still counts it outstanding.
       if (claimed.has(line.branch) || settled(line.branch, merged)) continue;
-      const waitsOn = line.waitsOn;
-      let waitHeld: '' | 'unmerged' | 'unreachable' = '';
-      if (waitsOn !== '') {
-        const answer = prerequisiteAnswer(waitsOn, merged, listingWhole);
-        // `prerequisiteAnswer` never answers `merged` as `waiting` —
-        // `waitVerdict` clears on it — so `answer` here is always `unmerged`
-        // or `unreachable`, and the cast says why rather than narrowing silently.
-        if (waitVerdict(waitsOn, answer) === 'waiting') waitHeld = answer as 'unmerged' | 'unreachable';
-      }
+      const answers = line.waitsOn.map((waitsOn) => ({
+        waitsOn,
+        answer: prerequisiteAnswer(waitsOn, merged, listingWhole),
+      }));
+      // THE QUEUE CLEARS ONLY WHEN EVERY PREREQUISITE IS MERGED. `waitsOn` here
+      // names only the ones that still hold, so the held-list line names what a
+      // reader must act on rather than the full declaration — unlike the
+      // board's row sentence, which names every prerequisite the plan declares.
+      const unresolved = answers.filter((a) => a.answer !== 'merged');
+      // `prerequisiteAnswer` NEVER ANSWERS `none` — the merged listing cannot
+      // tell *never had a PR* from *has an open PR*, so it only ever says
+      // `merged`, `unmerged` or `unreachable`. `waitVerdict` therefore never
+      // reads `blocked` here, and a non-empty `unresolved` is always
+      // `waiting`: calling it would just re-derive what filtering out
+      // `merged` already established.
+      const waitHeld: '' | 'unmerged' | 'unreachable' =
+        unresolved.length === 0
+          ? ''
+          : unresolved.some((a) => a.answer === 'unreachable')
+            ? 'unreachable'
+            : 'unmerged';
       queued.push({
         branch: line.branch,
         slug,
         claimable,
         unnamed: unnamed.has(line.branch),
         slice: index,
-        waitsOn,
+        waitsOn: unresolved.map((a) => a.waitsOn),
         waitHeld,
       });
     }

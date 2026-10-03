@@ -30,7 +30,7 @@ const plan = (file: string, slices: string[][], phase = 'approved'): PlanRecord 
     // the merge-subject proof against the wrong word.
     slices: slices.map((branches, index) => ({
       name: `Slice ${index + 1}`,
-      branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: '' })),
+      branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: [] })),
     })),
   }) as unknown as PlanRecord;
 

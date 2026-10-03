@@ -4,7 +4,6 @@ import {
   sliceVerdicts,
   isClaimable,
   waitVerdict,
-  type PrereqAnswer,
   type SliceReadings,
 } from '../src/rules/eligible.js';
 
@@ -193,35 +192,32 @@ describe('isClaimable — what --next may push a ref for', () => {
   );
 });
 
-describe('waitVerdict — what a `waits:` annotation makes of a branch', () => {
-  it('clears the moment the prerequisite merges', () => {
-    expect(waitVerdict('bug/prereq', 'merged')).toBe('');
+describe('waitVerdict — what every `waits:` annotation makes of a branch', () => {
+  it('clears the moment the one prerequisite merges', () => {
+    expect(waitVerdict([{ waitsOn: 'bug/prereq', answer: 'merged' }])).toBe('');
   });
 
   it('holds a branch whose prerequisite exists and has not landed', () => {
-    expect(waitVerdict('bug/prereq', 'unmerged')).toBe('waiting');
+    expect(waitVerdict([{ waitsOn: 'bug/prereq', answer: 'unmerged' }])).toBe('waiting');
   });
 
   it('blocks a branch the host has never seen a PR for', () => {
     // The host ANSWERED — that is what separates this from `waiting`. A branch
     // name nobody ever opened work for is a typo, and it resolves by editing
     // the plan rather than by waiting for anything.
-    expect(waitVerdict('bug/typo', 'none')).toBe('blocked');
+    expect(waitVerdict([{ waitsOn: 'bug/typo', answer: 'none' }])).toBe('blocked');
   });
 
   it('HOLDS on an unreachable host, and does not block', () => {
     // The clause the plan states in its own words: silence is never permission
     // to start, and it is equally not proof of a typo. `blocked` would tell an
     // operator to go and fix a plan that is correct.
-    expect(waitVerdict('bug/prereq', 'unreachable')).toBe('waiting');
+    expect(waitVerdict([{ waitsOn: 'bug/prereq', answer: 'unreachable' }])).toBe('waiting');
   });
 
-  it.each(['merged', 'unmerged', 'none', 'unreachable'] as const)(
-    'holds nothing when nothing is declared (host said %s)',
-    (answer: PrereqAnswer) => {
-      expect(waitVerdict('', answer)).toBe('');
-    },
-  );
+  it('holds nothing when the list is empty', () => {
+    expect(waitVerdict([])).toBe('');
+  });
 
   it('a prerequisite that merged and was then REAPED still clears', () => {
     // `plot-release-refs.sh` deletes the remote refs of a delivered plan's
@@ -230,7 +226,36 @@ describe('waitVerdict — what a `waits:` annotation makes of a branch', () => {
     // owes a PR answer rather than a ref answer — and why `merged` is the only
     // input this rule needs to clear. Asserted directly: this is the case where
     // correct work would otherwise produce a permanent block.
-    expect(waitVerdict('bug/reaped-after-merge', 'merged')).toBe('');
+    expect(waitVerdict([{ waitsOn: 'bug/reaped-after-merge', answer: 'merged' }])).toBe('');
+  });
+
+  it('a list of one is not a list of two: reads every prerequisite, not just the first or last', () => {
+    expect(waitVerdict([
+      { waitsOn: 'bug/a', answer: 'merged' },
+      { waitsOn: 'bug/b', answer: 'unmerged' },
+    ])).toBe('waiting');
+    expect(waitVerdict([
+      { waitsOn: 'bug/a', answer: 'unmerged' },
+      { waitsOn: 'bug/b', answer: 'merged' },
+    ])).toBe('waiting');
+  });
+
+  it('blocked outranks waiting in both orders', () => {
+    expect(waitVerdict([
+      { waitsOn: 'bug/a', answer: 'unmerged' },
+      { waitsOn: 'bug/b', answer: 'none' },
+    ])).toBe('blocked');
+    expect(waitVerdict([
+      { waitsOn: 'bug/a', answer: 'none' },
+      { waitsOn: 'bug/b', answer: 'unmerged' },
+    ])).toBe('blocked');
+  });
+
+  it('clears only when every prerequisite has merged', () => {
+    expect(waitVerdict([
+      { waitsOn: 'bug/a', answer: 'merged' },
+      { waitsOn: 'bug/b', answer: 'merged' },
+    ])).toBe('');
   });
 });
 

@@ -1440,13 +1440,16 @@ export const reportTick = (
       // reader of either learns how many were held and why.
       if (looping && HOLD_SCOPE[hold] === 'estate') continue;
       const named = looping ? branches.slice(0, KEPT_HOLD_NAMES) : branches;
-      // THE `waits` HOLD NAMES THE PREREQUISITE, IN THIS EXACT FORM — IT IS
-      // GREPPED. Every other hold prints the branch alone; this one carries the
-      // one fact a reader needs to act, which is not the branch itself.
+      // THE `waits` HOLD NAMES EVERY STILL-UNMERGED PREREQUISITE, IN THIS EXACT
+      // FORM — IT IS GREPPED. Every other hold prints the branch alone; this one
+      // carries the facts a reader needs to act, which are not the branch
+      // itself. ONE `waitHeld` WORD FOR THE WHOLE LIST: `prerequisiteAnswer`
+      // answers `unmerged` or `unreachable` from the single flag `listingWhole`,
+      // so it reads the same for every prerequisite this branch still holds on.
       for (const slice of named) {
         write(
           hold === 'waits'
-            ? `    ${slice.branch} — waits on ${slice.waitsOn} (${slice.waitHeld})\n`
+            ? `    ${slice.branch} — waits on ${slice.waitsOn.join(', ')} (${slice.waitHeld})\n`
             : `    ${slice.branch}\n`,
         );
       }
