@@ -133,7 +133,12 @@ export const assign = (
   // re-derives it from the estate exactly as this one did.
   const bounded: HeldSlice[] = match.assignments
     .slice(taken.length)
-    .map((assignment) => ({ branch: assignment.branch, hold: 'no-free-agent' as const }));
+    .map((assignment) => ({
+      branch: assignment.branch,
+      hold: 'no-free-agent' as const,
+      waitsOn: '',
+      waitHeld: '' as const,
+    }));
 
   const writes: Write[] = taken.map((assignment) => ({
     kind: 'agent-assign',

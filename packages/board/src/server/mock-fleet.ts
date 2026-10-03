@@ -569,6 +569,7 @@ export function mockPlans(): PlanRecord[] {
               deferred: false,
               deferredReason: '',
               claimed: '',
+              waitsOn: '',
             })),
         })),
     });

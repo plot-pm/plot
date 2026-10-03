@@ -318,9 +318,9 @@ describe('where a tick’s report goes', () => {
       detail: {
         assignments: [],
         held: [
-          { branch: 'feature/a', hold: 'no-brief' },
-          { branch: 'feature/b', hold: 'no-brief' },
-          { branch: 'feature/c', hold: 'already-merged' },
+          { branch: 'feature/a', hold: 'no-brief', waitsOn: '', waitHeld: '' },
+          { branch: 'feature/b', hold: 'no-brief', waitsOn: '', waitHeld: '' },
+          { branch: 'feature/c', hold: 'already-merged', waitsOn: '', waitHeld: '' },
         ],
         idle: ['sess-1'],
         scaling: null,
@@ -339,6 +339,40 @@ describe('where a tick’s report goes', () => {
     expect(text).toContain('feature/b');
     expect(text).toContain('held on already-merged (1):');
     expect(text).toContain('feature/c');
+  });
+
+  it('names the prerequisite and why it held, under `held on waits`', () => {
+    // THE EXACT FORM IS GREPPED. A reader acting on this line needs the
+    // prerequisite's name and whether it is unmerged or unreachable — the
+    // branch alone, as every other hold prints it, says neither.
+    const held: TickReport = {
+      ...completed(),
+      handOver: {
+        outcome: 'decided',
+        workflow: 'assign',
+        writes: [],
+        detail: {
+          assignments: [],
+          held: [
+            {
+              branch: 'bug/the-queue-reads-the-merge-subject',
+              hold: 'waits',
+              waitsOn: 'bug/the-merge-subject-is-one-rule',
+              waitHeld: 'unmerged',
+            },
+          ],
+          idle: [],
+          scaling: null,
+        },
+      },
+    };
+    const out: string[] = [];
+    reportTick(held, (s) => out.push(s), () => {});
+    const text = out.join('');
+    expect(text).toContain('held on waits (1):');
+    expect(text).toContain(
+      '    bug/the-queue-reads-the-merge-subject — waits on bug/the-merge-subject-is-one-rule (unmerged)',
+    );
   });
 
   it('omits a hold that refused nothing, where the summary line prints its zero', () => {
@@ -428,7 +462,12 @@ describe('what a looping tick prints does not follow what grows', () => {
       writes: [],
       detail: {
         assignments: [],
-        held: Array.from({ length: n }, (_, i) => ({ branch: `feature/b${i}`, hold })),
+        held: Array.from({ length: n }, (_, i) => ({
+          branch: `feature/b${i}`,
+          hold,
+          waitsOn: '',
+          waitHeld: '' as const,
+        })),
         idle: [],
         scaling: null,
       },
@@ -1227,7 +1266,7 @@ describe('a tick asks the host about a branch once', () => {
           {
             file: 'docs/plans/2026-09-29-a-plan.md',
             phase: 'approved',
-            slices: [{ name: 'A named slice', branches: [{ branch: 'feature/one', deferred: false }] }],
+            slices: [{ name: 'A named slice', branches: [{ branch: 'feature/one', deferred: false, waitsOn: '' }] }],
           } as never,
         ],
         claimedBranches: async () => new Set<string>(),
@@ -1357,8 +1396,8 @@ describe('the queue world asks a known PR by number when the listing fails (#114
             file: 'docs/plans/2026-10-01-a-plan.md',
             phase: 'approved',
             slices: [
-              { name: 'First slice', branches: [{ branch: 'feature/one', deferred: false }] },
-              { name: 'Second slice', branches: [{ branch: 'feature/two', deferred: false }] },
+              { name: 'First slice', branches: [{ branch: 'feature/one', deferred: false, waitsOn: '' }] },
+              { name: 'Second slice', branches: [{ branch: 'feature/two', deferred: false, waitsOn: '' }] },
             ],
           } as never,
         ],
