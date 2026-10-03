@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
+- **Started:** 2026-10-03, Jan Wloka, `bug/the-queue-reads-the-assignment`
 
 ## Changelog
 
@@ -56,13 +57,13 @@ Slice 2's `--release` refusal does not close this path, because no release runs 
 
 **The reading.** `readQueue` already holds `entries` and asks `stateOf` for each (`queue-reading.ts:340-370`). It builds `assigned: ReadonlyMap<string, string>`, branch to agent id, from every entry whose manifest names a non-empty branch and whose state is `running` or `waiting`. A manifest whose worker is gone is not an assignment: #1039's negative control (`test/reconcile/release.test.mjs`) shows a dead agent pushes nothing, and holding its slice would hold it forever.
 
-**The rule.** `QueuedSlice` (`packages/domain/src/rules/queue.ts`) gains `assignedTo: string`, `''` where no live manifest names the branch. `QueueHold` (`:102-123`) gains `'assigned'`. `whyNotReady` (`:205-210`) answers `'assigned'` for a slice whose `assignedTo` is not empty, tested after the two landing holds and before every other hold. `QUEUE_HOLDS` (`:138-144`) and `HOLD_SCOPE` (`registryd-main.ts:1203`, scope `queue`) add the key, so the tick line counts `assigned=N` and lists `<branch>: assigned to <agent>`.
+**The rule.** `QueuedSlice` (`packages/domain/src/rules/queue.ts`) gains `assignedTo: string`, `''` where no live manifest names the branch. `QueueHold` (`:102-123`) gains `'assigned'`. `whyNotReady` (`:205-210`) answers `'assigned'` for a slice whose `assignedTo` is not empty, tested after the two landing holds and before every other hold, `waits` included. `QUEUE_HOLDS` (`:138-144`) and `HOLD_SCOPE` (`registryd-main.ts:1203`, scope `queue`) add the key, so the tick line counts `assigned=N` and lists `<branch>: assigned to <agent>`.
 
-**The claim vocabulary has one home.** A new file `packages/domain/src/rules/claim.ts` holds `claimTip`, `orphanedClaims` and slice 2's `claimAnswer`. The `plot: claim ` prefix test exists there and nowhere else: no adapter, script or bundle caller compares a subject with the prefix.
+**The claim vocabulary has one home, and it already exists.** `packages/domain/src/rules/empty-claim.ts` (#1244) holds `CLAIM_SUBJECT_PREFIX`, `isEmptyClaim` and `realCommits`. A claim marker is a commit whose subject starts `plot: claim ` AND whose tree equals its first parent's tree; a commit titled `plot: claim handling refactor` that changes a file is real work. A new file `packages/domain/src/rules/claim.ts` holds `claimTip`, `orphanedClaims` and slice 2's `claimAnswer`, and builds on `isEmptyClaim` and `realCommits`. It never compares a subject itself. The prefix test exists in `empty-claim.ts` and nowhere else: no adapter, script or bundle caller compares a subject with the prefix.
 
-**The reading.** The refs port (`packages/domain/src/ports/refs.ts:79`) gains `commitSubjects(range)`, implemented in `refs-git.ts` as `git log --format=%ct%x09%s <range>`. It answers the commits as `{ at, subject }` values, newest first, or an error on a failed call. It decides nothing about the subjects. It is a git call and spends no host budget.
+**The reading.** The refs port (`packages/domain/src/ports/refs.ts`) gains `commitSubjects(range)`, implemented in `refs-git.ts` with `git log --boundary` and a format that carries each commit's time, subject, tree and parents, as `board/plot-empty-claim.mjs`'s caller in `plot-worker-loop.sh` already reads them. It answers the commits as `{ at, subject, tree, parentTree }` values, newest first, with `parentTree` taken from the boundary lines and `null` where the first parent's tree cannot be read, which `isEmptyClaim` counts as real work. It answers an error on a failed call. It decides nothing about the commits. It is a git call and spends no host budget.
 
-**`claimTip(commits)`** answers `absent` for no ref, `claim-only` where every commit has a subject that starts `plot: claim `, `work` where any commit does not, and `unknown` where the read failed. A ref with no commit ahead of the default branch is `claim-only`: it locks a slice and carries nothing.
+**`claimTip(commits)`** answers `absent` for no ref, `claim-only` where `realCommits(commits)` is 0, `work` where it is 1 or more, and `unknown` where the read failed. A ref with no commit ahead of the default branch is `claim-only`: it locks a slice and carries nothing.
 
 **Orphaned claims.** `orphanedClaims(readings)` takes, for each branch a plan names that has a remote-tracking ref and no merged PR: the `claimTip`, the time of the newest claim commit, `assignedTo`, the time of the tick, and the tick interval. It answers the branches where the tip is `claim-only`, `assignedTo` is empty, and the newest claim commit is older than one tick interval (`TICK_INTERVAL_MS`, 60 s, `packages/board/src/server/entry/registryd.ts:52`). The age bound excludes an agent that pushed its claim after the tick read its manifest: that claim reads orphaned for one tick and is not. `unknown` never names a branch. `commitSubjects` is asked only for refs that a plan names and that are not merged.
 
@@ -82,11 +83,11 @@ The tick writes `orphaned-claims=N` and, for each, `<branch>: claim with no agen
 
 The rows are tested in this order. A live holder is first because it is the only case where two agents hold one slice.
 
-**The bundle.** `skills/plot/scripts/board/plot-claim-answer.mjs` reads the readings as JSON on stdin, the raw commit subjects among them, and prints the answer and the holders. The callers pass subjects and never classify them. The two callers run once per operator command and once per rejected push, which the cost rule in `docs/shell-and-domain.md` permits. The slice adds the bundle's row to the helper-script table in `CLAUDE.md`, as the other bundles have.
+**The bundle.** `skills/plot/scripts/board/plot-claim-answer.mjs` reads the readings as JSON on stdin, the raw commits (time, subject, tree, parent tree) among them, and prints the answer and the holders. The callers pass commits and never classify them. The two callers run once per operator command and once per rejected push, which the cost rule in `docs/shell-and-domain.md` permits. The slice adds the bundle's row to the helper-script table in `CLAUDE.md`, as the other bundles have.
 
 **`--release`.** Before it clears any manifest, `--release` collects the live holders: the agents whose manifests name the branch and whose worker is alive in its own desk, whatever branch that desk holds. It asks `plot-claim-answer.mjs`, and on `held-by-agent` it refuses, names each agent id and desk, and writes nothing. The existing refusals (`plot-dispatch.sh:1990-2090`) are unchanged.
 
-**The loop.** When the claim push is rejected (`plot-worker-loop.sh:2290`), the loop runs `git fetch origin <branch>`, reads the subjects with `git log --format=%ct%x09%s origin/<main>..origin/<branch>`, reads the holders from the registry, and passes all of them to the bundle. It prints:
+**The loop.** When the claim push is rejected (`plot-worker-loop.sh:2290`), the loop runs `git fetch origin <branch>`, reads the commits with `git log --boundary` over `origin/<main>..origin/<branch>`, in the format `commitSubjects` reads, reads the holders from the registry, and passes all of them to the bundle. It prints:
 
 - `held-by-agent`: the existing `REGISTRY LOCK VIOLATION` line, with the other agent's id;
 - `stale-claim`: *"origin/<branch> holds only an empty claim at <sha> and no live agent names it; release it with `plot-dispatch.sh --release <branch>`"*;
@@ -107,7 +108,7 @@ The rows are tested in this order. A live holder is first because it is the only
 
 ### The queue reads the assignment (Branch: bug/the-queue-reads-the-assignment) <!-- waits: bug/the-queue-reads-the-scans-order -->
 
-`assignedTo`, the `assigned` hold and its tick count, `rules/claim.ts` with `claimTip` and `orphanedClaims`, and `commitSubjects` on the refs port. <!-- builds: assigned queue hold, claimTip, orphanedClaims, commitSubjects -->
+`assignedTo`, the `assigned` hold and its tick count, `rules/claim.ts` with `claimTip` (on `isEmptyClaim` and `realCommits`) and `orphanedClaims`, and `commitSubjects` on the refs port. <!-- builds: assigned queue hold, claimTip, orphanedClaims, commitSubjects -->
 
 ### A release and a rejected push name the agent (Branch: bug/a-release-and-a-rejected-push-name-the-agent) <!-- waits: bug/a-hand-over-is-checked-before-it-is-made -->
 
@@ -118,10 +119,10 @@ The rows are tested in this order. A live holder is first because it is the only
 - Slice 1: a unit case gives `whyNotReady` a slice with `assignedTo` set and asserts `assigned`; with `assignedTo` empty it falls through to the existing holds.
 - Slice 1: a `readQueue` test with two entries, one live and naming `bug/x`, one dead and naming `bug/y`, both refless and briefed, asserts `bug/x` is held `assigned` and `bug/y` is offered.
 - Slice 1: a tick test with a fixture estate replays the 2026-10-01 sequence: an agent handed `bug/x`, its push not yet made, the next tick with a second free agent. It asserts the second agent is not handed `bug/x`.
-- Slice 1: one unit case per `claimTip` answer (`absent`, `claim-only`, `work`, `unknown`, and no commit ahead), at 100% branch coverage.
+- Slice 1: one unit case per `claimTip` answer (`absent`, `claim-only`, `work`, `unknown`, and no commit ahead), at 100% branch coverage, plus a `plot: claim …` commit that changes a file, which answers `work`.
 - Slice 1: unit cases for `orphanedClaims`: claim-only, unassigned and older than one tick is named; assigned, carrying work, `unknown`, or younger than one tick is not.
-- Slice 1: a `commitSubjects` case each for a ref with commits, an empty range and a failed call, asserting the adapter returns subjects and times and no classification.
-- Slice 1: a check fails on any `plot: claim` prefix comparison outside `packages/domain/src/rules/claim.ts`. The loop's `git commit -m "plot: claim …"` writes the subject and is not a comparison.
+- Slice 1: a `commitSubjects` case each for a ref with commits, an empty range and a failed call, asserting the adapter returns times, subjects, trees and parent trees and no classification.
+- Slice 1: a check fails on any `plot: claim` prefix comparison outside `packages/domain/src/rules/empty-claim.ts`. The loop's `git commit -m "plot: claim …"` writes the subject and is not a comparison.
 - Slice 2: one unit case per `claimAnswer` row, at 100% branch coverage.
 - Slice 2: a contract test runs `--release` against a sandbox where a live agent's manifest names the branch while its desk holds another branch, and asserts the refusal names the agent and that the manifest and the ref are unchanged.
 - Slice 2: a contract test rejects a claim push against a ref that holds one `plot: claim` commit and no live holder, and asserts the `stale-claim` line with the release command and no `REGISTRY LOCK VIOLATION`.
@@ -131,4 +132,7 @@ The rows are tested in this order. A live holder is first because it is the only
 ## Notes
 
 Slice 1 waits on `bug/the-queue-reads-the-scans-order` because both change `queueOfPlan`, `QueueHold` and `HOLD_SCOPE`. Slice 2 waits on `bug/a-hand-over-is-checked-before-it-is-made` because both change the rejection branch at `plot-worker-loop.sh:2290`.
+
+Amended 2026-10-03, jwloka: #1244 landed `rules/empty-claim.ts` after approval. `claimTip` builds on `isEmptyClaim` and `realCommits` instead of a second, subject-only predicate; `commitSubjects` carries trees and parent trees; the one-home check names `empty-claim.ts`; the `assigned` hold sits before `waits` (#1247). Line references in Design are as of approval; each brief re-measures them.
+
 - 2026-10-03, `scripts/check-shell-lines.sh` (`the-shell-shrinks-into-the-domain`, wave 1) refuses a pull request whose shell under `skills/` is longer than at its merge base. Offset the lines in the same change — remove shell elsewhere, or write the rule in the domain and ask it through a bundle. The gate stores no number and has no override.
