@@ -285,6 +285,11 @@ export interface AgentEntry {
   attempts: number;
   /** The branch it holds, or `''` while it holds none. */
   branch: string;
+  /**
+   * The branch the DESK has checked out, for a synthesized entry — display
+   * only, and no decision reads it. `''` on a manifest-backed entry.
+   */
+  checkout: string;
   worktree: string;
   /** The full `Worker command` as launched, quotes and newlines intact. */
   command: string;
@@ -546,6 +551,9 @@ export function parseManifest(json: string): AgentEntry | null {
         ? o.attempts
         : 0,
     branch: typeof o.branch === 'string' ? o.branch : '',
+    // A MANIFEST NEVER CARRIES THIS — it is the registry's own field for a
+    // desk no manifest names, and `synthesizeEntry` is its only writer.
+    checkout: '',
     worktree: typeof o.worktree === 'string' ? o.worktree : '',
     command: typeof o.command === 'string' ? o.command : '',
     startedAt: typeof o.startedAt === 'string' ? o.startedAt : '',
@@ -907,6 +915,15 @@ export async function readAgentRegistryWithInfo(
  *
  * A manifest becomes the record of a DISPATCH, not the definition of an agent's
  * existence — the worktree is what exists.
+ *
+ * `branch` IS EMPTY AND `checkout` CARRIES `wt.branch` INSTEAD. `#1101`
+ * measured the cost of the other choice: `branch: wt.branch` made the row
+ * read as an agent working that branch, and every reader of `branch` —
+ * `isAgentFree`, `handedTo`, `liveAgentBranches` — treated the desk as
+ * holding it, so a desk between slices counted FREE and a dispatch could hand
+ * it a slice nobody could then find an agent for. The checkout is a fact
+ * about the DESK, not an assignment from the registry; no manifest named this
+ * agent, so it holds no branch.
  */
 function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
   return {
@@ -918,7 +935,8 @@ function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
     identity: 'synthesized',
     resumeId: '',
     attempts: 0,
-    branch: wt.branch,
+    branch: '',
+    checkout: wt.branch,
     worktree: wt.path,
     command: '',
     startedAt: '',

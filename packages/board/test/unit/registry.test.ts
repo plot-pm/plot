@@ -566,17 +566,35 @@ describe('a worktree with no manifest is listed — absence of a record is not a
   const fakeLiveness = (byWorktree: Record<string, string>) =>
     (wts: string[]): string[] => wts.map((wt) => byWorktree[wt] ?? 'unknown');
 
-  it('synthesizes an entry for a worktree no manifest names, carrying its branch and a real state', async () => {
+  it('synthesizes an entry for a worktree no manifest names, carrying its checkout and a real state', async () => {
     // No manifests at all, one real worktree — the shape three of the six
     // measured here have (a .plot-worker.pid, no manifest).
+    //
+    // #1101: `branch` used to carry the desk's checkout, so the row read as an
+    // agent WORKING that branch rather than a desk nobody registered. The
+    // checkout is a fact about the DESK and moves to its own field; `branch`
+    // stays `''`, the same value every other reader of it already expects for
+    // an agent holding none.
     const got = await readAgentRegistry(root, home, {
       worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
       liveness: fakeLiveness({ '/wt/orphan': 'waiting' }),
     });
     assert.equal(got.length, 1);
     assert.equal(got[0].worktree, '/wt/orphan');
-    assert.equal(got[0].branch, 'feature/orphan');
+    assert.equal(got[0].branch, '', 'no manifest named this agent, so it holds no branch');
+    assert.equal(got[0].checkout, 'feature/orphan', 'the desk is checked out here, display only');
     assert.equal(got[0].state, 'waiting', 'classified like any other entry');
+  });
+
+  it('a manifest-backed entry still carries its branch, and an empty checkout', async () => {
+    manifest('sess-declared.json', { session: 'sess-declared', branch: 'feature/declared', worktree: '/wt/declared' });
+    const got = await readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/declared', branch: 'feature/declared' }]),
+      liveness: fakeLiveness({ '/wt/declared': 'running' }),
+    });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].branch, 'feature/declared');
+    assert.equal(got[0].checkout, '', 'a declared agent has no checkout to show — branch already says it');
   });
 
   it('gives a synthesized entry session="" and no invented command or startedAt', async () => {
