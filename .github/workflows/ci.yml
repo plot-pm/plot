@@ -737,6 +737,23 @@ jobs:
       - name: A script is named in an adapter
         run: ./scripts/check-script-names.sh
 
+      # THE SHELL UNDER skills/ MAY SHRINK AND MAY NOT GROW. The count and the
+      # "before" per mode live in `scripts/check-shell-lines.sh`, so a fixture
+      # test (`test/reconcile/shell-lines.test.mjs`) runs the same decision.
+      # A pull request, or a dispatched run, compares with its merge base. A push
+      # to `main` compares with the event's `before` SHA, as one range, and
+      # reports rather than refuses: the commit has landed already.
+      - name: Fetch the default branch the shell count reads
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+
+      - name: The shell does not grow
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ./scripts/check-shell-lines.sh push "${{ github.event.before }}"
+          else
+            ./scripts/check-shell-lines.sh pr
+          fi
+
       # ONE ANSWER TO "DID THIS LAND", AND IT IS THE HOST'S.
       #
       # `plot-pr-merged.sh` reads `mergedAt` — never `state`, never ancestry.
