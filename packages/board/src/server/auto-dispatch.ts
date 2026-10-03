@@ -9,6 +9,7 @@ import { refsGit, shellContext } from '@plot-pm/domain/adapters';
 import {
   isAnswered,
   isFree,
+  identityWasDeclared,
   dispatchDefers,
   deferralMessage,
   hasRoomToDispatch,
@@ -212,6 +213,17 @@ export function freeAgentLabels(agents: AgentEntry[], pulse: FleetReading): stri
 /**
  * The live agents that can take a slice — the one place `isFree` is asked, so
  * the count and the names cannot answer differently.
+ *
+ * UNDECLARED ENTRIES ARE EXCLUDED FIRST, and that is a second question from
+ * `isFree`'s. `#1101`: a synthesized entry's `branch` is `''` (the desk's
+ * checkout moved to `checkout` instead), and `isFree` reads exactly that
+ * shape as *running with no branch and available* — so without this filter a
+ * desk no manifest names turns FREE and a dispatch proceeds against an agent
+ * the registry cannot even name. `identityWasDeclared` is the one property
+ * that distinguishes the two, and it is read here rather than inside
+ * `isAgentFree`: that rule's inputs (`state`, `branch`) are right for every
+ * manifest-backed agent, and widening them to carry identity too would make
+ * a question about WHO answers a question about WHETHER.
  */
 function freeAgents(agents: AgentEntry[], pulse: FleetReading): AgentEntry[] {
   const merged = mergedBranches(pulse);
@@ -219,7 +231,9 @@ function freeAgents(agents: AgentEntry[], pulse: FleetReading): AgentEntry[] {
   // with the same meanings — so the registry entry answers the domain's
   // question directly, with no cast between two state vocabularies that are
   // not in fact the same set.
-  return agents.filter((a) => isFree(a, merged.has(a.branch)));
+  return agents
+    .filter((a) => identityWasDeclared(a))
+    .filter((a) => isFree(a, merged.has(a.branch)));
 }
 
 /**

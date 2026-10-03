@@ -447,7 +447,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 57 → 58 on 2026-10-02: `a-handed-slice-reads-as-taken.browser.test.ts`
 // (#1150), for the hand-over note in a handed agent's own row. It serves its
 // state through the catalogue and starts no board.
-const EXPECTED_FILES = 58;
+// 58 → 59 on 2026-10-03: `an-unnamed-desk-says-so.browser.test.ts` (#1101),
+// for the row of a desk no manifest names. It serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 59;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -632,7 +635,10 @@ const EXPECTED_FILES = 58;
 // `a-handed-slice-reads-as-taken.browser.test.ts` (#1150) — one that the handed
 // agent's own row carries the note, one that NOT STARTED holds no row for the
 // branch. A file was added, so `EXPECTED_FILES` moves too.
-const EXPECTED_TESTS = 540;
+// 540 → 544 on 2026-10-03: four `it(` in the new
+// `an-unnamed-desk-says-so.browser.test.ts` (#1101), for the row of a desk no
+// manifest names. A file was added, so `EXPECTED_FILES` moves too.
+const EXPECTED_TESTS = 544;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

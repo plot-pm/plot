@@ -3493,6 +3493,19 @@ export const AgentEntrySchema = z.object({
   identity: AgentIdentitySchema.default('manifest'),
   /** The branch it holds, or `''` while it holds none — empty is a real value. */
   branch: z.string().default(''),
+  /**
+   * The branch the DESK has checked out, for a synthesized entry — display
+   * only, and no decision reads it.
+   *
+   * `#1101`: a synthesized entry used to carry the desk's checkout IN
+   * `branch`, so the row read as an agent assigned to that branch and
+   * `isAgentFree`/`handedTo`/`liveAgentBranches` all treated it as holding
+   * work. The checkout is a fact about the desk, not an assignment from the
+   * registry, so it lives in its own field and `branch` stays `''` for an
+   * entry nothing declared. Defaults to `''` so a pulse from an older server
+   * — which never carried this field — still validates.
+   */
+  checkout: z.string().default(''),
   worktree: z.string().default(''),
   /** The `Worker command` as launched, quotes and newlines intact. */
   command: z.string().default(''),

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-monitor-follows-the-hop`
 - **Started:** 2026-10-03, Jan Wloka, `bug/a-continued-loop-carries-its-manifest`
 - **Started:** 2026-10-03, Jan Wloka, `bug/a-desk-with-no-manifest-says-so`
+- **Delivered:** 2026-10-03
 
 ## Changelog
 

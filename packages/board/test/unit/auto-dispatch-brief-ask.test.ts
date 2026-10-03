@@ -197,7 +197,7 @@ const on = (parallelAgents: number): FleetSettings =>
   ({ autoDispatch: true, parallelAgents, machineOverride: false });
 
 const running = (branch: string): AgentEntry => ({
-  session: `s-${branch}`, branch, worktree: `/wt/${branch}`, command: '',
+  session: `s-${branch}`, identity: 'manifest', branch, worktree: `/wt/${branch}`, command: '',
   startedAt: '2026-08-23T00:00:00Z', pid: '1', previousPid: '', relaunches: 0, state: 'running',
 });
 

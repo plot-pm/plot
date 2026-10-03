@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1161
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, jwloka, `bug/the-draft-rule-reads-every-state`
+- **Delivered:** 2026-10-03
 
 ## Changelog
 
