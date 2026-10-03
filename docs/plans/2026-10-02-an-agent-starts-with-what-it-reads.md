@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, jwloka, `infra/the-helper-table-leaves-claude-md`
+- **Started:** 2026-10-03, jwloka, `infra/a-worker-starts-without-unused-context`
 
 ## Changelog
 
