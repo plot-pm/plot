@@ -1845,6 +1845,74 @@ test('dispatch: reports files held UNCOMMITTED in a worktree', () => {
   f.cleanup();
 });
 
+test('dispatch: a rebuilt-but-unchanged bundle is not reported as work in flight', () => {
+  // `main` rebuilds and pushes every generated board bundle
+  // (`bug/main-builds-its-bundles`, #1249), so a desk that rebuilt one locally
+  // to test holds nothing an agent put there. `uncommitted_files` excludes it
+  // the same way `desk_dirt` does: path by path, derived from the worktree's
+  // own `packages/board/build.mjs`.
+  const f = repoWithInFlight('bundle-only');
+  fs.mkdirSync(path.join(f.repo, 'packages', 'board'), { recursive: true });
+  fs.mkdirSync(path.join(f.repo, 'skills', 'plot', 'scripts', 'board'), { recursive: true });
+  fs.writeFileSync(
+    path.join(f.repo, 'packages', 'board', 'build.mjs'),
+    "const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');\n",
+  );
+  fs.writeFileSync(
+    path.join(f.repo, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+    'original bundle\n',
+  );
+  git(f.repo, 'add', '-A');
+  git(f.repo, 'commit', '-qm', 'board build + bundle');
+  git(f.repo, 'push', '-q', 'origin', 'main');
+
+  const wt = f.uncommittedWork('bug/rebuilt-bundle', {});
+  fs.writeFileSync(
+    path.join(wt, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+    'rebuilt locally\n',
+  );
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.doesNotMatch(out, /in flight: bug\/rebuilt-bundle/,
+    `a rebuilt bundle alone is not work in flight:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: a source change beside a rebuilt bundle is still reported', () => {
+  const f = repoWithInFlight('bundle-plus-source');
+  fs.mkdirSync(path.join(f.repo, 'packages', 'board'), { recursive: true });
+  fs.mkdirSync(path.join(f.repo, 'skills', 'plot', 'scripts', 'board'), { recursive: true });
+  fs.writeFileSync(
+    path.join(f.repo, 'packages', 'board', 'build.mjs'),
+    "const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');\n",
+  );
+  fs.writeFileSync(
+    path.join(f.repo, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+    'original bundle\n',
+  );
+  git(f.repo, 'add', '-A');
+  git(f.repo, 'commit', '-qm', 'board build + bundle');
+  git(f.repo, 'push', '-q', 'origin', 'main');
+
+  const wt = f.uncommittedWork('bug/rebuilt-plus-source', { 'my-source.ts': 'real work\n' });
+  fs.writeFileSync(
+    path.join(wt, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+    'rebuilt locally\n',
+  );
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /in flight: bug\/rebuilt-plus-source holds/,
+    `the source change must still be reported:\n${out}`);
+  assert.match(out, /my-source\.ts/, `and named:\n${out}`);
+  assert.doesNotMatch(out, /board-server\.mjs/,
+    `but the bundle must not be:\n${out}`);
+  f.cleanup();
+});
+
 test('dispatch: reports nothing when nothing is in flight', () => {
   // A report that always prints something teaches the reader to skip it, and
   // then it is worth nothing on the day it matters.

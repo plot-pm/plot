@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { agentLogPath } from './agent-log.js';
-import { isBoardArtifact, type Repair, type Stuck } from '../contract/schema.js';
+import type { Repair, Stuck } from '../contract/schema.js';
 import { scriptsFor, type BuildBoardOptions } from './board.js';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
@@ -79,22 +79,22 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
  * side effect, which is the assertion most likely to pass for the wrong reason.
  */
 export function mayResolve(stuck: Stuck | null | undefined): stuck is Stuck {
-  if (!stuck) return false;
-  if (stuck.state !== 'artifact-conflict') return false;
-  // The set travels with the state, so it can be CHECKED rather than trusted —
-  // and this is the check. It restates the detector's fence at the point of
-  // action rather than re-deriving the state: if the two ever disagree, nothing
-  // is written.
+  // SWITCHED OFF, since bug/a-pr-carries-no-bundle: a PR's diff carries no
+  // generated bundle (`check-no-bundle-diff.sh`), so an automatic rebuild
+  // pushed here would commit into a PR that gate now refuses outright —
+  // every call this function used to permit, this slice turns into the
+  // repair it exists to prevent. The caller (`attemptRepair`, `:375`) returns
+  // `false` for every refusal in exactly the same way, so nothing downstream
+  // needed to change to stop the automatic write.
   //
-  // EVERY conflicted path must be a bundle, never "a bundle is among them".
-  // Asking the second question passes every bundle-only case and silently
-  // repairs merges that need judgement as a whole — and it is the one way to
-  // get this wrong, so it is stated at both sites rather than at one.
-  //
-  // The empty set is refused explicitly: `every` holds vacuously over it, and a
-  // branch with no observed conflicts is not a branch whose conflicts resolve
-  // mechanically.
-  return stuck.conflicts.length > 0 && stuck.conflicts.every(isBoardArtifact);
+  // NOT REMOVED. Slice 3 (`bug/the-artifact-repair-is-retired`) deletes this
+  // function, `plot-resolve-artifact.sh`, and the `Repair` schema and
+  // display; this slice only stops the one write the removal has not yet
+  // reached. `artifact-conflict` keeps its classification unchanged — an
+  // artifact-only conflict is still exactly that state, and `stuck.ts` still
+  // renders it; only the automatic repair stops firing.
+  void stuck;
+  return false;
 }
 
 /**

@@ -4,7 +4,7 @@
 # workflow YAML has no test tier here.
 #
 #   main-bundles.sh publish [root]   build; commit changed bundles; push to main
-#   main-bundles.sh pr [root]        build; a stale bundle is an error
+#   main-bundles.sh pr [root]        build; a stale bundle is a warning
 #   main-bundles.sh main [root]      build; a stale bundle is a warning, except
 #                                    on the build commit itself, where it fails
 #   main-bundles.sh release [root]   build; a stale bundle refuses the tag
@@ -27,6 +27,16 @@
 # App's own build commit the workflow has already run, and a bundle that still
 # differs means the build is not deterministic or the push dropped paths: `main`
 # mode exits 1.
+#
+# `pr` MODE WARNS RATHER THAN FAILS, since `bug/a-pr-carries-no-bundle`. A PR's
+# diff carries no generated path (`check-no-bundle-diff.sh` refuses one that
+# does), so the checkout holds `main`'s own build, never the PR's. A PR that
+# touches board SOURCE then always rebuilds to something that differs from
+# that checked-out build — this is the expected shape of every such PR, not a
+# stale check-in to catch. Before this slice `pr` mode built so the next step
+# could compare the build against what the PR committed; now nothing is
+# committed to compare against, and failing here would fail every PR that
+# changes board source.
 #
 # BUILD_CMD (default `pnpm run build:board`) is the build; a fixture replaces it.
 set -uo pipefail
@@ -78,8 +88,8 @@ report() {
 
 case "$mode" in
   pr)
-    echo "::error::$(report) Run 'pnpm build:board' and commit the result."
-    exit 1
+    echo "::warning::$(report) main builds its own bundles after every merge; this PR's checkout holds main's previous build, not its own."
+    exit 0
     ;;
   release)
     echo "::error::$(report) Refusing to tag a release over stale bundles."

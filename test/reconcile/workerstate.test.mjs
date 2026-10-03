@@ -394,6 +394,46 @@ test('worker-state: a clean exit is refined by the tree, from one fixture', () =
   f.cleanup();
 });
 
+test('worker-state: a desk holding only a rebuilt bundle reads `finished`, not `stalled`', () => {
+  // `main` rebuilds and pushes every generated board bundle
+  // (`bug/main-builds-its-bundles`, #1249), so a desk that rebuilt one locally
+  // to test holds nothing an agent left on the floor. `plot_worker_dirty`
+  // excuses it path by path, derived from the desk's own
+  // `packages/board/build.mjs` — the same set `check-bundle-attributes.sh`
+  // and `scripts/check-no-bundle-diff.sh` already share.
+  const f = fixture('bundle');
+  f.worker({ pid: DEAD, exit: 0 });
+
+  const agree = (expected, dispatchWord, label) => {
+    const s = f.scanState();
+    const d = f.dispatchState();
+    assert.equal(s.state, expected, `scan on ${label}:\n${JSON.stringify(s)}`);
+    assert.equal(d.word, dispatchWord, `plot-dispatch on ${label}:\n${d.line}`);
+  };
+
+  const boardDir = path.join(f.wt, 'packages', 'board');
+  const bundleDir = path.join(f.wt, 'skills', 'plot', 'scripts', 'board');
+  fs.mkdirSync(boardDir, { recursive: true });
+  fs.mkdirSync(bundleDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(boardDir, 'build.mjs'),
+    "const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');\n",
+  );
+  fs.writeFileSync(path.join(bundleDir, 'board-server.mjs'), 'original bundle\n');
+  f.commitLocally('board build + bundle');
+  git(f.repo, 'push', '-q', 'origin', BRANCH);
+
+  // A REBUILT BUNDLE ALONE — the clean exit must stand.
+  fs.writeFileSync(path.join(bundleDir, 'board-server.mjs'), 'rebuilt locally\n');
+  agree('finished', 'finished', 'a rebuilt bundle alone');
+
+  // A SOURCE CHANGE BESIDE IT is still unlanded work.
+  f.file('feature.ts', 'export const x = 1;\n');
+  agree('stalled', 'stalled', 'a source change beside the rebuilt bundle');
+
+  f.cleanup();
+});
+
 test('worker-state: the log records the question, the marker FILE records that it stands', () => {
   // THE MARKER IS A FILE, NOT A LINE IN THE LOG, and this is the assertion that
   // pins it. The log is the ONE file guaranteed to contain the marker token
