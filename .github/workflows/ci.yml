@@ -1088,17 +1088,18 @@ jobs:
       - name: Board typecheck
         run: pnpm run typecheck
 
+      # A PULL REQUEST'S STALE BUNDLE IS AN ERROR. On a push to `main` it is a
+      # warning: until `build-bundles.yml` pushes the build, `main` holds the
+      # previous one for one workflow run, and failing there would make `main`
+      # red by design. The decision lives in `scripts/main-bundles.sh`.
       - name: Board build + artifact freshness
         timeout-minutes: 10
         run: |
-          pnpm run build:board
-          if ! git diff --quiet -- skills/plot/scripts/board/; then
-            stale=$(git --no-pager diff --name-only -- skills/plot/scripts/board/ | tr '\n' ' ')
-            echo "::error::Stale board artifacts: ${stale}— run 'pnpm build:board' and commit the result."
-            git --no-pager diff --stat -- skills/plot/scripts/board/
-            exit 1
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./scripts/main-bundles.sh pr
+          else
+            ./scripts/main-bundles.sh main
           fi
-          echo "Board artifact is fresh."
 
       # BOUNDED BECAUSE IT SPAWNS. This runs the board's `node --test` suites,
       # which start real `board-server.mjs` processes — the population that hung
