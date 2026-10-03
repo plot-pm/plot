@@ -693,7 +693,7 @@ describe('a tick starts agents when queued > running', () => {
         // reads it. `Approved` is what the file says; this is what the parser
         // emits, and the rule tests the parser's spelling.
         phase: 'approved',
-        slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false }] }],
+        slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false, waitsOn: '' }] }],
       } as never,
     ],
     claimedBranches: async () => new Set<string>(),
@@ -728,7 +728,7 @@ describe('a tick starts agents when queued > running', () => {
     });
 
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'no-free-agent' },
+      { branch: 'feature/waiting', hold: 'no-free-agent', waitsOn: '', waitHeld: '' },
     ]);
     expect(report.handOver?.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(3);
   });
@@ -783,7 +783,7 @@ describe('a tick starts agents when queued > running', () => {
 
     expect(report.handOver?.detail.assignments).toEqual([]);
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'already-merged' },
+      { branch: 'feature/waiting', hold: 'already-merged', waitsOn: '', waitHeld: '' },
     ]);
     expect(report.handOver?.writes.some((w) => w.kind === 'worker-start')).toBe(false);
   });
@@ -801,7 +801,7 @@ describe('a tick starts agents when queued > running', () => {
 
     expect(report.handOver?.detail.assignments).toEqual([]);
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'merge-unknown' },
+      { branch: 'feature/waiting', hold: 'merge-unknown', waitsOn: '', waitHeld: '' },
     ]);
   });
 
@@ -858,7 +858,7 @@ describe('a tick says which hold refused each slice', () => {
       {
         file: 'docs/plans/2026-09-05-a-plan.md',
         phase: 'approved',
-        slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false }] }],
+        slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false, waitsOn: '' }] }],
       } as never,
     ],
     claimedBranches: async () => new Set<string>(),
@@ -911,7 +911,7 @@ describe('a tick says which hold refused each slice', () => {
           {
             file: 'docs/plans/2026-10-02-an-unnamed-slice.md',
             phase: 'approved',
-            slices: [{ name: '', branches: [{ branch: 'feature/waiting', deferred: false }] }],
+            slices: [{ name: '', branches: [{ branch: 'feature/waiting', deferred: false, waitsOn: '' }] }],
           } as never,
         ],
       }),
@@ -924,7 +924,7 @@ describe('a tick says which hold refused each slice', () => {
     // and the repair for `no-brief` would not release the slice.
     expect(line).toContain('no-brief=0');
     expect(report.handOver?.detail.held).toEqual([
-      { branch: 'feature/waiting', hold: 'slice-unnamed' },
+      { branch: 'feature/waiting', hold: 'slice-unnamed', waitsOn: '', waitHeld: '' },
     ]);
   });
 
@@ -1041,7 +1041,7 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
         {
           file: 'docs/plans/2026-09-05-a-plan.md',
           phase: 'approved',
-          slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false }] }],
+          slices: [{ name: 'A named slice', branches: [{ branch: 'feature/waiting', deferred: false, waitsOn: '' }] }],
         } as never,
       ],
       claimedBranches: async () => new Set<string>(),
