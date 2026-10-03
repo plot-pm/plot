@@ -56,7 +56,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 
 - [x] [a-landed-brief-frees-its-slot](../plans/2026-10-02-a-landed-brief-frees-its-slot.md) — [#1162](https://github.com/plot-pm/plot/issues/1162) — Auto-dispatch stops asking for briefs: asked briefs never leave the tally and free agents count against the budget.
 - [x] [an-agent-runs-the-tests-its-change-touches](../plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md) — Fleet agents run the checks their diff touches and keep their slice until its CI finishes; CI runs the full suites.
-- [ ] [a-branch-carries-no-built-bundle](../plans/2026-10-02-a-branch-carries-no-built-bundle.md) — A pull request carries no generated board bundle, and main rebuilds them after each merge, so a merge no longer makes every open PR conflict.
+- [x] [a-branch-carries-no-built-bundle](../plans/2026-10-02-a-branch-carries-no-built-bundle.md) — A pull request carries no generated board bundle, and main rebuilds them after each merge, so a merge no longer makes every open PR conflict.
 - [x] [an-agent-starts-with-what-it-reads](../plans/2026-10-02-an-agent-starts-with-what-it-reads.md) — Every session, worker and subagent starts without the ~20k tokens of CLAUDE.md and plugin context it does not use.
 
 ### Should Have
