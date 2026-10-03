@@ -656,11 +656,8 @@ while IFS=$'\037' read -r wt br prunable; do
   # not about whether a worktree may go. The filter runs before `head`, so a
   # correction beside a real file names the real file.
   marker=false
-  marker_file=""
-  if ls "$wt"/PLOT-BLOCKED* >/dev/null 2>&1; then
-    marker=true
-    marker_file=$(ls "$wt"/PLOT-BLOCKED* 2>/dev/null | head -1)
-  fi
+  marker_file=$(ls "$wt"/PLOT-BLOCKED* 2>/dev/null | head -1)
+  [ -n "$marker_file" ] && marker=true
   # The marker's own line is excluded from `dirty`, which otherwise answers
   # `uncommitted-changes` for a desk this slice reads `refused-empty` instead:
   # the marker is a question for a person, not unlanded work, and the two
@@ -674,22 +671,8 @@ while IFS=$'\037' read -r wt br prunable; do
   # otherwise.
   marker_records_work=false
   if [ "$marker" = true ]; then
-    if [ -n "$dirty" ]; then
+    if [ -n "$dirty" ] || [ "$(real_commits "$wt" "origin/$DEFAULT..HEAD")" != 0 ]; then
       marker_records_work=true
-    else
-      marker_fcc=0
-      for _mfc in $(git -C "$wt" rev-list "origin/$DEFAULT..HEAD" 2>/dev/null); do
-        _mfc_subj=$(git -C "$wt" log -1 --format=%s "$_mfc" 2>/dev/null)
-        case "$_mfc_subj" in
-          "plot: claim "*)
-            if [ "$(git -C "$wt" rev-parse "$_mfc^{tree}" 2>/dev/null)" \
-                 = "$(git -C "$wt" rev-parse "$_mfc^^{tree}" 2>/dev/null)" ]; then
-              continue
-            fi ;;
-        esac
-        marker_fcc=$((marker_fcc + 1))
-      done
-      [ "$marker_fcc" -gt 0 ] && marker_records_work=true
     fi
   fi
 
@@ -781,11 +764,6 @@ const problem = firstReapRefusal({
   workerPid: process.env.PLOT_PID === "" ? null : process.env.PLOT_PID,
   dirtyPath: process.env.PLOT_DIRTY,
   blockedMarker: process.env.PLOT_MARKER === "true",
-  // Read only when a marker is present (the shell leaves it "false" with no
-  // marker, which the rule never consults): `true` keeps the marker refusing
-  // exactly as before, `false` is the measured case — nothing else in the
-  // desk — that lets `refused-empty` through to a reap the caller still
-  // copies the marker's text ahead of.
   markerRecordsWork: process.env.PLOT_MARKER_RECORDS_WORK === "true",
   merge: process.env.PLOT_MERGE,
   unpushed: process.env.PLOT_UNPUSHED === "unknown"

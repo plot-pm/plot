@@ -700,29 +700,12 @@ load_merged_pr_heads
 # Is this remote branch an empty CLAIM — a ref pushed to take work atomically,
 # holding no commits of its own? Distinct from "merged" (real work, landed) and
 # from "orphan" (real work, never landed).
-# Count commits beyond main that are NOT claim markers. A claim marker must be
-# BOTH titled `plot: claim ...` AND empty (its tree equals its parent's) — the
-# subject alone is not evidence. A human commit titled "plot: claim handling
-# refactor" carrying real files would otherwise read as an empty claim, and
-# with a deferred: annotation the reaper would offer to DELETE real work.
-real_commits_beyond_main() { # $1=branch → count
-  local br="$1" c n=0 subj
-  for c in $(git rev-list "origin/$MAIN..origin/$br" </dev/null 2>/dev/null); do
-    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
-    # A claim marker is titled `plot: claim ...` AND empty. Both, or it counts
-    # as real work.
-    case "$subj" in
-      "plot: claim "*)
-        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
-             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
-          continue
-        fi ;;
-    esac
-    n=$((n + 1))
-  done
-  echo "$n"
-}
-
+# `real_commits` counts the commits beyond main that are NOT claim markers. A
+# claim marker must be BOTH titled `plot: claim ...` AND empty (its tree equals
+# its parent's) — the subject alone is not evidence. A human commit titled
+# "plot: claim handling refactor" carrying real files would otherwise read as
+# an empty claim, and with a deferred: annotation the reaper would offer to
+# DELETE real work. An `unknown` count is not a claim.
 is_empty_claim() { # $1=branch
   local ahead real
   git show-ref -q --verify "refs/remotes/origin/$1" </dev/null 2>/dev/null || return 1
@@ -731,8 +714,8 @@ is_empty_claim() { # $1=branch
   # plot-dispatch.sh, "THE CLAIM"). A branch carrying only those is claimed but
   # unworked; one carrying any real commit is work in progress, not a claim.
   [ "$ahead" -gt 0 ] || return 1   # nothing of its own → merged work, not a claim
-  real=$(real_commits_beyond_main "$1")
-  [ "${real:-0}" = "0" ]
+  real=$(real_commits . "origin/$MAIN..origin/$1")
+  [ "$real" = "0" ]
 }
 # A branch with NO commits of its own is deliberately not treated as a claim,
 # even though pre-claim-commit fleets produced exactly that shape. Such a
@@ -2574,9 +2557,10 @@ elif ! desk_root=$(. "$script_dir/plot-desk-root.sh" && plot_desk_root "$(plot_r
   echo "  (not evaluated — the desk root rule could not be asked; see above)"
 else
 
-  # One JSON object per worktree, assembled by `node` rather than by hand:
-  # a path may hold a quote or a backslash, and a hand-built string breaks the
-  # parser on exactly the tree somebody needs to read about.
+  # One tab-separated row per worktree, which `plot-reconcile.mjs --desk-rows`
+  # turns into the request (`deskRowFrom`) rather than a hand-built JSON
+  # string: a path may hold a quote or a backslash, and a hand-built string
+  # breaks the parser on exactly the tree somebody needs to read about.
   desk_rows=""
   while IFS=$'\037' read -r dwt dbr dprunable; do
     [ -n "$dwt" ] || continue
@@ -2631,18 +2615,7 @@ else
     # `HEAD` rather than `origin/$dshort`: the measured case (`free-50562867`)
     # is exactly a desk whose remote ref is already gone, so a reading keyed
     # on the ref would answer nothing for the tree this slice exists to catch.
-    d_filechanging=0
-    for _fcc in $(git -C "$dwt" rev-list "origin/$MAIN..HEAD" </dev/null 2>/dev/null); do
-      _fcc_subj=$(git -C "$dwt" log -1 --format=%s "$_fcc" </dev/null 2>/dev/null)
-      case "$_fcc_subj" in
-        "plot: claim "*)
-          if [ "$(git -C "$dwt" rev-parse "$_fcc^{tree}" </dev/null 2>/dev/null)" \
-               = "$(git -C "$dwt" rev-parse "$_fcc^^{tree}" </dev/null 2>/dev/null)" ]; then
-            continue
-          fi ;;
-      esac
-      d_filechanging=$((d_filechanging + 1))
-    done
+    d_filechanging=$(real_commits "$dwt" "origin/$MAIN..HEAD")
 
     # markerRecordsWork — does the desk hold anything besides its marker: a
     # dirty path that is not the `PLOT-BLOCKED*` file itself, or a
@@ -2650,9 +2623,7 @@ else
     # `PLOT-CORRECTION.md`), so a bare `?? PLOT-BLOCKED.md` line is filtered
     # here rather than read as "the desk is dirty".
     d_markerrecordswork=false
-    if [ "$d_filechanging" -gt 0 ]; then
-      d_markerrecordswork=true
-    elif [ -n "$(desk_dirt "$dwt" | grep -v 'PLOT-BLOCKED' | head -1)" ]; then
+    if [ "$d_filechanging" != 0 ] || [ -n "$(desk_dirt "$dwt" | grep -v 'PLOT-BLOCKED' | head -1)" ]; then
       d_markerrecordswork=true
     fi
 
@@ -2690,37 +2661,7 @@ else
                    /^prunable/ { pr="yes"; next }
                    END         { if (p != "") print p, br, pr }')
 
-  desk_answer=$(printf '%s' "$desk_rows" | PLOT_MAIN="$MAIN" node --input-type=module -e '
-const rows = [];
-for await (const chunk of process.stdin) rows.push(chunk);
-const text = rows.join("");
-const candidates = text.split("\n").filter((l) => l.trim() !== "").map((line) => {
-  const [
-    path, branch, dispatch, unclassified, pid, marker, clean, isMain, detached, merged,
-    claimRef, markerRecordsWork, fileChangingCommits,
-  ] = line.split("\t");
-  return {
-    tree: {
-      path, branch, detached: detached === "true", isMain: isMain === "true",
-      clean: clean === "true", agentSession: "", prunable: false,
-    },
-    evidence: {
-      workerAlive: pid !== "", blockedMarker: marker === "true",
-      hasMergedPr: merged === "true", isDispatchTree: dispatch === "true",
-      unclassified: unclassified === "true", manifest: "", hasLog: false,
-      claimRef: claimRef === "true", markerRecordsWork: markerRecordsWork === "true",
-      fileChangingCommits: Number(fileChangingCommits) || 0,
-    },
-  };
-});
-process.stdout.write(JSON.stringify({
-  scope: { kind: "workspace" },
-  readings: {
-    plans: [], sprints: [], branches: [], claims: [], trees: [],
-    desks: { candidates, orphanedManifests: [], defaultBranch: process.env.PLOT_MAIN },
-  },
-}));
-' 2>/dev/null | node "$desk_rule" 2>/dev/null) || desk_answer=""
+  desk_answer=$(printf '%s' "$desk_rows" | node "$desk_rule" --desk-rows "$MAIN" 2>/dev/null) || desk_answer=""
 
   if [ -z "$desk_answer" ]; then
     echo "  (not evaluated — the desk rule could not be asked)"

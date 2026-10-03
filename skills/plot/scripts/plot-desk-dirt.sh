@@ -103,3 +103,16 @@ desk_dirt() {
     | exclude_bundle_paths "$1" \
     || true
 }
+
+# real_commits <git-dir> <range> — print how many commits in <range> are not
+# empty claim markers, as `rules/empty-claim.ts`'s `realCommits` counts them
+# through `board/plot-empty-claim.mjs`. Prints `0` for an empty range and
+# `unknown` when the bundle gives no answer for a non-empty one, so a caller
+# never reads a missing bundle as "nothing to land".
+real_commits() {
+  local n
+  [ "$(git -C "$1" rev-list --count "$2" </dev/null 2>/dev/null || echo 0)" = 0 ] && { echo 0; return 0; }
+  n=$(git -C "$1" log --boundary --format='r%x09%m%x09%H%x09%T%x09%P%x09%s' "$2" -- </dev/null 2>/dev/null \
+    | node "$(dirname "${BASH_SOURCE[0]}")/board/plot-empty-claim.mjs" 2>/dev/null | cut -f2)
+  echo "${n:-unknown}"
+}
