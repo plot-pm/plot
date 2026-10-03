@@ -19,7 +19,7 @@
 - The table in `skills/plot/scripts/README.md` lists every shipped script with its kind, how often it runs and the JS command that replaces it, and a command prints each script's code lines.
 - `docs/shell-and-domain.md`, `CLAUDE.md` and the `/plot-implement` brief set the target: a command an agent runs is a JS entry point, a `.sh` file that remains is a launcher, and a change pays for the shell it adds.
 - `plot-controller-gate.sh` asks a domain rule which controller action a command runs, so a glob or a file being read no longer reads as an invocation (#1245).
-- The first operator command moves from shell to a JS entry; its `.sh` file stays as a launcher where a caller names it.
+- The first operator command moves from shell to a JS entry — `plot-deliver.sh`, confirmed by the ranking slice 2 ran; its `.sh` file stays as a launcher where a caller names it.
 
 <!-- Board impact: none to the plan format, template or docs/plans layout. Slices that move a script into a JS entry add a bundle under skills/plot/scripts/board/, declared in packages/board/build.mjs and built on main by build-bundles.yml (a-branch-carries-no-built-bundle). -->
 
@@ -103,7 +103,7 @@ The gate stores no number, so it cannot drift, two pull requests that each shrin
 
 ### The first script becomes a command
 
-- `infra/the-first-script-becomes-a-command` — the operator command slice 2 ranks first (candidate: `plot-deliver.sh`) becomes a JS entry; a launcher stays only where a caller names its `.sh` path <!-- builds: a JS command entry for the first-ranked operator command -->
+- `infra/the-first-script-becomes-a-command` — `plot-deliver.sh` (601 lines), the ranking's confirmed first operator-command script, becomes a JS entry; a launcher stays only where a caller names its `.sh` path <!-- builds: a JS command entry for the first-ranked operator command -->
 
 ## Notes
 

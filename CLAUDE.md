@@ -453,6 +453,10 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **No gate enforces this**, and it is a rule for the reason the domain's arrow-function rule is one: which of two implementations is right is judgement, and a grep cannot tell a declared duplicate from a forgotten one. What is gated is the pair once declared — the corpus test fails when they drift.
 
+**The target, named by `the-shell-shrinks-into-the-domain`: an agent runs a command, and a command is a JS entry point.** It goes entry → domain → port → adapter, the layering rule above. A `.sh` file that remains is a **launcher**: it resolves its bundle and `exec`s it, and decides nothing. `skills/plot/scripts/README.md`'s *kind* column names which scripts already are one.
+
+**The price: a new declared duplicate pays in lines.** Both seams this section permits — a per-agent-per-pass duplicate and a quoted heredoc importing a rule directly — remain allowed, and both now cost: `scripts/check-shell-lines.sh` ratchets the shipped shell's line count against its merge base, so a change that adds a new duplicate must remove an equal number of lines elsewhere in the same change. The gate stores no number and grants no exemption for a declared duplicate.
+
 ## A Decision Reads The Index
 
 **The rule, and it is a direction rather than a description:** a tool call writes the index; a decision reads it, or is triggered by it. A decision made from a freshly-bought answer depends on what a host said at one instant, which no test can reproduce and no second reader can check. A decision that reads an index is a function of recorded state.
