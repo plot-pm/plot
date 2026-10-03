@@ -81,7 +81,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
   input="$(cat)"
   patterns="$(bundle_paths "$wt")"
   if [ -z "$patterns" ]; then
-    printf '%s\n' "$input"
+    [ -n "$input" ] && printf '%s\n' "$input"
     return 0
   fi
   printf '%s\n' "$input" | while IFS= read -r line; do
