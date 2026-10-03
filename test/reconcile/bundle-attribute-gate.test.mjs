@@ -15,7 +15,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -154,4 +154,84 @@ test('bundle gate: this repo passes it', () => {
   // would let the estate drift while every fixture still passed.
   const got = run(repoRoot);
   assert.equal(got.status, 0, `plot's own tree must be clean:\n${got.stdout}`);
+});
+
+// Moved from test/reconcile/resolveartifact.test.mjs by
+// bug/the-artifact-repair-is-retired, which deleted the script that test was
+// written for. These assertions are not about the script: they are about
+// `bundles.generated.ts` staying fresh and equal to the set the build emits,
+// which nothing else in this file checked.
+test('build.mjs and the board contract name the same bundle set', () => {
+  const root = path.join(here, '..', '..');
+
+  // 1. THE SOURCE. The same derivation `scripts/check-bundle-attributes.sh`
+  //    runs, so a third spelling of it cannot appear here either.
+  const build = readFileSync(path.join(root, 'packages', 'board', 'build.mjs'), 'utf8');
+  const emitted = [...build.matchAll(/shipped[A-Za-z]* = path\.join\([^)]*'\.\.\/\.\.\/([^']*)'\)/g)]
+    .map((m) => m[1]).sort();
+  assert.ok(emitted.length > 0, 'the derivation found no bundles — the build changed shape');
+
+  // 2. THE CONTRACT DERIVES rather than lists, and what it derived must equal
+  //    the source exactly. Equality in BOTH directions: a missing entry makes a
+  //    licensed repair be refused, and an extra one claims a rebuild that does
+  //    not exist.
+  //
+  //    The contract itself must carry NO list — that is the property this slice
+  //    added, and asserting the generated file alone would pass just as well
+  //    with a hand-written array beside it shadowing the re-export.
+  const schema = readFileSync(
+    path.join(root, 'packages', 'board', 'src', 'contract', 'schema.ts'), 'utf8');
+  assert.doesNotMatch(schema, /BOARD_ARTIFACT_PATHS: readonly string\[\] = \[/,
+    'the contract must derive the bundle set, never list it — that list drifted three times in one evening');
+  assert.match(schema, /from '\.\/bundles\.generated\.js'/,
+    'the contract must obtain the bundle set from the generated module');
+
+  //    The generated module is what the contract re-exports, and it is
+  //    COMMITTED: CI typechecks before it builds, so an ignored file would fail
+  //    `tsc --noEmit` on a fresh clone. Committed, it can go stale — and a stale
+  //    one is exactly what this comparison catches.
+  const generated = readFileSync(
+    path.join(root, 'packages', 'board', 'src', 'contract', 'bundles.generated.ts'), 'utf8');
+  const declared = generated.match(/BOARD_ARTIFACT_PATHS: readonly string\[\] = \[([^\]]*)\]/);
+  assert.ok(declared, 'bundles.generated.ts is not declared in the shape this test reads');
+  const listed = [...declared[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(listed, emitted,
+    'bundles.generated.ts is stale — run `pnpm build:board` and commit the result');
+
+  //    AND THE BUILD IS WHAT WRITES IT. Without this, a hand-edited generated
+  //    file passes every assertion above for exactly as long as nobody adds a
+  //    bundle — which is the original defect, moved one file across.
+  assert.match(build, /bundles\.generated\.ts/,
+    'build.mjs must write the generated module, or nothing keeps it fresh');
+
+  // 3. EVERY DERIVED ENTRY IS A REAL FILE. The derivation reads `build.mjs` as
+  //    TEXT, so any complete declaration written in a COMMENT is matched by it
+  //    and lands in the set as a bundle nothing emits — and the pattern spans
+  //    newlines, so a wrapped comment matches too.
+  //
+  //    Existence is the assertion rather than a shape match: a path that is not
+  //    on disk is not a bundle, whatever it looks like.
+  for (const bundle of emitted) {
+    assert.ok(existsSync(path.join(root, bundle)),
+      `the derivation produced ${JSON.stringify(bundle)}, which is not a file — `
+      + 'a complete declaration written in a comment is matched by the derivation');
+  }
+
+  // 4. AND `.gitattributes` MARKS EVERY ONE — property 1, without which nothing
+  //    here is licensed at all. `check-bundle-attributes.sh` is the gate; this
+  //    asserts the same fact from the side that acts on it.
+  const attrs = readFileSync(path.join(root, '.gitattributes'), 'utf8');
+  for (const bundle of emitted) {
+    assert.match(attrs, new RegExp(`^${bundle.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} -merge$`, 'm'),
+      `${bundle} is emitted by the build and not marked -merge`);
+  }
+
+  // 5. `plot-monitor.mjs` IS NOT IN THE SET. `bug/the-loop-reports-idle`
+  //    deletes the file outright, so this now holds trivially rather than
+  //    guarding "tracked but unbuilt" the way it once did — kept rather than
+  //    removed, because the natural mistake when widening a list is to sweep
+  //    in every file in the directory, and the name still reads as the
+  //    example the next author reaches for.
+  assert.ok(!emitted.includes('skills/plot/scripts/board/plot-monitor.mjs'),
+    'plot-monitor.mjs has no build output; including it asserts a rebuild that does not exist');
 });

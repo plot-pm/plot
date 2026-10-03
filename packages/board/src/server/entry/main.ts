@@ -1,9 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { scriptsFor, type BuildBoardOptions } from '../board.js';
+import { scriptsFor, primeAgentSettings, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
-import { primeAgentSettings } from '../resolver.js';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 
 /**

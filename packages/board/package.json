@@ -39,7 +39,6 @@
     "plot-pr-merged.sh",
     "plot-reap.sh",
     "plot-release-refs.sh",
-    "plot-resolve-artifact.sh",
     "plot-state-receipt.sh",
     "plot-tmp.sh",
     "plot-transcript-quiet.sh",

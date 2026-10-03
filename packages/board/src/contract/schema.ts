@@ -2058,9 +2058,9 @@ export const StuckStateSchema = z.enum([
   // unmerged. Exactly the failure the tracer exists to prevent.
   //
   // REPORTED, never repaired here. Re-slicing needs NAMES for the new slices, and
-  // naming is judgement — so the repair cannot be the licensed deterministic kind
-  // (`plot-resolve-artifact.sh`, whose permission *is* judgement's absence) and
-  // there is no script to wrap. It is its own plan.
+  // naming is judgement — which disqualifies it from the deterministic,
+  // judgement-free kind of fix a script could ever be licensed to perform
+  // automatically. It is its own plan.
   'unsliced-wave',
 ]);
 export type StuckState = z.infer<typeof StuckStateSchema>;
@@ -2099,12 +2099,11 @@ export type StuckState = z.infer<typeof StuckStateSchema>;
  * another branch's CI.
  *
  * **THE THIRD READER, NOT A FOURTH DEFINITION.**
- * `scripts/check-bundle-attributes.sh` and `plot-resolve-artifact.sh`'s
- * `bundle_set()` already derived from those same declarations; the generator
- * uses their regex. The shell and the TypeScript still cannot import each
- * other, so `test/reconcile/resolveartifact.test.mjs` asserts SET EQUALITY
- * across all three — what `plot-resolve-artifact.sh:75` calls being *"asserted
- * by a test rather than trusted."*
+ * `scripts/check-bundle-attributes.sh` derives from those same declarations;
+ * the generator uses its regex. The shell and the TypeScript still cannot
+ * import each other, so `test/reconcile/bundle-attribute-gate.test.mjs`
+ * asserts SET EQUALITY between them — "asserted by a test rather than
+ * trusted."
  *
  * **THE RE-EXPORT IS DELIBERATE.** Four TypeScript modules import this name
  * from the contract, and how the value is obtained is not their business.
@@ -2231,47 +2230,6 @@ export const StuckSchema = z.object({
 });
 export type Stuck = z.infer<typeof StuckSchema>;
 export type StuckRun = Stuck['runHistory'][number];
-
-/**
- * What happened, or is happening, on the ONE path this system repairs by itself.
- *
- * **EVERY REPAIR IS REPORTED, and that is what this field exists for.** A silent
- * automatic write is indistinguishable from a defect — which is the exact
- * failure mode the whole stuck-branch plan exists to remove — so a repair says
- * so while it runs AND after it ends, whether it pushed or gave up. A field that
- * only reported successes would be quietest precisely when something went wrong.
- *
- * Null on every other branch and most of the time, like `stuck` above: this
- * describes an event, not a state a branch is in.
- */
-export const RepairSchema = z.object({
-  branch: z.string(),
-  /**
-   * `running` while the script holds the worktree; `finished` once it exited.
-   *
-   * Separate from `outcome` because *a repair is in flight* and *a repair ended
-   * without pushing* are different things to tell a reader, and collapsing them
-   * would make a five-minute suite look like a failure for its whole duration.
-   */
-  state: z.enum(['running', 'finished']),
-  /**
-   * How it ended — "" while running.
-   *
-   * `pushed` is the only success. `abandoned` means the sequence started and its
-   * own gate stopped it (a failed rebuild, a red `test:board`, a rejected push);
-   * nothing was pushed and the branch is a conflict a human owns. `refused`
-   * means it never started: the set was not exactly the artifact after all, or
-   * another repair held the lock.
-   */
-  outcome: z.enum(['pushed', 'abandoned', 'refused']).or(z.literal('')).default(''),
-  /** The script's own word for why — `tests-failed`, `not-artifact-only`, … */
-  reason: z.string().default(''),
-  /** Epoch ms the repair started, or the moment it ended once finished. */
-  at: z.number().default(0),
-  /** Where the script's own words are, so the full account is one `cat` away. */
-  log: z.string().default(''),
-});
-export type Repair = z.infer<typeof RepairSchema>;
 
 /**
  * Where a running process lives: on the git HOST, or on THIS machine.
@@ -2942,21 +2900,6 @@ export const AgentRowSchema = z.object({
    * *nothing was looked for* rather than *nothing was found*.
    */
   stuck: StuckSchema.nullable().default(null),
-  /**
-   * The automatic repair on this branch, running or recently finished.
-   *
-   * BESIDE `stuck`, never folded into it. `stuck` says why a branch cannot move
-   * and is re-derived from git on every pulse; this says what the machine DID
-   * about it, which is an event with a beginning and an end. A branch stays
-   * `artifact-conflict` for the whole repair — the refs do not change until the
-   * push lands — so a reader with only `stuck` sees nothing happening for five
-   * minutes and concludes the pulse ignored it.
-   *
-   * Null on every branch nothing was attempted on, which is nearly all of them.
-   * Defaults to null so an older payload still validates: *nothing was
-   * attempted* is the honest reading of a pulse that predates the resolver.
-   */
-  repair: RepairSchema.nullable().default(null),
   /**
    * What the scan found out about a worker on this branch —
    * `BranchSchema.worker`, forwarded onto the row unchanged.

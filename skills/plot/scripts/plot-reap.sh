@@ -44,12 +44,11 @@
 # written. The scan reports; nothing reaped. Measured 2026-08-25 on this
 # estate: 56 worktrees, 42 of them dispatch trees, of which 29 were finished.
 #
-# WHY A SCRIPT RATHER THAN AN AGENT (Manifesto Principle 3, and the licence
-# `plot-resolve-artifact.sh` states for the one other automatic write): every
-# refusal below is a MEASUREMENT, not a judgement. Is a process alive; is the
-# tree dirty; did the host merge the PR. An agent asked "is this safe to
-# delete?" can talk itself past any of the three. A script cannot, and
-# judgement's absence is exactly what licenses the delete.
+# WHY A SCRIPT RATHER THAN AN AGENT (Manifesto Principle 3): every refusal
+# below is a MEASUREMENT, not a judgement. Is a process alive; is the tree
+# dirty; did the host merge the PR. An agent asked "is this safe to delete?"
+# can talk itself past any of the three. A script cannot, and judgement's
+# absence is exactly what licenses the delete.
 #
 # AND THE DECIDING IS NOT HERE. This script GATHERS the readings, asks
 # `packages/domain/src/rules/reapable.ts`, and ACTS on the answer; it holds no

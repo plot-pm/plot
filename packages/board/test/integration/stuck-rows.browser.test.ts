@@ -78,7 +78,8 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       branchUrl: `${GH}feature/collides`,
       stuck: stuck({ state: 'conflict', conflicts: ['packages/board/src/app/App.tsx', 'docs/plans/a.md'] }),
     }),
-    // The artifact conflict: resolvable by wave 3, so it offers NOTHING here.
+    // The artifact conflict: a committed bundle, fixed by the merge-base
+    // restore the row names — never an automatic write. Offers NOTHING here.
     row({
       branch: 'feature/artifact', group: 'waiting-on-you', note: 'PR #202 conflicts',
       branchUrl: `${GH}feature/artifact`,
@@ -480,14 +481,20 @@ describe('a stuck branch says so in its row', () => {
     }
   });
 
-  it('gives an artifact conflict no action in this wave', async () => {
-    // Wave 3 resolves it. Until then it is reported like any other state.
+  it('gives an artifact conflict no action, and names the restore command', async () => {
+    // `bug/the-artifact-repair-is-retired`: a PR must never carry a generated
+    // bundle, so this is a committed rebuild and the fix is a merge-base
+    // checkout a person runs once — never an automatic write, so no action and
+    // no pending-repair wording either.
     const page = await open();
     try {
       const row = rowFor(page, 'feature/artifact');
       expect(await row.locator('[data-stuck-link]').count()).toBe(0);
       expect(await row.locator('[data-stuck-cue]').count()).toBe(0);
-      expect(await row.locator('[data-stuck]').innerText()).toContain(ARTIFACT);
+      const text = await row.locator('[data-stuck]').innerText();
+      expect(text).toContain(ARTIFACT);
+      expect(text).toMatch(/git checkout .*merge-base.* -- /);
+      expect(text).not.toMatch(/repair|rebuild|resolve/i);
     } finally {
       await page.close();
     }

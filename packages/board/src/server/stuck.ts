@@ -135,7 +135,7 @@ function noCiEvidence(): Pick<
  *
  * **Empty is refused explicitly.** `every` on an empty array is `true`, and a
  * branch with no conflicts is not a branch whose conflicts resolve mechanically
- * — that is the shape `plot-resolve-artifact.sh` names `not-observed`.
+ * — an unobserved set licenses nothing.
  *
  * The bundle case is provable rather than merely conventional, which is what
  * earns it a separate name: `.gitattributes` marks each file `-merge` so git

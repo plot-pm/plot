@@ -71,16 +71,6 @@ export interface BuildBoardOptions {
   repoRoot: string;
   scriptsDir: string;
   /**
-   * Whether this board process may repair an artifact conflict, or only report
-   * one. Absent means yes — see {@link repairEnabledFromEnv}.
-   *
-   * It sits on the options every layer already carries, rather than on the
-   * pulse's own, because it describes the PROCESS the way `repoRoot` does.
-   * That is also what lets it reach `startRepair` down a call chain none of
-   * whose signatures had to change to admit it.
-   */
-  repairEnabled?: boolean;
-  /**
    * Where ref questions are answered from. Absent means this repository.
    *
    * The seam the plan named the second prize: a board handed a fixture `Refs`
@@ -218,6 +208,64 @@ export const spendRecordFor = (opts: BuildBoardOptions): SliceSpendRecord =>
  */
 export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
   scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * Resolves the settings file every agent this process starts will receive, and
+ * assigns it to the environment those agents inherit.
+ *
+ * Every agent-runner command is a `claude -p` session and inherits every
+ * `SessionStart` hook the operator's plugins declare. Measured 2026-09-30, one
+ * plugin's lockless sync ran three times at once at ~300% CPU each, the
+ * 1-minute load reached 195, and the supervisor did not tick for 12 minutes. The
+ * `Agent settings` key is how a project names what its agents start without.
+ *
+ * **NO SPAWN SITE IS EDITED.** This sets `PLOT_AGENT_SETTINGS` once and the ten
+ * agent-runner spawns inherit it: eight spread `process.env` into their `env`,
+ * and two pass no `env` at all. Teaching each site to append `--settings` would
+ * need a rule recognising `claude` inside `PLOT_UNATTENDED=1 claude -p …`,
+ * `env …`, an absolute path, a wrapper and `npx`. A variable needs no
+ * recognition, and each configured command interpolates
+ * `${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"}` itself.
+ *
+ * **ONE FUNCTION, TWO PROCESSES.** The board assigns it at startup and
+ * `entry/main.ts` assigns it again, because `plot-ask.mjs fleet` runs
+ * `maybeAutoDispatch` in its OWN node process which the board's `process.env`
+ * never reaches. A second copy of this reading is what would drift.
+ *
+ * **It never throws.** A failed resolve is not fatal: the agents start without
+ * the flag, exactly as they did before this existed.
+ *
+ * @param scripts - the Scripts port; its `agentSettings` operation names the resolver.
+ * @param env - the environment to assign into; defaults to this process's.
+ * @param log - where a resolved path is announced.
+ * @param warn - where a refusal or a failure is named.
+ * @returns the resolved absolute path, or undefined when none travels.
+ */
+export async function primeAgentSettings(
+  scripts: Scripts,
+  env: Record<string, string | undefined> = process.env,
+  log: (s: string) => void = (s) => console.log(s),
+  warn: (s: string) => void = (s) => console.warn(s),
+): Promise<string | undefined> {
+  try {
+    const { stdout, stderr, code } = await scripts.agentSettings();
+    const resolved = stdout.trim();
+    // EXIT 3 IS A REFUSAL; EXIT 0 WITH NO PATH IS AN ABSENT KEY. Reading stdout's
+    // emptiness alone cannot tell them apart, and only the first belongs in a log.
+    if (code === 0 && resolved !== '') {
+      env.PLOT_AGENT_SETTINGS = resolved;
+      log(`[board] agents start with settings: ${resolved}`);
+      return resolved;
+    }
+    if (code !== 0) {
+      warn(`[board] agents start without a settings file: ${stderr.trim()}`);
+    }
+    return undefined;
+  } catch (err: unknown) {
+    warn(`[board] could not resolve the agent settings file: ${String(err)}`);
+    return undefined;
+  }
+}
 
 /**
  * The host reader for these options — the caller's, or this repository's.

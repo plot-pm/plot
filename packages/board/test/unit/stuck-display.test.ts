@@ -96,6 +96,18 @@ describe('stuckEvidence — the evidence travels WITH the state', () => {
     expect(lines.join(' ')).toContain(ARTIFACT);
   });
 
+  it('names the restore command on an artifact conflict, and no pending repair', () => {
+    // `bug/the-artifact-repair-is-retired`: a PR must never carry a generated
+    // bundle, so an artifact-only conflict means *this branch committed one*,
+    // not *the board will repair it*. The row says how to fix it rather than
+    // claiming a rebuild nothing performs anymore.
+    const lines = stuckEvidence(stuck({
+      state: 'artifact-conflict', conflicts: [ARTIFACT],
+    }));
+    expect(lines.join(' ')).toMatch(/git checkout .*merge-base.* -- /);
+    expect(lines.join(' ')).not.toMatch(/repair|rebuild|resolve/i);
+  });
+
   it('says the host reported no file list when the conflict set is empty', () => {
     // A host-declared conflict carries no set — see `stuckState`. Rendering
     // nothing there would leave the row saying *conflict* with no evidence at

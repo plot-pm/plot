@@ -6,9 +6,9 @@ import type { Fleet, AgentRow, Card, Column } from '../contract/schema.js';
 
 /**
  * The environment variable that turns the mock on. An env var rather than a
- * flag because this server parses no arguments at all — `PLOT_BOARD_REPAIR` and
- * `PLOT_BOARD_ALLOW_REMOTE_WRITES` are how it is already configured, and adding
- * the first flag for a development aid would be the wrong place to start.
+ * flag because this server parses no arguments at all — `PLOT_BOARD_ALLOW_REMOTE_WRITES`
+ * is how it is already configured, and adding the first flag for a development
+ * aid would be the wrong place to start.
  */
 export const MOCK_ENV = 'PLOT_BOARD_MOCK';
 

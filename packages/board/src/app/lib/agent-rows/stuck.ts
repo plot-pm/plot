@@ -199,6 +199,16 @@ export function stuckWord(state: StuckState): string {
 export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] {
   switch (stuck.state) {
     case 'artifact-conflict':
+      // NAMES THE RESTORE COMMAND, and never the directory. A PR must never
+      // carry a generated bundle (`check-no-bundle-diff.sh`), so this conflict
+      // is a committed rebuild and the fix is the merge-base checkout that
+      // gate's own refusal prints — one `git checkout <merge-base> -- <path>`
+      // per conflicting path, since `README.md` and `plot-monitor.mjs` sit
+      // beside the generated bundles and are not generated themselves.
+      return stuck.conflicts.length > 0
+        ? [`conflicting: ${stuck.conflicts.join(', ')}`,
+           'restore each from the merge base: git checkout "$(git merge-base HEAD origin/main)" -- <path>']
+        : ['the host reports this branch does not merge — no file list available'];
     case 'conflict':
       // The set travels with the answer so a reader can COUNT it rather than
       // trust the classification — *exactly the artifact* is a claim about a
@@ -311,9 +321,10 @@ export function offersChangedFiles(stuck: Stuck | null | undefined): boolean {
  * means the plan was never sliced after its spike. Each is a defect of the
  * estate itself, not a transient state of a build or a local tree.
  *
- * `artifact-conflict` IS included: while the board can auto-resolve it, the
- * reader needs to know it is happening, and hiding it would defeat the
- * exception rule.
+ * `artifact-conflict` IS included: it means a PR committed a generated
+ * bundle, which is still a defect of that branch's tree that a reader must
+ * see — the row names the restore command and nothing resolves it
+ * automatically, so hiding it would defeat the exception rule just the same.
  */
 export const EXCEPTION_STATES: ReadonlySet<StuckState> = new Set([
   'double-claimed',

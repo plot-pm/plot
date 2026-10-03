@@ -73,19 +73,19 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
 //
 // The declarations below are the source — each binds a `shipped<Name>` const to
 // a `path.join` of `here` and a repo-relative path — and that is what an author
-// readers now derive from it rather than restating it — this generator,
-// `scripts/check-bundle-attributes.sh`, and `plot-resolve-artifact.sh`'s
-// `bundle_set()`. The contract used to be a fourth DEFINITION, typed out by
-// hand, and it drifted three times in one evening: 9, then 10, then 11 entries
-// against a build emitting one more each time. Each drift surfaced as an
-// unrelated branch's CI failing on a bundle it never touched.
+// readers now derive from it rather than restating it — this generator and
+// `scripts/check-bundle-attributes.sh`. The contract used to be a second
+// DEFINITION, typed out by hand, and it drifted three times in one evening: 9,
+// then 10, then 11 entries against a build emitting one more each time. Each
+// drift surfaced as an unrelated branch's CI failing on a bundle it never
+// touched.
 //
 // It reads its own source rather than a list of the `shippedX` bindings. That
 // is deliberate and is what makes the derivation total: a binding this file
 // forgot to append to such a list would be invisible, which is the same defect
-// one level down. The regex is the one the other two readers use, so a build
-// that changes shape breaks all three together rather than silently blinding
-// one — and finding nothing is a hard failure here for that reason.
+// one level down. The regex is the one the other reader uses, so a build that
+// changes shape breaks both together rather than silently blinding one — and
+// finding nothing is a hard failure here for that reason.
 const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
 {
   const source = fs.readFileSync(path.join(here, 'build.mjs'), 'utf8');
@@ -1211,7 +1211,6 @@ const vendoredScripts = [
   'plot-pr-merged.sh',
   'plot-reap.sh',
   'plot-release-refs.sh',
-  'plot-resolve-artifact.sh',
   'plot-worker-state.sh',
   // Sourced BY plot-worker-loop.sh as a `$script_dir` sibling — it holds the
   // watcher's own readings, including `plot_worker_idle_watch_pass`. Missing,
@@ -1237,17 +1236,17 @@ const vendoredScripts = [
   // reason every sourced file above is.
   'plot-agent-manifest.sh',
   // Sourced BY plot-approve.sh, plot-deliver.sh, plot-dispatch.sh,
-  // plot-fleet-scan.sh, plot-host.sh and plot-resolve-artifact.sh as a
-  // `$script_dir` sibling: it creates their temp paths and owns their EXIT,
-  // INT and TERM traps. Missing, the source prints one line to stderr and the
-  // first `plot_tmpdir`/`plot_tmpfile` call is an undefined function. Listed by
+  // plot-fleet-scan.sh and plot-host.sh as a `$script_dir` sibling: it creates
+  // their temp paths and owns their EXIT, INT and TERM traps. Missing, the
+  // source prints one line to stderr and the first
+  // `plot_tmpdir`/`plot_tmpfile` call is an undefined function. Listed by
   // hand for the reason every sourced file above is.
   'plot-tmp.sh',
-  // Sourced BY plot-approve.sh, plot-deliver.sh, plot-dispatch.sh,
-  // plot-reap.sh and plot-resolve-artifact.sh as a `$script_dir` sibling: it
-  // answers where desks and action records go. Missing, the source prints one
-  // line to stderr and `plot_desk_root` is then undefined, so each caller stops
-  // with its "cannot resolve" refusal. Listed by hand for the reason every
+  // Sourced BY plot-approve.sh, plot-deliver.sh, plot-dispatch.sh and
+  // plot-reap.sh as a `$script_dir` sibling: it answers where desks and
+  // action records go. Missing, the source prints one line to stderr and
+  // `plot_desk_root` is then undefined, so each caller stops with its "cannot
+  // resolve" refusal. Listed by hand for the reason every
   // sourced file above is.
   'plot-desk-root.sh',
 ];
