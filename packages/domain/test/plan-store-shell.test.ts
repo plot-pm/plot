@@ -9,13 +9,13 @@ import { branchOf } from '../src/adapters/plan-store/plan-store-shell.js';
  * at all rather than an empty string.
  */
 describe('branchOf — waits_on maps to waitsOn', () => {
-  it('carries the prerequisite when the line declares one', () => {
-    expect(branchOf({ branch: 'feature/two', waits_on: 'feature/one' }).waitsOn).toBe(
+  it('carries the prerequisite, wrapped in a one-item list, when the line declares one', () => {
+    expect(branchOf({ branch: 'feature/two', waits_on: 'feature/one' }).waitsOn).toEqual([
       'feature/one',
-    );
+    ]);
   });
 
-  it('defaults to the empty string for a branch line that declares none', () => {
-    expect(branchOf({ branch: 'feature/two' }).waitsOn).toBe('');
+  it('defaults to the empty list for a branch line that declares none', () => {
+    expect(branchOf({ branch: 'feature/two' }).waitsOn).toEqual([]);
   });
 });

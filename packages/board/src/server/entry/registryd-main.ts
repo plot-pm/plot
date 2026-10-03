@@ -576,6 +576,42 @@ export const subjectProvenOf = async (
 };
 
 /**
+ * Where the refused-slice record lives: beside the pulse, under `.plot/state/`.
+ *
+ * Machine-local and gitignored for {@link fleetSettingsPath}'s reason: it
+ * describes what THIS estate's workers wrote, not something to commit. One
+ * branch per line, appended by `blocked_on_held_checkout` in
+ * `plot-worker-loop.sh` — the writer for the measured case, which already
+ * holds the branch it refused. A desk's manifest cannot be trusted to still
+ * name the branch by the time this is read: of 250 desks measured 2026-10-03
+ * behind one refused slice, the manifests had already been cleared.
+ */
+export const refusedSlicesPath = (repoRoot: string): string =>
+  join(repoRoot, '.plot', 'state', 'refused-slices.tsv');
+
+/**
+ * Whether a branch's line is still in the refused-slices record.
+ *
+ * **BLANK LINES AND A MISSING FILE BOTH READ AS NOTHING REFUSED.** An absent
+ * file is the common case — no refusal has ever been written on this estate —
+ * and a line a person removed to clear the hold is indistinguishable from one
+ * never written, which is the point: the hold ends when the line is gone, and
+ * nothing here ages it out on its own.
+ *
+ * @param repoRoot - the repository root.
+ * @param branch - the branch to ask about.
+ * @returns whether the branch's line is present.
+ */
+const branchIsRefused = (repoRoot: string, branch: string): boolean => {
+  const text = fileOrNull(refusedSlicesPath(repoRoot));
+  if (text === null) return false;
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .includes(branch);
+};
+
+/**
  * Builds the world the QUEUE is read through.
  *
  * A SECOND WORLD RATHER THAN MORE MEMBERS ON THE SUPERVISOR'S, because the two
@@ -756,6 +792,7 @@ export const queueWorldForRepo = (
       // an agent waiting on a person who has not answered.
       return !answer.ok || answer.value.length > 0;
     },
+    refused: async (branch) => branchIsRefused(repoRoot, branch),
   };
 };
 
@@ -1298,6 +1335,9 @@ const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
   // for, never to the backlog, and the branch is the whole of the repair: the
   // reader needs its name to write the heading.
   'slice-unnamed': 'queue',
+  // QUEUE-SCOPED FOR THE SAME REASON AS `slice-unnamed`: it only ever fires on
+  // a slice an agent was actually handed, never on the estate's backlog.
+  'refused': 'queue',
   'no-brief': 'queue',
   // QUEUE-SCOPED, SO A LOOPING TICK NAMES ITS BRANCHES. It is proportional to
   // the slices one outage left unanswered rather than to the backlog, and it is
@@ -1400,13 +1440,16 @@ export const reportTick = (
       // reader of either learns how many were held and why.
       if (looping && HOLD_SCOPE[hold] === 'estate') continue;
       const named = looping ? branches.slice(0, KEPT_HOLD_NAMES) : branches;
-      // THE `waits` HOLD NAMES THE PREREQUISITE, IN THIS EXACT FORM — IT IS
-      // GREPPED. Every other hold prints the branch alone; this one carries the
-      // one fact a reader needs to act, which is not the branch itself.
+      // THE `waits` HOLD NAMES EVERY STILL-UNMERGED PREREQUISITE, IN THIS EXACT
+      // FORM — IT IS GREPPED. Every other hold prints the branch alone; this one
+      // carries the facts a reader needs to act, which are not the branch
+      // itself. ONE `waitHeld` WORD FOR THE WHOLE LIST: `prerequisiteAnswer`
+      // answers `unmerged` or `unreachable` from the single flag `listingWhole`,
+      // so it reads the same for every prerequisite this branch still holds on.
       for (const slice of named) {
         write(
           hold === 'waits'
-            ? `    ${slice.branch} — waits on ${slice.waitsOn} (${slice.waitHeld})\n`
+            ? `    ${slice.branch} — waits on ${slice.waitsOn.join(', ')} (${slice.waitHeld})\n`
             : `    ${slice.branch}\n`,
         );
       }

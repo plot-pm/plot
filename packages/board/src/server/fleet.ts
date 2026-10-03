@@ -4447,6 +4447,22 @@ export function whereToLook(localWorktree: string): string {
 }
 
 /**
+ * Every declared prerequisite, joined for a sentence a person reads.
+ *
+ * `a`, `a and b`, `a, b and c` — never an Oxford comma before the final `and`,
+ * matching how the one-name sentence always read. The caller guards the empty
+ * case, because an empty list is *an unnamed prerequisite*, a different noun
+ * rather than a joined list of zero.
+ *
+ * @param names every prerequisite the plan declares, non-empty.
+ * @returns the names joined into one phrase.
+ */
+function prerequisiteList(names: readonly string[]): string {
+  if (names.length === 1) return names[0] as string;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
  * What kind of row this branch is — its section and its sentence.
  *
  * The whole of the old `classify`, unchanged, and split out for one reason:
@@ -4739,17 +4755,22 @@ function classifyGroup(
    */
   hostUnasked = false,
   /**
-   * The branch this one waits for — `BranchSchema.waits_on`, the name in the
-   * plan's `waits:` annotation, or "".
+   * Every branch this one waits for — `BranchSchema.waits_on`, the names in the
+   * plan's `waits:` annotation, or `[]`.
    *
    * LAST, BECAUSE IT IS THE NEWEST, by the rule `prUnknown` records above.
    *
    * Named in the note of a `blocked` or `waiting` branch and read for nothing
    * else. Both states arise only from a `waits:` annotation, so the scan always
-   * has a name for them; "" on such a row is a stated unknown and the note says
-   * *an unnamed prerequisite* rather than inventing one.
+   * has a name for them; `[]` on such a row is a stated unknown and the note
+   * says *an unnamed prerequisite* rather than inventing one.
+   *
+   * EVERY DECLARED PREREQUISITE, NOT ONLY THOSE STILL HOLDING THE SLICE. The
+   * pulse carries no per-prerequisite verdict, only the plan's declaration, so
+   * the sentence cannot say *which* of several still holds — only that the
+   * branch waits on all of them.
    */
-  waitsOn = '',
+  waitsOn: readonly string[] = [],
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -5483,9 +5504,16 @@ function classifyGroup(
   //
   // NOT `BLOCKED_NOTE`. That sentence answers the slice verdict — the wave's
   // eligibility — and this answers the branch's own state.
-  const prerequisite = waitsOn || 'an unnamed prerequisite';
+  const prerequisite = waitsOn.length === 0 ? 'an unnamed prerequisite' : prerequisiteList(waitsOn);
   if (state === 'blocked') {
-    return { group: 'not-started', note: `waits for ${prerequisite}, which has no pull request` };
+    // SEVERAL PREREQUISITES: "which has no pull request" NAMES ONLY ONE OF
+    // THEM, so it is wrong once the list grows past one — only one declared
+    // branch may be the typo. `waitsOn.length === 0` keeps the one-name
+    // sentence byte-identical, because an unnamed prerequisite is still
+    // singular.
+    const missing =
+      waitsOn.length > 1 ? 'one of which has no pull request' : 'which has no pull request';
+    return { group: 'not-started', note: `waits for ${prerequisite}, ${missing}` };
   }
   if (state === 'waiting') {
     return { group: 'not-started', note: `waits for ${prerequisite}` };

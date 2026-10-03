@@ -69,9 +69,16 @@ import { pathToFileURL } from 'node:url';
  * | `pr` | `OPEN`, `MERGED`, `CLOSED`, `NONE`, `-` |
  * | `commitsAhead` | a non-negative integer |
  * | `realCommitsAhead` | a non-negative integer |
- * | `waitsBranch` | the prerequisite, or `-` where the plan names none |
- * | `waitsPr` | the prerequisite's PR word, `-` where the host could not answer, or `?` where it was not asked |
+ * | `waitsBranch` | every prerequisite, comma-separated, or `-` where the plan names none |
+ * | `waitsPr` | the prerequisites' PR words, comma-separated and in the same order, `?` where none was asked |
  * | `prListComplete` | `true` where the host's PR list held every PR, anything else otherwise |
+ *
+ * **TWO PARALLEL COLUMNS, NOT ONE PER PREREQUISITE.** The scan still asks one
+ * round trip per BRANCH, not per prerequisite, so field 10 is `?` for the whole
+ * branch or a reading for every name field 9 lists — never a mix. A name list
+ * and a state list of different lengths is a defect in the scan, and this
+ * refuses it rather than guessing a zip, the same way {@link countFrom} refuses
+ * an unparsable count rather than coercing it.
  *
  * **`?` IS NOT A READING AND `-` IS.** They were one marker until the first CI
  * run of this bundle, and collapsing them is a defect with a direction: the
@@ -83,7 +90,11 @@ import { pathToFileURL } from 'node:url';
  * runs the corpus with no token: one branch, `adapter=waiting production=open`.
  *
  * So `?` alone means the shell has not put the question, and only `?` makes
- * `waits` null and raises the flag that asks it to.
+ * `waits` empty and raises the flag that asks it to. `-` also gives an empty
+ * `waits`, because the plan names nothing to ask about — the two are kept
+ * apart by {@link ParsedLine.waitsBranch}, which the rule's own
+ * `REPLACEABLE_BY_PREREQUISITE` flag depends on to tell *nothing declared* from
+ * *declared, not yet read*.
  */
 const FIELDS = 11;
 
@@ -153,19 +164,19 @@ export const readingsFrom = (text: string): BranchReadings[] =>
   parsedFrom(text).map((entry) => entry.readings);
 
 /**
- * One parsed line: the readings, and the prerequisite the plan named.
+ * One parsed line: the readings, and the prerequisites the plan named.
  *
- * The name is kept BESIDE the readings rather than inside them, because the
- * rule's `waits` is `null` for two different lines — a plan naming no
- * prerequisite, and a plan naming one whose state has not been read. Only the
+ * The names are kept BESIDE the readings rather than inside them, because the
+ * rule's `waits` is `[]` for two different lines — a plan naming no
+ * prerequisite, and a plan naming some whose state has not been read. Only the
  * second is worth a host round trip, and the flag {@link answer} reports must
  * tell them apart.
  */
 interface ParsedLine {
   /** What the rule takes. */
   readings: BranchReadings;
-  /** The prerequisite the plan named, or `''` where it named none. */
-  waitsBranch: string;
+  /** Every prerequisite the plan named, empty where it named none. */
+  waitsBranch: readonly string[];
 }
 
 /**
@@ -192,6 +203,16 @@ const parsedFrom = (text: string): ParsedLine[] =>
       ] = fields as [
         string, string, string, string, string, string, string, string, string, string, string,
       ];
+      const names = waitsBranch === '-' ? [] : waitsBranch.split(',');
+      // `?` IS A SINGLE FLAG FOR THE WHOLE BRANCH, NEVER PER-ITEM: the scan asks
+      // one round trip per branch, so a state list either answers every named
+      // prerequisite or answers none of them.
+      const states = waitsPr === '?' ? [] : waitsPr.split(',');
+      if (waitsPr !== '?' && names.length !== states.length) {
+        throw new Error(
+          `line ${i + 1}: waitsBranch names ${names.length} prerequisite(s) but waitsPr carries ${states.length}: '${waitsBranch}' / '${waitsPr}'`,
+        );
+      }
       const readings: BranchReadings = {
         deferredByPlan: deferred === 'true',
         refTip: refTip === '-' ? null : refTip,
@@ -202,12 +223,9 @@ const parsedFrom = (text: string): ParsedLine[] =>
         prListComplete: listComplete === 'true',
         commitsAhead: countFrom(ahead, i + 1, 'commitsAhead'),
         realCommitsAhead: countFrom(real, i + 1, 'realCommitsAhead'),
-        waits:
-          waitsBranch === '-' || waitsPr === '?'
-            ? null
-            : { branch: waitsBranch, pr: prFrom(waitsPr) },
+        waits: waitsPr === '?' ? [] : names.map((branch, index) => ({ branch, pr: prFrom(states[index] as string) })),
       };
-      return { readings, waitsBranch: waitsBranch === '-' ? '' : waitsBranch };
+      return { readings, waitsBranch: names };
     });
 
 /**
@@ -229,8 +247,8 @@ export const answer = (text: string): string =>
     .map(({ readings, waitsBranch }) => {
       const state = branchState(readings);
       const needs =
-        waitsBranch !== ''
-        && readings.waits === null
+        waitsBranch.length > 0
+        && readings.waits.length === 0
         && REPLACEABLE_BY_PREREQUISITE.includes(state)
           ? '1'
           : '0';

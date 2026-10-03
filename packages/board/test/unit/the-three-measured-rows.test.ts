@@ -24,7 +24,7 @@ const readings = (over: Partial<BranchReadings>): BranchReadings => ({
   prListComplete: false,
   commitsAhead: 0,
   realCommitsAhead: 0,
-  waits: null,
+  waits: [],
   ...over,
 });
 
@@ -33,14 +33,19 @@ const readings = (over: Partial<BranchReadings>): BranchReadings => ({
 const tempRoot = branchState(readings({ refTip: 'old111' }));
 // No ref anywhere; its prerequisite has no pull request.
 const declaresBound = branchState(
-  readings({ waits: { branch: 'bug/a-missing-prerequisite', pr: 'none' } }),
+  readings({ waits: [{ branch: 'bug/a-missing-prerequisite', pr: 'none' }] }),
 );
 // Two file-touching commits beyond main and a PR it closed itself.
 const stateSweep = branchState(
   readings({ refTip: 'sweep222', commitsAhead: 3, realCommitsAhead: 2, pr: 'CLOSED' }),
 );
 
-const branch = (name: string, state: BranchState, worker: WorkerState, waitsOn = '') => ({
+const branch = (
+  name: string,
+  state: BranchState,
+  worker: WorkerState,
+  waitsOn: readonly string[] = [],
+) => ({
   branch: name, state, deferred: false, claimed: '', waits_on: waitsOn,
   worker, worker_pid: worker === 'running' ? '4242' : '', worker_exit: '',
 });
@@ -62,7 +67,7 @@ const pulse = (): FleetReading => ({
       slices: [{
         name: 'Declared',
         verdict: 'eligible',
-        branches: [branch(DECLARES_BOUND, declaresBound, 'none', 'bug/a-missing-prerequisite')],
+        branches: [branch(DECLARES_BOUND, declaresBound, 'none', ['bug/a-missing-prerequisite'])],
       }],
     },
     {

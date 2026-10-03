@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   deskManifest,
+  loopRegistration,
   manifestDirectory,
   watchedDesk,
   type ManifestReading,
@@ -474,6 +475,58 @@ describe('watchedDesk agrees with plot_watched_desk', () => {
     const shell = askWatchedDesk(manifest, '/estate/.worktrees/launch-one');
     const rule = watchedDesk({ launched: '/estate/.worktrees/launch-one', manifestWorktree: '   ' });
     expect(shell).toBe('/estate/.worktrees/launch-one');
+    expect(rule).toBe(shell);
+  });
+});
+
+/**
+ * A FIFTH COMPARISON, ADDED FOR `a-continued-loop-carries-its-manifest`: does
+ * `loopRegistration` agree with `loop_registration` in
+ * `plot-worker-loop.sh`'s `wait_for_work`? The pair exists for the same cost
+ * reason as the others — the wait polls every `WAIT_POLL_SECONDS` per agent,
+ * where a 39 ms `node` hop is a cost paid forever.
+ *
+ * `plot-worker-loop.sh` IS NOT SOURCEABLE ON ITS OWN (no `NO_MAIN` guard), so
+ * the shell side is driven through `PLOT_WORKER_LOOP_SOURCED=1`, the idiom
+ * `test/reconcile/ending.test.mjs` already uses for the same file's
+ * `write_ending`.
+ */
+describe('loopRegistration agrees with loop_registration', () => {
+  const LOOP = `${SCRIPTS}/plot-worker-loop.sh`;
+
+  /** Ask the shell function directly — no desk needed, only a path and its existence. */
+  const askLoopRegistration = (manifestFile: string): string =>
+    execFileSync(
+      'bash',
+      ['-c', 'PLOT_WORKER_LOOP_SOURCED=1\n. "$1" >/dev/null 2>&1\nloop_registration "$2"', 'bash', LOOP, manifestFile],
+      { encoding: 'utf8' },
+    );
+
+  let scratch = '';
+  beforeAll(() => { scratch = mkdtempSync(join(tmpdir(), 'plot-loop-registration-corpus-')); });
+  afterAll(() => { if (scratch !== '') rmSync(scratch, { recursive: true, force: true }); });
+
+  it('answers unset for no manifest file at all, on both sides', () => {
+    const shell = askLoopRegistration('');
+    const rule = loopRegistration({ manifestFile: '', exists: false });
+    expect(shell).toBe('unset');
+    expect(rule).toBe(shell);
+  });
+
+  it('answers registered for a manifest that exists, on both sides', () => {
+    const manifest = join(scratch, 'present.json');
+    writeFileSync(manifest, '{\n  "worktree": "/estate/.worktrees/one"\n}\n');
+    const shell = askLoopRegistration(manifest);
+    const rule = loopRegistration({ manifestFile: manifest, exists: true });
+    expect(shell).toBe('registered');
+    expect(rule).toBe(shell);
+  });
+
+  it('answers gone for a named manifest that is absent, on both sides', () => {
+    const manifest = join(scratch, 'no-such-manifest.json');
+    const shell = askLoopRegistration(manifest);
+    const rule = loopRegistration({ manifestFile: manifest, exists: false });
+    expect(shell).toBe('gone');
     expect(rule).toBe(shell);
   });
 });

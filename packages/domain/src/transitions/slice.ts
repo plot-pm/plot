@@ -1,5 +1,5 @@
 import { SliceVerdictSchema, type SliceVerdict } from '../entities/fleet.js';
-import type { PrereqAnswer } from '../rules/eligible.js';
+import type { WaitPrerequisite } from '../rules/eligible.js';
 import { waitVerdict } from '../rules/eligible.js';
 
 /*
@@ -323,7 +323,7 @@ export const observeSliceVerdict = (
 };
 
 /**
- * What was read about the branch a slice's `waits:` annotation names.
+ * What was read about one branch a slice's `waits:` annotation names.
  *
  * **THE HOST IS ASKED, AND THE REFS ARE NOT.** That is the whole of this
  * slice's assertion, and the shape is what enforces it: there is no field here
@@ -335,12 +335,7 @@ export const observeSliceVerdict = (
  * **never re-parsed here**. The parser is the contract; a second reading of
  * the annotation is a second answer.
  */
-export interface PrerequisiteReading {
-  /** The branch this slice's branch waits on — `''` where it declares none. */
-  waitsOn: string;
-  /** What the host said about that branch's pull requests. */
-  answer: PrereqAnswer;
-}
+export type PrerequisiteReading = WaitPrerequisite;
 
 /**
  * Whether a slice's prerequisite has cleared, and why not where it has not.
@@ -369,40 +364,50 @@ export interface PrerequisiteReading {
  *   and it is equally not proof of a typo — it resolves the moment the host can
  *   be asked again.
  *
+ * **EVERY PREREQUISITE MUST CLEAR, AND THE FIRST ONE THAT HAS NOT NAMES THE
+ * REFUSAL.** A plan may name several; the slice proceeds only when all of them
+ * merged. Tested in the PLAN'S OWN ORDER — the first entry whose answer is not
+ * `merged` is the one the refusal names, whichever of the three unresolved
+ * answers it carries. Two readers of one refusal then agree on which
+ * prerequisite it names, because the order is the plan's and not a re-ranking
+ * of the answers.
+ *
+ * An EMPTY list clears: a branch declaring no prerequisite is held by nothing.
+ *
  * @param id - the slice's identity, `plan#name`.
- * @param reading - the branch the slice waits on, and what the host said of it.
+ * @param readings - every branch the slice waits on, in the plan's order, and
+ *   what the host said of each. Empty where the slice declares none.
  * @param preconditions - readings a caller measured.
  * @returns a decision that the slice may proceed to `eligible`, or a refusal
- *   naming the gate: `prerequisite-unlanded`, `prerequisite-unknown`,
- *   `prerequisite-unasked` or `precondition-unmet`.
+ *   naming the gate and the first prerequisite it fires on:
+ *   `prerequisite-unlanded`, `prerequisite-unknown`, `prerequisite-unasked` or
+ *   `precondition-unmet`.
  */
 export const prerequisiteCleared = (
   id: string,
-  reading: PrerequisiteReading,
+  readings: readonly PrerequisiteReading[],
   preconditions: readonly Precondition[] = [],
 ): TransitionResult => {
-  if (reading.waitsOn !== '' && reading.answer === 'unreachable') {
-    return refuse(
-      id,
-      'prerequisite-unasked',
-      `slice '${id}' waits on '${reading.waitsOn}' and the host could not be asked — silence is not permission to start, and not proof of a typo either.`,
-    );
-  }
-
-  if (reading.waitsOn !== '' && reading.answer === 'none') {
-    return refuse(
-      id,
-      'prerequisite-unknown',
-      `slice '${id}' waits on '${reading.waitsOn}' and the host has never seen a pull request for it — a typo in the plan, resolved by editing the plan rather than by waiting.`,
-    );
-  }
-
-  const held = waitVerdict(reading.waitsOn, reading.answer);
-  if (held !== '') {
+  const unresolved = readings.find((reading) => reading.answer !== 'merged');
+  if (unresolved) {
+    if (unresolved.answer === 'none') {
+      return refuse(
+        id,
+        'prerequisite-unknown',
+        `slice '${id}' waits on '${unresolved.waitsOn}' and the host has never seen a pull request for it — a typo in the plan, resolved by editing the plan rather than by waiting.`,
+      );
+    }
+    if (unresolved.answer === 'unreachable') {
+      return refuse(
+        id,
+        'prerequisite-unasked',
+        `slice '${id}' waits on '${unresolved.waitsOn}' and the host could not be asked — silence is not permission to start, and not proof of a typo either.`,
+      );
+    }
     return refuse(
       id,
       'prerequisite-unlanded',
-      `slice '${id}' waits on '${reading.waitsOn}', which has not merged — a wait with an end, cleared by that branch landing.`,
+      `slice '${id}' waits on '${unresolved.waitsOn}', which has not merged — a wait with an end, cleared by that branch landing.`,
     );
   }
 
