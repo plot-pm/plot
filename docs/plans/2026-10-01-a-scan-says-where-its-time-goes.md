@@ -107,7 +107,7 @@ The board-shaped scan timed on `origin/main` and split into host, git, shell and
 
 Removes the one cost slice 1 names, if it holds 30% of the median or the median is 45 s or more; deferred otherwise. A decision moves into `packages/domain`; shell overhead is fixed in place.
 
-### The plan index is read once (Branch: bug/the-plan-index-is-read-once) <!-- waits: bug/the-scan-drops-its-largest-cost -->
+### The plan index is read once (Branch: bug/the-plan-index-is-read-once, PR: #1248) <!-- waits: bug/the-scan-drops-its-largest-cost -->
 
 Replaces the linear scan in `plan_meta_index_of` (`plot-fleet-scan.sh:2937-2938`, about 294 s over ~345,000 trace gaps in slice 1's trace) with one lookup built once per run. Shell overhead, fixed in place; no decision moves. <!-- builds: a plan-file index built once per scan -->
 
