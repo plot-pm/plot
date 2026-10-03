@@ -94,6 +94,7 @@ const throttled = (
     },
     workerAlive: async () => true,
     blocked: async () => false,
+    refused: async () => false,
     ...over,
   };
   return { world, asked };

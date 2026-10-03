@@ -39,6 +39,11 @@ const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   unnamed: false,
   landed: 'not-landed',
   priorUnknown: false,
+  // AN UNREFUSED SLICE IS THE DEFAULT, for the same reason `unnamed: false` is:
+  // every case but the new hold's is about a slice nobody refused, and a
+  // fixture defaulting the other way would silently move them all into
+  // `refused`.
+  refused: false,
   ...over,
 });
 
@@ -374,6 +379,16 @@ describe('assign — the tick starts agents when queued > running', () => {
     expect(decision.detail.scaling?.start).toBe(0);
   });
 
+  it('starts no agent for a refused slice — the hold already took it out of the queue', () => {
+    // THE PLAN'S SECOND OPEN QUESTION, PROVEN RATHER THAN ASSUMED: the slice
+    // must leave the queue on its own, with no second change to the start rule.
+    // `scaleUp` counts `no-free-agent` and nothing else, so a slice held
+    // `refused` must not be read as work waiting for capacity.
+    const decision = assign({ slices: [slice({ refused: true })], agents: [] }, { fleet: cap() });
+    expect(decision.detail.scaling?.start).toBe(0);
+    expect(decision.detail.held).toEqual([{ branch: 'feature/x', hold: 'refused' }]);
+  });
+
   it('asks for the CAP and never for the queue — 456 slices do not start 456 agents', () => {
     const many = Array.from({ length: 20 }, (_, i) => slice({ branch: `feature/${i}` }));
     const decision = assign({ slices: many, agents: [] }, { fleet: cap({ size: 3 }) });
@@ -485,6 +500,7 @@ describe('a refusal is counted so a zero can be read', () => {
       whyNotReady(slice({ landed: 'unknown' })),
       whyNotReady(slice({ briefPresent: false })),
       whyNotReady(slice({ unnamed: true })),
+      whyNotReady(slice({ refused: true })),
       whyNotReady(slice({ claimable: false })),
       whyNotReady(slice({ claimable: false, priorUnknown: true })),
     ].filter((hold): hold is QueueHold => hold !== null);
@@ -669,5 +685,60 @@ describe('whyNotReady — a slice with no name is held rather than handed over',
     expect(match.assignments).toEqual([]);
     expect(match.held).toEqual([{ branch: 'feature/nameless', hold: 'slice-unnamed' }]);
     expect(match.idle).toEqual(['s1']);
+  });
+});
+
+/**
+ * A SLICE AN AGENT WAS HANDED AND REFUSED.
+ *
+ * Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
+ * wrote `PLOT-BLOCKED.md` and stopped. `rules/queue.ts` had no hold for that, so
+ * the next pass read the slice as queued and handed it to another free agent,
+ * which met the same refusal — 250 desks from one slice, at 17 to 19 an hour.
+ *
+ * The hold never ends on a timer: it is a reading the caller takes fresh each
+ * pass, and it clears the moment that reading does.
+ */
+describe('whyNotReady — a refused slice is held rather than handed to another agent', () => {
+  it('holds a claimable, briefed slice an agent refused, with agents free', () => {
+    // CATCHES A HOLD THAT IS COUNTED AND NOT ENFORCED: the assertion is on
+    // `matchQueue`, not only on the predicate, so a hold `whyNotReady` names but
+    // `matchQueue` still hands over would be caught here.
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/refused', refused: true })],
+      agents: [agent('s1')],
+    });
+    expect(match.assignments).toEqual([]);
+    expect(match.held).toEqual([{ branch: 'feature/refused', hold: 'refused' }]);
+    expect(match.idle).toEqual(['s1']);
+  });
+
+  it('hands the same slice over once the refusal reads false', () => {
+    // CATCHES A HOLD THAT FIRES ON EVERY SLICE, refusal or not.
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/clear', refused: false })],
+      agents: [agent('s1')],
+    });
+    expect(match.assignments.map((a) => a.branch)).toEqual(['feature/clear']);
+    expect(match.held).toEqual([]);
+  });
+
+  it('reads not-claimable when the refused slice is also not claimable', () => {
+    // CATCHES THE HOLD SWALLOWING THE ESTATE'S BACKLOG. A slice no plan makes
+    // startable yet is `not-claimable` as before; naming it `refused` here would
+    // move the backlog into a word meant for a slice an agent actually touched.
+    expect(whyNotReady(slice({ claimable: false, refused: true }))).toBe('not-claimable');
+  });
+
+  it('reads already-merged when the refused slice has landed', () => {
+    // A MERGED SLICE IS FINISHED, and a refusal on it is history: somebody
+    // landed the work after the refusal, or the branch merged some other way.
+    expect(whyNotReady(slice({ landed: 'landed', refused: true }))).toBe('already-merged');
+  });
+
+  it('gives `refused` a key in holdCounts, zero where none fired', () => {
+    const counts = holdCounts([]);
+    expect(counts['refused']).toBe(0);
+    expect(Object.keys(counts)).toContain('refused');
   });
 });

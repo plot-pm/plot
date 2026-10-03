@@ -1240,6 +1240,7 @@ describe('a tick asks the host about a branch once', () => {
         queuedHasLanded: queue.queuedHasLanded,
         workerAlive: async () => true,
         blocked: async () => false,
+        refused: async () => false,
       };
       const { slices } = await readQueue([], stub);
       expect(slices.map((slice) => whyNotReady(slice))).toEqual(['merge-unknown']);

@@ -1029,12 +1029,65 @@ yield_the_held_checkout() { # $1=holder $2=branch → 0 when the holder is gone
   esac
 }
 
+# The refused-slices record: one branch per line, under the COMMON git dir's
+# `.plot/state/` — never a worktree's own, for `record_slice_spend`'s reason.
+# `plot-reap.sh` runs `git worktree remove --force` over a finished desk, so a
+# record written to one is destroyed by the reap that measured it.
+#
+# `--git-common-dir` answers relatively in the checkout it is run from, so it
+# is resolved against `$PLOT_WORKTREE` rather than trusted as absolute.
+#
+# A FAILED RESOLUTION RECORDS NOTHING AND SAYS NOTHING, the same refusal
+# `record_slice_spend` makes: this runs on the same path as the marker, whose
+# own contract is to leave the checkout untouched when a reading cannot be
+# taken, and a record is strictly less load-bearing than the marker it rides
+# beside.
+refused_slices_path() { # → the record's path, or nothing on a failed resolution
+  local wt="${PLOT_WORKTREE:-$PWD}" common
+  common=$(git -C "$wt" rev-parse --git-common-dir 2>/dev/null) || return 1
+  case "$common" in
+    /*) : ;;
+    *) common="$wt/$common" ;;
+  esac
+  printf '%s/.plot/state/refused-slices.tsv' "$common"
+}
+
+# Appends a branch to the refused-slices record, once.
+#
+# NEVER TWICE FOR ONE BRANCH. A second refusal on the same branch after a
+# person already cleared the first line would otherwise re-add it the moment
+# this function runs again — grepping first is what keeps the record a set
+# rather than a log, and what keeps *the record line is removed* a real way
+# for the hold to end.
+#
+# THE QUEUE READS THIS BY BRANCH, NEVER BY WORKTREE. By the time the
+# supervisor looks, the desk that held the refusal may carry no manifest
+# naming the branch at all — measured 2026-10-03, 250 desks behind one refused
+# slice had their manifests already cleared.
+record_refused_slice() { # $1=branch
+  local branch="$1" path
+  [ -n "$branch" ] || return 0
+  path=$(refused_slices_path) || return 0
+  mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
+  if [ -f "$path" ] && grep -qxF "$branch" "$path" 2>/dev/null; then
+    return 0
+  fi
+  printf '%s\n' "$branch" >> "$path" 2>/dev/null
+}
+
 # The marker for a checkout that kept our branch.
 #
 # IN OUR OWN DESK, never the holder's: the holder may belong to another agent,
 # and `write_blocked_marker` refuses to speak over an existing question anyway.
 # The pair of path and branch is what made the foreign-marker incident legible,
 # and the condition is the word an operator greps.
+#
+# THE RECORD NAMES THE BRANCH THE QUEUE MUST HOLD, NOT THE DESK THAT REFUSED
+# IT. Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
+# wrote this exact marker and stopped; the queue had no hold for a refused
+# slice, read the branch as still queued, and handed it to another free
+# agent — 250 desks from one slice, at 17 to 19 an hour. `record_refused_slice`
+# is what `rules/queue.ts`'s `refused` reading now finds.
 blocked_on_held_checkout() { # $1=holder $2=branch $3=condition $4=extra prose
   local holder="$1" branch="$2" condition="$3" extra="$4" text
   text="PLOT-BLOCKED: the worktree \`$holder\` holds \`$branch\`, and this agent was handed that slice. The checkout was kept because \`$condition\`."
@@ -1042,6 +1095,7 @@ blocked_on_held_checkout() { # $1=holder $2=branch $3=condition $4=extra prose
   text="$text Plot removes only a checkout that yields on all six conditions, and never with \`--force\`, so nothing in that tree was touched. Read it, land or discard what it holds, then \`git worktree remove $holder\` and restart this agent with \`/plot-dispatch --restart $branch\`."
   echo "plot-worker-loop: the checkout at $holder keeps $branch ($condition) — leaving it untouched and asking a person" >&2
   write_blocked_marker "${PLOT_WORKTREE:-$PWD}" "$text"
+  record_refused_slice "$branch"
 }
 
 # Take the desk over for a new branch.
