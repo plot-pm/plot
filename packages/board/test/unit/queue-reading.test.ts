@@ -36,7 +36,7 @@ const plan = (slices: string[][], phase = 'approved'): PlanRecord =>
     // `name: ''` at its own call site.
     slices: slices.map((branches, index) => ({
       name: `Slice ${index + 1}`,
-      branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: '' })),
+      branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: [] })),
     })),
   }) as unknown as PlanRecord;
 
@@ -511,7 +511,7 @@ describe('a slice its plan names under no heading is held by the queue', () => {
     ({
       file: 'docs/plans/2026-10-02-an-unnamed-slice.md',
       phase: 'approved',
-      slices: [{ name: '', branches: [{ branch: 'feature/nameless', deferred: false, waitsOn: '' }] }],
+      slices: [{ name: '', branches: [{ branch: 'feature/nameless', deferred: false, waitsOn: [] }] }],
     }) as unknown as PlanRecord;
 
   /** A world that answers everything a hand-over needs, and counts host calls. */
@@ -588,7 +588,7 @@ describe('a slice its plan names under no heading is held by the queue', () => {
 });
 
 describe('a `waits:` prerequisite holds a slice through the real join', () => {
-  const planWithWait = (waitsOn: string): PlanRecord =>
+  const planWithWait = (waitsOn: readonly string[]): PlanRecord =>
     ({
       file: 'docs/plans/2026-10-01-a-plan.md',
       phase: 'approved',
@@ -598,7 +598,7 @@ describe('a `waits:` prerequisite holds a slice through the real join', () => {
     }) as unknown as PlanRecord;
 
   const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
-    plans: async () => [planWithWait('feature/prereq')],
+    plans: async () => [planWithWait(['feature/prereq'])],
     claimedBranches: async () => new Set<string>(),
     mergedBranches: async () => wholeListing([]),
     prIndexRows: async () => [],
@@ -616,7 +616,7 @@ describe('a `waits:` prerequisite holds a slice through the real join', () => {
     const readings = await readQueue([], world());
     const slice = readings.slices.find((s) => s.branch === 'feature/waiter')!;
     expect(whyNotReady(slice)).toBe('waits');
-    expect(slice.waitsOn).toBe('feature/prereq');
+    expect(slice.waitsOn).toEqual(['feature/prereq']);
     expect(slice.waitHeld).toBe('unmerged');
   });
 
