@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-10-03, Jan Wloka, `bug/every-wait-reaches-the-verdict`
+- **Started:** 2026-10-03, Jan Wloka, `bug/the-parser-reads-every-wait`
 
 ## Changelog
 

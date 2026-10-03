@@ -133,12 +133,18 @@ test('on main a stale build warns and exits 0, and on the build commit it fails'
   }
 });
 
-test('a pull request with a stale bundle is an error', () => {
+test('a pull request whose build differs from its checkout warns and passes', () => {
+  // SINCE bug/a-pr-carries-no-bundle: a PR's diff carries no generated path
+  // (check-no-bundle-diff.sh refuses one that does), so its checkout holds
+  // main's build, never its own. A PR that changes board source always
+  // rebuilds to something that differs from that checked-out build — the
+  // expected shape of such a PR, not a stale check-in. Failing here would
+  // fail every PR that touches board source.
   const { root, work } = fixture();
   try {
     const r = run('pr', work, build('v2'));
-    assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stdout, /Stale board bundles: .*plot-ask\.mjs/);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout + r.stderr, /::warning::.*plot-ask\.mjs/);
   } finally {
     cleanup(root);
   }

@@ -67,17 +67,49 @@ function stuck(over: Partial<Stuck>): Stuck {
   };
 }
 
-describe('mayResolve — exactly one state, and only on an observed set', () => {
-  it('accepts an artifact-only conflict', () => {
-    expect(mayResolve(stuck({}))).toBe(true);
+// SWITCHED OFF, since bug/a-pr-carries-no-bundle: a PR's diff carries no
+// generated bundle (check-no-bundle-diff.sh refuses one that does), so an
+// automatic rebuild pushed by this repair would commit into a PR that gate
+// now refuses outright. `mayResolve` refuses every `artifact-conflict`
+// unconditionally — the one assertion this slice's "Done when" names — and
+// every other case that used to need its own refusal is now subsumed by it.
+//
+// NOT REMOVED. bug/the-artifact-repair-is-retired deletes `mayResolve`,
+// `startRepair` and this file's reporting-layer tests below; this slice only
+// closes the one entry point the removal has not yet reached.
+describe('mayResolve — switched off, refuses every artifact-conflict', () => {
+  it('refuses an artifact-only conflict — the one case this guard used to accept', () => {
+    expect(mayResolve(stuck({}))).toBe(false);
   });
 
-  // THE PAIRING THAT MATTERS. An implementation asking *is the artifact among
-  // the conflicts* passes every artifact-only assertion above and silently
-  // repairs merges that need judgement as a whole. A conflict touching the
-  // artifact AND anything else is one of those, even though one of its files
-  // would resolve mechanically on its own.
-  it('refuses a mixed conflict set — the artifact plus one other file', () => {
+  it('refuses a conflict in ANY bundle the build emits, and in several together', () => {
+    for (const bundle of BOARD_ARTIFACT_PATHS) {
+      expect(mayResolve(stuck({ conflicts: [bundle] }))).toBe(false);
+    }
+    expect(mayResolve(stuck({ conflicts: [...BOARD_ARTIFACT_PATHS] }))).toBe(false);
+  });
+
+  it('refuses every other stuck state too, as it always did', () => {
+    expect(mayResolve(stuck({ state: 'conflict', conflicts: [OTHER] }))).toBe(false);
+    expect(mayResolve(stuck({ state: 'ci-failing', conflicts: [] }))).toBe(false);
+    expect(mayResolve(stuck({ state: 'unpushed', conflicts: [], localAhead: 3 }))).toBe(false);
+    const states = ['artifact-conflict', 'conflict', 'ci-failing', 'unpushed'] as const;
+    const allowed = states.filter((s) =>
+      mayResolve(stuck({ state: s, conflicts: [ARTIFACT] })));
+    expect(allowed).toEqual([]);
+  });
+
+  it('refuses a healthy branch — null is the common answer', () => {
+    expect(mayResolve(null)).toBe(false);
+    expect(mayResolve(undefined)).toBe(false);
+  });
+
+  // THE TYPE GUARD STILL NARROWS CORRECTLY even though it never returns true at
+  // runtime — `stuck is Stuck` is TypeScript's declaration of what a `true`
+  // WOULD mean, not a promise that one is reachable. `stuckState` still
+  // classifies `artifact-conflict` exactly as it did; only the permission to
+  // act on it is gone.
+  it('still recognises the classification it refuses to act on', () => {
     const mixed = stuckState({
       state: 'wip',
       conflicts: [ARTIFACT, OTHER],
@@ -86,94 +118,6 @@ describe('mayResolve — exactly one state, and only on an observed set', () => 
     });
     expect(mixed?.state).toBe('conflict');
     expect(mayResolve(mixed)).toBe(false);
-
-    // And directly, in case a future detector ever mislabels one: the guard
-    // does not take the state's word for the set it names.
-    expect(mayResolve(stuck({ conflicts: [ARTIFACT, OTHER] }))).toBe(false);
-  });
-
-  // THE WIDENING, 2026-09-06 — and the property it must not cost.
-  //
-  // `mayResolve` compared against ONE filename, so a conflict in any of the
-  // other eight bundles was refused and repaired by hand. PR #727 paid for it:
-  // refused on `plot-registryd.mjs`, then repaired automatically hours later on
-  // `board-server.mjs` — same class of conflict, one filename apart.
-  it('may resolve a conflict in ANY bundle the build emits', () => {
-    for (const bundle of BOARD_ARTIFACT_PATHS) {
-      expect(mayResolve(stuck({ conflicts: [bundle] }))).toBe(true);
-    }
-    // The bundle the defect was reported against, named so a regression says why.
-    expect(mayResolve(stuck({
-      conflicts: ['skills/plot/scripts/board/plot-registryd.mjs'],
-    }))).toBe(true);
-  });
-
-  it('may resolve several bundles conflicting together', () => {
-    // One `pnpm build:board` regenerates all of them, so a set of bundles is no
-    // less mechanical than a set of one.
-    expect(mayResolve(stuck({ conflicts: [...BOARD_ARTIFACT_PATHS] }))).toBe(true);
-  });
-
-  it('still refuses a non-bundle path beside ANY bundle', () => {
-    // The guard asks whether EVERY conflicted path is a bundle, never whether a
-    // bundle is among them. The second question passes every bundle-only case
-    // above and silently repairs merges that need judgement as a whole.
-    for (const bundle of BOARD_ARTIFACT_PATHS) {
-      expect(mayResolve(stuck({ conflicts: [bundle, OTHER] }))).toBe(false);
-      expect(mayResolve(stuck({ conflicts: [OTHER, bundle] }))).toBe(false);
-    }
-    expect(mayResolve(stuck({ conflicts: [...BOARD_ARTIFACT_PATHS, OTHER] }))).toBe(false);
-  });
-
-  it('refuses `plot-monitor.mjs`, which no build emits', () => {
-    // Nothing rebuilds it, so it has no deterministic rebuild — and the
-    // deterministic rebuild is the whole licence for touching a file at all.
-    expect(mayResolve(stuck({
-      conflicts: ['skills/plot/scripts/board/plot-monitor.mjs'],
-    }))).toBe(false);
-  });
-
-  // A HOST VERDICT WITH NO OBSERVED SET. `merge-tree` predicts from the refs
-  // THIS machine holds; the host computed against the branch as it stands, so a
-  // stale ref makes the prediction wrong in the REASSURING direction. Both
-  // 2026-08-17 artifact conflicts appeared only at `gh pr merge`. The artifact
-  // case rests entirely on the set being exactly one known file — and here
-  // there is no set at all.
-  it('refuses a host-declared conflict with an empty conflicts array', () => {
-    const hostOnly = stuckState({
-      state: 'wip',
-      conflicts: [],
-      conflictsKnown: false,
-      localAhead: 0,
-      prState: 'conflicts',
-    });
-    expect(hostOnly?.state).toBe('conflict');
-    expect(hostOnly?.conflicts).toEqual([]);
-    expect(mayResolve(hostOnly)).toBe(false);
-
-    // Restated at this layer: an `artifact-conflict` carrying no set would be
-    // the same guess wearing the one label licensed to write.
-    expect(mayResolve(stuck({ conflicts: [] }))).toBe(false);
-  });
-
-  // NO OTHER FAILURE GAINS AN AUTOMATIC PATH. A real code conflict has no
-  // deterministic resolution, a red check has no rebuild that proves it, and an
-  // unpushed rebase is someone else's work in progress.
-  it('refuses conflict, ci-failing and unpushed — every other stuck state', () => {
-    expect(mayResolve(stuck({ state: 'conflict', conflicts: [OTHER] }))).toBe(false);
-    expect(mayResolve(stuck({ state: 'ci-failing', conflicts: [] }))).toBe(false);
-    expect(mayResolve(stuck({ state: 'unpushed', conflicts: [], localAhead: 3 }))).toBe(false);
-    // The whole set, so a state added later must be considered rather than
-    // inherited: exactly one of the four is repairable.
-    const states = ['artifact-conflict', 'conflict', 'ci-failing', 'unpushed'] as const;
-    const allowed = states.filter((s) =>
-      mayResolve(stuck({ state: s, conflicts: [ARTIFACT] })));
-    expect(allowed).toEqual(['artifact-conflict']);
-  });
-
-  it('refuses a healthy branch — null is the common answer', () => {
-    expect(mayResolve(null)).toBe(false);
-    expect(mayResolve(undefined)).toBe(false);
   });
 });
 
@@ -196,8 +140,13 @@ describe('startRepair — what is started, and what is refused', () => {
     };
   });
 
-  it('starts a repair for an artifact-only conflict and for nothing else', () => {
-    expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
+  // mayResolve REFUSES EVERY STATE NOW, so startRepair starts nothing for any
+  // of them — the artifact-only case included. This is the exact property
+  // `bug/a-pr-carries-no-bundle` exists to add: the one write this system used
+  // to grant automatically is gone, and nothing downstream needed to change
+  // for that to be true, because startRepair's first fence IS mayResolve.
+  it('starts a repair for nothing — mayResolve refuses every state, artifact-only included', () => {
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(false);
     expect(startRepair('feature/b', stuck({ state: 'conflict', conflicts: [OTHER] }), opts))
       .toBe(false);
     expect(startRepair('feature/c', stuck({ state: 'unpushed', localAhead: 2 }), opts))
@@ -206,24 +155,19 @@ describe('startRepair — what is started, and what is refused', () => {
       .toBe(false);
     expect(startRepair('feature/e', null, opts)).toBe(false);
 
-    // The load-bearing assertion: the refusals SPAWNED NOTHING. Every other
-    // assertion here can pass while the side effect still happened.
-    expect(started).toEqual(['feature/a']);
-  });
-
-  // TWO REPAIRS NEVER RUN ON ONE BRANCH AT ONCE. The pulse fires every 5 s and
-  // the repair takes minutes, during which the branch stays `artifact-conflict`
-  // — so without this guard the SECOND pulse starts a duplicate that fights the
-  // first over the same worktree, and the artifact belongs to neither run.
-  it('refuses a second repair while the first is in flight', () => {
-    expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
-    expect(startRepair('feature/a', stuck({}), opts)).toBe(false);
-    expect(startRepair('feature/a', stuck({}), opts)).toBe(false);
-    expect(started).toEqual(['feature/a']);
+    // The load-bearing assertion: NOTHING SPAWNED. Every other assertion here
+    // can pass while the side effect still happened.
+    expect(started).toEqual([]);
   });
 });
 
-describe('every repair is reported — running, pushed and abandoned alike', () => {
+// THE REPORTING LAYER (repairFor, the log parse, the echo window) IS UNCHANGED
+// CODE, but it can no longer be reached from this test file's only entry
+// point: startRepair now refuses before it ever calls spawnRepair, because its
+// first fence is mayResolve. bug/the-artifact-repair-is-retired removes this
+// machinery outright; until then this block is a record of what untestable
+// through the public surface, not a claim that the behavior is gone.
+describe.skip('every repair is reported — running, pushed and abandoned alike (unreachable: mayResolve refuses before any repair starts)', () => {
   let repoRoot: string;
   let exit: ((code: number | null) => void) | null;
   let opts: Parameters<typeof startRepair>[2];
@@ -309,7 +253,11 @@ describe('every repair is reported — running, pushed and abandoned alike', () 
 // pulse. Measured on 2026-08-17: five identical entries in the log, one per
 // pulse, each reaching into the same worktree — a loop with no new information
 // between iterations.
-describe('a not-observed refusal does not repeat on unchanged input', () => {
+// ALSO UNREACHABLE: the not-observed fence is startRepair's THIRD check, after
+// mayResolve. Since mayResolve now refuses every state, this block's premise —
+// a repair that started once and was refused as not-observed — can no longer
+// occur. Skipped for the reason the reporting-layer block above states.
+describe.skip('a not-observed refusal does not repeat on unchanged input (unreachable: mayResolve refuses before any repair starts)', () => {
   let repoRoot: string;
   let started: string[];
   let exit: ((code: number | null) => void) | null;
@@ -425,7 +373,12 @@ describe('a not-observed refusal does not repeat on unchanged input', () => {
 // without the board acting on them had to stop the board. These assertions are
 // aimed at the two ways a switch goes wrong — one that fails to disable, and
 // one that disables more than it was asked to.
-describe('PLOT_BOARD_REPAIR — the repair is refusable, and only ever downward', () => {
+// ALSO UNREACHABLE, for the reason the two blocks above state: every one of
+// these assertions turns the switch ON at some point and expects startRepair
+// to then succeed, which mayResolve's unconditional refusal now forecloses.
+// "starts nothing when switched off" is no longer a distinguishing case — the
+// repair starts nothing either way.
+describe.skip('PLOT_BOARD_REPAIR — the repair is refusable, and only ever downward (unreachable: mayResolve refuses regardless of the switch)', () => {
   let repoRoot: string;
   let started: string[];
   let opts: Parameters<typeof startRepair>[2];
@@ -553,16 +506,20 @@ describe('repairEnabledFromEnv — unset is on, and only "0" is off', () => {
     }
   });
 
-  // THE DEFAULT REACHES startRepair, not just the parser. An options object
-  // that never mentions the switch — which is every caller written before it
-  // existed — still repairs.
-  it('an options object with no repairEnabled still repairs', () => {
+  // THE DEFAULT OMITS THE SWITCH ENTIRELY, not just unsets it — every caller
+  // written before `PLOT_BOARD_REPAIR` existed passes an options object with no
+  // `repairEnabled` key at all, and that path must not throw or behave
+  // differently from one that passes `true` explicitly. `mayResolve`'s
+  // unconditional refusal means startRepair still starts nothing either way —
+  // see the skipped `PLOT_BOARD_REPAIR` block above for what this asserted
+  // before that switch-off.
+  it('an options object with no repairEnabled starts nothing, same as every other input now', () => {
     resetRepairs();
     const repoRoot = nestedRepo();
     const started: string[] = [];
     const bare = { repoRoot, scriptsDir: '/scripts', spawnRepair: ({ branch }: { branch: string }) => { started.push(branch); } };
     expect('repairEnabled' in bare).toBe(false);
-    expect(startRepair('feature/a', stuck({}), bare)).toBe(true);
-    expect(started).toEqual(['feature/a']);
+    expect(startRepair('feature/a', stuck({}), bare)).toBe(false);
+    expect(started).toEqual([]);
   });
 });

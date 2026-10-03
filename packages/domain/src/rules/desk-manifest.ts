@@ -108,6 +108,14 @@ export interface LoopRegistrationReading {
 /** Whether a waiting loop's manifest still names it. */
 export type LoopRegistration = 'registered' | 'unset' | 'gone';
 
+/** What a row read before asking what to say about a desk no manifest names. */
+export interface UnnamedDeskReading {
+  /** The branch the desk has checked out; `''` when it holds none. */
+  readonly checkout: string;
+  /** Whether a process is working this desk now — the caller's own liveness reading. */
+  readonly live: boolean;
+}
+
 /** Removes trailing `/` from a path, keeping a lone `/` intact. */
 const trimTrailing = (p: string): string => {
   let end = p.length;
@@ -224,4 +232,34 @@ export const watchedDesk = (reading: WatchedDeskReading): string => {
 export const loopRegistration = (reading: LoopRegistrationReading): LoopRegistration => {
   if (reading.manifestFile === '') return 'unset';
   return reading.exists ? 'registered' : 'gone';
+};
+
+/**
+ * The words a row shows for a desk no manifest names.
+ *
+ * NAMES THE ABSENCE FIRST, because `#1101` measured the alternative: a
+ * synthesized entry carried `branch: wt.branch` and the row read as an agent
+ * working that branch, when the branch is a fact about the DESK's checkout and
+ * not an assignment from the registry. No manifest ever claimed this agent, so
+ * the label says so before it says anything about the process.
+ *
+ * `live` IS THE CALLER'S OWN READING, not the board's full state enum. The
+ * caller already turns its state into a liveness boolean for other purposes
+ * (`isLiveState`) and the domain may not import the board's vocabulary to
+ * re-derive one here — the layering rule points inward, and this package may
+ * import `zod` and nothing else outside `adapters/`.
+ *
+ * ABSENT IS NOT FALSE, applied to `checkout`. A desk between slices holds no
+ * branch, so the label omits the checkout clause entirely rather than naming
+ * an empty one — *no manifest names this desk, and it is idle* reads honestly
+ * where *checked out `` * would not.
+ *
+ * @param reading - the desk's checkout, and whether it is live.
+ * @returns the label's words; no trailing punctuation.
+ */
+export const unnamedDeskLabel = (reading: UnnamedDeskReading): string => {
+  const base = 'no manifest names this desk';
+  const activity = reading.live ? 'working' : 'idle';
+  const checkout = reading.checkout.trim();
+  return checkout === '' ? `${base}, ${activity}` : `${base}, ${activity}, checked out ${checkout}`;
 };

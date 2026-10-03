@@ -88,6 +88,16 @@
 # within an hour of removing it at large scale.
 PLOT_WORKER_RECORD='\.plot-worker\.'
 
+# `exclude_bundle_paths` (`plot-desk-dirt.sh`), SOURCED SO `plot_worker_dirty_filter`
+# CAN EXCUSE A REBUILT BUNDLE THE SAME WAY `desk_dirt` DOES. A sibling path,
+# the shape every caller of this file already sources it by (`$script_dir/` or
+# `$(dirname "${BASH_SOURCE[0]}")/`), so the same path resolves it in turn.
+# Best-effort: a guard reads `command -v exclude_bundle_paths` before any call,
+# so a missing sibling degrades to the three exclusions below alone.
+# shellcheck source=plot-desk-dirt.sh
+desk_dirt_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-desk-dirt.sh"
+[ -r "$desk_dirt_lib" ] && . "$desk_dirt_lib"
+
 # ---------------------------------------------------------------------------
 # THE REGISTRY HOLDS THE PID — the anchor moved from worktree to manifest
 # ---------------------------------------------------------------------------
@@ -497,7 +507,7 @@ plot_worker_blocked_file() { # $1=worktree → prints the marker's basename
 plot_worker_dirty() { # $1=worktree → the dirty files, one per line, leftovers dropped
   local wt="$1"
   [ -n "$wt" ] && [ -d "$wt" ] || return 0
-  plot_worker_dirty_filter "$(git -C "$wt" status --porcelain 2>/dev/null)"
+  plot_worker_dirty_filter "$(git -C "$wt" status --porcelain 2>/dev/null)" "$wt"
 }
 
 # Keep a file the estate writes into every desk out of `git status`.
@@ -536,11 +546,26 @@ plot_desk_exclude() { # $1=worktree $2=the exact line to exclude
 # what counts as work on the floor, two ways of getting the input to it — which
 # is the same one-computation-two-renderings split this file already draws for
 # `plot_worker_state`.
-plot_worker_dirty_filter() { # $1=`git status --porcelain` output → the real work
+plot_worker_dirty_filter() { # $1=`git status --porcelain` output $2=worktree (optional) → the real work
+  local status="$1" wt="${2:-}"
+
+  # THE GENERATED BUNDLES ARE EXCUSED FIRST, WHILE THE LINE STILL CARRIES ITS
+  # XY PREFIX — `exclude_bundle_paths` reads column 4 on itself, the same cut
+  # the three exclusions below apply after it. Same rule as those three: `main`
+  # rebuilds and pushes every generated bundle (`bug/main-builds-its-bundles`,
+  # #1249), so a desk that rebuilt one locally to test holds nothing an agent
+  # put there. Only when `$wt` is given: the exclusion is read from THAT
+  # worktree's own `build.mjs`, and a caller holding only text with no
+  # worktree to read gets the three exclusions below alone, exactly as before
+  # this bundle existed.
+  if [ -n "$wt" ] && command -v exclude_bundle_paths >/dev/null 2>&1; then
+    status=$(printf '%s\n' "$status" | exclude_bundle_paths "$wt")
+  fi
+
   # `--porcelain` is the STABLE format; `git status` prose is localised and
   # reflows. Cut at column 4: the first three bytes are the XY status pair and a
   # space, and a filename can contain spaces of its own.
-  printf '%s' "$1" \
+  printf '%s' "$status" \
     | cut -c4- \
     | grep -vE "(^|/)$PLOT_WORKER_RECORD" \
     | grep -vE "$PLOT_EDITOR_LEFTOVER" \

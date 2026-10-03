@@ -5,6 +5,7 @@ import {
   deskManifest,
   loopRegistration,
   manifestDirectory,
+  unnamedDeskLabel,
   watchedDesk,
   type ManifestReading,
 } from '../src/rules/desk-manifest.js';
@@ -256,5 +257,41 @@ describe('loopRegistration', () => {
     expect(
       loopRegistration({ manifestFile: '/estate/.plot/agents/one.json', exists: false }),
     ).toBe('gone');
+  });
+});
+
+describe('unnamedDeskLabel', () => {
+  it('names the absence and a live checkout', () => {
+    // #1101: the row read as an agent working `bug/x`, when the branch is a
+    // fact about the desk's checkout and no manifest ever claimed the agent.
+    expect(unnamedDeskLabel({ checkout: 'bug/x', live: true })).toBe(
+      'no manifest names this desk, working, checked out bug/x',
+    );
+  });
+
+  it('names the absence and an idle checkout', () => {
+    expect(unnamedDeskLabel({ checkout: 'bug/x', live: false })).toBe(
+      'no manifest names this desk, idle, checked out bug/x',
+    );
+  });
+
+  it('omits the checkout clause for a desk holding no branch, live', () => {
+    // Absent is not false: a desk between slices holds no branch, and the
+    // label must not name an empty one.
+    expect(unnamedDeskLabel({ checkout: '', live: true })).toBe(
+      'no manifest names this desk, working',
+    );
+  });
+
+  it('omits the checkout clause for a desk holding no branch, idle', () => {
+    expect(unnamedDeskLabel({ checkout: '', live: false })).toBe(
+      'no manifest names this desk, idle',
+    );
+  });
+
+  it('treats a whitespace-only checkout as absent, not as a branch', () => {
+    expect(unnamedDeskLabel({ checkout: '   ', live: true })).toBe(
+      'no manifest names this desk, working',
+    );
   });
 });

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-monitor-follows-the-hop`
 - **Started:** 2026-10-03, Jan Wloka, `bug/a-continued-loop-carries-its-manifest`
 - **Started:** 2026-10-03, Jan Wloka, `bug/a-desk-with-no-manifest-says-so`
+- **Delivered:** 2026-10-03
 
 ## Changelog
 
@@ -98,7 +99,7 @@ Tests that fail on origin/main: a contract case in `test/reconcile/` starts the 
 
 Tests that fail on origin/main: a `continue-route.test.ts` case asserts the spawn environment carries `PLOT_MANIFEST_FILE` for a desk a manifest names; a second asserts a 409 that names the desk when no manifest names it; a third asserts the desk's `.plot-worker.wrapper.pid` is gone after a continuation; a `workerloop.test.mjs` case deletes the manifest during the wait and asserts the loop exits within two polls with `.plot-worker.ending` naming `unregistered`.
 
-### A desk with no manifest says so (Branch: bug/a-desk-with-no-manifest-says-so) <!-- builds: unnamedDeskLabel, the unregistered row label --> <!-- waits: bug/the-join-is-one-rule -->
+### A desk with no manifest says so (Branch: bug/a-desk-with-no-manifest-says-so, PR: #1261) <!-- builds: unnamedDeskLabel, the unregistered row label --> <!-- waits: bug/the-join-is-one-rule -->
 
 `unnamedDeskLabel` in `rules/desk-manifest.ts` with unit tests; `synthesizeEntry` sets `branch: ''` and a `checkout` field; `AgentEntrySchema` gains `checkout`; the registry row renders the label; an `@plot-pm/board` patch changeset. Answers #1101's row half.
 

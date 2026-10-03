@@ -285,6 +285,11 @@ export interface AgentEntry {
   attempts: number;
   /** The branch it holds, or `''` while it holds none. */
   branch: string;
+  /**
+   * The branch the DESK has checked out, for a synthesized entry — display
+   * only, and no decision reads it. `''` on a manifest-backed entry.
+   */
+  checkout: string;
   worktree: string;
   /** The full `Worker command` as launched, quotes and newlines intact. */
   command: string;
@@ -546,6 +551,9 @@ export function parseManifest(json: string): AgentEntry | null {
         ? o.attempts
         : 0,
     branch: typeof o.branch === 'string' ? o.branch : '',
+    // A MANIFEST NEVER CARRIES THIS — it is the registry's own field for a
+    // desk no manifest names, and `synthesizeEntry` is its only writer.
+    checkout: '',
     worktree: typeof o.worktree === 'string' ? o.worktree : '',
     command: typeof o.command === 'string' ? o.command : '',
     startedAt: typeof o.startedAt === 'string' ? o.startedAt : '',
@@ -907,6 +915,15 @@ export async function readAgentRegistryWithInfo(
  *
  * A manifest becomes the record of a DISPATCH, not the definition of an agent's
  * existence — the worktree is what exists.
+ *
+ * `branch` IS EMPTY AND `checkout` CARRIES `wt.branch` INSTEAD. `#1101`
+ * measured the cost of the other choice: `branch: wt.branch` made the row
+ * read as an agent working that branch, and every reader of `branch` —
+ * `isAgentFree`, `handedTo`, `liveAgentBranches` — treated the desk as
+ * holding it, so a desk between slices counted FREE and a dispatch could hand
+ * it a slice nobody could then find an agent for. The checkout is a fact
+ * about the DESK, not an assignment from the registry; no manifest named this
+ * agent, so it holds no branch.
  */
 function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
   return {
@@ -918,7 +935,8 @@ function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
     identity: 'synthesized',
     resumeId: '',
     attempts: 0,
-    branch: wt.branch,
+    branch: '',
+    checkout: wt.branch,
     worktree: wt.path,
     command: '',
     startedAt: '',
@@ -1235,6 +1253,16 @@ export async function bashCleanliness(worktrees: string[]): Promise<boolean[]> {
   if (worktrees.length === 0) return [];
   // The script checks each worktree and prints "clean" or "dirty" NUL-separated.
   // It applies the same exclusion patterns as plot-worker-state.sh to be consistent.
+  //
+  // THE GENERATED BUNDLES ARE EXCUSED THE SAME WAY, path by path, read from
+  // EACH WORKTREE'S OWN `packages/board/build.mjs` — the same
+  // `shipped[A-Za-z]* = path.join(...)` derivation `check-bundle-attributes.sh`,
+  // `scripts/main-bundles.sh`, `scripts/check-no-bundle-diff.sh` and
+  // `plot-desk-dirt.sh`'s `bundle_paths` already share, so this cannot name a
+  // different set. `main` rebuilds and pushes every bundle
+  // (`bug/main-builds-its-bundles`, #1249), so a worktree that rebuilt one
+  // locally to test holds nothing an agent put there; the board's drop rule
+  // must not keep that worktree visible on a rebuilt bundle alone.
   const program = `
     PLOT_WORKER_RECORD='\\.plot-worker\\.'
     PLOT_EDITOR_LEFTOVER='\\.(tmp[0-9]*|swp|orig|rej|bak)$'
@@ -1246,6 +1274,20 @@ export async function bashCleanliness(worktrees: string[]): Promise<boolean[]> {
       fi
       # Check uncommitted changes (with exclusions)
       status=$(git -C "$wt" status --porcelain 2>/dev/null || echo "")
+      build="$wt/packages/board/build.mjs"
+      if [ -f "$build" ]; then
+        bundles=$(grep -aoE "shipped[A-Za-z]* = path\\.join\\([^)]*'[^']*'\\)" "$build" 2>/dev/null \\
+          | sed -E "s|.*'\\.\\./\\.\\./([^']*)'.*|\\1|" | sort -u)
+      else
+        bundles=""
+      fi
+      if [ -n "$bundles" ]; then
+        status=$(printf '%s\\n' "$status" | while IFS= read -r line; do
+          [ -n "\$line" ] || continue
+          if printf '%s\\n' "\$bundles" | grep -qxF "\${line:3}"; then continue; fi
+          printf '%s\\n' "\$line"
+        done)
+      fi
       filtered=$(printf '%s' "$status" \\
         | cut -c4- \\
         | grep -vE "(^|/)$PLOT_WORKER_RECORD" \\

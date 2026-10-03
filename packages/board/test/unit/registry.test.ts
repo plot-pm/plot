@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  parseManifest, readAgentRegistry, gitWorktrees, AGENT_MANIFEST_DIR,
+  parseManifest, readAgentRegistry, gitWorktrees, bashCleanliness, AGENT_MANIFEST_DIR,
 } from '../../src/server/registry.js';
 import { execFileSync } from 'node:child_process';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
@@ -566,17 +566,35 @@ describe('a worktree with no manifest is listed — absence of a record is not a
   const fakeLiveness = (byWorktree: Record<string, string>) =>
     (wts: string[]): string[] => wts.map((wt) => byWorktree[wt] ?? 'unknown');
 
-  it('synthesizes an entry for a worktree no manifest names, carrying its branch and a real state', async () => {
+  it('synthesizes an entry for a worktree no manifest names, carrying its checkout and a real state', async () => {
     // No manifests at all, one real worktree — the shape three of the six
     // measured here have (a .plot-worker.pid, no manifest).
+    //
+    // #1101: `branch` used to carry the desk's checkout, so the row read as an
+    // agent WORKING that branch rather than a desk nobody registered. The
+    // checkout is a fact about the DESK and moves to its own field; `branch`
+    // stays `''`, the same value every other reader of it already expects for
+    // an agent holding none.
     const got = await readAgentRegistry(root, home, {
       worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
       liveness: fakeLiveness({ '/wt/orphan': 'waiting' }),
     });
     assert.equal(got.length, 1);
     assert.equal(got[0].worktree, '/wt/orphan');
-    assert.equal(got[0].branch, 'feature/orphan');
+    assert.equal(got[0].branch, '', 'no manifest named this agent, so it holds no branch');
+    assert.equal(got[0].checkout, 'feature/orphan', 'the desk is checked out here, display only');
     assert.equal(got[0].state, 'waiting', 'classified like any other entry');
+  });
+
+  it('a manifest-backed entry still carries its branch, and an empty checkout', async () => {
+    manifest('sess-declared.json', { session: 'sess-declared', branch: 'feature/declared', worktree: '/wt/declared' });
+    const got = await readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/declared', branch: 'feature/declared' }]),
+      liveness: fakeLiveness({ '/wt/declared': 'running' }),
+    });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].branch, 'feature/declared');
+    assert.equal(got[0].checkout, '', 'a declared agent has no checkout to show — branch already says it');
   });
 
   it('gives a synthesized entry session="" and no invented command or startedAt', async () => {
@@ -1103,5 +1121,65 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
     });
     assert.equal(got.length, 2);
     assert.deepEqual(got.map((e) => e.session), ['running', 'dirty']);
+  });
+});
+
+describe('bashCleanliness — a rebuilt bundle is excused, a source change beside it is not', () => {
+  // ONE OF THE FOUR READERS `bug/a-pr-carries-no-bundle` NAMES. `main` rebuilds
+  // and pushes every generated board bundle (`bug/main-builds-its-bundles`,
+  // #1249), so a desk that locally rebuilt one to test holds nothing an agent
+  // put there — the board's drop rule must not keep that desk visible on a
+  // rebuilt bundle alone. Against a REAL git worktree and a REAL
+  // `packages/board/build.mjs`, not a stubbed status string: the set is
+  // derived from the build's own `shipped*` declarations, the same reading
+  // `check-bundle-attributes.sh` and `scripts/check-no-bundle-diff.sh` share.
+  let repo = '';
+  afterEach(() => {
+    if (repo) rmTree(repo);
+    repo = '';
+  });
+
+  /** A real repo with a build.mjs declaring one bundle, committed. */
+  function buildTree(): string {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bashclean-'));
+    const g = (...a: string[]) =>
+      execFileSync('git', ['-C', repo, ...a], { stdio: ['ignore', 'pipe', 'ignore'] });
+    fs.mkdirSync(path.join(repo, 'packages', 'board'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'skills', 'plot', 'scripts', 'board'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, 'packages', 'board', 'build.mjs'),
+      "const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');\n",
+    );
+    fs.writeFileSync(
+      path.join(repo, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+      'original bundle\n',
+    );
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
+    g('config', 'user.email', 't@e.x');
+    g('config', 'user.name', 'T');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'init');
+    return repo;
+  }
+
+  it('reads clean for a desk holding only a rebuilt bundle', async () => {
+    const wt = buildTree();
+    fs.writeFileSync(
+      path.join(wt, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+      'rebuilt locally\n',
+    );
+    const [clean] = await bashCleanliness([wt]);
+    assert.equal(clean, true, 'a rebuilt bundle alone is not unlanded work');
+  });
+
+  it('reads dirty for a desk holding a source change beside the rebuilt bundle', async () => {
+    const wt = buildTree();
+    fs.writeFileSync(
+      path.join(wt, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
+      'rebuilt locally\n',
+    );
+    fs.writeFileSync(path.join(wt, 'my-source.ts'), 'real work\n');
+    const [clean] = await bashCleanliness([wt]);
+    assert.equal(clean, false, 'a source change beside the bundle is still unlanded work');
   });
 });

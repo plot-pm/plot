@@ -72,6 +72,14 @@ describe('AgentEntrySchema — liveness on the wire', () => {
     expect(e.session).toBe('');
   });
 
+  it('parses an entry without checkout, defaulting it to ""', () => {
+    // A pulse from before this field existed must still validate. `checkout`
+    // is the desk's own branch for a synthesized entry, display only — see
+    // `a-desk-and-its-manifest-name-each-other`, slice 4.
+    const e = AgentEntrySchema.parse(base);
+    expect(e.checkout).toBe('');
+  });
+
   it('carries previousPid and relaunches when a run was relaunched in place', () => {
     // A relaunch overwrites `pid` and records what it displaced: `previousPid`
     // is the corpse the row used to name, and `relaunches` is how many times

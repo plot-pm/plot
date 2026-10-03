@@ -92,11 +92,31 @@ const controls = (
 /** A registry entry in a given state — only `state`/`branch` matter here. */
 const agent = (branch: string, state: AgentEntry['state']): AgentEntry => ({
   session: `s-${branch}`,
+  identity: 'manifest',
   branch,
   worktree: `/wt/${branch}`,
   command: '',
   startedAt: '2026-08-23T00:00:00Z',
   pid: '123',
+  previousPid: '',
+  relaunches: 0,
+  state,
+});
+
+/**
+ * A desk no manifest names, the shape `synthesizeEntry` produces: `branch`
+ * is `''` and `checkout` carries the desk's own branch — a fact about the
+ * desk, not an assignment from the registry. See `registry.ts:synthesizeEntry`.
+ */
+const undeclaredAgent = (checkout: string, state: AgentEntry['state']): AgentEntry => ({
+  session: '',
+  identity: 'synthesized',
+  branch: '',
+  checkout,
+  worktree: `/wt/${checkout}`,
+  command: '',
+  startedAt: '',
+  pid: '',
   previousPid: '',
   relaunches: 0,
   state,
@@ -770,6 +790,19 @@ describe('the between-slices agent, counted — what the board starts, not only 
     const agents = [agent('', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
     expect(freeAgentCount(agents, p)).toBe(1);
+  });
+
+  it('a running synthesized entry is not free, not named free, and still counts live', () => {
+    // #1101's dispatch hazard: `branch: ''` on a synthesized entry reads
+    // exactly like a between-slices agent to `isFree`, so without excluding
+    // undeclared entries a desk no manifest names would turn FREE and a
+    // dispatch would proceed against an agent the registry cannot name.
+    // `liveAgentCount` is untouched — the desk still holds a machine slot.
+    const agents = [undeclaredAgent('bug/x', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
+    expect(freeAgentCount(agents, p)).toBe(0);
+    expect(freeAgentLabels(agents, p)).toEqual([]);
+    expect(liveAgentCount(agents)).toBe(1);
   });
 
   it('pruneInFlight retires a mark once the agent that took it reads live', () => {
