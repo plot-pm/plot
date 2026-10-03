@@ -1235,6 +1235,16 @@ export async function bashCleanliness(worktrees: string[]): Promise<boolean[]> {
   if (worktrees.length === 0) return [];
   // The script checks each worktree and prints "clean" or "dirty" NUL-separated.
   // It applies the same exclusion patterns as plot-worker-state.sh to be consistent.
+  //
+  // THE GENERATED BUNDLES ARE EXCUSED THE SAME WAY, path by path, read from
+  // EACH WORKTREE'S OWN `packages/board/build.mjs` — the same
+  // `shipped[A-Za-z]* = path.join(...)` derivation `check-bundle-attributes.sh`,
+  // `scripts/main-bundles.sh`, `scripts/check-no-bundle-diff.sh` and
+  // `plot-desk-dirt.sh`'s `bundle_paths` already share, so this cannot name a
+  // different set. `main` rebuilds and pushes every bundle
+  // (`bug/main-builds-its-bundles`, #1249), so a worktree that rebuilt one
+  // locally to test holds nothing an agent put there; the board's drop rule
+  // must not keep that worktree visible on a rebuilt bundle alone.
   const program = `
     PLOT_WORKER_RECORD='\\.plot-worker\\.'
     PLOT_EDITOR_LEFTOVER='\\.(tmp[0-9]*|swp|orig|rej|bak)$'
@@ -1246,6 +1256,20 @@ export async function bashCleanliness(worktrees: string[]): Promise<boolean[]> {
       fi
       # Check uncommitted changes (with exclusions)
       status=$(git -C "$wt" status --porcelain 2>/dev/null || echo "")
+      build="$wt/packages/board/build.mjs"
+      if [ -f "$build" ]; then
+        bundles=$(grep -aoE "shipped[A-Za-z]* = path\\.join\\([^)]*'[^']*'\\)" "$build" 2>/dev/null \\
+          | sed -E "s|.*'\\.\\./\\.\\./([^']*)'.*|\\1|" | sort -u)
+      else
+        bundles=""
+      fi
+      if [ -n "$bundles" ]; then
+        status=$(printf '%s\\n' "$status" | while IFS= read -r line; do
+          [ -n "\$line" ] || continue
+          if printf '%s\\n' "\$bundles" | grep -qxF "\${line:3}"; then continue; fi
+          printf '%s\\n' "\$line"
+        done)
+      fi
       filtered=$(printf '%s' "$status" \\
         | cut -c4- \\
         | grep -vE "(^|/)$PLOT_WORKER_RECORD" \\
