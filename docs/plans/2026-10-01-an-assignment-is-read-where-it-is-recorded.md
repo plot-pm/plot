@@ -106,7 +106,7 @@ The rows are tested in this order. A live holder is first because it is the only
 
 ## Slices
 
-### The queue reads the assignment (Branch: bug/the-queue-reads-the-assignment) <!-- waits: bug/the-queue-reads-the-scans-order -->
+### The queue reads the assignment (Branch: bug/the-queue-reads-the-assignment, PR: #1267) <!-- waits: bug/the-queue-reads-the-scans-order -->
 
 `assignedTo`, the `assigned` hold and its tick count, `rules/claim.ts` with `claimTip` (on `isEmptyClaim` and `realCommits`) and `orphanedClaims`, and `commitSubjects` on the refs port. <!-- builds: assigned queue hold, claimTip, orphanedClaims, commitSubjects -->
 
