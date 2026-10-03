@@ -9,6 +9,7 @@
 - **Issue:** #1245
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -74,3 +75,22 @@ The growth repeats one shape: a rule is needed, and the nearest place to write i
 - 2026-10-03, direction from jwloka: "we should reduce shell use systematically and grow the domain", "instead of widen the gates", "Shell is run by agents, domain-level functions is tooling run in js".
 - 2026-10-03, measurement: shell code lines counted with `git ls-files 'skills/plot/scripts/*.sh' | xargs cat | grep -vE '^\s*(#|$)' | wc -l` on `main`, and the same count over `git ls-tree` at the last commit before 2026-09-01 and 2026-09-15.
 - 2026-10-03, PR #1244 is being reworked so the empty-claim predicate lands as a domain rule and a bundle rather than `plot-empty-claim.sh`; it is the first instance of this plan's direction and lands outside it.
+
+## Open Points
+
+Panel round 1, 2026-10-03, unanimous `amend` (estate, contradiction, deliverable, cost). The moderation is at `.plot/panels/2026-10-03-the-shell-shrinks-into-the-domain/round1.md`.
+
+- [ ] [Technical] Slice 3: a `case` substring test for the three basenames runs before any `node` start, so most Bash calls pay nothing extra (`plot-controller-gate.sh:159` shape). — *estate, contradiction, cost*
+- [ ] [Technical] Slice 3: name the failure direction when `node` or the bundle is missing; `trap 'exit 0' ERR` fails open today. — *contradiction, cost*
+- [ ] [Technical] Slice 3: build on `rules/ci-suite.ts` (`withoutQuotes`, `programWords`), and cover or file the same glob expansion in `plot-phase-gate.sh:92`, `plot-state-gate.sh:87` and `plot-brief-name-gate.sh:127`. — *estate*
+- [ ] [Trade-off] Slice 1: say who pays for growth by the five Approved siblings that edit shell and by open PRs #1234 (+37) and #1244 (+19): an offset, a later baseline, or a named override. 76 of 85 shell-touching commits in 14 days grew the count. — *estate, contradiction, cost*
+- [ ] [Technical] Slice 1: compare against the merge base instead of a stored number; cite `check-script-names.sh` as the slack-free precedent, not `check-helper-table.sh` with its env override. — *contradiction, deliverable, cost*
+- [ ] [Domain] State the price the ratchet puts on the cost rule's declared duplicates and heredoc seams (`docs/shell-and-domain.md` §1, §2). — *contradiction, cost*
+- [ ] [Technical] Slice 4: order it against `a-branch-carries-no-built-bundle` and say what a launcher does when its bundle is absent (`plot-release-gate.sh:30-33` refuses with exit 2). — *estate, contradiction, cost*
+- [ ] [Domain] Slice 2: put the inventory's columns into the gated `skills/plot/scripts/README.md` table or generate them; no second hand-written per-script list. — *estate, cost*
+- [ ] [Domain] Slice 4 names its script before it starts: the first-ranked script that runs once per operator command; slice 2 states its ranking command. The plan delivers at slice 4, and each later script is its own plan. — *deliverable, cost*
+- [ ] [Domain] Reconcile the Notes with `every-desk-state-has-an-exit:73` and PR #1244. — *contradiction*
+- [ ] [Technical] Decide whether the count includes `skills/ralph-plot-sprint/ralph-sprint.sh` (347 code lines). — *estate*
+- [ ] [Domain] The Changelog names the contract change slice 2 makes to `CLAUDE.md` and `docs/shell-and-domain.md`. — *deliverable*
+- [ ] [Domain] Correct the Motivation: 6,904 at `91a89d95b` for 2026-09-01; name the function-count regex (481 top-level, 509-515 including nested). — *estate, cost*
+- [ ] [Trade-off] Moderator: the slices stop growth and move one small script. The five largest scripts hold 6,930 of 15,024 lines (46 %). State what share this plan moves, or that the large scripts get their own plans. A line count does not measure decisions; say how the plan avoids rewarding a rule hidden in a heredoc.

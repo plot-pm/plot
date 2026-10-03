@@ -1,0 +1,28 @@
+# Round 1 — Deliverable
+
+Position: amend
+
+## What I read
+
+- Read in full: `docs/plans/2026-10-03-the-shell-shrinks-into-the-domain.md`, `scripts/check-helper-table.sh` lines 100–145, issue #1245 with comments (`gh issue view 1245 --comments`).
+- Ran `skills/plot/scripts/plot-plan-meta.sh docs/plans/2026-10-03-the-shell-shrinks-into-the-domain.md`: it parses as `format: canonical`, `phase: draft`, 4 branches, 4 waves of exactly one branch each, `long_wave_names: []`, `unread_branch_headings: []`, `malformed_prs: []`, `issues: [1245]`, 4 changelog lines.
+- Ran `git ls-files 'skills/plot/scripts/*.sh' | wc -l` → 58, and the plan's own line count command → 15024. Ran `git ls-files 'skills/plot/scripts/board/*.mjs' | wc -l` → 35. Listed `packages/board/src/server/entry/` (exists, holds entries such as `ask.ts`, `branch-state.ts`). Checked `docs/shell-inventory.md` (absent) and `git ls-remote --heads origin` for the four branch names (none exist).
+- Grepped `docs/plans/*.md` for "by amendment": the phrase appears only in this plan.
+
+## What must change
+
+1. **Slice 4 names no deliverable a reviewer can check at approval (Slices › The first script becomes a command; Changelog line 4).** The branch line says "the inventory's first-ranked script", and the `builds:` comment says "a JS command entry for the first-ranked script". The object depends on slice 2's output, so the approved plan does not say what slice 4 ships, and the Changelog line "The first shell script becomes a JS command" cannot be checked against a file. Two fixes work: (a) slice 2's deliverable includes an amendment to this plan that writes the chosen script's name into slice 4's branch line and Changelog line before slice 4 is dispatched, or (b) the plan names a provisional candidate now and slice 2 may replace it with evidence. Either way the done-check for slice 4 must read "`plot-<name>.sh` is a launcher of N lines that execs `board/plot-<name>.mjs`; its decisions are in `packages/domain/src/rules/<rule>.ts` with tests".
+2. **Slice 2's ranking criterion is not a measurement (Design › Approach, slice 2).** "Decision lines per call site that the cost rule no longer protects" names no counting rule for a "decision line", and the plan says "each number names the command that produced it". The slice must state how a decision line is counted, or rank on a quantity that has a command (code lines, call sites, cadence class). Without it the ranking, and therefore slice 4's object, is a judgement that a reviewer cannot re-run.
+3. **Slice 4's candidate set must exclude what the Open Questions leave undecided (Design › Approach, slice 4; Open Questions 2 and 3).** The inventory ranks every shipped script, including hooks that run on every tool call and `plot-worker-loop.sh`, which runs per agent per pass. If either ranks first, slice 4 ships into a question the plan says it does not decide. State that slice 4 picks the first-ranked script that runs once per operator command.
+4. **"Further slices are added to this plan by amendment" has no lifecycle path (Design › Approach).** After slice 4 merges, all four listed branches are merged, and `/plot-deliver` delivers the plan. Adding a slice to a Delivered plan needs `/plot-reject` first; no other plan in `docs/plans/` uses this pattern (grep above). State that the plan delivers at slice 4 and each further script is its own plan, which the plan already prescribes for a script whose callers cannot stay unchanged.
+5. **Slice 1's "lowers the baseline in the same PR" is a rule, not part of the deliverable (Design › Approach, slice 1).** The cited precedent, `scripts/check-helper-table.sh:133`, fails only when the count exceeds `BASELINE`; nothing fails when the count falls below it, and line 107 says "Lower it when rows are written" in prose. If the plan wants the freed room unspendable, slice 1 must fail on `count < baseline` too, with a message naming the new number; otherwise say the lowering is a rule. Slices 3 and 4 both shrink shell code, so this decides whether their done-check includes a baseline edit.
+6. **The Changelog omits one thing slice 2 builds (Changelog line 2).** Slice 2 also amends `docs/shell-and-domain.md` and the `A Shell Script Asks The Domain` section of `CLAUDE.md` to state the new target. That changes a binding repo rule, and the Changelog line names only the inventory. Add it, since the release note is where a reader learns the contract moved.
+
+## What holds
+
+- The plan parses with both slice headings read, one branch per wave, no malformed PR references and issue #1245 linked (command above).
+- Slice 1 ships a named file, `scripts/check-shell-lines.sh`, with a checkable condition: CI and the `**` local check fail above a recorded baseline. The 15024 baseline input re-measures exactly with the plan's own command.
+- Slice 3 ships a named domain rule, `controllerInvocation(command)`, whose behaviour is specified by the #1245 comment row by row ("Every row of the table above becomes a unit test"), and the Changelog line 3 describes it accurately.
+- The wave order holds for dependencies: the ratchet lands before any slice that changes shell line counts, and slice 4 follows slice 2, whose ranking it consumes. Slice 3 does not depend on slice 2, so the strict one-per-wave order serialises it without need; that costs time, not correctness.
+- The bundle target exists: `packages/board/src/server/entry/` holds the current entries, and `skills/plot/scripts/board/` holds 35 tracked `.mjs` bundles, matching the plan's board-impact comment.
+- None of the four branches exists on origin, and `docs/shell-inventory.md` and `controllerInvocation` do not exist yet, so no slice duplicates shipped work.
