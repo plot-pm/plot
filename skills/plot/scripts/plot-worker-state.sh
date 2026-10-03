@@ -771,6 +771,236 @@ plot_worker_idle_now() { # $1..$7 as above → idle | silent
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# THE WATCHER'S OWN PASS — the readings `plot_worker_idle_now` is asked about
+# ---------------------------------------------------------------------------
+#
+# MOVED FROM `plot-worker-monitor.sh` RATHER THAN REWRITTEN. The WorkerMonitor
+# process is gone (`bug/the-loop-reports-idle`): the loop's own watcher
+# subshell calls these instead, so the readings move to the file the loop
+# already sources rather than living in a script that no longer runs.
+#
+# `monitor_has_commits` IS MOVED, NOT CHANGED. The scope guard that made it
+# untouchable in wave 1 still holds — the `-- .` pathspec and the
+# `origin/<default>` resolution are copied verbatim, including the comment
+# that explains why a dispatched branch's own claim commit must not count.
+
+# The reset epoch a desk is waiting out, or nothing.
+#
+# THE LOOP WRITES THE FILE AND THIS ONLY READS IT. `.plot-worker.limited`
+# carries the reset epoch, the same instant as ISO text, and the limit line;
+# only the first field is read here, because the caller compares integers and
+# never parses a date.
+#
+# NOTHING IS ANSWERED FOR AN ABSENT, EMPTY OR UNPARSEABLE FILE, and the caller
+# reads that as *this desk is not waiting*. A record whose first field is not a
+# number is the same answer as no record: a reading that cannot be made must
+# not widen into a reason to hold a verdict back.
+plot_worker_limited_reset() { # $1=worktree → epoch seconds | ""
+  local file="$1/.plot-worker.limited" reset
+  [ -n "$1" ] && [ -r "$file" ] || return 0
+  reset=$(cut -f1 < "$file" 2>/dev/null | head -n1)
+  case "$reset" in (''|*[!0-9]*) return 0 ;; esac
+  printf '%s' "$reset"
+}
+
+# Has THIS worker's conversation written yet? → 0 spoken | 1 unspoken | 2 no handle
+#
+# THE DESK-WIDE NUMBER CANNOT SAY. After a hop to a new branch the loop mints a
+# fresh handle, and the new conversation has no transcript file until its first
+# line. Until then the desk's newest file is the PREVIOUS slice's, and its
+# silence is not this worker's. So the watcher asks the loop's own probe with
+# the loop's own handle: one probe, two readers, one answer.
+#
+# THREE ANSWERS, AND THE THIRD IS NOT THE SECOND. `0` the handle's file exists,
+# `1` it does not, `2` there is no handle to ask about. `plot_transcript_exists`
+# reads *no handle* as *no file*, which suits `session_flag`; here it would
+# make a hand-started watcher read every quiet worker as unspoken and disable
+# `idle` silently (#1074). So the handle is checked here, before the probe.
+plot_worker_conversation_spoken() { # $1=worktree → 0 spoken | 1 unspoken | 2 no handle
+  command -v session_handle >/dev/null 2>&1 || return 2
+  command -v plot_transcript_exists >/dev/null 2>&1 || return 2
+  local handle
+  handle=$(session_handle) || return 2
+  [ -n "$handle" ] || return 2
+  plot_transcript_exists "$1" "$handle" && return 0
+  return 1
+}
+
+# Are there commits on this branch yet? → 0 yes | 1 no | 2 unanswerable
+#
+# THE THIRD CONDITION ON `idle`, and the one that separates a stall from an
+# agent still thinking about a hard first slice.
+#
+# COUNTED AGAINST THE LOCAL `origin/<default>` REF — never a fetch, because
+# this reading makes no network call. And when there is no such ref the
+# question is UNANSWERABLE, so this returns 2 and `idle` does not fire:
+# counting against nothing would count the whole history from the root commit
+# and read every branch in a remote-less repo as having committed.
+plot_worker_has_commits() { # $1=worktree → 0 yes | 1 no | 2 unanswerable
+  [ -n "$1" ] && [ -d "$1" ] || return 2
+  local wt="$1" base n
+  base=$(git -C "$wt" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+  [ -n "$base" ] || { git -C "$wt" rev-parse --verify --quiet origin/main >/dev/null 2>&1 && base='origin/main'; }
+  [ -n "$base" ] || return 2
+  # COUNT THE AGENT'S WORK, NOT THE BRANCH'S COMMITS. `plot-dispatch.sh` writes
+  # `commit --allow-empty -m "plot: claim <branch>"` BEFORE the agent starts, so
+  # `$base..HEAD` is never zero on a dispatched branch and this condition could
+  # never refuse an `idle`. Measured 2026-08-30 (#538 red in CI): a worker
+  # burning CPU in `yes > /dev/null` was reported idle, because the one
+  # condition that could have saved it was satisfied by bookkeeping the agent
+  # did not do.
+  #
+  # The `-- .` pathspec is what does it: `rev-list` with a pathspec keeps only
+  # commits that TOUCHED A FILE, and the claim is empty by construction
+  # (`--allow-empty`). That is a property rather than a message match — a claim
+  # whose wording changes still reads as empty, and an agent committing an
+  # empty marker of its own is correctly not counted as work either.
+  n=$(git -C "$wt" rev-list --count "$base..HEAD" -- . 2>/dev/null) || return 2
+  case "$n" in ''|*[!0-9]*) return 2 ;; esac
+  [ "$n" -gt 0 ] && return 0
+  return 1
+}
+
+json_escape() { # $1 = raw → prints a JSON-safe string body
+  printf '%s' "$1" | python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read())[1:-1])' 2>/dev/null \
+    || printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+# Append one finding line to a desk's findings file, in the WorkerMonitor's own
+# shape — the board's reader keys on this exact field set and this exact
+# monitor name, and changing either would make an unbroken channel look broken.
+#
+# `since` AND `measuredAt` ARE DIFFERENT TIMES. `measuredAt` is when this
+# reading was taken; `since` is when the finding first held. A finding that has
+# held for twenty minutes and one taken twenty minutes ago are not the same
+# fact, and an operator triaging a board needs the first.
+plot_worker_publish_finding() { # $1=file $2=branch $3=worktree $4=finding $5=evidence $6=since
+  local file="$1" branch="$2" worktree="$3" finding="$4" evidence="$5" since="$6" now line
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  line=$(printf '{"monitor":"%s","branch":"%s","worktree":"%s","finding":"%s","since":"%s","evidence":"%s","measuredAt":"%s"}' \
+    'WorkerMonitor' \
+    "$(json_escape "$branch")" \
+    "$(json_escape "$worktree")" \
+    "$(json_escape "$finding")" \
+    "${since:-$now}" \
+    "$(json_escape "$evidence")" \
+    "$now")
+  [ -n "$file" ] && printf '%s\n' "$line" >> "$file" 2>/dev/null
+  printf 'plot-watch %s\n' "$line"
+}
+
+# ONE PASS OF THE LOOP'S OWN WATCHER: take the six readings, ask
+# `plot_worker_idle_now`, publish only on a change.
+#
+# THE PID IS ALWAYS `alive`. The caller is the loop's watcher subshell, started
+# with the loop's own pid (`$_watch_loop_pid`); that pid is alive by
+# construction for as long as the watcher runs, so there is no `monitor_pid_alive`
+# reading here the way the old monitor needed one for a SEPARATE process it was
+# watching.
+#
+# `$5` IS THE RACE THE PLAN DID NOT ANTICIPATE. A prompt started into a
+# conversation whose transcript is already older than the window could read
+# `idle` on its FIRST pass and be ended before the model ever answers — the
+# clamp mirrors the usage-limit clamp's own shape: `silenceSeconds` is capped at
+# the seconds the prompt has actually been running, so a desk cannot be judged
+# quiet for longer than this prompt has existed.
+#
+# THE CHILD IS SAMPLED ON THE PID GIVEN, NEVER ON `$_watch_loop_pid` ITSELF.
+# `plot_worker_activity` sums the pid's whole descendant subtree; the loop's own
+# pid is the root the agent CLI hangs off, so the caller passes it explicitly
+# rather than this function assuming which pid names the subject.
+#
+# PUBLISH AND SIGNAL ARE SEPARATE. This function only ever publishes; it is the
+# caller's job to decide whether the PUBLISHED finding may end the worker — the
+# flag gates that decision, not this one.
+plot_worker_idle_watch_pass() { # $1=worktree $2=branch $3=findings-file $4=window $5=prompt_started_at $6=pid → exit 0 idle | 1 silent (also publishes)
+  local wt="$1" branch="$2" file="$3" window="$4" started_at="$5" pid="$6"
+  local silence spoken_rc spoken tree commits_rc commits activity finding evidence verdict
+
+  silence=$(plot_transcript_quiet_seconds "$wt" 2>/dev/null)
+  case "$silence" in
+    ''|unavailable|*[!0-9]*) silence='' ;;
+  esac
+
+  # THE USAGE-LIMIT CLAMP, AHEAD OF THE WINDOW CHECK. Silence is measured from
+  # the later of the newest transcript line and the reset this desk waits for;
+  # while the reset is ahead of now the difference is negative, which clamps to
+  # 0 and reads as busy — the agent is doing exactly what it should.
+  local limited_until
+  limited_until=$(plot_worker_limited_reset "$wt")
+  if [ -n "$limited_until" ] && [ -n "$silence" ]; then
+    local since_reset
+    since_reset=$(( $(date +%s) - limited_until ))
+    [ "$since_reset" -lt 0 ] && since_reset=0
+    [ "$since_reset" -lt "$silence" ] && silence=$since_reset
+  fi
+
+  # THE RACE CLAMP. A prompt's transcript may be older than the window on the
+  # very first pass, because it is the PREVIOUS slice's silence, not this
+  # prompt's. Silence can never exceed how long this prompt has actually run.
+  case "$started_at" in
+    ''|*[!0-9]*) ;;
+    *)
+      local ran
+      ran=$(( $(date +%s) - started_at ))
+      [ "$ran" -lt 0 ] && ran=0
+      if [ -n "$silence" ] && [ "$ran" -lt "$silence" ]; then silence=$ran; fi
+      ;;
+  esac
+
+  plot_worker_conversation_spoken "$wt"; spoken_rc=$?
+  case "$spoken_rc" in
+    0) spoken=1 ;;
+    *) spoken=0 ;;
+  esac
+
+  activity=$(plot_worker_activity "$pid" 2>/dev/null)
+
+  tree=$(plot_worker_tree_quiet_seconds "$wt" 2>/dev/null)
+
+  plot_worker_has_commits "$wt"; commits_rc=$?
+  case "$commits_rc" in
+    0) commits='yes' ;;
+    1) commits='no' ;;
+    *) commits='unanswerable' ;;
+  esac
+
+  verdict=$(plot_worker_idle_now 'alive' "$spoken" "${silence:-unavailable}" "$activity" "$tree" "$commits" "$window")
+
+  finding=''
+  evidence=''
+  if [ "$verdict" = 'idle' ]; then
+    finding='idle'
+    evidence="the agent's transcript has been silent for over ${window}s with no child process burning CPU behind it, nothing in its tree has moved for ${tree}s, and the branch already carries commits"
+  fi
+
+  # PUBLISH ONLY ON A CHANGE, held in a variable of the CALLER's subshell —
+  # named `PLOT_WATCH_PUBLISHED`/`PLOT_WATCH_SINCE` rather than local, because
+  # this function is called repeatedly from the watcher's own `while` loop and
+  # the state must survive between calls the way `monitor_pass`'s did.
+  if [ "$finding" != "${PLOT_WATCH_PUBLISHED:-}" ]; then
+    local now_iso
+    now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ -n "$finding" ]; then
+      PLOT_WATCH_SINCE="$now_iso"
+      plot_worker_publish_finding "$file" "$branch" "$wt" "$finding" "$evidence" "$PLOT_WATCH_SINCE"
+    elif [ -n "${PLOT_WATCH_PUBLISHED:-}" ]; then
+      PLOT_WATCH_SINCE="$now_iso"
+      plot_worker_publish_finding "$file" "$branch" "$wt" 'clear' \
+        "the ${PLOT_WATCH_PUBLISHED} finding no longer holds; the worker is measuring healthy again" "$PLOT_WATCH_SINCE"
+    fi
+    PLOT_WATCH_PUBLISHED="$finding"
+  fi
+
+  # THE VERDICT IS THE EXIT CODE, NOT STDOUT. Stdout is reserved for the
+  # publish line alone (`plot_worker_publish_finding`'s own `plot-watch …`
+  # line), the same convention the old monitor's process stdout carried into
+  # `.plot-worker.log` beside the agent's own output. A caller that needs the
+  # word reads the exit code: 0 for `idle`, 1 for anything else.
+  [ "$finding" = 'idle' ]
+}
+
 # The total CPU time, in centiseconds, of a pid and every process descended from
 # it. Prints the number; prints `0` and returns non-zero when the pid names no
 # live process at all.

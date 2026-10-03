@@ -19,7 +19,6 @@ dist/
 /plot-reap.sh
 /plot-release-refs.sh
 /plot-resolve-artifact.sh
-/plot-worker-monitor.sh
 /plot-worker-state.sh
 /plot-transcript-quiet.sh
 /plot-state-receipt.sh

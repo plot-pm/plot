@@ -319,13 +319,21 @@ test('approve: refuses a plan that is not Draft, and says why', () => {
   assert.notEqual(hostState().state, 'MERGED', 'a refusal must merge nothing');
 });
 
-test('approve: refuses Review: in-session — a script cannot stand in for a human', () => {
+test('approve: refuses Review: in-session without a named reviewer', () => {
+  // Superseded contract (an-in-session-approval-has-a-controller): the script
+  // no longer refuses in-session outright, it performs the write for a
+  // reviewer named by --who and declared in `People`. What stays refused is a
+  // script naming the reviewer itself: with no --who it refuses and names the
+  // flag, with no default from PLOT_APPROVE_WHO or git user.name.
+  // approve-in-session.test.mjs holds the accepting side.
   makeRepo(PLAN({ review: 'in-session' }));
   const { code, err } = run(['approve-me'], { expectFail: true });
   assert.equal(code, 1);
   assert.match(err, /in-session/);
-  assert.match(err, /human/i);
+  assert.match(err, /--who/);
   assert.notEqual(hostState().state, 'MERGED');
+  refreshMain();
+  assert.doesNotMatch(planOnMain(), /- \*\*Phase:\*\* Approved/, 'a refusal must approve nothing');
 });
 
 test('approve: refuses Review: ballot', () => {

@@ -1,25 +1,25 @@
 // Contract test for the one-sample `idle` finding over a REAL desk.
 //
-// WHY THIS FILE EXISTS BESIDE `workermonitor.test.mjs`. That file replaces
-// `monitor_tree_quiet` with a stub, so every assertion in it is about what the
-// RULE does with a number — and a stub says nothing about whether the number is
-// read correctly. The tree reading is mtimes over a git status, and the two ways
-// it can be wrong are invisible to a mock:
+// REPOINTED AT THE LOOP'S OWN READING (`bug/the-loop-reports-idle`). The
+// WorkerMonitor process is gone; `plot_worker_idle_watch_pass` in
+// `plot-worker-state.sh` is what the loop's watcher subshell calls instead,
+// every `PLOT_MONITOR_INTERVAL`. The cases below are unchanged in intent —
+// each still guards a measurement in the plan's Open Points — only the entry
+// point moved.
 //
-//   1. it reads the desk ROOT's mtime, which the loop keeps touching, so `idle`
-//      never fires on any real desk
-//   2. it misses a change a real agent makes — a rename, or a file inside a
-//      directory git collapsed to one status line
-//
-// So this builds a desk: a real repository with a real `origin/main` ref, a
-// commit that touched a file, files aged with `touch -t`, and a transcript
-// directory laid out the way `test/e2e/worker-monitor-samples.test.mjs` lays
-// one out. Only the pid and the CPU are stubbed, because those are the two
+// WHAT THE MOCKS CANNOT PROVE IS THE TREE READING ITSELF, and that is the seam
+// this file exists to cover: a stubbed `plot_worker_tree_quiet_seconds` returns
+// whatever number a test names, so it says nothing about whether mtimes are
+// read correctly. So this builds a desk: a real repository with a real
+// `origin/main` ref, a commit that touched a file, files aged with
+// `touch -t`, and a transcript directory laid out the way the runtime lays one
+// out. Only the pid and the CPU are stubbed, because those are the two
 // readings a test cannot schedule.
 //
-// THE THREE CASES ARE THE PLAN'S, and the third is the one that matters most:
-// a desk where only `.plot-worker.*` files changed inside the window must still
-// publish `idle`, because that is every desk the loop has ever written to.
+// THE FOUR SCRATCH-DESK CASES ARE THE PLAN'S, and the third is the one that
+// matters most: a desk where only `.plot-worker.*` files changed inside the
+// window must still publish `idle`, because that is every desk the loop has
+// ever written to.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -42,7 +42,9 @@ after(() => {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
-const monitor = path.join(scripts, 'plot-worker-monitor.sh');
+const stateLib = path.join(scripts, 'plot-worker-state.sh');
+const transcriptLib = path.join(scripts, 'plot-transcript-quiet.sh');
+const manifestLib = path.join(scripts, 'plot-agent-manifest.sh');
 
 /** The window every case is judged against — the shipped default. */
 const WINDOW = 900;
@@ -61,9 +63,9 @@ const touchStamp = (age) => {
  * A desk the rule can be asked about: a repository with an `origin/main` ref, a
  * branch carrying one commit that touched a file, and a transcript.
  *
- * THE `origin/main` REF IS REAL because `monitor_has_commits` counts against it
- * and answers `unanswerable` where there is none — which withholds `idle`, so a
- * fixture without one would exercise nothing at all.
+ * THE `origin/main` REF IS REAL because `plot_worker_has_commits` counts
+ * against it and answers `unanswerable` where there is none — which withholds
+ * `idle`, so a fixture without one would exercise nothing at all.
  *
  * THE COMMIT IS AGED THROUGH `GIT_COMMITTER_DATE`, not `--date`. The reading is
  * `git log -1 --format=%ct`, which is the COMMITTER's time; `--date` sets only
@@ -86,7 +88,7 @@ const buildDesk = (label, { commitAge = OLD, silence = OLD } = {}) => {
   git('add', '-A');
   git('commit', '-qm', 'seed');
   // A local ref standing in for `origin/main`, which is what the real desk has
-  // and what `monitor_has_commits` accepts.
+  // and what `plot_worker_has_commits` accepts.
   git('update-ref', 'refs/remotes/origin/main', 'HEAD');
   git('checkout', '-q', '-b', 'bug/watched');
   // The agent's own work: a commit that TOUCHED A FILE, which is what the
@@ -127,38 +129,41 @@ const buildDesk = (label, { commitAge = OLD, silence = OLD } = {}) => {
 };
 
 /**
- * `treeQuietSeconds` as the shipped reading answers it over this desk.
- *
- * Asked through the MONITOR's port rather than the library function directly,
- * because the port is what a caller reaches and a port that forgot to pass the
- * worktree would still pass a test of the function.
+ * `plot_worker_tree_quiet_seconds` as the shipped reading answers it over this
+ * desk.
  */
 const treeQuiet = (desk) => execFileSync('bash', ['-c', `
-  PLOT_MONITOR_NO_MAIN=1
-  . ${JSON.stringify(monitor)}
-  monitor_tree_quiet
+  . ${JSON.stringify(stateLib)}
+  plot_worker_tree_quiet_seconds "$PLOT_WORKTREE"
 `], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...desk.env } });
 
 /**
- * What ONE pass over this desk publishes. Only the pid and the CPU are stubbed.
+ * What N calls to `plot_worker_idle_watch_pass` publish over this desk. Only
+ * the pid and the CPU are stubbed — those are the two readings a test cannot
+ * schedule.
  *
  * `passes` defaults to 1 — the whole point of the slice is that one is enough,
  * so a fixture needing more would be hiding the property under test.
  */
-const publishedOver = (desk, { passes = 1, ports = '' } = {}) => {
+const publishedOver = (desk, { passes = 1, ports = '', startedAt = '', pid = '4242' } = {}) => {
   const file = path.join(desk.root, `findings-${passes}-${Math.random().toString(36).slice(2)}.jsonl`);
   execFileSync('bash', ['-c', `
-    PLOT_MONITOR_NO_MAIN=1
-    . ${JSON.stringify(monitor)}
-    monitor_pid_alive() { return 0; }
-    monitor_pid() { printf '4242'; }
-    monitor_activity() { printf ''; }
+    set -u
+    . ${JSON.stringify(transcriptLib)}
+    . ${JSON.stringify(manifestLib)}
+    . ${JSON.stringify(stateLib)}
+    plot_worker_activity() { printf ''; }
     ${ports}
-    for _i in $(seq 1 ${passes}); do monitor_pass; done
+    for _i in $(seq 1 ${passes}); do
+      plot_worker_idle_watch_pass "$PLOT_WORKTREE" "$PLOT_BRANCH" "$FINDINGS" "$WINDOW" "$STARTED_AT" "$PID" || true
+    done
   `], {
     encoding: 'utf8',
     timeout: 60_000,
-    env: { ...process.env, ...desk.env, PLOT_MONITOR_FILE: file, PLOT_MONITOR_INTERVAL: '30' },
+    env: {
+      ...process.env, ...desk.env,
+      FINDINGS: file, WINDOW: String(WINDOW), STARTED_AT: String(startedAt), PID: String(pid),
+    },
   });
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -167,7 +172,7 @@ const publishedOver = (desk, { passes = 1, ports = '' } = {}) => {
 test('idle: a quiet tree with commits and a silent transcript publishes on the FIRST pass', () => {
   // THE SLICE, against a real desk. Every condition holds and nothing holds a
   // previous sample, so the finding arrives on pass one — which is what lets
-  // the next slice delete the process that used to hold it.
+  // the WorkerMonitor process be removed entirely.
   const desk = buildDesk('first-pass');
   const quiet = Number(treeQuiet(desk));
   assert.ok(quiet >= WINDOW,
@@ -276,7 +281,7 @@ test('idle: a working child vetoes the finding over a real desk', () => {
   // the 37 over-window stretches wave 1 measured were this case.
   const desk = buildDesk('building');
   assert.deepEqual(
-    publishedOver(desk, { passes: 3, ports: "monitor_activity() { printf 'working'; }" }),
+    publishedOver(desk, { passes: 3, ports: "plot_worker_activity() { printf 'working'; }" }),
     [],
     'an agent whose build was running was published idle over a quiet desk');
 });
@@ -309,10 +314,52 @@ test('idle: a desk with no git repository at all reads unreadable, not a long si
   // *nothing has moved in years*. Both are inventions, so the word travels.
   const bare = scratch('plot-idle-bare-');
   const out = execFileSync('bash', ['-c', `
-    PLOT_MONITOR_NO_MAIN=1
-    . ${JSON.stringify(monitor)}
-    monitor_tree_quiet
+    . ${JSON.stringify(stateLib)}
+    plot_worker_tree_quiet_seconds "$PLOT_WORKTREE"
   `], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, PLOT_WORKTREE: bare } });
   assert.equal(out, 'unreadable',
     'a directory that is not a git repository answered a number — the reading invented one');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE RACE THE PLAN DID NOT ANTICIPATE — written before the watcher existed
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The old WorkerMonitor ran for the whole life of the wrapper, so its first
+// pass could only ever see a transcript that belonged to THIS prompt. The new
+// watcher starts fresh with each prompt and reads the transcript's age from
+// before the prompt began — so a prompt resuming a conversation whose
+// transcript is already older than the window could read `idle` on its FIRST
+// pass and be ended before the model ever answers.
+//
+// This is deliberately NOT the usage-limit clamp's case: that clamp covers a
+// limited wait and nothing else, and a desk here is not waiting on any reset.
+test('idle: a prompt 5s into a resumed conversation is not judged idle on its first pass', () => {
+  // A DESK WITH COMMITS, A SPOKEN CONVERSATION 2000s OLD, NO CHILD ON A CORE, A
+  // TREE QUIET FOR 2000s, AND A PROMPT THAT HAS RUN FOR 5s. Every non-race
+  // condition the plan names is deliberately satisfied, so the only thing that
+  // can withhold `idle` is the race clamp this test exists to require.
+  const desk = buildDesk('resumed-race', { silence: 2000 });
+  const quiet = Number(treeQuiet(desk));
+  assert.ok(quiet >= WINDOW,
+    `the fixture's tree read ${quiet}s quiet — it must clear the window for this test to mean anything`);
+
+  const now = Math.floor(Date.now() / 1000);
+  const published = publishedOver(desk, { startedAt: now - 5 });
+  assert.deepEqual(published, [],
+    'a prompt 5s into a resumed conversation was published idle on its first pass — ' +
+    'the transcript is older than the window, but it belongs to the PREVIOUS prompt, not this one');
+});
+
+test('idle: the same desk, with no prompt-start clamp given, DOES publish idle', () => {
+  // THE CONTROL. Without `$5` the function has nothing to clamp against, so it
+  // falls back to the raw transcript age — which is the old, race-prone
+  // behaviour this test's sibling exists to rule out for the watcher's actual
+  // call site. This pins that the clamp, and not some other condition, is what
+  // withheld the finding above.
+  const desk = buildDesk('resumed-race-control', { silence: 2000 });
+  const published = publishedOver(desk, { startedAt: '' });
+  assert.equal(published.length, 1,
+    `the control desk (no clamp) did not publish idle: ${JSON.stringify(published)}`);
+  assert.equal(published[0].finding, 'idle');
 });

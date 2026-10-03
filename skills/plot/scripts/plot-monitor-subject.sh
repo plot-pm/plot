@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: the ONE answer to "is this monitor's subject still there?"
 #
-# SOURCED, NOT RUN, by `plot-worker-monitor.sh` and `plot-agent-monitor.sh`.
+# SOURCED, NOT RUN, by `plot-agent-monitor.sh` and `plot-build-monitor.sh`.
 # Both need the same computation and neither renders it the same way, which is
 # the same shape as `plot-worker-state.sh` and `plot-pr-merged.sh` — and the
 # same reason. `plot-worker-state.sh` carried five of its six states in

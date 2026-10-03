@@ -47,7 +47,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops |
-| 5b. Record the Release in the Plans | Small | Mechanical per plan; the version comes from `git tag --contains`, not judgment. Gate on the sweep's real footer. The issue status write is one `plot-issue-status.sh` call per plan, reported and never gating |
+| 5b. Record the Release in the Plans | Small | One `plot-deliver.sh --release` call per plan (or `POST /api/release` where a board runs); the script resolves the version and writes the record. Gate on the sweep's real footer. The issue status write is one `plot-issue-status.sh` call per plan, reported and never gating |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -373,51 +373,46 @@ For each plan currently at `State: Delivered`:
 
 1. **Skip docs/infra plans.** `/plot-deliver` already told their authors they are
    live on merge; marking them Released contradicts a message Plot itself sends.
-2. **Resolve the version from git, never from dates.** Take the plan's last
-   `→ #N` annotation, get its merge commit, and find the release tag containing
-   it:
+2. **Call the controller, through its script. Do not do this by hand:**
 
    ```bash
-   SHA=$(../plot/scripts/plot-host.sh pr-state <N> | jq -r '.mergeCommit')
-   TAG=$(git tag --contains "$SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
+   ../plot/scripts/plot-deliver.sh --release <version> <slug>
    ```
 
-   The delivery date is when the plan was **booked**, not when its code merged —
-   those can be months apart, and two tags may share a date. Dates get this
-   wrong; `--contains` cannot.
-3. **A plan with no annotation, or no merge commit, is left alone** and reported
-   as unresolvable. An invented version in a transition record is a claim nobody
-   re-checks.
-4. Write, in the plan's `## Status`:
+   Where a board is running, `POST /api/release {"slug":"<slug>","version":"<version>"}`
+   does the same thing and is the route the board's own button calls.
 
-   ```
-   - **State:** Released
-   - **Released:** <tag date>, <version>
-   ```
+   This performs steps 2-4 below as one write: it reads the plan's last `→ #N`
+   annotation, asks `plot-host.sh pr-state <N>` for its merge commit, resolves
+   the FIRST `vX.Y.Z` tag (by version, never by `git tag --contains`'s
+   unordered listing) that contains it, and writes `State: Released` and
+   `Released: <tag date>, <version>` together with its own receipt.
+   `plot-state-gate.sh` clears on that receipt now — `setPlanPhase` existing was
+   this gap's blocker, and it does, through the `release` verb in
+   `transitions/plan.ts`. The escape this step used to reach for
+   (`plot-state-receipt.sh --unowned`) is no longer needed for this write.
 
-   Then declare each write, once per plan:
-
-   ```bash
-   bash ../plot/scripts/plot-state-receipt.sh --unowned <plan file> Released \
-     "/plot-release has no controller — setPlanPhase does not exist"
-   ```
-
-   **`plot-state-gate.sh` refuses a `State:` line changed by anything but the
-   script that owns it**, and no script owns `Released`: `setPlanPhase` does not
-   exist, which the plan `the-master-agent-uses-the-controllers` records as a
-   finding rather than a gap to work around. The line above is the named escape
-   and it is recorded, so the gap stays countable until
-   `a-release-is-a-controller-command` closes it.
-
-   **The symlink does not move.** `delivered/` means "no longer active", not
+3. **Four refusals, each on stderr, and each a repair rather than a guess:**
+   no `→ #N` annotation or no merge commit (the PR never merged, or the host
+   gave no answer — nothing was written, annotate or verify and re-run); no tag
+   at all contains the commit (cut the release that ships it first); a tag
+   exists but does not contain the commit (the version named did not ship this
+   plan); the first tag that DOES contain it is a different version (this plan
+   shipped earlier than the version named — release it as THAT tag instead).
+   **A refusal is reported and the plan is left alone** — report it as
+   unresolvable rather than guessing a version nobody re-checks.
+4. **The symlink does not move.** `delivered/` means "no longer active", not
    "phase is exactly Delivered" — unlike `/plot-deliver`, this step moves
-   nothing.
+   nothing, and the script does not touch it either.
 
-**Idempotent:** a plan already at Released with a record for this version is
-left untouched. Re-running after a partial failure converges.
+**Idempotent:** a plan already at Released with a record for this version is a
+no-op — same exit 0, no new commit. Re-running after a partial failure
+converges, the same property `/plot-approve` documents for its own script.
 
-Commit on the default branch using the disposable-branch mechanic from
-`/plot-approve` step 4 (including its branch-protection fallback).
+The script commits and pushes on the default branch itself, through the same
+disposable-branch mechanic `/plot-approve` uses (including its
+branch-protection fallback) — there is nothing left for this step to commit by
+hand.
 
 **Then tell each plan's tracker, once per plan marked Released, after the commit lands:**
 

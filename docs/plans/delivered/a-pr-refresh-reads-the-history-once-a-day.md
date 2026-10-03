@@ -1,0 +1,1 @@
+../2026-10-01-a-pr-refresh-reads-the-history-once-a-day.md

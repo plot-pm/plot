@@ -990,6 +990,29 @@ await esbuild.build({
 fs.copyFileSync(checkoutYieldArtifact, shippedCheckoutYield);
 fs.chmodSync(shippedCheckoutYield, 0o755);
 
+// plot-empty-claim.mjs — how many of a branch's commits are real work rather
+// than empty claim markers, for `plot-worker-loop.sh`'s no-upstream reading and
+// `plot-reap.sh`'s orphaned-claim sweep. One call carries every branch the
+// caller asks about. It reads stdin, spawns nothing and opens nothing.
+const emptyClaimArtifact = path.join(here, 'dist/plot-empty-claim.mjs');
+// ONE LINE, for the bundle-set derivation's reason above.
+const shippedEmptyClaim = path.join(here, '../../skills/plot/scripts/board/plot-empty-claim.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/empty-claim.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: emptyClaimArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(emptyClaimArtifact, shippedEmptyClaim);
+fs.chmodSync(shippedEmptyClaim, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -1142,13 +1165,16 @@ const vendoredScripts = [
   // prevent. A gate derived from the server's own spawns cannot see a SOURCED
   // file, so it is listed by hand, exactly as `plot-budget.sh` below is.
   'plot-build-monitor.sh',
-  // Sourced BY all three monitors as a `$script_dir` sibling — it is "the ONE
+  // Sourced BY both remaining monitors (`plot-agent-monitor.sh`,
+  // `plot-build-monitor.sh`) as a `$script_dir` sibling — it is "the ONE
   // answer to is this monitor's subject still there?", and it is what ends a
   // monitor with its agent. It was on NO list, measured 2026-09-06, so the npm
   // layout has shipped without it: `plot_monitor_wait` is then undefined and the
   // `while` driving every monitor's loop fails on the first call, so a monitor
   // starts, takes one pass and exits — leaving a worker that reads as monitored
-  // and is watched by nothing after its first second.
+  // and is watched by nothing after its first second. A third monitor,
+  // `plot-worker-monitor.sh`, sourced this too until
+  // `bug/the-loop-reports-idle` removed the process entirely.
   'plot-monitor-subject.sh',
   'plot-approve.sh',
   // Sourced BY plot-host.sh as a `$here` sibling — the same shape as
@@ -1186,21 +1212,14 @@ const vendoredScripts = [
   'plot-reap.sh',
   'plot-release-refs.sh',
   'plot-resolve-artifact.sh',
-  // The two monitors are vendored because plot-dispatch.sh STARTS them, not
-  // because the server spawns them — they resolve as `$script_dir` siblings of
-  // the dispatcher, so in the npm layout they must sit beside it. Missing, they
-  // do not crash: start_worker passes an empty path and the wrapper starts an
-  // UNMONITORED worker, which is the silent degradation the slice attaching
-  // them exists to prevent. A gate derived from the server's own spawns cannot
-  // see this one, so it is listed by hand and this comment says why.
-  'plot-worker-monitor.sh',
   'plot-worker-state.sh',
-  // Sourced BY plot-worker-monitor.sh as a `$script_dir` sibling, so it travels
-  // with it or the monitor is blind. Missing, the monitor does not crash — its
-  // guard answers `unavailable`, which is the honest word for a reader that is
-  // not there — but every worker in the npm layout would then fall back to
-  // `Worker bound` alone, silently, which is exactly the degradation the
-  // comment above says the vendoring exists to prevent.
+  // Sourced BY plot-worker-loop.sh as a `$script_dir` sibling — it holds the
+  // watcher's own readings, including `plot_worker_idle_watch_pass`. Missing,
+  // the loop does not crash: its guard answers `unavailable`, which is the
+  // honest word for a reader that is not there — but every worker in the npm
+  // layout would then fall back to `Worker bound` alone, silently. Until
+  // `bug/the-loop-reports-idle` this was sourced by the now-deleted
+  // `plot-worker-monitor.sh`; the loop has sourced it since.
   'plot-transcript-quiet.sh',
   // Sourced BY plot-approve.sh, plot-deliver.sh and plot-dispatch.sh as a
   // `$script_dir` sibling — they spend their controller receipt through it on
@@ -1272,6 +1291,7 @@ const promptExitKb = (fs.statSync(shippedPromptExit).size / 1024).toFixed(1);
 const localChecksKb = (fs.statSync(shippedLocalChecks).size / 1024).toFixed(1);
 const checksVerdictKb = (fs.statSync(shippedChecksVerdict).size / 1024).toFixed(1);
 const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(1);
+const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1305,4 +1325,5 @@ console.log(`Built plot-prompt-exit.mjs (${promptExitKb} KB) → skills/plot/scr
 console.log(`Built plot-local-checks.mjs (${localChecksKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-checks-verdict.mjs (${checksVerdictKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

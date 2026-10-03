@@ -819,10 +819,6 @@ jobs:
       # which would be a second place to forget.
       #
       # It found a ninth the plan had not — `plot-landed.mjs`, one day old.
-      #
-      # A tracked file the build does not emit is not demanded. `plot-monitor.mjs`
-      # appears in no `outfile`, so it has no deterministic rebuild, and that
-      # rebuild is the whole licence for `-merge`.
       - name: Every generated bundle is marked
         run: ./scripts/check-bundle-attributes.sh
 
@@ -840,6 +836,20 @@ jobs:
       # a person. Measured 2026-10-02: #1196 carried one onto main.
       - name: No desk marker is tracked
         run: ./scripts/check-desk-markers.sh
+
+      # THE HELPER TABLE STAYS OUT OF `CLAUDE.md`. Every session, worker and
+      # subagent loads that file on its first request; measured 2026-10-02, the
+      # table was 84,352 of 139,389 characters and nothing parsed a row of it.
+      # It came back once already as a stale 11-row copy in `AGENTS.md`. The
+      # gate also ratchets the scripts that still have no row.
+      - name: The helper table stays out of CLAUDE.md
+        run: ./scripts/check-helper-table.sh
+
+      # `AGENTS.md` IS `CLAUDE.md` FOR CODEX. Hand-kept until 2026-10-03, it
+      # held 6 of 12 sections and told agents to bump versions by hand. The
+      # mirror is generated; this refuses one that differs.
+      - name: AGENTS.md mirrors CLAUDE.md
+        run: ./scripts/check-agents-md.sh
 
       # A TEARDOWN DOES NOT FAIL A SUITE — the gate that keeps the conversion.
       #

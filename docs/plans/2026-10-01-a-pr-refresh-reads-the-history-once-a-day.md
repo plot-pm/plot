@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -14,6 +14,8 @@
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/a-delta-keeps-the-store-whole`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-full-read-asks-verdicts-of-open-prs-only`
+- **Started:** 2026-10-02, Jan Wloka, `bug/a-host-timeout-names-no-login`
+- **Delivered:** 2026-10-02
 
 ## Changelog
 
@@ -127,7 +129,7 @@ Tests:
 - A measurement in the PR body: at least three runs each of the old full read and the new one on this repository, with the time and the GraphQL `used` delta from `gh api rate_limit` for each run.
 - A freshness measurement in the PR body: `prAgeSeconds` from `/api/board`, sampled every 10 s for one hour on a running board with both slices built, and the largest value seen. The sample hour holds at least one full read, forced by aging `wholeAt`.
 
-### A host timeout names no login (Branch: bug/a-host-timeout-names-no-login)
+### A host timeout names no login (Branch: bug/a-host-timeout-names-no-login, PR: #1222)
 
 `timeout` in `host_failure_kind` and its arm in `pr_list_failed` in `skills/plot/scripts/plot-host.sh`. <!-- builds: the timeout failure kind -->
 

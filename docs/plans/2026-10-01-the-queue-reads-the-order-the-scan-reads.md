@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-queue-reads-the-scans-order`
+- **Started:** 2026-10-03, Jan Wloka, `bug/a-hand-over-is-checked-before-it-is-made`
 
 ## Changelog
 
@@ -116,7 +117,7 @@ After this plan's slice 1, `bug/the-queue-reads-the-scans-order`, runs in a rest
 
 ## Slices
 
-### The queue reads the scan's order (Branch: bug/the-queue-reads-the-scans-order)
+### The queue reads the scan's order (Branch: bug/the-queue-reads-the-scans-order, PR: #1247)
 
 `planQueue` and the exported `settled` predicate in `rules/queue.ts`, the order advanced on merged branches only, `PlanRecordBranch.waitsOn`, the `waits` hold, its tick count and its held-list line, and the queue as the corpus test's third surface. <!-- builds: planQueue, settled, the waits queue hold -->
 

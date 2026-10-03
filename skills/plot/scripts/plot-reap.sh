@@ -1035,25 +1035,18 @@ fi
 case "$ACTIVE_DIR_SWEEP" in /*) ;; *) ACTIVE_DIR_SWEEP="$ROOT/$ACTIVE_DIR_SWEEP" ;; esac
 
 # Does this branch carry ONLY empty claim commits? The scan's definition,
-# applied to a LOCAL ref — this sweep runs over local branches, where the scan
-# reads `origin/`.
+# applied to LOCAL refs — this sweep runs over local branches, where the scan
+# reads `origin/`. ONE `board/plot-empty-claim.mjs` call answers every branch;
+# a branch it does not answer `<branch>\t0` for, a missing bundle included,
+# carries real work and stays.
+EMPTY_CLAIMS=$(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null |
+  while IFS= read -r br; do
+    git log --boundary --format="${br//%/%%}%x09%m%x09%H%x09%T%x09%P%x09%s" \
+      "origin/$DEFAULT..$br" -- </dev/null 2>/dev/null
+  done | node "$(dirname "${BASH_SOURCE[0]}")/board/plot-empty-claim.mjs" 2>/dev/null) || EMPTY_CLAIMS=""
+
 sweep_is_empty_claim() { # $1=branch
-  local br="$1" ahead c subj real=0
-  ahead=$(git rev-list --count "origin/$DEFAULT..$br" 2>/dev/null || echo 0)
-  [ "${ahead:-0}" -gt 0 ] || return 1   # nothing of its own → merged work, not a claim
-  for c in $(git rev-list "origin/$DEFAULT..$br" </dev/null 2>/dev/null); do
-    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
-    case "$subj" in
-      "plot: claim "*)
-        # Titled AND empty. Both, or it counts as real work.
-        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
-             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
-          continue
-        fi ;;
-    esac
-    real=$((real+1))
-  done
-  [ "$real" = "0" ]
+  printf '%s\n' "$EMPTY_CLAIMS" | grep -qxF "$1	0"
 }
 
 # How the plan annotation classified this claim — the scan's `claim_disposition`,

@@ -59,22 +59,50 @@ _plot_tmp_register() {
 # unlisted. While `__plot_tmp_busy` is set, the signal handler records the
 # signal in `__plot_tmp_pending` and returns; `_plot_tmp_create` handles it once
 # the path is registered.
+#
+# A SUBSHELL HOLDS THE SIGNAL ITSELF. bash resets caught traps in `$(…)` and
+# `( … )`, so there the handler above is not installed and a TERM between
+# `mktemp` and the registration ends the subshell with the path unlisted. The
+# owner's cleanup then runs and cannot remove it. `plot-host.sh`'s
+# `pr_list_call` creates `plot-host-prlist-err.*` this way, inside
+# `_raw="$(pr_list_call …)"`, and CI run 37052327801 left one when the board
+# test teardown sent its process group TERM. Inside a subshell
+# (`BASH_SUBSHELL` > 0; bash 3.2 has no `BASHPID`) the creation installs
+# handlers that only record the signal, and after the registration it restores
+# the defaults and exits with 128 + the signal's number. It does not run the
+# cleanup: the registry belongs to the owner, which received the same group
+# signal and removes the path when the subshell has ended.
 __plot_tmp_busy=''
 __plot_tmp_pending=''
 
 # _plot_tmp_create VAR prefix [-d] — create, register, assign to VAR.
 _plot_tmp_create() {
-  local __plot_tmp_new __plot_tmp_rc
+  local __plot_tmp_new __plot_tmp_rc __plot_tmp_sub=''
   __plot_tmp_busy=1
+  if [ "${BASH_SUBSHELL:-0}" -gt 0 ]; then
+    __plot_tmp_sub=1
+    trap '__plot_tmp_pending="INT 2"' INT
+    trap '__plot_tmp_pending="TERM 15"' TERM
+    trap '__plot_tmp_pending="PIPE 13"' PIPE
+  fi
   if [ "${3:-}" = -d ]; then
     __plot_tmp_new=$(mktemp -d "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
   else
     __plot_tmp_new=$(mktemp "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
   fi
   __plot_tmp_rc=$?
-  [ "$__plot_tmp_rc" -eq 0 ] && _plot_tmp_register p "$__plot_tmp_new"
+  # THE PATH IS REGISTERED WHEN IT EXISTS, whatever the status says. bash 3.2
+  # reports 143 for `$(mktemp …)` when a trap ran during it, although `mktemp`
+  # created the path and printed it; a status-only test leaves that path
+  # unlisted.
+  if [ -n "$__plot_tmp_new" ] && { [ -e "$__plot_tmp_new" ] || [ "$__plot_tmp_rc" -eq 0 ]; }; then
+    _plot_tmp_register p "$__plot_tmp_new"
+  fi
   __plot_tmp_busy=''
-  if [ -n "$__plot_tmp_pending" ]; then
+  if [ -n "$__plot_tmp_sub" ]; then
+    trap - INT TERM PIPE
+    [ -z "$__plot_tmp_pending" ] || exit $((128 + ${__plot_tmp_pending#* }))
+  elif [ -n "$__plot_tmp_pending" ]; then
     # shellcheck disable=SC2086 # "<name> <number>", split on purpose
     _plot_tmp_on_signal $__plot_tmp_pending
   fi

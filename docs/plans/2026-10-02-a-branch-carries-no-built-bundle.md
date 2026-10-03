@@ -103,7 +103,7 @@
 
 ### Main builds its bundles
 
-- `bug/main-builds-its-bundles` — a workflow on push to `main` builds the bundles and pushes them to `main` as the App, in a concurrency group with a loop guard; `main`'s freshness step warns and a lag check fails; the release job checks freshness before it tags, and the `version` script stops building <!-- builds: board-artifact workflow -->
+- `bug/main-builds-its-bundles` — a workflow on push to `main` builds the bundles and pushes them to `main` as the App, in a concurrency group with a loop guard; `main`'s freshness step warns and a lag check fails; the release job checks freshness before it tags, and the `version` script stops building → #1249 <!-- builds: board-artifact workflow -->
 
 ### A PR carries no bundle
 

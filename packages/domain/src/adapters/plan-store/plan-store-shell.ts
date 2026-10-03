@@ -41,13 +41,25 @@ interface RawBranch {
   deferred?: boolean;
   deferred_reason?: string;
   claimed?: string;
+  waits_on?: string;
 }
 
-const branchOf = (raw: RawBranch): PlanRecordBranch => ({
+/**
+ * Renames one branch line into the port's shape.
+ *
+ * `waits_on` is ABSENT rather than empty on a branch declaring no wait — the
+ * parser's own contract (`plot-plan-meta.sh:619-623`) — so the default below is
+ * what turns that absence into `PlanRecordBranch.waitsOn`'s `''`.
+ *
+ * @param raw - one branch line from the parser.
+ * @returns the record, with every absent field at its empty value.
+ */
+export const branchOf = (raw: RawBranch): PlanRecordBranch => ({
   branch: raw.branch ?? '',
   deferred: raw.deferred ?? false,
   deferredReason: raw.deferred_reason ?? '',
   claimed: raw.claimed ?? '',
+  waitsOn: raw.waits_on ?? '',
 });
 
 const sliceOf = (raw: RawSlice): PlanRecordSlice => ({

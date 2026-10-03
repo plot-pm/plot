@@ -150,7 +150,18 @@ scan="$repo_root/skills/plot/scripts/plot-reconcile-scan.sh"
 # proposing any of those five is told the estate already has it, citing THIS
 # COMMENT as the finding: a check firing on its own prose, which is exactly the
 # failure the four-corpus scoping exists to prevent.
-excludes=(":(exclude)skills/plot/scripts/plot-deliverable-search.sh")
+#
+# THE HELPER README IS EXCLUDED, and it is the one exclusion that is neither
+# this script nor a build artifact. `skills/plot/scripts/README.md` holds one
+# row per script in that directory — 62 of them, 84k characters, naming nearly
+# every script the corpus contains. Left in, a search for almost any script
+# name matches the README first, and the finding reads *the estate already has
+# this* when what it found is the row describing it. It is hand-written, so
+# `.gitattributes` cannot name it and this line must.
+excludes=(
+  ":(exclude)skills/plot/scripts/plot-deliverable-search.sh"
+  ":(exclude)skills/plot/scripts/README.md"
+)
 if [ -f .gitattributes ]; then
   while IFS= read -r path; do
     if [ -n "$path" ]; then excludes+=(":(exclude)$path"); fi
@@ -244,7 +255,10 @@ report_corpus() {
 
   found_any=1
   echo "$corpus_label :: $term — $n_files file(s), $n_hits line(s)"
-  printf '%s\n' "$hits" | head -n "$MAX_PER_TERM" | cut -c "1-$MAX_LINE" | sed 's/^/  /'
+  # `awk 'NR<=n'` and never `head`: head exits after n lines, the writer takes
+  # SIGPIPE once the rest exceeds the pipe buffer, and pipefail ends the script
+  # with 141. awk reads every line, so the writer always finishes.
+  printf '%s\n' "$hits" | awk -v n="$MAX_PER_TERM" 'NR<=n' | cut -c "1-$MAX_LINE" | sed 's/^/  /'
   if [ "$n_hits" -gt "$MAX_PER_TERM" ]; then
     echo "  … $((n_hits - MAX_PER_TERM)) more"
   fi
@@ -290,7 +304,7 @@ while IFS=$'\t' read -r kind term; do
       found_any=1
       echo "reconcile scan sections :: $term — $n heading(s)"
       printf '%s\n' "$scan_hits" \
-        | head -n "$MAX_PER_TERM" \
+        | awk -v n="$MAX_PER_TERM" 'NR<=n' \
         | sed "s|^|  ${scan#"$repo_root"/}:|" \
         | cut -c "1-$MAX_LINE"
     fi

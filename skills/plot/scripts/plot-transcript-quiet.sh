@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The ONE answer to "how long has this worktree's agent been quiet?" — sourced,
-# not run, by `plot-worker-monitor.sh` and `plot-worker-loop.sh`.
+# not run, by `plot-worker-loop.sh` for its own watcher (`plot-worker-state.sh`'s
+# `plot_worker_idle_watch_pass`) and for its own ending message. Sourced by the
+# now-deleted `plot-worker-monitor.sh` until `bug/the-loop-reports-idle`.
 #
 # It reads the AGENT rather than the machine. A `claude -p` session appends a
 # timestamped line to its transcript for every model turn, tool call and tool

@@ -4,6 +4,8 @@ import {
   isHandOverReady,
   holdCounts,
   matchQueue,
+  planQueue,
+  settled,
   QUEUE_HOLDS,
   behindUnknownLanding,
   whyNotReady,
@@ -12,6 +14,8 @@ import {
   type FleetCap,
   type QueueAgent,
   type QueuedSlice,
+  type PlanRecord,
+  type HeldSlice,
 } from '../src/index.js';
 
 /**
@@ -39,6 +43,8 @@ const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   unnamed: false,
   landed: 'not-landed',
   priorUnknown: false,
+  waitsOn: '',
+  waitHeld: '',
   ...over,
 });
 
@@ -64,6 +70,143 @@ describe('isHandOverReady — the brief gate, at the hand-over', () => {
     // is not a slice missing a brief, and a reader sent to write one would be
     // sent to fix the wrong thing.
     expect(whyNotReady(slice({ claimable: false, briefPresent: false }))).toBe('not-claimable');
+  });
+});
+
+describe('whyNotReady — a `waits:` prerequisite holds a slice ahead of the brief', () => {
+  it('holds a slice whose prerequisite has not merged, before the brief is asked', () => {
+    // waits IS TESTED BEFORE no-brief, so a slice with no brief that is also
+    // waiting reports the wait — the reason nothing can start regardless of
+    // whether a brief ever lands.
+    const held = slice({ waitsOn: 'feature/prereq', waitHeld: 'unmerged', briefPresent: false });
+    expect(whyNotReady(held)).toBe('waits');
+  });
+
+  it('offers a slice whose wait has cleared', () => {
+    expect(whyNotReady(slice({ waitsOn: 'feature/prereq', waitHeld: '' }))).toBeNull();
+  });
+});
+
+describe('planQueue — the order and the `waits:` hold, moved into the domain', () => {
+  const plan = (slices: string[][], over: Partial<PlanRecord> = {}): PlanRecord =>
+    ({
+      file: 'docs/plans/2026-10-01-a-plan.md',
+      phase: 'approved',
+      slices: slices.map((branches) => ({
+        branches: branches.map((branch) => ({ branch, deferred: false, waitsOn: '' })),
+      })),
+      ...over,
+    }) as unknown as PlanRecord;
+
+  describe('settled — merged-only, the scan’s own rule', () => {
+    it('is false for a branch that is only claimed', () => {
+      expect(settled('feature/one', new Set<string>())).toBe(false);
+    });
+
+    it('is true only where the merged set names the branch', () => {
+      expect(settled('feature/one', new Set(['feature/one']))).toBe(true);
+    });
+  });
+
+  it('does not offer the second slice while the first is claimed and unmerged', () => {
+    // THE CASE A NAIVE FIX PASSES BY DROPPING `claimed` FROM `taken`. A claimed
+    // first branch must keep the second slice out of the hand-over, even though
+    // a ref alone says nothing about whether the work is finished.
+    const queued = planQueue(
+      plan([['feature/one'], ['feature/two']]),
+      new Set(['feature/one']),
+      new Set<string>(),
+      true,
+    );
+    expect(queued.find((q) => q.branch === 'feature/two')?.claimable).toBe(false);
+  });
+
+  it('offers the second slice once the first branch is merged', () => {
+    const queued = planQueue(
+      plan([['feature/one'], ['feature/two']]),
+      new Set<string>(),
+      new Set(['feature/one']),
+      true,
+    );
+    expect(queued.find((q) => q.branch === 'feature/two')?.claimable).toBe(true);
+  });
+
+  it('leaves a deferred branch out of the queue', () => {
+    const queued = planQueue(
+      ({
+        file: 'docs/plans/2026-10-01-a-plan.md',
+        phase: 'approved',
+        slices: [
+          {
+            branches: [
+              { branch: 'feature/given-up', deferred: true, waitsOn: '' },
+              { branch: 'feature/kept', deferred: false, waitsOn: '' },
+            ],
+          },
+        ],
+      }) as unknown as PlanRecord,
+      new Set<string>(),
+      new Set<string>(),
+      true,
+    );
+    expect(queued.map((q) => q.branch)).toEqual(['feature/kept']);
+    expect(queued[0].slug).toBe('a-plan');
+  });
+
+  it('carries the prerequisite onto the held record through matchQueue', () => {
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/waiter', waitsOn: 'feature/prereq', waitHeld: 'unreachable' })],
+      agents: [],
+    });
+    expect(match.held).toEqual([
+      { branch: 'feature/waiter', hold: 'waits', waitsOn: 'feature/prereq', waitHeld: 'unreachable' },
+    ]);
+  });
+
+  it('does not re-offer a claimed branch, even though it is not yet settled', () => {
+    const queued = planQueue(plan([['feature/one']]), new Set(['feature/one']), new Set<string>(), true);
+    expect(queued.map((q) => q.branch)).not.toContain('feature/one');
+  });
+
+  describe('the `waits:` answer table', () => {
+    it('clears the hold once the merged set names the prerequisite', () => {
+      const queued = planQueue(
+        plan([['feature/one']], {
+          slices: [{ branches: [{ branch: 'feature/one', deferred: false, waitsOn: 'feature/prereq' }] }],
+        } as unknown as Partial<PlanRecord>),
+        new Set<string>(),
+        new Set(['feature/prereq']),
+        true,
+      );
+      expect(queued[0]?.waitHeld).toBe('');
+    });
+
+    it('holds as `unreachable` on a partial listing that does not name the prerequisite', () => {
+      // THE PARTIAL-LISTING ROW. A listing with rows and `whole: false` that
+      // does not name the prerequisite must not read as `unmerged` — that is
+      // the same hold for the wrong reason.
+      const queued = planQueue(
+        plan([['feature/one']], {
+          slices: [{ branches: [{ branch: 'feature/one', deferred: false, waitsOn: 'feature/prereq' }] }],
+        } as unknown as Partial<PlanRecord>),
+        new Set<string>(),
+        new Set(['some/other/branch']),
+        false,
+      );
+      expect(queued[0]?.waitHeld).toBe('unreachable');
+    });
+
+    it('holds as `unmerged` on a whole listing that does not name the prerequisite', () => {
+      const queued = planQueue(
+        plan([['feature/one']], {
+          slices: [{ branches: [{ branch: 'feature/one', deferred: false, waitsOn: 'feature/prereq' }] }],
+        } as unknown as Partial<PlanRecord>),
+        new Set<string>(),
+        new Set<string>(),
+        true,
+      );
+      expect(queued[0]?.waitHeld).toBe('unmerged');
+    });
   });
 });
 
@@ -121,7 +264,7 @@ describe('whyNotReady — a finished slice leaves the queue', () => {
       agents: [agent('a')],
     });
     expect(match.assignments).toEqual([]);
-    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged' }]);
+    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged', waitsOn: '', waitHeld: '' }]);
     expect(match.idle).toEqual(['a']);
   });
 
@@ -163,7 +306,7 @@ describe('whyNotReady — a finished slice leaves the queue', () => {
       agents: [agent('a')],
     });
     expect(match.assignments.map((a) => a.branch)).toEqual(['feature/open']);
-    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged' }]);
+    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged', waitsOn: '', waitHeld: '' }]);
   });
 });
 
@@ -189,7 +332,7 @@ describe('matchQueue — one slice to one agent', () => {
     const sessions = match.assignments.map((a) => a.session);
     expect(new Set(sessions).size).toBe(sessions.length);
     expect(match.assignments).toHaveLength(1);
-    expect(match.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent' }]);
+    expect(match.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent', waitsOn: '', waitHeld: '' }]);
   });
 
   it('never hands one slice to two agents', () => {
@@ -213,7 +356,7 @@ describe('matchQueue — one slice to one agent', () => {
     });
 
     expect(match.assignments).toEqual([]);
-    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-free-agent' }]);
+    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-free-agent', waitsOn: '', waitHeld: '' }]);
     expect(match.idle).toEqual([]);
   });
 
@@ -226,7 +369,7 @@ describe('matchQueue — one slice to one agent', () => {
     expect(match.assignments).toEqual([
       { session: 's1', worktree: '/desks/s1', branch: 'feature/b', slug: 'a-plan' },
     ]);
-    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-brief' }]);
+    expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-brief', waitsOn: '', waitHeld: '' }]);
   });
 
   it('takes agents in registry order and slices in plan order', () => {
@@ -291,7 +434,7 @@ describe('assign — the hand-over workflow', () => {
 
     expect(decision.outcome).toBe('decided');
     expect(decision.writes).toEqual([]);
-    expect(decision.detail.held).toEqual([{ branch: 'feature/x', hold: 'no-free-agent' }]);
+    expect(decision.detail.held).toEqual([{ branch: 'feature/x', hold: 'no-free-agent', waitsOn: '', waitHeld: '' }]);
   });
 
   it('bounds a pass, and reports what the bound held rather than dropping it', () => {
@@ -305,7 +448,7 @@ describe('assign — the hand-over workflow', () => {
 
     expect(decision.writes).toHaveLength(1);
     expect(decision.detail.assignments.map((a) => a.branch)).toEqual(['feature/a']);
-    expect(decision.detail.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent' }]);
+    expect(decision.detail.held).toEqual([{ branch: 'feature/b', hold: 'no-free-agent', waitsOn: '', waitHeld: '' }]);
     expect(decision.detail.idle).toEqual(['s2']);
   });
 
@@ -342,8 +485,8 @@ describe('assign — the tick starts agents when queued > running', () => {
     );
 
     expect(decision.detail.held).toEqual([
-      { branch: 'feature/a', hold: 'no-free-agent' },
-      { branch: 'feature/b', hold: 'no-free-agent' },
+      { branch: 'feature/a', hold: 'no-free-agent', waitsOn: '', waitHeld: '' },
+      { branch: 'feature/b', hold: 'no-free-agent', waitsOn: '', waitHeld: '' },
     ]);
     expect(decision.writes).toEqual([
       { kind: 'worker-start', branch: '', worktree: '/desks/new-1' },
@@ -452,7 +595,7 @@ describe('a refusal is counted so a zero can be read', () => {
    * manually. A key per hold makes `no-brief=0` a measurement.
    */
   it('gives every hold a key, including the ones that did not fire', () => {
-    const counts = holdCounts([{ branch: 'feature/a', hold: 'no-brief' }]);
+    const counts = holdCounts([{ branch: 'feature/a', hold: 'no-brief', waitsOn: '', waitHeld: '' }]);
     expect(Object.keys(counts).sort()).toEqual([...QUEUE_HOLDS].sort());
     expect(counts['no-brief']).toBe(1);
     expect(counts['not-claimable']).toBe(0);
@@ -465,10 +608,10 @@ describe('a refusal is counted so a zero can be read', () => {
   });
 
   it('sums the holds it was given, and the total is the slices held', () => {
-    const held = [
-      { branch: 'feature/a', hold: 'no-brief' as const },
-      { branch: 'feature/b', hold: 'no-brief' as const },
-      { branch: 'feature/c', hold: 'already-merged' as const },
+    const held: HeldSlice[] = [
+      { branch: 'feature/a', hold: 'no-brief', waitsOn: '', waitHeld: '' },
+      { branch: 'feature/b', hold: 'no-brief', waitsOn: '', waitHeld: '' },
+      { branch: 'feature/c', hold: 'already-merged', waitsOn: '', waitHeld: '' },
     ];
     const counts = holdCounts(held);
     expect(counts['no-brief']).toBe(2);
@@ -483,6 +626,7 @@ describe('a refusal is counted so a zero can be read', () => {
     const answered = [
       whyNotReady(slice({ landed: 'landed' })),
       whyNotReady(slice({ landed: 'unknown' })),
+      whyNotReady(slice({ waitsOn: 'feature/prereq', waitHeld: 'unmerged' })),
       whyNotReady(slice({ briefPresent: false })),
       whyNotReady(slice({ unnamed: true })),
       whyNotReady(slice({ claimable: false })),
@@ -667,7 +811,9 @@ describe('whyNotReady — a slice with no name is held rather than handed over',
     });
 
     expect(match.assignments).toEqual([]);
-    expect(match.held).toEqual([{ branch: 'feature/nameless', hold: 'slice-unnamed' }]);
+    expect(match.held).toEqual([
+      { branch: 'feature/nameless', hold: 'slice-unnamed', waitsOn: '', waitHeld: '' },
+    ]);
     expect(match.idle).toEqual(['s1']);
   });
 });

@@ -90,11 +90,6 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # remembered. Nine bundles today; `plot-landed.mjs` arrived while the plan that
 # asked for this was still in draft, and the derivation found it.
 #
-# `plot-monitor.mjs` IS DELIBERATELY ABSENT. It is committed and documented, and
-# no `outfile` names it — nothing rebuilds it. Property 2 above is the whole
-# licence, so a file with no deterministic rebuild cannot be on this list. The
-# derivation reads the build, so it cannot ask for it.
-#
 # Still named in the board's contract as well, because the two run in different
 # languages and neither can import the other's constant. The pairing is asserted
 # by a test rather than trusted — and that test now asserts SET EQUALITY, since

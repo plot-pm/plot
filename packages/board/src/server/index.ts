@@ -25,6 +25,7 @@ import {
   approveStatus,
   handleApprove,
 } from './approve.js';
+import { handleRelease, releaseStatus } from './release.js';
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { handleStory, storyAvailability, storyStatus } from './story.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
@@ -236,6 +237,15 @@ async function handleRequest(
   // so it cannot be set by reflex — see write-gate.ts.
   const WRITE_ROUTES = [
     { path: '/api/approve', verb: 'approving', handle: handleApprove },
+    // POST /api/release — cut a Delivered plan's `Released:` record.
+    //
+    // The same class of route as /api/approve, and the same binding: it runs
+    // `plot-deliver.sh --release`, the script Plot ships, directly — never
+    // through a configured command, since resolving the version from the
+    // plan's merge commit is a fact the script reads and refuses on, not a
+    // judgement a skill makes. No agent arm: unlike /api/deliver, there is no
+    // partial-deliverable question here for an agent to answer.
+    { path: '/api/release', verb: 'releasing', handle: handleRelease },
     // POST /api/continue — a NEW worker in an answered branch's worktree.
     //
     // Allow-listed here beside /api/dispatch and /api/approve because it is the
@@ -665,6 +675,21 @@ async function handleRequest(
     res.end(
       SLUG_RE.test(slug)
         ? JSON.stringify(approveStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // The read-it-back half of /api/release, the same shape /api/approve/<slug>
+  // has and for the same reason: the POST answers 202 before the script has
+  // finished, so the command's own last words are the only way to learn what
+  // happened.
+  if (url.pathname.startsWith('/api/release/')) {
+    const slug = url.pathname.slice('/api/release/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(releaseStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
     return;

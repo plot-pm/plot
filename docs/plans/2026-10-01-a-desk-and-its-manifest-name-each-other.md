@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-join-is-one-rule`
+- **Started:** 2026-10-02, Jan Wloka, `bug/the-monitor-follows-the-hop`
 
 ## Changelog
 
@@ -83,7 +84,7 @@ Each export has 100% branch coverage in `packages/domain/test/`.
 
 Tests that fail on origin/main: a contract case in `test/reconcile/workerstate.test.mjs` sources `plot-worker-state.sh` from inside a linked worktree whose manifest sits in the main checkout's `.plot/agents/`, with `PLOT_MANIFEST_DIR` unset, and asserts `plot_manifest_for_worktree` prints that manifest; a second case sets `Agent registry` to an absolute directory and asserts the same; a `supervisor` unit case registers a desk by its symlinked path and asserts the real path reads `registered: true`.
 
-### The monitor follows the hop (Branch: bug/the-monitor-follows-the-hop) <!-- builds: watchedDesk, the monitor's per-pass desk --> <!-- waits: bug/the-join-is-one-rule --> <!-- waits: bug/the-loop-reports-idle -->
+### The monitor follows the hop (Branch: bug/the-monitor-follows-the-hop, PR: #1234) <!-- builds: watchedDesk, the monitor's per-pass desk --> <!-- waits: bug/the-join-is-one-rule --> <!-- waits: bug/the-loop-reports-idle -->
 
 `watchedDesk` in `rules/desk-manifest.ts` with unit tests; `plot-agent-monitor.sh` and `plot-build-monitor.sh` re-read the manifest's `worktree` each pass and move their findings files with it; the wrapper in `plot-dispatch.sh` appends its `gone` or `clear` line to the watched desk; a corpus row for `watchedDesk`; a `plot` patch changeset. The slice builds on #1041's `bug/the-loop-reports-idle`, which removes `plot-worker-monitor.sh` and moves `idle` into the loop's watcher and `gone` into the wrapper; it does not edit `plot-worker-monitor.sh`. Answers #1085.
 

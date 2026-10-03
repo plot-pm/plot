@@ -74,9 +74,14 @@ INPUT="$(cat)"
 CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)" || exit 0
 [ -n "$CMD" ] || exit 0
 
-# The three, and the endpoint each one's action belongs to. A refusal names a
-# route or it is not issued: that is why the list is these three and not the
-# fleet's writing scripts generally.
+# The three scripts, and the endpoint each one's action belongs to. A refusal
+# names a route or it is not issued: that is why the list is these three and
+# not the fleet's writing scripts generally.
+#
+# `plot-deliver.sh` NAMES TWO ACTIONS, and this still answers only whether the
+# SCRIPT is one of the three — which action word applies is decided where the
+# command is read, below, because that is the one place that can see whether
+# `--release` rode along. A second answer here would disagree with it.
 gated_action() { # $1=script basename → the action word, or nothing
   case "$1" in
     plot-dispatch.sh) printf 'dispatch\n' ;;
@@ -213,21 +218,54 @@ done
 # --- the read/write split INSIDE the named script ----------------------------
 #
 # Only the action a controller owns is gated. `--status` and `--dry-run` report;
-# `--stop`, `--restart`, `--start`, `--migrate` and `--release` write, and have
-# NO endpoint — refusing them would name no route, which is the exact reason
-# `gh` is left out.
+# `--stop`, `--restart`, `--start` and `--migrate` write, and have NO endpoint
+# — refusing them would name no route, which is the exact reason `gh` is left
+# out.
 # `plot-fleetctl.sh --stop` calls `plot-dispatch.sh --stop` per agent, so a gate
 # over that mode would break the fleet's own orchestration.
 # Reads the STRIPPED command, so a heredoc body mentioning a mode cannot exempt
 # a real invocation sharing its command line.
-case " $CMD_SCAN " in
-  *" --status "*|*" --status"|*" --dry-run "*|*" --dry-run"*|\
-  *" --stop "*|*" --stop"|*" --restart "*|*" --restart"|\
-  *" --start "*|*" --start"|*" --migrate "*|*" --migrate"|\
-  *" --release "*|*" --release"|\
-  *" --help "*|*" --help"|*" -h "*|*" -h")
-    exit 0 ;;
+#
+# `--release` IS SCOPED TO `plot-dispatch.sh` ALONE, and that scoping is new:
+# this arm used to exempt ` --release ` for every gated script, so
+# `plot-deliver.sh --release 2.22.3 x` cleared the gate with no receipt at
+# all — the exact failure `a-release-is-a-controller-command` exists to close,
+# since `POST /api/release` is a real endpoint and `--release` on
+# `plot-deliver.sh` is a write it owns. `plot-dispatch.sh --release <branch>`
+# (returning an abandoned claim to the queue) has no endpoint and keeps its
+# exemption; `plot-deliver.sh --release <version> <slug>` falls through to the
+# receipt check below like any other write.
+case "$named_script" in
+  plot-dispatch.sh)
+    case " $CMD_SCAN " in
+      *" --status "*|*" --status"|*" --dry-run "*|*" --dry-run"*|\
+      *" --stop "*|*" --stop"|*" --restart "*|*" --restart"|\
+      *" --start "*|*" --start"|*" --migrate "*|*" --migrate"|\
+      *" --release "*|*" --release"|\
+      *" --help "*|*" --help"|*" -h "*|*" -h")
+        exit 0 ;;
+    esac
+    ;;
+  *)
+    case " $CMD_SCAN " in
+      *" --status "*|*" --status"|*" --dry-run "*|*" --dry-run"*|\
+      *" --help "*|*" --help"|*" -h "*|*" -h")
+        exit 0 ;;
+    esac
+    ;;
 esac
+
+# THE ACTION WORD, decided from the command rather than from `gated_action`
+# alone. `plot-deliver.sh` carries two: bare, it delivers; with `--release`, it
+# releases — a different write with a different endpoint and a different
+# receipt. Read from the STRIPPED command for the same reason the mode check
+# above is.
+action="$(gated_action "$named_script")"
+if [ "$named_script" = "plot-deliver.sh" ]; then
+  case " $CMD_SCAN " in
+    *" --release "*|*" --release") action="release" ;;
+  esac
+fi
 
 # --- the desk exemption: read from where the call RUNS -----------------------
 #
@@ -266,19 +304,23 @@ if [ ! -d "$state_root" ]; then
   exit 0
 fi
 
-action_receipt_clears "$named_script" && exit 0
+action_receipt_clears "$action" && exit 0
 
 # --- the refusal, which names the repair -------------------------------------
 #
 # A refusal an operator cannot act on becomes a flag somebody turns off, which
 # is plot-state-gate.sh's argument for naming the command per file.
-action="$(gated_action "$named_script")"
 {
   echo "plot-controller-gate: $named_script is a controller-owned action."
   echo ""
   echo "  Call the controller instead:"
-  echo "      POST /api/$action {\"slug\":\"<slug>\"}"
-  echo "    which is what the board's own button does, and /plot-$action is the skill that asks it."
+  if [ "$action" = "release" ]; then
+    echo "      POST /api/release {\"slug\":\"<slug>\",\"version\":\"<version>\"}"
+    echo "    which is what the board's own button does, and /plot-release is the skill that asks it."
+  else
+    echo "      POST /api/$action {\"slug\":\"<slug>\"}"
+    echo "    which is what the board's own button does, and /plot-$action is the skill that asks it."
+  fi
   echo ""
   echo "  Or, where the board is not running and you accept the bypass:"
   # The receipt script beside THIS gate, absolute: on a plugin install the gate

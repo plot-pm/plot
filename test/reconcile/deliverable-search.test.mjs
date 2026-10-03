@@ -270,6 +270,43 @@ test('a generated bundle is excluded, read from .gitattributes', () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('a reader that stops early does not end the search', () => {
+  // The script prints a term's first MAX_PER_TERM lines from a pipe, under
+  // `set -o pipefail`. A reader that exits after N lines closes the pipe while
+  // the writer still holds more than the pipe buffer, the writer dies with
+  // SIGPIPE, and pipefail ended the whole script with 141. CI met it on
+  // 2026-10-02 (`it never reports its own header`, actual: 141). 3000 matched
+  // lines exceed a 64 KB pipe buffer at this length on both corpora that print.
+  const line = `quokkaPipe ${'x'.repeat(60)}`;
+  const many = Array.from({ length: 3000 }, (_, i) => `// ${i} ${line}\n`).join('');
+  const headings =
+    Array.from({ length: 3000 }, (_, i) => `echo "== ${i}. quokkaPipe ${'y'.repeat(60)} =="\n`).join('') +
+    Array.from({ length: 9000 }, (_, i) => `echo "== ${i}. other section =="\n`).join('');
+  const dir = estate({
+    'packages/board/src/many.ts': many,
+    'skills/plot/scripts/plot-reconcile-scan.sh': headings,
+  });
+
+  const got = run(dir, 'quokkaPipe');
+  assert.equal(got.status, 0, `an early-closing reader must not end the search:\n${got.stderr}`);
+  assert.match(got.stdout, /packages\/board\/src :: quokkaPipe — 1 file\(s\), 3000 line\(s\)/,
+    `the code corpus must still report the term:\n${got.stdout.slice(0, 2000)}`);
+  assert.match(got.stdout, /… 2992 more/,
+    `and the count of what it did not print:\n${got.stdout.slice(0, 2000)}`);
+  assert.match(got.stdout, /reconcile scan sections :: quokkaPipe — 3000 heading\(s\)/,
+    `the scan corpus must still be reached:\n${got.stdout.slice(0, 2000)}`);
+  // Every report (one per corpus and term, the bare nouns included) still
+  // prints exactly MAX_PER_TERM = 8 lines, so the fix bounds what it shows.
+  const lines = got.stdout.split('\n');
+  const reports = lines.filter((l) => / :: \S+ — /.test(l)).length;
+  const printed = lines.filter((l) => /^  \S.*quokkaPipe/.test(l)).length;
+  assert.ok(reports >= 3, `three corpora at least:\n${got.stdout.slice(0, 3000)}`);
+  assert.equal(printed, reports * 8,
+    `each report still prints exactly MAX_PER_TERM lines:\n${got.stdout.slice(0, 3000)}`);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test('it never reports its own header as a finding', () => {
   // ITS HEADER NAMES ALL FIVE MEASURED DUPLICATIONS, because that is the
   // evidence the design rests on — and it lives in `skills/plot/scripts`, one
@@ -301,4 +338,35 @@ test('it survives this estate at a size a person reads', () => {
     `a report this long is one nobody reads (${got.stdout.length} bytes)`);
   assert.match(got.stdout, /normalizeVersion/,
     `and it must still find the deliverable:\n${got.stdout.slice(0, 2000)}`);
+});
+
+test('it never reports the helper README as a finding', () => {
+  // THE README IS THE ONE EXCLUSION THAT IS NEITHER THIS SCRIPT NOR A BUNDLE.
+  // `skills/plot/scripts/README.md` holds one row per script in that
+  // directory — 62 rows, 84k characters — and it lives in a corpus this
+  // search reads. Left in, a search for almost any script name matches the
+  // README first and the finding reads *the estate already has this* when
+  // what it found is the row describing it.
+  //
+  // THIS RUNS ON THE REAL TREE on purpose, as the self-exclusion test above
+  // does: the property belongs to the real README's contents, and a fixture
+  // README written here would prove only that a named file can be excluded.
+  //
+  // THE TERM IS A SCRIPT'S OWN BASENAME, which is the shape of the problem:
+  // the README's first cell IS that name, so an unexcluded README matches
+  // every one of them.
+  //
+  // EACH TERM MUST SIT UNDER `NOISE_FLOOR` (6 files), and that is what makes
+  // this test discriminating rather than merely true. The floor counts FILES,
+  // so a widely-referenced script such as `plot-host.sh` (29 files) has its
+  // whole corpus skipped and the README never reaches the output — the
+  // assertion would then hold with the exclusion deleted. Verified by running
+  // this test against the script with the exclusion removed: these three fail
+  // and `plot-host.sh` passes.
+  for (const name of ['plot-brief-name-gate.sh', 'plot-desk-dirt.sh', 'plot-install-prompt.sh']) {
+    const got = run(repoRoot, name);
+    assert.equal(got.status, 0, `the search never refuses:\n${got.stderr}`);
+    assert.doesNotMatch(got.stdout, /scripts\/README\.md/,
+      `searching for ${name} must not report the helper README:\n${got.stdout}`);
+  }
 });

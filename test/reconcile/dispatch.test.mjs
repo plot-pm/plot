@@ -2915,7 +2915,7 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
-test('dispatch: the manifest names the wrapper and all three monitors, at spawn', () => {
+test('dispatch: the manifest names the wrapper and both remaining monitors, at spawn', () => {
   // THE DEFECT. The manifest recorded the process the registry started LEAST
   // ambiguously — the agent — and none of the others the registry also started.
   // Measured on the estate 2026-08-30: 1 manifest, 76 monitor processes, 0 of
@@ -2923,9 +2923,15 @@ test('dispatch: the manifest names the wrapper and all three monitors, at spawn'
   //
   //   plot-dispatch.sh  (7357)
   //     └── wrapper     (7358)             ← in no manifest
-  //           ├── WorkerMonitor    (7364)  ← in no manifest
   //           ├── AgentMonitor     (7365)  ← in no manifest
   //           └── plot-worker-loop (7366)  ← "pid": "7366"
+  //
+  // ONLY TWO MONITORS START NOW. `bug/the-loop-reports-idle` removed the
+  // WorkerMonitor process: the loop's own watcher judges `idle` without a
+  // resident process to hold it, and the wrapper itself reports `gone`/`clear`
+  // after `wait "$agent"` returns. `workerMonitorPid` stays in the manifest
+  // schema with its `''` default, so a manifest written by an older desk still
+  // parses — this is what that default is FOR, asserted directly below.
   //
   // `DESIGN-agent.md` gives the registry *no worktree is left behind*; the same
   // sentence is owed for processes, and nothing could find one to reap.
@@ -2979,23 +2985,24 @@ test('dispatch: the manifest names the wrapper and all three monitors, at spawn'
   assert.equal(m.pid, agentPid, 'the agent pid (sanity)');
   assert.equal(m.wrapperPid, wrapperPpid,
     `the manifest must name the wrapper (${wrapperPpid}), the agent's actual parent`);
-  assert.match(m.workerMonitorPid, /^\d+$/,
-    `the manifest must name the WorkerMonitor, got: ${m.workerMonitorPid}`);
+  // NO WORKERMONITOR PID ANY MORE, AND THAT IS THE POINT. The wrapper no
+  // longer starts one; the field keeps its schema default (`''`) so a desk
+  // dispatched by an older checkout still parses.
+  assert.equal(m.workerMonitorPid, '',
+    `the manifest named a WorkerMonitor pid though the wrapper no longer starts one: ${m.workerMonitorPid}`);
   assert.match(m.agentMonitorPid, /^\d+$/,
     `the manifest must name the AgentMonitor, got: ${m.agentMonitorPid}`);
   // THE THIRD MONITOR IS NOT AN AFTERTHOUGHT. `plot-dispatch.sh` calls the
-  // BuildMonitor "born the same way and for the same reason" as its two
-  // siblings; it was captured into `bmon` and then never written, so the
-  // manifest named three of four spawned processes while the changeset claimed
-  // every one.
+  // BuildMonitor "born the same way and for the same reason" as its sibling;
+  // it was captured into `bmon` and then never written, so the manifest named
+  // fewer processes than it spawned while the changeset claimed every one.
   assert.match(m.buildMonitorPid, /^\d+$/,
     `the manifest must name the BuildMonitor, got: ${m.buildMonitorPid}`);
 
-  // FIVE DISTINCT PROCESSES. A group whose members collapsed onto one pid would
+  // FOUR DISTINCT PROCESSES. A group whose members collapsed onto one pid would
   // pass every numeric check above and name nothing useful.
-  const group = [m.pid, m.wrapperPid, m.workerMonitorPid, m.agentMonitorPid,
-    m.buildMonitorPid];
-  assert.equal(new Set(group).size, 5, `five distinct processes, got: ${group.join(' ')}`);
+  const group = [m.pid, m.wrapperPid, m.agentMonitorPid, m.buildMonitorPid];
+  assert.equal(new Set(group).size, 4, `four distinct processes, got: ${group.join(' ')}`);
 
   endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });
@@ -3787,7 +3794,7 @@ test('dispatch: the bare value /plot-init writes starts the loop beside the scri
   const { root: install, scripts } = pluginInstall('bareloop');
   try {
     fs.writeFileSync(path.join(scripts, 'plot-worker-loop.sh'),
-      '#!/usr/bin/env bash\nprintf \'%s|%s|%s\\n\' "${PLOT_BRANCH-unset}" "${PLOT_UNATTENDED-unset}" "$0" > "$PLOT_WORKTREE/.stub-loop-ran"\n');
+      '#!/usr/bin/env bash\nprintf \'%s|%s|%s\\n\' "${PLOT_BRANCH-unset}" "${PLOT_UNATTENDED-unset}" "$0" > "$PLOT_WORKTREE/.stub-loop-ran.tmp" && mv "$PLOT_WORKTREE/.stub-loop-ran.tmp" "$PLOT_WORKTREE/.stub-loop-ran"\n');
     fs.chmodSync(path.join(scripts, 'plot-worker-loop.sh'), 0o755);
     const log = path.join(root, 'start.out');
     const childEnv = { ...process.env };

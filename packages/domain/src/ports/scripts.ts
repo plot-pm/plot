@@ -62,6 +62,8 @@ export interface ScriptOptions {
 export interface StartOptions {
   /** An open file descriptor both stdout and stderr are written to. */
   log?: number;
+  /** Extra environment on top of the current process's, as {@link ScriptOptions.env} carries it. */
+  env?: Readonly<Record<string, string>>;
   /**
    * Called when the child exits, with its code and the signal that killed it.
    *
