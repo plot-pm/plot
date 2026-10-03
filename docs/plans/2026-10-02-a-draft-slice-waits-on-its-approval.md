@@ -117,7 +117,7 @@ No other arm changes. The PR arms still answer for a branch with a PR. An Approv
 
 ## Slices
 
-### The draft rule reads every state (Branch: bug/the-draft-rule-reads-every-state)
+### The draft rule reads every state (Branch: bug/the-draft-rule-reads-every-state, PR: #1260)
 
 - `bug/the-draft-rule-reads-every-state` — `draftPlacement` in `packages/domain/src/rules/draft-placement.ts`, its export from `packages/domain/src/index.ts` and its unit tests; the five call sites in `classifyGroup` (`packages/board/src/server/fleet.ts`); the two rewritten `fleet.test.ts` cases; the board unit tests; a `'@plot-pm/board': patch` changeset. <!-- builds: draftPlacement places a Draft plan's branch for every state -->
 
