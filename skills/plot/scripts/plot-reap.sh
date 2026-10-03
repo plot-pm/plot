@@ -432,8 +432,9 @@ LOG_DIR="$WT_ROOT"
 #
 # WHICH LOG THIS IS, since the plan says "the dispatcher log" and the estate
 # holds two shapes of one. `plot-resolve-<branch>` is keyed by BRANCH with its
-# slashes flattened (`repairLogPath`), so it maps one-to-one onto the worktree
-# this loop is removing. `plot-dispatch-<slug>` is keyed by PLAN and opened for
+# slashes flattened (`agentLogPath`'s `resolve` kind), so it maps one-to-one
+# onto the worktree this loop is removing. The artifact repair that wrote it
+# was retired on 2026-10-03; the sweep removes the logs still on disk. `plot-dispatch-<slug>` is keyed by PLAN and opened for
 # APPEND across every dispatch of that plan — `dispatch.ts:150` states it: "a
 # dispatcher log belongs to a plan, a worker log to a branch". Reaping one
 # branch of a five-branch plan must not delete the record the other four are

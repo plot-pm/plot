@@ -2117,15 +2117,15 @@ export { BOARD_ARTIFACT_PATHS } from './bundles.generated.js';
 import { BOARD_ARTIFACT_PATHS } from './bundles.generated.js';
 
 /**
- * Is this path one of the build artifacts whose conflicts resolve mechanically?
+ * Is this path one of the generated build artifacts?
  *
- * A HELPER RATHER THAN A BARE `.includes` AT EACH SITE, so the two callers that
- * decide whether to write cannot drift into asking it differently.
+ * A HELPER RATHER THAN A BARE `.includes` AT EACH SITE, so every caller asks
+ * the question the same way.
  *
  * **It answers about ONE path and decides nothing.** Whether a conflict SET is
- * repairable is `isArtifactOnly`'s question, and the difference is the whole
- * design: asking *is a bundle among the conflicts* passes every bundle-only
- * case and silently repairs merges that need judgement as a whole.
+ * artifact-only is `isArtifactOnly`'s question, and the difference matters:
+ * asking *is a bundle among the conflicts* would classify a conflict that also
+ * touches source as one the merge-base restore fixes.
  *
  * @param path A repo-relative path, as `git diff --name-only` spells it.
  * @returns Whether the path is in {@link BOARD_ARTIFACT_PATHS}.

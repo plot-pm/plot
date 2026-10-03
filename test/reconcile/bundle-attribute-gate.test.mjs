@@ -172,9 +172,9 @@ test('build.mjs and the board contract name the same bundle set', () => {
   assert.ok(emitted.length > 0, 'the derivation found no bundles — the build changed shape');
 
   // 2. THE CONTRACT DERIVES rather than lists, and what it derived must equal
-  //    the source exactly. Equality in BOTH directions: a missing entry makes a
-  //    licensed repair be refused, and an extra one claims a rebuild that does
-  //    not exist.
+  //    the source exactly. Equality in BOTH directions: a missing entry reads a
+  //    committed bundle's conflict as a plain conflict and a rebuilt bundle as
+  //    desk dirt, and an extra one excuses a path the build never writes.
   //
   //    The contract itself must carry NO list — that is the property this slice
   //    added, and asserting the generated file alone would pass just as well

@@ -51,9 +51,8 @@ const BUNDLES_HEADER = `/**
  * \`pnpm run typecheck\` runs \`tsc --noEmit\` with no build, and CI runs it BEFORE
  * \`build:board\`. An ignored file would fail typecheck on a fresh clone. Being
  * committed, its freshness is asserted by
- * \`test/reconcile/resolveartifact.test.mjs\`, which compares this file, the
- * shell's \`bundle_set\` and \`build.mjs\` as SETS — the same test that used to
- * assert somebody had remembered, now asserting the derivation ran.
+ * \`test/reconcile/bundle-attribute-gate.test.mjs\`, which compares this file
+ * and \`build.mjs\` as SETS.
  *
  * ## It is a bundle INPUT, not a bundle output
  *
