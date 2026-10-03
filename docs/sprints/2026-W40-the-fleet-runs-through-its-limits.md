@@ -50,7 +50,7 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 - [x] [a-start-step-leaves-no-claim-and-no-desk](../plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md) — [#1151](https://github.com/plot-pm/plot/issues/1151) — A worker-less checkout holding a slice's branch stops the agent it is handed to
 - [ ] [an-assignment-is-read-where-it-is-recorded](../plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md) — [#1152](https://github.com/plot-pm/plot/issues/1152) — --release races the supervisor's hand-over and produces a false REGISTRY LOCK VIOLATION
 
-- [ ] [a-draft-slice-waits-on-its-approval](../plans/2026-10-02-a-draft-slice-waits-on-its-approval.md) — [#1161](https://github.com/plot-pm/plot/issues/1161) — A Draft plan's waiting slice renders in NOT STARTED as approved — nobody has taken it.
+- [x] [a-draft-slice-waits-on-its-approval](../plans/2026-10-02-a-draft-slice-waits-on-its-approval.md) — [#1161](https://github.com/plot-pm/plot/issues/1161) — A Draft plan's waiting slice renders in NOT STARTED as approved — nobody has taken it.
 
 - [ ] [a-slice-waits-on-every-branch-it-names](../plans/2026-10-02-a-slice-waits-on-every-branch-it-names.md) — [#1153](https://github.com/plot-pm/plot/issues/1153) — plot-plan-meta reads one waits: per slice heading, so a slice with two prerequisites loses all but the last.
 
