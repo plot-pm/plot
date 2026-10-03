@@ -37,21 +37,9 @@ Spoke commands reference helper scripts via relative path: `../plot/scripts/plot
 
 ## Helper Scripts
 
-Scripts in `skills/plot/scripts/` that any model tier can use:
+Every script in `skills/plot/scripts/` has a row in [skills/plot/scripts/README.md](skills/plot/scripts/README.md), which states what it answers and why.
 
-| Script | Purpose |
-|--------|---------|
-| `plot-pr-state.sh` | Query plan PR state (draft/ready/merged/closed), asked through `plot-host.sh` so it answers on Bitbucket too. Reports `mergeCommit` rather than `mergedAt` |
-| `plot-impl-status.sh` | Query all implementation PR states for a slug |
-| `plot-review-status.sh` | Check review freshness for sprint items |
-| `plot-update-board.sh` | Update GitHub Projects board status for a PR |
-| `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs, `Review:`/`Impl:` ceremony answers, `Approved:`/`Started:` transition records); the plan-format contract |
-| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key and the Plot 2 posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host`) |
-| `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
-| `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
-| `plot-story-lint.sh` | Story-estate drift check (missing STORY files, frontmatter, done-not-archived, index sync); machine-countable footer; exit 1 on findings |
-| `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (nineteen sections + machine-countable footer); sections 1–5 block a delivery and a `== blocking sections end ==` line says where they end — the release question moved below the marker on 2026-09-18 and kept its number 6, since the marker is the boundary and the number is a label. Section 19 reports the desks, asking the domain rule rather than deciding |
-| `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
+A new script gets a row there. `scripts/check-helper-table.sh` is the gate.
 
 Design split (Manifesto Principle 3): **skills interpret and adapt; scripts collect and report.**
 
