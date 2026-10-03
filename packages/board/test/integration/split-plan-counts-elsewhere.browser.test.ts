@@ -44,7 +44,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: SPLIT, planFile: SPLIT_FILE,
   wave: 'w', state: 'open', phase: 'Development', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
-  localDirty: false, localLocked: false, stuck: null, repair: null, verdict: 'eligible',
+  localDirty: false, localLocked: false, stuck: null, verdict: 'eligible',
   // The default is startable (open + click + eligible), so `startability: 'start-work'`.
   startability: 'start-work' as const,
   ...over,

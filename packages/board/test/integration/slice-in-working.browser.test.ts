@@ -40,7 +40,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'w', state: 'wip', phase: null, group: 'working', ageMinutes: 30,
   waitingOn: null, note: '', pr: null, branchUrl: '', waitingDays: null,
   kind: 'wave', worker: 'none', localDirty: false, localLocked: false,
-  blockedBy: null, verdict: null, stuck: null, repair: null, deferredReason: '',
+  blockedBy: null, verdict: null, stuck: null, deferredReason: '',
   ...over,
 });
 

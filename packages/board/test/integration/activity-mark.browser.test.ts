@@ -51,7 +51,7 @@ const row =(over: Partial<AgentRow> = {}): AgentRow => ({
   // meaning: they set the PACE. A row with a worker and a clean worktree
   // travels slow; the same row with `localDirty` travels fast.
   worker: 'running',
-  localDirty: false, localLocked: false, localAhead: 0, stuck: null, repair: null, ...over,
+  localDirty: false, localLocked: false, localAhead: 0, stuck: null, ...over,
 });
 
 const fleet = (rows: AgentRow[]): Fleet => ({

@@ -45,7 +45,7 @@ function row(over: Partial<AgentRow> & Pick<AgentRow, 'kind'>): AgentRow {
     branch: '', branchUrl: '', pr: null, waitingDays: null,
     localDirty: false, localLocked: false, localAhead: 0,
     waitingOn: null, blockedBy: null, verdict: null, startability: null, worker: 'none',
-    stuck: null, repair: null, processes: [],
+    stuck: null, processes: [],
     ...over,
   } as AgentRow;
 }

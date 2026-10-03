@@ -39,7 +39,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'w1', state: 'wip', phase: 'Draft', group: 'waiting-on-you', ageMinutes: 30,
   waitingOn: 'you', note: 'plan not approved yet — still in review', pr: null,
   branchUrl: `${GH}/tree/feature/x`, waitingDays: null, verdict: 'eligible',
-  localDirty: false, localLocked: false, stuck: null, repair: null,
+  localDirty: false, localLocked: false, stuck: null,
   // Default: wip state under a Draft plan → waiting-on-approval.
   startability: 'waiting-on-approval' as const,
   ...over,
