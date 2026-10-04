@@ -304,6 +304,17 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     }))).toBe(true);
   });
 
+  it('accepts actor agent on holding-work, the desk the loop found undone itself', () => {
+    // #1246: after a prompt exits `ran`, the loop asks `desk_reset_refusal`
+    // about its own desk. No clock expired and no monitor published anything —
+    // the agent's own loop measured its desk and found unlanded work, same
+    // shape as unstarted, limited and unregistered.
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'holding-work',
+    }))).toBe(true);
+  });
+
   it('accepts the two actors the watcher paths write', () => {
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'bound' }))).toBe(true);
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'monitor' }))).toBe(true);

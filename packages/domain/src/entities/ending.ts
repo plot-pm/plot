@@ -52,11 +52,19 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   the other shape: a NAME that pointed at a manifest the registry has since
  *   removed. The loop itself finds this, between polls, which is why its actor
  *   is `agent` alongside `unstarted` and `limited` rather than a third watcher.
+ * - `holding-work` — the loop's own desk held uncommitted changes or unpushed
+ *   commits after a prompt exited `ran`, with no `PLOT-BLOCKED` marker naming a
+ *   question to a person. Measured 2026-10-03 and 2026-10-04 (#1246): an agent
+ *   ended its turn mid-background-job, the loop found the desk dirty, cut a new
+ *   desk for the next slice and left 14 files behind — twice, each time found
+ *   by a person on a desk no agent and no manifest named. The loop now asks
+ *   `desk_reset_refusal` about its own desk before it would seal the slice or
+ *   hop, and keeps the desk rather than abandoning it.
  *
- * `unstarted`, `limited` AND `unregistered` ARE THE REASONS NO WATCHER
- * PRODUCED. The other four are the floor firing or the monitor publishing;
- * these three are the agent's own process reporting what it found, which is
- * why their actor is `agent`.
+ * `unstarted`, `limited`, `unregistered` AND `holding-work` ARE THE REASONS NO
+ * WATCHER PRODUCED. The other four are the floor firing or the monitor
+ * publishing; these four are the agent's own process reporting what it found,
+ * which is why their actor is `agent`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -80,6 +88,7 @@ export const EndingReasonSchema = z.enum([
   'unstarted',
   'limited',
   'unregistered',
+  'holding-work',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 
@@ -93,7 +102,9 @@ export type EndingReason = z.infer<typeof EndingReasonSchema>;
  *
  * - `bound` — the wall-clock watchdog.
  * - `monitor` — the WorkerMonitor.
- * - `agent` — the agent's own process ran the command and it failed to start.
+ * - `agent` — the agent's own process reported the ending: a command that
+ *   failed to start, or the agent's loop finding its own desk holding
+ *   unlanded work.
  *
  * **THE `agent` ACTOR WAS REMOVED AND IS BACK FOR ONE REASON.** It was admitted
  * from the start, documented as *"the agent stopped itself"*, and written by
