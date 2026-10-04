@@ -1,0 +1,84 @@
+## Implementation brief — the-shell-shrinks-into-the-domain (wave 4: The first script becomes a command)
+
+- **Plan (canonical):** `docs/plans/2026-10-03-the-shell-shrinks-into-the-domain.md` on `main` (round 3)
+- **Approved:** 2026-10-03, jwloka, in-session
+- **Branch:** `infra/the-first-script-becomes-a-command` (base: `main`)
+- **Ends as:** one PR to the base, opened with `skills/plot/scripts/plot-open-pr.sh`
+- **Review of the code:** per repo convention — the PR is reviewed as code; CI is the authority for e2e
+
+This is wave 4 of 4 and the last. Waves 1 (`infra/the-shell-cannot-grow`, #1264), 2 (`infra/the-shell-is-inventoried`, #1266) and 3 (`infra/a-command-names-its-action-in-the-domain`, #1268) are merged. When this PR merges, the plan delivers: run `/plot-deliver the-shell-shrinks-into-the-domain` — through the controller, not the script.
+
+### What to build
+
+`skills/plot/scripts/plot-deliver.sh` holds 601 non-comment, non-blank lines on `main` at `9d2dbfe20` (`./scripts/check-shell-lines.sh --per-file`). It is the first script the ranking names: the README's *regenerate the ranking* command, run on 2026-10-04, excludes the five scripts that are a plan each and `plot-fleetctl.sh` (691 lines, *runs* = per refresh), and `plot-deliver.sh` is the largest that remains; the next is `plot-plan-meta.sh` at 547. The script runs once per plan delivered, so the 39 ms bundle start in `docs/shell-and-domain.md` costs nothing that matters.
+
+Make it a JS entry under `packages/board/src/server/entry/`, bundled to `skills/plot/scripts/board/` and declared in `packages/board/build.mjs` as a `shipped<Name>` binding (the pattern `plot-transition.mjs` and `plot-plan-undeliver.mjs` follow there). The entry goes entry → domain → port → adapter, the layering rule in `CLAUDE.md`. Both arms move: `plot-deliver.sh <slug>` and `plot-deliver.sh --release <version> <slug>` share one file, one receipt helper and one bundle of callers, and a launcher that kept one arm would decide something.
+
+What stays in shell is a launcher. It keeps the name `plot-deliver.sh`, because a caller names that path (the list below). It resolves its bundle, passes the arguments and the exit code through, and `exec`s it. When the bundle is absent it exits 2 with the message slice 3 wrote for `plot-controller-gate.sh`, which names the missing file and both remedies (update the plugin; run `pnpm build:board`). Model it on `plot-release-gate.sh:30-33`. It parses no flag, reads no config and calls no `git`. Expect it under 15 code lines, so the PR lowers the shipped shell by about 585 lines.
+
+**Callers that name the `.sh` path, which is why the launcher stays** (measured with `git grep` on `main`): `skills/plot-deliver/SKILL.md:415`, `skills/plot-release/SKILL.md:379`, `plot-controller-gate.sh:274` (`named_script=plot-deliver.sh`), `plot-state-receipt.sh:177,255`, `plot-state-gate.sh:144`, the board's `DELIVER_SCRIPT` (`auto-deliver.ts:81`) and `RELEASE_SCRIPT` (`release.ts:37`), the `build.mjs` script list (line 1219), and the tests listed under *Done when*. Do not rename any of them.
+
+**What moves into `packages/domain/src/rules/`, each with unit tests** (the plan: *decisions move into the domain*):
+
+- the phase refusal of each arm — `approved|delivered` proceed on deliver; `delivered|released` proceed on release; every other word has its own sentence, today's wording unchanged;
+- the release tag rule — the first `vX.Y.Z` tag containing the merge commit, sorted by version, must equal the version named. It has FOUR separate refusals (no `→ #N` or no `mergeCommit`; no tag at all; the named tag does not contain the commit; the first containing tag is a different version), because each has a different repair. Keep the four apart;
+- the two plan-file edits as pure functions over text — flip the `State:`/`Phase:` value inside `## Status` only, and insert the `Delivered:` or `Released:` record. The insertion stops at an HTML comment (the 2026-09-01 bug: records appended inside the template's comment were invisible to the parser) and fills the empty placeholder before appending. The sprint tick (`[ ]` → `[x]` on the line naming `[<slug>]`) and the index-link move are rules over paths and text in the same way;
+- the *would the parser read this phase* check on the scratch copy (#924), as a rule over the parser's answer;
+- the push ladder — push to the default branch, else a micro-PR merged with `--delete-branch`, else `push=rejected` and exit 1 — and the `summary:` line.
+
+The decisions that already live in the domain stay there and are asked, not copied: `deliver`/`release` in `transitions/plan.ts` (through the `transition` entry's logic), and `deliverable` (through `plot-ask.mjs`'s logic). Check which ports already hold the operations the entry needs — `refs`, `host` (`pr-state`, `pr-create`, `pr-merge`, `default-branch`), `plan-store`, `scripts` — and add a port operation where one is missing. A script reached from an adapter is allowed (`plot-push-main.sh`, `plot-issue-status.sh` and `plot-plan-meta.sh` stay shell and are out of scope); a `spawn` or `execFile` in the entry, a rule or a controller is not, and `ci.yml`'s *One place reaches a process* ratchet counts it.
+
+### The decisions the plan settles — do not re-derive them
+
+**The ranking picked this script; do not re-open the choice.** The plan named `plot-deliver.sh` as a candidate and slice 2 confirmed it by the command, not by judgement. A larger script (`plot-fleetctl.sh`) runs per refresh and belongs to the per-pass plans.
+
+**The bundle is a second name for a gated action, and the gate must learn it.** `controllerInvocation` (slice 3, `rules/ci-suite.ts`) answers `deliver` for the three `.sh` basenames only. A bundle at `skills/plot/scripts/board/plot-deliver.mjs` that an agent runs with one `node` call is not a launcher call, so no gate sees it, and the controller-owned action (`/api/deliver`) is walked around. Extend the rule and `plot-controller-gate.sh`'s prefilter to recognise the bundle's basename as the same action, with a test in `ci-suite.test.ts` and in `test/reconcile/controller-gate.test.mjs`. Do this in this slice; leaving it means the slice opens the hole it should close.
+
+**The receipts move with the entry, and that is a declared duplicate.** `record_state_receipt` and `spend_action_receipt` are shell functions sourced from `plot-state-receipt.sh`. After the launcher `exec`s, no shell remains to call them, so the entry writes the files itself: `.plot/state/state-receipts/<git hash-object of the repo-relative path>` holding `<rel>\t<value>`, written AFTER the `mv` that lands the file, and `.plot/state/action-receipts/<deliver|release>`, removed on exit 0 only. `plot-approve.sh` and `plot-dispatch.sh` still source the shell functions, so two implementations of one format exist. That is allowed when a test holds the pair: add a corpus test in `packages/domain/corpus/` that writes a receipt both ways and compares the bytes, naming both answers on a disagreement (the `sprint-score.corpus.test.ts` shape). **On a disagreement the branch stops; adjusting either side to pass is forbidden.** A receipt written before a refused write would license a commit of a state that was refused, and that is the failure the gate exists for.
+
+**Idempotence is unchanged, and the source answers.** Re-running is the repair for every interruption after the irreversible push. Each step tests the file it would have written (the plan, the index directories, the sprint file). No progress file appears. A run that finds everything on the default branch prints `step: nothing to commit` and exits 0.
+
+**The booking worktree is not negotiable.** Writes go to `plot/deliver-<slug>` (release: `plot/release-<slug>`) in a worktree at `<desk root>/.plot-deliver-<slug>.<pid>`, cut from `origin/<default>`, never in the caller's checkout, which may hold uncommitted work. The desk root comes from the domain's desk-root rule (`entry/desk-root.ts`, `plot-desk-root.mjs`) — one answer, never recomputed. `plot_exclude_desk_root` runs first, so a booking run leaves no untracked `.worktrees/`. The worktree and branch are removed on every exit that does not leave the commit stranded; on `push=rejected` the branch stays and the message says so.
+
+**Both plan edits run against scratch copies and one `mv` lands them.** A `## Status` section that cannot take the record leaves the plan byte-identical, phase included. Measured 2026-08-20: a plan with `Delivered` and no record was filtered out of the scan entirely. The domain's `Decision` type carries both fields for that reason.
+
+**The exit code and stream split are the contract callers read.** `runAutoDeliver` spawns the script detached and logs a non-zero exit; the summary line carries `phase= record= index= sprint= push= tracker=`, and `tracker=` never changes the exit code. Refusals print on stderr and exit 1; stdout carries `step:` lines and `summary:`. A refusal on a refused plan exits before any worktree exists.
+
+**Rules carried over unchanged from this repo's history.** Absent is not false: a missing `mergeCommit`, a missing tag and a plan the parser cannot read each refuse with their own sentence rather than reading as "not merged". Read the exit code, not the emptiness. A merged PR reports `state: closed`; `mergedAt` and `mergeCommit` answer, never `state` (*One Answer To "Did This Land"*). The release version comes from the plan's merge commit and the first tag by version, never from a date or a PR title. No `git merge-base --is-ancestor` appears without a `# plot-ancestry:` declaration within five lines.
+
+**Not in scope, and measured: the decisions already in the domain.** Do not rewrite `deliverable`, `deliver`, `release`, `plot-plan-meta.sh` or the tracker status rule. The entry asks them.
+
+### Done when
+
+The plan has no `## Done when` list for this slice, so the slice line (*`plot-deliver.sh` becomes a JS entry; a launcher stays only where a caller names its `.sh` path*), the Changelog line and the *Slice 4* paragraph under Design are the specification. The assertions below exist because a naive port would pass without them:
+
+1. **Behaviour is byte-identical, A/B against a pristine `main` worktree.** For each case below, run the old script from a `git worktree` of `origin/main` and the new launcher from this branch against the same sandbox repo, and compare the plan file bytes, the symlink targets, the sprint file, the `summary:` line and the exit code. The cases: a plain delivery; a plan already Delivered (idempotent rerun, `push=nothing-to-commit`); a plan with a record but a lagging phase; a plan whose `## Status` is missing (refusal, plan untouched, phase not flipped); a plan holding front matter AND a `## Status` block (#924, #933); a `Delivered:` placeholder before an HTML comment (2026-09-01); `--dry-run`; `--who` and `PLOT_DELIVER_WHO`; a rejected push falling back to the micro-PR and then to `push=rejected`; and `--release` with each of its four refusals plus the success path. This catches a port that reads the same and writes different bytes.
+2. **The existing `test/reconcile` tests that name the script pass unmodified:** `deliver-headings`, `deliver-phase-takes-effect`, `deliver-record-outside-comments`, `deliver-release`, `deliver-tells-the-tracker`, `release`, `controller-gate`, `script-name-gate`, `host`, `impl-status-dialects`, `agent-settings-spawn`, plus `packages/board/test/unit/auto-deliver.test.ts` and `packages/board/test/release.test.mjs`. Find the full list with `git grep -l 'plot-deliver'` under `test/` and `packages/*/test`. If one fails because behaviour changed, stop and report it; do not edit it to pass. A test that stubs a sibling script resolves it relative to the scripts directory, so the entry must resolve siblings the way the shell did (`PLOT_SCRIPTS_DIR`, else the bundle's own directory), or the stubs are silently bypassed.
+3. **The launcher test:** with the bundle absent it exits 2 and prints slice 3's message; with the bundle present it passes arguments and the exit code through unchanged. A launcher test that only checks the present case misses the window between the launcher and its bundle reaching `main`.
+4. **The receipt corpus test** above, plus one test that a REFUSED run leaves no state receipt and a completed run spends the action receipt only on exit 0 (an interrupted run keeps its licence).
+5. **The gate learns the bundle:** `controllerInvocation('node skills/plot/scripts/board/plot-deliver.mjs x')` answers `deliver`, and `... --dry-run` / `--status` / `--help` answers `null`, in the domain test and the gate test.
+6. **The count falls:** state the before and after of `./scripts/check-shell-lines.sh` in the PR body, and the new README row for `plot-deliver.sh` (*kind* `launcher`, *replaced by* the bundle, *runs* unchanged). `scripts/check-helper-table.sh` stays green. If a plan or `docs/shell-and-domain.md` sentence now reads wrong, fix it in this change.
+
+Plus the repo's gates. Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints; the suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. List no full suite, and do not run `pnpm run test:e2e` locally. Use `nvm use` first (Node 24; `pnpm` crashes on 26).
+
+`scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. This slice removes about 585 lines, so the gate passes with room; the room is gone for the next change.
+
+**Bundles.** The branch commits no built bundle: `scripts/check-no-bundle-diff.sh` refuses a PR diff that carries one, and `build-bundles.yml` builds them on `main`. Run `pnpm build:board` to test locally, then restore every generated path (`skills/plot/scripts/board/*.mjs`) from the merge base before you push. The launcher lands on `main` one `build-bundles` run (22–36 s over four runs) before its bundle; in that window the command refuses with the message instead of running a stale copy.
+
+**Changeset.** Add one in `.changeset/` (the directory is often empty in a fresh worktree; copy the frontmatter and order from `git log -- .changeset`). Package `plot`, description first and the `bumps:` block last, a `plan:` line naming this plan, skills `plot-deliver: patch` and `plot-release: patch`. Add `'@plot-pm/board': patch` in a second changeset if the entry's source counts as a board change, per `check-changeset-packages.sh`. Touch no sibling's changeset.
+
+### Bookkeeping
+
+Open the PR with `skills/plot/scripts/plot-open-pr.sh` (add `--draft` while the work moves), never `gh pr create`. When it exists, append `→ #<number>` to this branch's line under `## Slices` in the plan, through a detached scratch worktree on `origin/main`, not the shared main worktree. Push the first real commit as soon as it exists. Put in the PR body: the before and after line counts, the A/B case table with its result, and the corpus test's name.
+
+If a hook refuses a command that only READS a path naming `plot-deliver.sh` (`ls`, `git grep`), that is #1245 in an installed plugin older than slice 3's release. Read the file with the Read tool instead; do not use the `--unowned-action` bypass to get around a read.
+
+### Scope guard
+
+This branch owns: `skills/plot/scripts/plot-deliver.sh` (becomes the launcher); a new entry under `packages/board/src/server/entry/`; new rules, port operations and adapter code under `packages/domain/src/`, with tests under `packages/domain/test/` and `packages/domain/corpus/`; one `shipped*` binding in `packages/board/build.mjs` and the matching `files` entry check in `packages/board/package.json`; `rules/ci-suite.ts` and `plot-controller-gate.sh` for the bundle's name only; the `plot-deliver.sh` row in `skills/plot/scripts/README.md`; the deliver and release tests under `test/reconcile/` where a new case is added (existing ones are not edited).
+
+This branch does not touch: `plot-approve.sh`, `plot-dispatch.sh`, `plot-state-receipt.sh` (they still source it), `plot-push-main.sh`, `plot-issue-status.sh`, `plot-plan-meta.sh`, `plot-undeliver.sh`, the `deliver`/`release`/`deliverable` rules' behaviour, and `skills/plot-deliver/SKILL.md` or `skills/plot-release/SKILL.md` beyond a path that moved.
+
+Siblings in flight, verified 2026-10-04: no open pull request touches `plot-deliver.sh`, `plot-state-receipt.sh`, `plot-push-main.sh`, `plot-issue-status.sh`, `build.mjs` or `packages/board/src/server/entry/`, and no other `infra/` branch is on the remote. The merged sibling `a-command-names-its-action-in-the-domain` (#1268) owns `controllerInvocation`; extend it, do not fork it.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope. If the A/B shows a behaviour of the shell that the plan or a test never named, keep the behaviour, add the case, and say so in the PR body.

@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-03, jwloka, in-session
 - **Started:** 2026-10-03, Jan Wloka, `infra/the-shell-is-inventoried`
 - **Started:** 2026-10-04, Jan Wloka, `infra/a-command-names-its-action-in-the-domain`
+- **Started:** 2026-10-04, Jan Wloka, `infra/the-first-script-becomes-a-command`
 
 ## Changelog
 
