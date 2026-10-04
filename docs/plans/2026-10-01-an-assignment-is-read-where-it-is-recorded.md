@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Started:** 2026-10-03, Jan Wloka, `bug/the-queue-reads-the-assignment`
+- **Started:** 2026-10-04, Jan Wloka, `bug/a-release-and-a-rejected-push-name-the-agent`
 
 ## Changelog
 
