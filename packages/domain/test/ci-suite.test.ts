@@ -80,12 +80,14 @@ describe('controllerInvocation', () => {
     expect(controllerInvocation('bash skills/plot/scripts/*dispatch.sh x')).toBe('dispatch');
   });
 
-  it('answers null for a glob matching all three, not one', () => {
+  it('answers null for a glob matching all three, not one — reached as a RUN, not spared by the read carve-out', () => {
     expect(controllerInvocation('ls skills/plot/scripts/*.sh')).toBeNull();
+    expect(controllerInvocation('bash skills/plot/scripts/*.sh')).toBeNull();
   });
 
-  it('answers null for a glob naming none of the three', () => {
+  it('answers null for a glob naming none of the three — reached as a RUN, not spared by the read carve-out', () => {
     expect(controllerInvocation('ls skills/plot/scripts/*other.sh')).toBeNull();
+    expect(controllerInvocation('bash skills/plot/scripts/*other.sh')).toBeNull();
   });
 
   describe('a single-quoted heredoc body is the caller’s to strip, not this reading’s', () => {
@@ -144,5 +146,14 @@ describe('controllerInvocation', () => {
   it('a known false positive stays refused on purpose: grep and sed are not carved out', () => {
     expect(controllerInvocation('grep -c foo skills/plot/scripts/plot-dispatch.sh')).toBe('dispatch');
     expect(controllerInvocation("sed -n '1,5p' skills/plot/scripts/plot-dispatch.sh")).toBe('dispatch');
+  });
+
+  it('a segment with no program after its assignments is not a read, and is not a run either', () => {
+    // `FOO=1` alone strips to an empty program; the segment names no gated
+    // script, so the command is still null overall — exercised beside a
+    // segment that does, so both of controllerInvocation's segment-handling
+    // paths run in one command.
+    expect(controllerInvocation('FOO=1')).toBeNull();
+    expect(controllerInvocation('FOO=1 && bash skills/plot/scripts/plot-dispatch.sh x')).toBe('dispatch');
   });
 });

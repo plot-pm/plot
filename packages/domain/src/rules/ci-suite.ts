@@ -145,8 +145,10 @@ export const wordBasename = (word: string): string => {
     .replace(/^[A-Za-z_][A-Za-z0-9_]*=/, '')
     .replace(/^\$?["'(]+/, '')
     .replace(/[)\];,"']+$/, '');
+  // `String.split` always returns at least one element, even for `''`, so the
+  // last element is never `undefined` — no fallback is reachable here.
   const parts = stripped.split('/');
-  return parts[parts.length - 1] ?? '';
+  return parts[parts.length - 1];
 };
 
 /**
