@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-03, Jan Wloka, `bug/the-queue-reads-the-assignment`
 - **Started:** 2026-10-04, Jan Wloka, `bug/a-release-and-a-rejected-push-name-the-agent`
 - **Delivered:** 2026-10-04
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 
