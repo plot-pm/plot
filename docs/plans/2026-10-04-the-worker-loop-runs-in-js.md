@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 5
 - **Approved:** 2026-10-04, jwloka, in-session
+- **Started:** 2026-10-04, jwloka, `infra/the-loop-has-a-workflow`
 
 ## Changelog
 
