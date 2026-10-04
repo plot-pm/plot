@@ -1,0 +1,1 @@
+../2026-10-04-a-brief-the-fleet-writes-shows-as-asked.md
