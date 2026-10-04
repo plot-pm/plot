@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Started:** 2026-10-02, Jan Wloka, `bug/a-held-slice-names-the-unanswered-landing`
 - **Delivered:** 2026-10-02
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 
