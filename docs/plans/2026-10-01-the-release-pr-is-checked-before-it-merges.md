@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-10-02, Jan Wloka, `infra/the-release-workflow-starts-ci`
 - **Delivered:** 2026-10-03
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 
