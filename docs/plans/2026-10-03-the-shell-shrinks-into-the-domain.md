@@ -105,7 +105,7 @@ The gate stores no number, so it cannot drift, two pull requests that each shrin
 
 ### The first script becomes a command
 
-- `infra/the-first-script-becomes-a-command` — `plot-deliver.sh` (601 lines), the ranking's confirmed first operator-command script, becomes a JS entry; a launcher stays only where a caller names its `.sh` path <!-- builds: a JS command entry for the first-ranked operator command -->
+- `infra/the-first-script-becomes-a-command` — `plot-deliver.sh` (601 lines), the ranking's confirmed first operator-command script, becomes a JS entry; a launcher stays only where a caller names its `.sh` path → #1270 <!-- builds: a JS command entry for the first-ranked operator command -->
 
 ## Notes
 
