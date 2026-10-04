@@ -383,18 +383,7 @@ case "$START_ATTEMPT_BUDGET" in (*[!0-9]*|'') START_ATTEMPT_BUDGET=3 ;; esac
 # after `START_ATTEMPT_BUDGET` failures, because the counter it cannot read it
 # also cannot raise.
 manifest_attempts() { # $1=manifest → prints a count
-  local manifest="$1" n
-  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
-  n=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      const n = manifest.attempts;
-      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
-    } catch { process.stdout.write("0"); }
-  ' "$manifest" 2>/dev/null) || n=0
-  case "$n" in (*[!0-9]*|'') n=0 ;; esac
-  printf '%s' "$n"
+  manifest_count "$1" attempts
 }
 
 # Record one more automatic retry of this agent.
@@ -408,19 +397,7 @@ manifest_attempts() { # $1=manifest → prints a count
 # hand-started loop has no manifest, so there is nothing to raise and nothing to
 # report.
 raise_manifest_attempts() { # $1=manifest
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
-
-  local tmp="$manifest.plot-attempt-tmp"
-  node -e '
-    const fs = require("fs");
-    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const n = manifest.attempts;
-    manifest.attempts = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
-    fs.writeFileSync(process.argv[2], JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-
-  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  raise_manifest_count "$1" attempts
 }
 
 # ---------------------------------------------------------------------------
@@ -451,18 +428,7 @@ raise_manifest_attempts() { # $1=manifest
 # that cannot be read is not evidence a correction spin is under way. A counter
 # that cannot be read also cannot be raised, so the budget still ends the loop.
 manifest_corrections() { # $1=manifest → prints a count
-  local manifest="$1" n
-  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
-  n=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      const n = manifest.correctionAttempts;
-      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
-    } catch { process.stdout.write("0"); }
-  ' "$manifest" 2>/dev/null) || n=0
-  case "$n" in (*[!0-9]*|'') n=0 ;; esac
-  printf '%s' "$n"
+  manifest_count "$1" correctionAttempts
 }
 
 # Record one more correction of this agent.
@@ -475,19 +441,7 @@ manifest_corrections() { # $1=manifest → prints a count
 # ABSENT IS NOT A FAILURE. A hand-started loop has no manifest, so there is
 # nothing to raise and nothing to report.
 raise_manifest_corrections() { # $1=manifest
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
-
-  local tmp="$manifest.plot-correction-tmp"
-  node -e '
-    const fs = require("fs");
-    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const n = manifest.correctionAttempts;
-    manifest.correctionAttempts = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
-    fs.writeFileSync(process.argv[2], JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-
-  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  raise_manifest_count "$1" correctionAttempts
 }
 
 # THE MARKER A SPENT BUDGET LEAVES, so the desk is distinguishable from a
@@ -630,18 +584,7 @@ write_correction() { # $1=worktree $2=branch $3=text $4=attempt $5=budget
 # permission to take a branch, so the agent waits and the next pass re-reads a
 # file the registry may have finished writing.
 assigned_branch() { # $1=manifest → prints the branch, or nothing
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
-  local branch
-  branch=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      process.stdout.write(typeof manifest.branch === "string" ? manifest.branch : "");
-    } catch { process.stdout.write(""); }
-  ' "$manifest" 2>/dev/null) || return 1
-  [ -n "$branch" ] || return 1
-  printf '%s' "$branch"
+  manifest_string "$1" branch
 }
 
 # ---------------------------------------------------------------------------
@@ -3121,37 +3064,12 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
     # applies to a worktree: the supervisor wrote THIS branch into it before
     # the push, so counting it would answer `held-by-agent` on every rejection
     # and `stale-claim` would never be reached.
-    holders=()
-    if [ -n "${PLOT_MANIFEST_FILE:-}" ]; then
-      registry_dir=$(dirname "$PLOT_MANIFEST_FILE")
-      if [ -d "$registry_dir" ]; then
-        for m in "$registry_dir"/*.json; do
-          [ -f "$m" ] || continue
-          [ "$m" = "$PLOT_MANIFEST_FILE" ] && continue
-          read -r m_branch m_session m_own_wt <<<"$(node -e '
-            try {
-              const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-              process.stdout.write([m.branch, m.session, m.worktree].map((v) => typeof v === "string" && v !== "" ? v : "-").join(" "));
-            } catch { process.stdout.write("- - -"); }
-          ' "$m" 2>/dev/null)"
-          [ "$m_branch" = "$next_branch" ] || continue
-          [ "$m_own_wt" != "-" ] && [ -d "$m_own_wt" ] || continue
-          case "$(plot_worker_state "$m_own_wt" "" | cut -f1)" in
-            running|waiting) holders+=("$m_session") ;;
-          esac
-        done
-      fi
-    fi
-    claim_answer_bundle="$script_dir/board/plot-claim-answer.mjs"
-    answer=unknown
-    if [ -f "$claim_answer_bundle" ]; then
-      answer=$(printf '%s\n' ${holders[@]+"${holders[@]}"} | node -e '
-        const holders = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
-        const [ref, log] = process.argv.slice(1);
-        process.stdout.write(JSON.stringify({ ref, log: ref === "present" ? log : null, holders }));
-      ' "$ref_word" "${log_text:-}" | node "$claim_answer_bundle" 2>/dev/null | cut -f1)
-      [ -n "$answer" ] || answer=unknown
-    fi
+    holder_sessions=""
+    [ -n "${PLOT_MANIFEST_FILE:-}" ] && holder_sessions=$(live_holders_of_branch \
+      "$(dirname "$PLOT_MANIFEST_FILE")" "$next_branch" "$PLOT_MANIFEST_FILE" "" | cut -f1)
+    answer=$(claim_answer "$script_dir/board/plot-claim-answer.mjs" \
+      "$ref_word" "${log_text:-}" "$holder_sessions") || answer=unknown
+    [ -n "$answer" ] || answer=unknown
     case "$answer" in
       held-by-agent)
         echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2

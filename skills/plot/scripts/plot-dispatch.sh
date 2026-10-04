@@ -259,6 +259,21 @@ resolve_wt_root() { # sets globals wt_root, wt_prefix; exits 3 when unaskable
   wt_prefix=""
 }
 
+# WHICH DESK HOLDS A BRANCH, ASKED OF GIT — never rebuilt from the branch name,
+# the rule every verb here follows. `--stop`, `--restart`, `--release` and the
+# held-branch gate each carried a byte-identical copy of this awk, so they now
+# share one and cannot drift.
+#
+# `git worktree list --porcelain` emits `worktree <path>` then `branch
+# refs/heads/<name>` per entry, so the branch line is matched and the path
+# remembered from the preceding line. A detached worktree has no branch line
+# and never matches, which is right: it holds no branch to hold.
+worktree_holding_branch() { # $1=branch → the first desk holding it, or nothing
+  git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$1" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) { print path; exit } }'
+}
+
 dry_run=0
 show_monitors=0
 no_start=0
@@ -1816,9 +1831,7 @@ if [ "$mode" = "stop" ]; then
   # A refusal that is confidently wrong is worse than one that is terse, so the
   # path-guess survives only as the LAST candidate and the refusal below says
   # which places were looked in.
-  wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$stop_branch" '
-    /^worktree /  { path = substr($0, 10) }
-    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  wt=$(worktree_holding_branch "$stop_branch")
   wt_guess="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
   [ -n "$wt" ] && [ -d "$wt" ] || wt="$wt_guess"
   if [ ! -d "$wt" ]; then
@@ -1904,9 +1917,7 @@ if [ "$mode" = "restart" ]; then
   # wrong. It matters more here than anywhere: the population this verb serves
   # includes the worktree a person made by hand after the tool had no verb for
   # them, and a hand-made worktree rarely follows dispatch's naming.
-  restart_wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$restart_branch" '
-    /^worktree /  { path = substr($0, 10) }
-    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  restart_wt=$(worktree_holding_branch "$restart_branch")
   if [ -z "$restart_wt" ] || [ ! -d "$restart_wt" ]; then
     echo "plot-dispatch: no worktree holds '$restart_branch' — nothing to restart." >&2
     echo "  --restart hands an EXISTING checkout to a new worker; it creates none." >&2
@@ -2062,29 +2073,17 @@ if [ "$mode" = "release" ]; then
   # THE DESK, ASKED OF GIT — never rebuilt from the branch name, the rule every
   # other verb here follows. A manifest naming this branch may name a desk git
   # does not list (removed by hand), so its `worktree` is the fallback.
-  release_wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$br" '
-    /^worktree /  { path = substr($0, 10) }
-    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  release_wt=$(worktree_holding_branch "$br")
   registry_dir=$(agent_registry_dir "$repo_root_early")
   named_manifests=()
   if [ -d "$registry_dir" ]; then
     for m in "$registry_dir"/*.json; do
       [ -f "$m" ] || continue
-      m_branch=$(node -e '
-        try {
-          const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-          process.stdout.write(typeof m.branch === "string" ? m.branch : "");
-        } catch { process.stdout.write(""); }
-      ' "$m" 2>/dev/null)
+      m_branch=$(manifest_string "$m" branch) || m_branch=""
       [ "$m_branch" = "$br" ] || continue
       named_manifests+=("$m")
       if [ -z "$release_wt" ]; then
-        m_wt=$(node -e '
-          try {
-            const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-            process.stdout.write(typeof m.worktree === "string" ? m.worktree : "");
-          } catch { process.stdout.write(""); }
-        ' "$m" 2>/dev/null)
+        m_wt=$(manifest_string "$m" worktree) || m_wt=""
         [ -n "$m_wt" ] && [ -d "$m_wt" ] && release_wt="$m_wt"
       fi
     done
@@ -2107,31 +2106,15 @@ if [ "$mode" = "release" ]; then
   #
   # NOT NUMBERED WITH THE FOUR BELOW: the plan keeps their order and wording
   # unchanged, and this is the one new refusal, asked through the domain.
-  claim_answer_bundle="$script_dir/board/plot-claim-answer.mjs"
-  holder_agents=()
-  if [ -f "$claim_answer_bundle" ]; then
-    for m in ${named_manifests[@]+"${named_manifests[@]}"}; do
-      read -r m_session m_own_wt <<<"$(node -e '
-        try {
-          const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-          process.stdout.write([typeof m.session === "string" ? m.session : "", typeof m.worktree === "string" ? m.worktree : ""].join(" "));
-        } catch { process.stdout.write(" "); }
-      ' "$m" 2>/dev/null)"
-      [ -n "$m_own_wt" ] && [ -d "$m_own_wt" ] || continue
-      [ -n "$release_wt" ] && [ "$m_own_wt" = "$release_wt" ] && continue
-      case "$(plot_worker_state "$m_own_wt" "" | cut -f1)" in
-        running|waiting) holder_agents+=("$m_session (desk $m_own_wt)") ;;
-      esac
-    done
-  fi
-  if [ "${#holder_agents[@]}" -gt 0 ]; then
-    answer=$(printf '%s\n' "${holder_agents[@]}" | node -e '
-      const holders = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
-      process.stdout.write(JSON.stringify({ ref: "unknown", log: null, holders }));
-    ' | node "$claim_answer_bundle" 2>/dev/null | cut -f1)
+  holder_lines=$(live_holders_of_branch "$registry_dir" "$br" "" "$release_wt")
+  if [ -n "$holder_lines" ]; then
+    answer=$(claim_answer "$script_dir/board/plot-claim-answer.mjs" unknown "" \
+      "$(printf '%s\n' "$holder_lines" | cut -f1)") || answer=""
     if [ "$answer" = "held-by-agent" ]; then
       echo "plot-dispatch: $br is held by a live agent — refusing." >&2
-      for h in "${holder_agents[@]}"; do echo "  $h" >&2; done
+      printf '%s\n' "$holder_lines" | while IFS=$'\t' read -r h_session h_wt; do
+        echo "  $h_session (desk $h_wt)" >&2
+      done
       echo "  Nothing was written." >&2
       exit 1
     fi
@@ -3176,12 +3159,9 @@ is_waits_held() {
 # override and the scan remains the only thing that decides them. The branch
 # still passes every gate the loops apply after it: `held_worktree`, the claim
 # race, and the brief.
+# The array is read directly as `${waits_freed[@]}`; the predicate wrapper
+# `is_waits_held` has beside it was never called and is gone.
 declare -a waits_freed=()
-is_waits_freed() {
-  local x
-  for x in ${waits_freed[@]+"${waits_freed[@]}"}; do [ "$x" = "$1" ] && return 0; done
-  return 1
-}
 
 # Runs the preflight: prints its refusals, fills `waits_held`, and adds what it
 # withheld to `n_skipped`.
@@ -3325,21 +3305,6 @@ read_parallel_agents_cap() {
   [ -n "$cap" ] && echo "$cap" || echo 3
 }
 
-# Count workers in live states (running or waiting) across all fleet worktrees.
-# These are the slots that count against the cap.
-count_live_workers() {
-  local n=0 wt br st
-  for wt in "$wt_root"/"$wt_prefix"*; do
-    [ -d "$wt" ] || continue
-    br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
-    st=$(worker_state "$wt" "$br")
-    case "$st" in
-      running*|waiting*) n=$((n + 1)) ;;
-    esac
-  done
-  echo "$n"
-}
-
 # Get the branches currently occupying slots (for the warning message).
 live_worker_branches() {
   local wt br st
@@ -3351,6 +3316,13 @@ live_worker_branches() {
       running*|waiting*) echo "$br" ;;
     esac
   done
+}
+
+# Count workers in live states (running or waiting) across all fleet worktrees.
+# These are the slots that count against the cap — the branches above, counted,
+# so the two readings cannot disagree about what occupies a slot.
+count_live_workers() {
+  live_worker_branches | grep -c . || true
 }
 
 # Update the parallel-agents cap in the fleet controls file.
@@ -3833,9 +3805,7 @@ held_worktree() { # $1=branch → prints the worktree path when held, else nothi
   # refs/heads/<name>` per entry, so the branch line is matched and the path
   # remembered from the preceding line. A detached worktree has no branch line
   # and never matches, which is right: it holds no branch to hold.
-  wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$br" '
-    /^worktree /  { path = substr($0, 10) }
-    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  wt=$(worktree_holding_branch "$br")
   [ -n "$wt" ] || return 1
   # A registered worktree whose directory is gone (removed by hand, not via
   # `git worktree remove`) holds nobody. `status` cannot be read there anyway.
