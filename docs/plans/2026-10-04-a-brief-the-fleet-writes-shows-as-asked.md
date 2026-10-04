@@ -55,7 +55,7 @@ Measured 2026-10-04: the dispatches of `the-shell-loop-holds-unlanded-work` and 
 
 ### A brief the fleet writes shows as asked
 
-- `bug/a-brief-the-fleet-writes-shows-as-asked` — `briefAskedAt` reads the implement route's log beside the two askers it reads today, from one list that each asker's path comes from; a failed brief writer shows as failed <!-- builds: the asker list in brief-ask-log.ts, and briefFailed -->
+- `bug/a-brief-the-fleet-writes-shows-as-asked` → #1272 — `briefAskedAt` reads the implement route's log beside the two askers it reads today, from one list that each asker's path comes from; a failed brief writer shows as failed <!-- builds: the asker list in brief-ask-log.ts, and briefFailed -->
 
 ## Notes
 
