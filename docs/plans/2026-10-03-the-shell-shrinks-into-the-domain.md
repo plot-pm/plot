@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Issue:** #1245
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-03, Jan Wloka, `infra/the-shell-is-inventoried`
 - **Started:** 2026-10-04, Jan Wloka, `infra/a-command-names-its-action-in-the-domain`
 - **Started:** 2026-10-04, Jan Wloka, `infra/the-first-script-becomes-a-command`
+- **Delivered:** 2026-10-04
 
 ## Changelog
 
