@@ -84,7 +84,7 @@ The tick writes `orphaned-claims=N` and, for each, `<branch>: claim with no agen
 
 The rows are tested in this order. A live holder is first because it is the only case where two agents hold one slice.
 
-**The bundle.** `skills/plot/scripts/board/plot-claim-answer.mjs` reads the readings as JSON on stdin, the raw commits (time, subject, tree, parent tree) among them, and prints the answer and the holders. The callers pass commits and never classify them. The two callers run once per operator command and once per rejected push, which the cost rule in `docs/shell-and-domain.md` permits. The slice adds the bundle's row to the helper-script table in `CLAUDE.md`, as the other bundles have.
+**The bundle.** `skills/plot/scripts/board/plot-claim-answer.mjs` reads the readings as JSON on stdin, the raw commits (time, subject, tree, parent tree) among them, and prints the answer and the holders. The callers pass commits and never classify them. The two callers run once per operator command and once per rejected push, which the cost rule in `docs/shell-and-domain.md` permits. The slice adds the bundle's row to the scripts table in `skills/plot/scripts/README.md`, which `scripts/check-helper-table.sh` gates; `CLAUDE.md` holds no table.
 
 **`--release`.** Before it clears any manifest, `--release` collects the live holders: the agents whose manifests name the branch and whose worker is alive in its own desk, whatever branch that desk holds. It asks `plot-claim-answer.mjs`, and on `held-by-agent` it refuses, names each agent id and desk, and writes nothing. The existing refusals (`plot-dispatch.sh:1990-2090`) are unchanged.
 
