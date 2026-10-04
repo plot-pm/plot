@@ -116,7 +116,6 @@ describe('a state receipt: the entry and the shell write the same bytes', () => 
 
     expect(entryFile).toBe(shellFile);
 
-    const found: ReturnType<typeof report>[] = [];
     const disagreements: { subject: string; field: string; adapter: string; production: string }[] = [];
     if (entryBytes !== shellBytes) {
       disagreements.push({
