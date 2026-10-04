@@ -111,7 +111,7 @@ The rows are tested in this order. A live holder is first because it is the only
 
 `assignedTo`, the `assigned` hold and its tick count, `rules/claim.ts` with `claimTip` (on `isEmptyClaim` and `realCommits`) and `orphanedClaims`, and `commitSubjects` on the refs port. <!-- builds: assigned queue hold, claimTip, orphanedClaims, commitSubjects -->
 
-### A release and a rejected push name the agent (Branch: bug/a-release-and-a-rejected-push-name-the-agent) <!-- waits: bug/a-hand-over-is-checked-before-it-is-made -->
+### A release and a rejected push name the agent (Branch: bug/a-release-and-a-rejected-push-name-the-agent, PR: #1269) <!-- waits: bug/a-hand-over-is-checked-before-it-is-made -->
 
 `claimAnswer`, `plot-claim-answer.mjs`, the `--release` refusal, the rejection messages in the loop, and the loop giving up a rejected hand-over. <!-- builds: claimAnswer, plot-claim-answer.mjs -->
 
