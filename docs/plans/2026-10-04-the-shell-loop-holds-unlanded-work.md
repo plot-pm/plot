@@ -67,7 +67,7 @@ The domain side has `ending.test.ts` for the new value and an `endingIsAttributa
 
 ### The shell loop holds unlanded work
 
-- `infra/the-shell-loop-holds-unlanded-work` — the shell loop ends with `holding-work`, exit 0, when `desk_reset_refusal` holds its own desk for unlanded work, and `write_ending` appends each ending to `.plot/state/endings.jsonl`; no net shell growth <!-- builds: the holding-work ending in the shell loop -->
+- `infra/the-shell-loop-holds-unlanded-work` — the shell loop ends with `holding-work`, exit 0, when `desk_reset_refusal` holds its own desk for unlanded work, and `write_ending` appends each ending to `.plot/state/endings.jsonl`; no net shell growth <!-- builds: the holding-work ending in the shell loop --> → #1271
 
 ## Notes
 
