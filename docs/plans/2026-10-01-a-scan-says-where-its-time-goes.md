@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** bug
 - **Issue:** #1017
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-scan-drops-its-largest-cost`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-plan-index-is-read-once`
 - **Delivered:** 2026-10-03
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 
