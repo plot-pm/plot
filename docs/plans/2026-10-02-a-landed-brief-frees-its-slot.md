@@ -52,6 +52,6 @@ The budget is `controls.parallelAgents - (liveCount + allInFlight.size + briefsA
 
 ## Slices
 
-### A landed brief frees its slot (Branch: bug/a-landed-brief-frees-its-slot)
+### A landed brief frees its slot (Branch: bug/a-landed-brief-frees-its-slot, PR: #1163)
 
 The two rules with their tests, the board's switch to branch-keyed asks with per-pass pruning, the `busyAgents` count, and the two board unit tests.
