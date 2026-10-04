@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Issue:** #1255, #1199
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 5
+- **Approved:** 2026-10-04, jwloka, in-session
 
 ## Changelog
 
