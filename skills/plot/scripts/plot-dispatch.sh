@@ -2107,17 +2107,15 @@ if [ "$mode" = "release" ]; then
   # NOT NUMBERED WITH THE FOUR BELOW: the plan keeps their order and wording
   # unchanged, and this is the one new refusal, asked through the domain.
   holder_lines=$(live_holders_of_branch "$registry_dir" "$br" "" "$release_wt")
-  if [ -n "$holder_lines" ]; then
-    answer=$(claim_answer "$script_dir/board/plot-claim-answer.mjs" unknown "" \
-      "$(printf '%s\n' "$holder_lines" | cut -f1)") || answer=""
-    if [ "$answer" = "held-by-agent" ]; then
-      echo "plot-dispatch: $br is held by a live agent — refusing." >&2
-      printf '%s\n' "$holder_lines" | while IFS=$'\t' read -r h_session h_wt; do
-        echo "  $h_session (desk $h_wt)" >&2
-      done
-      echo "  Nothing was written." >&2
-      exit 1
-    fi
+  answer=$(claim_answer "$script_dir/board/plot-claim-answer.mjs" unknown "" \
+    "$(printf '%s\n' "$holder_lines" | cut -f1)") || answer=""
+  if [ "$answer" = "held-by-agent" ]; then
+    echo "plot-dispatch: $br is held by a live agent — refusing." >&2
+    printf '%s\n' "$holder_lines" | while IFS=$'\t' read -r h_session h_wt; do
+      echo "  $h_session (desk $h_wt)" >&2
+    done
+    echo "  Nothing was written." >&2
+    exit 1
   fi
 
   # 2. A LIVE WORKER — the measurement `--restart` makes, through the shared

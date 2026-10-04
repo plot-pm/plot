@@ -3051,14 +3051,12 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
     # `work-on-ref` are a stale hand-over, not a lock violation.
     if git -C "$hop_wt" fetch -q origin "$next_branch" 2>/dev/null; then
       ref_word=present
+      log_text=$(git -C "$hop_wt" log --boundary --format='%m|%H|%T|%P|%at|%s' "origin/$main_branch..origin/$next_branch" 2>/dev/null) \
+        || ref_word=unknown
     elif [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then
       ref_word=absent
     else
       ref_word=unknown
-    fi
-    if [ "$ref_word" = present ]; then
-      log_text=$(git -C "$hop_wt" log --boundary --format='%m|%H|%T|%P|%at|%s' "origin/$main_branch..origin/$next_branch" 2>/dev/null) \
-        || ref_word=unknown
     fi
     # OUR OWN MANIFEST IS EXCLUDED, the same test `checkout_is_registered`
     # applies to a worktree: the supervisor wrote THIS branch into it before
