@@ -1297,56 +1297,38 @@ ENDING_FILE_NAME='.plot-worker.ending.json'
 # So absence stays load-bearing here as it is for the declaration: no ending
 # file means nobody recorded one, which is what a SIGKILL leaves behind.
 write_ending() { # $1=worktree $2=reason $3=actor $4=branch $5=detail
-  local worktree="$1" reason="$2" actor="$3" branch="$4" detail="$5" file tmp
+  local worktree="$1" reason="$2" actor="$3" branch="$4" detail="$5" file tmp main
   [ -n "$worktree" ] || return 0
   [ -d "$worktree" ] || return 0
   [ -n "$reason" ] || return 0
   [ -n "$actor" ] || return 0
   file="$worktree/$ENDING_FILE_NAME"
   tmp="$file.plot-ending-tmp"
+  main=$(main_checkout_path) || main=""
 
   # USES NODE for the reason `seal_declaration` does: JSON in portable shell is
   # brittle, and the Worker command already requires node. The write goes
   # through a temp file and a rename, so a reader never sees a partial record —
   # the one shape this file must never produce, since its own contract keeps a
   # file that exists and does not parse apart from one that is absent.
+  #
+  # THE SAME PROCESS ALSO APPENDS one JSON line to the MAIN CHECKOUT's
+  # `.plot/state/endings.jsonl` — where `plot-reap.sh` does not reach, since it
+  # removes a finished desk's own ending file along with the rest of the
+  # worktree. `main` is `""` where no main checkout could be resolved, which the
+  # script reads as "append nothing" rather than failing the write it rides
+  # beside. BEST EFFORT, LIKE THE MARKER AND THE SPEND RECORD BESIDE IT: a
+  # missing main checkout, a missing `.plot/state` directory or a failed append
+  # changes no ending, no exit code and no return status of this function.
   node -e '
     const fs = require("fs");
-    const [tmp, reason, actor, branch, detail] = process.argv.slice(1);
-    fs.writeFileSync(tmp, JSON.stringify({ reason, actor, branch, detail }, null, 2) + "\n");
-  ' "$tmp" "$reason" "$actor" "$branch" "$detail" 2>/dev/null || { rm -f "$tmp"; return 0; }
+    const [tmp, file, main, reason, actor, branch, detail] = process.argv.slice(1);
+    const record = { reason, actor, branch, detail };
+    fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n");
+    try { if (main) { fs.mkdirSync(`${main}/.plot/state`, { recursive: true }); fs.appendFileSync(`${main}/.plot/state/endings.jsonl`, JSON.stringify(record) + "\n"); } } catch { /* best effort */ }
+  ' "$tmp" "$file" "$main" "$reason" "$actor" "$branch" "$detail" 2>/dev/null || { rm -f "$tmp"; return 0; }
 
   mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
-
-  append_ending_line "$reason" "$actor" "$branch" "$detail"
-}
-
-# Appends one ending as one JSON line to the MAIN CHECKOUT's
-# `.plot/state/endings.jsonl` — where the reaper does not reach.
-#
-# `plot-reap.sh` removes a finished desk's ending file along with the rest of
-# the worktree, and each loop end overwrites the one `write_ending` keeps. So no
-# window of past endings survives on a desk's own path. This gives one a home
-# that outlives every desk: `main_checkout_path` (`:821`) already reads the
-# first entry of `git worktree list`, and `.plot/state/` is gitignored there, so
-# the append adds nothing to a desk's dirty list.
-#
-# BEST EFFORT, LIKE THE MARKER AND THE SPEND RECORD IT RIDES BESIDE. A missing
-# main checkout, a missing `.plot/state` directory or a failed write means "not
-# recorded" — never a changed ending, a changed exit code, or a changed return
-# status of `write_ending`, whose own contract this must not touch.
-append_ending_line() { # $1=reason $2=actor $3=branch $4=detail
-  local reason="$1" actor="$2" branch="$3" detail="$4" main path
-  main=$(main_checkout_path) || return 0
-  [ -n "$main" ] || return 0
-  path="$main/.plot/state/endings.jsonl"
-  mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
-  node -e '
-    const fs = require("fs");
-    const [path, reason, actor, branch, detail] = process.argv.slice(1);
-    fs.appendFileSync(path, JSON.stringify({ reason, actor, branch, detail }) + "\n");
-  ' "$path" "$reason" "$actor" "$branch" "$detail" 2>/dev/null
-  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -2828,16 +2810,13 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   # has already declared the slice finished and given the branch back to the
   # queue, so the manifest would read this agent as free while its desk still
   # holds the work.
-  if _desk_hold=$(desk_reset_refusal "${PLOT_WORKTREE:-$PWD}"); then
-    case "$_desk_hold" in
-      uncommitted-changes|unpushed-commits)
-        _hold_reason=$(desk_hold_reason "${PLOT_WORKTREE:-$PWD}")
-        echo "plot-worker-loop: the desk at ${PLOT_WORKTREE:-$PWD} is held by $_desk_hold ($_hold_reason) after the prompt on ${PLOT_BRANCH:-?} ran — keeping the desk and ending worker rather than handing it to the next slice." >&2
-        write_ending "${PLOT_WORKTREE:-$PWD}" holding-work agent "${PLOT_BRANCH:-}" "$_hold_reason"
-        exit 0
-        ;;
-    esac
-  fi
+  _desk_hold=$(desk_reset_refusal "${PLOT_WORKTREE:-$PWD}") || _desk_hold=""
+  case "$_desk_hold" in uncommitted-changes|unpushed-commits)
+    _hold_reason=$(desk_hold_reason "${PLOT_WORKTREE:-$PWD}")
+    echo "plot-worker-loop: the desk at ${PLOT_WORKTREE:-$PWD} is held by $_desk_hold ($_hold_reason) after the prompt on ${PLOT_BRANCH:-?} ran — keeping the desk and ending worker rather than handing it to the next slice." >&2
+    write_ending "${PLOT_WORKTREE:-$PWD}" holding-work agent "${PLOT_BRANCH:-}" "$_hold_reason"
+    exit 0 ;;
+  esac
 
   # ---------------------------------------------------------------------------
   # THE BUILD FAILED — a fifth ending, and the first one Plot corrects instead
