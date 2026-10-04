@@ -23,6 +23,10 @@ It settles the estate's existing practice. `plot-pr-merged.sh` is sourced by fou
 
 **And the frequency is per CALL SITE, not per script.** `plot-worker-loop.sh` is in the table above as the second case, and that line is about its idle pass. The same script asks the domain once per PROMPT EXIT, through `board/plot-prompt-exit.mjs`: a prompt runs for minutes or hours, so one 39 ms hop after it adds nothing measurable, where a hop on the idle pass is paid by every agent on every pass. A shell copy of that rule would need a corpus test to hold the pair together and would save no cost — and the rule it would copy reads a wall-clock time in an IANA zone, which bash has no way to resolve. So one script sits on both rows of the table, and which row applies follows from the call site's frequency.
 
+**The target: an agent runs a command, and a command is a JS entry point.** `the-shell-shrinks-into-the-domain` names it directly — a command an agent runs goes entry → domain → port → adapter, the layering rule above. A `.sh` file that remains is a **launcher**: it resolves its bundle and `exec`s it, and decides nothing. `skills/plot/scripts/README.md`'s *kind* column names which scripts already are one and which still hold a decision or a per-pass duplicate the rest of this section allows.
+
+**The price: a new declared duplicate pays in lines, not just in prose.** Both seams this section permits — the per-agent-per-pass duplicate above and the quoted heredoc in §2 — remain allowed, and both now cost: `scripts/check-shell-lines.sh` ratchets the shipped shell's line count against its merge base, so a change that adds a new duplicate must remove an equal number of lines elsewhere in the same change. The gate stores no number and grants no exemption for a declared duplicate; the price is paid in the same diff that incurs it.
+
 **A rule that cannot be asked refuses.** Where a script calls the domain, `node` missing, an import failing, or the module throwing must leave the script refusing, not proceeding. `plot-reap.sh:451` states it: silence is never permission.
 
 **Refusing means not taking the action the rule would have licensed, which is not always stopping.** `plot-reap.sh` removes a worktree, so the action it withholds is the removal and withholding it is doing nothing. The prompt-exit call is the other shape: the action the rule licenses is the WAIT, so an unaskable rule means no wait — and a non-zero prompt exit then takes the retry path it took before the rule existed. That path ends the worker after three attempts, so the unaskable case is strictly less permissive than the answer it replaces, never more. The test is what the refusal WITHHOLDS, not whether the script continues.
@@ -35,7 +39,7 @@ There are two seams, and which one applies follows from where the script ships.
 
 - **One bundle per question.** `plot-ask.mjs` answers `board` and `fleet` by *running* `plot-fleet-scan.sh`; a dispatcher asking it would be an artifact calling a script that calls the dispatcher. A bundle that spawns nothing gets its own artifact.
 - **Tab-separated in, tab-separated out**, where the caller is bash reading one line per subject. A JSON round trip means `jq` per line — a second process to avoid a second format.
-- **A new bundle is a new entry point plus a `build.mjs` block**, and the artifact is committed.
+- **A new bundle is a new entry point plus a `build.mjs` block.** `main` builds its own bundles after every merge (`build-bundles.yml`) and a pull request carries none (`scripts/check-no-bundle-diff.sh`) — `a-branch-carries-no-built-bundle`'s contract, adopted whole here.
 
 **A quoted heredoc importing the rule directly.** This is the seam for a script that runs only inside the plot checkout. `plot-reap.sh` imports `packages/domain/src/rules/reapable.ts` through a path derived from its own `BASH_SOURCE`, never from the cwd: node 24 strips the types, so there is no build step between the script and the decision.
 
