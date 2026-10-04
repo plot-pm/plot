@@ -12,6 +12,7 @@
 - **Rounds:** 3
 - **Approved:** 2026-10-03, jwloka, in-session
 - **Started:** 2026-10-03, Jan Wloka, `infra/the-shell-is-inventoried`
+- **Started:** 2026-10-04, Jan Wloka, `infra/a-command-names-its-action-in-the-domain`
 
 ## Changelog
 
