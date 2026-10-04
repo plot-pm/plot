@@ -1,5 +1,342 @@
 # @plot-pm/board
 
+## 0.16.3
+
+### Patch Changes
+
+- [#1188](https://github.com/plot-pm/plot/pull/1188) [`70be5f1`](https://github.com/plot-pm/plot/commit/70be5f13a85de6ccf90c8b66d384b3df66784ead) Thanks [@jwloka](https://github.com/jwloka)! - An unattended agent at a fleet desk that starts a suite the `CI suites` config key leaves to CI is refused by `plot-controller-gate.sh`, with the `plot-local-checks.mjs` command to run instead. Measured 2026-10-02 on this repository: with 16 cores and 7-8 agents the load stayed at 55-148, and six of seven agents were inside full local suites CI runs again on every pull request. The rule `ciSuiteRefusal` matches only where a command runs, after `&&`, `;` or `|` and after `NAME=value` and `env` prefixes, with quoted text removed, so a `grep`, a commit message or a PR body that mentions a suite passes. The arm sits before the gate's early exits and decides only in a linked worktree holding `.plot-worker.pid` with `PLOT_UNATTENDED=1`; a person at a terminal is never refused. The bundle answers it as `plot-local-checks.mjs --ci-suite-refusal`.
+
+  <!--
+  plan: docs/plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1177](https://github.com/plot-pm/plot/pull/1177) [`f8ef501`](https://github.com/plot-pm/plot/commit/f8ef5012cbe34b1e7b37d2f132ab3e7180124407) Thanks [@jwloka](https://github.com/jwloka)! - `plot-open-pr.sh` opens a PR for a branch whose only earlier PR was closed unmerged, and names that closed PR on stderr and in the new PR's body. It still refuses a branch an open or merged PR carries, whatever position the host lists that row in.
+
+  Measured 2026-09-30 on `bug/a-state-sweep-is-one-request`: PR [#1089](https://github.com/plot-pm/plot/issues/1089) was opened, closed 38 s later, and the branch force-pushed, so GitHub refuses to reopen it. From then on every run refused `pr-exists` naming [#1089](https://github.com/plot-pm/plot/issues/1089) while the branch held two finished commits, and the agent stopped with `PLOT-BLOCKED`.
+
+  The shell kept the number of the first `pr-list` row whose head matched and read no `state`, although every row carries one. So `openSlicePr` saw a single number and could only answer _exists or not_. It now receives every matching row as `prs: readonly SlicePrRow[]` and decides which one carries the branch: an `OPEN` or `MERGED` row refuses wherever it sits, and a branch with only `CLOSED` rows opens, carrying their numbers in `closedPrs`. A row whose state the entry cannot read counts as `OPEN`, so a parse defect refuses rather than opening a duplicate.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-closed-pr-carries-no-branch.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1256](https://github.com/plot-pm/plot/pull/1256) [`6be6a07`](https://github.com/plot-pm/plot/commit/6be6a073d0477dfc46dcba05cb6a3ccc3a7ef37d) Thanks [@jwloka](https://github.com/jwloka)! - `manifestForWorktree` is now built on a new `deskManifestFor`, which answers the full `DeskManifest` — `named`, `unnamed` or `several` — rather than collapsing the last two to `''`. `/api/continue` uses it to refuse a continuation 409 when no manifest names the worktree or when more than one does, naming every path in the refusal, before it writes the prompt file or touches the previous run's records. A successful continuation now passes `PLOT_MANIFEST_FILE` to the spawned worker's environment and removes any stale `.plot-worker.wrapper.pid` left by a previous dispatch.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-desk-and-its-manifest-name-each-other.md
+  -->
+
+- [#1223](https://github.com/plot-pm/plot/pull/1223) [`db02783`](https://github.com/plot-pm/plot/commit/db0278328f6ed715c2bd9339b122df3927aefa20) Thanks [@jwloka](https://github.com/jwloka)! - The fleet scan asks the host about a delivery candidate's subject-proven branches again. Since the merge-subject rule landed, the scan asked only when `branch_readings` received a candidate argument that no caller passed. Every branch whose ref was deleted at merge kept `evidence: subject`, `allSlicesConfirmed` answered `unknown`, and auto-deliver and the Deliver control held every such plan. The scan now decides candidacy after the rule has stated each branch: an Approved plan whose every non-deferred branch reads `merged`. Under `HOST_VERDICT` `ok` or `partial` it asks `merged_by_host` about each subject-proven branch, and a host `MERGED` answer drops the `evidence` field.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1188](https://github.com/plot-pm/plot/pull/1188) [`5bd5f98`](https://github.com/plot-pm/plot/commit/5bd5f98634581cd34dcf4030cfa7f426289825b1) Thanks [@jwloka](https://github.com/jwloka)! - The board asks the git host for its whole PR history once a day and asks only for changed PRs between those reads. It made the whole read on every second refresh before: a delta's answer marked the PR index as not whole, and the next refresh then refused to narrow. Measured 2026-10-01 on this repository, the whole read took 43.0 s for 1000 rows against 0.8 s for the delta. A whole read that fails no longer repeats every minute — the board asks for changed PRs and retries the whole read an hour later. A PR index written by an older Plot is read once in full, as an unrecognised version has always been.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-pr-refresh-reads-the-history-once-a-day.md
+  -->
+
+- [#1261](https://github.com/plot-pm/plot/pull/1261) [`cd5628c`](https://github.com/plot-pm/plot/commit/cd5628c274436d47f4a7b35cf683e77daaf3fdf0) Thanks [@jwloka](https://github.com/jwloka)! - A desk no manifest names no longer renders as an agent working the branch its worktree happens to have checked out. `synthesizeEntry` now sets `branch: ''` and carries the checkout in a new, display-only `checkout` field, so `isAgentFree`, `handedTo` and `liveAgentBranches` stop reading the desk as holding or free to take that branch's work. The registry row prints the domain's new `unnamedDeskLabel` instead — naming the absence and the process state, with the checkout as its own labelled detail rather than the row's name, link or id. `freeAgents` now excludes every undeclared entry outright, closing the dispatch hazard where a desk nobody registered could be counted as available for the next slice.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-desk-and-its-manifest-name-each-other.md
+  -->
+
+- [#1216](https://github.com/plot-pm/plot/pull/1216) [`f9237f9`](https://github.com/plot-pm/plot/commit/f9237f902114cc56b01c70167f45c41198704127) Thanks [@jwloka](https://github.com/jwloka)! - A fleet entry now reads and writes the PR store of its own repository rather than one shared module-level store built with no `cwd`. `prStoreFor(repoRoot)` resolves and caches one `PrIndexStore` per repository per process, so a board process serving several repositories keeps each one's PRs in its own file instead of folding them all into whichever repository the process started in. `PLOT_PR_INDEX_HOME` keeps priority over `repoRoot`, unchanged.
+
+- [#1252](https://github.com/plot-pm/plot/pull/1252) [`d8a8b0b`](https://github.com/plot-pm/plot/commit/d8a8b0ba6fc639b056ab1524e1a54bea4911ad7b) Thanks [@jwloka](https://github.com/jwloka)! - Immediately before each hand-over, `startAgents` asks the branch's remote ref and whether its work landed again, and withholds the write unless both readings are fresh and clear. `handOverCheck` (`packages/domain/src/rules/queue.ts`) answers `stale` for a reading older than 300 000 ms (five tick intervals), `landed` or `unknown` from the fresh readings, `claimed` for a ref that still exists, and `hand-over` otherwise — every answer but the last withholds and reports why, and the next tick re-derives the queue.
+
+  Measured 2026-10-01 ([#1149](https://github.com/plot-pm/plot/issues/1149)): a Bitbucket tick of 78 minutes handed `feature/ewzkus-3845-ueberwachung` to an agent after its PR had merged and its remote ref was gone. The agent's claim push was rejected three times and the loop logged `REGISTRY LOCK VIOLATION` about a second agent that did not exist. `plot-worker-loop.sh`'s claim push now keeps git's stderr and asks `git ls-remote --heads origin <branch>` on a rejection: an absent ref prints "origin has no such branch", and a present ref keeps the lock-violation line unchanged.
+
+  The refs port gains `remoteHead(branch)` — a git call, not a host call, so the check spends no host rate limit.
+
+  <!--
+  plan: docs/plans/2026-10-01-the-queue-reads-the-order-the-scan-reads.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1197](https://github.com/plot-pm/plot/pull/1197) [`6bfaf6c`](https://github.com/plot-pm/plot/commit/6bfaf6c1502fce2b272198f0860d858b69d2ede4) Thanks [@jwloka](https://github.com/jwloka)! - A slice the supervisor holds because an earlier slice of its plan carries a landing the host could not answer reads `prior-unknown`, where it read `not-claimable` before, and the tick line says how the merged listing answered: `merged-set=whole`, `merged-set=partial(<kind>)` or `merged-set=unaskable(<kind>)`, where `<kind>` is the host's refusal (`throttled`, `secondary` or `failed`).
+
+  Measured 2026-09-30 on a Bitbucket estate under HTTP 429: the supervisor held 36 slices `not-claimable`, among them slices whose earlier waves had merged days before, and nothing on the tick line named the 429. `not-claimable` means _the plan's ordering blocks this_, so a reader went to the plan and found nothing wrong with it. `not-claimable` is also the one hold a looping tick counts and never names, because it is proportional to the backlog — so the slice an operator was waiting for appeared only as a count.
+
+  `behindUnknownLanding` in `rules/queue.ts` decides it per plan, in plan order, over the plan's slice index rather than an entry's position: a slice naming two branches is two entries and one position, so a sibling is beside the unanswered branch rather than behind it. A later slice that is claimable in its own right is never marked — it keeps its own landing question. The hold itself does not change, and `queue-reading.test.ts`'s _"SILENCE MUST NOT PROMOTE WORK"_ still holds.
+
+  No new host call: the `unknown` answers are the ones the pass already took. `prior-unknown` is `queue`-scoped in `HOLD_SCOPE`, so a looping tick names its branches under the existing cap.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-hold-names-the-landing-nobody-could-answer.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1163](https://github.com/plot-pm/plot/pull/1163) [`90194e7`](https://github.com/plot-pm/plot/commit/90194e74d8ad03c924f87062852571806fb80ca0) Thanks [@jwloka](https://github.com/jwloka)! - Auto-dispatch keeps asking for briefs while slices wait for one. An ask now holds a slot only until its brief lands on `origin/main`, asks are recorded per branch so a plan's later slice gets its brief asked for, and a free agent no longer counts against the brief budget.
+
+  <!--
+  plan: docs/plans/2026-10-02-a-landed-brief-frees-its-slot.md
+  -->
+
+- [#1257](https://github.com/plot-pm/plot/pull/1257) [`3cd95b3`](https://github.com/plot-pm/plot/commit/3cd95b330fa8216388d6ca981ffdce703e34baa2) Thanks [@jwloka](https://github.com/jwloka)! - `bashCleanliness` excuses a generated board bundle a worktree rebuilt locally, derived from that worktree's own `packages/board/build.mjs`, so a desk holding only a rebuilt bundle is still droppable. `mayResolve` now refuses every `artifact-conflict` unconditionally: the board's one automatic write — rebuilding and pushing an artifact-only merge conflict — is switched off, since a PR must never carry a generated bundle.
+
+- [#1251](https://github.com/plot-pm/plot/pull/1251) [`f8b8b07`](https://github.com/plot-pm/plot/commit/f8b8b07c406a4126b540718812edb87296ddc5b4) Thanks [@jwloka](https://github.com/jwloka)! - `QueueHold` gains `refused`: a slice an agent was handed and refused — writing `PLOT-BLOCKED.md` rather than working it — is held until a person clears the marker or the record naming it, instead of being handed to another free agent on the next pass.
+
+  Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order` wrote `PLOT-BLOCKED.md` and stopped. `rules/queue.ts` had no hold for that, so the next pass read the slice as queued and handed it to another free agent, which hit the same refusal — 250 desks came from one slice this way, at 17 to 19 an hour. `blocked_on_held_checkout` in `plot-worker-loop.sh` now appends the branch to `.plot/state/refused-slices.tsv`, under the common git dir rather than the desk, so the record survives the desk's reap; the queue reads it by branch rather than by worktree, since a desk's manifest may already be cleared by the time the supervisor looks. `whyNotReady` tests `refused` after `slice-unnamed` and before the brief gate, bounded to a claimable slice for the same reason `slice-unnamed` is, so the hold never reaches the estate's unclaimable backlog. The tick line prints `refused=N` beside the other hold counts.
+
+  <!--
+  plan: docs/plans/2026-10-03-every-desk-state-has-an-exit.md
+  -->
+
+- [#1269](https://github.com/plot-pm/plot/pull/1269) [`2e13c35`](https://github.com/plot-pm/plot/commit/2e13c350420480e1ec8c957edc007600fa035b08) Thanks [@jwloka](https://github.com/jwloka)! - `plot-dispatch.sh --release` refuses a branch a live agent holds even when that agent's own desk sits on another branch, and a rejected claim push now names what origin holds — another live agent, a stale empty claim with its release command, or real work no live agent holds — through a new domain rule `claimAnswer`, reached without HTTP via `plot-claim-answer.mjs`. Before this, an agent just handed a branch had not checked it out, so the release refusal that reads the branch's own worktree never ran, and a rejected push's `REGISTRY LOCK VIOLATION` fired on a stale empty claim with nobody behind it. After a rejected push the loop now also clears its own manifest's assignment and empties `PLOT_BRANCH` before asking for another branch, so it does not run the previous slice's prompt again in a desk just reset onto the rejected branch — the path that let one agent be handed a second slice while its desk still held the first.
+
+  <!--
+  plan: docs/plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md
+  bumps:
+    skills:
+      plot: patch
+      plot-dispatch: patch
+  -->
+
+- [#1171](https://github.com/plot-pm/plot/pull/1171) [`5f67baa`](https://github.com/plot-pm/plot/commit/5f67baa631a04dd4864b152fc71eba14c687b270) Thanks [@jwloka](https://github.com/jwloka)! - A fleet agent keeps its slice until its pull request's checks have a result, so a failed CI run reaches it as a correction. Before, the agent let go of the slice when its prompt ended, minutes before CI reported; measured 2026-10-02, the agent on [#1168](https://github.com/plot-pm/plot/issues/1168) opened its PR, took another slice in the same desk, and CI failed eight minutes later with no slice for the correction to reach. After a prompt ends, the loop waits while the branch's head is pushed, an open PR carries it, and the BuildMonitor has no result for that head, for up to `Checks wait` seconds (default 1800; `0` disables it). The new rule `checksVerdict` decides, asked through `plot-checks-verdict.mjs` once a minute. The BuildMonitor now reads the desk's checked-out branch on every pass: it read the branch once at start, so for a free agent, which starts with none, it never published a finding, and for an agent that hopped it reported the old branch.
+
+  <!--
+  plan: docs/plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1198](https://github.com/plot-pm/plot/pull/1198) [`5c8ab1a`](https://github.com/plot-pm/plot/commit/5c8ab1a62b8f585ae3cab14abee038b311fbe17e) Thanks [@jwloka](https://github.com/jwloka)! - An agent handed a slice whose branch a clean, worker-less checkout holds now removes that checkout and takes the branch. A checkout holding work, a marker, a live worker or another agent's manifest is kept untouched, and the agent writes a `PLOT-BLOCKED` naming the path, the branch and the condition.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1206](https://github.com/plot-pm/plot/pull/1206) [`6248bea`](https://github.com/plot-pm/plot/commit/6248bea10feb35516e00cda880bebe2a722f2803) Thanks [@jwloka](https://github.com/jwloka)! - A desk whose worker moved to another desk no longer reads `running`. The registry asks the new domain rule `deskWorker`: when a manifest records the desk's `.plot-worker.pid` pid at a different worktree, the old desk reads `ended`, and the WORKING count and `fleetControls.working` count that worker once.
+
+- [#1244](https://github.com/plot-pm/plot/pull/1244) [`8d95b21`](https://github.com/plot-pm/plot/commit/8d95b21d400c16959db957650a3ca6a877981df8) Thanks [@jwloka](https://github.com/jwloka)! - A worker-less checkout holding only a `plot: claim ...` marker, pushed and then left with no `@{upstream}` once its remote ref was deleted, now yields its branch instead of keeping it forever. The `unpushed` reading is measured against `origin/<default>` and excludes only commits proven to be empty claim markers; any commit that changes a file, whatever its subject, still keeps the checkout. The predicate is the domain rule `rules/empty-claim.ts`, which `plot-worker-loop.sh` and `plot-reap.sh` ask through `board/plot-empty-claim.mjs`.
+
+  <!--
+  plan: docs/plans/2026-10-03-every-desk-state-has-an-exit.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1189](https://github.com/plot-pm/plot/pull/1189) [`b9b643c`](https://github.com/plot-pm/plot/commit/b9b643c16c4d331854996d6db5e4ce7b90b7c0fa) Thanks [@jwloka](https://github.com/jwloka)! - Approving a plan that names a branch under no slice heading is refused, and the refusal names each such branch and the heading to add. The heading is the slice's name on the board and the title of its pull request, so it is owed on the default branch before any agent starts.
+
+  <!--
+  plan: docs/plans/2026-10-01-an-approved-slice-has-a-name.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1213](https://github.com/plot-pm/plot/pull/1213) [`6858de8`](https://github.com/plot-pm/plot/commit/6858de8d8444bc00401217b522a54452f777fec8) Thanks [@jwloka](https://github.com/jwloka)! - `POST /api/deliver` and the board's Deliver verdict judge a plan against the last scan that finished, rather than against the scan in progress. A fully merged plan is deliverable while the next scan runs, and the Deliver control stops flickering on every pulse. `scan-incomplete` now means that no scan has finished since the board started, or that the plan names a branch the last finished scan did not report.
+
+  <!--
+  plan: docs/plans/2026-10-01-delivery-reads-the-last-finished-scan.md
+  -->
+
+- [#1253](https://github.com/plot-pm/plot/pull/1253) [`84ec329`](https://github.com/plot-pm/plot/commit/84ec3299dee60937753f7d0e8251d2e680257b98) Thanks [@jwloka](https://github.com/jwloka)! - `waitVerdict`, `prerequisiteCleared`, the queue's `waits` hold, `PlanRecordBranch.waitsOn`, `BranchSchema.waits_on` and the fleet row's prerequisite sentence all take a list of prerequisites instead of one name, so a slice naming two `waits:` branches is no longer silently read as naming only the last one `plot-plan-meta.sh` emitted.
+
+  Measured on `main`: a plan declaring two prerequisites kept only the last `<!-- waits: … -->` comment, because every domain and board reader took `waitsOn` as a single string. This slice changes every reader to a list while the parser and the scan still send one name each — behaviour on `main` is unchanged until `the-parser-reads-every-wait` (slice 2) teaches the scan to emit several. `BranchSchema.waits_on` reads both wire shapes, so a persisted `.plot/state/last-pulse.json` from before this change still parses.
+
+  The board's row sentence now names every declared prerequisite rather than only the one still holding the slice, because the pulse carries no per-prerequisite verdict — only the plan's declaration. A `blocked` row with several prerequisites reads "one of which has no pull request" rather than naming one as if it were alone.
+
+  <!--
+  plan: docs/plans/2026-10-02-a-slice-waits-on-every-branch-it-names.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1158](https://github.com/plot-pm/plot/pull/1158) [`eb51449`](https://github.com/plot-pm/plot/commit/eb514497b45725d5b38f0c00383985c7b649bec1) Thanks [@jwloka](https://github.com/jwloka)! - The Agents tab stops filtering on a sprint that is no longer active, and forgets that selection. A board left open across a sprint change shows every plan row without a reload, and the «Sprint only» control and the filter always agree.
+
+  <!--
+  plan: docs/plans/2026-10-01-an-open-board-follows-a-sprint-change.md
+  -->
+
+- [#1263](https://github.com/plot-pm/plot/pull/1263) [`1d4cff7`](https://github.com/plot-pm/plot/commit/1d4cff7648ee076bc0fc685f347f71a2b3f30427) Thanks [@jwloka](https://github.com/jwloka)! - `mayResolve`, `startRepair` and the `Repair` schema are deleted rather than switched off: the board's one automatic write — rebuilding and pushing an artifact-only merge conflict — has no caller left, since a PR must never carry a generated bundle. An `artifact-conflict` row now names the merge-base restore command as its evidence instead of a pending-repair state.
+
+- [#1188](https://github.com/plot-pm/plot/pull/1188) [`5f4040f`](https://github.com/plot-pm/plot/commit/5f4040f2c4115e6801fb80e55ff4a2d428e71e7d) Thanks [@jwloka](https://github.com/jwloka)! - `plot-local-checks.mjs` prints the checks a branch's change needs before it is pushed, from the new `Local checks` config key: `glob = command` pairs separated by `;`, where `{tests}` becomes the test files that name a changed path and `{changed}` the changed paths for a runner that follows imports, such as `vitest related`. Generated files (`-merge` in `.gitattributes`) select nothing, and a path named by more test files than `Local checks limit` (default 20) is reported as left to CI instead of listed. The `CI suites` key lists the suites only CI runs; it is printed in the report. The rule is `localChecks` in `packages/domain/src/rules/local-checks.ts`, and the `Refs` port gains `workingChanges`, `filesNaming` and `mergeUnset`. Measured 2026-10-02 on this repository: with 16 cores and 7-8 fleet agents the load stayed at 55-148, and six of seven agents were inside full local suites that CI runs again on every pull request.
+
+  <!--
+  plan: docs/plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1262](https://github.com/plot-pm/plot/pull/1262) [`11371be`](https://github.com/plot-pm/plot/commit/11371be271d86f45bc9df7e53d8a3a781b687d6b) Thanks [@jwloka](https://github.com/jwloka)! - `rules/desk-lifecycle.ts` names every state a desk can be in — `working`, `finished`, `orphaned`, `refused-empty`, `refused-with-work`, `holding-work`, `unplaced` — and the exit each one has, so the next way a desk gets stuck is found by reading the type rather than by counting desks. `reapProblems` asks it: a `PLOT-BLOCKED*` marker refuses reaping only when the desk holds anything beside it, so a marker on an otherwise-empty, already-landed desk is reapable, and the reaper copies the marker's text to `.plot/state/refusals.tsv` before removing it. Reconcile's desk section reports the state and the exit per desk instead of combining the reaper's kept-reasons itself.
+
+  Measured 2026-10-03: `.worktrees/` held 269 desks, 250 from one slice at 17 to 19 an hour, cleared only by removing an orphaned desk by hand, trashing 250 markers, and running the reaper. Two earlier fixes each closed one entry to this state — `plot-dispatch.sh --release` detaching a released desk, and the loop reading a missing `@{upstream}` as unlanded work — and this slice gives the domain the list those fixes had no place to join.
+
+  <!--
+  plan: docs/plans/2026-10-03-every-desk-state-has-an-exit.md
+  -->
+
+- [#1260](https://github.com/plot-pm/plot/pull/1260) [`d549bec`](https://github.com/plot-pm/plot/commit/d549bec904725077aab06347a0c5b1c9ca494dc3) Thanks [@jwloka](https://github.com/jwloka)! - A slice of a Draft plan now renders in WAITING ON YOU with the note `plan not approved yet — still in review` for every branch state, instead of only `open` and `deferred`. Previously a `blocked`, `waiting`, `unknown` or unrecognised state, a fresh `claimed` or `wip` branch, and a branch held, dirty or locked in a local worktree all placed a Draft plan's branch in NOT STARTED under _approved — nobody has taken it_ — pairing `verdict: unapproved` with `group: not-started` in the same payload. A new domain rule, `draftPlacement`, answers the placement once for every state that reaches `classifyGroup`'s no-work arms, so a later arm cannot forget the plan's phase again. A stale `claimed` or `wip` branch keeps its existing abandonment note, a deferred branch with a written reason keeps its QUIET placement, and a live worker still puts the row in WORKING.
+
+  <!--
+  plan: docs/plans/2026-10-02-a-draft-slice-waits-on-its-approval.md
+  -->
+
+- [#1270](https://github.com/plot-pm/plot/pull/1270) [`0dd5703`](https://github.com/plot-pm/plot/commit/0dd57038893d8c94d59b37c4ec134dd14c45bdd6) Thanks [@jwloka](https://github.com/jwloka)! - Adds `packages/board/src/server/entry/deliver.ts`, the first bundle under `entry/` that performs a lifecycle write rather than answering a reading on stdin — it creates a booking worktree, writes a plan's `State:`/`Delivered:`/`Released:` record, moves the index symlink, ticks the sprint item, and commits and pushes, falling back to a micro-PR on a rejected push. Declared as `shippedDeliver` in `build.mjs` and shipped at `skills/plot/scripts/board/plot-deliver.mjs`, which `plot-deliver.sh` now launches.
+
+- [#1203](https://github.com/plot-pm/plot/pull/1203) [`497a402`](https://github.com/plot-pm/plot/commit/497a4026f653362b90282fdf1e3107c7dfb36a83) Thanks [@jwloka](https://github.com/jwloka)! - The board's daily full PR read asks the git host for check, mergeability and review verdicts of the open pull requests only, and keeps the verdicts it already holds for a merged or closed one. Measured 2026-10-01 on this repository, that read took 43.0 s for 1000 rows and 36 s of it bought verdicts about pull requests nobody can act on: all 1000 rows were terminal. Re-measured 2026-10-02 over three runs each, the read takes 12.2-13.5 s against 39.6-42.3 s. A merged or closed row whose verdicts the host was not asked for takes them from the stored row with the same number, and one the store has never held reads as unavailable rather than as passing. The delta between full reads still asks for every verdict, because a pull request that changed is one whose checks a reader may still be reading.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-pr-refresh-reads-the-history-once-a-day.md
+  -->
+
+- [#1173](https://github.com/plot-pm/plot/pull/1173) [`3963332`](https://github.com/plot-pm/plot/commit/3963332572b0455711387ccb1cbae68c88ddb6c5) Thanks [@jwloka](https://github.com/jwloka)! - The implement step a dispatch runs writes the brief and the `Started:` record and stops. It pushes no claim and cuts no checkout, so the supervisor hands the slice to a free agent.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-start-step-leaves-no-claim-and-no-desk.md
+  bumps:
+    skills:
+      plot-implement: minor
+  -->
+
+- [#1170](https://github.com/plot-pm/plot/pull/1170) [`ac23e85`](https://github.com/plot-pm/plot/commit/ac23e853ea467c7a9017367ad302557275add373) Thanks [@jwloka](https://github.com/jwloka)! - The registry, the manifest stamp and the supervisor ask one rule which manifest names a desk. `joinManifestDir` is gone and both directory resolvers call `manifestDirectory`. The supervisor matched on the raw path alone, so a desk registered through a symlink read as unregistered and was reported as a leftover; both sides now carry the path as given and its realpath, and either matches either. `manifestForWorktree` answered the first of two manifests naming one desk and now answers none, because two agents on one desk is an estate defect a first match hides.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-desk-and-its-manifest-name-each-other.md
+  -->
+
+- [#1200](https://github.com/plot-pm/plot/pull/1200) [`d08b7aa`](https://github.com/plot-pm/plot/commit/d08b7aa354f5a5250560324b032065accf8e0250) Thanks [@jwloka](https://github.com/jwloka)! - The board's fleet scan asks a domain rule before it spends a pull-request listing, and reuses its last listing while the account is over its share. Measured 2026-10-02 on the Bitbucket workspace `quatico`, two checkouts of one repository over one hour: the scan spent 2949 of the account's 3150 calls — 93.6% of all calls and 97.1% of network calls — while the board's PR refresh, which already follows the cadence, spent 17. The scan runs on the 5 s pulse and its open listing sweeps one REST request per tracked branch per state, so 1764 of those calls were that sweep alone; the listing endpoint answered 429 for about 100 minutes on 2026-10-01. `listingSpend` composes `refreshIntervalMs`, so `MAX_CADENCE_STRETCH` and `CADENCE_DAMPING` are the cadence's and the caller holds no second copy of the arithmetic. A deferred scan receives the previous listing through `PLOT_PR_LISTING` — the seam `PLOT_TERMINAL_CACHE` already uses — with its age reported by the board, never as a fresh listing and never as an empty one; an empty listing reads as "no PRs" and refused four fully-merged plans on 2026-08-27. The first reading has no listing to reuse and is always allowed, an absent rate allows the call because silence is not evidence of a busy account, and GitHub's multiplier is 1 so its listing cadence is the pulse it has always been. The pulse and the git work stay on the 5 s beat; only the host listing slows.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-shared-account-names-what-spends-it.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1159](https://github.com/plot-pm/plot/pull/1159) [`5ea349c`](https://github.com/plot-pm/plot/commit/5ea349ccfb0e2c19ce6cb4a68893bb512ce144eb) Thanks [@jwloka](https://github.com/jwloka)! - The fleet scan reads both hosts' merge subjects as proof that a branch with no ref landed. Fixes part of [#1139](https://github.com/plot-pm/plot/issues/1139). Measured 2026-10-01 on a Bitbucket repository, a branch merged and deleted is proven merged by the `Merged in <branch> (pull request #N)` commit on the default branch, and Plot read only GitHub's `Merge pull request #N from <owner>/<branch>` — so under HTTP 429 the branch read `unknown`, its slice never completed, and every later slice of its plan was held while `git log --grep='^Merged in '` returned 1723 proofs nothing could see. The forms are now data in the host adapter, matched by the vendor-free rules `rules/merge-subject.ts` and `rules/remote-owner.ts`; a backend Plot has no form for proves nothing and every branch falls through to the host as before. On GitHub a subject counts only when it names the repository's own owner, compared without case, and any owner counts where none can be read, as for a local-path origin. A subject proves a branch for a plan only when the merge is not contained in the commit that added that plan's file, so a name a later plan reuses does not settle a slice nobody started; the footer counts those as `subject_predates_plan` and the branch reports `subjectIgnored`. A proven branch costs no host call unless its plan is a delivery candidate and the host is answering. Auto-delivery and the board's Deliver control read the new rule `allSlicesConfirmed`, so neither acts on a landing only a subject proves — a throttled host no longer leaves a plan's auto-delivery stuck until the board restarts. `merge_detect` gains `unaskable`, which says the rule could not be asked rather than that the estate has no merge commits.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-merge-subject-proves-a-landing-the-host-cannot.md
+  bumps:
+    skills:
+      plot: patch
+      plot-pulse: patch
+  -->
+
+- [#1265](https://github.com/plot-pm/plot/pull/1265) [`8e5fe3e`](https://github.com/plot-pm/plot/commit/8e5fe3e1809795a485aaa1f0a761c1aed70deb99) Thanks [@jwloka](https://github.com/jwloka)! - `plot-plan-meta.sh` reads every `<!-- waits: … -->` marker on a branch line, and every comma-separated name inside one, instead of keeping only the last — so a slice naming two prerequisites no longer reads eligible while the first has not merged. `waits_on` is now a list in the plan's order, duplicates removed; a marker whose value cannot be read as a branch is reported in a new `unread_waits[]` field rather than dropped. A marker inside a code span is quoted text and is read nowhere.
+
+  Measured on `main`: two Draft plans in this sprint each declared a slice with two `<!-- waits: … -->` comments on one heading, and the parser's greedy read kept only the second, reporting `waits_on` as a single string. `the-parser-reads-every-wait` is the second of two slices — the first (`every-wait-reaches-the-verdict`, [#1253](https://github.com/plot-pm/plot/issues/1253)) taught every domain and board reader to take a list; this one teaches the producers. The fleet scan's shim joins the list into its tab-separated column and the payload emits `waits_on` as an array; `waits_pairs` in `plot-dispatch.sh` now refuses a branch by the first unmerged prerequisite it names rather than matching only a single-string shape (a pattern an unmigrated dispatch would have silently read as "waits on nothing"); `branchOf` in `plan-store-shell.ts` accepts both the new list and a legacy single-name string, so a plan blob written by an older parser still maps.
+
+  Reconcile gains a new advisory section, `unread_waits=`, beside `unread_headings=`: a `waits:` marker on a branch's own line whose value does not look like a branch is named, while the same marker written as prose on a line with no branch claim stays silent, as it always has. Section 18 (`stated_waits=`) is unchanged — it already counts a two-marker line as annotated.
+
+  <!--
+  plan: docs/plans/2026-10-02-a-slice-waits-on-every-branch-it-names.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1208](https://github.com/plot-pm/plot/pull/1208) [`65a4d7c`](https://github.com/plot-pm/plot/commit/65a4d7c0aaa237ac9c243d6b59c7a01bacad722a) Thanks [@jwloka](https://github.com/jwloka)! - The supervisor's queue holds a slice whose plan names its branch under no `### ` heading as `slice-unnamed` and hands it to nobody, so a plan approved before that refusal existed no longer sends an agent to a slice with no name. The agent met the same refusal at `openSlicePr`, wrote the heading on its own branch, and the board read `(unnamed)` until that PR merged ([#1057](https://github.com/plot-pm/plot/issues/1057)); the hold keeps the repair on the default branch instead. The word is the one `/plot-approve` refuses on and the predicate is the one it uses, `unnamedBranches`, so the queue and the approval can never name different branches. The hold is tested after the two landing checks, so a merged unnamed branch still reads `already-merged`; only of a claimable slice, so the estate's backlog stays under `not-claimable`; and before `no-brief`, because writing a brief would not release it. The reading is a property of the plan record and costs no host call. The tick line prints `slice-unnamed=<count>` every pass and a looping daemon names the branch, because the branch is the repair.
+
+  <!--
+  plan: docs/plans/2026-10-01-an-approved-slice-has-a-name.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1267](https://github.com/plot-pm/plot/pull/1267) [`e51295e`](https://github.com/plot-pm/plot/commit/e51295ede7fea0a879d40b384cd70c6e1ac822e4) Thanks [@jwloka](https://github.com/jwloka)! - The queue reads a live manifest as an assignment, not only a claim ref. `readQueue` builds `assigned: branch → agent id` from every `running` or `waiting` manifest naming a branch, and `whyNotReady` holds that branch `assigned` — tested after the two landing holds and before `waits` — so a slice a dispatch just handed over cannot be matched to a second agent before its claim push lands. Fixes the 2026-10-01 defect where the supervisor handed agent `8111e3ec` a second slice while its manifest still named the first.
+
+  A dead agent's manifest is still not an assignment: only `running`/`waiting` count, so a crashed agent's unpushed branch returns to the queue as before ([#1039](https://github.com/plot-pm/plot/issues/1039)'s negative control).
+
+  The tick also reports orphaned claims. `packages/domain/src/rules/claim.ts` adds `claimTip` (one of `absent`/`claim-only`/`work`/`unknown`, from a branch's remote-tracking ref and its commits ahead of the default branch — `isEmptyClaim`/`realCommits` decide, never a second prefix comparison) and `orphanedClaims` (which claim-only, unassigned branches are older than one tick interval, 60 s). The refs port gains `commitSubjects(range)`, reading each commit's time, subject, tree and first parent's tree via `git log --boundary` in one call per branch — a git call, spending no host budget. For each plan-named, unmerged branch carrying a ref, the tick writes `orphaned-claims=N` and, per branch, `<branch>: claim with no agent — plot-dispatch.sh --release <branch>`. It reports and never releases; deleting a ref stays a person's command.
+
+  `scripts/check-claim-prefix-comparison.sh` gates the claim vocabulary to its one home, `rules/empty-claim.ts`, scoped to the domain and board's TypeScript — the shell's own, separately declared `plot: claim ` comparisons in `plot-reconcile-scan.sh` and `plot-fleet-scan.sh` are untouched.
+
+  <!--
+  plan: docs/plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1188](https://github.com/plot-pm/plot/pull/1188) [`39b7568`](https://github.com/plot-pm/plot/commit/39b7568abeb547442065fcfb72d4d319569786e3) Thanks [@jwloka](https://github.com/jwloka)! - The supervisor's queue reads a merge subject on the default branch as proof that a branch with no ref landed, so a merged slice on Bitbucket no longer holds every later slice of its plan while the host answers HTTP 429. Fixes [#1139](https://github.com/plot-pm/plot/issues/1139). The supervisor takes the readings the fleet scan takes, through three new refs-port operations: `planAdditions` for the commit that first added each plan file, `mergeSubjects` for the merges on `origin/<main>`, and `contains` for one ancestry test per matched pair. A subject proves a branch for its own plan only, and only when its merge is not contained in the commit that added that plan's file. A branch that carries a ref is never proven and keeps its own host question. Under an unreadable ref list, and when a walk fails, the queue applies no proof and reads as before. The next slice still needs one host answer about its own branch.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-merge-subject-proves-a-landing-the-host-cannot.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1247](https://github.com/plot-pm/plot/pull/1247) [`76e7748`](https://github.com/plot-pm/plot/commit/76e77481315e1910a66019c9082ba5171ba441e2) Thanks [@jwloka](https://github.com/jwloka)! - The queue no longer hands out a slice while an earlier slice of the same plan is only claimed and not merged. `planQueue` — a pure fold in `packages/domain/src/rules/queue.ts` — replaces the duplicated `claimed.has(branch) || merged.has(branch)` join in `queue-reading.ts` with one `settled` predicate that counts only a merged branch as settling the order, matching `plot-fleet-scan.sh`'s own rule; a claimed-but-unmerged first slice no longer makes a second slice claimable. A branch whose `<!-- waits: ... -->` annotation names an unmerged or unreachable prerequisite is now held under a new `waits` hold, reported on the tick's summary line and, under `--once`, as `<branch> — waits on <prerequisite> (unmerged|unreachable)`. The queue joins `packages/domain/corpus/eligible.corpus.test.ts` as a third surface compared against the fleet scan's own verdict.
+
+  <!--
+  plan: docs/plans/2026-10-01-the-queue-reads-the-order-the-scan-reads.md
+  -->
+
+- [#1188](https://github.com/plot-pm/plot/pull/1188) [`5eff60a`](https://github.com/plot-pm/plot/commit/5eff60a08b94f61200e2d28b92a3a8e1193c81b1) Thanks [@jwloka](https://github.com/jwloka)! - A slice the registry has handed to one live agent reads as taken, in WORKING, with the note `handed over — not taken up yet`, from the hand-over until the agent's own worker is visible on the branch. Measured 2026-10-01, three of a sprint's slices read `eligible — nobody has taken it` in NOT STARTED while WORKING listed the agent holding each one, and a claim past the 30-minute quiet window read as an orphan for the same reason. A slice handed to two live agents at once reads in WAITING ON YOU as `handed to 2 agents at once`. A claim no live agent holds reads exactly as before.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-handed-slice-reads-as-taken.md
+  -->
+
+- [#1157](https://github.com/plot-pm/plot/pull/1157) [`4703680`](https://github.com/plot-pm/plot/commit/4703680008d111af96313cfb56d8ac6edde51858) Thanks [@jwloka](https://github.com/jwloka)! - A new domain rule reads a harness's usage limit instead of a broken prompt. Part of [#1141](https://github.com/plot-pm/plot/issues/1141). Measured 2026-10-01, a harness that stopped on the account's session limit exited like a prompt that could not start: the worker spent three retries in 974 ms and wrote a marker telling a person to fix a prompt file that worked, on a desk holding two pushed commits and ten uncommitted files. `rules/prompt-exit.ts` answers one of four words — `wait` with the reset instant, `end-limited` with the cause `no-reset`, `past-bound` or `no-progress`, or today's `unstarted` and `ran` — and owns the limit match, the reset reading, the `Worker bound` cap and the without-progress decision. The message patterns are data in `adapters/harness/limit-lines.ts`, so the rule names no vendor and a second harness is an adapter entry. A reset is resolved to a wall-clock time in its IANA zone on the date of now, up to 120 s in the past reads as now rather than tomorrow, and every instant goes out as epoch seconds and UTC ISO text so no caller parses a date. A finished slice whose output quotes a limit line still answers `ran`. `EndingReasonSchema` gains `limited`, kept apart from `unstarted` because the repair differs: one asks for a prompt fix, the other asks for time. The bundle `board/plot-prompt-exit.mjs` joins the table to the rule for `plot-worker-loop.sh`, which wires it in a following slice.
+
+  <!--
+  plan: docs/plans/2026-10-01-a-usage-limit-is-not-a-broken-prompt.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1217](https://github.com/plot-pm/plot/pull/1217) [`6c317db`](https://github.com/plot-pm/plot/commit/6c317db33ccbb2d05748f91343bd198aff20f356) Thanks [@jwloka](https://github.com/jwloka)! - `plot-approve.sh --who <handle> <slug>` performs an in-session approval end to end, and `plot-deliver.sh --release <version> <slug>` cuts a Delivered plan's `Released:` record by resolving the version from its merge commit — closing the two biggest sources in `.plot/state/unowned-state-writes.tsv` (109 `Approved` and 112 `Released` receipts on this checkout). `POST /api/approve` now takes `who` and answers 409 on the agent arm for an in-session plan rather than spawning an agent that would only refuse; `POST /api/release` is new and has no agent arm. `plot-controller-gate.sh` scopes its `--release` exemption to `plot-dispatch.sh` alone, so `plot-deliver.sh --release` is gated as its own `release` action.
+
+  <!--
+  plan: docs/plans/2026-10-01-an-in-session-approval-has-a-controller.md
+  bumps:
+    skills:
+      plot-approve: minor
+      plot-release: minor
+      plot: patch
+  -->
+
+- [#1184](https://github.com/plot-pm/plot/pull/1184) [`1627623`](https://github.com/plot-pm/plot/commit/1627623eb07337bafab9d48adf0807f07134126a) Thanks [@jwloka](https://github.com/jwloka)! - `plot-issue-source.mjs` ships the `issueSource` rule to shell callers: it takes the git host as an argument and the `Tracker` value on stdin, and answers `tracker <scheme>`, `git-host` or `nobody <reason>` on one line. `TRACKER_LISTERS` moves to `adapters/tracker/tracker-listers.ts`, which imports one type, so the new bundle is 1.2 KB rather than the 330 KB the adapters barrel costs; `tracker-resolve.ts` re-exports it and every existing importer is unchanged.
+
+  <!--
+  plan: docs/plans/2026-10-01-the-issue-ops-ask-who-answers.md
+  -->
+
+- [#1156](https://github.com/plot-pm/plot/pull/1156) [`fd815f6`](https://github.com/plot-pm/plot/commit/fd815f6da22289924ff33bbf411ee302eceb254e) Thanks [@jwloka](https://github.com/jwloka)! - A section header counts each kind of line under its own name: `(3 plans · 6 slices · 15 tickets)` rather than `(3)`. Tickets, draft plans and stopped agents were added to both the plan and slice figures, which kept the two equal and hid them inside one number, and a branch no plan names counted as a plan with slices of its own. The sprint-filter note names the kinds it covers and carries no number.
+
+  <!--
+  plan: docs/plans/2026-10-01-waiting-on-you-counts-tickets-as-tickets.md
+  -->
+
+- [#1185](https://github.com/plot-pm/plot/pull/1185) [`89138b5`](https://github.com/plot-pm/plot/commit/89138b5fd0e52d1037ccc0c16b3ea175bcb5dc6c) Thanks [@jwloka](https://github.com/jwloka)! - The approve transition accepts a named, declared reviewer, so a `Review: in-session` plan no longer needs an `--unowned` receipt: 109 in-session approvals on this checkout were written under one, measured 2026-10-01 in `.plot/state/unowned-state-writes.tsv`. An empty reviewer still refuses `review-human` and names `--who`; a handle the `People` config key never declared refuses the new `reviewer-undeclared`. `ballot` is unchanged. The transition request gains a twelfth `people` column.
+
+  <!--
+  plan: docs/plans/2026-10-01-an-in-session-approval-has-a-controller.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
 ## 0.16.2
 
 ### Patch Changes
@@ -1271,11 +1608,11 @@ O_EXCL` is exclusive but publishes the NAME before the CONTENT: a second process
   flight and room for three more. A cap that refuses nothing and reports nothing
   is indistinguishable from no cap at all.
 
-                        <!--
-                        bumps:
-                          skills:
-                            plot: minor
-                        -->
+                          <!--
+                          bumps:
+                            skills:
+                              plot: minor
+                          -->
 
 - [#644](https://github.com/plot-pm/plot/pull/644) [`a7e2be8`](https://github.com/plot-pm/plot/commit/a7e2be8107adbe8081e69a3ac0af9050d5dc1ec0) Thanks [@jwloka](https://github.com/jwloka)! - The PR refresh asks through the `Host` port instead of calling `plot-host.sh` directly, so a board handed a fixture host asks no CLI and spends no budget. The port gains a `runs` op that names its refusal, and one adapter is bound per refresh rather than defaulted independently by each caller.
 
@@ -3990,11 +4327,11 @@ HEAD..origin/main` with `0`, indistinguishable from a genuinely current
 command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
   workers to write, so the instruction and the classifier agree.
 
-                                  <!--
-                                  bumps:
-                                    skills:
-                                      plot: patch
-                                  -->
+                                    <!--
+                                    bumps:
+                                      skills:
+                                        plot: patch
+                                    -->
 
 - [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
 
@@ -5311,11 +5648,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-                                    <!--
-                                    bumps:
-                                      skills:
-                                        plot: minor
-                                    -->
+                                      <!--
+                                      bumps:
+                                        skills:
+                                          plot: minor
+                                      -->
 
 ### Patch Changes
 
@@ -5513,11 +5850,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-                                    <!--
-                                    bumps:
-                                      skills:
-                                        plot: patch
-                                    -->
+                                      <!--
+                                      bumps:
+                                        skills:
+                                          plot: patch
+                                      -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -6376,10 +6713,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                        -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -6469,10 +6806,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                        -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -6682,10 +7019,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                        -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -7084,10 +7421,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                        -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -7435,11 +7772,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                          plot: patch
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                            plot: patch
+                                        -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -7631,10 +7968,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                        -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -8137,10 +8474,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                        -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -8770,10 +9107,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                        -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -9059,12 +9396,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                                          bumps:
-                                            skills:
-                                              plot: minor
-                                              plot-dispatch: minor
-                                              plot-fleet: minor
-                                          -->
+                                            bumps:
+                                              skills:
+                                                plot: minor
+                                                plot-dispatch: minor
+                                                plot-fleet: minor
+                                            -->
 
   plot: `finished` is not a verdict
 
@@ -9214,10 +9551,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-                                          <!--
-                                          bumps:
-                                            skills:
-                                          -->
+                                            <!--
+                                            bumps:
+                                              skills:
+                                            -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -9724,11 +10061,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-                                              <!--
-                                              bumps:
-                                                skills:
-                                                  plot: patch
-                                              -->
+                                                <!--
+                                                bumps:
+                                                  skills:
+                                                    plot: patch
+                                                -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
