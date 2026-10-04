@@ -245,6 +245,36 @@ describe('treesGit: the desks this machine holds', () => {
   });
 });
 
+describe('treesGit: a booking worktree on a named branch', () => {
+  it('creates the worktree on the branch, resets a leftover branch, and removes both', async () => {
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-booking-')));
+    const desk = path.join(parent, 'desk');
+    try {
+      const port = trees();
+      // A leftover branch from an earlier failed run: `-B` resets it rather than refusing.
+      git(repo, ['branch', 'plot/booking']);
+      expect(await port.addBranch(desk, 'plot/booking', 'HEAD')).toEqual({ ok: true, value: undefined });
+      expect(git(desk, ['branch', '--show-current']).trim()).toBe('plot/booking');
+
+      expect(await port.removeWithBranch(desk, 'plot/booking')).toEqual({ ok: true, value: undefined });
+      expect(fs.existsSync(desk)).toBe(false);
+      expect(git(repo, ['branch', '--list', 'plot/booking']).trim()).toBe('');
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a failure when git cannot create the worktree', async () => {
+    const answer = await trees().addBranch(path.join(repo, 'never'), 'plot/never', 'no-such-revision');
+    expect(answer.ok).toBe(false);
+  });
+
+  it('answers a removal of a worktree that is already gone, because cleanup is best-effort', async () => {
+    const answer = await trees().removeWithBranch(path.join(repo, 'gone'), 'plot/gone');
+    expect(answer).toEqual({ ok: true, value: undefined });
+  });
+});
+
 describe('treesFixture: the same port with no machine behind it', () => {
   it('marks the first stated worktree as the main checkout', async () => {
     const answer = await treesFixture({
@@ -449,5 +479,13 @@ describe('treesGit: adding, pruning, and the synchronous reads', () => {
     // choosing the synchronous form because it is on a startup path must not
     // get a different estate from one that awaited.
     expect(sync.value).toEqual(async_.value);
+  });
+});
+
+describe('treesFixture: the booking operations', () => {
+  it('answers both booking operations without a machine', async () => {
+    const port = treesFixture();
+    expect(await port.addBranch('/repo-booking', 'plot/booking', 'HEAD')).toEqual({ ok: true, value: undefined });
+    expect(await port.removeWithBranch('/repo-booking', 'plot/booking')).toEqual({ ok: true, value: undefined });
   });
 });

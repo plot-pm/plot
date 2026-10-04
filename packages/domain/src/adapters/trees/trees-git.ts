@@ -158,6 +158,25 @@ export const treesGit = (context: ShellContext): Trees => {
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 
+    addBranch: async (path, branch, start) => {
+      const run = await runProcess(
+        'git',
+        ['worktree', 'add', '-q', '-B', branch, path, start],
+        inRepo,
+      );
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
+    // BEST-EFFORT, MATCHING THE SHELL'S `cleanup()`. Both commands run
+    // regardless of the other's result, and the operation always answers —
+    // never `failed` — because a caller cleaning up a booking worktree has no
+    // next step that depends on whether the removal succeeded.
+    removeWithBranch: async (path, branch) => {
+      await runProcess('git', ['worktree', 'remove', '--force', path], inRepo);
+      await runProcess('git', ['branch', '-D', branch], inRepo);
+      return answered(undefined);
+    },
+
     // `git -C <path>`, so an unreadable checkout is reported by git's own exit
     // code rather than by the spawn failing to chdir — the two arrive as
     // different errors and only one of them says which path.

@@ -1,4 +1,5 @@
 import { FleetReadingSchema } from '../../entities/fleet.js';
+import { compareVersions } from '../../entities/version.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
   BranchDate,
@@ -581,5 +582,22 @@ export const refsGit = (context: ShellContext): Refs => {
       const repoCheck = await runProcess('git', ['rev-parse', '--git-dir'], inRepo);
       return answered<RemoteHeadAnswer>(repoCheck.code === 0 ? 'absent' : 'unknown');
     },
+
+    tagsContaining: async (sha) => {
+      const run = await runProcess('git', ['tag', '--contains', sha], inRepo);
+      // `--contains` on an unknown sha exits non-zero; an empty answer for a
+      // valid commit with no containing tags is not that — git exits 0 and
+      // prints nothing.
+      if (run.code !== 0) return failed<readonly string[]>();
+      const tags = run.stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => /^v\d+\.\d+\.\d+$/.test(line))
+        .sort(compareVersions);
+      return answered(tags);
+    },
+
+    tagDate: (tag) =>
+      runScript('git', ['log', '-1', '--format=%as', tag], asText, inRepo),
   };
 };

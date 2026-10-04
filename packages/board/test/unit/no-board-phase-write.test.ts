@@ -52,6 +52,12 @@ function code(text: string): string {
     .join('\n');
 }
 
+// THE ONE IMPLEMENTATION THE BOARD CALLS. Since `the-first-script-becomes-a-command`
+// the delivery command is a JS entry under `server/entry/`, bundled on its own to
+// `plot-deliver.mjs` and run by the `plot-deliver.sh` launcher. It is the script,
+// not the board server, so it is the one file here that writes a plan.
+const DELIVER_COMMAND = 'server/entry/deliver.ts';
+
 describe('ITEM 7: the board writes no lifecycle transition', () => {
   const files = sources(srcDir);
 
@@ -81,11 +87,21 @@ describe('ITEM 7: the board writes no lifecycle transition', () => {
     // of a write would have to be silenced on every honest comment, and a rule
     // whose test is routinely silenced stops being a rule.
     const offenders = files.filter((f) => {
+      if (path.relative(srcDir, f) === DELIVER_COMMAND) return false;
       const src = code(fs.readFileSync(f, 'utf8'));
       return /(writeFileSync|appendFileSync|createWriteStream)\s*\([^;]{0,200}(planFile|planPath|plan\.file|PLAN_DIR|planDir)/i
         .test(src);
     });
     expect(offenders.map((f) => path.relative(srcDir, f))).toEqual([]);
+  });
+
+  it('exempts only the delivery command, which builds to its own bundle and no other', () => {
+    const build = fs.readFileSync(path.resolve(srcDir, '../build.mjs'), 'utf8');
+    expect(build).toContain(`entryPoints: [path.join(here, 'src/${DELIVER_COMMAND}')]`);
+    expect(build).toContain("skills/plot/scripts/board/plot-deliver.mjs'");
+    const imported = files.filter((f) =>
+      new RegExp(`from ['"][^'"]*entry/deliver(\\.js)?['"]`).test(fs.readFileSync(f, 'utf8')));
+    expect(imported.map((f) => path.relative(srcDir, f))).toEqual([]);
   });
 
   it('the check can still SEE a plan write — it is not vacuously green', () => {

@@ -495,4 +495,31 @@ export interface Refs {
    *   such ref exists; `unknown` where git could not answer.
    */
   remoteHead(branch: string): Promise<PortResult<RemoteHeadAnswer>>;
+
+  /**
+   * Lists the `vX.Y.Z` tags containing a commit, sorted by VERSION.
+   *
+   * **VERSION ORDER, NOT GIT'S OWN.** `git tag --contains` lists in no
+   * dependable order, and the release that shipped a commit is the FIRST tag
+   * by version among them — a later tag containing the same commit is a later
+   * release that happens to still carry it, not the one that shipped it first.
+   * A caller sorting this itself would be a second place reimplementing
+   * version order.
+   *
+   * Only tags matching `v<major>.<minor>.<patch>` exactly are returned; any
+   * other tag the commit is reachable from is not a release and is excluded.
+   *
+   * @param sha - the commit to test.
+   * @returns the matching tags, oldest version first; empty where none contain
+   *   it.
+   */
+  tagsContaining(sha: string): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * The date a tag's commit was made, as `YYYY-MM-DD`.
+   *
+   * @param tag - the tag name.
+   * @returns the committer date; a failure where the tag does not resolve.
+   */
+  tagDate(tag: string): Promise<PortResult<string>>;
 }

@@ -173,4 +173,36 @@ export interface Trees {
    * @returns the worktrees, the main checkout among them.
    */
   listSync(): PortResult<readonly Worktree[]>;
+
+  /**
+   * Creates a worktree at a path, checked out on a NAMED branch.
+   *
+   * `-B`, not `-b`: a leftover branch from an earlier failed run must not block
+   * a retry, so the branch is reset to `start` rather than refused for already
+   * existing. Distinct from {@link Trees.add}, which checks out detached — a
+   * booking run commits ON the branch this creates, where an agent's desk
+   * creates its own branch after landing on a detached tree.
+   *
+   * @param path - where to create it, absolute.
+   * @param branch - the branch to create or reset, without a remote prefix.
+   * @param start - the revision to branch from.
+   * @returns nothing; a failure carries no tree.
+   */
+  addBranch(path: string, branch: string, start: string): Promise<PortResult<void>>;
+
+  /**
+   * Removes a worktree and the branch it was checked out on.
+   *
+   * ONE OPERATION, not two calls a caller could partially apply. A booking
+   * worktree's cleanup is always both together — `git worktree remove` then
+   * `git branch -D` — and the shell's own `cleanup()` ignored either failing,
+   * because a booking run's cleanup is best-effort: the worktree may already be
+   * gone, and nothing downstream depends on it.
+   *
+   * @param path - the worktree's absolute path.
+   * @param branch - the branch to delete, without a remote prefix.
+   * @returns nothing; always answers rather than failing, matching the
+   *   best-effort cleanup the shell performed.
+   */
+  removeWithBranch(path: string, branch: string): Promise<PortResult<void>>;
 }

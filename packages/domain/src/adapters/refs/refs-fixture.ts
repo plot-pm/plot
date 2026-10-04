@@ -124,6 +124,10 @@ export interface RefsFixture {
    * alone cannot express both.
    */
   unknownRemoteHead?: readonly string[];
+  /** Commit sha to the `vN.N.N` tags that contain it, for {@link Refs.tagsContaining}. */
+  tagsContaining?: Readonly<Record<string, readonly string[]>>;
+  /** Tag name to its commit date, for {@link Refs.tagDate}. A tag absent fails. */
+  tagDates?: Readonly<Record<string, string>>;
 }
 
 /** What a fixture reports when it was not told a default branch. */
@@ -362,5 +366,12 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       unknownRemoteHead.has(branch)
         ? answered<RemoteHeadAnswer>('unknown')
         : answered<RemoteHeadAnswer>(remoteBranchSet.has(branch) ? 'present' : 'absent'),
+
+    tagsContaining: async (sha) => answered(fixture.tagsContaining?.[sha] ?? []),
+
+    tagDate: async (tag) => {
+      const date = fixture.tagDates?.[tag];
+      return date === undefined ? failed<string>() : answered(date);
+    },
   };
 };

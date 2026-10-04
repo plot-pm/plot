@@ -138,6 +138,10 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     add: async () => answered(undefined),
 
+    addBranch: async () => answered(undefined),
+
+    removeWithBranch: async () => answered(undefined),
+
     statusSync: (path) => answered(statuses[path] ?? ''),
 
     listSync: () => answered(worktrees),
