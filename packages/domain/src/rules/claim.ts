@@ -109,3 +109,61 @@ export const orphanedClaims = (
         tickStartedAt - reading.newestClaimAt > ORPHANED_CLAIM_AGE_MS,
     )
     .map((reading) => reading.branch);
+
+/**
+ * What a branch's ref and its live holders together say about a claim on it —
+ * {@link ClaimTip} answers the ref alone; this adds who else holds it.
+ *
+ * **NOT {@link ClaimAnswer}.** That type is `claimTip`'s result, read by
+ * `orphanedClaims` and its tests, and widening it would change both. This is a
+ * new, disjoint vocabulary for the question `claimAnswer` answers.
+ *
+ * - `held-by-agent` — a live agent other than the asker already holds the
+ *   branch. The only case where two agents hold one slice.
+ * - `work-on-ref` — nobody holds it, and the ref carries real work.
+ * - `stale-claim` — nobody holds it, and the ref carries only claim markers.
+ * - `absent` — nobody holds it, and no remote-tracking ref exists.
+ * - `unknown` — nobody holds it, and the ref's presence or commits could not
+ *   be read.
+ */
+export type ClaimHolderAnswer = 'held-by-agent' | 'work-on-ref' | 'stale-claim' | 'absent' | 'unknown';
+
+/** What `claimAnswer` reads to answer one branch. */
+export interface ClaimAnswerReadings {
+  /** Whether the branch's remote-tracking ref exists. */
+  ref: RemoteHeadAnswer;
+  /** The branch's commits ahead of the default branch, newest first. */
+  commits: PortResult<readonly CommitReading[]>;
+  /**
+   * The live agents whose manifests name the branch, the asker already
+   * excluded by whoever builds this list — see {@link claimAnswer}.
+   */
+  holders: readonly string[];
+}
+
+/**
+ * Answers what a branch's ref and its live holders together say about a
+ * claim on it.
+ *
+ * **A LIVE HOLDER IS TESTED FIRST.** It is the only row where two agents hold
+ * one slice, and it must win over whatever the ref itself says: a holder
+ * mid-push may show `work-on-ref` or `stale-claim` on the ref alone, and
+ * either would hide the double assignment this exists to report.
+ *
+ * **`holders` MUST ALREADY EXCLUDE THE ASKER.** The caller building this
+ * list — `--release` has no asker and excludes nobody; the loop's rejection
+ * path excludes the manifest it owns — decides whose own manifest does not
+ * count. Counting the asker's own manifest would answer `held-by-agent` on
+ * every rejection and the `stale-claim` row would never be reached.
+ *
+ * @param readings - the ref, its commits, and the live holders other than
+ *   the asker.
+ * @returns the claim answer.
+ */
+export const claimAnswer = ({ ref, commits, holders }: ClaimAnswerReadings): ClaimHolderAnswer => {
+  if (holders.length > 0) return 'held-by-agent';
+  const tip = claimTip(ref, commits);
+  if (tip === 'work') return 'work-on-ref';
+  if (tip === 'claim-only') return 'stale-claim';
+  return tip;
+};

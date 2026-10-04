@@ -3101,16 +3101,89 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   # desk gets — one rule rather than two.
   push_err=""
   if ! push_err=$(git -C "$hop_wt" push -u origin "$next_branch" 2>&1 >/dev/null); then
-    # AN ABSENT REMOTE BRANCH IS NOT A COLLISION. `remoteHead` asks the same
-    # question a hand-over checks at the moment it is made: a branch gone from
-    # origin was handed over from a reading already stale, not taken by a
-    # second agent. Telling a stale EMPTY claim from another agent's claim is
-    # #1152's; this message distinguishes only absent from present.
-    if [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then
-      echo "plot-worker-loop: the claim push for $next_branch was rejected and origin has no such branch: $push_err" >&2
+    # WHAT ORIGIN HOLDS, ASKED THROUGH THE DOMAIN. `claimAnswer` takes the
+    # ref's presence, the raw commit log and the live holders (this agent's own
+    # manifest excluded), and answers one of five — `held-by-agent` is the only
+    # case genuinely two agents handed one branch; `stale-claim` and
+    # `work-on-ref` are a stale hand-over, not a lock violation.
+    if git -C "$hop_wt" fetch -q origin "$next_branch" 2>/dev/null; then
+      ref_word=present
+    elif [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then
+      ref_word=absent
     else
-      echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2
+      ref_word=unknown
     fi
+    if [ "$ref_word" = present ]; then
+      log_text=$(git -C "$hop_wt" log --boundary --format='%m|%H|%T|%P|%at|%s' "origin/$main_branch..origin/$next_branch" 2>/dev/null) \
+        || ref_word=unknown
+    fi
+    # OUR OWN MANIFEST IS EXCLUDED, the same test `checkout_is_registered`
+    # applies to a worktree: the supervisor wrote THIS branch into it before
+    # the push, so counting it would answer `held-by-agent` on every rejection
+    # and `stale-claim` would never be reached.
+    holders=()
+    if [ -n "${PLOT_MANIFEST_FILE:-}" ]; then
+      registry_dir=$(dirname "$PLOT_MANIFEST_FILE")
+      if [ -d "$registry_dir" ]; then
+        for m in "$registry_dir"/*.json; do
+          [ -f "$m" ] || continue
+          [ "$m" = "$PLOT_MANIFEST_FILE" ] && continue
+          read -r m_branch m_session m_own_wt <<<"$(node -e '
+            try {
+              const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+              process.stdout.write([m.branch, m.session, m.worktree].map((v) => typeof v === "string" && v !== "" ? v : "-").join(" "));
+            } catch { process.stdout.write("- - -"); }
+          ' "$m" 2>/dev/null)"
+          [ "$m_branch" = "$next_branch" ] || continue
+          [ "$m_own_wt" != "-" ] && [ -d "$m_own_wt" ] || continue
+          case "$(plot_worker_state "$m_own_wt" "" | cut -f1)" in
+            running|waiting) holders+=("$m_session") ;;
+          esac
+        done
+      fi
+    fi
+    claim_answer_bundle="$script_dir/board/plot-claim-answer.mjs"
+    answer=unknown
+    if [ -f "$claim_answer_bundle" ]; then
+      answer=$(printf '%s\n' ${holders[@]+"${holders[@]}"} | node -e '
+        const holders = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
+        const [ref, log] = process.argv.slice(1);
+        process.stdout.write(JSON.stringify({ ref, log: ref === "present" ? log : null, holders }));
+      ' "$ref_word" "${log_text:-}" | node "$claim_answer_bundle" 2>/dev/null | cut -f1)
+      [ -n "$answer" ] || answer=unknown
+    fi
+    case "$answer" in
+      held-by-agent)
+        echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2
+        ;;
+      stale-claim)
+        echo "plot-worker-loop: origin/$next_branch holds only an empty claim and no live agent names it; release it with plot-dispatch.sh --release $next_branch" >&2
+        ;;
+      work-on-ref)
+        echo "plot-worker-loop: origin/$next_branch carries work that no live agent holds; a person decides" >&2
+        ;;
+      *)
+        # AN ABSENT REMOTE BRANCH IS NOT A COLLISION. `remoteHead` asks the same
+        # question a hand-over checks at the moment it is made: a branch gone
+        # from origin was handed over from a reading already stale, not taken
+        # by a second agent. `absent` and `unknown` both keep #1252's message.
+        echo "plot-worker-loop: the claim push for $next_branch was rejected and origin has no such branch: $push_err" >&2
+        ;;
+    esac
+
+    # THE LOOP GIVES UP THE HAND-OVER IT COULD NOT MAKE. `PLOT_BRANCH` is only
+    # ever set by a SUCCESSFUL hop (below), so on this path it still names the
+    # agent's PREVIOUS slice — the gap `8111e3ec` fell into: a silent
+    # `continue` here ran that finished slice's prompt again in the desk this
+    # loop had just reset onto `$next_branch`, and sealed a declaration for
+    # work it did not do. Clearing the manifest and emptying `PLOT_BRANCH`
+    # sends the next pass to `wait_for_work` as a free agent instead — the
+    # guard at the branch-holding block already skips the prompt when
+    # `PLOT_BRANCH` is empty. This does not return the slice to the queue: the
+    # ref on origin still locks it, and slice 1 reports it orphaned once it is
+    # older than one tick.
+    clear_manifest_branch "${PLOT_MANIFEST_FILE:-}"
+    export PLOT_BRANCH=""
     continue
   fi
 

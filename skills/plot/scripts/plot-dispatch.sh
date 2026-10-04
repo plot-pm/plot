@@ -2091,6 +2091,52 @@ if [ "$mode" = "release" ]; then
   fi
   [ -n "$release_wt" ] && [ -d "$release_wt" ] || release_wt=""
 
+  # A LIVE AGENT HOLDS THE BRANCH IN A DESK OTHER THAN `release_wt` — asked
+  # through the domain, and asked BEFORE refusal 2 below for the reason that
+  # refusal cannot cover: an agent JUST HANDED the branch has not checked it
+  # out, so `release_wt` is empty and refusal 2's desk-bound check does not
+  # run. This asks each manifest NAMING the branch whether ITS OWN desk is
+  # alive, whatever branch that desk currently holds — `claimAnswer` answers
+  # `held-by-agent` from `holders` alone, so the ref and the commit log are not
+  # needed to ask this question.
+  #
+  # `release_wt` ITSELF IS EXCLUDED FROM `holders`, so this never duplicates
+  # refusal 2's case: a manifest whose own desk IS `release_wt` is the live
+  # worker refusal 2 already names with its pid, and this must not pre-empt it
+  # with a different message for the same desk.
+  #
+  # NOT NUMBERED WITH THE FOUR BELOW: the plan keeps their order and wording
+  # unchanged, and this is the one new refusal, asked through the domain.
+  claim_answer_bundle="$script_dir/board/plot-claim-answer.mjs"
+  holder_agents=()
+  if [ -f "$claim_answer_bundle" ]; then
+    for m in ${named_manifests[@]+"${named_manifests[@]}"}; do
+      read -r m_session m_own_wt <<<"$(node -e '
+        try {
+          const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+          process.stdout.write([typeof m.session === "string" ? m.session : "", typeof m.worktree === "string" ? m.worktree : ""].join(" "));
+        } catch { process.stdout.write(" "); }
+      ' "$m" 2>/dev/null)"
+      [ -n "$m_own_wt" ] && [ -d "$m_own_wt" ] || continue
+      [ -n "$release_wt" ] && [ "$m_own_wt" = "$release_wt" ] && continue
+      case "$(plot_worker_state "$m_own_wt" "" | cut -f1)" in
+        running|waiting) holder_agents+=("$m_session (desk $m_own_wt)") ;;
+      esac
+    done
+  fi
+  if [ "${#holder_agents[@]}" -gt 0 ]; then
+    answer=$(printf '%s\n' "${holder_agents[@]}" | node -e '
+      const holders = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
+      process.stdout.write(JSON.stringify({ ref: "unknown", log: null, holders }));
+    ' | node "$claim_answer_bundle" 2>/dev/null | cut -f1)
+    if [ "$answer" = "held-by-agent" ]; then
+      echo "plot-dispatch: $br is held by a live agent — refusing." >&2
+      for h in "${holder_agents[@]}"; do echo "  $h" >&2; done
+      echo "  Nothing was written." >&2
+      exit 1
+    fi
+  fi
+
   # 2. A LIVE WORKER — the measurement `--restart` makes, through the shared
   # classifier, never `pgrep` by name. A live pid means somebody is working,
   # and the one case where a claim is not abandoned.

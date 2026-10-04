@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { answered, failed } from '../src/port-result.js';
 import type { CommitReading } from '../src/rules/empty-claim.js';
 import {
+  claimAnswer,
   claimTip,
   orphanedClaims,
   ORPHANED_CLAIM_AGE_MS,
@@ -135,5 +136,51 @@ describe('orphanedClaims — claim-only, unassigned and stale, and never release
 
   it('names nothing over an empty list', () => {
     expect(orphanedClaims([], 0)).toEqual([]);
+  });
+});
+
+describe('claimAnswer — one case per row, a live holder tested first', () => {
+  it('answers `held-by-agent` where a live holder exists, whatever the ref says', () => {
+    // THE ORDERING CASE: `refTip` would answer `work` on its own, but a live
+    // holder must still win — the only case where two agents hold one slice.
+    expect(
+      claimAnswer({ ref: 'present', commits: answered([WORK]), holders: ['a1'] }),
+    ).toBe('held-by-agent');
+  });
+
+  it('answers `held-by-agent` where the ref is `unknown` but a holder exists', () => {
+    expect(
+      claimAnswer({ ref: 'unknown', commits: failed(), holders: ['a1'] }),
+    ).toBe('held-by-agent');
+  });
+
+  it('answers `work-on-ref` where nobody holds it and the ref carries real work', () => {
+    expect(
+      claimAnswer({ ref: 'present', commits: answered([WORK]), holders: [] }),
+    ).toBe('work-on-ref');
+  });
+
+  it('answers `stale-claim` where nobody holds it and the ref carries only claim markers', () => {
+    expect(
+      claimAnswer({ ref: 'present', commits: answered([CLAIM]), holders: [] }),
+    ).toBe('stale-claim');
+  });
+
+  it('answers `absent` where nobody holds it and no ref exists', () => {
+    expect(
+      claimAnswer({ ref: 'absent', commits: answered([]), holders: [] }),
+    ).toBe('absent');
+  });
+
+  it('answers `unknown` where nobody holds it and the ref could not be read', () => {
+    expect(
+      claimAnswer({ ref: 'unknown', commits: failed(), holders: [] }),
+    ).toBe('unknown');
+  });
+
+  it('answers `unknown` where nobody holds it and the commits read failed', () => {
+    expect(
+      claimAnswer({ ref: 'present', commits: failed(), holders: [] }),
+    ).toBe('unknown');
   });
 });
