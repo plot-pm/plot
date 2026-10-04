@@ -280,11 +280,16 @@ test('claim push: the manifest naming the rejected branch is cleared, and PLOT_B
   const sb = sandbox();
   try {
     const { wt, manifest } = deskHandedTo(sb, 'feature/previous', 'feature/taken2');
-    // The previous slice is FINISHED: it carries one real commit, so a prompt
-    // run on it again would be visible as a second commit on a done slice.
+    // The previous slice is FINISHED: it carries one real commit, PUSHED, so a
+    // prompt run on it again would be visible as a second commit on a done
+    // slice. Pushed, because a genuinely finished slice is — the loop never
+    // pushes a slice's own work itself; only the agent's prompt does, same as
+    // production — and an unpushed commit here is unlanded work by this
+    // slice's own rule, a different ending from the one this test is about.
     fs.writeFileSync(path.join(wt, 'done.txt'), 'finished work\n');
     git(wt, 'add', 'done.txt');
     git(wt, 'commit', '-qm', 'finished work');
+    git(wt, 'push', '-q', 'origin', 'feature/previous');
 
     // THE PROMPT RECORDS EVERY RUN, so a second run after the rejection is
     // directly observable rather than inferred from the tree.
