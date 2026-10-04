@@ -3053,17 +3053,14 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
       ref_word=present
       log_text=$(git -C "$hop_wt" log --boundary --format='%m|%H|%T|%P|%at|%s' "origin/$main_branch..origin/$next_branch" 2>/dev/null) \
         || ref_word=unknown
-    elif [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then
-      ref_word=absent
-    else
-      ref_word=unknown
+    elif [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then ref_word=absent
+    else ref_word=unknown
     fi
     # OUR OWN MANIFEST IS EXCLUDED, the same test `checkout_is_registered`
     # applies to a worktree: the supervisor wrote THIS branch into it before
     # the push, so counting it would answer `held-by-agent` on every rejection
     # and `stale-claim` would never be reached.
-    holder_sessions=""
-    [ -n "${PLOT_MANIFEST_FILE:-}" ] && holder_sessions=$(live_holders_of_branch \
+    holder_sessions=$([ -n "${PLOT_MANIFEST_FILE:-}" ] && live_holders_of_branch \
       "$(dirname "$PLOT_MANIFEST_FILE")" "$next_branch" "$PLOT_MANIFEST_FILE" "" | cut -f1)
     answer=$(claim_answer "$script_dir/board/plot-claim-answer.mjs" \
       "$ref_word" "${log_text:-}" "$holder_sessions") || answer=unknown

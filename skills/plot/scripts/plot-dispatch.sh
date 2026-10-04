@@ -2111,9 +2111,7 @@ if [ "$mode" = "release" ]; then
     "$(printf '%s\n' "$holder_lines" | cut -f1)") || answer=""
   if [ "$answer" = "held-by-agent" ]; then
     echo "plot-dispatch: $br is held by a live agent — refusing." >&2
-    printf '%s\n' "$holder_lines" | while IFS=$'\t' read -r h_session h_wt; do
-      echo "  $h_session (desk $h_wt)" >&2
-    done
+    printf '%s\n' "$holder_lines" | while IFS=$'\t' read -r h_session h_wt; do echo "  $h_session (desk $h_wt)" >&2; done
     echo "  Nothing was written." >&2
     exit 1
   fi
