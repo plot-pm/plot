@@ -97,6 +97,29 @@ test('controller gate: all three gated scripts refuse, each naming its own endpo
   }
 });
 
+// THE BUNDLE IS A SECOND NAME FOR THE SAME ACTION, since `plot-deliver.sh`
+// became a launcher — a command running `node .../plot-deliver.mjs` directly
+// must be refused exactly as the launcher call is, or an agent could walk
+// around the controller simply by skipping the `.sh`.
+test('controller gate: a direct call to the deliver bundle refuses, naming /api/deliver', () => {
+  const r = run(repo(), 'node skills/plot/scripts/board/plot-deliver.mjs some-slug');
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /POST \/api\/deliver/);
+});
+
+test('controller gate: a deliver receipt clears the bundle call, the same receipt the launcher uses', () => {
+  const dir = repo();
+  recordReceipt(dir, 'plot-deliver.sh', 'some-slug');
+  const r = run(dir, 'node skills/plot/scripts/board/plot-deliver.mjs some-slug');
+  assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
+});
+
+test('controller gate: --release on the bundle refuses naming /api/release, not /api/deliver', () => {
+  const r = run(repo(), 'node skills/plot/scripts/board/plot-deliver.mjs --release 1.2.3 some-slug');
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /POST \/api\/release/);
+});
+
 // --- the gate test pair (an-in-session-approval-has-a-controller slice 2) ---
 //
 // `plot-deliver.sh --release` is a FOURTH action sharing a script `deliver`

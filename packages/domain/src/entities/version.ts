@@ -27,3 +27,29 @@ export const normalizeVersion = (version: string): string => {
   if (trimmed === '') return '';
   return trimmed.startsWith('v') ? trimmed : `v${trimmed}`;
 };
+
+/**
+ * Compares two `vN.N.N` tags by their numeric parts, oldest first.
+ *
+ * `sort -V`'s ordering, reimplemented rather than shelled out to: the release
+ * tag rule needs the FIRST tag by version among several containing one commit,
+ * and a string sort would place `v2.9.0` after `v2.10.0`.
+ *
+ * A tag that does not match `vN.N.N` sorts as `0.0.0`, so a malformed entry
+ * never displaces a real version to the front — the caller is expected to have
+ * filtered to `vN.N.N` already.
+ *
+ * @param a - a tag, such as `v2.10.0`.
+ * @param b - another tag.
+ * @returns negative when `a` is the older version, positive when `b` is,
+ *   `0` when they are equal.
+ */
+export const compareVersions = (a: string, b: string): number => {
+  const parts = (tag: string): readonly number[] => {
+    const match = tag.match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 0];
+  };
+  const [aMajor, aMinor, aPatch] = parts(a);
+  const [bMajor, bMinor, bPatch] = parts(b);
+  return (aMajor as number) - (bMajor as number) || (aMinor as number) - (bMinor as number) || (aPatch as number) - (bPatch as number);
+};

@@ -99,7 +99,17 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # three?), and never spawns, sources or shells to the script it names. The gate
 # cannot see that distinction — its pattern is the literal, not the call — so
 # the three sites count here and are named rather than hidden.
-ALLOWED=12
+#
+# RAISED TO 15 ON 2026-10-04 for `entry/deliver.ts`, the first entry that
+# PERFORMS a lifecycle write rather than answering a reading on stdin. It
+# names `plot-push-main.sh` (the push-and-classify helper, out of scope for
+# this slice per its own plan) and `plot-issue-status.sh` (the tracker write,
+# likewise out of scope), plus its own name for the receipt it spends on
+# completion — the same `plot-deliver.sh` dependency `auto-deliver.ts` and
+# `release.ts` already declare above. No port answers any of the three yet;
+# inventing one to clear this gate would be the gate driving the design, which
+# the ratchet's own header says is the failure this allowance exists to avoid.
+ALLOWED=15
 
 ROOTS='packages/board/src packages/domain/src'
 

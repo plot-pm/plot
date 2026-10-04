@@ -92,6 +92,9 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * | `ls skills/plot/scripts/*.sh` | `null` — a glob matching all three |
  * | `plot-deliver.sh --release 2.22.3 x` | `'release'`, not `'deliver'` |
  * | `plot-dispatch.sh --release <branch>` | `null` — no endpoint for this mode |
+ * | `node skills/plot/scripts/board/plot-deliver.mjs x` | `'deliver'` — the launcher's own bundle |
+ * | `node .../plot-deliver.mjs --release 2.22.3 x` | `'release'`, the bundle read the same as the launcher |
+ * | `node .../plot-deliver.mjs --dry-run x` | `null` — no endpoint for this mode |
  *
  * A script named is a RUN unless its segment's program is `ls`, `cat` or
  * `git grep` — the three reads #1245 measured the token loop getting wrong.
@@ -130,12 +133,19 @@ export const controllerInvocation = (command: string): 'dispatch' | 'approve' | 
 const DISPATCH_SH = 'plot-dispatch.sh';
 const APPROVE_SH = 'plot-approve.sh';
 const DELIVER_SH = 'plot-deliver.sh';
+// THE BUNDLE IS A SECOND NAME FOR THE SAME GATED ACTION, since
+// `the-first-script-becomes-a-command` made `plot-deliver.sh` a launcher: an
+// agent running `node .../board/plot-deliver.mjs` directly skips the launcher
+// and would otherwise skip this gate too, walking around the controller the
+// same way a direct call to the `.sh` always could have.
+const DELIVER_MJS = 'plot-deliver.mjs';
 
-/** The three scripts a command may run, and the action each bare call is. */
+/** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
   [DISPATCH_SH]: 'dispatch',
   [APPROVE_SH]: 'approve',
   [DELIVER_SH]: 'deliver',
+  [DELIVER_MJS]: 'deliver',
 };
 const GATED_NAMES = Object.keys(GATED);
 
@@ -205,14 +215,15 @@ const isReadSegment = (words: readonly string[]): boolean => {
 const NO_ENDPOINT: Record<string, readonly string[]> = {
   [APPROVE_SH]: ['--status', '--dry-run', '--help', '-h'],
   [DELIVER_SH]: ['--status', '--dry-run', '--help', '-h'],
+  [DELIVER_MJS]: ['--status', '--dry-run', '--help', '-h'],
   [DISPATCH_SH]: [
     '--status', '--dry-run', '--stop', '--restart', '--start', '--migrate', '--release', '--help', '-h',
   ],
 };
 
-/** The action a call on `script` runs, reading `--release` as a fourth action on `plot-deliver.sh` alone. */
+/** The action a call on `script` runs, reading `--release` as a fourth action on `plot-deliver.sh`/`plot-deliver.mjs` alone. */
 const actionFor = (script: string, words: readonly string[]): 'dispatch' | 'approve' | 'deliver' | 'release' | null => {
   if (words.some((word) => NO_ENDPOINT[script]?.includes(word))) return null;
-  if (script === DELIVER_SH && words.includes('--release')) return 'release';
+  if ((script === DELIVER_SH || script === DELIVER_MJS) && words.includes('--release')) return 'release';
   return GATED[script];
 };

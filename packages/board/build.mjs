@@ -1161,6 +1161,31 @@ await esbuild.build({
 fs.copyFileSync(controllerInvocationArtifact, shippedControllerInvocation);
 fs.chmodSync(shippedControllerInvocation, 0o755);
 
+// `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
+// operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
+// readings-in/decision-out bundle like the others above: this one creates the
+// booking worktree, writes the plan, commits and pushes, through the refs,
+// host, plan-store, scripts and trees adapters directly. `plot-deliver.sh`
+// keeps its name as a launcher, because the skills, hooks and tests below name
+// its `.sh` path.
+const deliverArtifact = path.join(here, 'dist/plot-deliver.mjs');
+const shippedDeliver = path.join(here, '../../skills/plot/scripts/board/plot-deliver.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/deliver.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: deliverArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(deliverArtifact, shippedDeliver);
+fs.chmodSync(shippedDeliver, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -1313,6 +1338,7 @@ const checksVerdictKb = (fs.statSync(shippedChecksVerdict).size / 1024).toFixed(
 const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(1);
 const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const controllerInvocationKb = (fs.statSync(shippedControllerInvocation).size / 1024).toFixed(1);
+const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1348,4 +1374,5 @@ console.log(`Built plot-checks-verdict.mjs (${checksVerdictKb} KB) → skills/pl
 console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-controller-invocation.mjs (${controllerInvocationKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

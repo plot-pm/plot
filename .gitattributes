@@ -55,6 +55,7 @@ skills/plot/scripts/board/plot-branch-state.mjs -merge
 skills/plot/scripts/board/plot-checks-verdict.mjs -merge
 skills/plot/scripts/board/plot-checkout-yield.mjs -merge
 skills/plot/scripts/board/plot-controller-invocation.mjs -merge
+skills/plot/scripts/board/plot-deliver.mjs -merge
 skills/plot/scripts/board/plot-delta.mjs -merge
 skills/plot/scripts/board/plot-desk-root.mjs -merge
 skills/plot/scripts/board/plot-empty-claim.mjs -merge

@@ -137,6 +137,36 @@ describe('controllerInvocation', () => {
     });
   });
 
+  // THE BUNDLE IS A SECOND NAME FOR THE SAME ACTION. `plot-deliver.sh` became a
+  // launcher in `the-first-script-becomes-a-command`, so an agent running its
+  // bundle directly must read exactly as the launcher does — a hole here would
+  // let a command walk around the controller by skipping the `.sh` entirely.
+  describe('plot-deliver.mjs is the same action as plot-deliver.sh', () => {
+    it('a bare call is deliver', () => {
+      expect(controllerInvocation('node skills/plot/scripts/board/plot-deliver.mjs x')).toBe('deliver');
+    });
+
+    it('--release names the fourth action, release, not deliver', () => {
+      expect(controllerInvocation('node skills/plot/scripts/board/plot-deliver.mjs --release 2.22.3 x')).toBe(
+        'release',
+      );
+    });
+
+    it.each(['--status', '--dry-run', '--help', '-h'])('%s has no endpoint', (mode) => {
+      expect(controllerInvocation(`node skills/plot/scripts/board/plot-deliver.mjs ${mode} x`)).toBeNull();
+    });
+
+    it('a read is still null — cat, ls, git grep', () => {
+      expect(controllerInvocation('cat skills/plot/scripts/board/plot-deliver.mjs')).toBeNull();
+      expect(controllerInvocation('ls skills/plot/scripts/board/plot-deliver.mjs')).toBeNull();
+      expect(controllerInvocation('git grep -l plot-deliver.mjs')).toBeNull();
+    });
+
+    it('a glob matching both the launcher and the bundle is ambiguous and answers null', () => {
+      expect(controllerInvocation('bash skills/plot/scripts/*deliver*')).toBeNull();
+    });
+  });
+
   it('answers null for a read-only script this rule does not gate', () => {
     expect(controllerInvocation('bash skills/plot/scripts/plot-fleet-scan.sh')).toBeNull();
     expect(controllerInvocation('gh pr merge 123 --squash')).toBeNull();
