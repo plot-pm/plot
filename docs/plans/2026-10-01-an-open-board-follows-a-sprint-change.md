@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-01, jwloka, in-session
 - **Started:** 2026-10-01, jwloka, `bug/a-closed-sprint-stops-filtering`
 - **Type:** bug
@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Delivered:** 2026-10-02
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 
