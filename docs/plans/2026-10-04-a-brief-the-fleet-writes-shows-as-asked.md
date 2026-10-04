@@ -9,6 +9,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-10-04, jwloka, in-session
+- **Started:** 2026-10-04, jwloka, `bug/a-brief-the-fleet-writes-shows-as-asked`
 
 ## Changelog
 
