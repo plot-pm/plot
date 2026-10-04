@@ -1316,11 +1316,10 @@ write_ending() { # $1=worktree $2=reason $3=actor $4=branch $5=detail
   # missing main checkout, a missing `.plot/state` directory or a failed append
   # changes no ending, no exit code and no return status of this function.
   node -e '
-    const fs = require("fs");
-    const [tmp, file, main, reason, actor, branch, detail] = process.argv.slice(1);
+    const fs = require("fs"), [tmp, file, main, reason, actor, branch, detail] = process.argv.slice(1);
     const record = { reason, actor, branch, detail };
     fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n");
-    try { if (main) { fs.mkdirSync(`${main}/.plot/state`, { recursive: true }); fs.appendFileSync(`${main}/.plot/state/endings.jsonl`, JSON.stringify(record) + "\n"); } } catch { /* best effort */ }
+    try { if (main) { fs.mkdirSync(`${main}/.plot/state`, { recursive: true }); fs.appendFileSync(`${main}/.plot/state/endings.jsonl`, JSON.stringify(record) + "\n"); } } catch {}
   ' "$tmp" "$file" "$main" "$reason" "$actor" "$branch" "$detail" 2>/dev/null || { rm -f "$tmp"; return 0; }
 
   mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
