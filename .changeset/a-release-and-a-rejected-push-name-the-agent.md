@@ -9,6 +9,6 @@
 plan: docs/plans/2026-10-01-an-assignment-is-read-where-it-is-recorded.md
 bumps:
   skills:
+    plot: patch
     plot-dispatch: patch
-    plot-worker-loop: patch
 -->
