@@ -94,7 +94,7 @@ import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 import { briefPath as briefPathOf } from './brief-path.js';
-import { briefAskedAt } from './brief-ask-log.js';
+import { briefAskedAt, briefFailed } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
 
 /**
@@ -7137,6 +7137,13 @@ export function rowsFromPulse(
         // once per plan above.
         const rowNote =
           waitingOn === 'time' ? blockedNote(blockerName, blockerOutstanding) : note;
+        // THE PLAN SLUG, beside the branch — what the implement route is keyed
+        // on. The branch's last segment agrees with it only by naming
+        // convention; this is the fact itself, derived from `plan.file` the
+        // same way `plan` and `sprint` below already do. See `briefAskedAt` in
+        // `brief-ask-log.ts`.
+        const planSlug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+        const branchBriefAskedAt = repoRoot ? briefAskedAt(repoRoot, b.branch, planSlug) : null;
         rows.push({
           repo,
           // WHAT THIS ROW IS — decided here, where the branch name, the PR and
@@ -7300,7 +7307,12 @@ export function rowsFromPulse(
           // Null where no root was passed — a caller that did not look — which
           // is the same value an older server's pulse validates to, so the
           // renderer says nothing extra for either.
-          briefAskedAt: repoRoot ? briefAskedAt(repoRoot, b.branch) : null,
+          briefAskedAt: branchBriefAskedAt,
+          // AND WHETHER THAT ASK'S WRITER FAILED — the implement log's path
+          // when its run recorded a non-zero exit after this ask, null
+          // otherwise (running, succeeded, or no root to look from). See
+          // `briefFailed` in `brief-ask-log.ts`.
+          briefFailed: repoRoot ? briefFailed(repoRoot, planSlug, branchBriefAskedAt) : null,
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
@@ -7606,6 +7618,10 @@ export function rowsFromPulse(
       // names it, so the log is absent for a reason rather than by accident. The
       // stat is skipped rather than made and discarded.
       briefAskedAt: null,
+      // AND SO NO WRITER TO HAVE FAILED — the same absence-for-a-reason as the
+      // field above. No plan names this row, so no implement route was ever
+      // keyed on it.
+      briefFailed: null,
       blockedBy: null,
       // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -7888,6 +7904,9 @@ export function rowsFromPulse(
       // And nothing asked for one — the ask follows the plan that names the
       // branch, and no plan names this one.
       briefAskedAt: null,
+      // And so no writer to have failed — the ask follows the plan that names
+      // the branch, and no plan names this one.
+      briefFailed: null,
       blockedBy: null,
       verdict: null,
       startability: null,

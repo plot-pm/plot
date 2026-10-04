@@ -24,7 +24,9 @@ import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummar
 import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../components/PlanCard.js';
 import { cn } from '../utils.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
-import { briefAsked, briefAskedNote, briefGapNote, needsBrief, waitingTone } from './row-identity.js';
+import {
+  briefAsked, briefAskedNote, briefFailedNote, briefGapNote, briefWriterFailed, needsBrief, waitingTone,
+} from './row-identity.js';
 // THE DOMAIN'S OWN DISCRIMINATOR, not a re-read of the field. `identity ===
 // 'manifest'` is a rule with a test beside it in
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
@@ -2151,7 +2153,24 @@ export function Row({
               genuinely next. What was wrong was the row stopping there — so the
               fact is added beside the verdict rather than replacing it. */}
           {needsBrief(row) && (
-            briefAsked(row) ? (
+            briefWriterFailed(row) ? (
+              /* THE THIRD ANSWER. A brief writer that recorded a non-zero exit
+                 is not still waiting and not a person's errand either — it is
+                 the one case that invites a look. AMBER, like the missing-brief
+                 arm below: both need a person, where `briefAsked` alone does
+                 not. Checked BEFORE `briefAsked`, because a failed run still
+                 leaves its ask's log behind — the two fields can both be set,
+                 and failure is the more useful fact to surface. */
+              <span
+                role="gridcell"
+                data-brief-failed
+                className="flex w-full items-baseline gap-x-2 text-xs text-amber-700 sm:col-start-3 sm:col-end-[-1] dark:text-amber-400"
+                title={briefFailedNote(row.briefFailed!)}
+              >
+                <span className="shrink-0 font-medium">brief failed</span>
+                <span className="min-w-0 max-sm:whitespace-normal">{briefFailedNote(row.briefFailed!)}</span>
+              </span>
+            ) : briefAsked(row) ? (
               /* THE SAME ROW, THE OTHER ANSWER. A brief that is missing AND has
                  been asked for is not an errand — it is a wait, and the two
                  states read identically until this line. Measured 2026-09-12:

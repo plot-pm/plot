@@ -91,13 +91,25 @@ export const briefAskPrompt = (slug: string, branch: string, main: string): stri
  * @param prompt - the assembled prompt, passed as one argument.
  * @returns the log path the session writes to, or `''` when the spawn failed.
  */
+/**
+ * Where this asker's log lives for one plan — the path `brief-ask-log.ts`'s
+ * `BOARD_ASK_LOG` names, so the two cannot drift: that module reads this
+ * path's own function rather than a copied string.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug.
+ * @returns the log's absolute path.
+ */
+export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
+  path.join(repoRoot, `.plot-brief-${slug}.log`);
+
 export const askForBrief = (
   opts: BuildBoardOptions,
   command: string,
   slug: string,
   prompt: string,
 ): string => {
-  const log = path.join(opts.repoRoot, `.plot-brief-${slug}.log`);
+  const log = askForBriefLogPath(opts.repoRoot, slug);
   try {
     const out = fs.openSync(log, 'a');
     try {

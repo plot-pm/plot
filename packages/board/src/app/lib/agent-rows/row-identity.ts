@@ -243,6 +243,31 @@ export function briefAskedNote(elapsedMs: number): string {
 }
 
 /**
+ * Has this row's brief WRITER failed — a recorded exit, not a guess?
+ *
+ * READS THE FIELD, the way `briefAsked` reads `briefAskedAt` beside it: the
+ * server stat'd the recorded exit code; this asks the answer rather than the
+ * filesystem.
+ *
+ * Exported for test.
+ */
+export const briefWriterFailed = (row: Pick<AgentRow, 'briefFailed'>): boolean => row.briefFailed !== null;
+
+/**
+ * What a row whose brief writer failed SAYS, and the log it names.
+ *
+ * **THE OTHER HALF OF THE PAIR `briefAskedNote` STATES.** A running writer
+ * invites waiting; this one is the one case that invites a person to look,
+ * because the implement route recorded a non-zero exit — a fact, not a
+ * liveness guess (`#905`'s decision, read the other way).
+ *
+ * IT NAMES THE LOG, the thing a reader can check. No command is offered: this
+ * slice only makes the failure visible — whether a failed writer is re-asked
+ * belongs to `auto-dispatch-asks-for-the-brief`.
+ */
+export const briefFailedNote = (log: string): string => `the brief writer failed — see ${log}`;
+
+/**
  * The note's colour, by what the row is waiting for.
  *
  * ONLY ONE OF THE THREE IS LOUD, and that is the whole design. `needs you` is
