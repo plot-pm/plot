@@ -14,7 +14,7 @@
 //     rejected push, for instance) must keep its licence so re-running is
 //     still the repair `plot-deliver.sh`'s header documents for every
 //     interruption after the irreversible push.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -41,10 +41,18 @@ const stateReceiptFile = (dir, relPath) =>
 
 const actionReceiptFile = (dir, action) => path.join(dir, '.plot', 'state', 'action-receipts', action);
 
+// Every path this file creates: the directory `mkdtempSync` returned and the
+// bare remote beside it. Removed by exact path, never by a glob.
+const made = [];
+after(() => {
+  for (const p of made) fs.rmSync(p, { recursive: true, force: true });
+});
+
 /** A whole repo with one plan, the shape the deliver-phase tests already use. */
 const makeRepo = (planBody, { rejectPush = false } = {}) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-deliver-receipt-'));
   const remote = `${dir}-remote.git`;
+  made.push(dir, remote);
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
   execFileSync('git', ['init', '-q', '-b', 'main', dir]);
   execFileSync('git', ['-C', dir, 'config', 'user.email', 't@example.com']);
