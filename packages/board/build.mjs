@@ -1012,6 +1012,28 @@ await esbuild.build({
 fs.copyFileSync(emptyClaimArtifact, shippedEmptyClaim);
 fs.chmodSync(shippedEmptyClaim, 0o755);
 
+// plot-claim-answer.mjs — what a branch's ref and its live holders say about a
+// claim on it, for `plot-dispatch.sh --release`'s live-holder refusal and
+// `plot-worker-loop.sh`'s rejected-push path. Reads stdin, spawns nothing and
+// opens nothing.
+const claimAnswerArtifact = path.join(here, 'dist/plot-claim-answer.mjs');
+const shippedClaimAnswer = path.join(here, '../../skills/plot/scripts/board/plot-claim-answer.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/claim-answer.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: claimAnswerArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(claimAnswerArtifact, shippedClaimAnswer);
+fs.chmodSync(shippedClaimAnswer, 0o755);
+
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -1339,6 +1361,7 @@ const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(
 const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const controllerInvocationKb = (fs.statSync(shippedControllerInvocation).size / 1024).toFixed(1);
 const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
+const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1375,4 +1398,5 @@ console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/pl
 console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-controller-invocation.mjs (${controllerInvocationKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
