@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-01, jwloka, in-session
 - **Type:** bug
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-01, jwloka, `bug/the-rule-names-a-usage-limit`
 - **Started:** 2026-10-02, Jan Wloka, `bug/the-loop-waits-out-a-usage-limit`
 - **Delivered:** 2026-10-02
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 
