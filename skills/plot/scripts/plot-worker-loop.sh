@@ -2805,12 +2805,10 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   # has already declared the slice finished and given the branch back to the
   # queue, so the manifest would read this agent as free while its desk still
   # holds the work.
-  _desk_hold=$(desk_reset_refusal "${PLOT_WORKTREE:-$PWD}") || _desk_hold=""
-  case "$_desk_hold" in uncommitted-changes|unpushed-commits)
+  _desk_hold=$(desk_reset_refusal "${PLOT_WORKTREE:-$PWD}"); case "$_desk_hold" in uncommitted-changes|unpushed-commits)
     _hold_reason=$(desk_hold_reason "${PLOT_WORKTREE:-$PWD}")
     echo "plot-worker-loop: the desk at ${PLOT_WORKTREE:-$PWD} is held by $_desk_hold ($_hold_reason) after the prompt on ${PLOT_BRANCH:-?} ran — keeping the desk and ending worker rather than handing it to the next slice." >&2
-    write_ending "${PLOT_WORKTREE:-$PWD}" holding-work agent "${PLOT_BRANCH:-}" "$_hold_reason"
-    exit 0 ;;
+    write_ending "${PLOT_WORKTREE:-$PWD}" holding-work agent "${PLOT_BRANCH:-}" "$_hold_reason"; exit 0 ;;
   esac
 
   # ---------------------------------------------------------------------------
