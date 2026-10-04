@@ -90,7 +90,16 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # LOWERED TO 9 ON 2026-10-03: `bug/the-artifact-repair-is-retired` deleted
 # `resolver.ts`'s `REPAIR_SCRIPT = 'plot-resolve-artifact.sh'` along with the
 # script it named, so the tree holds nine sites and a declared ten is slack.
-ALLOWED=9
+#
+# RAISED TO 12 ON 2026-10-04 for `rules/ci-suite.ts`'s `DISPATCH_SH`,
+# `APPROVE_SH` and `DELIVER_SH` — one constant per script, each used once to
+# define it rather than repeated at every table the names are keys of.
+# `controllerInvocation` is a different kind of dependency than the other nine:
+# it CLASSIFIES a command string handed to it (does this word name one of the
+# three?), and never spawns, sources or shells to the script it names. The gate
+# cannot see that distinction — its pattern is the literal, not the call — so
+# the three sites count here and are named rather than hidden.
+ALLOWED=12
 
 ROOTS='packages/board/src packages/domain/src'
 

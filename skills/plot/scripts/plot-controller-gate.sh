@@ -74,21 +74,11 @@ INPUT="$(cat)"
 CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)" || exit 0
 [ -n "$CMD" ] || exit 0
 
-# The three scripts, and the endpoint each one's action belongs to. A refusal
-# names a route or it is not issued: that is why the list is these three and
-# not the fleet's writing scripts generally.
-#
-# `plot-deliver.sh` NAMES TWO ACTIONS, and this still answers only whether the
-# SCRIPT is one of the three — which action word applies is decided where the
-# command is read, below, because that is the one place that can see whether
-# `--release` rode along. A second answer here would disagree with it.
-gated_action() { # $1=script basename → the action word, or nothing
-  case "$1" in
-    plot-dispatch.sh) printf 'dispatch\n' ;;
-    plot-approve.sh)  printf 'approve\n' ;;
-    plot-deliver.sh)  printf 'deliver\n' ;;
-  esac
-}
+# The three scripts a command may run. Named here only for the prefilter and
+# the refusal message; which ACTION a call is — including the fourth,
+# `release`, and the modes with no endpoint — is `controllerInvocation`'s
+# answer, asked through the bundle below. A second decision of that kind here
+# would disagree with it.
 
 # --- a single-quoted heredoc body is DATA, and its extent is readable ---------
 #
@@ -151,10 +141,10 @@ CMD_SCAN="$(printf '%s' "$CMD" | strip_quoted_heredocs)" || CMD_SCAN="$CMD"
 # agents running them on one machine kept the load at 4-9 times the core count
 # (measured 2026-10-02). The agent runs `plot-local-checks.mjs` instead.
 #
-# PLACED BEFORE EVERY EARLY EXIT BELOW. The `named_script` exit allows any
-# command that names none of the three controller scripts, and the desk
-# exemption allows every linked worktree: a fleet agent's command passes both,
-# so an arm after either would never fire.
+# PLACED BEFORE EVERY EARLY EXIT BELOW. The prefilter exit allows any command
+# that names none of the three controller scripts, and the desk exemption
+# allows every linked worktree: a fleet agent's command passes both, so an arm
+# after either would never fire.
 #
 # THE DESK DECIDES, and two cheap shell readings stand before any `node` start:
 # `PLOT_UNATTENDED=1`, then a linked worktree holding `.plot-worker.pid`, then
@@ -194,80 +184,39 @@ if [ "${PLOT_UNATTENDED:-}" = "1" ]; then
   fi
 fi
 
-# Which of the three this command names, if any. Read as a BASENAME, because
-# `bash skills/plot/scripts/plot-dispatch.sh x`, `./plot-dispatch.sh x` and a
-# call through an absolute path are one invocation spelled three ways, and an
-# operator's shell history holds all three.
+# --- the per-word prefilter: skips work, decides nothing ---------------------
 #
-# A word is a match only where the basename stands alone as a token — so a
-# command MENTIONING the script inside a longer word does not fire. Bounded by
-# what a hook can know: this reads the command line, and a script reached
-# through a variable or a wrapper is not visible here. That is the same bound
-# `plot-state-gate.sh` accepts on `git add` pathspecs, and the answer is the
-# same one — the gate catches the shape that was measured, not every shape.
-named_script=""
-for tok in $CMD_SCAN; do
-  base="${tok##*/}"
-  base="${base%%;*}"
-  [ -n "$(gated_action "$base")" ] || continue
-  named_script="$base"
-  break
-done
-[ -n "$named_script" ] || exit 0
-
-# --- the read/write split INSIDE the named script ----------------------------
+# `node` starts only for a word that COULD name a gated script. Pathname
+# expansion OFF (`set -f`): a glob is tested as the literal word it is, because
+# the rule below reads it as a pattern itself and a shell-expanded `*.sh` would
+# have already lost the word `controllerInvocation` needs to see. A command
+# passes only if one of its words contains one of the three names, or ends in
+# `.sh` and holds a glob character — everything else exits here, before any
+# `node` start.
 #
-# Only the action a controller owns is gated. `--status` and `--dry-run` report;
-# `--stop`, `--restart`, `--start` and `--migrate` write, and have NO endpoint
-# — refusing them would name no route, which is the exact reason `gh` is left
-# out.
-# `plot-fleetctl.sh --stop` calls `plot-dispatch.sh --stop` per agent, so a gate
-# over that mode would break the fleet's own orchestration.
-# Reads the STRIPPED command, so a heredoc body mentioning a mode cannot exempt
-# a real invocation sharing its command line.
-#
-# `--release` IS SCOPED TO `plot-dispatch.sh` ALONE, and that scoping is new:
-# this arm used to exempt ` --release ` for every gated script, so
-# `plot-deliver.sh --release 2.22.3 x` cleared the gate with no receipt at
-# all — the exact failure `a-release-is-a-controller-command` exists to close,
-# since `POST /api/release` is a real endpoint and `--release` on
-# `plot-deliver.sh` is a write it owns. `plot-dispatch.sh --release <branch>`
-# (returning an abandoned claim to the queue) has no endpoint and keeps its
-# exemption; `plot-deliver.sh --release <version> <slug>` falls through to the
-# receipt check below like any other write.
-case "$named_script" in
-  plot-dispatch.sh)
-    case " $CMD_SCAN " in
-      *" --status "*|*" --status"|*" --dry-run "*|*" --dry-run"*|\
-      *" --stop "*|*" --stop"|*" --restart "*|*" --restart"|\
-      *" --start "*|*" --start"|*" --migrate "*|*" --migrate"|\
-      *" --release "*|*" --release"|\
-      *" --help "*|*" --help"|*" -h "*|*" -h")
-        exit 0 ;;
+# THIS TEST MAY OVER-PASS AND MUST NEVER UNDER-PASS: it only skips work. A
+# per-word test measured 8.7% of 32,352 logged Bash calls passing, against 31%
+# for a whole-command test of the same kind (`docs/plans/2026-10-03-the-shell-
+# shrinks-into-the-domain.md`).
+prefiltered=""
+(
+  set -f
+  for tok in $CMD_SCAN; do
+    case "$tok" in
+      *plot-dispatch*|*plot-approve*|*plot-deliver*) exit 0 ;;
+      *.sh)
+        case "$tok" in *[*?\[]*) exit 0 ;; esac
+        ;;
     esac
-    ;;
-  *)
-    case " $CMD_SCAN " in
-      *" --status "*|*" --status"|*" --dry-run "*|*" --dry-run"*|\
-      *" --help "*|*" --help"|*" -h "*|*" -h")
-        exit 0 ;;
-    esac
-    ;;
-esac
+  done
+  exit 1
+) && prefiltered=1
+[ -n "$prefiltered" ] || exit 0
 
-# THE ACTION WORD, decided from the command rather than from `gated_action`
-# alone. `plot-deliver.sh` carries two: bare, it delivers; with `--release`, it
-# releases — a different write with a different endpoint and a different
-# receipt. Read from the STRIPPED command for the same reason the mode check
-# above is.
-action="$(gated_action "$named_script")"
-if [ "$named_script" = "plot-deliver.sh" ]; then
-  case " $CMD_SCAN " in
-    *" --release "*|*" --release") action="release" ;;
-  esac
-fi
-
-# --- the desk exemption: read from where the call RUNS -----------------------
+# --- the desk exemption: read from where the call RUNS, after the prefilter --
+#
+# Moved ahead of the rule: its three `git rev-parse` calls cost 15-16 ms and
+# only a command that already passed the prefilter should pay them.
 #
 # Asked BEFORE the receipt, because a worker has no receipt and must not need
 # one. `git rev-parse --git-common-dir` differs from `--git-dir` inside a
@@ -277,7 +226,7 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 git rev-parse --show-toplevel >/dev/null 2>&1 || {
   # No git: the gate cannot measure anything. Allow, and SAY SO.
-  echo "plot-controller-gate: no git here — controller routing went UNVERIFIED for $named_script." >&2
+  echo "plot-controller-gate: no git here — controller routing went UNVERIFIED." >&2
   exit 0
 }
 
@@ -287,6 +236,43 @@ if [ -n "$git_dir" ] && [ -n "$git_common" ] && [ "$git_dir" != "$git_common" ];
   # A linked worktree — a desk. A dispatched worker's own call.
   exit 0
 fi
+
+# --- the rule: which controller-owned action, if any, this command RUNS -----
+#
+# `controllerInvocation` (packages/domain/src/rules/ci-suite.ts) decides this
+# now, not a shell token loop: it tells a script that is RUN from one that is
+# READ or mentioned, which the loop this replaces could not (#1245 — `ls
+# skills/plot/scripts/*.sh` and two read-only `git grep` commands were refused
+# as though they ran a gated script). Asked through its own bundle, never
+# `plot-local-checks.mjs` — that bundle is built for a different question and
+# costs more to start.
+#
+# A COMMAND THAT PASSED THE PREFILTER AND CANNOT BE CHECKED IS REFUSED, never
+# allowed: fail-open on this gate's own machinery, closed on the case it exists
+# for (`:61-67`), and a command naming a gated script IS that case. `|| rc=$?`
+# rather than reading `$?` after, because the `ERR` trap above turns any
+# failing command into `exit 0` and losing the distinction here would silently
+# allow exactly the command this gate exists to catch.
+rc=0
+action="$(printf '%s' "$CMD_SCAN" | node "$HERE/board/plot-controller-invocation.mjs" 2>/dev/null)" || rc=$?
+if [ "$rc" -ne 0 ]; then
+  {
+    echo "plot-controller-gate: could not ask whether this command runs a controller-owned script."
+    echo ""
+    echo "  skills/plot/scripts/board/plot-controller-invocation.mjs is missing or failed."
+    echo "  Update the plot plugin in this repository, or — in the plot repository itself —"
+    echo "  run: pnpm build:board"
+  } >&2
+  exit 2
+fi
+[ -n "$action" ] || exit 0
+
+# A display name for the refusal below; the decision above is the rule's.
+case "$action" in
+  dispatch) named_script=plot-dispatch.sh ;;
+  approve)  named_script=plot-approve.sh ;;
+  deliver|release) named_script=plot-deliver.sh ;;
+esac
 
 # --- the receipt -------------------------------------------------------------
 # shellcheck source=plot-state-receipt.sh
