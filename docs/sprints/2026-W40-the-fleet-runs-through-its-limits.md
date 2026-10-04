@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-10-04
 - **Start:** 2026-10-01
 - **End:** 2026-10-08
 - **Release:** 2.22.3
@@ -67,7 +68,21 @@ All three were found by operating the fleet on 2026-10-01, two of them on a Bitb
 
 ## Retrospective
 
-<!-- Filled during /plot-sprint close: What went well / What could improve / Action items -->
+### What went well
+
+### What could improve
+
+### Action items
+
+### Metrics
+
+- **Must-haves completed:** 35/35
+- **Should-haves completed:** 0/0
+- **Could-haves completed:** 0/0
+- **Deferred items:** 0
+- **Scope changes during sprint:** 9 entries, adding 32 items to Must
+- **Duration:** planned 7 days (2026-10-01 to 2026-10-08), actual 3 days (2026-10-01 to 2026-10-04)
+- **Release:** the target 2.22.3 was not cut; every item shipped in v2.23.0 (`a59d0a9e8`, 2026-10-04)
 
 ## Notes
 
