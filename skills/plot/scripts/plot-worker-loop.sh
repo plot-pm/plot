@@ -383,18 +383,7 @@ case "$START_ATTEMPT_BUDGET" in (*[!0-9]*|'') START_ATTEMPT_BUDGET=3 ;; esac
 # after `START_ATTEMPT_BUDGET` failures, because the counter it cannot read it
 # also cannot raise.
 manifest_attempts() { # $1=manifest → prints a count
-  local manifest="$1" n
-  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
-  n=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      const n = manifest.attempts;
-      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
-    } catch { process.stdout.write("0"); }
-  ' "$manifest" 2>/dev/null) || n=0
-  case "$n" in (*[!0-9]*|'') n=0 ;; esac
-  printf '%s' "$n"
+  manifest_count "$1" attempts
 }
 
 # Record one more automatic retry of this agent.
@@ -408,19 +397,7 @@ manifest_attempts() { # $1=manifest → prints a count
 # hand-started loop has no manifest, so there is nothing to raise and nothing to
 # report.
 raise_manifest_attempts() { # $1=manifest
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
-
-  local tmp="$manifest.plot-attempt-tmp"
-  node -e '
-    const fs = require("fs");
-    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const n = manifest.attempts;
-    manifest.attempts = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
-    fs.writeFileSync(process.argv[2], JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-
-  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  raise_manifest_count "$1" attempts
 }
 
 # ---------------------------------------------------------------------------
@@ -451,18 +428,7 @@ raise_manifest_attempts() { # $1=manifest
 # that cannot be read is not evidence a correction spin is under way. A counter
 # that cannot be read also cannot be raised, so the budget still ends the loop.
 manifest_corrections() { # $1=manifest → prints a count
-  local manifest="$1" n
-  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
-  n=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      const n = manifest.correctionAttempts;
-      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
-    } catch { process.stdout.write("0"); }
-  ' "$manifest" 2>/dev/null) || n=0
-  case "$n" in (*[!0-9]*|'') n=0 ;; esac
-  printf '%s' "$n"
+  manifest_count "$1" correctionAttempts
 }
 
 # Record one more correction of this agent.
@@ -475,19 +441,7 @@ manifest_corrections() { # $1=manifest → prints a count
 # ABSENT IS NOT A FAILURE. A hand-started loop has no manifest, so there is
 # nothing to raise and nothing to report.
 raise_manifest_corrections() { # $1=manifest
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
-
-  local tmp="$manifest.plot-correction-tmp"
-  node -e '
-    const fs = require("fs");
-    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const n = manifest.correctionAttempts;
-    manifest.correctionAttempts = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
-    fs.writeFileSync(process.argv[2], JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-
-  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  raise_manifest_count "$1" correctionAttempts
 }
 
 # THE MARKER A SPENT BUDGET LEAVES, so the desk is distinguishable from a
@@ -630,18 +584,7 @@ write_correction() { # $1=worktree $2=branch $3=text $4=attempt $5=budget
 # permission to take a branch, so the agent waits and the next pass re-reads a
 # file the registry may have finished writing.
 assigned_branch() { # $1=manifest → prints the branch, or nothing
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
-  local branch
-  branch=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      process.stdout.write(typeof manifest.branch === "string" ? manifest.branch : "");
-    } catch { process.stdout.write(""); }
-  ' "$manifest" 2>/dev/null) || return 1
-  [ -n "$branch" ] || return 1
-  printf '%s' "$branch"
+  manifest_string "$1" branch
 }
 
 # ---------------------------------------------------------------------------
@@ -3101,16 +3044,59 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   # desk gets — one rule rather than two.
   push_err=""
   if ! push_err=$(git -C "$hop_wt" push -u origin "$next_branch" 2>&1 >/dev/null); then
-    # AN ABSENT REMOTE BRANCH IS NOT A COLLISION. `remoteHead` asks the same
-    # question a hand-over checks at the moment it is made: a branch gone from
-    # origin was handed over from a reading already stale, not taken by a
-    # second agent. Telling a stale EMPTY claim from another agent's claim is
-    # #1152's; this message distinguishes only absent from present.
-    if [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then
-      echo "plot-worker-loop: the claim push for $next_branch was rejected and origin has no such branch: $push_err" >&2
-    else
-      echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2
+    # WHAT ORIGIN HOLDS, ASKED THROUGH THE DOMAIN. `claimAnswer` takes the
+    # ref's presence, the raw commit log and the live holders (this agent's own
+    # manifest excluded), and answers one of five — `held-by-agent` is the only
+    # case genuinely two agents handed one branch; `stale-claim` and
+    # `work-on-ref` are a stale hand-over, not a lock violation.
+    if git -C "$hop_wt" fetch -q origin "$next_branch" 2>/dev/null; then
+      ref_word=present
+      log_text=$(git -C "$hop_wt" log --boundary --format='%m|%H|%T|%P|%at|%s' "origin/$main_branch..origin/$next_branch" 2>/dev/null) \
+        || ref_word=unknown
+    elif [ -z "$(git ls-remote --heads origin "$next_branch" 2>/dev/null)" ]; then ref_word=absent
+    else ref_word=unknown
     fi
+    # OUR OWN MANIFEST IS EXCLUDED, the same test `checkout_is_registered`
+    # applies to a worktree: the supervisor wrote THIS branch into it before
+    # the push, so counting it would answer `held-by-agent` on every rejection
+    # and `stale-claim` would never be reached.
+    holder_sessions=$([ -n "${PLOT_MANIFEST_FILE:-}" ] && live_holders_of_branch \
+      "$(dirname "$PLOT_MANIFEST_FILE")" "$next_branch" "$PLOT_MANIFEST_FILE" "" | cut -f1)
+    answer=$(claim_answer "$script_dir/board/plot-claim-answer.mjs" \
+      "$ref_word" "${log_text:-}" "$holder_sessions") || answer=unknown
+    [ -n "$answer" ] || answer=unknown
+    case "$answer" in
+      held-by-agent)
+        echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2
+        ;;
+      stale-claim)
+        echo "plot-worker-loop: origin/$next_branch holds only an empty claim and no live agent names it; release it with plot-dispatch.sh --release $next_branch" >&2
+        ;;
+      work-on-ref)
+        echo "plot-worker-loop: origin/$next_branch carries work that no live agent holds; a person decides" >&2
+        ;;
+      *)
+        # AN ABSENT REMOTE BRANCH IS NOT A COLLISION. `remoteHead` asks the same
+        # question a hand-over checks at the moment it is made: a branch gone
+        # from origin was handed over from a reading already stale, not taken
+        # by a second agent. `absent` and `unknown` both keep #1252's message.
+        echo "plot-worker-loop: the claim push for $next_branch was rejected and origin has no such branch: $push_err" >&2
+        ;;
+    esac
+
+    # THE LOOP GIVES UP THE HAND-OVER IT COULD NOT MAKE. `PLOT_BRANCH` is only
+    # ever set by a SUCCESSFUL hop (below), so on this path it still names the
+    # agent's PREVIOUS slice — the gap `8111e3ec` fell into: a silent
+    # `continue` here ran that finished slice's prompt again in the desk this
+    # loop had just reset onto `$next_branch`, and sealed a declaration for
+    # work it did not do. Clearing the manifest and emptying `PLOT_BRANCH`
+    # sends the next pass to `wait_for_work` as a free agent instead — the
+    # guard at the branch-holding block already skips the prompt when
+    # `PLOT_BRANCH` is empty. This does not return the slice to the queue: the
+    # ref on origin still locks it, and slice 1 reports it orphaned once it is
+    # older than one tick.
+    clear_manifest_branch "${PLOT_MANIFEST_FILE:-}"
+    export PLOT_BRANCH=""
     continue
   fi
 

@@ -19,6 +19,65 @@
 # `manifest_resume_id` with `session_handle`, the conversation handle that the
 # loop passes to the prompt and the loop's own watcher probes for a transcript.
 
+# ONE READER FOR EVERY STRING FIELD a manifest carries, and one for every
+# counter. Six callers read one field each — `branch`, `session`, `worktree`,
+# `resumeId`, `attempts`, `correctionAttempts` — and each carried its own
+# fourteen-line copy of the same read-parse-default dance. The copies answered
+# identically and drifted only in the field name, so the name is the argument.
+#
+# ABSENT, UNREADABLE AND WRONG-TYPED ARE ONE ANSWER, which is the contract
+# every caller already documents: nothing for a string (status 1), `0` for a
+# counter. A manifest that cannot be read is not permission to do anything, and
+# a counter that cannot be read also cannot be raised.
+manifest_string() { # $1=manifest $2=field → prints the value, or nothing
+  local manifest="$1" value
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
+  value=$(node -e '
+    const fs = require("fs");
+    try {
+      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const v = manifest[process.argv[2]];
+      process.stdout.write(typeof v === "string" ? v : "");
+    } catch { process.stdout.write(""); }
+  ' "$manifest" "$2" 2>/dev/null) && [ -n "$value" ] || return 1
+  printf '%s' "$value"
+}
+
+# A non-negative integer field, or `0`. The node call itself only ever prints
+# a clean digit string or "0", so a failed call is the one case needing a
+# shell-side fallback.
+manifest_count() { # $1=manifest $2=field → prints a count
+  local manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
+  node -e '
+    const fs = require("fs");
+    try {
+      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const n = manifest[process.argv[2]];
+      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
+    } catch { process.stdout.write("0"); }
+  ' "$manifest" "$2" 2>/dev/null || printf '0'
+}
+
+# Raise a non-negative integer field by one, leaving every other field verbatim.
+#
+# THROUGH A TEMP FILE AND A RENAME, the shape every writer here takes: a reader
+# never sees a partial manifest. A write that fails leaves the file alone and
+# reports it; an absent manifest is not a failure.
+raise_manifest_count() { # $1=manifest $2=field
+  local manifest="$1" tmp="$1.plot-count-tmp"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  node -e '
+    const fs = require("fs");
+    const [file, field, tmp] = process.argv.slice(1);
+    const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+    const n = manifest[field];
+    manifest[field] = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
+    fs.writeFileSync(tmp, JSON.stringify(manifest, null, 2) + "\n");
+  ' "$manifest" "$2" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
 # Clear `branch` when a slice finishes, so the window before the next one is
 # observable.
 #
@@ -98,18 +157,7 @@ plot_session_id() {
 # `assigned_branch` in `plot-worker-loop.sh` already takes: no handle. A hand-started loop has no
 # manifest, and a manifest nobody can read is not a handle.
 manifest_resume_id() { # $1=manifest → prints the handle, or nothing
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
-  local id
-  id=$(node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      process.stdout.write(typeof manifest.resumeId === "string" ? manifest.resumeId : "");
-    } catch { process.stdout.write(""); }
-  ' "$manifest" 2>/dev/null) || return 1
-  [ -n "$id" ] || return 1
-  printf '%s' "$id"
+  manifest_string "$1" resumeId
 }
 
 # THE HANDLE THE PROMPT CARRIES — the manifest's `resumeId`, or the launch id.
@@ -134,4 +182,52 @@ session_handle() { # → the handle, or nothing
   fi
   [ -n "${PLOT_SESSION_ID:-}" ] || return 1
   printf '%s' "$PLOT_SESSION_ID"
+}
+
+# The live agents whose manifests name a branch, for `claimAnswer`'s
+# `holders` — one session id per line, in the directory's own order.
+#
+# ASKS EACH MANIFEST'S OWN DESK, never the branch's checkout: an agent just
+# handed the branch has not checked it out, so a check against the branch's
+# worktree would answer nothing even while that agent's own desk is alive and
+# genuinely holds the slice. `queue-reading.ts:302` takes the same `running` or
+# `waiting` bar; a dead agent's manifest is not a holder (#1039's negative
+# control).
+#
+# `$2` AND `$3` EXCLUDE DIFFERENT THINGS, and a caller supplies at most one.
+# `plot-dispatch.sh --release` has no asker and excludes `release_wt` instead —
+# the desk its OWN live-worker refusal already checks, so this must not
+# duplicate that refusal's case with a different message for the same desk.
+# `plot-worker-loop.sh`'s rejection excludes its OWN manifest file instead —
+# the supervisor wrote the rejected branch into it before the push, so
+# counting it would answer `held-by-agent` on every rejection.
+live_holders_of_branch() { # $1=registry_dir $2=branch $3=exclude_manifest $4=exclude_worktree → "session\tworktree" lines
+  local dir="$1" branch="$2" exclude_manifest="${3:-}" exclude_worktree="${4:-}" m m_wt
+  [ -d "$dir" ] || return 0
+  for m in "$dir"/*.json; do
+    [ -f "$m" ] && [ "$m" != "$exclude_manifest" ] || continue
+    [ "$(manifest_string "$m" branch)" = "$branch" ] || continue
+    m_wt=$(manifest_string "$m" worktree) || continue
+    [ -d "$m_wt" ] && [ "$m_wt" != "$exclude_worktree" ] || continue
+    case "$(plot_worker_state "$m_wt" "" | cut -f1)" in
+      running|waiting) printf '%s\t%s\n' "$(manifest_string "$m" session)" "$m_wt" ;;
+    esac
+  done
+}
+
+# WHAT A CLAIM MEANS, ASKED OF THE DOMAIN. One of `claimAnswer`'s five words,
+# or nothing when the bundle is absent — a checkout that vendored the skills
+# without building the board answers no question rather than a wrong one.
+#
+# ONE ASKER FOR BOTH CALLERS. `plot-dispatch.sh --release` asks with `ref:
+# unknown` and no log, because `held-by-agent` follows from `holders` alone;
+# `plot-worker-loop.sh`'s rejection path supplies all three. The JSON shape is
+# the bundle's contract, and two hand-built copies of it would drift.
+claim_answer() { # $1=bundle $2=ref $3=log $4=holders, newline-separated → the word, or nothing
+  [ -f "$1" ] || return 1
+  printf '%s\n' "$4" | node -e '
+    const holders = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
+    const [ref, log] = process.argv.slice(1);
+    process.stdout.write(JSON.stringify({ ref, log: ref === "present" ? log : null, holders }));
+  ' "$2" "$3" | node "$1" 2>/dev/null | cut -f1
 }

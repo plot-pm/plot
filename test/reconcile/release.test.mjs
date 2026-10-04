@@ -326,6 +326,32 @@ test('--release REFUSES a live worker and names its pid', () => {
   assert.doesNotThrow(() => process.kill(Number(pid), 0), 'the live worker still runs');
 });
 
+test('--release REFUSES a live agent whose OWN desk holds a different branch, and names the agent', () => {
+  // THE GAP `release_wt`-ONLY DETECTION MISSES: the agent was just handed
+  // BRANCH and has not checked it out — its manifest names BRANCH, but its own
+  // desk's HEAD is still the slice it was working before. `release_wt` is
+  // empty, so the live-worker refusal that reads it never runs; this is the
+  // refusal that must catch it instead, asked through the domain.
+  const { tmp, repo } = makeRepo();
+  claim(repo, path.join(tmp, 'desk-abandoned'));
+  const ownDesk = path.join(tmp, 'own-desk');
+  git(repo, 'worktree', 'add', '-q', '-b', 'feature/other-slice', ownDesk, 'origin/main');
+  const pid = spawnLive();
+  fs.writeFileSync(path.join(ownDesk, '.plot-worker.pid'), pid);
+  const manifest = writeManifest(repo, 'agent-1', { worktree: fs.realpathSync(ownDesk), pid });
+  const refBefore = remoteRef(repo);
+
+  const res = run(repo, ['--release', BRANCH], { expectFail: true });
+  assert.match(res.stdout, /held by a live agent/);
+  assert.match(res.stdout, /agent-1/);
+  assertUntouched(repo, manifest, refBefore);
+  assert.equal(
+    spawnSync('git', ['symbolic-ref', '-q', 'HEAD'], { cwd: ownDesk, encoding: 'utf8' }).stdout.trim(),
+    'refs/heads/feature/other-slice',
+    "agent-1's own desk is untouched",
+  );
+});
+
 test('--release REFUSES real work pushed to the remote branch', () => {
   const { tmp, repo } = makeRepo();
   const desk = path.join(tmp, 'desk-1');
