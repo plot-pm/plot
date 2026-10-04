@@ -1298,10 +1298,7 @@ ENDING_FILE_NAME='.plot-worker.ending.json'
 # file means nobody recorded one, which is what a SIGKILL leaves behind.
 write_ending() { # $1=worktree $2=reason $3=actor $4=branch $5=detail
   local worktree="$1" reason="$2" actor="$3" branch="$4" detail="$5" file tmp main
-  [ -n "$worktree" ] || return 0
-  [ -d "$worktree" ] || return 0
-  [ -n "$reason" ] || return 0
-  [ -n "$actor" ] || return 0
+  [ -n "$worktree" ] && [ -d "$worktree" ] && [ -n "$reason" ] && [ -n "$actor" ] || return 0
   file="$worktree/$ENDING_FILE_NAME"
   tmp="$file.plot-ending-tmp"
   main=$(main_checkout_path) || main=""
