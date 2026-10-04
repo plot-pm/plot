@@ -20,6 +20,7 @@ import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
@@ -194,25 +195,58 @@ const pushReportOf = (stdout: string): string => {
 };
 
 /**
+ * The git blob object name of a string, as `git hash-object --stdin` computes
+ * it: `sha1("blob " + byteLength + "\0" + content)`.
+ *
+ * NOT {@link Refs.hashFilesSync} — that operation is `--stdin-paths`, which
+ * hashes the CONTENT OF THE FILE each path names, where the shell's
+ * `_receipt_file` hashes the PATH STRING ITSELF (`printf '%s' "$1" |
+ * git hash-object --stdin`). The two answer different questions and a
+ * corpus comparison against the shell is what caught the substitution.
+ *
+ * @param content - the bytes to hash, as `git hash-object` would receive them on stdin.
+ * @returns the 40-character hex object name.
+ */
+const gitBlobOid = (content: string): string => {
+  const bytes = Buffer.from(content, 'utf8');
+  const hash = createHash('sha1');
+  hash.update(`blob ${bytes.length}\0`);
+  hash.update(bytes);
+  return hash.digest('hex');
+};
+
+/**
  * Writes a state receipt the way `plot-state-receipt.sh`'s `record_state_receipt`
- * does: one file per receipt, named by a `git hash-object` of the repo-relative
+ * does: one file per receipt, named by the git blob oid of the repo-relative
  * path, holding `<rel>\t<value>\n`.
  *
  * WRITTEN AGAINST THE MAIN REPOSITORY, not the booking worktree — a receipt is
  * read by `plot-state-gate.sh` in the caller's own checkout, and `.plot/state/`
  * is untracked, so the booking worktree's copy would vanish with it.
  */
-const recordStateReceipt = (refs: Refs, repoRoot: string, relPath: string, value: string): void => {
-  const hashed = refs.hashFilesSync([relPath]);
-  const oid = hashed.ok ? hashed.value.get(relPath) : undefined;
-  if (oid === undefined) return;
+const recordStateReceipt = (repoRoot: string, relPath: string, value: string): void => {
+  const oid = gitBlobOid(relPath);
   const dir = path.join(repoRoot, '.plot', 'state', 'state-receipts');
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, oid), `${relPath}\t${value}\n`);
 };
 
-/** Spends the action receipt the way `plot-controller-gate.sh`'s `spend_action_receipt` reads it: deleted on completion. */
-const spendActionReceipt = (repoRoot: string, action: string): void => {
+/**
+ * Spends the action receipt, the file `plot-controller-gate.sh`'s
+ * `spend_action_receipt` deletes on completion.
+ *
+ * KEYED ON THE ACTION WORD (`deliver`/`release`), NOT THE SCRIPT NAME. The
+ * shell function takes either spelling and normalises through `_action_of`
+ * before touching a path — `spend_action_receipt('plot-deliver.sh')` deletes
+ * `.plot/state/action-receipts/deliver`, never a file literally named
+ * `plot-deliver.sh`. This entry has no shell left to source that function
+ * from, so it writes the already-normalised filename directly: the caller
+ * passes `'deliver'` or `'release'`, never the `.sh` name.
+ *
+ * @param repoRoot - the main repository, where `.plot/state/` lives.
+ * @param action - `'deliver'` or `'release'`.
+ */
+const spendActionReceipt = (repoRoot: string, action: 'deliver' | 'release'): void => {
   const file = path.join(repoRoot, '.plot', 'state', 'action-receipts', action);
   try {
     unlinkSync(file);
@@ -330,6 +364,8 @@ const runDeliver = async (
   if (plan === null) {
     throw new Refused(`cannot parse '${planFile}' — refusing rather than guessing.\n  See what the parser reads: ${ctx.scriptDir}/plot-plan-meta.sh ${planFile}\n  A plan needs a '## Status' section with a 'State:' field.`);
   }
+  const parsedPlan = await ctx.planStore.readPlan(planFile);
+  const sprint = parsedPlan.ok ? parsedPlan.value.sprint : '';
 
   switch (plan.phase) {
     case 'approved':
@@ -376,8 +412,6 @@ const runDeliver = async (
   const today = new Date().toISOString().slice(0, 10);
 
   if (args.dryRun) {
-    const parsed = await ctx.planStore.readPlan(planFile);
-    const sprint = parsed.ok ? parsed.value.sprint : '';
     write(`step: would flip Phase → Delivered and fill Delivered: ${today}\n`);
     write('step: would move active/ → delivered/ symlink\n');
     write(`step: would tick the sprint item${sprint !== '' ? ` (sprint: ${sprint})` : ''}\n`);
@@ -474,7 +508,7 @@ const runDeliver = async (
       }
       writeFileSync(target, landed);
       phaseReport = flip.changed ? 'flipped' : 'already';
-      recordStateReceipt(ctx.refs, ctx.repoRoot, rel, 'Delivered');
+      recordStateReceipt(ctx.repoRoot, rel, 'Delivered');
     }
 
     // Move the index symlink.
@@ -496,7 +530,7 @@ const runDeliver = async (
     }
 
     // Tick the sprint item.
-    const sprintReport = await tickSprint(tmpwt, sprintDir, args.slug);
+    const sprintReport = await tickSprint(tmpwt, sprintDir, args.slug, sprint);
 
     await runGit(['-C', tmpwt, 'add', '--', rel]);
     await runGit(['-C', tmpwt, 'add', '--', activeDir]);
@@ -548,7 +582,7 @@ const runDeliver = async (
     unlinkSyncSafe(bookedPlanFile);
 
     write(`summary: phase=${phaseReport} record=${recordReport} index=${indexReport} sprint=${sprintReport} push=${pushResult.pushed} tracker=${trackerReport}\n`);
-    spendActionReceipt(ctx.repoRoot, 'plot-deliver.sh');
+    spendActionReceipt(ctx.repoRoot, 'deliver');
     return 0;
   } catch (err) {
     if (err instanceof Refused) {
@@ -570,7 +604,10 @@ const isSymlinkTo = (p: string): boolean => {
 };
 
 /** Ticks a plan's sprint item by searching the sprint directory for the line naming it. */
-const tickSprint = async (root: string, sprintDir: string, slug: string): Promise<string> => {
+const tickSprint = async (root: string, sprintDir: string, slug: string, sprint: string): Promise<string> => {
+  // Matches the shell's own first guard: a plan that names no sprint owes no
+  // tick, and the directory is never even looked at.
+  if (sprint === '') return 'none';
   const dir = path.join(root, sprintDir);
   if (!existsSync(dir)) return 'missing';
   const files = readdirSync(dir).filter((n) => n.endsWith('.md'));
@@ -795,7 +832,7 @@ const runRelease = async (
     }
     writeFileSync(target, landed);
     phaseReport = flip.changed ? 'flipped' : 'already';
-    recordStateReceipt(ctx.refs, ctx.repoRoot, rel, 'Released');
+    recordStateReceipt(ctx.repoRoot, rel, 'Released');
   }
 
   await runGit(['-C', tmpwt, 'add', '--', rel]);

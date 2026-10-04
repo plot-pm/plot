@@ -100,16 +100,19 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # cannot see that distinction — its pattern is the literal, not the call — so
 # the three sites count here and are named rather than hidden.
 #
-# RAISED TO 15 ON 2026-10-04 for `entry/deliver.ts`, the first entry that
+# RAISED TO 14 ON 2026-10-04 for `entry/deliver.ts`, the first entry that
 # PERFORMS a lifecycle write rather than answering a reading on stdin. It
 # names `plot-push-main.sh` (the push-and-classify helper, out of scope for
 # this slice per its own plan) and `plot-issue-status.sh` (the tracker write,
-# likewise out of scope), plus its own name for the receipt it spends on
-# completion — the same `plot-deliver.sh` dependency `auto-deliver.ts` and
-# `release.ts` already declare above. No port answers any of the three yet;
-# inventing one to clear this gate would be the gate driving the design, which
-# the ratchet's own header says is the failure this allowance exists to avoid.
-ALLOWED=15
+# likewise out of scope). No port answers either yet; inventing one to clear
+# this gate would be the gate driving the design, which the ratchet's own
+# header says is the failure this allowance exists to avoid. The entry's own
+# action-receipt spend names the ACTION WORD (`'deliver'`/`'release'`), not a
+# script filename — `plot-state-receipt.sh`'s own `_action_of` normalises a
+# `.sh` name to the same word before touching a path, and this entry has no
+# shell left to source that function from, so it writes the normalised word
+# directly rather than adding a third `plot-*.sh` literal.
+ALLOWED=14
 
 ROOTS='packages/board/src packages/domain/src'
 
