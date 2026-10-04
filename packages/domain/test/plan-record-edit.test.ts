@@ -122,6 +122,19 @@ describe('insertStatusRecord', () => {
     expect(result.content).toBe(content);
   });
 
+  it('inserts after the last list item, not after a blank line that follows it', () => {
+    const content = ['## Status', '', '- **State:** Approved', '', '## Design'].join('\n');
+    const result = insertStatusRecord(content, 'Delivered', '2026-10-04');
+    expect(result.content.split('\n')).toEqual([
+      '## Status',
+      '',
+      '- **State:** Approved',
+      '- **Delivered:** 2026-10-04',
+      '',
+      '## Design',
+    ]);
+  });
+
   it('inserts at the end of ## Status when the section has no comment and no placeholder', () => {
     const content = ['## Status', '- **State:** Approved'].join('\n');
     const result = insertStatusRecord(content, 'Delivered', '2026-10-04');

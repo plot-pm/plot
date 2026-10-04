@@ -3,6 +3,7 @@ import {
   ReleaseStateSchema, ReleaseChannelSchema, normalizeVersion, sameVersion,
   channelFor, hasShipped, type Release,
 } from '../src/index.js';
+import { compareVersions } from '../src/entities/version.js';
 
 /**
  * A version of the software, identified by its tag.
@@ -72,5 +73,20 @@ describe('shipping is a state, not a date', () => {
     const planned: Release = { ...release, state: 'planned', date: null, commit: null };
     expect(hasShipped(planned)).toBe(false);
     expect(planned.date).toBeNull();
+  });
+});
+
+describe('two tags compare by their numeric parts', () => {
+  it('orders v2.9.0 before v2.10.0, where a string sort would not', () => {
+    expect(['v2.10.0', 'v2.9.0', 'v1.0.0'].sort(compareVersions)).toEqual(['v1.0.0', 'v2.9.0', 'v2.10.0']);
+  });
+
+  it('answers 0 for one version in both spellings', () => {
+    expect(compareVersions('2.5.0', 'v2.5.0')).toBe(0);
+  });
+
+  it('sorts a tag that is not vN.N.N as 0.0.0', () => {
+    expect(compareVersions('nightly', 'v0.0.1')).toBeLessThan(0);
+    expect(compareVersions('v0.0.0', 'nightly')).toBe(0);
   });
 });
