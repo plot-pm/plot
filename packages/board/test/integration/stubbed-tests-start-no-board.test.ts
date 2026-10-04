@@ -450,7 +450,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 58 → 59 on 2026-10-03: `an-unnamed-desk-says-so.browser.test.ts` (#1101),
 // for the row of a desk no manifest names. It serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 59;
+// 59 → 60 on 2026-10-04: `brief-asked-via-implement.browser.test.ts`, for the
+// "brief asked" note on a row whose only ask is an implement-route log. A
+// plain addition; it serves its state through the catalogue and starts no
+// board.
+const EXPECTED_FILES = 60;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -638,7 +642,10 @@ const EXPECTED_FILES = 59;
 // 540 → 544 on 2026-10-03: four `it(` in the new
 // `an-unnamed-desk-says-so.browser.test.ts` (#1101), for the row of a desk no
 // manifest names. A file was added, so `EXPECTED_FILES` moves too.
-const EXPECTED_TESTS = 544;
+// 544 → 545 on 2026-10-04: one `it(` in the new
+// `brief-asked-via-implement.browser.test.ts`, for the "brief asked" note on
+// an implement-route-only ask. A file was added, so `EXPECTED_FILES` moves too.
+const EXPECTED_TESTS = 545;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
