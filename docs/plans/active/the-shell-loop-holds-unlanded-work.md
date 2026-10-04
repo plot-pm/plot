@@ -1,0 +1,1 @@
+../2026-10-04-the-shell-loop-holds-unlanded-work.md
