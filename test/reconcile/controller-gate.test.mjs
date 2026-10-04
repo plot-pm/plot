@@ -14,7 +14,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, renameSync, rmSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -257,6 +257,51 @@ test('controller gate: it fails open outside a git repository, and says so', () 
   assert.match(r.stderr, /UNVERIFIED/);
 });
 
+// --- a command that passed the prefilter and cannot be checked is refused ---
+//
+// Fail-open on the gate's own machinery, closed on the case it exists for: a
+// command naming a gated script IS that case, so a missing bundle refuses it
+// rather than allowing it. `ls`, which never reaches the bundle call, must stay
+// unaffected — that is what proves the prefilter still spares the commands it
+// must, rather than the refusal becoming a second way to block everything.
+
+/** A scratch copy of the gate's own checkout, so the bundle can be moved aside. */
+function gateCopy() {
+  const tmp = scratch('plot-controller-gate-nobundle-');
+  const dir = path.join(tmp, 'scripts');
+  mkdirSync(path.join(dir, 'board'), { recursive: true });
+  for (const f of [gate, receipt]) copyFileSync(f, path.join(dir, path.basename(f)));
+  const bundle = path.join(dir, 'board', 'plot-controller-invocation.mjs');
+  copyFileSync(path.join(scripts, 'board', 'plot-controller-invocation.mjs'), bundle);
+  return { dir, bundle };
+}
+
+test('controller gate: a missing bundle refuses a command naming a gated script, exit 2, naming the file and both remedies', () => {
+  const { dir, bundle } = gateCopy();
+  renameSync(bundle, `${bundle}.moved`);
+  const r = spawnSync('bash', [path.join(dir, 'plot-controller-gate.sh')], {
+    cwd: repo(), input: JSON.stringify({ tool_input: { command: DISPATCH } }), encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, `must refuse (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /plot-controller-invocation\.mjs/, 'names the missing file');
+  assert.match(r.stderr, /Update the plot plugin/, 'names the plugin-update remedy');
+  assert.match(r.stderr, /pnpm build:board/, 'names the local-build remedy');
+});
+
+test('controller gate: a missing bundle does not block a command the prefilter already spares', () => {
+  // `ls skills/plot/scripts/plot-dispatch.sh` NAMES a gated script, so the
+  // prefilter passes it through to the rule on purpose — the missing-bundle
+  // refusal above is exactly for that case. A plain `ls` naming no gated
+  // script never reaches the rule at all, with or without a bundle, which is
+  // what this proves.
+  const { dir, bundle } = gateCopy();
+  renameSync(bundle, `${bundle}.moved`);
+  const r = spawnSync('bash', [path.join(dir, 'plot-controller-gate.sh')], {
+    cwd: repo(), input: JSON.stringify({ tool_input: { command: 'ls skills/plot/scripts' } }), encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, `a command naming no gated script must still run with no bundle at all (stderr: ${r.stderr})`);
+});
+
 test('controller gate: unparseable hook JSON allows', () => {
   const r = spawnSync('bash', [gate], { cwd: repo(), input: 'not json', encoding: 'utf8' });
   assert.equal(r.status, 0);
@@ -439,14 +484,24 @@ test('controller gate: a heredoc body cannot exempt a call by naming a mode', ()
   assert.equal(run(dir, cmd).status, 2, 'a mode word in prose is not a mode');
 });
 
-test('controller gate: a read of a gated script still refuses, on purpose', () => {
+test('controller gate: a bare grep or sed read still refuses, on purpose', () => {
   // NOT FIXED, and the plan says so rather than implying a completeness it
-  // refused. These are reads and this estate spells them another way; trading
-  // fifteen missed invocations for two `grep` calls is not a trade this gate's
-  // risk asymmetry permits.
+  // refused. `controllerInvocation` carves out exactly the three reads #1245
+  // measured — `ls`, `cat`, `git grep` — and no others; a bare `grep` or `sed`
+  // naming a gated script is a known false positive, kept deliberately rather
+  // than widened past what was measured.
   const dir = repo();
-  for (const cmd of [`grep -c foo ${D}`, `cat ${D}`, `sed -n '1,5p' ${D}`]) {
+  for (const cmd of [`grep -c foo ${D}`, `sed -n '1,5p' ${D}`]) {
     assert.equal(run(dir, cmd).status, 2, `${cmd} is a known false positive, kept deliberately`);
+  }
+});
+
+test('controller gate: ls, cat and git grep on a gated script are reads, not runs', () => {
+  // FIXED by this slice (#1245): the token loop refused these because it had
+  // no concept of program position. `controllerInvocation` does.
+  const dir = repo();
+  for (const cmd of [`ls ${D}`, `cat ${D}`, `git grep -l plot-dispatch.sh -- '*.sh'`]) {
+    assert.equal(run(dir, cmd).status, 0, `${cmd} is a read, not a run`);
   }
 });
 
@@ -464,12 +519,19 @@ test('controller gate: the `bash <script>` form its own callers use still refuse
 // this one copies the gate somewhere else, with a space in the path, and fires
 // it from a repository that has no `skills/` directory at all.
 
-/** The gate and its receipt script, copied beside each other outside any repo. */
+/**
+ * The gate, its receipt script and the rule's bundle, copied as a plugin
+ * install ships them: `board/` beside the gate, same as `skills/plot/scripts/`.
+ */
 function pluginCopy() {
   const tmp = scratch('plot-controller-gate-plugin-');
   const dir = path.join(tmp, 'plugin cache', 'plot', '9.9.9', 'scripts');
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(path.join(dir, 'board'), { recursive: true });
   for (const f of [gate, receipt]) copyFileSync(f, path.join(dir, path.basename(f)));
+  copyFileSync(
+    path.join(scripts, 'board', 'plot-controller-invocation.mjs'),
+    path.join(dir, 'board', 'plot-controller-invocation.mjs'),
+  );
   return dir;
 }
 

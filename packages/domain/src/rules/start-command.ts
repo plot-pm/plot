@@ -11,6 +11,7 @@
  * The loop's file name and the `Worker command` value that runs it are readings
  * the caller supplies, so the rule names no script.
  */
+import { commandRunsScript } from './ci-suite.js';
 
 /** The worker loop as the caller knows it. */
 export interface LoopScript {
@@ -39,15 +40,6 @@ export type StartCommand =
   | { readonly start: 'declined' }
   | { readonly start: 'refused'; readonly why: string; readonly repair: string };
 
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * Matches the loop's basename as a word: after the start, a `/`, whitespace, a
- * quote or `=`, and before the end, whitespace, a quote, `;`, `&`, `|` or `)`.
- */
-const loopWord = (name: string): RegExp =>
-  new RegExp(`(?:^|[/\\s"'=])${escapeRegExp(name)}(?:$|[\\s"';&|)])`);
-
 /**
  * Answers which command starts an agent.
  *
@@ -64,7 +56,7 @@ export const startCommand = (configured: string, loop: LoopScript, agent: Starti
   const setIt = `set 'Worker command' to '${loop.command}'`;
   if (value === '') return { start: 'unconfigured', repair: `${setIt}, which /plot-dispatch offers to write` };
   if (value.toLowerCase() === 'none') return { start: 'declined' };
-  if (agent === 'assigned' || loopWord(loop.name).test(value)) return { start: 'run', command: value };
+  if (agent === 'assigned' || commandRunsScript(value, loop.name)) return { start: 'run', command: value };
   return {
     start: 'refused',
     why: `the 'Worker command' does not run ${loop.name}, so a free agent starts with an empty PLOT_BRANCH, runs at once and exits`,

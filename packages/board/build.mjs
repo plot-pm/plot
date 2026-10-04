@@ -1139,6 +1139,28 @@ await esbuild.build({
 fs.copyFileSync(mergeSubjectArtifact, shippedMergeSubject);
 fs.chmodSync(shippedMergeSubject, 0o755);
 
+// Which controller-owned action a command runs — controllerInvocation reached
+// without HTTP, for plot-controller-gate.sh's per-word prefilter result. Its
+// own bundle because it runs on every Bash call that passes the prefilter,
+// and plot-local-checks.mjs (528 KB) is built for a different question.
+const controllerInvocationArtifact = path.join(here, 'dist/plot-controller-invocation.mjs');
+const shippedControllerInvocation = path.join(here, '../../skills/plot/scripts/board/plot-controller-invocation.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/controller-invocation.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: controllerInvocationArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(controllerInvocationArtifact, shippedControllerInvocation);
+fs.chmodSync(shippedControllerInvocation, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -1290,6 +1312,7 @@ const localChecksKb = (fs.statSync(shippedLocalChecks).size / 1024).toFixed(1);
 const checksVerdictKb = (fs.statSync(shippedChecksVerdict).size / 1024).toFixed(1);
 const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(1);
 const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
+const controllerInvocationKb = (fs.statSync(shippedControllerInvocation).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1324,4 +1347,5 @@ console.log(`Built plot-local-checks.mjs (${localChecksKb} KB) → skills/plot/s
 console.log(`Built plot-checks-verdict.mjs (${checksVerdictKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-controller-invocation.mjs (${controllerInvocationKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
