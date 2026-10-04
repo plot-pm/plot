@@ -100,7 +100,7 @@ The gate stores no number, so it cannot drift, two pull requests that each shrin
 
 ### A command names its action in the domain
 
-- `infra/a-command-names-its-action-in-the-domain` — `controllerInvocation(command)` on `rules/ci-suite.ts`, in its own bundle; `plot-controller-gate.sh` asks it after a per-word prefilter and the desk exemption, and refuses a command it cannot check (#1245) <!-- builds: controllerInvocation, a domain rule -->
+- `infra/a-command-names-its-action-in-the-domain` — `controllerInvocation(command)` on `rules/ci-suite.ts`, in its own bundle; `plot-controller-gate.sh` asks it after a per-word prefilter and the desk exemption, and refuses a command it cannot check (#1245) → #1268 <!-- builds: controllerInvocation, a domain rule -->
 
 ### The first script becomes a command
 
