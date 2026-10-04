@@ -69,6 +69,27 @@ export interface CommitLine {
   subject: string;
 }
 
+/**
+ * One commit, as {@link Refs.commitSubjects} reports it — carrying what the
+ * claim vocabulary needs and no classification of it.
+ *
+ * **STRUCTURALLY A {@link CommitReading} WITH A TIME ADDED**, so a caller may
+ * hand this array straight to `realCommits`/`isEmptyClaim` without mapping it.
+ */
+export interface CommitSubject {
+  /** The commit's committer time, epoch milliseconds. */
+  at: number;
+  /** The commit's subject line. */
+  subject: string;
+  /** The commit's tree id. */
+  tree: string;
+  /**
+   * The tree id of the commit's first parent, or `null` where the commit has
+   * no parent or the parent's tree could not be read.
+   */
+  parentTree: string | null;
+}
+
 /** One merge commit, as a merges walk reports it. */
 export interface MergeCommit {
   /** The full object name. */
@@ -402,6 +423,31 @@ export interface Refs {
    * @returns the commits, newest first.
    */
   commitsSync(dir: string, range: string, max: number): PortResult<readonly CommitLine[]>;
+
+  /**
+   * Every commit in a range, with its time, subject, tree and first parent's
+   * tree — newest first, merges included.
+   *
+   * **NOT {@link Refs.commitsSync}.** That method is synchronous, excludes
+   * merges, and reports `{ sha, subject }` only — other callers read its
+   * `CommitLine` shape, and widening it would change their answer too. This is
+   * a second method beside it rather than a wider one.
+   *
+   * **IT DECIDES NOTHING ABOUT THE COMMITS.** It answers what git recorded;
+   * whether a commit is a claim marker is {@link isEmptyClaim}'s question, read
+   * through `tree` and `parentTree`.
+   *
+   * **`parentTree` IS `null`, NOT EMPTY, where the first parent's tree cannot
+   * be read** — a root commit, or a boundary this range's walk did not reach.
+   * Absent is not false: a caller that read it as empty would count a commit
+   * with a missing reading as a claim marker.
+   *
+   * @param range - any range git accepts, such as `origin/main..origin/<branch>`.
+   * @returns the commits, newest first; empty for a range with none. A failed
+   *   result for a range git could not read, such as one naming a ref that
+   *   does not exist.
+   */
+  commitSubjects(range: string): Promise<PortResult<readonly CommitSubject[]>>;
 
   /**
    * The commit that first added each file under a directory, on one ref.

@@ -16,8 +16,10 @@ import {
   knownPrFor,
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
+import { claimTip, orphanedClaims, type ClaimReading } from '@plot-pm/domain/rules/claim';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
-import type { PlanRecord, PlanRecordSlice } from '@plot-pm/domain';
+import type { PlanRecord, PlanRecordSlice, PortResult } from '@plot-pm/domain';
+import type { CommitSubject, RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
 
 import type { AgentEntry } from './registry.js';
 
@@ -120,6 +122,30 @@ export interface QueueWorld {
    * current refusal each pass rather than one it remembers.
    */
   refused(branch: string): Promise<boolean>;
+  /**
+   * Whether a branch's remote-tracking ref exists.
+   *
+   * Asked only for a branch a plan names that the merged listing did not
+   * settle — a local read, no host call.
+   */
+  remoteHead(branch: string): Promise<RemoteHeadAnswer>;
+  /**
+   * The commits a branch's ref holds ahead of the default branch, newest
+   * first, for {@link claimTip}.
+   *
+   * **ASKED ONLY FOR A REF-BEARING, UNMERGED BRANCH A PLAN NAMES.** A `git log`
+   * per ref across every remote ref this estate holds is the 14x cost
+   * {@link readQueue}'s own comment on `mergedBranches` records for the
+   * per-branch host call; this bound is what keeps the git-side reading from
+   * repeating it.
+   *
+   * @param range - `origin/<default>..origin/<branch>`.
+   */
+  commitSubjects(range: string): Promise<PortResult<readonly CommitSubject[]>>;
+  /** The tick's own clock reading, epoch milliseconds — a parameter so a test can pin it. */
+  now(): number;
+  /** The repository's default branch, for the range {@link commitSubjects} reads. */
+  defaultBranch(): Promise<string>;
 }
 
 /**
@@ -258,6 +284,24 @@ export const readQueue = async (
     ? new Map<string, LandedAnswer>()
     : await landedWithoutListing(plans, merged, provenFor, world);
 
+  // EVERY AGENT'S STATE IS READ ONCE, HERE, so the `assigned` map below and the
+  // `agents` list built further down never ask `workerAlive`/`blocked` twice
+  // for the same entry — a second read could answer differently and make the
+  // hold and the agent list disagree about one desk.
+  const states = await Promise.all(entries.map((entry) => stateOf(entry, world)));
+
+  // WHICH BRANCHES A LIVE MANIFEST ALREADY NAMES, keyed by agent id. Built from
+  // the registry's own manifests rather than from a ref, because a dispatch
+  // writes the manifest before its claim push lands — the gap `whyNotReady`'s
+  // `assigned` hold exists to close. ONLY `running` OR `waiting` COUNTS: a dead
+  // agent's manifest is not an assignment, #1039's negative control.
+  const assigned = new Map<string, string>();
+  entries.forEach((entry, at) => {
+    if (entry.branch === '') return;
+    const state = states[at];
+    if (state === 'running' || state === 'waiting') assigned.set(entry.branch, entry.session);
+  });
+
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
     // THE PLAN'S SLICES ARE COLLECTED BEFORE ANY IS MARKED, because the mark is
@@ -285,8 +329,9 @@ export const readQueue = async (
       // under: an unclaimable slice reads `not-claimable` regardless, and asking
       // would pay for an answer nothing reads.
       const refused = entry.claimable ? await world.refused(entry.branch) : false;
+      const assignedTo = assigned.get(entry.branch) ?? '';
       const { slice, ...queued } = entry;
-      ofPlan.push({ ...queued, briefPresent, landed, priorUnknown: false, refused });
+      ofPlan.push({ ...queued, briefPresent, landed, priorUnknown: false, refused, assignedTo });
       ordered.push({ branch: entry.branch, slice, claimable: entry.claimable, landed });
     }
 
@@ -297,22 +342,78 @@ export const readQueue = async (
   }
 
   const agents: QueueAgent[] = [];
-  for (const entry of entries) {
+  for (const [at, entry] of entries.entries()) {
     agents.push({
       session: entry.session,
       worktree: entry.worktree,
       reading: {
-        state: await stateOf(entry, world),
+        state: states[at],
         branch: entry.branch,
         sliceHasMerged: entry.branch === '' ? false : await world.sliceHasMerged(entry.branch),
       },
     });
   }
 
+  const orphaned = await orphanedClaimsOf(plans, merged, assigned, world);
+
   // THE LISTING'S STATE TRAVELS WITH THE SLICES IT EXPLAINS. Every `unknown`
   // landing and every slice held behind one came from this answer, and the tick
   // line prints it so a reader is not left to infer a host outage from a count.
-  return { slices, agents, mergedSet: mergedSetOf(listing) };
+  return { slices, agents, mergedSet: mergedSetOf(listing), orphanedClaims: orphaned };
+};
+
+/**
+ * Which plan-named branches carry a claim ref nobody is working and nobody is
+ * coming back for.
+ *
+ * **ASKED ONLY FOR A REF-BEARING, UNMERGED BRANCH A PLAN NAMES**, and never a
+ * deferred one — the plan gave that branch up, so a claim ref left on it is
+ * not work waiting for anybody. The reading is the domain's own, through
+ * {@link claimTip} and {@link orphanedClaims}; this only joins the plans, the
+ * merged set and the `assigned` map this pass already read against the two
+ * remaining git calls per branch.
+ *
+ * @param plans - every plan on the estate.
+ * @param merged - the branches the merged listing (and its fallback) named.
+ * @param assigned - branch to agent id, from a live manifest.
+ * @param world - what to read the estate through.
+ * @returns the branches to name, in plan order.
+ */
+const orphanedClaimsOf = async (
+  plans: readonly PlanRecord[],
+  merged: ReadonlySet<string>,
+  assigned: ReadonlyMap<string, string>,
+  world: QueueWorld,
+): Promise<readonly string[]> => {
+  const base = await world.defaultBranch();
+  const tickStartedAt = world.now();
+  const readings: ClaimReading[] = [];
+  const seen = new Set<string>();
+  for (const plan of plans) {
+    for (const slice of plan.slices as readonly PlanRecordSlice[]) {
+      for (const line of slice.branches) {
+        if (line.deferred || merged.has(line.branch) || seen.has(line.branch)) continue;
+        seen.add(line.branch);
+        const ref = await world.remoteHead(line.branch);
+        // A GIT CALL ONLY WHERE THE REF ITSELF SAYS SO. `commitSubjects` against
+        // a branch with no ref is a failed `git log` call for nothing read, and
+        // `claimTip` never reads it where `ref` already answers.
+        const commits =
+          ref === 'present'
+            ? await world.commitSubjects(`origin/${base}..origin/${line.branch}`)
+            : ({ ok: false, why: 'unaskable' } as PortResult<readonly CommitSubject[]>);
+        const claim = claimTip(ref, commits);
+        const newest = commits.ok ? commits.value[0] : undefined;
+        readings.push({
+          branch: line.branch,
+          claim,
+          newestClaimAt: newest?.at ?? 0,
+          assignedTo: assigned.get(line.branch) ?? '',
+        });
+      }
+    }
+  }
+  return orphanedClaims(readings, tickStartedAt);
 };
 
 /**

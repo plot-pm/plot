@@ -4,6 +4,7 @@ import type {
   BranchDate,
   BranchTip,
   CommitLine,
+  CommitSubject,
   Containment,
   MergeCommit,
   MergeStatus,
@@ -185,6 +186,49 @@ export const mergesOf = (stdout: string): readonly MergeCommit[] =>
     const at = line.indexOf(' ');
     return at <= 0 ? [] : [{ sha: line.slice(0, at), subject: line.slice(at + 1) }];
   });
+
+/** `<mark>|<sha>|<tree>|<parents>|<epoch seconds>|<subject>`, the format {@link commitSubjectsOf} reads. */
+const SUBJECT_LINE = /^([->= ])\|([0-9a-f]+)\|([0-9a-f]+)\|([0-9a-f ]*)\|(\d+)\|(.*)$/;
+
+/**
+ * Walks a `git log --boundary --format='%m|%H|%T|%P|%at|%s'` listing into
+ * {@link CommitSubject} values.
+ *
+ * **`%P` CARRIES EVERY PARENT, SPACE-SEPARATED; ONLY THE FIRST IS READ.** A
+ * merge commit's later parents are not the branch's own history.
+ *
+ * **A BOUNDARY COMMIT (`git log`'s `%m` mark `-`) IS NOT A RANGE MEMBER AND
+ * NEVER APPEARS IN THE ANSWER.** `--boundary` is what puts it in the stream at
+ * all: it carries the excluded side's tip, read here only so a later commit's
+ * `parentTree` can resolve to it without a second call per commit.
+ *
+ * **A PARENT NOT FOUND IN THIS SAME STREAM READS `null`.** A root commit's
+ * `%P` is empty; a non-root commit whose parent lies outside the range and
+ * outside the boundary (deeper history `--boundary` did not surface) is the
+ * same absence. Both are a missing reading, not a claim about the tree.
+ *
+ * @param stdout - the walk's output.
+ * @returns the range's own commits (boundary commits excluded), newest first.
+ */
+export const commitSubjectsOf = (stdout: string): readonly CommitSubject[] => {
+  const trees = new Map<string, string>();
+  const rows: { mark: string; sha: string; tree: string; parent: string; at: number; subject: string }[] = [];
+  for (const line of asLines(stdout)) {
+    const parsed = SUBJECT_LINE.exec(line);
+    if (!parsed) continue;
+    const [, mark, sha, tree, parents, at, subject] = parsed;
+    trees.set(sha, tree);
+    rows.push({ mark, sha, tree, parent: parents.split(' ')[0] ?? '', at: Number(at), subject });
+  }
+  return rows
+    .filter((row) => row.mark !== '-')
+    .map((row) => ({
+      at: row.at * 1000,
+      subject: row.subject,
+      tree: row.tree,
+      parentTree: row.parent === '' ? null : (trees.get(row.parent) ?? null),
+    }));
+};
 
 export const refsGit = (context: ShellContext): Refs => {
   const scan = scriptPath(context, 'plot-fleet-scan.sh');
@@ -481,6 +525,14 @@ export const refsGit = (context: ShellContext): Refs => {
               : [{ sha: line.slice(0, at), subject: line.slice(at + 1) }];
           }),
         inRepo,
+      ),
+
+    commitSubjects: (range) =>
+      runScript(
+        'git',
+        ['log', '--boundary', '--format=%m|%H|%T|%P|%at|%s', range],
+        commitSubjectsOf,
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
       ),
 
     planAdditions: (ref, dir) =>

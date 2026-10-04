@@ -783,6 +783,21 @@ jobs:
       - name: One answer to did-this-land
         run: ./scripts/check-ancestry-decisions.sh
 
+      # THE CLAIM VOCABULARY HAS ONE HOME: `rules/empty-claim.ts`. A claim
+      # marker is a commit titled `plot: claim ` AND empty — its tree equals
+      # its first parent's — and the plan's first draft tested the subject
+      # alone, which a commit titled "plot: claim handling refactor" that
+      # changes a file would pass as an empty claim. The prefix comparison
+      # lives in one file so that mistake cannot re-enter through a second one.
+      #
+      # SCOPED TO THE DOMAIN AND THE BOARD'S TYPESCRIPT, NOT THE SHELL.
+      # `plot-reconcile-scan.sh` and `plot-fleet-scan.sh` carry their own,
+      # extensively declared `case "$subj" in "plot: claim "*)` — the shell
+      # side of the same rule, kept in sync by a person per
+      # `docs/shell-and-domain.md`, and gating it here would refuse `main`.
+      - name: One home for the claim prefix
+        run: ./scripts/check-claim-prefix-comparison.sh
+
       # ONE PLACE TALKS TO THE HOST, and it is `plot-host.sh`. That sentence has
       # been in CLAUDE.md since the adapter was written, and on 2026-09-05 four
       # scripts held their own `gh` call anyway — a rule failing exactly as

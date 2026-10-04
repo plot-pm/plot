@@ -318,9 +318,9 @@ describe('where a tick’s report goes', () => {
       detail: {
         assignments: [],
         held: [
-          { branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '' },
-          { branch: 'feature/b', hold: 'no-brief', waitsOn: [], waitHeld: '' },
-          { branch: 'feature/c', hold: 'already-merged', waitsOn: [], waitHeld: '' },
+          { branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '', assignedTo: '' },
+          { branch: 'feature/b', hold: 'no-brief', waitsOn: [], waitHeld: '', assignedTo: '' },
+          { branch: 'feature/c', hold: 'already-merged', waitsOn: [], waitHeld: '', assignedTo: '' },
         ],
         idle: ['sess-1'],
         scaling: null,
@@ -359,6 +359,7 @@ describe('where a tick’s report goes', () => {
               hold: 'waits',
               waitsOn: ['bug/the-merge-subject-is-one-rule'],
               waitHeld: 'unmerged',
+              assignedTo: '',
             },
           ],
           idle: [],
@@ -393,6 +394,7 @@ describe('where a tick’s report goes', () => {
               hold: 'waits',
               waitsOn: ['bug/prereq-a', 'bug/prereq-b'],
               waitHeld: 'unmerged',
+              assignedTo: '',
             },
           ],
           idle: [],
@@ -406,6 +408,78 @@ describe('where a tick’s report goes', () => {
     expect(text).toContain(
       '    bug/a-slice-waits-on-every-branch-it-names — waits on bug/prereq-a, bug/prereq-b (unmerged)',
     );
+  });
+
+  it('names the agent a live manifest holds this branch for, under `held on assigned`', () => {
+    const held: TickReport = {
+      ...completed(),
+      handOver: {
+        outcome: 'decided',
+        workflow: 'assign',
+        writes: [],
+        detail: {
+          assignments: [],
+          held: [
+            { branch: 'bug/x', hold: 'assigned', waitsOn: [], waitHeld: '', assignedTo: 'sess-1' },
+          ],
+          idle: [],
+          scaling: null,
+        },
+      },
+    };
+    const out: string[] = [];
+    reportTick(held, (s) => out.push(s), () => {});
+    const text = out.join('');
+    expect(text).toContain('held on assigned (1):');
+    expect(text).toContain('    bug/x: assigned to sess-1');
+  });
+
+  it('names an orphaned claim and its release command, and reports the count', () => {
+    const held: TickReport = {
+      ...completed(),
+      handOver: {
+        outcome: 'decided',
+        workflow: 'assign',
+        writes: [],
+        detail: {
+          assignments: [],
+          held: [],
+          idle: [],
+          scaling: null,
+          orphanedClaims: ['bug/stale-claim'],
+        },
+      },
+    };
+    const out: string[] = [];
+    reportTick(held, (s) => out.push(s), () => {});
+    const text = out.join('');
+    expect(text).toContain('orphaned-claims=1');
+    expect(text).toContain(
+      '  bug/stale-claim: claim with no agent — plot-dispatch.sh --release bug/stale-claim',
+    );
+  });
+
+  it('prints `orphaned-claims=0` once asked, rather than omitting the field', () => {
+    const held: TickReport = {
+      ...completed(),
+      handOver: {
+        outcome: 'decided',
+        workflow: 'assign',
+        writes: [],
+        detail: { assignments: [], held: [], idle: [], scaling: null, orphanedClaims: [] },
+      },
+    };
+    const out: string[] = [];
+    reportTick(held, (s) => out.push(s), () => {});
+    expect(out.join('')).toContain('orphaned-claims=0');
+  });
+
+  it('omits `orphaned-claims=` when nobody asked', () => {
+    // NULL IS *NOBODY ASKED*, the rule every other queue field follows: a tick
+    // run without this reading must not claim the estate has zero orphans.
+    const out: string[] = [];
+    reportTick(refused(), (s) => out.push(s), () => {});
+    expect(out.join('')).not.toContain('orphaned-claims=');
   });
 
   it('omits a hold that refused nothing, where the summary line prints its zero', () => {
@@ -500,6 +574,7 @@ describe('what a looping tick prints does not follow what grows', () => {
           hold,
           waitsOn: [],
           waitHeld: '' as const,
+          assignedTo: '',
         })),
         idle: [],
         scaling: null,
@@ -1390,6 +1465,10 @@ describe('a tick asks the host about a branch once', () => {
         workerAlive: async () => true,
         blocked: async () => false,
         refused: async () => false,
+        remoteHead: async () => 'absent',
+        commitSubjects: async () => ({ ok: true, value: [] }),
+        now: () => 0,
+        defaultBranch: async () => 'main',
       };
       const { slices } = await readQueue([], stub);
       expect(slices.map((slice) => whyNotReady(slice))).toEqual(['merge-unknown']);

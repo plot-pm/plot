@@ -213,3 +213,32 @@ describe('refsFixture: the merge-subject readings', () => {
     expect(await bare.mergeSubjects('origin/main', 5)).toEqual({ ok: true, value: [] });
   });
 });
+
+describe('refsFixture: commitSubjects — a reading, keyed by range', () => {
+  it('answers the commits stated for a range', async () => {
+    const refs = refsFixture({
+      commitSubjects: {
+        'origin/main..origin/feature/x': [
+          { at: 200_000, subject: 'plot: claim feature/x', tree: 't1', parentTree: 't1' },
+        ],
+      },
+    });
+    expect(await refs.commitSubjects('origin/main..origin/feature/x')).toEqual({
+      ok: true,
+      value: [{ at: 200_000, subject: 'plot: claim feature/x', tree: 't1', parentTree: 't1' }],
+    });
+  });
+
+  it('answers an empty list for a range the estate states none for', async () => {
+    const refs = refsFixture();
+    expect(await refs.commitSubjects('origin/main..origin/feature/x')).toEqual({
+      ok: true,
+      value: [],
+    });
+  });
+
+  it('fails when told to', async () => {
+    const refs = refsFixture({ failing: ['commitSubjects'] });
+    expect((await refs.commitSubjects('origin/main..origin/feature/x')).ok).toBe(false);
+  });
+});
