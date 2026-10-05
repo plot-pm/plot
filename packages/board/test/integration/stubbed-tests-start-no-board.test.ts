@@ -450,7 +450,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 58 → 59 on 2026-10-03: `an-unnamed-desk-says-so.browser.test.ts` (#1101),
 // for the row of a desk no manifest names. It serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 59;
+// 59 → 60 on 2026-10-05: `question-renders-waiting-on-you.browser.test.ts`
+// (#1287), for a desk's question in the WAITING ON YOU row. It serves its
+// state through the catalogue and starts no board.
+const EXPECTED_FILES = 60;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -641,7 +644,10 @@ const EXPECTED_FILES = 59;
 // 544 → 546 on 2026-10-05: two `it(` in `agents-tab.browser.test.ts`, for the
 // "brief asked" and "brief failed" notes on a single-branch slice row. They
 // join a file that already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 546;
+// 546 → 548 on 2026-10-05: two `it(` in the new
+// `question-renders-waiting-on-you.browser.test.ts` (#1287). A file was added,
+// so `EXPECTED_FILES` moves too.
+const EXPECTED_TESTS = 548;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
