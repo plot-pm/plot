@@ -90,10 +90,17 @@ export interface Desk {
    *
    * @param worktree - the worktree the declaration lands in, absolute.
    * @param branch - the branch that finished.
+   * @param status - `blocked` states that the slice stopped for a person and
+   *   replaces whatever status the file held. `ok`, the default, fills the
+   *   status only where none was declared.
    * @returns nothing; a failure means an unparseable file was found and left
    *   alone, or the write itself could not land.
    */
-  sealDeclaration(worktree: string, branch: string): Promise<PortResult<void>>;
+  sealDeclaration(
+    worktree: string,
+    branch: string,
+    status?: 'ok' | 'blocked',
+  ): Promise<PortResult<void>>;
 
   /**
    * Appends one correction to `PLOT-CORRECTION.md`, never replacing it.

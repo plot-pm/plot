@@ -124,8 +124,8 @@ export interface FreshAgentAnswerInput {
   correctionsText: string;
   /** The failing run's URL, or `''` where none was read. */
   runUrl: string;
-  /** What that run's failed step reported, or `''` where none was read. */
-  failedStep: string;
+  /** What that run concluded (for example `failure`), or `''` where none was read. */
+  conclusion: string;
 }
 
 /**
@@ -166,11 +166,11 @@ export const freshAgentAnswer = (input: FreshAgentAnswerInput): string => {
   parts.push('');
 
   parts.push('## The run that proved the budget spent', '');
-  if (input.runUrl === '' && input.failedStep === '') {
+  if (input.runUrl === '' && input.conclusion === '') {
     parts.push('No run could be read for this ending.');
   } else {
     if (input.runUrl !== '') parts.push(`- ${input.runUrl}`);
-    if (input.failedStep !== '') parts.push(`- failed step: ${input.failedStep}`);
+    if (input.conclusion !== '') parts.push(`- conclusion: ${input.conclusion}`);
   }
 
   return parts.join('\n');

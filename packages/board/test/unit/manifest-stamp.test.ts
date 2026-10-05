@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { stampManifest, writeManifestStamp } from '../../src/server/manifest-stamp.js';
+import { stampManifest, writeManifestStamp, writeResumeId } from '../../src/server/manifest-stamp.js';
 import { rmTree } from '../helpers.mjs';
 
 /** The manifest a first dispatch writes — two-space indent, no trailing comma. */
@@ -143,5 +143,55 @@ describe('writeManifestStamp — atomic, and a no-op the registry can survive', 
     // unknown. The helper returns falsy rather than throwing.
     const missing = path.join(os.tmpdir(), 'plot-stamp-nope', 'x.json');
     assert.doesNotThrow(() => writeManifestStamp(missing, { pid: '1', startedAt: 'now' }));
+  });
+});
+
+describe('writeResumeId', () => {
+  const manifestFile = (text: string): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resume-id-'));
+    const file = path.join(dir, 'sess.json');
+    fs.writeFileSync(file, text);
+    return file;
+  };
+
+  it('replaces the resume id and keeps every other field', () => {
+    const file = manifestFile(JSON.stringify({ session: 's', branch: 'b', resumeId: 'old', pid: '7' }));
+    try {
+      assert.equal(writeResumeId(file, 'new'), true);
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
+        session: 's',
+        branch: 'b',
+        resumeId: 'new',
+        pid: '7',
+      });
+    } finally {
+      rmTree(path.dirname(file));
+    }
+  });
+
+  it('adds the field where the manifest carried none', () => {
+    const file = manifestFile(JSON.stringify({ session: 's' }));
+    try {
+      assert.equal(writeResumeId(file, 'new'), true);
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).resumeId, 'new');
+    } finally {
+      rmTree(path.dirname(file));
+    }
+  });
+
+  it('refuses an empty id, a missing file, text that is not JSON, and JSON that is not an object', () => {
+    const file = manifestFile('{}');
+    const notJson = manifestFile('nope');
+    const array = manifestFile('[1]');
+    try {
+      assert.equal(writeResumeId(file, ''), false);
+      assert.equal(writeResumeId(path.join(path.dirname(file), 'gone.json'), 'x'), false);
+      assert.equal(writeResumeId(notJson, 'x'), false);
+      assert.equal(writeResumeId(array, 'x'), false);
+      assert.equal(fs.readFileSync(notJson, 'utf8'), 'nope');
+      assert.equal(fs.readFileSync(array, 'utf8'), '[1]');
+    } finally {
+      for (const f of [file, notJson, array]) rmTree(path.dirname(f));
+    }
   });
 });

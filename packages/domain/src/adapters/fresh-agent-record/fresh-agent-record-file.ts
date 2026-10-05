@@ -31,7 +31,8 @@ const isMissing = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
 
 /**
- * One row, tab-separated: branch, worktree, when, the failing run's URL.
+ * One row, tab-separated: branch, worktree, when, the failing run's URL, plan.
+ * A row written before the plan was recorded has the first four fields only.
  *
  * **A FIELD NEVER CARRIES A TAB OR A NEWLINE, SO NONE IS ESCAPED.** A branch
  * name, an absolute path and an ISO timestamp cannot hold either; a run URL
@@ -40,14 +41,14 @@ const isMissing = (error: unknown): boolean =>
  * property of the inputs rather than a guard this function adds.
  */
 const encodeRow = (record: FreshAgentRecord): string =>
-  [record.branch, record.worktree, record.at, record.runUrl].join('\t');
+  [record.branch, record.worktree, record.at, record.runUrl, record.plan].join('\t');
 
 /**
  * Parses one line into a {@link FreshAgentRecord}, or `null` where it does
  * not have the shape this file ever writes.
  *
  * **A TORN OR FOREIGN LINE CONTRIBUTES NOTHING, THE SAME CHOICE EVERY OTHER
- * `.plot/state/` READER MAKES.** A line that does not split into exactly four
+ * `.plot/state/` READER MAKES.** A line that splits into neither four nor five
  * fields is skipped rather than read as a row with empty trailing fields,
  * because a corrupted branch name reading as "a session already ran" is the
  * one misreading this record must never produce.
@@ -55,12 +56,12 @@ const encodeRow = (record: FreshAgentRecord): string =>
  * @param line - one line of the file, without its newline.
  * @returns the row, or null where the line does not parse.
  */
-export const decodeRow = (line: string): FreshAgentRecord | null => {
+export const decodeFreshAgentRow = (line: string): FreshAgentRecord | null => {
   const fields = line.split('\t');
-  if (fields.length !== 4) return null;
-  const [branch, worktree, at, runUrl] = fields;
+  if (fields.length !== 4 && fields.length !== 5) return null;
+  const [branch, worktree, at, runUrl, plan] = fields;
   if (branch === '' || worktree === '' || at === '') return null;
-  return { branch, worktree, at, runUrl: runUrl ?? '' };
+  return { branch, worktree, at, runUrl: runUrl ?? '', plan: plan ?? '' };
 };
 
 /**
@@ -102,7 +103,7 @@ export const freshAgentRecordFile = (
   };
 
   return {
-    rowsFor: async (branch: string): Promise<PortResult<readonly FreshAgentRecord[]>> => {
+    rowsFor: async (plan: string, branch: string): Promise<PortResult<readonly FreshAgentRecord[]>> => {
       const path = await pathOf();
       if (path === null) return answered([]);
       let text: string;
@@ -118,9 +119,9 @@ export const freshAgentRecordFile = (
       const rows = text
         .split('\n')
         .filter((line) => line !== '')
-        .map(decodeRow)
+        .map(decodeFreshAgentRow)
         .filter((row): row is FreshAgentRecord => row !== null)
-        .filter((row) => row.branch === branch);
+        .filter((row) => row.branch === branch && (row.plan === '' || row.plan === plan));
       return answered(rows);
     },
 

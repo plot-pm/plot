@@ -26,6 +26,7 @@ import {
   CONTINUATION_ENV,
   CONTINUATION_NAME,
   handleContinue,
+  continueOnDesk,
   type ContinueRefusal,
 } from '../../src/server/continue.js';
 import type { ContinueDeps } from '../../src/server/continue.js';
@@ -747,5 +748,111 @@ describe('a stale wrapper pid is cleared before the spawn', () => {
       false,
       'the stale wrapper pid must be gone after a continuation — this route starts no wrapper',
     );
+  });
+});
+
+describe('continueOnDesk, as the registry tick calls it', () => {
+  /** A manifest directory naming `wt`, with the resume id the loop would read. */
+  function resumableManifestDir(wt: string): { dir: string; file: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-resumable-'));
+    manifestDirs.push(dir);
+    const file = path.join(dir, 'sess.json');
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify(
+        { session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', resumeId: 'the-spent-session' },
+        null,
+        2,
+      )}\n`,
+    );
+    return { dir, file };
+  }
+
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  const settleAfter = (wt: string) => spawned.add(wt);
+
+  it('keeps the manifest resume id when the start is not fresh', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+    const result = await continueOnDesk(input(wt, dir));
+    assert.equal(result.kind, 'started');
+    settleAfter(wt);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).resumeId, 'the-spent-session');
+  });
+
+  it('replaces the manifest resume id with a new one when the start is fresh', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+    const result = await continueOnDesk({ ...input(wt, dir), fresh: true });
+    assert.equal(result.kind, 'started');
+    settleAfter(wt);
+    const resumeId = JSON.parse(fs.readFileSync(file, 'utf8')).resumeId as string;
+    assert.notEqual(resumeId, 'the-spent-session');
+    assert.match(resumeId, /^[0-9a-f-]{36}$/);
+    assert.equal(fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8').includes('the composed answer'), true);
+  });
+
+  it('does not start where a fresh start cannot replace the resume id', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+    void file;
+    // A READ-ONLY DIRECTORY: the manifest still reads and names the desk, so
+    // the refusal checks pass and only the temp-file write for the new id fails.
+    fs.chmodSync(dir, 0o555);
+    try {
+      const result = await continueOnDesk({ ...input(wt, dir), fresh: true });
+      assert.equal(result.kind, 'failed');
+      assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
+  });
+
+  it('runs beforeStart after the refusal checks and stops the start on false', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = resumableManifestDir(wt);
+    let asked = 0;
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      beforeStart: async () => {
+        asked += 1;
+        return false;
+      },
+    });
+    assert.equal(asked, 1);
+    assert.equal(result.kind, 'failed');
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+    assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.pid'), 'utf8'), '424242');
+  });
+
+  it('does not call beforeStart for a desk it refuses', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-nomanifest-'));
+    manifestDirs.push(empty);
+    let asked = 0;
+    const result = await continueOnDesk({
+      ...input(wt, empty),
+      beforeStart: async () => {
+        asked += 1;
+        return true;
+      },
+    });
+    assert.equal(asked, 0);
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'no-manifest');
   });
 });

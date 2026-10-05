@@ -1,8 +1,9 @@
 ---
 'plot': patch
+'@plot-pm/board': patch
 ---
 
-A desk whose worker ends `corrections-spent` (the spent-budget ending, renamed from `unstarted` so the two causes read apart) is now a population `freshAgentAfterCorrections` can answer about: `start-fresh` the first time a slice reaches it, `needs-a-person` on a second spent budget for the same slice. `freshAgentAnswer` composes the fresh session's answer from `PLOT-CORRECTION.md`'s ordered history and the failing run, and `.plot/state/fresh-agents.tsv` records each fresh session started. The registry tick reads every unregistered, plan-named desk carrying this ending and decides a verdict per desk; applying `start-fresh` — starting the new session itself — is not yet wired in, because the one spawn path that attaches a manifest and its monitors is `plot-dispatch.sh`'s `start_worker`, and no caller outside it can reach that without duplicating it.
+A slice that spends its correction budget gets one fresh agent session before a person is asked. The worker loop ends the spent-budget desk with the reason `corrections-spent` (it was `unstarted`), and `agentLoop` row 15 emits the same reason. With `--start-agents`, the registry tick reads each plan-named desk that has no manifest and ended `corrections-spent`. The first time for a slice, it starts a fresh session through the continue workflow, with every correction from `PLOT-CORRECTION.md` and the failing run in the answer. The session gets a new resume id, so it does not resume the spent conversation. The tick appends a row to `.plot/state/fresh-agents.tsv`, keyed on plan and branch, after continue accepts the desk and before the session starts. A second spent budget for the same slice writes a `blocked` declaration once. If continue refuses the desk (for example `no-manifest`), the tick records nothing and logs the refusal with its reason.
 
 <!--
 plan: docs/plans/2026-10-05-a-spent-correction-budget-gets-a-fresh-agent.md

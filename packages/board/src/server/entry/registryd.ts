@@ -10,11 +10,14 @@ import {
   type FreshAgentVerdict,
 } from '@plot-pm/domain/rules/fresh-agent';
 import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
+import { readDeclaration, DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
+import type { Desk } from '@plot-pm/domain/ports/desk';
 
 import { readTick, type SupervisorWorld } from '../supervisor.js';
 import { readQueue, type QueueWorld } from '../queue-reading.js';
 import type { AgentEntry } from '../registry.js';
+import type { DeskContinuation } from '../continue.js';
 
 /**
  * How long the daemon waits between ticks, in milliseconds.
@@ -112,6 +115,14 @@ export interface TickReport {
    * indistinguishable from one reading an estate with nothing to hand over.
    */
   handOver: Decision<AssignDetail> | null;
+  /**
+   * Every registered worktree this tick read, with whether a manifest names it.
+   *
+   * Absent where the world reads no worktrees or the tick did not complete.
+   * The fresh-agent step reads its candidates from here rather than listing
+   * the worktrees a second time.
+   */
+  trees?: readonly RegisteredTreeReadings[];
   /**
    * What the account spent and what this tick spent, or null/absent where
    * nobody read the spend record. Filled by the looping daemon after a tick
@@ -243,6 +254,7 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
       agents: entries.length,
       decision,
       handOver,
+      ...(readings.trees === undefined ? {} : { trees: readings.trees }),
       incomplete: '',
     };
   } catch (error) {
@@ -493,6 +505,8 @@ export const freshAgentCandidateTrees = (
 
 /** What one tick read of one fresh-agent candidate desk, before deciding. */
 export interface FreshAgentCandidateReadings {
+  /** The plan that names the branch, as its file name without `.md`; `''` where unread. */
+  plan: string;
   /** The branch the desk holds. */
   branch: string;
   /** The desk, absolute. */
@@ -501,47 +515,43 @@ export interface FreshAgentCandidateReadings {
   ending: EndingReason | null;
   /** `PLOT-CORRECTION.md`'s text, verbatim; `''` where it could not be read. */
   correctionsText: string;
-  /** The failing run's URL and failed step, parsed from the ending's own `detail`. */
+  /** The failing run's URL and conclusion, parsed from the ending's own `detail`. */
   runUrl: string;
-  failedStep: string;
+  conclusion: string;
   /** How many fresh sessions this slice already had. */
   priorFreshSessions: number;
+  /** Whether the desk's declaration already says `blocked`. */
+  escalated: boolean;
 }
 
 /** `PLOT-CORRECTION.md`'s filename — the desk's own account of every attempt. */
 const CORRECTION_FILENAME = 'PLOT-CORRECTION.md';
 
 /**
- * Pulls the failing run's URL and failed step out of an ending's `detail`.
+ * Pulls the failing run's URL and conclusion out of an ending's `detail`.
  *
- * **A READING, NOT A RE-DERIVATION.** `write_ending`'s own text for a spent
- * budget is *"the build failed on each of N corrections; the last was: <the
- * monitor's evidence>"*, and the monitor's evidence is itself *"the run at
- * <url> for <sha> concluded <conclusion>"* (`build_says_failed`,
- * `plot-worker-loop.sh:1693`). This parses the same sentence the shell already
- * wrote rather than reading a second source, so a change to the monitor's
- * wording is the one place this can go stale — matching the shell's own
- * `build_says_failed`, which parses the identical sentence from the other
- * direction.
+ * The shell writes the detail for a spent budget as "the build failed on each
+ * of N corrections; the last was: <the monitor's evidence>", and the monitor's
+ * evidence is "the run at <url> for <sha> concluded <conclusion>"
+ * (`build_says_failed`, `plot-worker-loop.sh:1693`). This parses that sentence.
+ * A change to the monitor's wording makes it answer empty strings.
  *
  * @param detail - the ending's `detail` field, verbatim.
- * @returns the run's URL and what it reported failing, or `''` for either
- *   where the sentence does not hold them.
+ * @returns the run's URL and what it concluded, or `''` for either where the
+ *   sentence does not hold them.
  */
-export const runFromEndingDetail = (detail: string): { runUrl: string; failedStep: string } => {
+export const runFromEndingDetail = (detail: string): { runUrl: string; conclusion: string } => {
   const url = /the run at (\S+) for/.exec(detail)?.[1] ?? '';
-  const step = /concluded (.+)$/.exec(detail)?.[1]?.trim() ?? '';
-  return { runUrl: url, failedStep: step };
+  const conclusion = /concluded (.+)$/.exec(detail)?.[1]?.trim() ?? '';
+  return { runUrl: url, conclusion };
 };
 
 /**
  * Reads what one tick needs about every fresh-agent candidate desk.
  *
- * **ONE DESK FILE READ AND ONE STORE READ PER CANDIDATE**, the same shape
- * {@link readTick} already takes per registered agent. The candidate list
- * itself is expected to be small: it holds only a desk whose worker already
- * ended and whose manifest is already gone, which is the rare case this rule
- * exists for rather than the steady state.
+ * Takes one read of the ending, the correction file and the declaration from
+ * each desk, and one read of the record per candidate. The candidate list
+ * holds only desks whose worker ended with its manifest gone.
  *
  * @param candidates - the desks {@link freshAgentCandidateTrees} named.
  * @param deskFile - reads one file from a desk, or null where it is not there.
@@ -555,24 +565,25 @@ export const readFreshAgentCandidates = async (
 ): Promise<readonly FreshAgentCandidateReadings[]> => {
   const out: FreshAgentCandidateReadings[] = [];
   for (const tree of candidates) {
-    const endingText = deskFile(tree.path, ENDING_FILENAME);
-    const endingReading = readEnding(endingText);
+    const endingReading = readEnding(deskFile(tree.path, ENDING_FILENAME));
     const ending = endingReading.read === 'ended' ? endingReading.ending.reason : null;
     const detail = endingReading.read === 'ended' ? endingReading.ending.detail : '';
-    const { runUrl, failedStep } = runFromEndingDetail(detail);
-    const rows = await freshAgents.rowsFor(tree.branch);
+    const { runUrl, conclusion } = runFromEndingDetail(detail);
+    const plan = tree.plan ?? '';
+    const rows = await freshAgents.rowsFor(plan, tree.branch);
+    const declaration = readDeclaration(deskFile(tree.path, DECLARATION_FILENAME));
     out.push({
+      plan,
       branch: tree.branch,
       worktree: tree.path,
       ending,
       correctionsText: deskFile(tree.path, CORRECTION_FILENAME) ?? '',
       runUrl,
-      failedStep,
-      // AN UNANSWERABLE STORE READS AS ZERO, the rule {@link
-      // freshAgentAfterCorrections} already states: absence can start one
-      // session too many and must never strand a slice at a person for a
-      // record this estate never wrote.
+      conclusion,
+      // An unanswerable store reads as zero rows: absence can start one
+      // session too many and never strands a slice at a person.
       priorFreshSessions: rows.ok ? rows.value.length : 0,
+      escalated: declaration.read === 'declared' && declaration.declaration.status === 'blocked',
     });
   }
   return out;
@@ -580,28 +591,28 @@ export const readFreshAgentCandidates = async (
 
 /** What this tick decided about one fresh-agent candidate. */
 export interface FreshAgentDecision {
+  plan: string;
   branch: string;
   worktree: string;
   verdict: FreshAgentVerdict;
   /** The fresh session's composed answer; `''` where the verdict is not `start-fresh`. */
   answer: string;
+  /** The failing run's URL, for the record; `''` where none was read. */
+  runUrl: string;
+  /**
+   * Whether this tick declares the slice blocked.
+   *
+   * True for `needs-a-person` where the desk's declaration does not already
+   * say `blocked`, so the next tick does not repeat the write.
+   */
+  escalate: boolean;
 }
 
 /**
  * Decides every fresh-agent candidate this tick read.
  *
- * **PURE, LIKE EVERY OTHER DECISION HERE.** It takes readings and returns a
- * verdict per desk; nothing here touches a file or a process. Applying
- * `start-fresh` — starting the new session and recording it in
- * `fresh-agents.tsv` — is the performer's, through the same port
- * {@link freshAgentAfterCorrections}'s own doc names: a budget — and that
- * applier does not exist yet. See the plan's PR for why: the one spawn path
- * that attaches a manifest, a session id and the WorkerMonitor/AgentMonitor
- * pair is `plot-dispatch.sh`'s `start_worker`, which this branch's scope does
- * not reach, and `/api/continue` refuses a desk with no manifest and no
- * marker-born question — the exact shape a spent budget leaves behind. This
- * decision is the half that can be built and tested without guessing at that
- * applier's shape.
+ * Takes readings and returns a verdict per desk. It touches no file and no
+ * process; {@link applyFreshAgentDecisions} applies the verdicts.
  *
  * @param candidates - what {@link readFreshAgentCandidates} read.
  * @param budget - the repository's `Correction budget`, for the composed answer.
@@ -614,15 +625,15 @@ export const freshAgentDecisions = (
   candidates.map((reading) => {
     const verdict = freshAgentAfterCorrections({
       ending: reading.ending,
-      // A CANDIDATE IS ALREADY `!registered` BY CONSTRUCTION — see
-      // `freshAgentCandidateTrees` — so every reading handed to the rule
-      // carries `hasManifest: false`. A desk a manifest names again before
-      // this tick acts is a desk the NEXT tick's registry read already
-      // supervises, not this population.
+      // A candidate is `!registered` by construction (see
+      // `freshAgentCandidateTrees`), so every reading carries
+      // `hasManifest: false`. A desk a manifest names before the next tick is
+      // supervised by that tick's registry read instead.
       hasManifest: false,
       priorFreshSessions: reading.priorFreshSessions,
     });
     return {
+      plan: reading.plan,
       branch: reading.branch,
       worktree: reading.worktree,
       verdict,
@@ -633,8 +644,147 @@ export const freshAgentDecisions = (
               budget,
               correctionsText: reading.correctionsText,
               runUrl: reading.runUrl,
-              failedStep: reading.failedStep,
+              conclusion: reading.conclusion,
             })
           : '',
+      runUrl: reading.runUrl,
+      escalate: verdict === 'needs-a-person' && !reading.escalated,
     };
   });
+
+/** What the fresh-agent step applied for one desk. */
+export interface FreshAgentApplied {
+  branch: string;
+  outcome:
+    | 'started'
+    | 'refused'
+    | 'start-failed'
+    | 'threw'
+    | 'escalated'
+    | 'escalation-failed';
+  /** One line saying why, or what started. */
+  detail: string;
+}
+
+/** What {@link applyFreshAgentDecisions} acts through. */
+export interface FreshAgentPorts {
+  /** The `.plot/state/fresh-agents.tsv` store. */
+  record: Pick<FreshAgentRecordStore, 'append'>;
+  /** Writes the `blocked` declaration. */
+  desk: Pick<Desk, 'sealDeclaration'>;
+  /**
+   * Starts the fresh session through the continue workflow.
+   *
+   * `beforeStart` runs after the workflow accepts the desk and before it
+   * changes anything; returning false stops the start.
+   */
+  start: (input: {
+    branch: string;
+    worktree: string;
+    answer: string;
+    beforeStart: () => Promise<boolean>;
+  }) => Promise<DeskContinuation>;
+  /** The clock, for the record's timestamp. */
+  now: () => Date;
+}
+
+/**
+ * Applies the fresh-agent decisions of one tick.
+ *
+ * **`start-fresh` WRITES THE RECORD ROW, THEN STARTS.** The row is appended
+ * after the continue workflow accepted the desk and before it spawned, so a
+ * tick that throws after the write has one row and the next tick reads
+ * `needs-a-person` instead of starting a second session. A refusal by the
+ * workflow (for example `no-manifest`) happens before the row is written, so
+ * a refused desk records nothing.
+ *
+ * **`needs-a-person` WRITES A `blocked` DECLARATION ONCE.** The decision
+ * carries `escalate: false` once the declaration exists.
+ *
+ * **ONE DESK THROWING DOES NOT STOP THE OTHERS.** The throw is reported as
+ * `threw`.
+ *
+ * @param decisions - what {@link freshAgentDecisions} decided.
+ * @param ports - what each decision acts through.
+ * @returns one entry per desk acted on or refused, in decision order; desks
+ *   with nothing to do have no entry.
+ */
+export const applyFreshAgentDecisions = async (
+  decisions: readonly FreshAgentDecision[],
+  ports: FreshAgentPorts,
+): Promise<readonly FreshAgentApplied[]> => {
+  const out: FreshAgentApplied[] = [];
+  for (const decision of decisions) {
+    try {
+      if (decision.verdict === 'start-fresh') {
+        const started = await ports.start({
+          branch: decision.branch,
+          worktree: decision.worktree,
+          answer: decision.answer,
+          beforeStart: async () =>
+            (
+              await ports.record.append({
+                plan: decision.plan,
+                branch: decision.branch,
+                worktree: decision.worktree,
+                at: ports.now().toISOString(),
+                runUrl: decision.runUrl,
+              })
+            ).ok,
+        });
+        if (started.kind === 'started') {
+          out.push({
+            branch: decision.branch,
+            outcome: 'started',
+            detail: `fresh session started, pid ${started.pid}`,
+          });
+        } else if (started.kind === 'refused') {
+          out.push({
+            branch: decision.branch,
+            outcome: 'refused',
+            detail: `continue refused (${started.reason}): ${started.detail}`,
+          });
+        } else {
+          out.push({ branch: decision.branch, outcome: 'start-failed', detail: started.error });
+        }
+      } else if (decision.escalate) {
+        const sealed = await ports.desk.sealDeclaration(decision.worktree, decision.branch, 'blocked');
+        out.push(
+          sealed.ok
+            ? {
+                branch: decision.branch,
+                outcome: 'escalated',
+                detail: 'a second spent budget: declared blocked for a person',
+              }
+            : {
+                branch: decision.branch,
+                outcome: 'escalation-failed',
+                detail: 'the blocked declaration could not be written',
+              },
+        );
+      }
+    } catch (error) {
+      out.push({
+        branch: decision.branch,
+        outcome: 'threw',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return out;
+};
+
+/**
+ * One log line per applied fresh-agent outcome.
+ *
+ * @param applied - what {@link applyFreshAgentDecisions} returned.
+ * @returns the lines without newlines, each saying whether it belongs on the
+ *   error stream.
+ */
+export const freshAgentLines = (
+  applied: readonly FreshAgentApplied[],
+): readonly { line: string; error: boolean }[] =>
+  applied.map((entry) => ({
+    line: `plot-registryd fresh-agent ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
+    error: entry.outcome !== 'started' && entry.outcome !== 'escalated',
+  }));

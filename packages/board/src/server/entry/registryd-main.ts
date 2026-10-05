@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -14,6 +14,8 @@ import {
   prIndexFile,
   supervisionReportFile,
   tempSweepShell,
+  freshAgentRecordFile,
+  deskFs,
 } from '@plot-pm/domain/adapters';
 import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
 import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
@@ -27,6 +29,7 @@ import { viewLanded } from '@plot-pm/domain/rules/known-pr';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
+import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
 import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
 import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
@@ -45,6 +48,13 @@ import {
   tick,
   tickLine,
   unclaimedLines,
+  freshAgentCandidateTrees,
+  readFreshAgentCandidates,
+  freshAgentDecisions,
+  applyFreshAgentDecisions,
+  freshAgentLines,
+  type FreshAgentPorts,
+  type FreshAgentApplied,
   TICK_INTERVAL_MS,
   type TickReport,
   type TickSpend,
@@ -63,6 +73,8 @@ import {
 } from '@plot-pm/domain/entities/supervision-report';
 import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
 import { logDir, processLog, truncateInherited } from '../process-log.js';
+import { readConfig } from '../board.js';
+import { continueOnDesk } from '../continue.js';
 
 /**
  * `plot-registryd` — the supervisor, one per repository.
@@ -405,7 +417,7 @@ export const worldForRepo = (
   // is built once and `beginTick` clears the memo at the top of each pass, so a
   // branch asked about twice in one tick costs one walk and a branch asked
   // about next tick costs a fresh one.
-  let memo: Promise<ReadonlyMap<string, PlanBranchLine>> | null = null;
+  let memo: Promise<ReadonlyMap<string, PlanBranchLine & { plan: string }>> | null = null;
   const planLinesThisTick = () => (memo ??= planLinesFor(plans));
 
   return worldFrom({
@@ -507,6 +519,7 @@ export const worldForRepo = (
           // string is the reading rather than a lookup that would match the
           // plan line of whatever branch sorts first.
           planNamed: tree.branch !== '' && lines.has(tree.branch),
+          plan: lines.get(tree.branch)?.plan ?? '',
           dirtyCount: dirty,
         });
       }
@@ -978,8 +991,8 @@ const dirtyCountOf = async (
  */
 const planLinesFor = async (
   plans: ReturnType<typeof planStoreShell>,
-): Promise<ReadonlyMap<string, PlanBranchLine>> => {
-  const lines = new Map<string, PlanBranchLine>();
+): Promise<ReadonlyMap<string, PlanBranchLine & { plan: string }>> => {
+  const lines = new Map<string, PlanBranchLine & { plan: string }>();
   const files = await plans.listPlans();
   if (!files.ok) return lines;
   const records = await plans.readPlans(files.value);
@@ -991,6 +1004,8 @@ const planLinesFor = async (
         // `double_claims=` finding rather than this function's to resolve.
         if (lines.has(line.branch)) continue;
         lines.set(line.branch, {
+          // THE PLAN'S FILE NAME WITHOUT `.md`, which keys the fresh-agent record.
+          plan: basename(record.file, '.md'),
           // NOT the plan's `prs`: that array is every PR the plan annotates
           // anywhere, and attributing it to one line would report a branch as
           // annotated because a sibling was. `PlanRecordBranch` carries no
@@ -1252,6 +1267,49 @@ export const writeSupervisionReport = async (
 };
 
 /**
+ * Reads, decides and applies the fresh-agent step for one completed tick.
+ *
+ * Desks whose worker ended `corrections-spent` with no manifest left get one
+ * fresh session through the continue workflow; a second spent budget for the
+ * same slice is declared `blocked`. A failure anywhere in the step is reported
+ * on stderr and never ends the daemon: the next tick reads the same desks and
+ * the record again.
+ *
+ * @param report - the completed tick, whose `trees` name the candidates.
+ * @param deps - how to read a desk file, the record, the ports to act through,
+ *   and the repository's `Correction budget`.
+ * @param write - where a started session or an escalation is reported.
+ * @param warn - where a refusal or a failure is reported.
+ * @returns what was applied, in desk order.
+ */
+export const startFreshAgents = async (
+  report: TickReport,
+  deps: {
+    deskFile: (worktree: string, name: string) => string | null;
+    record: Pick<FreshAgentRecordStore, 'rowsFor'>;
+    ports: FreshAgentPorts;
+    budget: number;
+  },
+  write: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<readonly FreshAgentApplied[]> => {
+  try {
+    const candidates = freshAgentCandidateTrees(report.trees ?? []);
+    if (candidates.length === 0) return [];
+    const readings = await readFreshAgentCandidates(candidates, deps.deskFile, deps.record);
+    const applied = await applyFreshAgentDecisions(
+      freshAgentDecisions(readings, deps.budget),
+      deps.ports,
+    );
+    for (const { line, error } of freshAgentLines(applied)) (error ? warn : write)(`${line}\n`);
+    return applied;
+  } catch (err) {
+    warn(`plot-registryd: the fresh-agent step failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    return [];
+  }
+};
+
+/**
  * Runs the temp sweep when an hour has passed since the last one.
  *
  * A failed sweep is reported on stderr and never ends the daemon: the sweep is
@@ -1321,6 +1379,29 @@ export const run = async (
   // not, so a second writer would race.
   const reportStore = supervisionReportFile({ cwd: repoRoot });
   const tempSweep = tempSweepShell({ repoRoot, scriptDir: scriptsDir });
+  // THE DAEMON IS THE ONLY WRITER OF THE FRESH-AGENT RECORD, for the reason
+  // `reportStore` above gives, and the store lives for the daemon's whole life
+  // so the `--git-common-dir` lookup is forked once.
+  const freshAgentRecord = freshAgentRecordFile({ cwd: repoRoot });
+  const boardOpts = { repoRoot, scriptsDir };
+  const freshAgentPorts: FreshAgentPorts = {
+    record: freshAgentRecord,
+    desk: deskFs(treesGit({ repoRoot, scriptDir: scriptsDir })),
+    now: () => new Date(),
+    start: async ({ branch, worktree, answer, beforeStart }) => {
+      const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
+      return continueOnDesk({
+        opts: boardOpts,
+        branch,
+        worktree,
+        main: base.ok ? base.value : '',
+        previousPid: '',
+        answer,
+        fresh: true,
+        beforeStart,
+      });
+    },
+  };
 
   write(`plot-registryd: supervising ${registryDir}\n`);
 
@@ -1406,6 +1487,23 @@ export const run = async (
     // AFTER `reportTick`, so a tick whose report cannot be written still logs.
     await writeSupervisionReport(report, reportStore, warn);
     if (args.startAgents) await startAgents(report, performer, handOverWorld, write, warn);
+    // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
+    // starts above. A tick that was not allowed to start reports and acts on
+    // nothing.
+    if (args.startAgents && report.incomplete === '') {
+      const budget = Number(readConfig(boardOpts, 'Correction budget', '2'));
+      await startFreshAgents(
+        report,
+        {
+          deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
+          record: freshAgentRecord,
+          ports: freshAgentPorts,
+          budget: Number.isInteger(budget) && budget >= 0 ? budget : 2,
+        },
+        write,
+        warn,
+      );
+    }
     if (args.sweepTemp) await sweepTempIfDue(tempSweep, Date.now(), write, warn);
 
     // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.

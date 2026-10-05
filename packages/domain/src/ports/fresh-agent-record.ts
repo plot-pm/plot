@@ -2,6 +2,11 @@ import type { PortResult } from '../port-result.js';
 
 /** One fresh session the supervisor started for a spent correction budget. */
 export interface FreshAgentRecord {
+  /**
+   * The plan the slice belongs to, as its file name without `.md`, or `''`
+   * for a row written before the record named the plan.
+   */
+  plan: string;
   /** The branch the budget was spent on. */
   branch: string;
   /** The desk the fresh session ran in, absolute. */
@@ -32,35 +37,34 @@ export interface FreshAgentRecord {
  * gitignored like every other `.plot/state/` record.
  *
  * **APPEND-ONLY, ONE ROW PER START.** A row is a measurement — this session
- * was started at this time, for this branch — and a second spent budget on
+ * was started at this time, for this slice — and a second spent budget on
  * the same slice is a second row rather than an overwrite, so the count this
  * port's caller derives is a count of rows, not a field it increments.
  *
- * **A MISSING OR UNREADABLE FILE IS AN EMPTY RECORD, NEVER A FAILURE THE
- * CALLER TREATS AS "ALREADY STARTED."** The plan is explicit that absence
- * must read as "no fresh session yet" — which can start one session too many
- * but must never strand a slice at a person for a record this estate never
- * wrote.
+ * **A MISSING FILE IS AN EMPTY RECORD, AND AN UNREADABLE ONE IS `failed`;
+ * THE CALLER READS BOTH AS ZERO ROWS, NEVER AS "ALREADY STARTED."** Absence
+ * can start one session too many, but it must never strand a slice at a
+ * person for a record this estate never wrote.
  */
 export interface FreshAgentRecordStore {
   /**
-   * Every row the record holds for one branch, in file order.
+   * Every row the record holds for one slice, in file order.
    *
-   * A MISSING FILE IS AN EMPTY ANSWER, not a failure: absence is the state of
-   * every slice that has not yet spent a correction budget. Every other
-   * read error still answers `answered([])` — see
-   * {@link freshAgentAfterCorrections}'s own contract: a record this rule
-   * cannot read must read as zero rather than refuse the tick.
+   * A slice is a plan and a branch. A row with an empty `plan`, written
+   * before the record named the plan, counts for its branch under any plan.
+   * A missing file answers `answered([])`. Any other read error answers
+   * `failed()`, which the caller reads as zero rows.
    *
-   * @param branch - the branch to read rows for.
-   * @returns the rows naming that branch, oldest first.
+   * @param plan - the plan the slice belongs to.
+   * @param branch - the slice's branch.
+   * @returns the rows for that slice, oldest first.
    */
-  rowsFor(branch: string): Promise<PortResult<readonly FreshAgentRecord[]>>;
+  rowsFor(plan: string, branch: string): Promise<PortResult<readonly FreshAgentRecord[]>>;
 
   /**
    * Appends one row — one fresh session started.
    *
-   * @param record - the branch, the desk, when, and the failing run.
+   * @param record - the plan, the branch, the desk, when, and the failing run.
    * @returns nothing on success; `failed` where the write itself could not
    *   land. Never throws.
    */

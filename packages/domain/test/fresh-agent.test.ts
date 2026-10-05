@@ -94,7 +94,7 @@ describe('freshAgentAnswer', () => {
     correctionsText:
       '## Correction 1 of 2 — the build failed on `feature/x`\n\nCI reported: domain coverage gate\n\n---\n\n## Correction 2 of 2 — the build failed on `feature/x`\n\nCI reported: domain coverage gate again\n\n---\n',
     runUrl: 'https://github.com/plot-pm/plot/actions/runs/123',
-    failedStep: 'domain coverage',
+    conclusion: 'failure',
   };
 
   it('holds every correction in order', () => {
@@ -109,8 +109,8 @@ describe('freshAgentAnswer', () => {
     expect(freshAgentAnswer(input)).toContain(input.runUrl);
   });
 
-  it('holds the failed step', () => {
-    expect(freshAgentAnswer(input)).toContain('domain coverage');
+  it('holds the conclusion', () => {
+    expect(freshAgentAnswer(input)).toContain('- conclusion: failure');
   });
 
   it('names the branch and the budget in the instruction', () => {
@@ -124,20 +124,20 @@ describe('freshAgentAnswer', () => {
     expect(answer).toContain('No `PLOT-CORRECTION.md` could be read');
   });
 
-  it('says so when neither the run URL nor the failed step could be read', () => {
-    const answer = freshAgentAnswer({ ...input, runUrl: '', failedStep: '' });
+  it('says so when neither the run URL nor the conclusion could be read', () => {
+    const answer = freshAgentAnswer({ ...input, runUrl: '', conclusion: '' });
     expect(answer).toContain('No run could be read');
   });
 
-  it('holds the run URL alone when the failed step could not be read', () => {
-    const answer = freshAgentAnswer({ ...input, failedStep: '' });
+  it('holds the run URL alone when the conclusion could not be read', () => {
+    const answer = freshAgentAnswer({ ...input, conclusion: '' });
     expect(answer).toContain(input.runUrl);
-    expect(answer).not.toContain('failed step:');
+    expect(answer).not.toContain('conclusion:');
   });
 
-  it('holds the failed step alone when the run URL could not be read', () => {
+  it('holds the conclusion alone when the run URL could not be read', () => {
     const answer = freshAgentAnswer({ ...input, runUrl: '' });
     expect(answer).not.toContain('No run could be read');
-    expect(answer).toContain('failed step: domain coverage');
+    expect(answer).toContain('conclusion: failure');
   });
 });

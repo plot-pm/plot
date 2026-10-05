@@ -96,7 +96,7 @@ export const deskFs = (trees: Trees): Desk => {
       return bestEffortWrite(file, `${text}\n`);
     },
 
-    sealDeclaration: async (worktree, branch): Promise<PortResult<void>> => {
+    sealDeclaration: async (worktree, branch, status = 'ok'): Promise<PortResult<void>> => {
       if (branch === '') return failed<void>();
       const file = join(worktree, DECLARATION_FILE);
       const tmp = `${file}.plot-seal-tmp`;
@@ -124,7 +124,11 @@ export const deskFs = (trees: Trees): Desk => {
         declared = parsed as Record<string, unknown>;
       }
 
-      const envelope = { ...declared, branch, status: declared.status || 'ok' };
+      const envelope = {
+        ...declared,
+        branch,
+        status: status === 'blocked' ? 'blocked' : declared.status || 'ok',
+      };
       try {
         writeFileSync(tmp, `${JSON.stringify(envelope, null, 2)}\n`);
         renameSync(tmp, file);
