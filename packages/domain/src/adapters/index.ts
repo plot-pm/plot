@@ -86,6 +86,7 @@ export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';
 
 export { refsGit } from './refs/refs-git.js';
+export { refsRemoteGit, type RunCommand } from './refs/refs-remote-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
 export {

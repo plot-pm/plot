@@ -542,7 +542,9 @@ export interface Refs {
    *
    * @param branch - the branch to ask about, without a remote prefix.
    * @param pushedSha - the commit the caller pushed.
-   * @returns `pushed` where the remote tip still equals it, `other` where a
+   * @returns `unaskable` from the board's instance (`refs-git.ts` holds no
+   *   network call; the loop composes `refs-remote-git.ts` onto it), otherwise
+   *   `pushed` where the remote tip still equals it, `other` where a
    *   different commit sits there now, and `unknown` where the read failed or
    *   timed out — never `other` for that case, because a failure to observe is
    *   not evidence the tip moved.

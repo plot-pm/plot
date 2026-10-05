@@ -557,6 +557,13 @@ jobs:
           echo "The control lost its agent, as origin/main's unit does."
           echo "Measured under the $MANAGER manager."
 
+          # THE GROUP STOP (#1084), on Linux, beside the unit that keeps agents
+          # alive: a `boundedRun` prompt stays in its caller's process group, so
+          # `kill -TERM -<pgid>` ends the wrapper, the prompt and the prompt's
+          # child. The stand-ins are script files under test/fixtures, for the
+          # reason the stand-in above is one.
+          pnpm --filter @plot-pm/domain exec vitest run test/bounded-run-group-stop.test.ts
+
       # ── Domain: the package the board now imports its entities from. Gated
       #    BEFORE the board, because the board resolves these shapes from here
       #    and a domain that does not hold cannot produce a meaningful board

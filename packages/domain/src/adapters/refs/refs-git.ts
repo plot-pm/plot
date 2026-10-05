@@ -1,6 +1,6 @@
 import { FleetReadingSchema } from '../../entities/fleet.js';
 import { compareVersions } from '../../entities/version.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { RemoteTipReading } from '../../rules/checks-verdict.js';
 import type {
   BranchDate,
@@ -82,8 +82,6 @@ const blobsOf = (stream: Buffer): ReadonlyMap<string, string> => {
 /** Thirty-two megabytes: the whole ref database of a large estate in one reply. */
 const REFS_MAX_BUFFER = 32 * 1024 * 1024;
 
-/** How long `git ls-remote` may take before it is read as `unknown`, in milliseconds. */
-const REMOTE_TIP_TIMEOUT_MS = 10_000;
 
 /** Which ref namespaces each scope asks `for-each-ref` about. */
 const NAMESPACES: Record<RefScope, readonly string[]> = {
@@ -604,23 +602,9 @@ export const refsGit = (context: ShellContext): Refs => {
     tagDate: (tag) =>
       runScript('git', ['log', '-1', '--format=%as', tag], asText, inRepo),
 
-    remoteTip: async (branch, pushedSha): Promise<PortResult<RemoteTipReading>> => {
-      const run = await runProcess(
-        'git',
-        ['ls-remote', '--heads', 'origin', branch],
-        { ...inRepo, timeoutMs: REMOTE_TIP_TIMEOUT_MS },
-      );
-      // A FAILED OR TIMED-OUT READ IS `unknown`, NEVER `other`. The remote tip
-      // may equal `pushedSha` still — the call simply could not say — and
-      // reading it as `other` would end the CI wait on a tip that never moved.
-      if (run.code !== 0) return answered<RemoteTipReading>('unknown');
-      const line = run.stdout.split('\n').find((l) => l.trim() !== '');
-      const tip = line?.split('\t')[0]?.trim();
-      // AN EMPTY REPLY — the branch has no remote-tracking ref at all — IS
-      // `unknown` TOO, for the same reason: no evidence the tip moved away from
-      // `pushedSha`, only that this read could not confirm it.
-      if (!tip) return answered<RemoteTipReading>('unknown');
-      return answered<RemoteTipReading>(tip === pushedSha ? 'pushed' : 'other');
-    },
+    // The board's adapter holds no network call: `remoteTip` is composed from
+    // `refs-remote-git.ts` at the loop's own wiring, and a poll path that asks
+    // this instance gets `unaskable` rather than a read over the wire.
+    remoteTip: async () => unaskable<RemoteTipReading>(),
   };
 };

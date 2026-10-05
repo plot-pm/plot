@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { refsGit } from '../src/adapters/refs/refs-git.js';
+import { refsRemoteGit } from '../src/adapters/refs/refs-remote-git.js';
 
 /**
  * `remoteTip` against a REAL remote, the way `refs-git-reads.test.ts` tests
@@ -38,9 +39,9 @@ afterAll(() => {
   if (clone) fs.rmSync(clone, { recursive: true, force: true });
 });
 
-const refs = () => refsGit({ repoRoot: clone, scriptDir: path.join(clone, 'scripts') });
+const refs = () => refsRemoteGit({ repoRoot: clone, scriptDir: path.join(clone, 'scripts') });
 
-describe('refsGit.remoteTip', () => {
+describe('refsRemoteGit.remoteTip', () => {
   it('answers `pushed` when the remote tip still equals the pushed commit', async () => {
     const result = await refs().remoteTip('main', pushedSha);
     expect(result).toEqual({ ok: true, value: 'pushed' });
@@ -64,7 +65,7 @@ describe('refsGit.remoteTip', () => {
   });
 
   it('answers `unknown`, never `other`, when the remote cannot be reached', async () => {
-    const unreachable = refsGit({
+    const unreachable = refsRemoteGit({
       repoRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'plot-remote-tip-unreachable-')),
       scriptDir: '/nonexistent/scripts',
     });
@@ -74,5 +75,39 @@ describe('refsGit.remoteTip', () => {
     // moved.
     const result = await unreachable.remoteTip('main', pushedSha);
     expect(result).toEqual({ ok: true, value: 'unknown' });
+  });
+});
+
+describe('refsRemoteGit with a stubbed command', () => {
+  const ctx = { repoRoot: '/nowhere', scriptDir: '/nowhere/scripts' };
+  const stub = (code: number, stdout: string) => async () => ({ code, stdout, stderr: '' });
+
+  it('asks ls-remote for one branch on origin with a 10 s timeout', async () => {
+    const seen: { args: readonly string[]; timeoutMs?: number }[] = [];
+    const remote = refsRemoteGit(ctx, async (_c, args, options) => {
+      seen.push({ args, timeoutMs: options.timeoutMs });
+      return { code: 0, stdout: 'abc\trefs/heads/x\n', stderr: '' };
+    });
+    expect(await remote.remoteTip('x', 'abc')).toEqual({ ok: true, value: 'pushed' });
+    expect(seen).toEqual([{ args: ['ls-remote', '--heads', 'origin', 'x'], timeoutMs: 10_000 }]);
+  });
+
+  it('reads a different tip as other', async () => {
+    const remote = refsRemoteGit(ctx, stub(0, 'def\trefs/heads/x\n'));
+    expect(await remote.remoteTip('x', 'abc')).toEqual({ ok: true, value: 'other' });
+  });
+
+  it('reads a non-zero exit or an empty reply as unknown', async () => {
+    expect(await refsRemoteGit(ctx, stub(128, '')).remoteTip('x', 'abc')).toEqual({ ok: true, value: 'unknown' });
+    expect(await refsRemoteGit(ctx, stub(0, '')).remoteTip('x', 'abc')).toEqual({ ok: true, value: 'unknown' });
+  });
+});
+
+describe('the board refs adapter carries no network-backed remoteTip', () => {
+  it('answers unaskable and the file names no ls-remote', async () => {
+    const board = refsGit({ repoRoot: clone, scriptDir: path.join(clone, 'scripts') });
+    expect(await board.remoteTip('main', pushedSha)).toEqual({ ok: false, why: 'unaskable' });
+    const source = fs.readFileSync(new URL('../src/adapters/refs/refs-git.ts', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/ls-remote/);
   });
 });
