@@ -501,6 +501,7 @@ export type * from './ports/tracker.js';
 export type * from './ports/build.js';
 export type * from './ports/budget.js';
 export type * from './ports/slice-spend.js';
+export type * from './ports/fresh-agent-record.js';
 export type * from './ports/supervision-report.js';
 export type * from './ports/slots.js';
 export type * from './ports/processes.js';
