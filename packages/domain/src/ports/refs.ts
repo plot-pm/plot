@@ -1,5 +1,6 @@
 import type { PortResult } from '../port-result.js';
 import type { FleetReading } from '../entities/fleet.js';
+import type { RemoteTipReading } from '../rules/checks-verdict.js';
 
 /**
  * Whether a branch's work is on the default branch.
@@ -522,4 +523,31 @@ export interface Refs {
    * @returns the committer date; a failure where the tag does not resolve.
    */
   tagDate(tag: string): Promise<PortResult<string>>;
+
+  /**
+   * Whether a branch's tip on the remote still equals a commit, read live.
+   *
+   * **`git ls-remote`, NOT {@link Refs.remoteHead} or {@link Refs.branchTips}.**
+   * Both of those read the LAST-FETCHED `refs/remotes/origin/*`, so after a
+   * person pushes on top of the agent's commit (#1199: `0e64fafd` over the
+   * agent's `f743e573`) they still report the agent's own tip. This asks the
+   * remote directly, which is the only reading that can see a push nobody here
+   * has fetched yet.
+   *
+   * **THE COMPARISON IS EQUALITY, NOT ANCESTRY**, so it carries no
+   * `plot-ancestry` declaration: `other` means a DIFFERENT commit sits at the
+   * tip, whether or not it descends from the one pushed, and that is itself the
+   * fact the loop's CI wait acts on — a settled run for the old tip is not
+   * evidence about a tip that moved.
+   *
+   * @param branch - the branch to ask about, without a remote prefix.
+   * @param pushedSha - the commit the caller pushed.
+   * @returns `unaskable` from the board's instance (`refs-git.ts` holds no
+   *   network call; the loop composes `refs-remote-git.ts` onto it), otherwise
+   *   `pushed` where the remote tip still equals it, `other` where a
+   *   different commit sits there now, and `unknown` where the read failed or
+   *   timed out — never `other` for that case, because a failure to observe is
+   *   not evidence the tip moved.
+   */
+  remoteTip(branch: string, pushedSha: string): Promise<PortResult<RemoteTipReading>>;
 }

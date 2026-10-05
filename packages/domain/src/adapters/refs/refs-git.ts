@@ -1,6 +1,7 @@
 import { FleetReadingSchema } from '../../entities/fleet.js';
 import { compareVersions } from '../../entities/version.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
+import type { RemoteTipReading } from '../../rules/checks-verdict.js';
 import type {
   BranchDate,
   BranchTip,
@@ -80,6 +81,7 @@ const blobsOf = (stream: Buffer): ReadonlyMap<string, string> => {
 
 /** Thirty-two megabytes: the whole ref database of a large estate in one reply. */
 const REFS_MAX_BUFFER = 32 * 1024 * 1024;
+
 
 /** Which ref namespaces each scope asks `for-each-ref` about. */
 const NAMESPACES: Record<RefScope, readonly string[]> = {
@@ -599,5 +601,10 @@ export const refsGit = (context: ShellContext): Refs => {
 
     tagDate: (tag) =>
       runScript('git', ['log', '-1', '--format=%as', tag], asText, inRepo),
+
+    // The board's adapter holds no network call: `remoteTip` is composed from
+    // `refs-remote-git.ts` at the loop's own wiring, and a poll path that asks
+    // this instance gets `unaskable` rather than a read over the wire.
+    remoteTip: async () => unaskable<RemoteTipReading>(),
   };
 };

@@ -352,7 +352,11 @@ export interface LogClearWrite {
   readonly branch: string;
 }
 
-/** Commits the staged writes. Paths are staged explicitly, never `add -A`. */
+/**
+ * Makes a commit. Paths are staged explicitly, never `add -A`. Empty `paths`
+ * means an empty commit — for the agent loop, the claim commit in the pass's
+ * own desk.
+ */
 export interface CommitWrite {
   readonly kind: 'commit';
   /** The commit message. */
@@ -515,8 +519,14 @@ export interface AgentFindingWrite {
   readonly kind: 'worker-finding';
   /** The worktree the finding is about, absolute. */
   readonly worktree: string;
+  /** The branch the finding is about. */
+  readonly branch: string;
   /** The finding to publish. */
   readonly finding: 'gone' | 'idle' | 'clear';
+  /** When the finding first held, ISO-8601. */
+  readonly since: string;
+  /** One sentence naming the measurement behind the finding. */
+  readonly evidence: string;
 }
 
 /** Writes a build finding line, in the shape the BuildMonitor writes today. */

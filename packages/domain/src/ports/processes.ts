@@ -65,6 +65,21 @@ export interface Processes {
   startedAt(pid: number): Promise<PortResult<number>>;
 
   /**
+   * The direct child pids of a process, read from the process table.
+   *
+   * **THE SNAPSHOT A GROUP STOP TAKES BEFORE IT KILLS THE ROOT.** `boundedRun`
+   * reads this BEFORE signalling the root process, never after: once the root
+   * dies its children reparent to pid 1, and a read taken then finds none of
+   * them — `_kill_tree` (`plot-worker-loop.sh:2054`) collects child pids first
+   * for exactly this reason.
+   *
+   * @param pid - the parent process id to ask about.
+   * @returns the direct child pids; empty where none are running or the pid is
+   *   gone — an answer, not a failure.
+   */
+  childrenOf(pid: number): Promise<PortResult<readonly number[]>>;
+
+  /**
    * How long a process has been up, in seconds.
    *
    * `null` where nothing is running under the pid, and that emptiness is the

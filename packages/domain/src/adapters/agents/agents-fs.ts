@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -220,61 +220,153 @@ export interface AgentsFsOptions {
  * @param options - what the caller has already resolved.
  * @returns an `Agents` reading this machine's filesystem.
  */
-export const agentsFs = (context: ShellContext, options: AgentsFsOptions = {}): Agents => ({
-  declared: async (): Promise<PortResult<readonly AgentManifest[]>> => {
+export const agentsFs = (context: ShellContext, options: AgentsFsOptions = {}): Agents => {
+  /**
+   * The manifest FILE for the agent whose `worktree` field matches, or `null`.
+   *
+   * **A SCAN, NOT A PATH DERIVED FROM THE WORKTREE.** A manifest is named
+   * `<session>.json`, and nothing about a worktree's own path says its
+   * session — the shell's loop carries `PLOT_MANIFEST_FILE` as an environment
+   * variable for the same reason. {@link declared} already reads every
+   * manifest in the directory, so this scan costs no second implementation of
+   * the parse.
+   */
+  const manifestFileFor = async (worktree: string): Promise<string | null> => {
     const dir = await manifestDir(context, options.manifestDir);
     let names: string[];
     try {
       names = readdirSync(dir);
     } catch {
-      // NO DIRECTORY IS `failed`, NOT AN EMPTY ANSWER. A registry that is not
-      // there was never written to, and a caller that reads that as *this
-      // estate has no agents* cannot tell it from one that has none — which is
-      // the distinction `PortResult` exists to keep.
-      return failed<readonly AgentManifest[]>();
+      return null;
     }
-    const out: AgentManifest[] = [];
     for (const name of names) {
       if (!name.endsWith('.json')) continue;
-      const text = fileOrNull(join(dir, name));
+      const path = join(dir, name);
+      const text = fileOrNull(path);
       if (text === null) continue;
       const entry = parseManifest(text);
-      // An unparseable file costs its own entry and never the listing. The
-      // board renders this on the scan's timer, and a throw here would cost
-      // the whole pulse.
-      if (entry !== null) out.push(entry);
+      if (entry !== null && entry.worktree === worktree) return path;
     }
-    return answered(out);
-  },
+    return null;
+  };
 
-  declaration: async (session): Promise<PortResult<AgentManifest>> => {
-    const dir = await manifestDir(context, options.manifestDir);
-    const text = fileOrNull(join(dir, `${session}.json`));
-    if (text === null) return failed<AgentManifest>();
-    const entry = parseManifest(text);
-    return entry === null ? failed<AgentManifest>() : answered(entry);
-  },
-
-  desk: async (worktree): Promise<PortResult<AgentDesk>> => {
+  /**
+   * Raises a non-negative integer field by writing the given value, through a
+   * temp file and a rename — matching `raise_manifest_count`
+   * (`plot-agent-manifest.sh`) exactly, including its absent-is-not-a-failure
+   * contract.
+   */
+  const raiseField = async (
+    worktree: string,
+    field: 'attempts' | 'correctionAttempts',
+    value: number,
+  ): Promise<PortResult<void>> => {
+    const file = await manifestFileFor(worktree);
+    if (file === null) return answered(undefined);
+    const text = fileOrNull(file);
+    if (text === null) return answered(undefined);
+    let manifest: Record<string, unknown>;
     try {
-      if (!statSync(worktree).isDirectory()) return failed<AgentDesk>();
+      manifest = JSON.parse(text) as Record<string, unknown>;
     } catch {
-      // A DESK THAT IS NOT HERE IS `failed`, and the caller decides what that
-      // means. `rules/agent-state.ts` reads it as `elsewhere`; the supervisor
-      // reads an unreadable desk as blocked. Answering empty readings would
-      // make both of those impossible to tell from a desk holding nothing.
-      return failed<AgentDesk>();
+      return failed<void>();
     }
-    const { markers, question } = readMarkers(worktree);
-    return answered({
-      question,
-      markers,
-      pid: readPid(fileOrNull(join(worktree, PID_FILE))),
-      // `null` IS THE RECORD'S ABSENCE AND `''` IS AN UNREADABLE RECORD, and
-      // they are kept apart because `rules/agent-state.ts` reaches `ended` by
-      // both routes and says so. A worker killed outright left no file; one
-      // whose wrapper died mid-write left a file saying nothing.
-      exit: fileOrNull(join(worktree, EXIT_FILE))?.trim() ?? null,
-    });
-  },
-});
+    manifest[field] = value;
+    const tmp = `${file}.plot-count-tmp`;
+    try {
+      writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`);
+      renameSync(tmp, file);
+    } catch {
+      return failed<void>();
+    }
+    return answered(undefined);
+  };
+
+  return {
+    declared: async (): Promise<PortResult<readonly AgentManifest[]>> => {
+      const dir = await manifestDir(context, options.manifestDir);
+      let names: string[];
+      try {
+        names = readdirSync(dir);
+      } catch {
+        // NO DIRECTORY IS `failed`, NOT AN EMPTY ANSWER. A registry that is not
+        // there was never written to, and a caller that reads that as *this
+        // estate has no agents* cannot tell it from one that has none — which is
+        // the distinction `PortResult` exists to keep.
+        return failed<readonly AgentManifest[]>();
+      }
+      const out: AgentManifest[] = [];
+      for (const name of names) {
+        if (!name.endsWith('.json')) continue;
+        const text = fileOrNull(join(dir, name));
+        if (text === null) continue;
+        const entry = parseManifest(text);
+        // An unparseable file costs its own entry and never the listing. The
+        // board renders this on the scan's timer, and a throw here would cost
+        // the whole pulse.
+        if (entry !== null) out.push(entry);
+      }
+      return answered(out);
+    },
+
+    declaration: async (session): Promise<PortResult<AgentManifest>> => {
+      const dir = await manifestDir(context, options.manifestDir);
+      const text = fileOrNull(join(dir, `${session}.json`));
+      if (text === null) return failed<AgentManifest>();
+      const entry = parseManifest(text);
+      return entry === null ? failed<AgentManifest>() : answered(entry);
+    },
+
+    desk: async (worktree): Promise<PortResult<AgentDesk>> => {
+      try {
+        if (!statSync(worktree).isDirectory()) return failed<AgentDesk>();
+      } catch {
+        // A DESK THAT IS NOT HERE IS `failed`, and the caller decides what that
+        // means. `rules/agent-state.ts` reads it as `elsewhere`; the supervisor
+        // reads an unreadable desk as blocked. Answering empty readings would
+        // make both of those impossible to tell from a desk holding nothing.
+        return failed<AgentDesk>();
+      }
+      const { markers, question } = readMarkers(worktree);
+      return answered({
+        question,
+        markers,
+        pid: readPid(fileOrNull(join(worktree, PID_FILE))),
+        // `null` IS THE RECORD'S ABSENCE AND `''` IS AN UNREADABLE RECORD, and
+        // they are kept apart because `rules/agent-state.ts` reaches `ended` by
+        // both routes and says so. A worker killed outright left no file; one
+        // whose wrapper died mid-write left a file saying nothing.
+        exit: fileOrNull(join(worktree, EXIT_FILE))?.trim() ?? null,
+      });
+    },
+
+    raiseAttempts: (worktree, attempts) => raiseField(worktree, 'attempts', attempts),
+
+    raiseCorrections: (worktree, correctionAttempts) =>
+      raiseField(worktree, 'correctionAttempts', correctionAttempts),
+
+    clearAssignment: async (session): Promise<PortResult<void>> => {
+      const dir = await manifestDir(context, options.manifestDir);
+      const file = join(dir, `${session}.json`);
+      const text = fileOrNull(file);
+      // ABSENT IS NOT A FAILURE, matching `clear_manifest_branch`: a
+      // hand-started loop has no manifest, so there is nothing to clear.
+      if (text === null) return answered(undefined);
+      let manifest: Record<string, unknown>;
+      try {
+        manifest = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        return failed<void>();
+      }
+      manifest.branch = '';
+      const tmp = `${file}.plot-free-tmp`;
+      try {
+        writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`);
+        renameSync(tmp, file);
+      } catch {
+        return failed<void>();
+      }
+      return answered(undefined);
+    },
+  };
+};

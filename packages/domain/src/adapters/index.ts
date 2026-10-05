@@ -86,6 +86,7 @@ export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';
 
 export { refsGit } from './refs/refs-git.js';
+export { refsRemoteGit, type RunCommand } from './refs/refs-remote-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
 export {
@@ -133,3 +134,9 @@ export { processesShell, parseEtime } from './processes/processes-shell.js';
 // composition root chooses which world it is in. Exporting both from one barrel
 // is the whole substitution the ports exist for.
 export { performerShell } from './performer/performer-shell.js';
+
+export { boundedRunProcess } from './bounded-run/bounded-run-process.js';
+export { boundedRunFixture, type BoundedRunFixture } from './bounded-run/bounded-run-fixture.js';
+
+export { deskFs } from './desk/desk-fs.js';
+export { deskFixture, deskFixtureCalls, type DeskFixture, type DeskFixtureCalls } from './desk/desk-fixture.js';

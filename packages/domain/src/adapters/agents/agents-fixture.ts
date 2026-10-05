@@ -7,6 +7,19 @@ export interface AgentsFixture {
   declared?: readonly AgentManifest[];
   /** The desks this machine holds, keyed by absolute path. */
   desks?: Readonly<Record<string, AgentDesk>>;
+  /**
+   * Every write call received, filled in as the fixture is used.
+   *
+   * Keyed by the manifest's `worktree` or `session`, matching each write's own
+   * key — `raiseAttempts`/`raiseCorrections` carry a worktree, the same field
+   * `AgentAttemptWrite`/`CorrectionCountWrite` carry; `clearAssignment` carries
+   * the session, matching `AssignmentClearWrite`.
+   */
+  calls?: {
+    attempts: { worktree: string; attempts: number }[];
+    corrections: { worktree: string; correctionAttempts: number }[];
+    clearedAssignments: string[];
+  };
 }
 
 /**
@@ -87,6 +100,21 @@ export const agentsFixture = (fixture: AgentsFixture = {}): Agents => {
     desk: async (worktree): Promise<PortResult<AgentDesk>> => {
       const found = desks[worktree];
       return found === undefined ? failed<AgentDesk>() : answered(found);
+    },
+
+    raiseAttempts: async (worktree, attempts): Promise<PortResult<void>> => {
+      fixture.calls?.attempts.push({ worktree, attempts });
+      return answered(undefined);
+    },
+
+    raiseCorrections: async (worktree, correctionAttempts): Promise<PortResult<void>> => {
+      fixture.calls?.corrections.push({ worktree, correctionAttempts });
+      return answered(undefined);
+    },
+
+    clearAssignment: async (session): Promise<PortResult<void>> => {
+      fixture.calls?.clearedAssignments.push(session);
+      return answered(undefined);
     },
   };
 };

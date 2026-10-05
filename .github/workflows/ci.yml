@@ -557,6 +557,13 @@ jobs:
           echo "The control lost its agent, as origin/main's unit does."
           echo "Measured under the $MANAGER manager."
 
+          # THE GROUP STOP (#1084), on Linux, beside the unit that keeps agents
+          # alive: a `boundedRun` prompt stays in its caller's process group, so
+          # `kill -TERM -<pgid>` ends the wrapper, the prompt and the prompt's
+          # child. The stand-ins are script files under test/fixtures, for the
+          # reason the stand-in above is one.
+          pnpm --filter @plot-pm/domain exec vitest run test/bounded-run-group-stop.test.ts
+
       # ── Domain: the package the board now imports its entities from. Gated
       #    BEFORE the board, because the board resolves these shapes from here
       #    and a domain that does not hold cannot produce a meaningful board
@@ -1278,6 +1285,16 @@ jobs:
         # Through `owned-run.sh`, like a local `test:board`: a private TMPDIR and
         # HOME, and a leftover entry fails the step.
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board test
+
+      # THE BOARD'S FIRST GATED FILE, beside the domain's own coverage gate
+      # above and for the same reason: `loop-writes.ts` is reachable from a
+      # plain call with no process, no port and no browser of its own, so an
+      # uncovered line there is a line nobody specified. Scoped to one path —
+      # `vitest.config.ts`'s own `coverage.include` — rather than the whole
+      # package, which cannot meet 100% today.
+      - name: Board loop-writes coverage gate
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run --project parallel --coverage
 
       # ── Board integration tests: a real browser (Playwright) renders the just-
       #    built artifact against the tiny-garden fixture, asserting the mobile

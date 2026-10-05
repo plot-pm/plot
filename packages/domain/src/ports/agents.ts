@@ -135,4 +135,52 @@ export interface Agents {
    *   value, which is a reading and not a failure.
    */
   desk(worktree: string): Promise<PortResult<AgentDesk>>;
+
+  /**
+   * Raises a manifest's `attempts`, carrying the NEW value rather than an
+   * increment.
+   *
+   * **THE VALUE IS CARRIED, NOT INCREMENTED**, matching {@link AgentAttemptWrite}
+   * in `workflows/decision.ts`: applying this write twice must land the same
+   * number, so a daemon SIGKILLed between deciding and writing does not spend a
+   * budget on one retry. Matches `raise_manifest_attempts`
+   * (`plot-agent-manifest.sh`), which raises `attempts` and touches nothing
+   * else — in particular not `branch`, because the slice stays claimed across a
+   * failed start.
+   *
+   * **ABSENT IS NOT A FAILURE.** A hand-started loop has no manifest, so there
+   * is nothing to raise and nothing to report — matching the shell's own `[ -f
+   * "$manifest" ] || return 0`.
+   *
+   * @param worktree - the manifest's own worktree, naming which desk's record
+   *   to raise.
+   * @param attempts - what `attempts` becomes.
+   * @returns nothing; a failure means a manifest was found and the write to it
+   *   failed, never that none was found.
+   */
+  raiseAttempts(worktree: string, attempts: number): Promise<PortResult<void>>;
+
+  /**
+   * Raises a manifest's `correctionAttempts`, carrying the NEW value.
+   *
+   * Its own counter, never `attempts`: matches {@link CorrectionCountWrite}'s
+   * own reasoning and `raise_manifest_corrections` (`plot-agent-manifest.sh`).
+   *
+   * @param worktree - the manifest's own worktree.
+   * @param correctionAttempts - what `correctionAttempts` becomes.
+   * @returns nothing; absent is not a failure, matching {@link raiseAttempts}.
+   */
+  raiseCorrections(worktree: string, correctionAttempts: number): Promise<PortResult<void>>;
+
+  /**
+   * Clears a manifest's `branch` field — never the whole manifest.
+   *
+   * **NOT A DELETE.** Matches `clear_manifest_branch`: the agent keeps its
+   * identity and its desk between slices; only the assignment goes. `worktree`
+   * still names the desk, which has not moved.
+   *
+   * @param session - the agent's session id, naming its manifest.
+   * @returns nothing; absent is not a failure, matching {@link raiseAttempts}.
+   */
+  clearAssignment(session: string): Promise<PortResult<void>>;
 }

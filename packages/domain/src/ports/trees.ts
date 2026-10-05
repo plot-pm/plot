@@ -205,4 +205,65 @@ export interface Trees {
    *   best-effort cleanup the shell performed.
    */
   removeWithBranch(path: string, branch: string): Promise<PortResult<void>>;
+
+  /**
+   * Resets a desk onto a branch at take-up — `reset_desk`'s common path
+   * (`plot-worker-loop.sh:1080`), for the ONE case `agentLoop` emits
+   * {@link DeskResetWrite} for: a fresh take-up with `resetRefusals` empty.
+   *
+   * **PLAIN CHECKOUTS, NEVER `reset --hard` OR `clean -fdx`.** A file the
+   * earlier readings missed makes git REFUSE the checkout rather than
+   * overwrite it — the write's own second line of defence, matching
+   * `decision.ts:374`'s comment exactly.
+   *
+   * **STEPS, IN THE SHELL'S OWN ORDER:** the previous slice's declaration and
+   * correction file are removed (Plot's own bookkeeping, not the work the
+   * guard protects); every generated bundle path the desk's own
+   * `packages/board/build.mjs` declares — the set `bundle_paths`
+   * (`plot-desk-dirt.sh`) reads — is restored from `HEAD` where `HEAD` holds
+   * it, or removed where it does not; the base is checked out DETACHED; the
+   * branch is created or re-attached.
+   *
+   * **NOT THE YIELD-AND-RETRY FALLBACK.** Where both checkouts fail — another
+   * worktree holds the branch — this answers `failed` and goes no further:
+   * that path is `checkoutYield`'s (`rules/checkout-yield.ts`), reached today
+   * through `plot-checkout-yield.mjs`, and is out of this write's contract.
+   *
+   * @param path - the worktree to reset, absolute.
+   * @param branch - the branch to check it out onto.
+   * @param base - what the branch is cut from when it does not exist locally.
+   * @returns nothing; a failure means the checkout was refused — never a
+   *   destructive fallback.
+   */
+  resetOnto(path: string, branch: string, base: string): Promise<PortResult<void>>;
+
+  /**
+   * Commits whatever is staged, allowing an empty commit.
+   *
+   * **`--allow-empty`, MATCHING THE CLAIM.** `git -C <path> commit --allow-empty
+   * -m <message>` is the claim commit `agentLoop` emits with `paths: []` — no
+   * `git add` runs, because the claim is a marker on the branch rather than a
+   * change to it.
+   *
+   * @param path - the checkout to commit in, absolute.
+   * @param message - the commit message.
+   * @returns nothing; a failure means git refused the commit.
+   */
+  commit(path: string, message: string): Promise<PortResult<void>>;
+
+  /**
+   * Pushes a branch to `origin` from a checkout, setting the upstream.
+   *
+   * `git -C <path> push -u origin <branch>`, matching the claim push the loop
+   * makes at take-up — `path` is the desk the branch is checked out in, and
+   * `branch` is named explicitly rather than read back from the checkout,
+   * matching the write's own shape. A push the host rejects is a failed
+   * result; whether a rejection means another agent holds the branch is the
+   * caller's question (`claimAnswer`), not this operation's.
+   *
+   * @param path - the checkout to push from, absolute.
+   * @param branch - the branch to push.
+   * @returns nothing; a failure means the push was rejected or could not run.
+   */
+  push(path: string, branch: string): Promise<PortResult<void>>;
 }

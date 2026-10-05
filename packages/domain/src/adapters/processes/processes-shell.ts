@@ -1,7 +1,7 @@
 import type { WorkerActivity, WorkerState } from '../../entities/fleet.js';
 import { answered, type PortResult } from '../../port-result.js';
 import type { Processes, ProcessReading } from '../../ports/processes.js';
-import { asText, runProcess, runScript, resultOf } from '../run-script.js';
+import { asLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 const WORKER_STATES: readonly string[] = [
@@ -99,6 +99,19 @@ export const processesShell = (context: ShellContext): Processes => {
         inRepo,
       );
       return resultOf(run, readingOf);
+    },
+
+    childrenOf: async (pid): Promise<PortResult<readonly number[]>> => {
+      // MATCHES `_kill_tree`'s OWN READ (`plot-worker-loop.sh:2054`): `pgrep -P`
+      // lists direct children, and a parent with none exits 1 having printed
+      // nothing — an answer (no children), never a failure.
+      const run = await runProcess('pgrep', ['-P', String(pid)], inRepo);
+      if (run.code !== 0) return answered<readonly number[]>([]);
+      return answered(
+        asLines(run.stdout)
+          .map((line) => Number(line))
+          .filter((n) => Number.isInteger(n) && n > 0),
+      );
     },
 
     startedAt: (pid) =>

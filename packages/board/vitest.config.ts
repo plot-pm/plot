@@ -85,5 +85,31 @@ export default defineConfig({
         },
       },
     ],
+    /**
+     * THE FIRST GATED FILE IN THIS PACKAGE, and scoped to exactly one path.
+     * `packages/domain`'s own coverage block holds the whole package to a
+     * threshold because the purity boundary guarantees every line there is
+     * reachable from a plain function call — the board at large has no such
+     * guarantee: it spawns processes, binds ports and drives a browser, and a
+     * blanket threshold here would be lowered the first time an untestable
+     * branch failed it.
+     *
+     * `loop-writes.ts` earns the same 100% the domain's pure side holds for
+     * the same reason: every arm is a `switch` case calling a port whose
+     * fixture answers synchronously, with no process, no port and no browser
+     * of its own — the whole file is reachable from a plain call, exactly
+     * like a domain workflow.
+     */
+    coverage: {
+      provider: 'v8',
+      all: false,
+      include: ['src/server/entry/loop-writes.ts'],
+      thresholds: {
+        lines: 100,
+        branches: 100,
+        functions: 100,
+        statements: 100,
+      },
+    },
   },
 });
