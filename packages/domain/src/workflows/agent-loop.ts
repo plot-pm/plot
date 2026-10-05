@@ -89,6 +89,21 @@ export interface AgentLoopReadings {
   /** The marker's own text, for the `declaration` and `blocked-marker` writes. */
   readonly markerText: string;
   /**
+   * The SDK runner's hand-back, read only where {@link exit}`.answer` is
+   * `ran`. `null` for a `command` runner, which hands back nothing, and for
+   * a run whose `structured_output` the SDK's own `sdkRunExit` could not
+   * read — both fall through to today's desk reading, same as `done`.
+   *
+   * **A READING, NEVER A STATE.** Filled by the caller from this pass's own
+   * run, the way every other reading here is; `agentLoop` stores nothing
+   * between passes.
+   */
+  readonly handBack: 'checks' | 'pushed' | 'blocked' | 'done' | null;
+  /** The resume session the `checks` write continues, once the checks run. */
+  readonly checksResumeId: string;
+  /** The hand-back's own summary, carried into the `checks` write. */
+  readonly handBackSummary: string;
+  /**
    * Why this desk may not be reset — empty when nothing holds it. Read at
    * take-up and after a `ran` exit. At either point, `uncommitted-changes` or
    * `unpushed-commits` ends the loop `holding-work`. At take-up, a list that
@@ -427,6 +442,38 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   // From here `exit` is `ran`, or the prompt has already run in an earlier
   // pass and the loop is now watching the CI wait (`exit` stays `ran`).
 
+  // THE HAND-BACK ROWS — read only where `exit` is `ran`, and placed BEFORE
+  // the marker and unlanded-work rows below so a hand-back never overrides a
+  // usage-limit stop the rows above already answered. `done` and a `null`
+  // hand-back (the `command` runner, or an SDK run whose `structured_output`
+  // did not match the schema) both fall through unchanged to ROW 10 onward —
+  // neither answers anything a hand-back would otherwise decide.
+  if (exit !== null && exit.answer === 'ran' && readings.handBack === 'checks') {
+    return decide(
+      'agent-loop',
+      [
+        {
+          kind: 'checks',
+          branch,
+          worktree,
+          resumeId: readings.checksResumeId,
+          summary: readings.handBackSummary,
+        },
+      ],
+      { branch, exitCode: null, note: 'hand-back: checks' },
+    );
+  }
+
+  if (exit !== null && exit.answer === 'ran' && readings.handBack === 'blocked') {
+    return end(worktree, branch, 'blocked', 'agent', 'the agent handed back blocked', 0, [
+      blockedDeclaration(worktree, branch, readings.handBackSummary || 'the agent handed back blocked'),
+    ]);
+  }
+
+  if (exit !== null && exit.answer === 'ran' && readings.handBack === 'pushed') {
+    return ciWait(readings, branch);
+  }
+
   // ROW 10 — the agent wrote its own PLOT-BLOCKED marker.
   if (exit !== null && exit.answer === 'ran' && readings.markerWritten) {
     return end(worktree, branch, 'blocked', 'agent', 'the agent declared itself blocked', 0, [
@@ -461,9 +508,26 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     );
   }
 
-  // ROWS 12-18 — the exit is `ran`, work is pushed and a PR is open. The
-  // switch has a case for every `ChecksFromRuns` value and no `default`; with
-  // the declared return type, a new value fails typecheck until it has a row.
+  return ciWait(readings, branch);
+};
+
+/**
+ * ROWS 12-18 — the CI wait, once work is pushed and a PR is open: the switch
+ * has a case for every `ChecksFromRuns` value and no `default`, so a new
+ * value fails typecheck until it has a row.
+ *
+ * Reached two ways: by falling through ROWS 10-12a once `exit` is `ran`, and
+ * directly by a `pushed` hand-back, which skips those rows outright — the
+ * agent has already said it pushed and opened its PR, so re-reading the
+ * marker, the unlanded-work refusals and the pushed/PR-open readings would
+ * ask questions the hand-back already answered.
+ *
+ * @param readings - this pass's readings.
+ * @param branch - the branch the slice is on.
+ * @returns the CI wait's decision for this pass.
+ */
+const ciWait = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
+  const { worktree } = readings;
   const checks = readings.checks;
   switch (checks) {
     case null:

@@ -31,6 +31,9 @@ const freeLoop: AgentLoopReadings = {
   maxStartRetries: 2,
   markerWritten: false,
   markerText: '',
+  handBack: null,
+  checksResumeId: '',
+  handBackSummary: '',
   resetRefusals: [],
   pushed: false,
   prOpen: false,
@@ -982,6 +985,131 @@ describe('agentLoop carries no state between passes', () => {
       correctionBudget: 2,
     };
     expect(agentLoop(readings)).toEqual(agentLoop(readings));
+  });
+});
+
+describe('agentLoop — the hand-back rows', () => {
+  it('next: checks emits a checks write with no loop-end', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+      handBackSummary: 'implemented the port',
+    });
+    expect(result.writes).toEqual([
+      {
+        kind: 'checks',
+        branch: BRANCH,
+        worktree: WORKTREE,
+        resumeId: 'sess-123',
+        summary: 'implemented the port',
+      },
+    ]);
+    expect(endWrite(result.writes)).toBeUndefined();
+  });
+
+  it('next: blocked ends blocked with a declaration', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      handBack: 'blocked',
+      handBackSummary: 'need a person to decide the migration approach',
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('blocked');
+    expect(end?.actor).toBe('agent');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it('next: pushed jumps straight to the CI wait, skipping the marker and unlanded-work rows', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      handBack: 'pushed',
+      // Both of these would normally stop the loop at ROW 10/11, and must
+      // not fire here: the hand-back already says the work is pushed.
+      markerWritten: true,
+      markerText: 'should be ignored',
+      resetRefusals: ['uncommitted-changes'],
+      checks: null,
+    });
+    expect(result.detail.note).toBe('waiting for checks');
+    expect(result.writes).toEqual([]);
+  });
+
+  it('next: pushed seals on a settled pass, same as the existing CI wait', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      handBack: 'pushed',
+      checks: 'settled',
+      checksPassed: true,
+    });
+    expect(declarationWrite(result.writes)?.status).toBe('ok');
+  });
+
+  it('next: done falls through unchanged to the marker row, same as no hand-back', () => {
+    const withDone = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      handBack: 'done',
+      markerWritten: true,
+      markerText: 'x',
+    });
+    const withNull = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      handBack: null,
+      markerWritten: true,
+      markerText: 'x',
+    });
+    expect(withDone).toEqual(withNull);
+  });
+
+  it('a null hand-back (the command runner) falls through unchanged, same as today', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      handBack: null,
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: true,
+    });
+    expect(declarationWrite(result.writes)?.status).toBe('ok');
+  });
+
+  it('THE DEFECT A NAIVE READ-ORDER WOULD PASS: a checks hand-back with a limit exit answers the limit, never the hand-back', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'end-limited', line: 'limit', cause: 'no-reset' },
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('limited');
+    // No `checks` write: the limit row above the hand-back rows returned
+    // first, so the hand-back was never read.
+    expect(result.writes.some((w) => w.kind === 'checks')).toBe(false);
+  });
+
+  it('a pushed hand-back with a limit exit also answers the limit', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'end-limited', line: 'limit', cause: 'past-bound' },
+      handBack: 'pushed',
+    });
+    expect(endWrite(result.writes)?.reason).toBe('limited');
   });
 });
 

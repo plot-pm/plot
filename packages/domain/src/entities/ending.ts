@@ -73,6 +73,17 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   to the wait the agent is owed an answer to. #1255 is `no-answer`'s: a
  *   continued agent's wait expired after 1,800 s reading "no CI answer" while
  *   CI had already failed, because nothing watched the build for it.
+ * - `turn-limit` — an SDK run reached `Agent max turns`. The supervisor
+ *   starts one fresh session for the slice before it asks a person (wave 3):
+ *   a session that grew too long is fixed by a short prompt, not by more of
+ *   the same session.
+ * - `run-limit` — a slice reached `Slice max runs`: `runLimitRefusal` decided
+ *   before a run was even started that the slice had spent its count, so no
+ *   watcher measured an agent that was running — the loop's own count did.
+ * - `spend-limit` — an SDK run or a slice reached `Agent max spend` or
+ *   `Slice max spend`. Unlike `turn-limit`, this goes to a person directly:
+ *   a fresh session would read the same slice spend or start a new count
+ *   against the same work, and a person decides whether to spend more.
  *
  * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked` AND
  * `checks-unanswered` ARE THE REASONS NO WATCHER PRODUCED. The other four are
@@ -104,6 +115,9 @@ export const EndingReasonSchema = z.enum([
   'holding-work',
   'blocked',
   'checks-unanswered',
+  'turn-limit',
+  'run-limit',
+  'spend-limit',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 

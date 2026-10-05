@@ -48,6 +48,15 @@ export { buildNone } from './build/build-none.js';
 export { buildFor, buildShell } from './build/build-resolve.js';
 export { buildFixture, type BuildFixture } from './build/build-fixture.js';
 
+// THE AGENT-RUN CONNECTOR'S FIXTURE. The SDK and `command` adapters are
+// wave 2's and are deliberately absent here — this wave ships only the port
+// and a fixture, with no SDK dependency.
+export {
+  agentRunFixture,
+  type AgentRunFixture,
+  type AgentRunAnswer,
+} from './agent-run/agent-run-fixture.js';
+
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
 
 export {

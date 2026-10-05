@@ -1,0 +1,153 @@
+import type { PortResult } from '../port-result.js';
+import type { TokenCountsRecord } from '../entities/slice-spend.js';
+
+/**
+ * One agent run — the connector a fleet agent starts from TypeScript.
+ *
+ * **A CONNECTOR, BEHIND ITS OWN PORT, NEITHER `BoundedRun` NOR `Performer`.**
+ * `BoundedRun` runs any command to its bound and owns no account; a
+ * connector's duties here (record the spend, report the usage limit) must
+ * not land on a port that implements neither. `Performer` starts detached
+ * processes that outlive the caller; an agent run is owned by its caller and
+ * must stay in the caller's process group (#1084), so it cannot be a
+ * `Performer` start either.
+ *
+ * **IT NAMES NO SDK TYPE.** The request and the result describe only the
+ * shape a caller needs, so a reader of this file learns nothing about
+ * `@anthropic-ai/claude-agent-sdk` — the purity gate allows that package only
+ * under `adapters/`, and the connector that imports it is wave 2's.
+ */
+export interface AgentRun {
+  /**
+   * Runs one agent turn to its end: a hand-back, a limit, a bound, a turn or
+   * spend ceiling, or an unstarted run.
+   *
+   * @param request - the desk, the prompt, the session to resume, and every
+   *   other reading the run needs.
+   * @returns what the run produced; `failed` where the run could not be
+   *   started at all. Never `unaskable` — a connector that exists either
+   *   starts the run or it does not.
+   */
+  run(request: AgentRunRequest): Promise<PortResult<AgentRunResult>>;
+}
+
+/**
+ * What one agent run asks for.
+ *
+ * **NAMES NO HARNESS-SPECIFIC OPTION.** `model`, `effort`, `harness` and the
+ * rest are the readings `runnerChoice` and the charter precedence already
+ * decided before this request is built; the adapter that carries one out
+ * translates them into whichever options its own connector understands.
+ */
+export interface AgentRunRequest {
+  /** The worktree the run works in, absolute — the desk. */
+  readonly worktree: string;
+  /** The prompt text for a fresh run; the correction or resume text otherwise. */
+  readonly prompt: string;
+  /** The session to resume, or `''` to start a fresh one. */
+  readonly resumeId: string;
+  /** The role running — `worker`, or a board role such as `idea` or `brief`. */
+  readonly role: string;
+  /** The harness this run is asked to use; `''` when unstated. */
+  readonly harness: string;
+  /** The model this run is asked to use; `''` when unstated. */
+  readonly model: string;
+  /** The reasoning effort this run is asked for; `''` when unstated. */
+  readonly effort: string;
+  /** The turn limit for this one run; `0` for no limit. */
+  readonly maxTurns: number;
+  /** The spend limit for this one run, in dollars; `0` for no limit. */
+  readonly maxSpendUsd: number;
+  /** How long this run may take before it is ended, in seconds; `0` disables the bound. */
+  readonly boundSeconds: number;
+  /** What this run may do — the capability list a charter or a default names. */
+  readonly capabilities: readonly string[];
+  /** Extra environment on top of the run's own inherited one; merged, never a replacement. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Where this run's combined output is written as it runs. */
+  readonly logFile: string;
+}
+
+/**
+ * What one model's cumulative usage looked like at this run's end.
+ *
+ * **CUMULATIVE FOR THE SESSION, NEVER A DELTA.** The SDK reports a resumed
+ * session's totals from its transcript, not from the run just asked for, and
+ * this carries that figure verbatim — a reader that wants what THIS run
+ * added derives it from the difference against the session's previous line
+ * (`readSpend`, wave 3), rather than this port computing one.
+ */
+export type AgentRunUsage = TokenCountsRecord;
+
+/**
+ * A reading of the account's usage limit, taken during this run.
+ *
+ * Sent for claude.ai subscription accounts only; an API-key account's run
+ * carries none. The scale of `utilization` and `resetAt` is an open question
+ * (wave 3's fixture fixes it) — this port carries the SDK's own numbers
+ * unconverted, so that question stays open here rather than being answered
+ * twice.
+ */
+export interface AgentRunLimitReading {
+  /** `allowed`, `allowed_warning` or `rejected`, as the event names it. */
+  readonly status: string;
+  /** When the window resets, as the event states it. */
+  readonly resetsAt: number;
+  /** Which limit this reading is about, in the event's own word. */
+  readonly rateLimitType: string;
+  /** How much of the window is spent, in the event's own scale. */
+  readonly utilization: number;
+}
+
+/**
+ * The hand-back a worker role's turn ended with.
+ *
+ * **A READING, NEVER A STATE.** `agentLoop` carries nothing between passes;
+ * this is one more field the caller fills from the run just finished, read
+ * only where {@link AgentRunResult.end} is `ran`.
+ */
+export type AgentHandBack =
+  | { readonly next: 'checks'; readonly summary: string }
+  | { readonly next: 'pushed'; readonly summary: string }
+  | { readonly next: 'blocked'; readonly summary: string }
+  | { readonly next: 'done'; readonly summary: string };
+
+/**
+ * Why a run ended, mapped to the loop's existing vocabulary.
+ *
+ * `sdkRunExit` is what classifies an SDK result into one of these; a
+ * `command` adapter answers `ran` or `unstarted` by exit status, as
+ * `promptExit` already does.
+ */
+export type AgentRunEnd =
+  | { readonly answer: 'unstarted'; readonly detail: string }
+  | { readonly answer: 'wait'; readonly resetEpoch: number }
+  | { readonly answer: 'end-limited'; readonly cause: 'no-reset' | 'past-bound' | 'no-progress' }
+  | { readonly answer: 'bound' }
+  | { readonly answer: 'turn-limit' }
+  | { readonly answer: 'spend-limit' }
+  | { readonly answer: 'ran'; readonly handBack: AgentHandBack | null };
+
+/**
+ * What one agent run produced.
+ *
+ * **THE USAGE IS THE SESSION'S CUMULATIVE FIGURE, NEVER A SUM THIS PORT
+ * COMPUTES.** A reader wanting what one run added derives it from the
+ * difference against the previous run line — see `readSpend`, wave 3. `turns`
+ * is this run's own turns, counted by the adapter as it streams the
+ * `assistant` messages; it is not cumulative.
+ */
+export interface AgentRunResult {
+  /** The session id this run ran under — fresh or resumed. */
+  readonly sessionId: string;
+  /** Why the run ended. */
+  readonly end: AgentRunEnd;
+  /** The session's cumulative usage, per model; empty where the connector reports none. */
+  readonly usageByModel: Readonly<Record<string, AgentRunUsage>>;
+  /** The session's cumulative cost estimate, in dollars; `null` where unreported. */
+  readonly costUsd: number | null;
+  /** How many turns this run itself took. */
+  readonly turns: number;
+  /** Every usage-limit reading this run observed, in order. */
+  readonly limitReadings: readonly AgentRunLimitReading[];
+}

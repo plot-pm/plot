@@ -333,6 +333,12 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     }))).toBe(true);
   });
 
+  it('accepts actor agent on turn-limit, spend-limit and run-limit — an SDK result or the loop\'s own count, never a watcher', () => {
+    for (const reason of ['turn-limit', 'run-limit', 'spend-limit']) {
+      expect(isDecision(endingIsAttributable(SESSION, { actor: 'agent', reason }))).toBe(true);
+    }
+  });
+
   it('accepts the two actors the watcher paths write', () => {
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'bound' }))).toBe(true);
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'monitor' }))).toBe(true);
