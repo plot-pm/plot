@@ -45,8 +45,8 @@ None of these needed new judgement. Each needed the supervisor to notice a stop 
 | Plan | Stop it handles | State |
 |---|---|---|
 | [`an-unanswered-question-escalates`](../../plans/2026-10-05-an-unanswered-question-escalates.md) | An agent's question waits unanswered | Approved |
-| `the-supervisor-asks-the-host-when-the-monitor-is-silent` | The BuildMonitor misses a run (#1275) | to draft |
-| `a-spent-correction-budget-gets-a-fresh-agent` | A slice spends its correction budget | to draft |
+| [`the-build-monitor-asks-for-the-pushed-commit`](../../plans/2026-10-05-the-build-monitor-asks-for-the-pushed-commit.md) | The BuildMonitor misses a run (#1275, #1255) | Draft |
+| [`a-spent-correction-budget-gets-a-fresh-agent`](../../plans/2026-10-05-a-spent-correction-budget-gets-a-fresh-agent.md) | A slice spends its correction budget | Draft |
 | `the-supervisor-releases-a-stuck-claim` | A claim nobody works (#1276) | to draft |
 | `the-deliver-route-finds-its-plan` | Deliver refuses a finished plan (#1280) | to draft |
 | `the-board-re-asks-pending-checks` | CI read as running after it finished (#1277) | to draft |

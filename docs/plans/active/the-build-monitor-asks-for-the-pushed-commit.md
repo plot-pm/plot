@@ -1,0 +1,1 @@
+../2026-10-05-the-build-monitor-asks-for-the-pushed-commit.md
