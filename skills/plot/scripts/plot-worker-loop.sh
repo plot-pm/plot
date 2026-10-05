@@ -293,10 +293,10 @@ case "$CHECKS_POLL_SECONDS" in (*[!0-9]*|''|0) CHECKS_POLL_SECONDS=60 ;; esac
 # empty previous branch is an agent that held no slice yet, and it keeps its
 # launch handle.
 #
-# `attempts` STAYS FIXED, and it does so by being untouched rather than by being
-# preserved: the node one-liner round-trips the whole object, so every field
-# this function does not name survives verbatim. A hop is the same agent
-# continuing, so its automatic-retry budget is the same budget.
+# `attempts` STAYS FIXED, by being untouched: the node one-liner round-trips
+# the whole object, so every field this function does not name survives
+# verbatim. `correctionAttempts` is named, and only on a slice change — the
+# counter belongs to the branch being corrected, not the agent correcting it.
 #
 # WHY THE MANIFEST UPDATE IS NECESSARY. The registry synthesizes from manifests.
 # A worker that moved branches without updating the manifest would still appear
@@ -327,9 +327,9 @@ update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree $4=resume
     manifest.branch = process.argv[2];
     manifest.worktree = process.argv[3];
     if (process.argv[5] !== "") manifest.resumeId = process.argv[5];
-    manifest.wavesCount = (manifest.wavesCount || 1) + 1;
+    manifest.wavesCount = (manifest.wavesCount || 1) + 1; if (process.argv[6] && process.argv[6] !== process.argv[2]) manifest.correctionAttempts = 0;
     fs.writeFileSync(process.argv[4], JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$new_branch" "$new_worktree" "$tmp" "$resume_id" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  ' "$manifest" "$new_branch" "$new_worktree" "$tmp" "$resume_id" "$previous_branch" 2>/dev/null || { rm -f "$tmp"; return 1; }
 
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
