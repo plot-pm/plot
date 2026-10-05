@@ -2793,6 +2793,29 @@ export const AgentRowSchema = z.object({
    */
   briefAskedAt: z.number().nullable().default(null),
   /**
+   * The implement log's path, where the brief writer for this row's plan
+   * recorded a non-zero exit and no other asker's log is newer — or null.
+   *
+   * **READ FROM THE RECORDED EXIT CODE, never from a process.** The same rule
+   * `briefAskedAt` states above: a dead-looking log is not evidence of a dead
+   * writer, since `#905`'s own author checked one twice, saw 0 bytes and no
+   * process, and the writer had not died. A failure here is a recorded exit
+   * code `implementStatePath` holds — a fact, not a liveness guess.
+   *
+   * **NULL WHILE RUNNING, FOR SUCCESS, AND FOR NO RUN AT ALL.** A running
+   * writer keeps saying the age of the ask (`briefAskedAt` alone); a succeeded
+   * one wrote the brief, so `brief` reads `present` and this field stays out of
+   * the way. Null is also what a failure reads once another asker's log is newer
+   * than it — see `briefFailed` in `brief-ask-log.ts`.
+   *
+   * **NULL IS THE DEFAULT AND MAKES NO CLAIM**, the same rule `briefAskedAt`
+   * follows: a pulse from a server predating this field validates to null and
+   * renders exactly as the board did before this field existed. The client
+   * casts the fleet and never parses it, so a missing field would otherwise be
+   * `undefined` in the renderer rather than this default.
+   */
+  briefFailed: z.string().nullable().default(null),
+  /**
    * The name of the earlier slice blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.
    *

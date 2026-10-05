@@ -66,6 +66,18 @@ export const briefAskPrompt = (slug: string, branch: string, main: string): stri
   `that path on origin/${main}, so a brief left uncommitted is invisible to it.`;
 
 /**
+ * Where `askForBrief` writes its log for one plan. `brief-ask-log.ts` reads
+ * the same path through this function, so the writer and the reader share one
+ * spelling.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug.
+ * @returns the log's absolute path.
+ */
+export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
+  path.join(repoRoot, `.plot-brief-${slug}.log`);
+
+/**
  * Runs the configured brief command for one plan, detached, and returns.
  *
  * **THE COMMAND IS A SHELL FRAGMENT AND THE PROMPT IS AN ARGUMENT.** The shape
@@ -97,7 +109,7 @@ export const askForBrief = (
   slug: string,
   prompt: string,
 ): string => {
-  const log = path.join(opts.repoRoot, `.plot-brief-${slug}.log`);
+  const log = askForBriefLogPath(opts.repoRoot, slug);
   try {
     const out = fs.openSync(log, 'a');
     try {

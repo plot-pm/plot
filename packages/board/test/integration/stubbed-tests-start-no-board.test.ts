@@ -638,7 +638,10 @@ const EXPECTED_FILES = 59;
 // 540 → 544 on 2026-10-03: four `it(` in the new
 // `an-unnamed-desk-says-so.browser.test.ts` (#1101), for the row of a desk no
 // manifest names. A file was added, so `EXPECTED_FILES` moves too.
-const EXPECTED_TESTS = 544;
+// 544 → 546 on 2026-10-05: two `it(` in `agents-tab.browser.test.ts`, for the
+// "brief asked" and "brief failed" notes on a single-branch slice row. They
+// join a file that already drove a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 546;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

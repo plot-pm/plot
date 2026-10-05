@@ -339,19 +339,49 @@ export interface ImplementStatus {
   log: string;
 }
 
-/** Read back what an earlier POST started. Never spawns, never blocks. */
-export function implementStatus(opts: BuildBoardOptions, slug: string): ImplementStatus {
-  const log = implementLogPath(opts.repoRoot, slug);
-  const statePath = implementStatePath(opts.repoRoot, slug);
-  let recorded = '';
+/** What `implementRunState` reads from the state file and the log's presence. */
+export interface ImplementRunState {
+  /** `running` — a log and no state file; `done` — state `0`; `failed` — any other state; `unknown` — no log and no state file. */
+  state: IdeaState;
+  /** The recorded exit as written, trimmed; `''` where no state file was read. */
+  recorded: string;
+  /** The log's absolute path, whether or not it exists. */
+  log: string;
+  /** The state file's absolute path, whether or not it exists. */
+  statePath: string;
+}
+
+/**
+ * Reads an implement run's state from the state file alone, without reading
+ * the log's content. Never spawns, never blocks, never throws.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug the run is keyed on.
+ * @returns the run's state, its recorded exit, and both file paths.
+ */
+export const implementRunState = (repoRoot: string, slug: string): ImplementRunState => {
+  const log = implementLogPath(repoRoot, slug);
+  const statePath = implementStatePath(repoRoot, slug);
+  let recorded: string;
   try {
     recorded = fs.readFileSync(statePath, 'utf8').trim();
   } catch {
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
+    return { state: fs.existsSync(log) ? 'running' : 'unknown', recorded: '', log, statePath };
   }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  return { state: recorded === '0' ? 'done' : 'failed', recorded, log, statePath };
+};
+
+/**
+ * Reads back what an earlier POST started. Never spawns, never blocks.
+ *
+ * @param opts - the board's options; only `repoRoot` is read.
+ * @param slug - the plan slug the run is keyed on.
+ * @returns the run's state, the log's last lines on a failure (or the exit
+ *          sentence where the log is empty or gone), and the log's path.
+ */
+export const implementStatus = (opts: BuildBoardOptions, slug: string): ImplementStatus => {
+  const { state, recorded, log } = implementRunState(opts.repoRoot, slug);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -363,7 +393,7 @@ export function implementStatus(opts: BuildBoardOptions, slug: string): Implemen
     message: lastLines(text) || `the implement command exited ${recorded}`,
     log,
   };
-}
+};
 
 /** The one fact this route reads from outside itself, injectable for test. */
 export interface ImplementDeps {

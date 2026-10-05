@@ -243,6 +243,69 @@ export function briefAskedNote(elapsedMs: number): string {
 }
 
 /**
+ * Whether this row's brief writer recorded a failure.
+ *
+ * Reads the `briefFailed` field the server computed. The client casts the
+ * fleet payload and never parses it, so a field missing from an older server's
+ * payload arrives as `undefined`; only a string reads as failed.
+ *
+ * @param row - the row, with at least `briefFailed`.
+ * @returns true where `briefFailed` holds a log path, false otherwise.
+ */
+export const briefWriterFailed = (row: Partial<Pick<AgentRow, 'briefFailed'>>): boolean =>
+  typeof row.briefFailed === 'string';
+
+/**
+ * What a row whose brief writer failed SAYS, and the log it names.
+ *
+ * **THE OTHER HALF OF THE PAIR `briefAskedNote` STATES.** A running writer
+ * invites waiting; this one is the one case that invites a person to look,
+ * because the implement route recorded a non-zero exit — a fact, not a
+ * liveness guess (`#905`'s decision, read the other way).
+ *
+ * IT NAMES THE LOG, the thing a reader can check. No command is offered: this
+ * slice only makes the failure visible — whether a failed writer is re-asked
+ * belongs to `auto-dispatch-asks-for-the-brief`.
+ */
+export const briefFailedNote = (log: string): string => `the brief writer failed — see ${log}`;
+
+/** The note a row with a missing brief shows when an ask or a failure is recorded. */
+export interface BriefNote {
+  /** `failed` where the writer recorded a non-zero exit, `asked` where an ask is recorded. */
+  kind: 'failed' | 'asked';
+  /** The short label before the sentence. */
+  label: string;
+  /** The sentence itself. */
+  text: string;
+}
+
+/**
+ * Which brief note a row shows, and its words.
+ *
+ * A recorded failure outranks a recorded ask, because a failed run also leaves
+ * its ask's log behind and both fields can be set together. The age of an ask
+ * is computed against `now`, so the caller reads the clock at render time.
+ *
+ * @param row - the row, with at least `briefFailed` and `briefAskedAt`.
+ * @param now - the reader's clock, in epoch milliseconds.
+ * @returns the `failed` note where `briefWriterFailed`, otherwise the `asked`
+ *          note where `briefAsked`, otherwise null — the row then shows the
+ *          missing-brief note.
+ */
+export const briefNote = (
+  row: Partial<Pick<AgentRow, 'briefFailed' | 'briefAskedAt'>>,
+  now: number,
+): BriefNote | null => {
+  if (briefWriterFailed(row)) {
+    return { kind: 'failed', label: 'brief failed', text: briefFailedNote(row.briefFailed as string) };
+  }
+  if (typeof row.briefAskedAt === 'number') {
+    return { kind: 'asked', label: 'brief asked', text: briefAskedNote(now - row.briefAskedAt) };
+  }
+  return null;
+};
+
+/**
  * The note's colour, by what the row is waiting for.
  *
  * ONLY ONE OF THE THREE IS LOUD, and that is the whole design. `needs you` is

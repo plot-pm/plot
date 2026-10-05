@@ -94,7 +94,7 @@ import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 import { briefPath as briefPathOf } from './brief-path.js';
-import { briefAskedAt } from './brief-ask-log.js';
+import { briefReading } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
 
 /**
@@ -7137,6 +7137,12 @@ export function rowsFromPulse(
         // once per plan above.
         const rowNote =
           waitingOn === 'time' ? blockedNote(blockerName, blockerOutstanding) : note;
+        // THE PLAN SLUG, computed once: the row's `plan` and `sprint` fields
+        // read it, and so do the brief readings, whose board asker and
+        // implement route are keyed on the plan rather than the branch.
+        const planSlug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+        // ONE READING of the brief askers' logs per row, for both fields below.
+        const askReading = repoRoot ? briefReading(repoRoot, b.branch, planSlug) : null;
         rows.push({
           repo,
           // WHAT THIS ROW IS — decided here, where the branch name, the PR and
@@ -7172,14 +7178,14 @@ export function rowsFromPulse(
             plan.file,
           ),
           branch: b.branch,
-          plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
+          plan: planSlug,
           planFile: plan.file,
           // WHICH ACTIVE SPRINT names this plan — joined on the slug, which is
           // exactly `plan` one line up. Read from the caller's map, "" when no
           // active sprint lists it: membership is the sprint FILE's list, not the
           // plan's own `Sprint:` field, so a plan the file omits carries no sprint
           // even where its field is filled. See `AgentRowSchema.sprint`.
-          sprint: sprintOf?.get(plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')) ?? '',
+          sprint: sprintOf?.get(planSlug) ?? '',
           // NEVER A RELEASE, so never a version: this loop walks the branches a
           // PLAN names, and `changeset-release/*` belongs to no plan — it
           // reaches the board through the planless-PR loop below, which is where
@@ -7300,7 +7306,13 @@ export function rowsFromPulse(
           // Null where no root was passed — a caller that did not look — which
           // is the same value an older server's pulse validates to, so the
           // renderer says nothing extra for either.
-          briefAskedAt: repoRoot ? briefAskedAt(repoRoot, b.branch) : null,
+          briefAskedAt: askReading?.askedAt ?? null,
+          // AND WHETHER THAT ASK'S WRITER FAILED — the implement log's path
+          // when its run recorded a non-zero exit and no other asker's log is
+          // newer, null otherwise (running, succeeded, re-asked, or no root to
+          // look from). See
+          // `briefReading` in `brief-ask-log.ts`.
+          briefFailed: askReading?.failed ?? null,
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
@@ -7606,6 +7618,10 @@ export function rowsFromPulse(
       // names it, so the log is absent for a reason rather than by accident. The
       // stat is skipped rather than made and discarded.
       briefAskedAt: null,
+      // AND SO NO WRITER TO HAVE FAILED — the same absence-for-a-reason as the
+      // field above. No plan names this row, so no implement route was ever
+      // keyed on it.
+      briefFailed: null,
       blockedBy: null,
       // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -7888,6 +7904,9 @@ export function rowsFromPulse(
       // And nothing asked for one — the ask follows the plan that names the
       // branch, and no plan names this one.
       briefAskedAt: null,
+      // And so no writer to have failed — the ask follows the plan that names
+      // the branch, and no plan names this one.
+      briefFailed: null,
       blockedBy: null,
       verdict: null,
       startability: null,
