@@ -173,3 +173,82 @@ describe('a closed PR yields to a live agent', () => {
     });
   }
 });
+
+describe('a waiting or blocked branch reads as unbegun on its row', () => {
+  // `waiting` and `blocked` reach NOT STARTED through `classifyGroup`, and three
+  // predicates read only `open` as unbegun. Measured 2026-10-05 on
+  // `fleet-agents-run-through-the-agent-sdk`: every slice row carried
+  // `state: waiting` and rendered with no status word and no age.
+  const PLAN = '2026-10-01-a-plan-with-waits.md';
+  const DAY = 86_400_000;
+  const NOW = Date.parse('2026-10-06T12:00:00Z');
+
+  const pulseWith = (state: BranchState): FleetReading => ({
+    generated: new Date(NOW).toISOString(),
+    root: '/repo',
+    main: 'main',
+    head: 'abc1234',
+    plans: [{
+      file: PLAN,
+      phase: 'approved',
+      slices: [
+        {
+          name: 'First',
+          verdict: 'eligible',
+          branches: [{
+            branch: 'feature/first', state: 'open', deferred: false, claimed: '',
+            worker: 'none', worker_pid: '', worker_exit: '',
+          }],
+        },
+        {
+          name: 'Second',
+          verdict: 'blocked',
+          branches: [{
+            branch: 'feature/second', state, deferred: false, claimed: '',
+            worker: 'none', worker_pid: '', worker_exit: '', waits_on: ['feature/first'],
+          }],
+        },
+      ],
+    }],
+    summary: { plans: 1, waves: 2, branches: 2, claimed: 0, eligible: 1, blocked: 1, deferred: 0 },
+  } as never);
+
+  const secondRow = (state: BranchState): AgentRow => {
+    const row = rowsFromPulse(
+      pulseWith(state), new Map(), 'plot', QUIET, new Map(), '',
+      new Map([[PLAN, NOW - 4 * DAY]]), NOW,
+    ).find((r) => r.branch === 'feature/second');
+    if (!row) throw new Error('no row built for feature/second');
+    return row;
+  };
+
+  for (const state of ['waiting', 'blocked'] as const) {
+    it(`${state}: carries the plan clock, waits on time, and names its blocker`, () => {
+      const row = secondRow(state);
+      expect(row.group).toBe('not-started');
+      expect(row.unbegun).toBe(true);
+      expect(row.waitingDays).toBe(4);
+      expect(row.waitingOn).toBe('time');
+      expect(row.blockedBy).toBe('First');
+    });
+
+    it(`${state}: keeps the note that names the prerequisite`, () => {
+      expect(secondRow(state).note).toContain('waits for feature/first');
+    });
+  }
+
+  it('open: is unbegun with the slice note, as before', () => {
+    const row = secondRow('open');
+    expect(row.unbegun).toBe(true);
+    expect(row.waitingDays).toBe(4);
+    expect(row.waitingOn).toBe('time');
+    expect(row.note).not.toContain('waits for');
+  });
+
+  it('unknown: is not unbegun, because the host could not say the branch is empty', () => {
+    const row = secondRow('unknown');
+    expect(row.unbegun).toBe(false);
+    expect(row.waitingDays).toBeNull();
+    expect(row.waitingOn).toBeNull();
+  });
+});

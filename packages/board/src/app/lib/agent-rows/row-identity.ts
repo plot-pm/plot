@@ -62,18 +62,18 @@ export function waitingLabel(days: number): string {
  * branch started and then shelved read as never begun, with its age and its PR
  * erased."*
  *
- * Keyed on `state` rather than on `pr === null && ageMinutes === null`. Those
- * are SYMPTOMS of a branch that does not exist, and they are also true of a
- * branch that exists with no commits — a claim pushed as a bare ref. The state
- * is the server's own answer to the question, so this asks it rather than
- * inferring it from two empty cells.
+ * Reads the server's `unbegun` field rather than `pr === null && ageMinutes ===
+ * null`. Those are SYMPTOMS of a branch that does not exist, and they are also
+ * true of a branch that exists with no commits — a claim pushed as a bare ref.
+ * The server sets `unbegun` for `open`, `waiting` and `blocked` (`hasNoWork`).
+ * A row without the field comes from an older server, and `state === 'open'`
+ * answers for it.
  *
  * Exported for test: the deferred case is what a naive "group by plan" gets
  * wrong while passing every assertion about the unstarted ones.
  */
-export function isUnbegun(row: Pick<AgentRow, 'group' | 'state'>): boolean {
-  return row.group === 'not-started' && row.state === 'open';
-}
+export const isUnbegun = (row: Pick<AgentRow, 'group' | 'state' | 'unbegun'>): boolean =>
+  row.group === 'not-started' && (row.unbegun ?? row.state === 'open');
 
 /**
  * Does this row offer work a person can start right now?

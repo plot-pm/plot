@@ -2620,14 +2620,26 @@ export const AgentRowSchema = z.object({
    * that makes `22d` (no commits for three weeks) unreadable beside `22d` (never
    * begun) — so the row labels it rather than merging it.
    *
-   * Only `open` branches carry it: a branch that exists has a real tip age, and
-   * that is the better answer for it.
+   * Only unbegun branches carry it (see `unbegun`): a branch that exists has a
+   * real tip age, and that is the better answer for it.
    *
    * null wherever the date is unavailable — a plan approved before Plot recorded
    * `Approved:` at all, or one whose record does not parse. Not zero, not "just
    * now": the same rule the PR countdown follows, for the same reason.
    */
   waitingDays: z.number().nullable().default(null),
+  /**
+   * Whether this branch carries no work: no commits, no claim, no PR.
+   *
+   * The server sets it from the branch state through `hasNoWork`: true for
+   * `open`, `waiting` and `blocked`, false for every other state, `unknown`
+   * included. `waitingDays` and the client's `isUnbegun` read it, and
+   * `waitingOnFor` asks the same predicate.
+   *
+   * Absent on a pulse from a server that predates the field. The client then
+   * reads `state === 'open'`, the only unbegun state such a server sent.
+   */
+  unbegun: z.boolean().optional(),
   /**
    * A local worktree for this branch has uncommitted changes — *someone is
    * editing*.
