@@ -251,44 +251,25 @@ test('a real dispatched worker has its build followed, and a failure reaches the
     `the monitor never asked the host for a run: ${JSON.stringify(stub.calls())}`);
 });
 
-test('a run for a superseded sha is reported as head moved, not as its conclusion', () => {
-  // THE FINDING THAT EARNS THE MONITOR, on the real path. The host's only run is
-  // a SUCCESS for a sha this branch never had — the shape of a run still in
-  // flight for a commit that has been pushed past. Reported as `build passed`,
-  // it would invite a merge of code nobody reviewed; measured 2026-08-30, two
-  // merge waiters did exactly that and had to be stopped and re-armed.
+test('a run for a sha this branch never had publishes nothing, on the real path', () => {
+  // `run-for-sha` answers only for the sha it is asked about. The host's only
+  // run is for a sha this branch never had, so the real op — the real
+  // `gh run list` piped through the real jq filter — answers nothing, and the
+  // monitor stays silent. The host call is asserted first: an empty findings
+  // file is also what a monitor that never ran leaves.
   const stub = stubHost(runForOtherSha);
   const run = dispatchOne('build-head-moved', { workerCommand: COMMITS_AND_EXITS, stub });
 
-  const found = waitFor(run.findingsFile, (r) => r.length > 0);
-  assert.ok(found.length > 0,
-    'the BuildMonitor published nothing about a branch whose run is for another sha');
-  assert.equal(found[0].finding, 'head moved',
-    `a superseded run was published as ${found[0].finding}`);
-  assert.equal(found.filter((f) => f.finding === 'build passed').length, 0,
-    `a run for code nobody will merge was reported green: ${JSON.stringify(found)}`);
-});
+  const asked = () => stub.calls().some((c) => c.startsWith('gh run list'));
+  for (const deadline = Date.now() + 20_000; !asked() && Date.now() < deadline;) {
+    execFileSync('sleep', ['0.2']);
+  }
+  assert.ok(asked(), `the monitor never asked the host for a run: ${JSON.stringify(stub.calls())}`);
 
-test('a worker whose branch has no run publishes nothing, and stops asking', () => {
-  // THE SILENCE, ACROSS THE BOUNDARY. `it polls nothing when no run is live` is
-  // asserted against counted ports in the unit file; here the subject is that
-  // silence is what a real, correctly-behaving monitor actually produces — an
-  // empty findings file rather than a heartbeat, a "nothing measured yet", or a
-  // finding invented out of an empty answer.
-  //
-  // The host says it has no runs at all, which is the ordinary state of a fresh
-  // push before CI wakes up.
-  const stub = stubHost(`
-    if (argv.includes("run") && argv.includes("list")) process.stdout.write("[]");
-    else if (argv.includes("pr") && argv.includes("list")) process.stdout.write("[]");
-    else process.stdout.write("{}");
-  `);
-  const run = dispatchOne('build-silent', { workerCommand: COMMITS_AND_EXITS, stub });
-
-  waitFor(run.findingsFile, () => false, 6_000);
+  waitFor(run.findingsFile, () => false, 3_000);
   const found = fs.existsSync(run.findingsFile)
     ? fs.readFileSync(run.findingsFile, 'utf8').trim().split('\n').filter(Boolean)
     : [];
   assert.deepEqual(found, [],
-    `a branch with no run produced findings: ${JSON.stringify(found)}`);
+    `a run for a sha this branch never had produced a finding: ${JSON.stringify(found)}`);
 });

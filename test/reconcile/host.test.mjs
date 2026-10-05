@@ -1050,6 +1050,18 @@ test('host: run-for-sha reads github-actions runs when the CI key names it', () 
   assert.equal(out.conclusion, 'failure');
 });
 
+test('host: run-for-sha exits 4 when gh fails, never empty', () => {
+  // A failing `gh` (expired token, rate limit, network) must read as *could not
+  // ask*. Empty output at exit 0 reads as *no run yet*, which the monitor
+  // treats as its healthy state and would stay silent about every build.
+  const stubs = makeStubs({ ghFail: 'HTTP 401: Bad credentials' });
+  const res = runAllowFail(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /gh run list failed/);
+});
+
 // --- bb --state vocabulary -------------------------------------------------
 //
 // bb speaks a different --state vocabulary than gh, and the adapter used to
@@ -2565,6 +2577,37 @@ test('host: run-for-sha on Jenkins without a credential exits 4, never empty', (
   // the shape probe leaking into a path the plan scoped out explicitly.
   assert.deepEqual(callsOf(jen.callsFile), [],
     'the sha route does not go through `jen` at all, which carries no commit');
+});
+
+test('host: run-for-sha on Jenkins answers nothing when no build carries the asked sha', () => {
+  // The arm matches `lastBuiltRevision.SHA1` against the asked sha and nothing
+  // else. A `.[0]` fallback would answer the newest build, labelled with ITS
+  // sha, for a commit Jenkins has not built.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
+  const builds = JSON.stringify({ builds: [
+    { number: 7, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/7/',
+      actions: [{ lastBuiltRevision: { SHA1: 'other-sha' } }] },
+  ] });
+  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
+  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash\nprintf '%s' '${builds}'\n`);
+  chmodSync(path.join(bin, 'security'), 0o755);
+  chmodSync(path.join(bin, 'curl'), 0o755);
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'asked-sha'], {
+    repo, hostStubs, jen,
+    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '', 'a build for another sha is no run for this one');
+  // The arm answers when the sha does match, so the empty output above is the
+  // match rule and not a stub that never reached the filter.
+  const hit = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'other-sha'], {
+    repo, hostStubs, jen,
+    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+  });
+  assert.equal(JSON.parse(hit.stdout).sha, 'other-sha');
 });
 
 // --- Jira issue-list / issue-view: REST, no CLI, pinned to the contract ------

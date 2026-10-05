@@ -39,6 +39,11 @@ export interface RegisteredTreeReadings {
    */
   planNamed: boolean;
   /**
+   * The plan that names the branch, as its file name without `.md`, where the
+   * reader knows it. Absent or `''` where it does not.
+   */
+  plan?: string;
+  /**
    * How many uncommitted paths it carries.
    *
    * A tree that could not be read reports its dirt as unknown, and the caller

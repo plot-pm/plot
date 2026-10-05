@@ -260,7 +260,7 @@ The rest of `plot-worker-state.sh` stays, `plot_worker_idle_now` included, becau
 
 ### The loop runs in one process
 
-- `infra/the-loop-runs-in-one-process` — `board/plot-worker-loop.mjs` runs `agentLoop` behind `Worker loop: js`, the launcher reads the key and `exec`s it, and the `loop-js` CI job runs the loop's tests on `js` <!-- builds: plot-worker-loop.mjs, a long-running loop entry -->
+- `infra/the-loop-runs-in-one-process` — `board/plot-worker-loop.mjs` runs `agentLoop` behind `Worker loop: js`, the launcher reads the key and `exec`s it, and the `loop-js` CI job runs the loop's tests on `js` → #1292 <!-- builds: plot-worker-loop.mjs, a long-running loop entry -->
 
 ### The loop restarts on new code
 

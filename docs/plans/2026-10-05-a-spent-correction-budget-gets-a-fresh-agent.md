@@ -4,13 +4,15 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Story:** the-supervisor-delivers-the-approved-scope
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-10-05, jwloka, in-session
 - **Started:** 2026-10-05, jwloka, `bug/the-correction-budget-counts-per-slice`
+- **Started:** 2026-10-05, jwloka, `feature/a-spent-correction-budget-gets-a-fresh-agent`
+- **Delivered:** 2026-10-05
 
 ## Changelog
 
@@ -62,7 +64,7 @@ Measured 2026-10-05 on this estate, with auto-dispatch on:
 
 ### A spent correction budget gets a fresh agent
 
-- `feature/a-spent-correction-budget-gets-a-fresh-agent` — the `corrections-spent` ending, `freshAgentAfterCorrections`, the registry tick's continue with a composed answer, and `.plot/state/fresh-agents.tsv` <!-- builds: freshAgentAfterCorrections -->
+- `feature/a-spent-correction-budget-gets-a-fresh-agent` — the `corrections-spent` ending, `freshAgentAfterCorrections`, the registry tick's continue with a composed answer, and `.plot/state/fresh-agents.tsv` → #1291 <!-- builds: freshAgentAfterCorrections -->
 
 ## Notes
 

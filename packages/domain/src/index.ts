@@ -45,6 +45,7 @@ export * from './rules/eligible.js';
 export * from './rules/draft-placement.js';
 export * from './rules/gates.js';
 export * from './rules/resume.js';
+export * from './rules/fresh-agent.js';
 export * from './rules/movable.js';
 export * from './rules/phase.js';
 export * from './rules/pulse.js';
@@ -78,6 +79,22 @@ export * from './rules/adoption.js';
 export * from './rules/slice-pr.js';
 export * from './rules/ownership.js';
 export * from './rules/handed-to.js';
+export * from './rules/poll-refusal.js';
+export * from './rules/agent-run-env.js';
+export * from './rules/run-limit.js';
+export * from './rules/runner-choice.js';
+export * from './rules/fragment-model.js';
+export {
+  limitAnswer,
+  type LimitVerdict,
+  type ResetReading,
+} from './rules/prompt-exit.js';
+export {
+  sdkRunExit,
+  type SdkRunReading,
+  type SdkRunExit,
+  type SdkHandBack,
+} from './rules/sdk-run-exit.js';
 /**
  * The BranchState producer, beside the three rules that consume it.
  *
@@ -500,6 +517,7 @@ export type * from './ports/tracker.js';
 export type * from './ports/build.js';
 export type * from './ports/budget.js';
 export type * from './ports/slice-spend.js';
+export type * from './ports/fresh-agent-record.js';
 export type * from './ports/supervision-report.js';
 export type * from './ports/slots.js';
 export type * from './ports/processes.js';
@@ -510,5 +528,7 @@ export type * from './ports/clock.js';
 export type * from './ports/scripts.js';
 export type * from './ports/bounded-run.js';
 export type * from './ports/desk.js';
+export type * from './ports/desk-monitors.js';
+export type * from './ports/agent-run.js';
 export type { MachineReading } from './ports/machine.js';
 export type { Machine as MachinePort } from './ports/machine.js';

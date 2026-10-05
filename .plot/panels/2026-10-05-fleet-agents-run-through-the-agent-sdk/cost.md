@@ -1,0 +1,41 @@
+# Cost juror: fleet-agents-run-through-the-agent-sdk
+
+Position: amend
+
+Lens: what the design costs and what it saves. Measurements come from the fleet desk transcripts (`~/.claude/projects/*Agentic-Tools-plot--worktrees-*`, top-level `*.jsonl`, assistant messages deduplicated by message id, weighted = input + output + cache creation + cache read / 10). Scripts: `/tmp/cost-juror/m.py`, `/tmp/cost-juror/g.py`, `/tmp/cost-juror/h.py`.
+
+## Measurement check
+
+Motivation's table reproduces exactly: 2026-09-30 82 sessions / 23 turns / 59k / 41M; 2026-10-02 29 / 142 / 276k / 129M; 2026-10-03 19 / 213 / 332k / 126M; 2026-10-04 6 / 384 / 454k / 90M (`m.py`). The polling share also reproduces in size: my narrow classifier gives 156 + 204 + 543 + 31 polling turns for 2026-10-02..05, and 41M of 383M weighted (11%).
+
+Spend by first tool of each turn since 2026-10-02 (`h.py`, 394M total): Bash work 234M (59%), Read 42M (11%), Edit 34M (9%); every waiting shape together (task-output `cat` 21.7M, `sleep`/`true` 14.3M, ScheduleWakeup 8.3M, `ps` 8.2M, `gh` CI reads 5.2M, ListAgents 4.4M, background starts 3.2M, Monitor 3.1M, TaskOutput 1.2M) is 70M, 18%. Spend at a context above 200k is 77% (10-02), 86% (10-03), 94% (10-04) and 84% (10-05) of each day (`m.py`, column `w>200k`).
+
+## HIGH
+
+H1. The plan's own mechanism removes the waiting share (11-18% of spend) and not the large-context work turns (about 80%). The context part is already handled by the stopgap c172910a8 (`CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000`), which the `command` runner keeps. A rough bound for what the cap removes: the sum of (context - 200k)/10 over turns is 42M, 41M and 41M on 10-02, 10-03, 10-04, which is 32-46% of those days, before the compaction's own cost (`m.py`, column `capsave`). The cap is unmeasured: after 17:39 UTC on 2026-10-05 only one fleet session exists (desk `free-bea458b4`, 23 turns, peak 196k, 0.5M). The `next` protocol does not shrink context either: `checks` and corrections resume the same session, so context keeps growing to the cap across runs. So the plan attributes to the SDK a saving whose larger part comes from a change that already shipped on the old runner. Before approval the plan needs a cap-only baseline: N sealed `command` slices after c172910a8, with the four Motivation columns and weighted tokens per sealed slice, so that slice 1 and slice 4 can show what the SDK adds on top.
+
+H2. Slice 4's bar is not a fair test of the saving. Two of its three conditions hold by construction: "0 polling calls" follows from the background gate and `pollRefusal` (and a refused poll still appears as a call and still costs a full-context turn, so the count is also not the right unit), and "median peak context at or under the `Agent context window`" follows from `autoCompactWindow`. The third, "median weighted tokens per sealed slice lower than the `command` slices of the same window", has no comparison side: `Agent runner` is one key per repository's `## Plot Config`, so one repository in one window runs one runner, and the plan names no split. It also has no margin (1% lower passes) and no control for slice size, while sealed slices differ by an order of magnitude (0.5M to 5.0M in the two most recent sessions). Fix: compare against the cap-only baseline from H1, per sealed slice, with a stated margin and the slice mix named, or run an A/B on the same slices.
+
+H3. No default bounds a slice's total spend under the SDK runner. `maxTurns` (150) and `maxBudgetUsd` count per `query()`; `Worker bound` bounds each run ("seconds a single prompt run may take", `skills/plot/scripts/plot-config.sh:31`); `Slice max spend` defaults to none; the correction budget counts CI corrections only. Nothing counts `next: checks` resumes, so an agent whose local checks keep failing gets a fresh 150-turn run per round without limit. Today one session per slice carries most of the work, so per-run limits approximate per-slice limits; after the split they do not. Fix: count `checks` rounds against a budget (the correction budget or its own key), or give `Slice max spend` a turn-based default that Plot can know (for example a slice turn total), since a dollar default cannot be known.
+
+## MEDIUM
+
+M1. The largest lever in the data is session length, and it sits in slice 2. Since 2026-10-02, 29 of 63 fleet sessions ran more than 150 turns, and the turns after the 150th carry 220M of 384M weighted (57%) (`h.py` variant, session table). The plan justifies the 150 default with daily means ("23 turns per session on 2026-09-30, 142 on 2026-10-02"), but 46% of sessions in the window exceed it. Under per-run counting that may be harmless, because runs split at `checks`/`pushed`; the plan should state the per-run turn distribution it expects and order the turn limit before or with slice 1, since it is the part that bounds the 384-turn case.
+
+M2. Most of slice 1's saving is reachable without the SDK. `claude` 2.1.289 on this machine offers `--json-schema`, `--max-budget-usd`, `--resume`, `--session-id`, `--disallowedTools` and `--output-format` json/stream-json in print mode (`claude --help`, run 2026-10-05), and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` can be a command prefix exactly as the cap is. From reading only (not run): the print-mode JSON result carries `total_cost_usd`, `num_turns` and `modelUsage`, and a `PreToolUse` hook can be passed through `--settings`. `--max-turns` does not appear in `--help` output; not verified. The plan does not say why a connector with a 1.2 MB dependency and three peers is cheaper than flags on the existing `command` runner, which would deliver the background gate, the hand-back and the spend line with no new dependency and no Artifactory exception. The connector argument (rate-limit events) is real, but it is slice 2's need, not the waiting gate's.
+
+M3. Bundle and repository cost. Bundles are committed and rebuilt on main: 165 commits touched `skills/plot/scripts/board/` since 2026-09-28 (`git log --since=2026-09-28 -- skills/plot/scripts/board/ | wc -l`). `board-server.mjs` is 1,226,300 bytes today; slice 3 puts the SDK's 1.2 MB `sdk.mjs` into it (about double) as well as into `plot-worker-loop.mjs`, and into `plot-registryd.mjs` (451,336 bytes) if the registry tick's fresh session (slice 2) starts through the port. `packages/domain/src/adapters/index.ts:1-16` is the composition-root barrel that 19 board files import, so placing `agent-run-sdk` in that barrel pulls the SDK into every bundle that imports it. The plan should name which bundles may carry the SDK and add a size check, and keep `agent-run-sdk` out of the shared barrel.
+
+## LOW
+
+L1. The resume cost claim holds inside one hour and not past it. Turns after a 5-60 min gap read 244k of cache and create 12k on average (365 turns); the one turn after a gap over 60 min created 418k (`g.py`). `Checks wait` is 3600 s, so a resume after a full CI wait sits at the cache's edge and can cost a full cache write (up to 200k weighted at the cap) rather than the 20k the plan implies ("reads it at 1/10 weight").
+
+L2. The polling count misses two shapes. ScheduleWakeup (220 turns, 8.3M) and `ps` reads (188 turns, 8.2M) are absent from "803 of 13,844". ScheduleWakeup is in the planned `disallowedTools`; a `ps` poll is not in `pollRefusal`'s list, and with the background gate it should mostly vanish, but the slice-4 script should count it.
+
+L3. Per-run spend lines change a stated contract: `packages/domain/src/ports/slice-spend.ts:30` reads "APPEND-ONLY, WRITTEN ONCE PER SLICE". The plan says slice 2 "extends" the entry; the port's doc and the board's per-branch sum both need the change named in slice 2's Done When (it names the reader test, not the doc).
+
+L4. Machine load does not grow: the loop runs the same `plot-local-checks.mjs` commands the agent runs today. It removes the in-session background runs, which is a small load saving. From reading only.
+
+## Single most important change
+
+Measure the stopgap first and make it the baseline: record cap-only `command` slices after c172910a8, then restate slice 4's bar as weighted tokens per sealed slice against that baseline with a margin, and add a per-slice bound on `checks` rounds. Without this the plan cannot show that the SDK, rather than the cap already on main, removes the measured spend.

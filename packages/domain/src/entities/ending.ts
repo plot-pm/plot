@@ -73,11 +73,33 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   to the wait the agent is owed an answer to. #1255 is `no-answer`'s: a
  *   continued agent's wait expired after 1,800 s reading "no CI answer" while
  *   CI had already failed, because nothing watched the build for it.
+ * - `corrections-spent` — the slice's own `Correction budget` ran out: the
+ *   build failed again after every correction this slice is owed was handed
+ *   back, and the loop stops rather than spend a budget that is not its own to
+ *   extend. Until this value existed the ending was `unstarted`, which already
+ *   meant something else — a prompt that never ran — and the two were told
+ *   apart only by reading `detail`'s prose. `freshAgentAfterCorrections`
+ *   (`rules/fresh-agent.ts`) is the one reader of this value: it answers
+ *   `start-fresh` the first time a slice reaches it and `needs-a-person`
+ *   thereafter, which is the one-fresh-session-then-a-person rule
+ *   `a-spent-correction-budget-gets-a-fresh-agent` settles.
+ * - `turn-limit` — an SDK run reached `Agent max turns`. The supervisor
+ *   starts one fresh session for the slice before it asks a person: a
+ *   session that grew too long is fixed by a short prompt, not by more of
+ *   the same session.
+ * - `run-limit` — a slice reached `Slice max runs`: `runLimitRefusal` decided
+ *   before a run was even started that the slice had spent its count, so no
+ *   watcher measured an agent that was running — the loop's own count did.
+ * - `spend-limit` — an SDK run or a slice reached `Agent max spend` or
+ *   `Slice max spend`. Unlike `turn-limit`, this goes to a person directly:
+ *   a fresh session would read the same slice spend or start a new count
+ *   against the same work, and a person decides whether to spend more.
  *
- * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked` AND
- * `checks-unanswered` ARE THE REASONS NO WATCHER PRODUCED. The other four are
- * the floor firing or the monitor publishing; these six are the agent's own
- * loop reporting what it found, which is why their actor is `agent`.
+ * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked`,
+ * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit` AND
+ * `spend-limit` ARE THE REASONS NO WATCHER PRODUCED. The other four are the
+ * floor firing or the monitor publishing; these ten are the agent's own loop
+ * reporting what it found, which is why their actor is `agent`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -104,6 +126,10 @@ export const EndingReasonSchema = z.enum([
   'holding-work',
   'blocked',
   'checks-unanswered',
+  'corrections-spent',
+  'turn-limit',
+  'run-limit',
+  'spend-limit',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 

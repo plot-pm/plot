@@ -12,6 +12,7 @@ import {
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun } from '@plot-pm/domain';
 import {
+  loopWritesOf,
   readManifestFields,
   readPass,
   readResetRefusals,
@@ -31,6 +32,7 @@ const CONFIG: PassConfig = {
   maxStartRetries: 3,
   checksWaitSeconds: 1_800,
   correctionBudget: 2,
+  sliceMaxRuns: 12,
   base: 'origin/main',
 };
 
@@ -158,6 +160,21 @@ describe('readPass — ROWS 1-3, no assignment', () => {
     const clock = { since: Date.now() - 5_000 };
     await readPass(ports(), file, RUNNING_NONE, CONFIG, clock);
     expect(clock.since).toBeNull();
+  });
+});
+
+describe('readPass — the SDK runner readings', () => {
+  it('reads no hand-back, no local checks and no recorded run, and carries Slice max runs from the config', async () => {
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk' });
+    const readings = await readPass(ports(), file, RUNNING_NONE, { ...CONFIG, sliceMaxRuns: 7 }, { since: null });
+    expect(readings).toMatchObject({
+      handBack: null,
+      checksResumeId: '',
+      handBackSummary: '',
+      localChecks: null,
+      sliceRuns: 0,
+      sliceMaxRuns: 7,
+    });
   });
 });
 
@@ -349,5 +366,18 @@ describe('readPass — ROWS 12-18, the CI wait', () => {
     );
     expect(readings.checks).toBe('settled');
     expect(readings.checksPassed).toBe(false);
+  });
+});
+
+describe('loopWritesOf', () => {
+  it('answers the writes unchanged where none is checks', () => {
+    const writes = [{ kind: 'assignment-clear', session: 's' }] as const;
+    expect(loopWritesOf(writes)).toBe(writes);
+  });
+
+  it('refuses a checks write, naming its branch', () => {
+    expect(() =>
+      loopWritesOf([{ kind: 'checks', branch: 'infra/x', worktree: '/w', resumeId: 'r', summary: 's' }]),
+    ).toThrow('a checks write on infra/x is not applied by this loop yet');
   });
 });

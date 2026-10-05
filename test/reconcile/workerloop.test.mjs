@@ -1930,6 +1930,41 @@ test('worker-loop: a corrected prompt that pushes its fix reaches the checks wai
   }
 });
 
+test('worker-loop: a spent correction budget ends corrections-spent, not unstarted, and leaves the marker', serial, async () => {
+  // A BUDGET OF 0 SPENDS ON THE FIRST FAILURE, so one pass reaches the arm: the
+  // prompt pushes, the build fails for that head, and the loop ends. The
+  // ending's reason is what `freshAgentAfterCorrections` reads; `unstarted`
+  // means the prompt never ran, and a reversion to it would hide this desk
+  // from the supervisor's fresh-session step.
+  const { parent, t, script } = checksFixture('spent',
+    [
+      'echo work > "$PLOT_WORKTREE/work.txt"',
+      'git -C "$PLOT_WORKTREE" add work.txt && git -C "$PLOT_WORKTREE" commit -qm work && git -C "$PLOT_WORKTREE" push -q origin bug/x',
+      failedBuildLine,
+      '',
+    ].join('\n'));
+  const manifest = path.join(parent, 'manifest.json');
+  fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/x', worktree: t }));
+  const spend = spendHomes(t, 'bug/x');
+
+  try {
+    const r = await runLoop(t, {
+      script,
+      env: checksEnv(manifest, { ...spend.env, PLOT_CORRECTION_BUDGET: '0' }),
+    });
+
+    assert.equal(r.code, 1, `a spent budget exits 1\n--- stderr ---\n${r.stderr}`);
+    const ending = JSON.parse(fs.readFileSync(path.join(t, '.plot-worker.ending.json'), 'utf8'));
+    assert.equal(ending.reason, 'corrections-spent', 'the reason names the spent budget, not a prompt that never started');
+    assert.equal(ending.actor, 'agent');
+    assert.match(ending.detail, /the run at https:\/\/ci\/run\/1 for [0-9a-f]+ concluded failure/);
+    assert.match(fs.readFileSync(path.join(t, 'PLOT-BLOCKED.md'), 'utf8'), /failed after 0 corrections/);
+  } finally {
+    fs.rmSync(spend.root, { recursive: true, force: true });
+    discard(t);
+  }
+});
+
 test('worker-loop: a write that lands during the checks wait ends holding-work before the seal', serial, async () => {
   // The prompt commits and pushes, then leaves a background job that writes a
   // file once `wait_for_checks` asks the host whether the PR is open — after

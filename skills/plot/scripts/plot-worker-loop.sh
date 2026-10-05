@@ -300,10 +300,10 @@ case "$CHECKS_POLL_SECONDS" in (*[!0-9]*|''|0) CHECKS_POLL_SECONDS=60 ;; esac
 # empty previous branch is an agent that held no slice yet, and it keeps its
 # launch handle.
 #
-# `attempts` STAYS FIXED, and it does so by being untouched rather than by being
-# preserved: the node one-liner round-trips the whole object, so every field
-# this function does not name survives verbatim. A hop is the same agent
-# continuing, so its automatic-retry budget is the same budget.
+# `attempts` STAYS FIXED, by being untouched: the node one-liner round-trips
+# the whole object, so every field this function does not name survives
+# verbatim. `correctionAttempts` is named: it resets whenever the previous branch
+# differs from the new one, empty included — the counter belongs to the branch.
 #
 # WHY THE MANIFEST UPDATE IS NECESSARY. The registry synthesizes from manifests.
 # A worker that moved branches without updating the manifest would still appear
@@ -334,9 +334,9 @@ update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree $4=resume
     manifest.branch = process.argv[2];
     manifest.worktree = process.argv[3];
     if (process.argv[5] !== "") manifest.resumeId = process.argv[5];
-    manifest.wavesCount = (manifest.wavesCount || 1) + 1;
+    manifest.wavesCount = (manifest.wavesCount || 1) + 1; if (process.argv[6] !== process.argv[2]) manifest.correctionAttempts = 0;
     fs.writeFileSync(process.argv[4], JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$new_branch" "$new_worktree" "$tmp" "$resume_id" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  ' "$manifest" "$new_branch" "$new_worktree" "$tmp" "$resume_id" "$previous_branch" 2>/dev/null || { rm -f "$tmp"; return 1; }
 
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
@@ -2916,7 +2916,7 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
     # replacing it with Plot's would answer a question nobody asked. That
     # function also names the branch and the session that wrote it.
     echo "plot-worker-loop: the build kept failing on ${PLOT_BRANCH:-?} — $CORRECTION_BUDGET corrections were handed back and the last still failed: $_correction. The slice stays claimed and a person is asked; ending worker." >&2
-    write_ending "${PLOT_WORKTREE:-$PWD}" unstarted agent "${PLOT_BRANCH:-}" \
+    write_ending "${PLOT_WORKTREE:-$PWD}" corrections-spent agent "${PLOT_BRANCH:-}" \
       "the build failed on each of $CORRECTION_BUDGET corrections; the last was: $_correction"
     write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
       "PLOT-BLOCKED: the build for \`${PLOT_BRANCH:-?}\` failed after $CORRECTION_BUDGET corrections were handed back to the agent. The last failure: $_correction. Every attempt is recorded in \`$(correction_file_name)\` in this worktree, newest last. The work is pushed and the slice is still claimed by this agent. Read the run, fix what CI is failing on, then restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."

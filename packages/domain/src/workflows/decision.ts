@@ -37,6 +37,7 @@ export type Write =
   | AgentStartWrite
   | AgentSignalWrite
   | AgentResumeWrite
+  | ChecksWrite
   | AgentAssignWrite
   | AgentAttemptWrite
   | BlockedMarkerWrite
@@ -251,6 +252,25 @@ export interface AgentResumeWrite {
   readonly resumeId: string;
   /** What to hand the attempt, verbatim — the gate failures, as a prompt. */
   readonly correction: string;
+}
+
+/**
+ * Tells the performer to run the local checks a `checks` hand-back asked for.
+ * No model turn runs. The next pass reads the checks' answer as
+ * `localChecks` and resumes {@link resumeId} through an `agent-resume` write:
+ * on a pass with the one line "local checks passed: <summary>", on a fail
+ * with the failing command and the tail of its output.
+ */
+export interface ChecksWrite {
+  readonly kind: 'checks';
+  /** The branch the checks are about. */
+  readonly branch: string;
+  /** The worktree to run the checks in, absolute. */
+  readonly worktree: string;
+  /** The session the next pass resumes with the checks' answer. */
+  readonly resumeId: string;
+  /** The hand-back's own summary. */
+  readonly summary: string;
 }
 
 /**

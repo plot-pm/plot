@@ -55,7 +55,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **CI:** github-actions
 - **Worktree root:** .worktrees
 - **People:** jwloka = Jan Wloka; eins78 = Max Albrecht
-- **Worker command:** PLOT_UNATTENDED=1 PLOT_MODEL=sonnet skills/plot/scripts/plot-worker-loop.sh
+- **Worker command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 PLOT_MODEL=sonnet skills/plot/scripts/plot-worker-loop.sh
 <!-- The loop script implements, then asks `--next` for the next wave, claims
      it, and moves to its worktree — repeating until the plan has no more
      claimable branches. The prompt itself lives in `.plot/worker-prompt.sh`,
@@ -72,7 +72,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      times. Under this mode nothing would have stopped it. The brief is
      therefore the only guard a worker has — keep its scope guards explicit. -->
 
-- **Idea command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Idea command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 
 <!-- `Idea command` runs `/plot-idea` on a tracker issue for the board's
      `Create plan` action. The board appends ONE argument naming a file it wrote
@@ -93,10 +93,10 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      nothing. Set, each skipped question takes the shape its author chose and
      names itself in the log. -->
 
-- **Story command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
-- **Brief command:** PLOT_UNATTENDED=1 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
-- **Implement command:** PLOT_UNATTENDED=1 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
-- **Interrogate command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Story command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Brief command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Implement command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Interrogate command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 
 <!-- `Implement command` runs `/plot-implement <slug>` for the board's
      `Implement` control and for `WriteBriefButton`, which is the same route
@@ -252,8 +252,9 @@ than the actor:
 
 - the six process states (`running`, `finished`, `failed`, `ended`, `none`,
   `elsewhere`) — literal process-table observations
-- the config keys `Worker command` and `Worker bound`, which name what a
-  dispatched agent *runs* and how long its loop may take
+- the config keys `Worker command`, `Worker bound` and `Worker loop`, which
+  name what a dispatched agent *runs*, how long its loop may take, and which
+  loop implementation runs it
 
 **A Worker is the process an Agent runs on a Machine.** It is not a synonym for
 either and not merely a view of one — it is what connects them:
@@ -300,7 +301,7 @@ The specs already speak this way. `DESIGN-machine.md` measures *"7 workers died
 it.
 
 That is why the exceptions are exceptions rather than inconsistencies: the six
-process states, `WorkerActivity`, and `Worker command` / `Worker bound` are all
+process states, `WorkerActivity`, and `Worker command` / `Worker bound` / `Worker loop` are all
 things the machine observes or launches. **A specialised agent that never
 becomes a loop-worker still has a registry entry and still has no worker
 fields** — which is precisely the shape this split keeps expressible.

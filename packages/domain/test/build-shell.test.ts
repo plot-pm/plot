@@ -158,9 +158,10 @@ describe('a CI connector reads the run for one commit', () => {
   });
 
   it('carries a sha that is NOT the one asked about', async () => {
-    // The script falls back to the branch's newest run and says which it is,
-    // because a run in flight for a superseded commit would otherwise report
-    // identically to no run at all. The connector must not flatten that.
+    // The script answers only for the sha it is asked about, but the
+    // connector reads `sha` off the answer rather than assuming it matches —
+    // a stub standing in for a script that answered wrong must not be
+    // flattened into looking right.
     const answer = await buildActions(run('newer', 'in_progress', null)).runForSha(
       'feature/x',
       'asked-about',

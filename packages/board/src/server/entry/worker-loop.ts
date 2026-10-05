@@ -23,11 +23,12 @@ import {
 import { checksFromRuns, type RemoteTipReading } from '@plot-pm/domain/rules/checks-verdict';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
+import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
 import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
 import { agentLoop, type AgentLoopReadings } from '@plot-pm/domain/workflows/agent-loop';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
-import type { Agents, BoundedRun, Desk, Processes, Refs, Trees } from '@plot-pm/domain';
+import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 
@@ -296,6 +297,8 @@ export interface PassConfig {
   readonly maxStartRetries: number;
   readonly checksWaitSeconds: number;
   readonly correctionBudget: number;
+  /** `Slice max runs`; {@link DEFAULT_SLICE_MAX_RUNS} where the key is absent. */
+  readonly sliceMaxRuns: number;
   readonly base: string;
 }
 
@@ -335,6 +338,15 @@ export const readPass = async (
     maxStartRetries: config.maxStartRetries,
     markerWritten: false,
     markerText: '',
+    // A `command` runner hands back nothing, so no `checks` hand-back is read.
+    handBack: null,
+    checksResumeId: '',
+    handBackSummary: '',
+    localChecks: null,
+    // The slice-spend record holds no run line before the SDK runner writes
+    // one, so no run of this slice is on record.
+    sliceRuns: 0,
+    sliceMaxRuns: config.sliceMaxRuns,
     resetRefusals: [],
     pushed: false,
     prOpen: false,
@@ -537,6 +549,25 @@ export interface LoopDeps {
   readonly resolvePrompt?: (repoRoot: string, agent: string) => string;
 }
 
+/**
+ * A decision's writes as the {@link LoopWrite}s {@link performLoopWrites} applies.
+ *
+ * `checks` is not applied by this entry: the local checks run with the SDK
+ * runner (`infra/the-loop-waits-not-the-model`). This entry fills `handBack`
+ * with `null`, so `agentLoop` does not emit `checks` here.
+ *
+ * @param writes - the decision's writes.
+ * @returns the same writes, typed as {@link LoopWrite}s.
+ * @throws Error where a write is `checks`.
+ */
+export const loopWritesOf = (writes: readonly Write[]): readonly LoopWrite[] => {
+  const checks = writes.find((w) => w.kind === 'checks');
+  if (checks !== undefined) {
+    throw new Error(`plot-worker-loop: a checks write on ${checks.branch} is not applied by this loop yet — the local checks run with the SDK runner`);
+  }
+  return writes as readonly LoopWrite[];
+};
+
 /** What the loop holds across passes: the prompt's own state, and the wait it came back from. */
 interface Held {
   exit: AgentLoopReadings['exit'];
@@ -677,7 +708,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       deps.log(`plot-worker-loop: free on ${deps.slug || '?'} — nothing handed over yet. Waiting to be handed work: reading the manifest every ${deps.config.passIntervalMs / 1000}s, for up to ${deps.config.waitBudgetSeconds}s; stop it with /plot-fleet --stop`);
     }
     const worktree = readings.worktree || deps.worktree;
-    const applied = await performLoopWrites(decision.writes as readonly LoopWrite[], deps.ports, worktree);
+    const applied = await performLoopWrites(loopWritesOf(decision.writes), deps.ports, worktree);
     for (const a of applied) if (!a.result.ok) deps.log([`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
     // THE OPERATOR'S LINES ABOUT A PROMPT THAT NEVER RAN, as the shell prints them.
     const attempt = decision.writes.find((w) => w.kind === 'agent-attempt');
@@ -882,6 +913,7 @@ export const main = async (
       maxStartRetries: num(env.PLOT_START_ATTEMPT_BUDGET, 3),
       checksWaitSeconds: num(env.PLOT_CHECKS_WAIT_SECONDS, num(configKey(worktree, 'Checks wait'), 1800)),
       correctionBudget: num(env.PLOT_CORRECTION_BUDGET, num(configKey(worktree, 'Correction budget'), 2)),
+      sliceMaxRuns: num(configKey(worktree, 'Slice max runs'), DEFAULT_SLICE_MAX_RUNS),
       base: env.PLOT_BASE ?? 'origin/main',
     },
     limitMarginSeconds: num(env.PLOT_LIMIT_MARGIN_SECONDS, 60),

@@ -405,3 +405,170 @@ test('the spent budget writes a marker through write_blocked_marker, and never o
   );
   fs.rmSync(wt, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------------------
+// THE BUDGET IS PER SLICE, NOT PER AGENT
+// ---------------------------------------------------------------------------
+//
+// `update_manifest_on_hop` is the one writer that knows a slice changed — it
+// already mints a fresh `resumeId` on exactly the condition that must also
+// reset `correctionAttempts`. These call it directly, the way
+// `second-slice.test.mjs`'s `hop()` does, rather than driving a whole loop
+// pass for a one-field write.
+
+/** Call `update_manifest_on_hop` against a hand-written manifest and read it back. */
+const hop = (manifestJson, newBranch, newWorktree, resumeId, previousBranch) => {
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-corr-hop-'));
+  const manifest = path.join(wt, 'agent.json');
+  fs.writeFileSync(manifest, JSON.stringify(manifestJson));
+  const script = `
+    PLOT_WORKER_LOOP_SOURCED=1
+    . ${JSON.stringify(loop)}
+    update_manifest_on_hop ${JSON.stringify(manifest)} "$1" "$2" "$3" "$4"
+  `;
+  execFileSync('bash', ['-c', script, 'bash', newBranch, newWorktree, resumeId, previousBranch], {
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  const after = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  fs.rmSync(wt, { recursive: true, force: true });
+  return after;
+};
+
+test('a hop to a different branch resets the correction count to zero', () => {
+  const after = hop(
+    { session: 's1', resumeId: 's1', branch: 'bug/a', correctionAttempts: 2, attempts: 1, wavesCount: 1 },
+    'bug/b', '/desk', 's1', 'bug/a',
+  );
+  assert.equal(after.correctionAttempts, 0, 'the agent spent its budget on A — B starts fresh');
+  assert.equal(after.attempts, 1, '`attempts` is the start budget and stays per agent');
+});
+
+test('a hop to the same branch keeps the correction count', () => {
+  // THE NAIVE FIX FAILS THIS ONE: resetting on every hop gives a failing slice
+  // an unbounded budget whenever a hop hands the agent the branch it holds.
+  const after = hop(
+    { session: 's1', resumeId: 's1', branch: 'bug/a', correctionAttempts: 2, attempts: 1, wavesCount: 1 },
+    'bug/a', '/desk', 's1', 'bug/a',
+  );
+  assert.equal(after.correctionAttempts, 2, 'still fixing the same slice — the count must not reopen the budget');
+});
+
+test('a hop leaves `attempts`, `relaunches` and `wavesCount` semantics as before', () => {
+  const after = hop(
+    { session: 's1', resumeId: 's1', branch: 'bug/a', correctionAttempts: 2, attempts: 1, relaunches: 7, wavesCount: 3 },
+    'bug/b', '/desk', 's1', 'bug/a',
+  );
+  assert.equal(after.attempts, 1, '`attempts` round-trips verbatim');
+  assert.equal(after.relaunches, 7, '`relaunches` round-trips verbatim — a person’s record, not touched by a hop');
+  assert.equal(after.wavesCount, 4, '`wavesCount` still counts hops, unaffected by the correction reset');
+});
+
+test('a hand-started loop with no manifest hops without error', () => {
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-corr-hop-'));
+  const missing = path.join(wt, 'nope.json');
+  const script = `
+    PLOT_WORKER_LOOP_SOURCED=1
+    . ${JSON.stringify(loop)}
+    update_manifest_on_hop ${JSON.stringify(missing)} bug/b /desk s1 bug/a
+    echo "exit=$?"
+  `;
+  const out = execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: 60_000 });
+  assert.match(out, /exit=0/, 'an absent manifest has nothing to reset, and the hop still reports success');
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
+test('a hop with an empty previous branch resets the correction count', () => {
+  // The rejected-claim path runs `clear_manifest_branch` and empties
+  // `PLOT_BRANCH`, so the next hop arrives with no previous branch. A spent
+  // count must not ride onto the new slice.
+  const after = hop(
+    { session: 's1', resumeId: 's1', branch: '', correctionAttempts: 2, attempts: 1, wavesCount: 1 },
+    'bug/b', '/desk', 's1', '',
+  );
+  assert.equal(after.correctionAttempts, 0, 'an empty previous branch differs from the new one');
+});
+
+/**
+ * Run the loop's OWN correction arm — the text of the `build_says_failed`
+ * branch in `plot-worker-loop.sh`, cut out of the script and evaluated — so the
+ * `$(( _corrections + 1 ))` count, the correction file and the spent-budget
+ * marker all come from the loop's computation, not from numbers a test types.
+ * `build_says_failed` is stubbed to a failure; `continue` ends a pass and
+ * `exit 1` ends the arm when the budget is spent.
+ */
+const correctionArm = (wt, manifest, passes) => {
+  const src = fs.readFileSync(loop, 'utf8').split('\n');
+  const start = src.findIndex((l) => l.startsWith('  if [ -n "${PLOT_BRANCH:-}" ] && _correction=$(build_says_failed); then'));
+  assert.ok(start >= 0, 'the loop still has its correction arm');
+  const end = src.findIndex((l, i) => i > start && l === '  fi');
+  const arm = src.slice(start, end + 1).join('\n');
+  const script = `
+    PLOT_WORKER_LOOP_SOURCED=1
+    . ${JSON.stringify(loop)}
+    build_says_failed() { printf 'the run at https://ci/run/9 concluded failure'; }
+    PLOT_BRANCH=bug/b
+    PLOT_WORKTREE=${JSON.stringify(wt)}
+    PLOT_MANIFEST_FILE=${JSON.stringify(manifest)}
+    for _pass in ${passes}; do
+      ( for _once in 1; do
+${arm}
+      done ) 2>/dev/null
+    done
+  `;
+  try {
+    execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: 60_000, stdio: 'pipe' });
+  } catch (e) {
+    // `exit 1` of the spent arm ends the shell; the marker is on disk.
+    if (e.status !== 1) throw e;
+  }
+};
+
+test('an agent that spent its budget on slice A starts slice B with `Correction 1 of 2` on B’s first failure', () => {
+  // CATCHES A COUNT STILL STORED PER AGENT. The hop resets the manifest field;
+  // the loop's own arm then computes `_corrections + 1`, and the correction
+  // file and the marker a person reads must follow that count, not A's.
+  const wt = desk();
+  const manifest = path.join(wt, 'agent.json');
+  fs.writeFileSync(manifest, JSON.stringify({
+    session: 's1', resumeId: 's1', branch: 'bug/a', correctionAttempts: 2, attempts: 1, wavesCount: 1,
+  }));
+  const hopScript = `
+    PLOT_WORKER_LOOP_SOURCED=1
+    . ${JSON.stringify(loop)}
+    update_manifest_on_hop ${JSON.stringify(manifest)} bug/b ${JSON.stringify(wt)} s1 bug/a
+  `;
+  execFileSync('bash', ['-c', hopScript], { encoding: 'utf8', timeout: 60_000 });
+
+  correctionArm(wt, manifest, '1');
+  const first = fs.readFileSync(path.join(wt, 'PLOT-CORRECTION.md'), 'utf8');
+  assert.match(first, /Correction 1 of 2/, 'B’s first failure reads as correction 1, not 3');
+  assert.equal(JSON.parse(fs.readFileSync(manifest, 'utf8')).correctionAttempts, 1, 'the manifest reads 1 after the loop raised it');
+  assert.ok(!fs.existsSync(path.join(wt, 'PLOT-BLOCKED.md')), 'B’s first failure does not block');
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
+test('the spent-budget marker follows the slice’s own count', () => {
+  // After the hop, B takes two corrections (1 of 2, 2 of 2) and the third
+  // failure spends the budget. Left at A's count of 2, the first failure
+  // would have written the marker and no correction file at all.
+  const wt = desk();
+  const manifest = path.join(wt, 'agent.json');
+  fs.writeFileSync(manifest, JSON.stringify({
+    session: 's1', resumeId: 's1', branch: 'bug/a', correctionAttempts: 2, attempts: 1, wavesCount: 1,
+  }));
+  execFileSync('bash', ['-c', `
+    PLOT_WORKER_LOOP_SOURCED=1
+    . ${JSON.stringify(loop)}
+    update_manifest_on_hop ${JSON.stringify(manifest)} bug/b ${JSON.stringify(wt)} s1 bug/a
+  `], { encoding: 'utf8', timeout: 60_000 });
+
+  correctionArm(wt, manifest, '1 2 3');
+  const file = fs.readFileSync(path.join(wt, 'PLOT-CORRECTION.md'), 'utf8');
+  assert.match(file, /Correction 1 of 2/);
+  assert.match(file, /Correction 2 of 2/, 'the loop counted B’s second failure as 2');
+  assert.equal(JSON.parse(fs.readFileSync(manifest, 'utf8')).correctionAttempts, 2);
+  const marker = fs.readFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'utf8');
+  assert.match(marker, /failed after 2 corrections were handed back/, 'the marker names B’s spent budget');
+  fs.rmSync(wt, { recursive: true, force: true });
+});

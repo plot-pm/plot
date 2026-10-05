@@ -6,23 +6,24 @@ import { rmTree } from '../helpers.mjs';
 import {
   firstMarkerLine,
   markerIn,
+  markerReading,
   waitingWorktrees,
   workerQuestions,
   QUESTION_MAX,
 } from '../../src/server/worker-question.js';
 import type { FleetReading, WorkerState } from '../../src/contract/schema.js';
 
-// WHAT A WAITING AGENT IS WAITING ON — read from the marker FILE the worker
-// wrote, not grepped from the contents of every file in the tree.
+// WHAT A DESK IS WAITING ON — read from the marker FILE a worker wrote, not
+// grepped from the contents of every file in the tree.
 //
-// The scan has already decided the worker is `waiting`; this module only ever
-// annotates that verdict. So every failure mode points the same way: an
-// unreadable marker must produce "" and let the row say *reason unavailable*.
-// A module that returned a plausible-looking line on failure would pass the
-// happy-path assertions below while sending readers to answer questions nobody
-// asked. The old contents grep did worse than that — it manufactured a question
-// out of a document that merely mentioned the marker — and reading the file by
-// name is what makes that impossible.
+// This module reads a marker if one exists; it does not consult the scan's own
+// `worker` verdict to decide whether to look. So every failure mode points the
+// same way: an unreadable marker must produce "" and let the row say *reason
+// unavailable*. A module that returned a plausible-looking line on failure
+// would pass the happy-path assertions below while sending readers to answer
+// questions nobody asked. The old contents grep did worse than that — it
+// manufactured a question out of a document that merely mentioned the marker —
+// and reading the file by name is what makes that impossible.
 
 let tmp: string;
 
@@ -200,20 +201,111 @@ describe('markerIn — reading the marker file, and failing to', () => {
   });
 });
 
+describe('markerReading — the line and the age, from one stat', () => {
+  it('reads a PLOT-BLOCKED file, pairing its line with the file\'s own mtime', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which adapter?\n' });
+    const mtime = new Date('2026-10-05T13:36:00.000Z');
+    fs.utimesSync(path.join(wt, 'PLOT-BLOCKED.md'), mtime, mtime);
+    expect(await markerReading(wt)).toEqual({
+      firstLine: 'PLOT-BLOCKED: which adapter?',
+      askedAt: mtime.toISOString(),
+    });
+  });
+
+  it('returns null for a tree with no marker file — never a guessed reading', async () => {
+    expect(await markerReading(treeWith({ 'src/a.ts': 'ok\n' }))).toBeNull();
+  });
+
+  it('returns null for a worktree that has gone, and does not reject', async () => {
+    await expect(markerReading(path.join(tmp, 'never-existed'))).resolves.toBeNull();
+  });
+
+  it('treats an empty marker file as a stated unknown, not null — the age still reads', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': '\n  \n' });
+    const reading = await markerReading(wt);
+    expect(reading).not.toBeNull();
+    expect(reading?.firstLine).toBe('');
+    expect(typeof reading?.askedAt).toBe('string');
+  });
+
+  it('gives a DIRECTORY named like a marker a stated unknown line, never null', async () => {
+    // Found by name at the root — exactly what `plot_worker_blocked` found to
+    // call this branch `waiting` — but a directory has no line to read. The
+    // scan found a marker, so the reading says so: "" with the age, not null.
+    const wt = treeWith({});
+    fs.mkdirSync(path.join(wt, 'PLOT-BLOCKED.d'));
+    const reading = await markerReading(wt);
+    expect(reading).not.toBeNull();
+    expect(reading?.firstLine).toBe('');
+    expect(typeof reading?.askedAt).toBe('string');
+  });
+
+  it('gives an unreadable (permission-denied) marker file a stated unknown line, never null', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which adapter?\n' });
+    const full = path.join(wt, 'PLOT-BLOCKED.md');
+    fs.chmodSync(full, 0o000);
+    try {
+      const reading = await markerReading(wt);
+      expect(reading).not.toBeNull();
+      expect(reading?.firstLine).toBe('');
+      expect(typeof reading?.askedAt).toBe('string');
+    } finally {
+      // Restore so `rmTree` in `afterEach` can remove it.
+      fs.chmodSync(full, 0o644);
+    }
+  });
+});
+
+describe('markerReading — a marker that changes between reads', () => {
+  it('returns null for a marker deleted after the directory listing', async () => {
+    // A dangling symlink is listed by `readdir` and fails `stat` with ENOENT.
+    const wt = treeWith({});
+    fs.symlinkSync(path.join(wt, 'gone'), path.join(wt, 'PLOT-BLOCKED.md'));
+    await expect(markerReading(wt)).resolves.toBeNull();
+  });
+
+  it('gives a replaced marker file a later askedAt', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'first question?\n' });
+    const full = path.join(wt, 'PLOT-BLOCKED.md');
+    const old = new Date('2026-10-05T13:36:00.000Z');
+    fs.utimesSync(full, old, old);
+    const before = await markerReading(wt);
+    fs.rmSync(full);
+    fs.writeFileSync(full, 'second question?\n');
+    const later = new Date('2026-10-05T18:20:00.000Z');
+    fs.utimesSync(full, later, later);
+    const after = await markerReading(wt);
+    expect(before?.askedAt).toBe(old.toISOString());
+    expect(after).toEqual({ firstLine: 'second question?', askedAt: later.toISOString() });
+    expect(Date.parse(after!.askedAt)).toBeGreaterThan(Date.parse(before!.askedAt));
+  });
+
+  it('reads a regular marker file listed after a directory with a marker name', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'which adapter?\n' });
+    fs.mkdirSync(path.join(wt, 'PLOT-BLOCKED.d'));
+    expect((await markerReading(wt))?.firstLine).toBe('which adapter?');
+    expect(await markerIn(wt)).toBe('which adapter?');
+  });
+});
+
 describe('waitingWorktrees — who gets asked at all', () => {
-  it('selects only branches the scan called waiting', () => {
-    // The cost stays proportional to the number of waiting agents rather than
-    // to the size of the fleet: a running worker is never searched.
+  it('selects every branch with a local worktree, whatever the worker state', () => {
+    // WIDENED, deliberately. A live loop that wrote a marker and kept polling
+    // beside it is `running`, not `waiting` — and the old `worker === 'waiting'`
+    // gate never searched it. The marker is the reading, not the process state,
+    // so every branch this machine holds a worktree for is a candidate.
     const p = pulse([
       { branch: 'feature/asking', worker: 'waiting', local_worktree: '/tmp/wt-a' },
       { branch: 'feature/running', worker: 'running', local_worktree: '/tmp/wt-b' },
       { branch: 'feature/done', worker: 'finished', local_worktree: '/tmp/wt-c' },
     ]);
-    expect([...waitingWorktrees(p).keys()]).toEqual(['feature/asking']);
+    expect([...waitingWorktrees(p).keys()].sort()).toEqual(
+      ['feature/asking', 'feature/done', 'feature/running'].sort(),
+    );
   });
 
-  it('skips a waiting branch with no worktree on this machine', () => {
-    // It is waiting on ANOTHER machine: the scan there read its marker, this
+  it('skips a branch with no worktree on this machine', () => {
+    // It is held on ANOTHER machine: the scan there reads its own marker, this
     // one has nowhere to look, and looking anyway is how a path gets guessed.
     const p = pulse([{ branch: 'feature/elsewhere', worker: 'waiting', local_worktree: '' }]);
     expect(waitingWorktrees(p).size).toBe(0);
@@ -221,26 +313,49 @@ describe('waitingWorktrees — who gets asked at all', () => {
 });
 
 describe('workerQuestions — the map the row is annotated from', () => {
-  it('pairs each waiting branch with what it asked', async () => {
+  it('pairs each branch with a local worktree to what its marker asks', async () => {
     const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which adapter?\n' });
     const p = pulse([{ branch: 'feature/asking', worker: 'waiting', local_worktree: wt }]);
-    expect(await workerQuestions(p)).toEqual(new Map([
-      ['feature/asking', 'PLOT-BLOCKED: which adapter?'],
-    ]));
+    const found = await workerQuestions(p);
+    expect(found.get('feature/asking')?.firstLine).toBe('PLOT-BLOCKED: which adapter?');
+    expect(typeof found.get('feature/asking')?.askedAt).toBe('string');
   });
 
-  it('OMITS a waiting branch whose marker would not read', async () => {
-    // Absent and "" are one answer to the caller — *reason unavailable* — and
-    // the row says so. What must never happen is an entry holding a guess.
+  it('reads a marker beside a RUNNING worker too — the 2026-10-05 case', async () => {
+    // A worker that wrote its question and kept its loop alive is `running`,
+    // not `waiting`, and the fleet still needs to find it.
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: retry semantics?\n' });
+    const p = pulse([{ branch: 'feature/alive', worker: 'running', local_worktree: wt }]);
+    const found = await workerQuestions(p);
+    expect(found.get('feature/alive')?.firstLine).toBe('PLOT-BLOCKED: retry semantics?');
+  });
+
+  it('OMITS a branch whose marker file does not exist', async () => {
+    // No entry means no marker was found — distinct from a found-but-unreadable
+    // one, which still gets an entry holding the stated unknown. See
+    // `markerReading`.
     const plain = fs.mkdtempSync(path.join(tmp, 'plain-'));
     const p = pulse([{ branch: 'feature/asking', worker: 'waiting', local_worktree: plain }]);
     expect((await workerQuestions(p)).has('feature/asking')).toBe(false);
   });
 
-  it('spawns nothing when no worker is waiting', async () => {
-    // The ordinary refresh: a fleet with no questions in it pays nothing for
+  it('gives a RUNNING branch with a local worktree and no marker no entry', async () => {
+    const plain = fs.mkdtempSync(path.join(tmp, 'plain-'));
+    const p = pulse([{ branch: 'feature/alive', worker: 'running', local_worktree: plain }]);
+    await expect(workerQuestions(p)).resolves.toEqual(new Map());
+  });
+
+  it('gives a branch whose marker is a directory an entry with an empty first line', async () => {
+    const wt = treeWith({});
+    fs.mkdirSync(path.join(wt, 'PLOT-BLOCKED.d'));
+    const p = pulse([{ branch: 'feature/alive', worker: 'running', local_worktree: wt }]);
+    expect((await workerQuestions(p)).get('feature/alive')?.firstLine).toBe('');
+  });
+
+  it('spawns nothing when no branch holds a local worktree', () => {
+    // The ordinary refresh: a fleet with no local worktrees pays nothing for
     // this, which is what lets the read ride the 5 s scan timer at all.
-    const p = pulse([{ branch: 'feature/running', worker: 'running', local_worktree: '/tmp/wt' }]);
-    expect(await workerQuestions(p)).toEqual(new Map());
+    const p = pulse([{ branch: 'feature/elsewhere', worker: 'waiting', local_worktree: '' }]);
+    return expect(workerQuestions(p)).resolves.toEqual(new Map());
   });
 });

@@ -26,11 +26,15 @@ import {
   CONTINUATION_ENV,
   CONTINUATION_NAME,
   handleContinue,
+  continueOnDesk,
   type ContinueRefusal,
 } from '../../src/server/continue.js';
 import type { ContinueDeps } from '../../src/server/continue.js';
 import type { FleetReading } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
+import { agentsFs } from '@plot-pm/domain/adapters';
+import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
+import { startFreshSession } from '../../src/server/entry/registryd-main.js';
 
 const BRANCH = 'feature/continue-with-an-answer';
 
@@ -369,6 +373,127 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
     assert.equal(m.relaunches, 2, 'counted across two relaunches, not just overwritten');
     assert.equal(m.previousPid, firstPid, 'the second relaunch displaced the first');
+  });
+
+  it('starts the BuildMonitor for the desk and records its pid (#1255)', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root, manifest } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const calls: MonitoredDesk[] = [];
+    let pidAtStart = '';
+    const monitors: DeskMonitors = {
+      start: (desk) => {
+        calls.push(desk);
+        pidAtStart = fs.readFileSync(desk.pidFile, 'utf8');
+        return { ok: true, value: { agentMonitorPid: '7001', buildMonitorPid: '7002' } };
+      },
+      stop: () => ({ ok: true, value: [] }),
+    };
+
+    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+    assert.equal(out.status, 202);
+    const body = out.body as { pid: string };
+
+    assert.deepEqual(calls, [
+      {
+        branch: BRANCH,
+        worktree: wt,
+        manifestFile: manifest,
+        pidFile: path.join(wt, '.plot-worker.pid'),
+        log: path.join(wt, '.plot-worker.log'),
+      },
+    ]);
+    assert.equal(pidAtStart, body.pid, 'the pid file names the new run before a monitor reads it');
+    const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    assert.equal(m.buildMonitorPid, '7002');
+    assert.equal(m.agentMonitorPid, '7001');
+  });
+
+  it('a second continue stops the monitor pair the first one started', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const stopped: (readonly string[])[] = [];
+    let next = 7000;
+    const monitors: DeskMonitors = {
+      start: () => ({ ok: true, value: { agentMonitorPid: String(++next), buildMonitorPid: String(++next) } }),
+      stop: (pids) => {
+        stopped.push(pids);
+        return { ok: true, value: pids };
+      },
+    };
+
+    const first = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+    fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
+    const second = await postTo(root, { branch: BRANCH, answer: 'go' }, {
+      pulse: () => pulseWith2(wt, (first.body as { pid: string }).pid),
+      config: (_o, key, fb) => (key === 'Worker command' ? 'true' : fb),
+      monitors,
+    });
+
+    assert.equal(first.status, 202);
+    assert.equal(second.status, 202);
+    assert.deepEqual(stopped, [['7001', '7002']], 'the first continue had no pair to stop; the second stops the first pair');
+  });
+
+  it('logs a monitor start that failed', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const monitors: DeskMonitors = {
+      start: () => ({ ok: false, why: 'failed' }),
+      stop: () => ({ ok: true, value: [] }),
+    };
+
+    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+
+    assert.equal(out.status, 202);
+    assert.match(
+      fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8'),
+      /AgentMonitor and BuildMonitor not started: the start answered failed/,
+    );
+  });
+
+  it('starts the monitor scripts under the configured scripts directory by default', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root, manifest } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-scripts-'));
+    roots.push(scriptsDir);
+    for (const name of ['plot-agent-monitor.sh', 'plot-build-monitor.sh']) {
+      const file = path.join(scriptsDir, name);
+      fs.writeFileSync(
+        file,
+        `#!/bin/sh\nprintf '%s\\n' "$PLOT_BRANCH" "$PLOT_WORKTREE" > "$PLOT_WORKTREE/${name}.env.tmp" && mv "$PLOT_WORKTREE/${name}.env.tmp" "$PLOT_WORKTREE/${name}.env"\n`,
+      );
+      fs.chmodSync(file, 0o755);
+    }
+
+    const started = await continueOnDesk({
+      opts: { ...opts, repoRoot: root, scriptsDir, manifestDir: path.dirname(manifest) },
+      readCfg: (_o, key, fb) => (key === 'Worker command' ? 'true' : fb),
+      branch: BRANCH,
+      worktree: wt,
+      main: 'main',
+      previousPid: '424242',
+      answer: 'go',
+    });
+    assert.equal(started.kind, 'started');
+    spawned.add(wt);
+
+    const envFile = path.join(wt, 'plot-build-monitor.sh.env');
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(envFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(fs.readFileSync(envFile, 'utf8').split('\n').slice(0, 2), [BRANCH, wt]);
+    const agentEnv = path.join(wt, 'plot-agent-monitor.sh.env');
+    while (!fs.existsSync(agentEnv) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    assert.match(m.buildMonitorPid, /^\d+$/);
+    assert.match(m.agentMonitorPid, /^\d+$/);
   });
 
   it('refuses a continuation when no manifest names the worktree', async () => {
@@ -747,5 +872,153 @@ describe('a stale wrapper pid is cleared before the spawn', () => {
       false,
       'the stale wrapper pid must be gone after a continuation — this route starts no wrapper',
     );
+  });
+});
+
+describe('continueOnDesk, as the registry tick calls it', () => {
+  /** A manifest directory naming `wt`, with the resume id the loop would read. */
+  function resumableManifestDir(wt: string): { dir: string; file: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-resumable-'));
+    manifestDirs.push(dir);
+    const file = path.join(dir, 'sess.json');
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify(
+        { session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', resumeId: 'the-spent-session' },
+        null,
+        2,
+      )}\n`,
+    );
+    return { dir, file };
+  }
+
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  const settleAfter = (wt: string) => spawned.add(wt);
+
+  it('keeps the manifest resume id when the start is not fresh', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+    const result = await continueOnDesk(input(wt, dir));
+    assert.equal(result.kind, 'started');
+    settleAfter(wt);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).resumeId, 'the-spent-session');
+  });
+
+  it('replaces the manifest resume id with a new one when the start is fresh', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+    const result = await continueOnDesk({ ...input(wt, dir), fresh: true });
+    assert.equal(result.kind, 'started');
+    settleAfter(wt);
+    const resumeId = JSON.parse(fs.readFileSync(file, 'utf8')).resumeId as string;
+    assert.notEqual(resumeId, 'the-spent-session');
+    assert.match(resumeId, /^[0-9a-f-]{36}$/);
+    assert.equal(fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8').includes('the composed answer'), true);
+  });
+
+  it('does not start where a fresh start cannot replace the resume id', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+    void file;
+    // A READ-ONLY DIRECTORY: the manifest still reads and names the desk, so
+    // the refusal checks pass and only the temp-file write for the new id fails.
+    fs.chmodSync(dir, 0o555);
+    try {
+      const result = await continueOnDesk({ ...input(wt, dir), fresh: true });
+      assert.equal(result.kind, 'failed');
+      assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
+  });
+
+  it('runs beforeStart after the refusal checks and stops the start on false', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = resumableManifestDir(wt);
+    let asked = 0;
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      beforeStart: async () => {
+        asked += 1;
+        return false;
+      },
+    });
+    assert.equal(asked, 1);
+    assert.equal(result.kind, 'failed');
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+    assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.pid'), 'utf8'), '424242');
+  });
+
+  it('does not call beforeStart for a desk it refuses', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-nomanifest-'));
+    manifestDirs.push(empty);
+    let asked = 0;
+    const result = await continueOnDesk({
+      ...input(wt, empty),
+      beforeStart: async () => {
+        asked += 1;
+        return true;
+      },
+    });
+    assert.equal(asked, 0);
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'no-manifest');
+  });
+});
+
+describe('startFreshSession over the real registry, for a desk with no manifest', () => {
+  const run = (wt: string, dir: string) =>
+    startFreshSession(
+      { branch: BRANCH, worktree: wt, answer: 'the composed answer', main: 'main', beforeStart: async () => true },
+      {
+        agents: agentsFs({ repoRoot: dir, scriptDir: dir }, { manifestDir: dir }),
+        command: 'true',
+        newSession: () => 'fresh-session-1',
+        continueDesk: (i) =>
+          continueOnDesk({
+            ...i,
+            readCfg: (_o, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+          }),
+        opts: { ...opts, manifestDir: dir },
+      },
+    );
+
+  it('registers the agent so continue accepts the desk, and leaves the manifest naming it', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fresh-registry-'));
+    manifestDirs.push(dir);
+    const result = await run(wt, dir);
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'fresh-session-1.json'), 'utf8'));
+    assert.equal(manifest.worktree, wt);
+    assert.equal(manifest.branch, BRANCH);
+    assert.notEqual(manifest.resumeId, 'fresh-session-1', 'the fresh start replaced the resume id');
+  });
+
+  it('leaves no manifest where continue refuses the desk', async () => {
+    const wt = worktree({ marker: false });
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fresh-registry-'));
+    manifestDirs.push(dir);
+    const result = await run(wt, dir);
+    assert.equal(result.kind, 'refused');
+    assert.deepEqual(fs.readdirSync(dir), []);
   });
 });

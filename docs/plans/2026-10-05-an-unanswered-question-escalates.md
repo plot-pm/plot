@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-05, jwloka, in-session
 - **Started:** 2026-10-05, jwloka, `feature/a-question-is-listed-as-waiting-on-you`
+- **Started:** 2026-10-05, jwloka, `feature/a-question-notifies-as-it-ages`
 
 ## Changelog
 
@@ -79,7 +80,7 @@ A rung is reported as new only once per marker. A new marker (a new modification
 
 ### A question notifies as it ages
 
-- `feature/a-question-notifies-as-it-ages` — `questionEscalation`, the `Notifier` port and its command adapter, the `Question escalation` and `Notify command` keys, the `notify` write from the registry tick, and `.plot/state/escalations.tsv` <!-- builds: questionEscalation, the Notifier port -->
+- `feature/a-question-notifies-as-it-ages` → #1296 — `questionEscalation`, the `Notifier` port and its command adapter, the `Question escalation` and `Notify command` keys, the `notify` write from the registry tick, and `.plot/state/escalations.tsv` <!-- builds: questionEscalation, the Notifier port -->
 
 ## Notes
 

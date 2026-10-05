@@ -392,6 +392,18 @@ describe('deskFs: ending, marker, declaration, correction, limited record, moved
     fs.rmSync(path.join(desk, '.plot-worker.envelope.json'));
   });
 
+  it('sealDeclaration with blocked replaces a status the file already held', async () => {
+    fs.writeFileSync(
+      path.join(desk, '.plot-worker.envelope.json'),
+      JSON.stringify({ branch: 'infra/x', status: 'ok', summary: 'the agent\'s own account' }),
+    );
+    const result = await deskPort().sealDeclaration(desk, 'infra/x', 'blocked');
+    expect(result).toEqual({ ok: true, value: undefined });
+    const declared = JSON.parse(fs.readFileSync(path.join(desk, '.plot-worker.envelope.json'), 'utf8'));
+    expect(declared).toEqual({ branch: 'infra/x', status: 'blocked', summary: 'the agent\'s own account' });
+    fs.rmSync(path.join(desk, '.plot-worker.envelope.json'));
+  });
+
   it('sealDeclaration leaves an unparseable file exactly as it is', async () => {
     fs.writeFileSync(path.join(desk, '.plot-worker.envelope.json'), 'not json at all');
     const result = await deskPort().sealDeclaration(desk, 'infra/x');

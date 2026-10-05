@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { describe, it, expect } from 'vitest';
+import fs, { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
@@ -12,7 +14,10 @@ import {
   waitingOnFor,
   withEstate,
   estateReport,
+  minutesSince,
 } from '../../src/server/fleet.js';
+import { workerQuestions } from '../../src/server/worker-question.js';
+import { rmTree } from '../helpers.mjs';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, PR_UNKNOWN_NOTE, toBoardPhase, unknownPhaseNote,
   type AgentRow, type FleetReading,
@@ -2707,20 +2712,20 @@ describe('rowsFromPulse', () => {
     });
 
     // The questions map, in the shape `rowsFromPulse` takes it: branch → the
-    // marker line the scan's `waiting` verdict was made from.
-    const asking = (question: string) => new Map([['feature/d', question]]);
+    // marker's first line and the time `workerQuestions` read from its mtime.
+    const asking = (question: string, askedAt = new Date('2026-10-05T13:36:00.000Z').toISOString()) =>
+      new Map([['feature/d', { firstLine: question, askedAt }]]);
 
-    it('keeps a waiting worker in WORKING — it is an agent, not a result', () => {
-      // THE SECTION BOUNDARY, and it is the whole of this branch. WAITING ON
-      // YOU lists RESULTS to inspect on the git host; WORKING lists AGENTS. An
-      // agent that stopped to ask still holds its worktree and its context, and
-      // what unblocks it is an answer rather than a review — so an operator
-      // counting agents in WORKING must find it there. It sat in
-      // `waiting-on-you` until this change and undercounted every one.
+    it('moves a waiting worker WITH A QUESTION to WAITING ON YOU, not WORKING', () => {
+      // THE DEFECT `a-question-is-listed-as-waiting-on-you` FIXES. `waiting` IS
+      // the state the scan gives a branch because it found a marker, so a real
+      // `waiting` row always carries a question — and WAITING ON YOU, not
+      // WORKING, is where an outstanding question now sends a row, whatever
+      // the worker's own process state says.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
         null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which adapter?'));
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('working');
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
     });
 
     it('says what a waiting worker waits ON, not merely that it waits', () => {
@@ -2735,17 +2740,114 @@ describe('rowsFromPulse', () => {
         .toMatch(/which adapter should the fallback use\?/);
     });
 
-    it('degrades an unreadable marker to a STATED unknown, never a guess', () => {
-      // The scan already found a marker — that is what made this `waiting` — so
-      // no question here means THIS read did not find what that one did. The
-      // row must say so and stay in WORKING. A fabricated question would send a
-      // reader to answer the wrong one with nothing to signal the substitution,
-      // which is strictly worse than a blank.
+    it('states reason-unavailable for a waiting worker with no question reading', () => {
+      // The fallback arm: `waiting` with no entry in the questions map keeps
+      // the row in WORKING and invents no question.
       const rows = rowsFromPulse(withWorker('waiting', '0', '900'), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('working');
       expect(row.note).toMatch(/unavailable/i);
       expect(row.note).toMatch(/worktree/i);
+    });
+
+    describe('a desk with a question', () => {
+      const NOW = Date.parse('2026-10-05T18:20:00.000Z');
+      const ASKED = new Date(NOW - 45 * 60_000).toISOString();
+      const reading = (firstLine: string) => new Map([['feature/d', { firstLine, askedAt: ASKED }]]);
+      const prOf = (over: Record<string, unknown>) => ({
+        number: 9, url: '', head: 'feature/d', draft: false, state: 'OPEN', checks: 'green',
+        mergeable: 'mergeable', failing_checks: [], ...over,
+      }) as unknown as PrRecord;
+      const rowOf = (
+        worker: 'running' | 'finished' | 'waiting' | 'failed',
+        questions: Map<string, { firstLine: string; askedAt: string }>,
+        opts: { exit?: string; pr?: PrRecord; closed?: PrRecord } = {},
+      ) => rowsFromPulse(
+        withWorker(worker, opts.exit ?? '', '900'), ages, 'plot', QUIET,
+        opts.pr ? new Map([['feature/d', opts.pr]]) : null, '', null, NOW, null, null, null,
+        questions, opts.closed ? new Map([['feature/d', opts.closed]]) : null,
+      ).find((r) => r.branch === 'feature/d')!;
+
+      it('keeps the question and the exit code on a failed worker', () => {
+        const row = rowOf('failed', reading('which adapter?'), { exit: '124' });
+        expect(row.group).toBe('waiting-on-you');
+        expect(row.note).toContain('waiting on you: which adapter?');
+        expect(row.note).toContain('(worker exited 124)');
+      });
+
+      it('carries the age on the note and the reading on the row', () => {
+        const row = rowOf('running', reading('which adapter?'));
+        expect(row.note).toContain('asked 45 min ago');
+        expect(row.question).toEqual({ firstLine: 'which adapter?', askedAt: ASKED });
+      });
+
+      it('gives a row with no marker a null question', () => {
+        expect(rowOf('running', new Map()).question).toBeNull();
+      });
+
+      for (const worker of ['failed', 'waiting', 'finished'] as const) {
+        it(`outranks an open PR with pending CI on a ${worker} worker`, () => {
+          const row = rowOf(worker, reading('which adapter?'), { pr: prOf({ checks: 'pending' }) });
+          expect(row.group).toBe('waiting-on-you');
+          expect(row.note.indexOf('waiting on you: which adapter?')).toBe(0);
+          expect(row.note).toContain('PR #9, CI running');
+        });
+      }
+
+      it('outranks a PR with conflicts on a running worker, and keeps the age', () => {
+        const row = rowOf('running', reading('which adapter?'), { pr: prOf({ mergeable: 'conflicting' }) });
+        expect(row.group).toBe('waiting-on-you');
+        expect(row.note.indexOf('waiting on you: which adapter?')).toBe(0);
+        expect(row.note).toContain('asked 45 min ago');
+        expect(row.note).toContain('PR #9, conflicts');
+      });
+
+      it('outranks a closed PR on a finished worker', () => {
+        const row = rowOf('finished', reading('which adapter?'), {
+          closed: prOf({ state: 'CLOSED', number: 1089 }),
+        });
+        expect(row.group).toBe('waiting-on-you');
+        expect(row.note).toContain('waiting on you: which adapter?');
+        expect(row.quietKind ?? null).not.toBe('closed-pr');
+      });
+
+      it('leaves a running worker with no marker in WORKING', () => {
+        const row = rowOf('running', new Map());
+        expect(row.group).toBe('working');
+        expect(row.note).toMatch(/worker running/);
+      });
+
+      describe('read from a real worktree', () => {
+        let tmp: string;
+        beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-question-')); });
+        afterEach(() => { rmTree(tmp); });
+
+        const withWorktree = (worker: 'running', dir: string): FleetReading => {
+          const base = withWorker(worker, '', '900');
+          base.plans[0].slices[0].branches[0].local_worktree = dir;
+          return base;
+        };
+
+        it('lists a running worker whose marker cannot be read as WAITING ON YOU with reason unavailable', async () => {
+          fs.mkdirSync(path.join(tmp, 'PLOT-BLOCKED.d'));
+          const p = withWorktree('running', tmp);
+          const questions = await workerQuestions(p);
+          const row = rowsFromPulse(p, ages, 'plot', QUIET, null, '', null, NOW, null, null, null, questions)
+            .find((r) => r.branch === 'feature/d')!;
+          expect(row.group).toBe('waiting-on-you');
+          expect(row.note).toContain('reason unavailable');
+        });
+
+        it('lists a running worker with no marker as WORKING and reads no question', async () => {
+          const p = withWorktree('running', tmp);
+          const questions = await workerQuestions(p);
+          expect(questions.size).toBe(0);
+          const row = rowsFromPulse(p, ages, 'plot', QUIET, null, '', null, NOW, null, null, null, questions)
+            .find((r) => r.branch === 'feature/d')!;
+          expect(row.group).toBe('working');
+          expect(row.question).toBeNull();
+        });
+      });
     });
 
     it('still sends a finished worker to WAITING ON YOU — that one IS a result', () => {
@@ -2797,41 +2899,33 @@ describe('rowsFromPulse', () => {
       expect(new Set([say('waiting'), say('stalled'), say('finished')]).size).toBe(3);
     });
 
-    it('gives a waiting row the log offer, by landing it in WORKING', () => {
-      // TWO WAVES COMPOSING, asserted so neither can be undone without noticing.
-      // `showsWorkerLog` gates on WORKING membership alone — it knows nothing
-      // about worker states — so moving `waiting` into that section hands it the
-      // log the sibling wave shipped. The reader sees the question on the row
-      // and can open the reasoning behind it without a second tool. In
-      // `waiting-on-you` the row had neither.
+    it('does not give a questioning row the WORKING log offer — it is in WAITING ON YOU now', () => {
+      // `showsWorkerLog` gates on WORKING membership alone (menus.tsx), and
+      // that gate is unchanged by this slice — it is not this slice's to move.
+      // A question now sends the row to WAITING ON YOU instead, so the log
+      // offer built for WORKING no longer applies; whether WAITING ON YOU gets
+      // one of its own is a separate decision this branch does not make.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
         null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
-      expect(showsWorkerLog(rows.find((r) => r.branch === 'feature/d')!)).toBe(true);
+      const row = rows.find((r) => r.branch === 'feature/d')!;
+      expect(row.group).toBe('waiting-on-you');
+      expect(showsWorkerLog(row)).toBe(false);
     });
 
-    it('ranks waiting above stalled even with work on the floor', () => {
-      // THE ORDERING GUARANTEE, and moving `waiting` up beside `running` must
-      // not cost it. A worker that asked a question has almost always left the
-      // work it was doing uncommitted BESIDE the question, so a row reading
-      // `waiting` with dirty files is the normal case rather than a corner one.
-      // Ranking dirtiness first files it under *resume it* and invites a
-      // restart into the same wait — measured happening twice to one branch,
-      // the second restart re-running work the first had finished.
+    it('ranks the question above stalled even with work on the floor', () => {
+      // THE ORDERING GUARANTEE, carried from `waiting` ranking above `stalled`
+      // onto the question arm that now makes the same decision: a worker that
+      // asked a question has almost always left the work it was doing
+      // uncommitted BESIDE the question, so dirty files beside an outstanding
+      // question is the normal case rather than a corner one. Ranking
+      // dirtiness first would describe the floor instead of the ask.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900', ['src/half-done.ts']), ages, 'plot', QUIET,
         null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
       const row = rows.find((r) => r.branch === 'feature/d')!;
-      expect(row.group).toBe('working');
-      // REBOUND TO THE STALLED SENTENCE THAT EXISTS. This read `not
-      // toMatch(/resume it/)` until 2026-08-20, when the stalled note stopped
-      // prescribing a move — and a negative assertion against a string nothing
-      // composes any more passes whatever the ordering does, which is the one
-      // way this guarantee could have been lost silently. It now names the
-      // wording the stalled arm actually produces.
+      expect(row.group).toBe('waiting-on-you');
       expect(row.note).not.toMatch(/without finishing/);
-      // AND POSITIVELY: the question is what the row must carry. If dirtiness
-      // won, this row would describe the floor instead of the ask.
       expect(row.note).toMatch(/which one\?/);
     });
 
@@ -4890,5 +4984,25 @@ describe('the PR cadence divides by what the account is observed to spend', () =
     const naiveTotal = naive.reduce((sum, ms) => sum + spendOf(ms, 'github'), 0);
     expect(naiveTotal).toBe(120);
     expect(naiveTotal).toBeGreaterThan(spendOf(PERIOD, 'github'));
+  });
+});
+
+describe('minutesSince', () => {
+  const NOW = Date.parse('2026-10-05T18:20:00.000Z');
+
+  it('counts whole minutes from an instant to now', () => {
+    expect(minutesSince('2026-10-05T13:36:00.000Z', NOW)).toBe(284);
+  });
+
+  it('rounds to the nearest minute', () => {
+    expect(minutesSince('2026-10-05T18:19:20.000Z', NOW)).toBe(1);
+  });
+
+  it('never returns a negative age', () => {
+    expect(minutesSince('2026-10-05T18:30:00.000Z', NOW)).toBe(0);
+  });
+
+  it('returns null for a string that does not parse', () => {
+    expect(minutesSince('not a date', NOW)).toBeNull();
   });
 });

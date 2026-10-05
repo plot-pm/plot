@@ -66,6 +66,22 @@ export interface ResetInstant {
 }
 
 /**
+ * A resolved reset, beside the clock reading it was resolved against.
+ *
+ * {@link limitAnswer} is shared by two callers that resolve a reset two
+ * different ways — `promptExit` parses a line's text, `sdkRunExit` reads an
+ * event's own field — so the `now` each resolved it against travels with the
+ * epoch rather than being a separate parameter the shared function would
+ * otherwise need to trust matches.
+ */
+export interface ResetReading {
+  /** The reset, in epoch seconds. */
+  readonly epoch: number;
+  /** The clock reading the reset was resolved against, in epoch seconds. */
+  readonly now: number;
+}
+
+/**
  * What the exit was.
  *
  * - `wait`: a limit, a known reset at or after now, and the wait is allowed.
@@ -266,6 +282,69 @@ const limitLine = (
   return last !== undefined && isLimitLine(last, patterns) ? last : undefined;
 };
 
+/** What {@link limitAnswer} decided about one limit, before a caller attaches its line or its event. */
+export type LimitVerdict =
+  | { readonly answer: 'wait'; readonly reset: ResetInstant }
+  | { readonly answer: 'end-limited'; readonly reset?: ResetInstant; readonly cause: LimitCause };
+
+/**
+ * Classifies a limit whose reset, if any, is already resolved to an absolute
+ * epoch.
+ *
+ * Shared by {@link promptExit}, which resolves the reset from a limit line's
+ * text, and `sdkRunExit`, which reads it from a `rate_limit_event`'s
+ * `resetsAt`.
+ *
+ * Three answers, and `cause` says which gate refused the wait:
+ *
+ * - `no-reset` — no reset could be read at all. A `fast limit` and a `monthly
+ *   spend limit` land here until their shapes are measured, which is right
+ *   for a spend cap: the marker names the limit and asks for a person.
+ * - `past-bound` — the reset is further away than `Worker bound`. A bound of
+ *   0 disables that cap, and a resolved reset is never more than 24 h out.
+ * - `no-progress` — the prompt started after a wait, ran under
+ *   `PROGRESS_WINDOW_SECONDS`, and the desk gained no commit since the wait.
+ *   A limit that does not lift cannot hold an agent forever.
+ *
+ * **With `afterWait` false the run time and the commit count are not read**,
+ * so an exit from a prompt that never waited can never answer `no-progress`.
+ * Progress counts commits rather than transcript writes because the
+ * transcript gains a line on the turn that meets the limit, so it cannot tell
+ * a prompt that worked from one that only met the limit again.
+ *
+ * @param reset - the reset, as epoch seconds and now's own clock reading
+ *   already folded in by the caller (`resolveReset`'s result beside `now`),
+ *   or `undefined` where none could be read.
+ * @param boundSeconds - `Worker bound` in seconds; `0` disables the cap.
+ * @param ranSeconds - how long the prompt ran, in seconds.
+ * @param afterWait - whether this prompt started after a limit wait.
+ * @param commitsSinceWait - commits the desk gained since that wait began.
+ * @returns `wait` with the reset instant, or `end-limited` with the cause.
+ */
+export const limitAnswer = (
+  reset: ResetReading | undefined,
+  boundSeconds: number,
+  ranSeconds: number,
+  afterWait: boolean,
+  commitsSinceWait: number,
+): LimitVerdict => {
+  if (reset === undefined) {
+    return { answer: 'end-limited', cause: 'no-reset' };
+  }
+
+  const resetInstant = instant(reset.epoch);
+
+  if (boundSeconds > 0 && reset.epoch - reset.now > boundSeconds) {
+    return { answer: 'end-limited', reset: resetInstant, cause: 'past-bound' };
+  }
+
+  if (afterWait && ranSeconds < PROGRESS_WINDOW_SECONDS && commitsSinceWait === 0) {
+    return { answer: 'end-limited', reset: resetInstant, cause: 'no-progress' };
+  }
+
+  return { answer: 'wait', reset: resetInstant };
+};
+
 /**
  * Classifies one prompt exit.
  *
@@ -310,23 +389,16 @@ export const promptExit = (
 
   const after = line.split(patterns.resetSeparator).slice(1).join(patterns.resetSeparator);
   const epoch = after === '' ? undefined : resolveReset(after, input.now);
-  if (epoch === undefined) {
-    return { answer: 'end-limited', line, cause: 'no-reset' };
-  }
 
-  const reset = instant(epoch);
+  const limited = limitAnswer(
+    epoch === undefined ? undefined : { epoch, now: input.now },
+    input.boundSeconds,
+    input.ranSeconds,
+    input.afterWait,
+    input.commitsSinceWait,
+  );
 
-  if (input.boundSeconds > 0 && epoch - input.now > input.boundSeconds) {
-    return { answer: 'end-limited', reset, line, cause: 'past-bound' };
-  }
-
-  if (
-    input.afterWait &&
-    input.ranSeconds < PROGRESS_WINDOW_SECONDS &&
-    input.commitsSinceWait === 0
-  ) {
-    return { answer: 'end-limited', reset, line, cause: 'no-progress' };
-  }
-
-  return { answer: 'wait', reset, line };
+  return limited.answer === 'wait'
+    ? { answer: 'wait', reset: limited.reset, line }
+    : { answer: 'end-limited', reset: limited.reset, line, cause: limited.cause };
 };

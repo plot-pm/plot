@@ -149,7 +149,7 @@ const rig = (
     worktree: wt,
     agent: '',
     harness: 'claude',
-    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, checksPollMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, base: 'origin/main' },
+    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, checksPollMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, base: 'origin/main' },
     limitMarginSeconds: 60,
     monitorEndsWorker: true,
     outFile,
@@ -217,6 +217,7 @@ const rigConfig = () => ({
   maxStartRetries: 3,
   checksWaitSeconds: 1_800,
   correctionBudget: 2,
+  sliceMaxRuns: 12,
   base: 'origin/main',
 });
 
@@ -451,7 +452,7 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.runs).toHaveLength(2);
   });
 
-  it('ends blocked once the correction budget is spent (row 15)', async () => {
+  it('ends corrections-spent once the correction budget is spent (row 15)', async () => {
     const r = rig({ ...ASSIGNED, correctionAttempts: 2 }, [{}]);
     r.deps = {
       ...r.deps,
@@ -461,7 +462,7 @@ describe('runWorkerLoop — after the prompt', () => {
       },
     };
     expect(await runWorkerLoop(r.deps)).toBe(0);
-    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('corrections-spent');
   });
 
   it('ends when the branch tip moved past the pushed sha (row 17)', async () => {
@@ -643,7 +644,7 @@ describe('main — configuration', () => {
       return key === 'Worker bound' ? '1' : undefined;
     };
     expect(await driven(main({}, r.dir, config, noStop))).toBe(124);
-    expect(asked).toEqual(['Worker bound', 'Checks wait', 'Correction budget']);
+    expect(asked).toEqual(['Worker bound', 'Checks wait', 'Correction budget', 'Slice max runs']);
     asked.length = 0;
     expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config, noStop))).toBe(124);
     cwd.mockRestore();

@@ -5,7 +5,7 @@ import type { Desk, DeskFinding, EndingRecord } from '../../ports/desk.js';
 export interface DeskFixtureCalls {
   endings: { worktree: string; record: EndingRecord }[];
   blockedMarkers: { worktree: string; text: string }[];
-  declarations: { worktree: string; branch: string }[];
+  declarations: { worktree: string; branch: string; status?: 'ok' | 'blocked' }[];
   corrections: { worktree: string; branch: string; text: string; attempt: number; budget: number }[];
   limitedRecords: { worktree: string; resetEpoch: number; resetIso: string; limitLine: string }[];
   limitedClears: string[];
@@ -65,10 +65,10 @@ export const deskFixture = (fixture: DeskFixture = {}): Desk => {
       return answered(undefined);
     },
 
-    sealDeclaration: async (worktree, branch): Promise<PortResult<void>> => {
+    sealDeclaration: async (worktree, branch, status): Promise<PortResult<void>> => {
       if (branch === '') return failed<void>();
       if (unreadable.has(worktree)) return failed<void>();
-      calls.declarations?.push({ worktree, branch });
+      calls.declarations?.push(status === undefined ? { worktree, branch } : { worktree, branch, status });
       return answered(undefined);
     },
 

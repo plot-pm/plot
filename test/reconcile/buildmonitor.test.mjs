@@ -57,6 +57,9 @@ function drive(ports, passes = 1) {
   const script = `
     PLOT_MONITOR_NO_MAIN=1
     . ${JSON.stringify(monitor)}
+    # The host-call counter: one line per call, so a port can answer by the
+    # number of the call it is (\`wc -l\` is the call's own number, 1-based).
+    HOSTCALLS=${JSON.stringify(calls)}
     ${ports}
     # Wrap whatever the test defined so the round trips can be counted without
     # the test having to remember to do it.
@@ -345,26 +348,63 @@ test('the same answer about a NEW sha is published again', () => {
   }
 });
 
+test('head moved settles nothing: the next pass still asks, and answers for the new head', () => {
+  // THE BUG THIS PLAN FIXES. A naive fix settles on `settled_shas` regardless
+  // of which finding fired, which would make this pass silent forever once
+  // `head moved` published once for the superseded sha — exactly #1255's
+  // symptom, where no `build failed` ever followed a corrected push. This
+  // drives ONE sourced monitor through two passes: pass 1 sees a run for the
+  // OLDER sha while HEAD has already moved on; pass 2, with the host now
+  // answering for the new head, must still be asked and must still publish.
+  const { found, hostCalls } = drive(build(`
+    if [ "$(wc -l < "$HOSTCALLS")" -le 1 ]; then
+      printf '%s' ${JSON.stringify(run({ sha: OLDER, conclusion: 'success' }))}
+    else
+      printf '%s' ${JSON.stringify(run({ sha: HEAD, conclusion: 'failure' }))}
+    fi
+    return 0;
+  `), 2);
+  assert.equal(hostCalls, 2, `the second pass must still ask the host; got ${hostCalls} call(s)`);
+  assert.deepEqual(found.map((f) => f.finding), ['head moved', 'build failed'],
+    `expected head moved then build failed for the new HEAD, got ${JSON.stringify(found.map((f) => f.finding))}`);
+});
+
 // ---------------------------------------------------------------------------
 // THE HOST OPERATION'S OWN CONTRACT — `plot-host.sh run-for-sha`
 // ---------------------------------------------------------------------------
 //
 // The filter is the op's whole substance, and it is a `jq` program: exercising
-// it directly is the only way to see the three answers it can give. The monitor
-// tests above stub this away by design, so without these the fallback rule —
-// the one that makes `head moved` reachable at all — would be untested.
+// it directly is the only way to see the answers it can give. The monitor
+// tests above stub this away by design, so without these the match rule —
+// only the asked-for sha, nothing else — would be untested.
 
-/** Run the op's jq filter over a `gh run list` payload. */
+/**
+ * Run the real `plot-host.sh run-for-sha` over a `gh run list` payload.
+ *
+ * A stubbed `gh` prints the payload; the op's own jq filter answers. Returns
+ * the parsed run, or null when the op prints nothing.
+ */
 function runForSha(payload, sha) {
-  const filter = '(map(select(.headSha == $sha)) | .[0]) // .[0]'
-    + ' | select(. != null)'
-    + ' | {sha:.headSha, status:.status,'
-    + '    conclusion:(if (.conclusion // "") == "" then null else .conclusion end),'
-    + '    url:.url, startedAt:.startedAt}';
-  const out = execFileSync('jq', ['-c', '--arg', 'sha', sha, filter], {
-    input: JSON.stringify(payload), encoding: 'utf8',
-  }).trim();
-  return out ? JSON.parse(out) : null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bmon-gh-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'payload.json'), JSON.stringify(payload));
+    fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\ncat ${JSON.stringify(path.join(dir, 'payload.json'))}\n`);
+    fs.chmodSync(path.join(dir, 'gh'), 0o755);
+    const out = execFileSync('bash', [path.join(scripts, 'plot-host.sh'), 'run-for-sha', 'feature/watched', sha], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        PLOT_HOST: 'github',
+        PLOT_CI: 'github-actions',
+        PLOT_BUDGET_HOME: path.join(dir, 'budget-home'),
+        PLOT_BUDGET_ACCOUNT: 'test-account',
+      },
+    }).trim();
+    return out ? JSON.parse(out) : null;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 const ghRun = (headSha, conclusion, status = 'completed') =>
@@ -379,15 +419,13 @@ test('run-for-sha prefers the asked-for sha over a newer run', () => {
   assert.equal(got.conclusion, 'success');
 });
 
-test('run-for-sha falls back to the newest run, labelled with ITS sha', () => {
-  // WHAT MAKES `head moved` REACHABLE. Filtering to the asked-for sha and
-  // stopping would make a run in flight for a superseded commit look exactly
-  // like no run at all, and the monitor could not tell "CI has not started"
-  // from "CI is answering about the past". The fallback reports the run and
-  // names its own commit; comparing the two is the monitor's rule.
+test('run-for-sha answers nothing when no run matches the asked-for sha', () => {
+  // A run for any OTHER commit is not evidence about the one asked for.
+  // Reporting it would read as a live answer for a commit the branch has
+  // already moved past, which is worse than no answer at all.
   const got = runForSha([ghRun('OTHER', 'success')], 'MINE');
-  assert.equal(got.sha, 'OTHER',
-    'the fallback did not report which commit the run it found is actually for');
+  assert.equal(got, null,
+    'a run for a different sha must not be reported as the answer for this one');
 });
 
 test('run-for-sha reports nothing when the branch has no runs at all', () => {

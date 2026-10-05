@@ -86,13 +86,11 @@ export interface BuildPort {
    * wrong thing. Measured 2026-08-30: two merge waiters reported on superseded
    * runs and had to be stopped and re-armed.
    *
-   * IT FALLS BACK RATHER THAN REPORTING NOTHING, and says which run it found.
-   * Filtering to the asked-for sha and stopping makes the most important case
-   * invisible: a run in flight for a commit the branch has moved past would
-   * report identically to no run at all. The answer's own `sha` is what tells
-   * a caller which of the two it is holding.
+   * ONLY THE ASKED-FOR SHA, NEVER ANOTHER ONE'S RUN. A run for any other
+   * commit is not evidence about this one; reporting it would read as a live
+   * answer for a commit the branch has already moved past.
    *
-   * `null` IS AN ANSWER — the branch has no runs at all, which is what a
+   * `null` IS AN ANSWER — the branch has no run for this sha, which is what a
    * caller polling a fresh push sees on every pass until CI wakes up.
    *
    * @param branch - the branch the run belongs to.
