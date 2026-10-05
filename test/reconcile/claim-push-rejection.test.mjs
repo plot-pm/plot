@@ -51,9 +51,14 @@ const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd 
  * reading the test's own manifest as irrelevant, because `PLOT_BRANCH` was
  * already non-empty. Every env this file hands the loop starts from this
  * base and no other.
+ *
+ * `PLOT_BUDGET_HOME` and `PLOT_PR_INDEX_HOME` are kept: they name where this
+ * run's own state goes, not an outer agent's slice, and without them the
+ * loop's host calls write into the run's `HOME/.plot/state`.
  */
+const RUN_STATE_KEYS = new Set(['PLOT_BUDGET_HOME', 'PLOT_PR_INDEX_HOME']);
 const cleanEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('PLOT_')),
+  Object.entries(process.env).filter(([key]) => !key.startsWith('PLOT_') || RUN_STATE_KEYS.has(key)),
 );
 
 /** A bare origin and a clone holding `main`, with a Plot Config and a no-op prompt. */
