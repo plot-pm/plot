@@ -1501,7 +1501,8 @@ export function SliceRow({
  * PR, `noteWithoutPr` passes it through untouched, so the sentence reaches the
  * reader verbatim. The client's own copy of it — the `sliceNote` chain — was
  * never reached by this population: NOT STARTED's slice rows are filtered to
- * `isUnbegun` (`state === 'open'`), so a claimed branch renders through `Row`.
+ * `isUnbegun` (the server's `unbegun` field), so a claimed branch renders
+ * through `Row`.
  *
  * WITHDRAWN RATHER THAN REPLACED, and that is the narrow claim. Slot 5 already
  * says *someone is on it* — `stateStatus` has read the field since

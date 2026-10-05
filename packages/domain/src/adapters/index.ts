@@ -55,6 +55,14 @@ export { buildNone } from './build/build-none.js';
 export { buildFor, buildShell } from './build/build-resolve.js';
 export { buildFixture, type BuildFixture } from './build/build-fixture.js';
 
+// THE AGENT-RUN CONNECTOR'S FIXTURE. The SDK and `command` adapters arrive
+// in slice 2; this slice ships the port and a fixture, with no SDK dependency.
+export {
+  agentRunFixture,
+  type AgentRunFixture,
+  type AgentRunAnswer,
+} from './agent-run/agent-run-fixture.js';
+
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
 
 export {
@@ -65,6 +73,13 @@ export {
   type SliceSpendFileOptions,
 } from './slice-spend/slice-spend-file.js';
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
+
+export {
+  freshAgentRecordFile,
+  decodeFreshAgentRow,
+  FRESH_AGENT_RECORD_HOME_ENV,
+  type FreshAgentRecordFileOptions,
+} from './fresh-agent-record/fresh-agent-record-file.js';
 
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
 
@@ -141,6 +156,8 @@ export { processesShell, parseEtime } from './processes/processes-shell.js';
 // composition root chooses which world it is in. Exporting both from one barrel
 // is the whole substitution the ports exist for.
 export { performerShell } from './performer/performer-shell.js';
+
+export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
 
 export { boundedRunProcess } from './bounded-run/bounded-run-process.js';
 export { boundedRunFixture, type BoundedRunFixture } from './bounded-run/bounded-run-fixture.js';

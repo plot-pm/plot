@@ -2,7 +2,7 @@ import {
   describe,
   it,
   expect } from 'vitest';
-import { groupByPlan, planWaitingDays, showsSliceFold, sortByWaiting, type PlanGroup, ungroupedRows, sliceGroupsFor, sliceSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
+import { groupByPlan, headSliceNames, planWaitingDays, sectionTally, showsSliceFold, slicesElsewhere, sortByWaiting, type PlanGroup, ungroupedRows, sliceGroupsFor, sliceSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
 import { groupBySlice } from '../../src/app/lib/agent-rows/slices.js';
 import { isUnbegun } from '../../src/app/lib/agent-rows/row-identity.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Slice } from '../../src/contract/schema.js';
@@ -639,5 +639,74 @@ describe('groupBySlice — a wave has branches, not the other way round', () => 
     ]);
     expect(groups).toHaveLength(1);
     expect(groups[0].rows.map((r) => r.branch)).toEqual(['never-begun', 'shelved']);
+  });
+});
+
+describe('a waiting or blocked slice renders as a slice row', () => {
+  // The server sets `unbegun` for `open`, `waiting` and `blocked`. A slice that
+  // declares `<!-- waits: … -->` carries `waiting` or `blocked`, and it rendered
+  // as a plain branch row while the client read only `state === 'open'`.
+  const waitingRow = (state: AgentRow['state']) => row({
+    plan: 'p', wave: 'Second', branch: 'feature/second', state, unbegun: true,
+    waitingOn: 'time', note: 'waits for feature/first', blockedBy: 'First', startability: null,
+  });
+
+  for (const state of ['waiting', 'blocked'] as const) {
+    it(`${state}: is unbegun`, () => {
+      expect(isUnbegun(waitingRow(state))).toBe(true);
+    });
+
+    it(`${state}: lands in a slice group and not among the branch rows`, () => {
+      const group = groupOf(row({ plan: 'p', wave: 'First', branch: 'feature/first' }), waitingRow(state));
+      const sliceRows = groupBySlice(group.rows.filter(isUnbegun));
+      expect(sliceRows.map((g) => g.wave)).toEqual(['First', 'Second']);
+      expect(group.rows.filter((r) => !isUnbegun(r))).toEqual([]);
+    });
+  }
+
+  it('is not unbegun where the server says the branch carries work', () => {
+    expect(isUnbegun(row({ state: 'unknown', unbegun: false }))).toBe(false);
+  });
+
+  it('reads `state === open` where the payload predates the field', () => {
+    expect(isUnbegun(row({ state: 'open', unbegun: undefined }))).toBe(true);
+    expect(isUnbegun(row({ state: 'waiting', unbegun: undefined }))).toBe(false);
+  });
+});
+
+describe('a plan head counts here and elsewhere from one set', () => {
+  // Measured 2026-10-05 on `the-worker-loop-runs-in-js`: six slices, two in
+  // DONE, one in WORKING and three in NOT STARTED. The head read "4 slices ·
+  // 3 slices elsewhere": the WORKING slice counted both here and elsewhere.
+  const PLAN = 'the-worker-loop-runs-in-js';
+  const slices: Slice[] = [
+    slice({ plan: PLAN, name: 'One', section: 'done', complete: true, verdict: 'complete' }),
+    slice({ plan: PLAN, name: 'Two', section: 'done', complete: true, verdict: 'complete' }),
+    slice({ plan: PLAN, name: 'Three', verdict: 'eligible' }),
+    slice({ plan: PLAN, name: 'Four', verdict: 'blocked' }),
+    slice({ plan: PLAN, name: 'Five', verdict: 'blocked' }),
+    slice({ plan: PLAN, name: 'Six', verdict: 'blocked' }),
+  ];
+  const notStartedRows = ['Four', 'Five', 'Six'].map((wave) => row({
+    plan: PLAN, wave, branch: `infra/${wave.toLowerCase()}`, waitingOn: 'time',
+    note: 'blocked by Three', startability: null,
+  }));
+  const group = groupOf(...notStartedRows);
+
+  it('says 3 slices and 3 elsewhere', () => {
+    expect(sliceSummaryFor(group, slices)).toBe('3 slices');
+    expect(slicesElsewhere(slices, PLAN, 'not-started', headSliceNames(group))).toBe(3);
+  });
+
+  it('sums to the plan\'s slice count', () => {
+    const here = slices.filter((w) => headSliceNames(group).has(w.name)).length;
+    const elsewhere = slicesElsewhere(slices, PLAN, 'not-started', headSliceNames(group));
+    expect(here + elsewhere).toBe(slices.length);
+  });
+
+  it('gives the section header the same slice count', () => {
+    const tally = sectionTally(notStartedRows, 'not-started', slices, { tickets: 0, drafts: 0, agents: 0 });
+    expect(tally.slices).toBe(3);
+    expect(tally.plans).toBe(1);
   });
 });

@@ -7,6 +7,7 @@ import {
   accountRate,
   argsFrom,
   sweepTempIfDue,
+  startFreshAgents,
   mergeMemoOver,
   notifierFor,
   notifyEscalations,
@@ -1735,5 +1736,89 @@ describe('notifyEscalations — applies the tick\'s notify writes, once each', (
 
   afterAll(() => {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('startFreshAgents', () => {
+  const desk = {
+    path: '/estate/.worktrees/feature-x',
+    branch: 'feature/x',
+    isMain: false,
+    prunable: false,
+    registered: false,
+    planNamed: true,
+    plan: '2026-10-05-a-plan',
+    dirtyCount: 0,
+  };
+  const report = (trees: readonly (typeof desk)[]) =>
+    ({ incomplete: '', trees }) as unknown as Parameters<typeof startFreshAgents>[0];
+  const spentDeskFile = (_worktree: string, name: string): string | null =>
+    name === '.plot-worker.ending.json'
+      ? JSON.stringify({ reason: 'corrections-spent', actor: 'agent', branch: 'feature/x', detail: '' })
+      : null;
+
+  const deps = (calls: string[]) => ({
+    deskFile: spentDeskFile,
+    record: { rowsFor: async () => ({ ok: true as const, value: [] }) },
+    budget: 2,
+    ports: {
+      record: { append: async () => ({ ok: true as const, value: undefined }) },
+      desk: { sealDeclaration: async () => ({ ok: true as const, value: undefined }) },
+      now: () => new Date('2026-10-05T12:00:00.000Z'),
+      start: async (input: { branch: string; beforeStart: () => Promise<boolean> }) => {
+        calls.push(input.branch);
+        return { kind: 'started' as const, pid: '9', previousPid: '', prompt: '', log: '' };
+      },
+    },
+  });
+
+  it('starts nothing and reads no desk where the tick named no candidate', async () => {
+    const calls: string[] = [];
+    const applied = await startFreshAgents(report([{ ...desk, registered: true }]), deps(calls), () => {}, () => {});
+    expect(applied).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('starts a fresh session for a spent desk and reports it on the log', async () => {
+    const calls: string[] = [];
+    const out: string[] = [];
+    const applied = await startFreshAgents(report([desk]), deps(calls), (s) => out.push(s), () => {});
+    expect(calls).toEqual(['feature/x']);
+    expect(applied.map((a) => a.outcome)).toEqual(['started']);
+    expect(out.join('')).toContain('fresh-agent feature/x: started');
+  });
+
+  it('reports a refusal on the error stream', async () => {
+    const calls: string[] = [];
+    const errors: string[] = [];
+    const refusing = deps(calls);
+    refusing.ports.start = async () =>
+      ({ kind: 'refused', status: 409, reason: 'no-manifest', detail: 'no manifest names it' }) as never;
+    await startFreshAgents(report([desk]), refusing, () => {}, (s) => errors.push(s));
+    expect(errors.join('')).toContain('continue refused (no-manifest)');
+  });
+
+  it('reports a step that throws and does not rethrow', async () => {
+    const errors: string[] = [];
+    const broken = deps([]);
+    broken.record = {
+      rowsFor: async () => {
+        throw new Error('the record exploded');
+      },
+    } as never;
+    const applied = await startFreshAgents(report([desk]), broken, () => {}, (s) => errors.push(s));
+    expect(applied).toEqual([]);
+    expect(errors.join('')).toContain('the fresh-agent step failed: the record exploded');
+  });
+
+  it('treats a tick that carries no trees as having no candidates', async () => {
+    const calls: string[] = [];
+    const applied = await startFreshAgents(
+      { incomplete: '' } as unknown as Parameters<typeof startFreshAgents>[0],
+      deps(calls),
+      () => {},
+      () => {},
+    );
+    expect(applied).toEqual([]);
   });
 });

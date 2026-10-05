@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Story:** the-supervisor-delivers-the-approved-scope
 - **Review:** in-session
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-05, jwloka, in-session
 - **Started:** 2026-10-05, jwloka, `bug/the-correction-budget-counts-per-slice`
 - **Started:** 2026-10-05, jwloka, `feature/a-spent-correction-budget-gets-a-fresh-agent`
+- **Delivered:** 2026-10-05
 
 ## Changelog
 

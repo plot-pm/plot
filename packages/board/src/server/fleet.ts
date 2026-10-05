@@ -4137,6 +4137,20 @@ export function prAsksNobody(pr: PrRecord): boolean {
   return s === 'pending';
 }
 
+/**
+ * Whether a branch carries no work: no commits, no claim, no PR.
+ *
+ * `open` names a branch nobody created. `waiting` and `blocked` replace only
+ * `open` or `unknown` (see `BranchStateSchema`), so they also name a branch with
+ * nothing on it. `unknown` is excluded: the host could not be asked, so the branch
+ * may hold merged work, and a row must not state that nobody started it.
+ *
+ * @param state - the branch's state, as the scan reports it.
+ * @returns true for `open`, `waiting` and `blocked`; false for every other state.
+ */
+export const hasNoWork = (state: BranchState): boolean =>
+  state === 'open' || state === 'waiting' || state === 'blocked';
+
 export function waitingOnFor(
   group: WaitingGroup,
   state: BranchState,
@@ -4164,9 +4178,9 @@ export function waitingOnFor(
   // un-shelve it, which is a person, with no clock running. The note beside the
   // colour says which action.
   if (state === 'deferred') return 'you';
-  if (state !== 'open') return null;
+  if (!hasNoWork(state)) return null;
   // An earlier slice, WITHIN an approved plan — which is now the only kind of
-  // plan whose open branches reach this section at all.
+  // plan whose unbegun branches reach this section at all.
   if (verdict !== 'eligible') return 'time';
   // THE DRAFT ARM IS GONE, and its absence is the point rather than an
   // oversight. It used to answer `you` for a Draft plan's first slice, because a
@@ -7118,6 +7132,9 @@ export function rowsFromPulse(
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
         const waitingOn = waitingOnFor(group, b.state, wave.verdict, plan.phase);
+        // WHETHER THIS BRANCH CARRIES NO WORK, decided once and carried on the
+        // row. `waitingDays` below and the client's `isUnbegun` read this value.
+        const unbegun = hasNoWork(b.state);
         // The blocking slice's NAME goes into the sentence too, not only into
         // the field. `classify` cannot do it — the name lives on the plan's
         // slice list, which that function has never been given — so the note is
@@ -7131,8 +7148,13 @@ export function rowsFromPulse(
         // is unnamed, so an unnamed blocker keeps the bare sentence with nothing
         // dangling off it. It is the blocker's own outstanding count, derived
         // once per plan above.
+        //
+        // A `waiting` or `blocked` branch keeps its own note: `waits for X` names
+        // the declared prerequisite, which is more specific than the slice.
         const rowNote =
-          waitingOn === 'time' ? blockedNote(blockerName, blockerOutstanding) : note;
+          waitingOn === 'time' && b.state === 'open'
+            ? blockedNote(blockerName, blockerOutstanding)
+            : note;
         // THE PLAN SLUG, computed once: the row's `plan` and `sprint` fields
         // read it, and so do the brief readings, whose board asker and
         // implement route are keyed on the plan rather than the branch.
@@ -7189,6 +7211,7 @@ export function rowsFromPulse(
           version: '',
           wave: wave.name || '(unnamed)',
           state: b.state,
+          unbegun,
           // WHY it was deferred, carried through from the plan's annotation.
           // Passed straight along rather than combined with the note: the note
           // is prose the row composes, and a reason the plan wrote is a fact
@@ -7237,7 +7260,7 @@ export function rowsFromPulse(
           // real tip age, and that is the more useful answer; the waiting age
           // would only compete with it.
           waitingDays:
-            b.state === 'open' && approvedAt?.has(plan.file)
+            unbegun && approvedAt?.has(plan.file)
               ? Math.max(0, Math.floor((now - approvedAt.get(plan.file)!) / 86_400_000))
               : null,
           // The two local ACTIVITY signals, forwarded onto the row.
@@ -7578,6 +7601,8 @@ export function rowsFromPulse(
         : '',
       pr: agentPr(pr),
       waitingDays: null,
+      // A branch built from the PR map or the refs exists, so it is not unbegun.
+      unbegun: false,
       // No local activity signals, and that is the honest answer rather than a
       // gap. This row is built from the PR map — a branch no plan names — so
       // the worktree scan never looked at it and there is nothing to forward.
@@ -7886,6 +7911,8 @@ export function rowsFromPulse(
         return link ? agentPr(link) : null;
       })(),
       waitingDays: null,
+      // A branch built from the PR map or the refs exists, so it is not unbegun.
+      unbegun: false,
       // NO WORKTREE WAS VISITED for this row — it is built from the refs, the
       // same as the PR loop above is built from the PR map. `false` and `0` mean
       // UNOBSERVED, never "nobody is working" and never "nothing unpushed": by

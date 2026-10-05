@@ -127,6 +127,8 @@ export interface TreeReading {
   prunable: boolean;
   /** Whether any plan names the branch it holds. */
   planNamed: boolean;
+  /** The plan that names the branch, as its file name without `.md`; absent where unknown. */
+  plan?: string;
   /** How many uncommitted paths it carries. */
   dirtyCount: number;
 }
