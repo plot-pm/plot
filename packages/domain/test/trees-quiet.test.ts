@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { treesFixture } from '../src/adapters/trees/trees-fixture.js';
 import { treesGit } from '../src/adapters/trees/trees-git.js';
 
 /**
@@ -111,5 +112,20 @@ describe('treesGit().hasCommits', () => {
     git(odd, ['checkout', '--quiet', '--orphan', 'other']);
     git(odd, ['commit', '--quiet', '--allow-empty', '-m', 'unrelated']);
     expect((await trees().hasCommits(odd)).ok).toBe(true);
+  });
+});
+
+describe('treesFixture quiet and commits', () => {
+  const fixture = treesFixture({ quiet: { '/a': 12, '/b': null }, commits: { '/a': 'yes' } });
+
+  it('answers the table and reads an absent path as nothing to read', async () => {
+    expect(await fixture.quietSeconds('/a')).toEqual({ ok: true, value: 12 });
+    expect(await fixture.quietSeconds('/b')).toEqual({ ok: true, value: null });
+    expect(await fixture.quietSeconds('/c')).toEqual({ ok: true, value: null });
+  });
+
+  it('answers unanswerable for a path the table does not name', async () => {
+    expect(await fixture.hasCommits('/a')).toEqual({ ok: true, value: 'yes' });
+    expect(await fixture.hasCommits('/c')).toEqual({ ok: true, value: 'unanswerable' });
   });
 });
