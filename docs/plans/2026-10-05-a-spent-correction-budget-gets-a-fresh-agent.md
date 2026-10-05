@@ -63,7 +63,7 @@ Measured 2026-10-05 on this estate, with auto-dispatch on:
 
 ### A spent correction budget gets a fresh agent
 
-- `feature/a-spent-correction-budget-gets-a-fresh-agent` — the `corrections-spent` ending, `freshAgentAfterCorrections`, the registry tick's continue with a composed answer, and `.plot/state/fresh-agents.tsv` <!-- builds: freshAgentAfterCorrections -->
+- `feature/a-spent-correction-budget-gets-a-fresh-agent` — the `corrections-spent` ending, `freshAgentAfterCorrections`, the registry tick's continue with a composed answer, and `.plot/state/fresh-agents.tsv` → #1291 <!-- builds: freshAgentAfterCorrections -->
 
 ## Notes
 
