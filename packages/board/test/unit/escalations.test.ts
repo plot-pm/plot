@@ -64,7 +64,7 @@ describe('escalations.tsv — the once-per-rung record', () => {
 
   it('appends and reads back one record', () => {
     const root = repoRoot();
-    appendEscalation(root, RECORD);
+    expect(appendEscalation(root, RECORD)).toBe(true);
     expect(readEscalations(root)).toEqual([RECORD]);
   });
 
@@ -79,6 +79,13 @@ describe('escalations.tsv — the once-per-rung record', () => {
   it('never throws appending into a missing directory', () => {
     const root = repoRoot();
     expect(() => appendEscalation(root, RECORD)).not.toThrow();
+  });
+
+  it('answers false, without throwing, where `.plot/state` cannot be created', () => {
+    const root = repoRoot();
+    fs.mkdirSync(path.join(root, '.plot'));
+    fs.writeFileSync(path.join(root, '.plot', 'state'), '');
+    expect(appendEscalation(root, RECORD)).toBe(false);
   });
 });
 

@@ -21,6 +21,7 @@ import {
   agentsFs,
 } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
+import type { NotifyWrite } from '@plot-pm/domain/workflows/decision';
 import {
   parseQuestionEscalation,
   DEFAULT_QUESTION_ESCALATION,
@@ -49,8 +50,11 @@ import { readConfigAsync } from '../board.js';
 import { markerReading } from '../worker-question.js';
 import {
   appendEscalation,
+  escalationMemory,
+  escalationsPath,
   readEscalations,
   recordedRungsFor,
+  type EscalationMemory,
 } from '../escalations.js';
 import {
   fileOrNull,
@@ -917,35 +921,29 @@ export const notifierFor = (configured: string): Notifier => {
 
 /**
  * What the tick reads to decide a desk's question escalation: the marker, the
- * configured ages, and the rungs `.plot/state/escalations.tsv` already holds
- * for this exact desk and modification time.
- *
- * **THE TSV IS RE-READ PER DESK, NOT ONCE PER TICK.** A tick with ten desks
- * reads ten times rather than once and filters in memory — a repository's
- * desk count bounds the read count, and the file itself is small (one line per
- * rung ever reached), so the simplicity is worth more than the saved reads.
+ * configured ages, and the rungs already recorded for the desk and its
+ * marker's modification time, in `.plot/state/escalations.tsv` or in this
+ * daemon's {@link EscalationMemory}.
  *
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
- * @returns the world {@link escalationWrites} reads through.
+ * @param memory - the rungs this daemon process applied.
+ * @returns the world the tick's escalation pass reads through.
  */
-export const escalationWorldForRepo = (repoRoot: string, scriptsDir: string): EscalationWorld => ({
+export const escalationWorldForRepo = (
+  repoRoot: string,
+  scriptsDir: string,
+  memory: EscalationMemory = escalationMemory(),
+): EscalationWorld => ({
   marker: (worktree) => markerReading(worktree),
-  // THE FALLBACK IS THE DEFAULT, NOT `''`. `plot-config.sh get` answers its
-  // caller's fallback for BOTH an absent key and one written with no value
-  // after the colon (`[ -n "$value" ]` at the script's tail) — so there is no
-  // way through that script for a person to configure an explicitly empty
-  // list today. `parseQuestionEscalation('')` still answers `[]`, honouring
-  // "an empty value disables notification" at the layer this slice owns; a
-  // repository author reaching it needs a change to `plot-config.sh` itself,
-  // which is out of this slice's scope (CLAUDE.md names it an existing shell
-  // file this branch does not touch).
+  // `plot-config.sh` answers the fallback for an empty value; `none` turns
+  // notification off (`parseQuestionEscalation`).
   ages: async () =>
     parseQuestionEscalation(
       await readConfigAsync({ repoRoot, scriptsDir }, QUESTION_ESCALATION_KEY, DEFAULT_QUESTION_ESCALATION),
     ),
   recordedRungs: async (worktree, askedAt) =>
-    recordedRungsFor(readEscalations(repoRoot), worktree, askedAt),
+    recordedRungsFor([...readEscalations(repoRoot), ...memory.records], worktree, askedAt),
 });
 
 /**
@@ -1240,44 +1238,53 @@ export const startAgents = async (
 };
 
 /**
- * Applies the tick's `notify` writes: sends each through the configured
- * `Notifier` and appends one line per rung to `.plot/state/escalations.tsv`.
+ * Applies the tick's `notify` writes. Each message is sent through the
+ * `Notifier`, all of them concurrently, so the slowest command bounds the
+ * pass. Each rung is then appended to `.plot/state/escalations.tsv` and held
+ * in `memory`, with the status `sent`, `unaskable` or `failed <code>`.
  *
- * **ONE RECORD, WHATEVER THE SEND ANSWERED.** `sent`, `unaskable` or
- * `failed <code>` are all recorded — the record is of the RUNG having been
- * reached and considered, not only of a successful send. Recording `unaskable`
- * is what stops a repository with no `Notify command` writing a line every
- * tick for the same rung ({@link notifierNone} answers the same way every
- * time, and nothing short of a record would make that answer change).
- *
- * **APPLIED HERE RATHER THAN BY A SHELL PERFORMER**, unlike `blocked-marker`
- * and its neighbours: both the `Notifier` port and the TSV are TypeScript-
- * native, with no shell equivalent to apply them from.
+ * The notifier is asked for only where the tick holds at least one `notify`
+ * write. A failed append is reported on `warn` once per memory.
  *
  * @param report - what the tick decided.
  * @param repoRoot - the repository root the TSV lives under.
- * @param notifier - what sends the message.
+ * @param notifier - answers the `Notifier` to send through.
+ * @param memory - the rungs this daemon process applied; each applied rung is added.
  * @param write - where a sent notification is reported.
+ * @param warn - where a failed append is reported.
  */
 export const notifyEscalations = async (
   report: TickReport,
   repoRoot: string,
-  notifier: Notifier,
+  notifier: () => Promise<Notifier>,
+  memory: EscalationMemory,
   write: (s: string) => void,
+  warn: (s: string) => void,
 ): Promise<void> => {
-  for (const item of report.decision.writes) {
-    if (item.kind !== 'notify') continue;
-    const result = await notifier.notify(item.message);
+  const items = report.decision.writes.filter((item): item is NotifyWrite => item.kind === 'notify');
+  if (items.length === 0) return;
+  const sender = await notifier();
+  const results = await Promise.all(items.map((item) => sender.notify(item.message)));
+  items.forEach((item, i) => {
+    const result = results[i];
     const status = result.ok ? 'sent' : result.why === 'unaskable' ? 'unaskable' : `failed ${result.code}`;
-    appendEscalation(repoRoot, {
+    const record = {
       worktree: item.worktree,
       askedAt: item.askedAt,
       rung: item.rung,
       at: new Date().toISOString(),
       status,
-    });
+    };
+    memory.records.push(record);
+    if (!appendEscalation(repoRoot, record) && !memory.appendFailureReported) {
+      memory.appendFailureReported = true;
+      warn(
+        `plot-registryd: could not append to ${escalationsPath(repoRoot)}; ` +
+          'escalated rungs are held in memory until the daemon restarts\n',
+      );
+    }
     if (result.ok) write(`  ${item.worktree}: notified at ${item.rung}\n`);
-  }
+  });
 };
 
 /**
@@ -1557,12 +1564,12 @@ export const run = async (
   // not, so a second writer would race.
   const reportStore = supervisionReportFile({ cwd: repoRoot });
   const tempSweep = tempSweepShell({ repoRoot, scriptDir: scriptsDir });
-  const escalation = escalationWorldForRepo(repoRoot, scriptsDir);
-  // READ ONCE AT DAEMON START, NOT PER TICK. The `Notifier` is a choice of
-  // ADAPTER — which command runs, if any — and that does not change while the
-  // daemon runs; re-reading it every sixty seconds would spend a config call
-  // for an answer that cannot have moved since the last one.
-  const notifier = notifierFor(await readConfigAsync({ repoRoot, scriptsDir }, NOTIFY_COMMAND_KEY, ''));
+  const escalated = escalationMemory();
+  const escalation = escalationWorldForRepo(repoRoot, scriptsDir, escalated);
+  // READ WHEN A TICK HOLDS A `notify` WRITE, so a `Notify command` added
+  // while the daemon runs takes effect at the next escalation.
+  const notifier = async (): Promise<Notifier> =>
+    notifierFor(await readConfigAsync({ repoRoot, scriptsDir }, NOTIFY_COMMAND_KEY, ''));
   // THE DAEMON IS THE ONLY WRITER OF THE FRESH-AGENT RECORD, for the reason
   // `reportStore` above gives, and the store lives for the daemon's whole life
   // so the `--git-common-dir` lookup is forked once.
@@ -1678,7 +1685,7 @@ export const run = async (
     // UNGATED BY `args.startAgents`, the same reasoning the tick's own
     // `escalation` world follows: a question ages whether or not this daemon
     // may grow the fleet.
-    await notifyEscalations(report, repoRoot, notifier, write);
+    await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
     // starts above. A tick that was not allowed to start reports and acts on
     // nothing.

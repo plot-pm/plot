@@ -117,6 +117,11 @@ describe('parseQuestionEscalation', () => {
     expect(parseQuestionEscalation('   ')).toEqual([]);
   });
 
+  it('parses `none`, in any case, into no ages — disabling notification', () => {
+    expect(parseQuestionEscalation('none')).toEqual([]);
+    expect(parseQuestionEscalation(' None ')).toEqual([]);
+  });
+
   it('falls back to the default for a malformed list', () => {
     expect(parseQuestionEscalation('15m, soon')).toEqual(AGES);
   });

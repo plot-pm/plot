@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { describe, it, expect, afterAll } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,10 +20,16 @@ import {
   TICK_INTERVAL_MS,
   TICK_COST_MS,
   type EscalationWorld,
+  type TickReport,
 } from '../../src/server/entry/registryd.js';
 import type { QueueWorld } from '../../src/server/queue-reading.js';
 import type { AgentEntry } from '../../src/server/registry.js';
-import type { MarkerReading } from '../../src/server/worker-question.js';
+import { markerReading, type MarkerReading } from '../../src/server/worker-question.js';
+import { escalationMemory, readEscalations, recordedRungsFor } from '../../src/server/escalations.js';
+import { notifyEscalations } from '../../src/server/entry/registryd-main.js';
+import { parseQuestionEscalation } from '@plot-pm/domain/rules/question-escalation';
+import { deskFs, treesGit } from '@plot-pm/domain/adapters';
+import type { Notifier } from '@plot-pm/domain/ports/notifier';
 
 const OPEN = '<!' + '--';
 const CLOSE = '--' + '>';
@@ -1161,25 +1167,54 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
     ...over,
   });
 
+  const NOW = Date.parse('2026-10-05T14:00:00.000Z');
+  const askedMinutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
+
   it('is a notify write at the first age for a live free loop with a marker — the 2026-10-05 case', async () => {
-    // THE LOOP IS ALIVE, which `supervise` reads as `leave` and would never
-    // reach the `needs-a-person` arm for. A call placed there would miss this
-    // test entirely — the marker is read for EVERY verdict, `leave` included.
-    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: '2020-01-01T00:00:00.000Z' };
+    // THE LOOP IS ALIVE, which `supervise` reads as `leave`. The marker is
+    // read for every verdict, `leave` included.
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: askedMinutesAgo(16) };
     const report = await tick({
       registry: async () => [manifest()],
       world: world({ workerAlive: async () => true }),
-      escalation: escalation({ marker: async () => marker }),
+      escalation: escalation({ marker: async () => marker, now: () => NOW }),
     });
     expect(report.decision.detail.left).toEqual(['feature/one']);
     const notify = report.decision.writes.filter((w) => w.kind === 'notify');
-    expect(notify).toHaveLength(1);
-    expect(notify[0]).toMatchObject({
-      kind: 'notify',
-      worktree: '/estate/.worktrees/feature-one',
-      askedAt: marker.askedAt,
-      rung: 'notified-3',
+    expect(notify).toEqual([
+      expect.objectContaining({
+        kind: 'notify',
+        worktree: '/estate/.worktrees/feature-one',
+        askedAt: marker.askedAt,
+        rung: 'notified-1',
+      }),
+    ]);
+  });
+
+  it('jumps to the highest rung reached, with one write, for a marker first seen past several ages', async () => {
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: askedMinutesAgo(300) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({ marker: async () => marker, now: () => NOW }),
     });
+    const notify = report.decision.writes.filter((w) => w.kind === 'notify');
+    expect(notify).toEqual([expect.objectContaining({ rung: 'notified-3' })]);
+  });
+
+  it('writes nothing where `Question escalation` is `none`, whatever the age', async () => {
+    const marker: MarkerReading = { firstLine: 'x', askedAt: askedMinutesAgo(300) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({
+        marker: async () => marker,
+        ages: async () => parseQuestionEscalation('none'),
+        now: () => NOW,
+      }),
+    });
+    expect(report.incomplete).toBe('');
+    expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([]);
   });
 
   it('writes nothing for a desk with no marker', async () => {
@@ -1210,5 +1245,107 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
       world: world({ workerAlive: async () => true }),
     });
     expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([]);
+  });
+});
+
+describe('the escalation record across ticks', () => {
+  const AGES = [900_000, 3_600_000, 14_400_000]; // 15m, 1h, 4h
+  const NOW = Date.parse('2026-10-05T14:00:00.000Z');
+  const temps: string[] = [];
+  const temp = (prefix: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    temps.push(dir);
+    return dir;
+  };
+  afterAll(() => {
+    for (const dir of temps) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A world whose recorded rungs are read from `root`'s escalations.tsv. */
+  const fileWorld = (root: string, marker: MarkerReading, now: number): EscalationWorld => ({
+    marker: async () => marker,
+    ages: async () => AGES,
+    recordedRungs: async (worktree, askedAt) => recordedRungsFor(readEscalations(root), worktree, askedAt),
+    now: () => now,
+  });
+
+  const notifyCount = (report: TickReport): number =>
+    report.decision.writes.filter((w) => w.kind === 'notify').length;
+
+  it.each([
+    ['unaskable', { ok: false, why: 'unaskable' } as const, 'unaskable'],
+    ['failed 7', { ok: false, why: 'failed', code: 7 } as const, 'failed 7'],
+  ])('does not send a rung recorded %s again on the next tick', async (_label, answer, status) => {
+    const root = temp('plot-escalation-next-tick-');
+    const marker: MarkerReading = { firstLine: 'x', askedAt: new Date(NOW - 16 * 60_000).toISOString() };
+    let sends = 0;
+    const notifier: Notifier = {
+      notify: async () => {
+        sends += 1;
+        return answer;
+      },
+    };
+    const input = () => ({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: fileWorld(root, marker, NOW),
+    });
+    const first = await tick(input());
+    expect(notifyCount(first)).toBe(1);
+    await notifyEscalations(first, root, async () => notifier, escalationMemory(), () => {}, () => {});
+    expect(readEscalations(root)).toEqual([expect.objectContaining({ rung: 'notified-1', status })]);
+    const second = await tick(input());
+    expect(notifyCount(second)).toBe(0);
+    expect(sends).toBe(1);
+  });
+
+  it.each([
+    ['a missing', null],
+    ['an empty', ''],
+    ['a truncated', '/estate/.worktrees/feature-one\t2026-10-05T13:44'],
+  ])('completes the tick and notifies over %s escalations.tsv', async (_label, content) => {
+    const root = temp('plot-escalation-broken-tsv-');
+    if (content !== null) {
+      mkdirSync(join(root, '.plot', 'state'), { recursive: true });
+      writeFileSync(join(root, '.plot', 'state', 'escalations.tsv'), content);
+    }
+    const marker: MarkerReading = { firstLine: 'x', askedAt: new Date(NOW - 16 * 60_000).toISOString() };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: fileWorld(root, marker, NOW),
+    });
+    expect(report.incomplete).toBe('');
+    expect(notifyCount(report)).toBe(1);
+  });
+
+  it('keeps the marker\'s age across two ticks, though the supervisor writes the marker again', async () => {
+    const desk = temp('plot-escalation-desk-');
+    const port = deskFs(treesGit({ repoRoot: desk, scriptDir: '/nonexistent' }));
+    const started = Date.now();
+    expect(await port.writeBlockedMarker(desk, 'PLOT-BLOCKED: which adapter?')).toEqual({ ok: true, value: undefined });
+    const asked = new Date(started - 20 * 60_000);
+    utimesSync(join(desk, 'PLOT-BLOCKED.md'), asked, asked);
+    const deskWorld = (now: number): EscalationWorld => ({
+      marker: (worktree) => markerReading(worktree),
+      ages: async () => AGES,
+      recordedRungs: async () => new Set(),
+      now: () => now,
+    });
+    const input = (now: number) => ({
+      registry: async () => [manifest({ worktree: desk })],
+      world: world({ workerAlive: async () => true }),
+      escalation: deskWorld(now),
+    });
+
+    const first = await tick(input(started));
+    const firstWrite = first.decision.writes.find((w) => w.kind === 'notify');
+    expect(firstWrite).toMatchObject({ rung: 'notified-1' });
+
+    expect(await port.writeBlockedMarker(desk, 'PLOT-BLOCKED: asked again?')).toEqual({ ok: true, value: undefined });
+
+    const second = await tick(input(started + 45 * 60_000));
+    const secondWrite = second.decision.writes.find((w) => w.kind === 'notify');
+    expect(secondWrite).toMatchObject({ rung: 'notified-2', askedAt: (firstWrite as { askedAt: string }).askedAt });
   });
 });

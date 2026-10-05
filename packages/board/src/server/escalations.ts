@@ -3,36 +3,24 @@ import path from 'node:path';
 import type { Rung } from '@plot-pm/domain/rules/question-escalation';
 
 /**
- * `.plot/state/escalations.tsv` — THE ONE RECORD OF A RUNG ALREADY SENT.
+ * `.plot/state/escalations.tsv`: one line per question-escalation rung the
+ * registry tick has reached, keyed on the desk's worktree and the marker's
+ * modification time.
  *
- * **ONE RECORD, BECAUSE A NOTIFICATION SENT TWICE IS THE FAILURE.** The
- * registry tick is stateless for every other decision — `registryd.ts` reads
- * the registry and the desks fresh every minute and consults nothing from the
- * tick before. This file is the one exception: a rung this tick already
- * reached must not fire the adapter again next minute just because nothing
- * else remembers it fired.
- *
- * **APPEND-ONLY, MACHINE-LOCAL, AND A MISSING OR UNREADABLE FILE READS AS "NO
- * RUNG REACHED".** `.plot/state/` is gitignored and per-machine, the same as
- * `fleet-controls.json` and `auto-in-flight.json` beside it. The two
- * directions of a wrong read cost differently here: reading "no rung
- * recorded" when one WAS recorded sends one extra notification, which the
- * once-per-rung record then catches on the next tick; reading "a rung was
- * recorded" when it WAS NOT swallows a notification nobody will ever retry
- * silently. So corruption reads as the first kind of wrong, never the second —
- * an unparseable line is skipped rather than trusted.
+ * The file is append-only and machine-local. A missing or unreadable file
+ * reads as no records, and an unparseable line is skipped.
  */
 
-/** The file's path, relative to `.plot/state/` like every other machine-local record. */
+/** The file's path under the repository root. */
 export const escalationsPath = (repoRoot: string): string => {
   return path.join(repoRoot, '.plot', 'state', 'escalations.tsv');
 };
 
-/** One rung this tick (or an earlier one) already recorded reaching. */
+/** One rung the tick recorded reaching. */
 export interface EscalationRecord {
   /** The desk's worktree path, absolute. */
   worktree: string;
-  /** The marker's modification time, ISO-8601 — the key alongside `worktree`. */
+  /** The marker's modification time, ISO-8601. */
   askedAt: string;
   /** The rung reached. */
   rung: Rung;
@@ -43,7 +31,7 @@ export interface EscalationRecord {
 }
 
 /**
- * Encodes one record as a TSV line, tab-separated, newline-terminated.
+ * Encodes one record as a tab-separated line.
  *
  * @param record - the record to encode.
  * @returns the line, ending in `\n`.
@@ -53,15 +41,11 @@ export const encodeEscalation = (record: EscalationRecord): string => {
 };
 
 /**
- * Parses one TSV line into a record, or `null` where it does not parse.
- *
- * **AN UNPARSEABLE LINE IS IGNORED, NEVER THROWN.** A truncated append — the
- * one this file's lock-free append can leave behind — must read as "this rung
- * is not recorded" rather than crash the tick that is trying to read every
- * other desk's rungs too.
+ * Parses one TSV line into a record.
  *
  * @param line - one line, without its trailing newline.
- * @returns the record, or `null`.
+ * @returns the record, or `null` where the line does not hold five non-empty
+ *   tab-separated columns.
  */
 export const parseEscalationLine = (line: string): EscalationRecord | null => {
   const parts = line.split('\t');
@@ -72,18 +56,11 @@ export const parseEscalationLine = (line: string): EscalationRecord | null => {
 };
 
 /**
- * Every record the file holds, or empty where it is missing, empty, or
- * unreadable.
- *
- * **ABSENT IS NOT FALSE, AND A MISSING FILE IS NOT AN ERROR.** The ordinary
- * first state — no rung has ever been reached on this machine — reads
- * identically to a file this process cannot open: both answer no records, and
- * {@link questionEscalation} given no recorded rungs answers exactly as it
- * would on a brand-new desk. Reading a file this empty-by-construction as a
- * failure would be inventing a distinction nothing downstream can use.
+ * Every record the file holds.
  *
  * @param repoRoot - the repository root.
- * @returns every parseable record, in file order.
+ * @returns every parseable record, in file order; empty where the file is
+ *   missing, empty or unreadable. Never throws.
  */
 export const readEscalations = (repoRoot: string): readonly EscalationRecord[] => {
   let text: string;
@@ -102,16 +79,10 @@ export const readEscalations = (repoRoot: string): readonly EscalationRecord[] =
 };
 
 /**
- * Every rung already recorded for one desk's exact marker — `worktree` AND
- * `askedAt` together, never `worktree` alone.
+ * Every rung recorded for one desk's marker, matched on `worktree` and
+ * `askedAt` together.
  *
- * **KEYED ON BOTH, so a new marker's modification time starts again at
- * `listed`.** A desk that was answered and asked again carries a new
- * `askedAt`; if this keyed on the worktree alone, the old marker's recorded
- * `notified-2` would suppress the new marker's `notified-1` for hours it has
- * not yet earned.
- *
- * @param records - every record the file holds.
+ * @param records - the records to search.
  * @param worktree - the desk's worktree path.
  * @param askedAt - the marker's modification time, ISO-8601.
  * @returns the rungs recorded for exactly this desk and this marker.
@@ -129,26 +100,39 @@ export const recordedRungsFor = (
 };
 
 /**
- * Appends one record.
- *
- * **BEST-EFFORT, LOCK-FREE, LIKE `budgetFile`'s `append`.** A line under the
- * platform's atomic-append limit lands whole beside a concurrent writer's; this
- * file has exactly one writer (the registry tick, one instance per machine), so
- * even that guarantee is more than the contract needs. A write that throws is
- * swallowed: a tick that cannot record a sent rung must not fail the whole tick
- * over it, and the cost of a failed append is one possible repeat
- * notification — the direction this file already tolerates.
+ * Appends one record, creating `.plot/state/` where it is missing.
  *
  * @param repoRoot - the repository root.
  * @param record - the record to append.
+ * @returns `true` where the line was written, `false` where the write threw.
+ *   Never throws.
  */
-export const appendEscalation = (repoRoot: string, record: EscalationRecord): void => {
+export const appendEscalation = (repoRoot: string, record: EscalationRecord): boolean => {
   const file = escalationsPath(repoRoot);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, encodeEscalation(record), 'utf8');
+    return true;
   } catch {
-    // Swallowed. See the doc comment above: a missed append costs one possible
-    // repeat notification, never a swallowed one.
+    return false;
   }
 };
+
+/**
+ * The rungs one daemon process applied, held in memory for its lifetime.
+ * The tick reads them beside the file's records, so a rung whose append
+ * failed is not sent again while the daemon runs.
+ */
+export interface EscalationMemory {
+  /** Every record this process applied, whether or not its append succeeded. */
+  readonly records: EscalationRecord[];
+  /** Whether a failed append has already been reported. */
+  appendFailureReported: boolean;
+}
+
+/**
+ * An empty {@link EscalationMemory}.
+ *
+ * @returns a memory holding no records, with no failure reported.
+ */
+export const escalationMemory = (): EscalationMemory => ({ records: [], appendFailureReported: false });

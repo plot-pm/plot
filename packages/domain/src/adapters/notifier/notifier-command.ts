@@ -8,30 +8,23 @@ export const NOTIFY_MESSAGE_ENV = 'PLOT_NOTIFY_MESSAGE';
 const NOTIFY_TIMEOUT_MS = 30_000;
 
 /**
- * Runs a project's `Notify command` with the message in an environment
- * variable.
+ * Runs a project's `Notify command` through `sh -c`, as `Worker command` is
+ * run, with the message in the `PLOT_NOTIFY_MESSAGE` environment variable.
  *
- * **THE MESSAGE NEVER REACHES A SHELL.** `runProcess` spawns the configured
- * string directly as the program, with no arguments — never `sh -c command`,
- * and never the message interpolated into either. A branch name or a
- * question's first line is text an agent wrote, and running it through shell
- * source would execute whatever that agent wrote. The environment variable is
- * the one channel: a message holding `$(touch x)`, a backtick or a `;` is
- * bytes in `PLOT_NOTIFY_MESSAGE` and nothing a shell ever parses.
- *
- * **THE CONFIGURED STRING IS THE WHOLE PROGRAM, NOT A COMMAND LINE.** A
- * `Notify command` naming flags or arguments does not split here — same as
- * `Worker command` being handed to `plot-dispatch.sh`'s own `sh -c`, except
- * this adapter has no shell to split it for. A project whose command needs
- * arguments points at a wrapper script that reads `PLOT_NOTIFY_MESSAGE`
- * itself.
+ * The configured command is the only shell source. The message is never
+ * interpolated into it: a message holding `$(…)`, a backtick or a `;` reaches
+ * the command as the bytes of one environment variable, and the shell parses
+ * none of it. A command with arguments (`notify-send -u critical Plot`) runs
+ * as written.
  *
  * @param command - the configured `Notify command`, trimmed and non-empty.
- * @returns a `Notifier` that runs it.
+ * @returns a `Notifier` that runs it, bounded at 30 seconds per call. The
+ *   result is `{ ok: true }` on exit 0, and `failed` with the exit code
+ *   otherwise; a command that cannot start or times out answers a non-zero code.
  */
 export const notifierCommand = (command: string): Notifier => ({
   notify: async (message): Promise<NotifySendResult> => {
-    const run = await runProcess(command, [], {
+    const run = await runProcess('sh', ['-c', command], {
       env: { [NOTIFY_MESSAGE_ENV]: message },
       timeoutMs: NOTIFY_TIMEOUT_MS,
     });
