@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Issue:** #1275, #1255
 - **Story:** the-supervisor-delivers-the-approved-scope
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-10-05, jwloka, in-session
 
 ## Changelog
 
