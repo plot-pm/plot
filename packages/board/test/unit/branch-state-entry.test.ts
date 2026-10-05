@@ -77,17 +77,30 @@ describe('readingsFrom — the waits columns', () => {
 describe('answer — needsPrerequisite follows the name list, not the state list', () => {
   it('flags a branch whose prerequisites are named but not yet read', () => {
     const out = answer(`${line(...UNSTARTED, 'feature/a,feature/b', '?', 'true')}\n`);
-    expect(out).toBe('open\t1\n');
+    expect(out).toBe('open\t1\topen\n');
   });
 
   it('does not flag a branch with no prerequisite at all', () => {
     const out = answer(`${line(...UNSTARTED, '-', '?', 'true')}\n`);
-    expect(out).toBe('open\t0\n');
+    expect(out).toBe('open\t0\topen\n');
   });
 
   it('does not re-ask a branch whose prerequisites already carry a reading', () => {
     const out = answer(`${line(...UNSTARTED, 'feature/a,feature/b', 'MERGED,MERGED', 'true')}\n`);
-    expect(out).toBe('open\t0\n');
+    expect(out).toBe('open\t0\topen\n');
+  });
+});
+
+describe('answer — the third column is the state under a prerequisite', () => {
+  it('names `open` under a `waiting` branch the host could answer for', () => {
+    const out = answer(`${line(...UNSTARTED, 'feature/a', 'OPEN', 'true')}\n`);
+    expect(out).toBe('waiting\t0\topen\n');
+  });
+
+  it('names `unknown` under a `waiting` branch the host could not answer for', () => {
+    const failed = ['false', '-', 'aaa', 'false', 'failed', 'NONE', '0', '0'] as const;
+    const out = answer(`${line(...failed, 'feature/a', 'OPEN', 'true')}\n`);
+    expect(out).toBe('waiting\t0\tunknown\n');
   });
 });
 
@@ -96,6 +109,6 @@ describe('run — the process wiring', () => {
     const out: string[] = [];
     const code = run(`${line(...UNSTARTED, '-', '?', 'true')}\n`, (s) => out.push(s));
     expect(code).toBe(0);
-    expect(out.join('')).toBe('open\t0\n');
+    expect(out.join('')).toBe('open\t0\topen\n');
   });
 });

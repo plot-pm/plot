@@ -175,6 +175,16 @@ export const BranchSchema = z.object({
   /** The branch's name — the identity. */
   branch: z.string(),
   state: BranchStateSchema,
+  /**
+   * The branch's state before its plan's `waits:` prerequisite is considered.
+   *
+   * Equal to `state` except where a prerequisite replaced it: a `waiting` or
+   * `blocked` branch reads `open` or `unknown` here. `unknown` means the host
+   * could not be asked, so the branch may hold merged work.
+   *
+   * Absent on a pulse from a scan that predates the field.
+   */
+  own_state: BranchStateSchema.optional(),
   deferred: z.boolean(),
   /**
    * WHY the branch was deferred, as the plan recorded it — "" where nothing

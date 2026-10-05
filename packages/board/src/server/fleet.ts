@@ -4140,22 +4140,27 @@ export function prAsksNobody(pr: PrRecord): boolean {
 /**
  * Whether a branch carries no work: no commits, no claim, no PR.
  *
- * `open` names a branch nobody created. `waiting` and `blocked` replace only
- * `open` or `unknown` (see `BranchStateSchema`), so they also name a branch with
- * nothing on it. `unknown` is excluded: the host could not be asked, so the branch
- * may hold merged work, and a row must not state that nobody started it.
+ * `open` names a branch nobody created. `waiting` and `blocked` replace `open` or
+ * `unknown` (see `BranchStateSchema`), so they count only where the state under
+ * them is `open`. `unknown` counts nowhere: the host could not be asked, so the
+ * branch may hold merged work, and a row must not state that nobody started it.
  *
  * @param state - the branch's state, as the scan reports it.
- * @returns true for `open`, `waiting` and `blocked`; false for every other state.
+ * @param ownState - the state before the prerequisite (`BranchSchema.own_state`);
+ *   absent on a pulse from an older scan.
+ * @returns true for `open`, and for `waiting` or `blocked` over `open`; false
+ *   otherwise, including a `waiting` or `blocked` branch with no `ownState`.
  */
-export const hasNoWork = (state: BranchState): boolean =>
-  state === 'open' || state === 'waiting' || state === 'blocked';
+export const hasNoWork = (state: BranchState, ownState?: BranchState): boolean =>
+  state === 'open' || ((state === 'waiting' || state === 'blocked') && ownState === 'open');
 
 export function waitingOnFor(
   group: WaitingGroup,
   state: BranchState,
   verdict: string,
   planPhase: string | null,
+  /** Whether the branch carries no work (`hasNoWork`). Defaults to `state === 'open'`. */
+  unbegun: boolean = state === 'open',
 ): WaitingOn | null {
   if (group !== 'not-started') return null;
   // A shelved branch waits on a person — a deliberate hand-back. It reaches
@@ -4178,7 +4183,10 @@ export function waitingOnFor(
   // un-shelve it, which is a person, with no clock running. The note beside the
   // colour says which action.
   if (state === 'deferred') return 'you';
-  if (!hasNoWork(state)) return null;
+  if (!unbegun) return null;
+  // A `waiting` or `blocked` branch waits on its declared prerequisite, whatever
+  // its slice's verdict says. It cannot be started until that branch lands.
+  if (state === 'waiting' || state === 'blocked') return 'time';
   // An earlier slice, WITHIN an approved plan — which is now the only kind of
   // plan whose unbegun branches reach this section at all.
   if (verdict !== 'eligible') return 'time';
@@ -7131,10 +7139,11 @@ export function rowsFromPulse(
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
-        const waitingOn = waitingOnFor(group, b.state, wave.verdict, plan.phase);
         // WHETHER THIS BRANCH CARRIES NO WORK, decided once and carried on the
-        // row. `waitingDays` below and the client's `isUnbegun` read this value.
-        const unbegun = hasNoWork(b.state);
+        // row. `waitingOnFor`, `waitingDays` below and the client's `isUnbegun`
+        // read this value.
+        const unbegun = hasNoWork(b.state, b.own_state);
+        const waitingOn = waitingOnFor(group, b.state, wave.verdict, plan.phase, unbegun);
         // The blocking slice's NAME goes into the sentence too, not only into
         // the field. `classify` cannot do it — the name lives on the plan's
         // slice list, which that function has never been given — so the note is
@@ -7338,7 +7347,10 @@ export function rowsFromPulse(
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
           // whose blocker has no name.
-          blockedBy: waitingOn === 'time' ? blockerName : null,
+          //
+          // A held branch in an eligible slice waits on its prerequisite, not on
+          // an earlier slice, so it names no blocking slice.
+          blockedBy: waitingOn === 'time' && wave.verdict !== 'eligible' ? blockerName : null,
           // THE SLICE'S VERDICT, as a value — from `classify`, which composed the
           // note beside it from the same reading. Not taken from `wave.verdict`
           // here, though it is in hand: that would be a second derivation of one

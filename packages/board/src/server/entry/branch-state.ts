@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
  *
  * ```
  * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\n' | node plot-branch-state.mjs
- * wip	0
+ * wip	0	wip
  * ```
  *
  * **An ELEVENTH artifact, for the reason the third through tenth ones give.**
@@ -49,6 +49,12 @@ import { pathToFileURL } from 'node:url';
  * FLAGGED branches rather than the annotated ones — a `waits:` branch already
  * reading `wip`, `claimed`, `merged` or `deferred` costs nothing — and a plan
  * with no flagged branch pays no second call at all.
+ *
+ * ## The third field is the branch's own state
+ *
+ * The rule's answer with no prerequisite considered. A `waiting` or `blocked`
+ * state replaces `open` or `unknown`, and the scan emits this field as
+ * `own_state` so a reader can tell which one lies underneath.
  */
 
 /**
@@ -240,7 +246,9 @@ const parsedFrom = (text: string): ParsedLine[] =>
  * about twice.
  *
  * @param text the stdin document, one branch per line
- * @returns one `state<TAB>needsPrerequisite` line per branch, newline-terminated
+ * @returns one `state<TAB>needsPrerequisite<TAB>ownState` line per branch,
+ *   newline-terminated. The third column is `branchState` asked again with no
+ *   prerequisite readings.
  */
 export const answer = (text: string): string =>
   parsedFrom(text)
@@ -252,7 +260,8 @@ export const answer = (text: string): string =>
         && REPLACEABLE_BY_PREREQUISITE.includes(state)
           ? '1'
           : '0';
-      return `${state}\t${needs}\n`;
+      const own = branchState({ ...readings, waits: [] });
+      return `${state}\t${needs}\t${own}\n`;
     })
     .join('');
 

@@ -2631,10 +2631,10 @@ export const AgentRowSchema = z.object({
   /**
    * Whether this branch carries no work: no commits, no claim, no PR.
    *
-   * The server sets it from the branch state through `hasNoWork`: true for
-   * `open`, `waiting` and `blocked`, false for every other state, `unknown`
-   * included. `waitingDays` and the client's `isUnbegun` read it, and
-   * `waitingOnFor` asks the same predicate.
+   * The server sets it through `hasNoWork`: true for `open`, and for `waiting`
+   * or `blocked` where the scan's `own_state` under it is `open`. False for every
+   * other state, `unknown` included, and for a `waiting` or `blocked` branch over
+   * `unknown`. `waitingOnFor`, `waitingDays` and the client's `isUnbegun` read it.
    *
    * Absent on a pulse from a server that predates the field. The client then
    * reads `state === 'open'`, the only unbegun state such a server sent.
