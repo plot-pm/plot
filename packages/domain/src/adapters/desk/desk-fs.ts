@@ -26,8 +26,8 @@ const LIMITED_FILE = '.plot-worker.limited';
 /** The worker's own pid records, moved rather than deleted between desks. */
 const WORKER_RECORD_NAMES = ['.plot-worker.pid', '.plot-worker.wrapper.pid'];
 
-/** Where a desk's findings file lives, matching `plot_worker_publish_finding`'s target. */
-const FINDINGS_FILE = '.plot-worker.monitor.jsonl';
+/** The desk's WorkerMonitor log: the file `plot-worker-loop.sh` writes and `findings.ts` reads. */
+const FINDINGS_FILE = '.plot-worker.monitor.worker.jsonl';
 
 /** Best-effort file write: answers regardless of whether the write landed. */
 const bestEffortWrite = (path: string, content: string): PortResult<void> => {
@@ -193,9 +193,9 @@ export const deskFs = (trees: Trees): Desk => {
       return answered(undefined);
     },
 
-    publishFinding: async (worktree, finding): Promise<PortResult<void>> => {
-      const now = new Date().toISOString();
-      const line = JSON.stringify({ monitor: 'WorkerMonitor', finding, measuredAt: now });
+    publishFinding: async (worktree, { branch, finding, since, evidence }): Promise<PortResult<void>> => {
+      const measuredAt = new Date().toISOString();
+      const line = JSON.stringify({ monitor: 'WorkerMonitor', branch, worktree, finding, since, evidence, measuredAt });
       try {
         appendFileSync(join(worktree, FINDINGS_FILE), `${line}\n`);
       } catch {

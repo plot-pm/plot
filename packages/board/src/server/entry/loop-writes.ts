@@ -51,7 +51,16 @@ export interface LoopWritePorts {
 export interface AppliedWrite {
   write: LoopWrite;
   result: PortResult<void>;
+  /** Why the applier itself refused the write, where it did; absent when the port answered. */
+  reason?: string;
 }
+
+/**
+ * The take-up sequence `agentLoop` emits at row 4. Each write needs the one
+ * before it: a claim commit on a desk whose reset failed claims the wrong
+ * tree, and a prompt on a branch whose claim push failed runs unclaimed.
+ */
+const TAKE_UP: ReadonlySet<LoopWrite['kind']> = new Set(['desk-reset', 'commit', 'push', 'prompt-run']);
 
 /**
  * Applies the loop's decided writes, in order, through the ports given.
@@ -61,31 +70,31 @@ export interface AppliedWrite {
  * without a matching arm here fails `tsc` — never a runtime `default` that
  * silently drops it.
  *
- * **ORDER IS THE CALLER'S CONTRACT, NOT THIS FUNCTION'S TO ENFORCE.**
- * `agentLoop` already orders its `writes` array so that, for instance,
- * `declaration` and `loop-end` land in the sequence `supervise` depends on;
- * this applies them in the order given and does not reorder, dedupe or skip
- * one because an earlier one failed — each write is independent of the others'
- * outcome, matching the shell's own best-effort functions.
+ * **WRITES APPLY IN THE ORDER GIVEN.** This function does not reorder or
+ * dedupe them.
+ *
+ * **A FAILED TAKE-UP WRITE STOPS THE PASS.** When a `desk-reset`, `commit`,
+ * `push` or `prompt-run` write fails, no later write is applied, and the
+ * failed write is the last entry of the result. Every other write kind is
+ * independent of the others' outcome: a failed `declaration` still lets the
+ * `loop-end` after it land.
  *
  * **`agent-attempt` AND `correction-count` CARRY THE NEW VALUE, NEVER AN
  * INCREMENT.** Both arms write exactly the number the decision already
  * computed, so applying either twice lands the same number — the property
  * `workflows/decision.ts` documents on both write kinds.
  *
- * **`commit` AND `push` CARRY NO WORKTREE**, unlike every other write kind
- * here — `CommitWrite` and `PushWrite` are shared across every workflow that
- * emits them (`approve`, `deliver`, `dispatch`, `release`, and this loop), none
- * of which name a desk because each already operates on one checkout it knows
- * externally. For the loop that checkout is always the desk the pass is
- * running in, so it travels as `worktree` here rather than being invented from
- * a write that was never given one.
+ * **`commit` AND `push` CARRY NO WORKTREE.** They act on `worktree`, the desk
+ * the pass runs in. A `commit` with empty `paths` is the claim commit, an
+ * empty commit in that desk. A `commit` with non-empty `paths` answers
+ * `failed` with a reason and stages nothing: no loop write stages paths.
  *
  * @param writes - the decision's writes, in application order.
  * @param ports - where each write kind lands.
  * @param worktree - the desk this pass is running in, absolute — the checkout
  *   `commit` and `push` act on.
- * @returns what each write answered, in the same order.
+ * @returns what each applied write answered, in the same order; shorter
+ *   than `writes` when a take-up write failed.
  */
 export const performLoopWrites = async (
   writes: readonly LoopWrite[],
@@ -94,20 +103,42 @@ export const performLoopWrites = async (
 ): Promise<readonly AppliedWrite[]> => {
   const out: AppliedWrite[] = [];
   for (const write of writes) {
-    out.push({ write, result: await applyOne(write, ports, worktree) });
+    const applied = await applyOne(write, ports, worktree);
+    out.push(applied);
+    if (!applied.result.ok && TAKE_UP.has(write.kind)) break;
   }
   return out;
 };
 
 /**
- * Applies one write.
+ * Applies one write and pairs the answer with it.
  *
  * @param write - the write to apply.
  * @param ports - where it lands.
  * @param worktree - the desk this pass is running in, for `commit` and `push`.
+ * @returns the write, what the port answered, and the applier's own reason
+ *   where it refused the write.
+ */
+const applyOne = async (write: LoopWrite, ports: LoopWritePorts, worktree: string): Promise<AppliedWrite> => {
+  if (write.kind === 'commit' && write.paths.length > 0) {
+    return {
+      write,
+      result: { ok: false, why: 'failed' },
+      reason: `a loop commit stages no paths; refused ${write.paths.length} path(s)`,
+    };
+  }
+  return { write, result: await landOne(write, ports, worktree) };
+};
+
+/**
+ * Lands one write on its port.
+ *
+ * @param write - the write to land.
+ * @param ports - where it lands.
+ * @param worktree - the desk this pass is running in, for `commit` and `push`.
  * @returns what the port answered.
  */
-const applyOne = async (
+const landOne = async (
   write: LoopWrite,
   ports: LoopWritePorts,
   worktree: string,
@@ -166,7 +197,12 @@ const applyOne = async (
       });
 
     case 'worker-finding':
-      return ports.desk.publishFinding(write.worktree, write.finding);
+      return ports.desk.publishFinding(write.worktree, {
+        branch: write.branch,
+        finding: write.finding,
+        since: write.since,
+        evidence: write.evidence,
+      });
 
     /* v8 ignore next 2 -- unreachable by construction: every `LoopWrite` kind
        has its own case above, so this only fires if a kind is ADDED to the

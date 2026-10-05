@@ -92,7 +92,8 @@ export interface AgentLoopReadings {
    * Why this desk may not be reset — empty when nothing holds it. Read at
    * take-up and after a `ran` exit. At either point, `uncommitted-changes` or
    * `unpushed-commits` ends the loop `holding-work`. At take-up, a list that
-   * names only `blocked-marker` withholds the `desk-reset` write.
+   * names only `blocked-marker` ends the loop `blocked`: the desk holds an
+   * unanswered question, so the slice is not taken up.
    */
   readonly resetRefusals: readonly ResetRefusal[];
   /**
@@ -131,6 +132,12 @@ export interface AgentLoopReadings {
   readonly correctionText: string;
   /** The session to resume the correction in, or `''` to start a fresh worker. */
   readonly resumeId: string;
+
+  /**
+   * When this pass took its readings, ISO-8601. A finding this pass publishes
+   * holds from this moment, so it is the finding's `since`.
+   */
+  readonly passAt: string;
 
   /** The worktree this loop runs in, absolute. */
   readonly worktree: string;
@@ -176,6 +183,14 @@ const blockedDeclaration = (worktree: string, branch: string, summary: string): 
   status: 'blocked',
   summary,
 });
+
+/** A `worker-finding` write about this pass's branch, holding from {@link AgentLoopReadings.passAt}. */
+const finding = (
+  readings: AgentLoopReadings,
+  branch: string,
+  name: 'gone' | 'idle',
+  evidence: string,
+): Write => ({ kind: 'worker-finding', worktree: readings.worktree, branch, finding: name, since: readings.passAt, evidence });
 
 /**
  * A decision that seals the slice and frees the loop: `declaration` ok, the
@@ -309,16 +324,24 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
         0,
       );
     }
-    // A desk holding only a `PLOT-BLOCKED` marker is not reset; the slice
-    // runs over it.
-    const resettable = readings.resetRefusals.length === 0;
-    const reset: readonly Write[] = resettable
-      ? [{ kind: 'desk-reset', worktree, branch, base: readings.base }]
-      : [];
+    // A desk holding only a `PLOT-BLOCKED` marker holds an unanswered
+    // question: the slice is not taken up, and the blocked declaration lets
+    // `supervise` answer needs-a-person.
+    if (readings.resetRefusals.length > 0) {
+      return end(
+        worktree,
+        branch,
+        'blocked',
+        'agent',
+        `the desk holds an unanswered PLOT-BLOCKED question; \`${branch}\` is not taken up`,
+        0,
+        [blockedDeclaration(worktree, branch, readings.markerText || 'an unanswered PLOT-BLOCKED question')],
+      );
+    }
     return decide(
       'agent-loop',
       [
-        ...reset,
+        { kind: 'desk-reset', worktree, branch, base: readings.base },
         { kind: 'commit', message: `plot: claim ${branch}`, paths: [] },
         { kind: 'push', branch, onto: '' },
         { kind: 'prompt-run', worktree, branch },
@@ -326,7 +349,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
       {
         branch,
         exitCode: null,
-        note: `${resettable ? 'desk reset, ' : `desk not reset (${readings.resetRefusals.join(', ')}), `}claim pushed, read: ${readings.claim ?? 'unknown'}`,
+        note: `desk reset, claim pushed, read: ${readings.claim ?? 'unknown'}`,
       },
     );
   }
@@ -342,7 +365,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
         'monitor',
         'the watcher reported idle: alive, committed, transcript silent past the window, no child on a core, tree unmoved',
         124,
-        [{ kind: 'worker-finding', worktree, finding: 'idle' }],
+        [finding(readings, branch, 'idle', 'the watcher reported idle')],
       );
     }
 
@@ -353,7 +376,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
       // could be read at all.
       return readings.running.transcriptReadable
         ? end(worktree, branch, 'bound', 'bound', `exceeded the ${readings.boundSeconds}s bound`, 124, [
-            { kind: 'worker-finding', worktree, finding: 'gone' },
+            finding(readings, branch, 'gone', `the prompt exceeded the ${readings.boundSeconds}s bound`),
           ])
         : end(
             worktree,
@@ -362,7 +385,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
             'bound',
             'no transcript could be read for this worktree',
             124,
-            [{ kind: 'worker-finding', worktree, finding: 'gone' }],
+            [finding(readings, branch, 'gone', 'no transcript could be read for this worktree')],
           );
     }
 

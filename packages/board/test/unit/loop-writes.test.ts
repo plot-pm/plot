@@ -7,11 +7,17 @@ import {
   agentsFixture,
   deskFixture,
   deskFixtureCalls,
+  deskFs,
   refsFixture,
   treesFixture,
   type AgentsFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Write } from '@plot-pm/domain';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { findingsInLog, MONITOR_LOGS } from '../../src/server/findings.js';
+import { FindingSchema } from '../../src/contract/index.js';
 import type { LoopWrite, LoopWritePorts } from '../../src/server/entry/loop-writes.js';
 import { performLoopWrites } from '../../src/server/entry/loop-writes.js';
 
@@ -71,6 +77,22 @@ describe('performLoopWrites — one arm per write kind', () => {
     );
     expect(result.ok).toBe(true);
     expect(calls).toEqual([{ path: WORKTREE, message: 'plot: claim infra/x' }]);
+  });
+
+  it('commit with non-empty paths answers failed with a reason, and Trees is never reached', async () => {
+    const calls: { path: string; message: string }[] = [];
+    const [applied] = await apply(
+      { kind: 'commit', message: 'plot: stage', paths: ['a.txt'] },
+      { trees: treesFixture({ calls: { resets: [], commits: calls, pushes: [] } }) },
+    );
+    expect(applied!.result).toEqual({ ok: false, why: 'failed' });
+    expect(applied!.reason).toContain('stages no paths');
+    expect(calls).toEqual([]);
+  });
+
+  it('commit with empty paths carries no reason', async () => {
+    const [applied] = await apply({ kind: 'commit', message: 'plot: claim infra/x', paths: [] });
+    expect(applied!.reason).toBeUndefined();
   });
 
   it('push applies through Trees, at the pass worktree', async () => {
@@ -192,35 +214,96 @@ describe('performLoopWrites — one arm per write kind', () => {
     ]);
   });
 
-  it('worker-finding publishes through Desk', async () => {
+  it('worker-finding publishes through Desk with every field the finding carries', async () => {
     const calls = deskFixtureCalls();
     const [{ result }] = await apply(
-      { kind: 'worker-finding', worktree: WORKTREE, finding: 'idle' },
+      {
+        kind: 'worker-finding',
+        worktree: WORKTREE,
+        branch: 'infra/x',
+        finding: 'idle',
+        since: '2026-10-05T10:00:00.000Z',
+        evidence: 'the watcher reported idle',
+      },
       { desk: deskFixture({ calls }) },
     );
     expect(result.ok).toBe(true);
-    expect(calls.findings).toEqual([{ worktree: WORKTREE, finding: 'idle' }]);
+    expect(calls.findings).toEqual([
+      {
+        worktree: WORKTREE,
+        finding: { branch: 'infra/x', finding: 'idle', since: '2026-10-05T10:00:00.000Z', evidence: 'the watcher reported idle' },
+      },
+    ]);
+  });
+
+  it('worker-finding lands a line the board reads as a finding', async () => {
+    const desk = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-writes-finding-'));
+    try {
+      const write: LoopWrite = {
+        kind: 'worker-finding',
+        worktree: desk,
+        branch: 'infra/x',
+        finding: 'gone',
+        since: '2026-10-05T10:00:00.000Z',
+        evidence: 'the prompt exceeded the 28800s bound',
+      };
+      const [{ result }] = await performLoopWrites([write], ports({ desk: deskFs(treesFixture()) }), desk);
+      expect(result.ok).toBe(true);
+      const read = MONITOR_LOGS.flatMap((name) => findingsInLog(path.join(desk, name)));
+      expect(read).toHaveLength(1);
+      expect(FindingSchema.parse(read[0])).toMatchObject({
+        monitor: 'WorkerMonitor',
+        branch: 'infra/x',
+        worktree: desk,
+        finding: 'gone',
+        since: '2026-10-05T10:00:00.000Z',
+      });
+    } finally {
+      fs.rmSync(desk, { recursive: true, force: true });
+    }
   });
 });
 
-describe('performLoopWrites — ordering and independence', () => {
-  it('applies writes in the order given, even when an earlier one fails', async () => {
-    const deskCalls = deskFixtureCalls();
+describe('performLoopWrites — ordering and failure', () => {
+  const takeUp: readonly LoopWrite[] = [
+    { kind: 'desk-reset', worktree: WORKTREE, branch: 'infra/x', base: 'origin/main' },
+    { kind: 'commit', message: 'plot: claim infra/x', paths: [] },
+    { kind: 'push', branch: 'infra/x', onto: '' },
+    { kind: 'prompt-run', worktree: WORKTREE, branch: 'infra/x' },
+  ];
+
+  it('stops the take-up at a failed desk reset: no claim commit, no push, no prompt', async () => {
+    const calls = { resets: [], commits: [] as { path: string; message: string }[], pushes: [] as { path: string; branch: string }[] };
+    const applied = await performLoopWrites(
+      takeUp,
+      ports({ trees: treesFixture({ resetRefusedAt: [WORKTREE], calls }) }),
+      WORKTREE,
+    );
+    expect(applied.map((a) => a.write.kind)).toEqual(['desk-reset']);
+    expect(applied[0]!.result.ok).toBe(false);
+    expect(calls.commits).toEqual([]);
+    expect(calls.pushes).toEqual([]);
+  });
+
+  it('applies the whole take-up in order when every write answers', async () => {
+    const applied = await performLoopWrites(takeUp, ports(), WORKTREE);
+    expect(applied.map((a) => a.write.kind)).toEqual(['desk-reset', 'commit', 'push', 'prompt-run']);
+    expect(applied.every((a) => a.result.ok)).toBe(true);
+  });
+
+  it('a failed declaration still lets the loop-end after it land', async () => {
+    const calls = deskFixtureCalls();
     const writes: readonly LoopWrite[] = [
-      { kind: 'desk-reset', worktree: WORKTREE, branch: 'infra/x', base: 'origin/main' },
-      { kind: 'blocked-marker', worktree: WORKTREE, branch: 'infra/x', question: 'PLOT-BLOCKED: why?' },
+      { kind: 'declaration', worktree: WORKTREE, branch: 'infra/x', status: 'blocked', summary: 'x' },
+      { kind: 'loop-end', worktree: WORKTREE, branch: 'infra/x', reason: 'blocked', actor: 'agent', detail: 'x', exitCode: 0 },
     ];
     const applied = await performLoopWrites(
       writes,
-      ports({
-        trees: treesFixture({ resetRefusedAt: [WORKTREE] }),
-        desk: deskFixture({ calls: deskCalls }),
-      }),
+      ports({ desk: deskFixture({ calls, unreadableDeclarations: [WORKTREE] }) }),
       WORKTREE,
     );
-    expect(applied[0]!.result.ok).toBe(false);
-    expect(applied[1]!.result.ok).toBe(true);
-    expect(deskCalls.blockedMarkers).toHaveLength(1);
+    expect(applied.map((a) => a.result.ok)).toEqual([false, true]);
+    expect(calls.endings).toHaveLength(1);
   });
 });
 

@@ -31,14 +31,17 @@ export const refsRemoteGit = (
   run: RunCommand = runProcess,
 ): { remoteTip: (branch: string, pushedSha: string) => Promise<PortResult<RemoteTipReading>> } => ({
   remoteTip: async (branch, pushedSha) => {
-    const result = await run('git', ['ls-remote', '--heads', 'origin', branch], {
+    // THE FULL REF, asked and matched: a bare `x` pattern also matches
+    // `refs/heads/feature/x`, whose tip says nothing about `x`.
+    const ref = `refs/heads/${branch}`;
+    const result = await run('git', ['ls-remote', 'origin', ref], {
       cwd: context.repoRoot,
       timeoutMs: REMOTE_TIP_TIMEOUT_MS,
     });
     // A failed or timed-out read is `unknown`, never `other`: a failure to
     // observe is not evidence the tip moved.
     if (result.code !== 0) return answered<RemoteTipReading>('unknown');
-    const line = result.stdout.split('\n').find((l) => l.trim() !== '');
+    const line = result.stdout.split('\n').find((l) => l.split('\t')[1]?.trim() === ref);
     const tip = line?.split('\t')[0]?.trim();
     if (!tip) return answered<RemoteTipReading>('unknown');
     return answered<RemoteTipReading>(tip === pushedSha ? 'pushed' : 'other');

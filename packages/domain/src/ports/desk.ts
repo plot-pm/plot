@@ -13,6 +13,18 @@ export interface EndingRecord {
   detail: string;
 }
 
+/** One finding `publishFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */
+export interface DeskFinding {
+  /** The branch the finding is about. */
+  branch: string;
+  /** The finding word. */
+  finding: 'gone' | 'idle' | 'clear';
+  /** When the finding first held, ISO-8601. */
+  since: string;
+  /** One sentence naming the measurement behind the finding. */
+  evidence: string;
+}
+
 /**
  * Writes the files a desk carries through the loop's lifetime — the ending,
  * the `PLOT-BLOCKED` marker, the declaration, the correction file, the limited
@@ -155,11 +167,15 @@ export interface Desk {
   moveWorkerRecord(from: string, to: string): Promise<PortResult<void>>;
 
   /**
-   * Appends one `WorkerMonitor`-shaped finding line.
+   * Appends one `WorkerMonitor` finding line to the desk's
+   * `.plot-worker.monitor.worker.jsonl`, the file the shell loop writes and
+   * the board reads. The line carries every field `FindingSchema` requires:
+   * `monitor` is `WorkerMonitor`, `worktree` is the desk, and `measuredAt` is
+   * the moment of the write.
    *
    * @param worktree - the worktree the finding is about, absolute.
-   * @param finding - the finding word: `gone`, `idle` or `clear`.
+   * @param finding - the branch, finding word, `since` and evidence.
    * @returns nothing; always answers rather than failing.
    */
-  publishFinding(worktree: string, finding: 'gone' | 'idle' | 'clear'): Promise<PortResult<void>>;
+  publishFinding(worktree: string, finding: DeskFinding): Promise<PortResult<void>>;
 }

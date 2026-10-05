@@ -12,6 +12,8 @@ import { treesGit } from '../src/adapters/trees/trees-git.js';
 import { processesShell } from '../src/adapters/processes/processes-shell.js';
 import { agentsFs } from '../src/adapters/agents/agents-fs.js';
 import { deskFs } from '../src/adapters/desk/desk-fs.js';
+import { FindingSchema } from '../src/entities/finding.js';
+import type { Trees } from '../src/ports/trees.js';
 
 const git = (cwd: string, args: readonly string[]): string =>
   execFileSync('git', [...args], { cwd, encoding: 'utf8' });
@@ -130,6 +132,87 @@ describe('treesGit: desk-reset, commit, push', () => {
   });
 });
 
+describe('treesGit: resetOnto clears bookkeeping and repairs the generated bundles', () => {
+  let origin = '';
+  let desk = '';
+  let held = '';
+
+  beforeAll(() => {
+    origin = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-ports-reset-origin-')));
+    git(origin, ['init', '--quiet', '--initial-branch=main']);
+    git(origin, ['config', 'user.email', 'test@example.com']);
+    git(origin, ['config', 'user.name', 'Test']);
+    fs.mkdirSync(path.join(origin, 'packages/board'), { recursive: true });
+    fs.mkdirSync(path.join(origin, 'skills/plot'), { recursive: true });
+    fs.writeFileSync(
+      path.join(origin, 'packages/board/build.mjs'),
+      [
+        "const shippedServer = path.join(here, '../../skills/plot/server.mjs');",
+        "const shippedAsk = path.join(here, '../../skills/plot/ask.mjs');",
+        "const shippedRoot = path.join(here, '../../');",
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(path.join(origin, 'skills/plot/server.mjs'), 'built on main\n');
+    git(origin, ['add', '-A']);
+    git(origin, ['commit', '--quiet', '-m', 'first']);
+
+    desk = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-ports-reset-desk-')));
+    git(desk, ['clone', '--quiet', origin, '.']);
+    git(desk, ['config', 'user.email', 'test@example.com']);
+    git(desk, ['config', 'user.name', 'Test']);
+  });
+
+  afterAll(() => {
+    for (const dir of [origin, desk, held]) if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const trees = () => treesGit({ repoRoot: desk, scriptDir: path.join(desk, 'scripts') });
+
+  it('removes the declaration and correction, restores a tracked bundle, and removes an untracked one', async () => {
+    fs.writeFileSync(path.join(desk, '.plot-worker.envelope.json'), '{}\n');
+    fs.writeFileSync(path.join(desk, 'PLOT-CORRECTION.md'), 'correction\n');
+    fs.writeFileSync(path.join(desk, 'skills/plot/server.mjs'), 'rebuilt locally\n');
+    fs.writeFileSync(path.join(desk, 'skills/plot/ask.mjs'), 'built, never committed\n');
+
+    const result = await trees().resetOnto(desk, 'infra/reset', 'origin/main');
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(fs.existsSync(path.join(desk, '.plot-worker.envelope.json'))).toBe(false);
+    expect(fs.existsSync(path.join(desk, 'PLOT-CORRECTION.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(desk, 'skills/plot/server.mjs'), 'utf8')).toBe('built on main\n');
+    expect(fs.existsSync(path.join(desk, 'skills/plot/ask.mjs'))).toBe(false);
+    expect(git(desk, ['branch', '--show-current']).trim()).toBe('infra/reset');
+  });
+
+  it('leaves bookkeeping it cannot remove in place and still resets', async () => {
+    // A DIRECTORY at the declaration's path: `rmSync` without `recursive`
+    // refuses it, and the removal is best effort.
+    fs.mkdirSync(path.join(desk, '.plot-worker.envelope.json'));
+    const result = await trees().resetOnto(desk, 'infra/reset-again', 'origin/main');
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(fs.statSync(path.join(desk, '.plot-worker.envelope.json')).isDirectory()).toBe(true);
+    fs.rmdirSync(path.join(desk, '.plot-worker.envelope.json'));
+  });
+
+  it('answers failed when another worktree holds the branch, and goes no further', async () => {
+    held = `${desk}-held`;
+    git(desk, ['worktree', 'add', '--quiet', '-b', 'infra/held', held, 'origin/main']);
+    const result = await trees().resetOnto(desk, 'infra/held', 'origin/main');
+    expect(result.ok).toBe(false);
+  });
+
+  it('commit answers failed where the path is no checkout', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-ports-no-repo-'));
+    try {
+      const result = await trees().commit(outside, 'plot: claim nothing');
+      expect(result.ok).toBe(false);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('agentsFs: raiseAttempts, raiseCorrections, clearAssignment', () => {
   let dir = '';
 
@@ -223,16 +306,59 @@ describe('deskFs: ending, marker, declaration, correction, limited record, moved
     expect(JSON.parse(log.at(-1)!)).toEqual(record);
   });
 
-  it('writeEnding never appears partial: the file always parses as whole JSON', async () => {
-    const port = deskPort();
-    await Promise.all(
-      Array.from({ length: 20 }, (_, i) =>
-        port.writeEnding(desk, { reason: 'bound', actor: 'bound', branch: 'infra/x', detail: `pass ${i}` }),
-      ),
-    );
-    // Whichever write landed last, the file parses — never a half-written mix.
-    expect(() => JSON.parse(fs.readFileSync(path.join(desk, '.plot-worker.ending.json'), 'utf8'))).not.toThrow();
-  });
+  it('writeEnding never appears partial to a reader in another process', async () => {
+    // A TREES THAT LISTS NOTHING, so no `endings.jsonl` append runs and the
+    // writes follow each other as fast as the disk allows.
+    const port = deskFs({ list: async () => ({ ok: false, why: 'failed' }) } as unknown as Trees);
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-ports-ending-'));
+    const file = path.join(scratch, '.plot-worker.ending.json');
+    const record = (i: number) => ({ reason: 'bound' as const, actor: 'bound' as const, branch: 'infra/x', detail: `${i} ${'x'.repeat(512 * 1024)}` });
+    try {
+      await port.writeEnding(scratch, record(0));
+      const reader = spawn(
+        process.execPath,
+        [
+          '-e',
+          `const fs = require('node:fs');
+           let reads = 0, partial = 0;
+           process.stdout.write('ready\\n');
+           const stop = Date.now() + 1500;
+           while (Date.now() < stop) {
+             let text;
+             try { text = fs.readFileSync(process.argv[1], 'utf8'); } catch { continue; }
+             reads += 1;
+             try { JSON.parse(text); } catch { partial += 1; }
+           }
+           process.stdout.write(JSON.stringify({ reads, partial }) + '\\n');`,
+          file,
+        ],
+        { stdio: ['ignore', 'pipe', 'inherit'] },
+      );
+      let out = '';
+      reader.stdout.on('data', (chunk: Buffer) => {
+        out += chunk.toString();
+      });
+      const exited = new Promise<void>((resolve) => reader.once('exit', () => resolve()));
+      await new Promise<void>((resolve) => {
+        const check = (): void => {
+          if (out.includes('ready')) resolve();
+          else setTimeout(check, 5);
+        };
+        check();
+      });
+      const until = Date.now() + 1500;
+      for (let i = 1; Date.now() < until; i += 1) {
+        await port.writeEnding(scratch, record(i));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      await exited;
+      const counts = JSON.parse(out.trim().split('\n').at(-1)!) as { reads: number; partial: number };
+      expect(counts.reads).toBeGreaterThan(0);
+      expect(counts.partial).toBe(0);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it('writeBlockedMarker writes the marker, and does not overwrite an existing one', async () => {
     const port = deskPort();
@@ -314,13 +440,25 @@ describe('deskFs: ending, marker, declaration, correction, limited record, moved
     expect(result).toEqual({ ok: true, value: undefined });
   });
 
-  it('publishFinding appends a WorkerMonitor-shaped line', async () => {
-    const result = await deskPort().publishFinding(desk, 'idle');
+  it('publishFinding appends a line FindingSchema accepts to the WorkerMonitor log', async () => {
+    const result = await deskPort().publishFinding(desk, {
+      branch: 'infra/x',
+      finding: 'idle',
+      since: '2026-10-05T10:00:00.000Z',
+      evidence: 'the watcher reported idle',
+    });
     expect(result).toEqual({ ok: true, value: undefined });
-    const lines = fs.readFileSync(path.join(desk, '.plot-worker.monitor.jsonl'), 'utf8').trim().split('\n');
-    const last = JSON.parse(lines.at(-1)!);
-    expect(last.monitor).toBe('WorkerMonitor');
-    expect(last.finding).toBe('idle');
-    fs.rmSync(path.join(desk, '.plot-worker.monitor.jsonl'));
+    const log = path.join(desk, '.plot-worker.monitor.worker.jsonl');
+    const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
+    const last = FindingSchema.parse(JSON.parse(lines.at(-1)!));
+    expect(last).toMatchObject({
+      monitor: 'WorkerMonitor',
+      branch: 'infra/x',
+      worktree: desk,
+      finding: 'idle',
+      since: '2026-10-05T10:00:00.000Z',
+      evidence: 'the watcher reported idle',
+    });
+    fs.rmSync(log);
   });
 });

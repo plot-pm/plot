@@ -53,23 +53,48 @@ const waitForExit = async (pid: number, ms = 5000): Promise<boolean> => {
 };
 
 let wrapper: ChildProcess | undefined;
+let scratch = '';
 let outFile = '';
 
+/** A fresh scratch directory for one test, and the out file inside it. */
+const freshOutFile = (): string => {
+  scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-group-stop-'));
+  return path.join(scratch, 'out.log');
+};
+
+/** Resolves with the prompt's and the grandchild's pids once the stand-in reports them. */
+const readyOf = (standin: ChildProcess): Promise<{ promptPid: number; grandchildPid: number }> =>
+  new Promise((resolve, reject) => {
+    let buf = '';
+    const timer = setTimeout(() => reject(new Error(`stand-in did not report ready: ${buf}`)), 10_000);
+    standin.stdout!.on('data', (c: Buffer) => {
+      buf += c.toString();
+      const m = /READY (\d+) (\d+)/.exec(buf);
+      if (m) {
+        clearTimeout(timer);
+        resolve({ promptPid: Number(m[1]), grandchildPid: Number(m[2]) });
+      }
+    });
+  });
+
 afterEach(async () => {
-  if (wrapper?.pid && alive(wrapper.pid)) {
+  // THE GROUP IS KILLED EVEN WHEN THE WRAPPER IS GONE: a prompt or grandchild
+  // that outlived it still carries the wrapper's pgid.
+  if (wrapper?.pid) {
     try {
       process.kill(-wrapper.pid, 'SIGKILL');
     } catch {
-      /* already gone */
+      /* the whole group is gone */
     }
   }
   wrapper = undefined;
-  if (outFile) fs.rmSync(outFile, { force: true });
+  if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
+  scratch = '';
 });
 
 describe('a group stop reaches boundedRun\'s child and its descendants', () => {
   it('ends the wrapper, the prompt, and the prompt\'s own child, together', async () => {
-    outFile = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-group-stop-')) + '/out.log';
+    outFile = freshOutFile();
 
     // THE WRAPPER LEADS ITS OWN GROUP — spawned `detached: true` BY THE TEST,
     // which is the one place in this whole chain `detached` belongs: it
@@ -115,7 +140,7 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
   });
 
   it('ends the prompt and its descendants when the caller process exits normally', async () => {
-    outFile = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-group-stop-')) + '/out.log';
+    outFile = freshOutFile();
 
     wrapper = spawnStandin([outFile, '--exit-normally']);
 
@@ -149,13 +174,15 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
   });
 
   it('ends the prompt and its descendants when its own bound fires', async () => {
-    outFile = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-group-stop-')) + '/out.log';
+    outFile = freshOutFile();
 
-    // `--bound-seconds 1` tells the stand-in to pass a one-second bound to
-    // `boundedRun` itself, rather than relying on an external signal — the
-    // THIRD path this port's own timer covers, beside the group stop and the
-    // caller's exit above.
-    wrapper = spawnStandin([outFile, '--bound-seconds', '1']);
+    // `--bound-seconds 4` tells the stand-in to pass a bound to `boundedRun`
+    // itself, rather than relying on an external signal — the THIRD path this
+    // port's own timer covers, beside the group stop and the caller's exit
+    // above. FOUR SECONDS, NOT ONE: the bound starts before the prompt's Node
+    // has started, and a loaded machine can take over a second for that, so
+    // a one-second bound could kill the prompt before it reports its child.
+    wrapper = spawnStandin([outFile, '--bound-seconds', '4']);
 
     const ready = await new Promise<{ promptPid: number; grandchildPid: number }>((resolve, reject) => {
       let buf = '';
@@ -171,10 +198,45 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
     });
 
     const [promptGone, grandchildGone] = await Promise.all([
-      waitForExit(ready.promptPid),
-      waitForExit(ready.grandchildPid),
+      waitForExit(ready.promptPid, 10_000),
+      waitForExit(ready.grandchildPid, 10_000),
     ]);
     expect(promptGone, 'the prompt survived its own bound expiring').toBe(true);
     expect(grandchildGone, 'the grandchild survived the bound — the read-descendants-first order missed it').toBe(true);
+  }, 20_000);
+
+  for (const [signal, code] of [['SIGTERM', 143], ['SIGINT', 130], ['SIGHUP', 129]] as const) {
+    it(`a ${signal} to the caller's pid alone ends the prompt and its child, and the caller exits ${code}`, async () => {
+      outFile = freshOutFile();
+      wrapper = spawnStandin([outFile]);
+      const exited = new Promise<number | null>((resolve) => wrapper!.once('exit', (c) => resolve(c)));
+      const ready = await readyOf(wrapper);
+
+      // THE PID, NOT THE GROUP: nothing but the caller receives the signal.
+      process.kill(wrapper.pid!, signal);
+
+      expect(await exited).toBe(code);
+      const [promptGone, grandchildGone] = await Promise.all([
+        waitForExit(ready.promptPid),
+        waitForExit(ready.grandchildPid),
+      ]);
+      expect(promptGone, `the prompt survived a ${signal} to its caller`).toBe(true);
+      expect(grandchildGone, `the grandchild survived a ${signal} to its caller`).toBe(true);
+    });
+  }
+});
+
+describe('boundedRunProcess on a command that cannot start', () => {
+  it('answers failed for a missing executable', async () => {
+    outFile = freshOutFile();
+    const { boundedRunProcess } = await import('../src/adapters/bounded-run/bounded-run-process.js');
+    const { processesShell } = await import('../src/adapters/processes/processes-shell.js');
+    const run = boundedRunProcess(processesShell({ repoRoot: process.cwd(), scriptDir: '/nonexistent' }));
+    const result = await run.run(path.join(scratch, 'no-such-command'), [], {
+      cwd: scratch,
+      boundSeconds: 0,
+      outFile,
+    });
+    expect(result).toEqual({ ok: false, why: 'failed' });
   });
 });

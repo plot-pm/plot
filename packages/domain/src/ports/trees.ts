@@ -218,10 +218,11 @@ export interface Trees {
    *
    * **STEPS, IN THE SHELL'S OWN ORDER:** the previous slice's declaration and
    * correction file are removed (Plot's own bookkeeping, not the work the
-   * guard protects); every path whose `merge` attribute is unset is restored
-   * from `HEAD` where `HEAD` holds it, or removed where it does not — the
-   * generated-bundle repair `main`'s own rebuild makes necessary; the base is
-   * checked out DETACHED; the branch is created or re-attached.
+   * guard protects); every generated bundle path the desk's own
+   * `packages/board/build.mjs` declares — the set `bundle_paths`
+   * (`plot-desk-dirt.sh`) reads — is restored from `HEAD` where `HEAD` holds
+   * it, or removed where it does not; the base is checked out DETACHED; the
+   * branch is created or re-attached.
    *
    * **NOT THE YIELD-AND-RETRY FALLBACK.** Where both checkouts fail — another
    * worktree holds the branch — this answers `failed` and goes no further:

@@ -15,8 +15,9 @@ import type { PortResult } from '../port-result.js';
  * is this port's job — not the group's — to reach the prompt's descendants
  * when ITS bound fires.
  *
- * **ON ITS OWN BOUND, OR ON THE CALLER'S EXIT, IT SIGNALS THE ROOT AND ITS
- * DESCENDANTS — DESCENDANTS READ FIRST.** The child here is a shell that
+ * **ON ITS OWN BOUND, ON THE CALLER'S EXIT, OR ON A SIGTERM, SIGINT OR SIGHUP
+ * TO THE CALLER, IT SIGNALS THE ROOT AND ITS DESCENDANTS — DESCENDANTS READ
+ * FIRST.** On a signal the caller then exits with `128 + signal number`. The child here is a shell that
  * launches the harness as a grandchild (`bash -c '. "$f"'` launching `claude`),
  * so signalling the immediate child alone orphans the harness, which is the
  * very thing being bounded. The descendants are read through `Processes`
@@ -29,7 +30,7 @@ export interface BoundedRun {
    *
    * @param command - the executable to run.
    * @param args - its arguments.
-   * @param options - where to run it, what to hand its stdin, and how long it
+   * @param options - where to run it, where its output goes, and how long it
    *   may run before being ended.
    * @returns what the run produced; `failed` where the command could not be
    *   started at all. Never `unaskable` — a command either starts or it does

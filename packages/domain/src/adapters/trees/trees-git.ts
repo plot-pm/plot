@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Worktree } from '../../entities/worktree.js';
@@ -42,6 +42,20 @@ const bundlePaths = (worktree: string): readonly string[] => {
     if (relative) found.add(relative);
   }
   return [...found].sort();
+};
+
+/**
+ * Removes one file, best effort: an absent or unremovable file is left as it
+ * is, matching the shell's `rm -f ... 2>/dev/null || true`.
+ *
+ * @param file - the file to remove, absolute.
+ */
+const removeQuietly = (file: string): void => {
+  try {
+    rmSync(file, { force: true });
+  } catch {
+    /* best effort */
+  }
 };
 
 /**
@@ -235,9 +249,7 @@ export const treesGit = (context: ShellContext): Trees => {
       // Best effort, matching the shell's `rm -f ... 2>/dev/null || true`: both
       // files are untracked (`.plot-worker.` and root-level), so a plain
       // filesystem removal is all `reset_desk` itself performs here.
-      for (const name of [DECLARATION_FILE_NAME, CORRECTION_FILE_NAME]) {
-        await runProcess('rm', ['-f', join(path, name)], inRepo);
-      }
+      for (const name of [DECLARATION_FILE_NAME, CORRECTION_FILE_NAME]) removeQuietly(join(path, name));
 
       // STEP 0b — the generated bundles are restored from HEAD path by path,
       // never `git clean` or `git reset --hard` over the whole tree.
@@ -246,7 +258,7 @@ export const treesGit = (context: ShellContext): Trees => {
         if (exists.code === 0) {
           await git(['checkout', 'HEAD', '--', bundle]);
         } else {
-          await runProcess('rm', ['-f', join(path, bundle)], inRepo);
+          removeQuietly(join(path, bundle));
         }
       }
 

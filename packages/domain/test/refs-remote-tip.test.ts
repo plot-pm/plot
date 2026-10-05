@@ -89,12 +89,19 @@ describe('refsRemoteGit with a stubbed command', () => {
       return { code: 0, stdout: 'abc\trefs/heads/x\n', stderr: '' };
     });
     expect(await remote.remoteTip('x', 'abc')).toEqual({ ok: true, value: 'pushed' });
-    expect(seen).toEqual([{ args: ['ls-remote', '--heads', 'origin', 'x'], timeoutMs: 10_000 }]);
+    expect(seen).toEqual([{ args: ['ls-remote', 'origin', 'refs/heads/x'], timeoutMs: 10_000 }]);
   });
 
   it('reads a different tip as other', async () => {
     const remote = refsRemoteGit(ctx, stub(0, 'def\trefs/heads/x\n'));
     expect(await remote.remoteTip('x', 'abc')).toEqual({ ok: true, value: 'other' });
+  });
+
+  it('reads only the line for the full ref, never a branch whose name ends the same', async () => {
+    const remote = refsRemoteGit(ctx, stub(0, 'def\trefs/heads/feature/x\nabc\trefs/heads/x\n'));
+    expect(await remote.remoteTip('x', 'abc')).toEqual({ ok: true, value: 'pushed' });
+    const onlyOther = refsRemoteGit(ctx, stub(0, 'abc\trefs/heads/feature/x\n'));
+    expect(await onlyOther.remoteTip('x', 'abc')).toEqual({ ok: true, value: 'unknown' });
   });
 
   it('reads a non-zero exit or an empty reply as unknown', async () => {

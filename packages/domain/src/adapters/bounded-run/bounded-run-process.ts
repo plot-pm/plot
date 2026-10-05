@@ -1,5 +1,6 @@
 import { openSync, closeSync } from 'node:fs';
 import { spawn, execFileSync } from 'node:child_process';
+import { constants } from 'node:os';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { BoundedRun, BoundedRunOptions, BoundedRunResult } from '../../ports/bounded-run.js';
@@ -68,6 +69,19 @@ const killTreeSync = (pid: number): void => {
   for (const kid of kids) killTreeSync(kid);
 };
 
+/** The signals that end the caller: each kills the run's tree, then exits with `128 + signal number`. */
+const ENDING_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const;
+
+/**
+ * Exits the caller with the conventional code for `signal`. The `'exit'`
+ * listener of every live run then kills that run's tree.
+ *
+ * @param signal - the signal received.
+ */
+const exitOnSignal = (signal: (typeof ENDING_SIGNALS)[number]): void => {
+  process.exit(128 + constants.signals[signal]);
+};
+
 /**
  * Runs a bounded child process, backed by `node:child_process` and the real
  * process table.
@@ -110,28 +124,36 @@ export const boundedRunProcess = (processes: Processes): BoundedRun => ({
         if (child.pid !== undefined) killTreeSync(child.pid);
       };
       process.once('exit', onCallerExit);
+      // A SIGNAL ENDS THE CALLER THROUGH `process.exit`, so the `'exit'`
+      // listener above kills the tree on SIGTERM, SIGINT and SIGHUP too.
+      for (const signal of ENDING_SIGNALS) process.on(signal, exitOnSignal);
 
-      const finish = (status: number | null): void => {
+      const finish = (result: PortResult<BoundedRunResult>): void => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         process.removeListener('exit', onCallerExit);
+        for (const signal of ENDING_SIGNALS) process.removeListener(signal, exitOnSignal);
         try {
           closeSync(out);
         } catch {
           /* already closed */
         }
-        resolve(
+        resolve(result);
+      };
+
+      // A COMMAND THAT CANNOT START (`ENOENT`, `EACCES`) answers `failed`, as
+      // the port's contract states.
+      child.on('error', () => finish(failed<BoundedRunResult>()));
+      child.on('close', (code) =>
+        finish(
           answered<BoundedRunResult>({
-            status,
+            status: code,
             timedOut,
             ranSeconds: Math.round((Date.now() - startedAt) / 1000),
           }),
-        );
-      };
-
-      child.on('error', () => finish(1));
-      child.on('close', (code) => finish(code));
+        ),
+      );
 
       if (options.boundSeconds > 0) {
         timer = setTimeout(() => {

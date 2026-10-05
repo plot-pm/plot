@@ -42,6 +42,7 @@ const freeLoop: AgentLoopReadings = {
   pr: null,
   correctionText: '',
   resumeId: '',
+  passAt: '2026-10-05T10:00:00.000Z',
   worktree: WORKTREE,
   session: SESSION,
 };
@@ -137,15 +138,45 @@ describe('agentLoop — row 4: an assignment', () => {
     expect(result.detail.note).toContain('desk reset');
   });
 
-  it('runs over a desk holding only a PLOT-BLOCKED marker without resetting it', () => {
-    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: ['blocked-marker'] });
-    expect(kindsOf(result.writes)).toEqual(['commit', 'push', 'prompt-run']);
-    expect(result.detail.note).toContain('desk not reset (blocked-marker)');
+  it('reports the claim read the caller supplied', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, claim: 'absent' });
+    expect(result.detail.note).toContain('read: absent');
   });
 
   it('reports the claim read as unknown when the caller supplied none', () => {
     const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, claim: null });
     expect(result.detail.note).toContain('unknown');
+  });
+});
+
+describe('agentLoop — row 4: a desk holding only an unanswered PLOT-BLOCKED question at take-up', () => {
+  const readings: AgentLoopReadings = {
+    ...freeLoop,
+    assignedBranch: BRANCH,
+    resetRefusals: ['blocked-marker'],
+    markerText: 'PLOT-BLOCKED: use fetch or axios?',
+  };
+
+  it('ends blocked with exactly a declaration and a loop-end: no reset, claim, push or prompt', () => {
+    const result = agentLoop(readings);
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    expect(declarationWrite(result.writes)).toMatchObject({ status: 'blocked', branch: BRANCH });
+    expect(declarationWrite(result.writes)?.summary).toContain('fetch or axios');
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('blocked');
+    expect(end?.actor).toBe('agent');
+    expect(end?.exitCode).toBe(0);
+    expect(end?.detail).toContain('not taken up');
+  });
+
+  it('names the question generically when the caller read no marker text', () => {
+    const result = agentLoop({ ...readings, markerText: '' });
+    expect(declarationWrite(result.writes)?.summary).toBe('an unanswered PLOT-BLOCKED question');
+  });
+
+  it('supervise answers needs-a-person from the declaration this row writes', () => {
+    const result = superviseAfter(readings);
+    expect(result.detail.needingAPerson).toEqual([BRANCH]);
   });
 });
 
@@ -189,6 +220,14 @@ describe('agentLoop — row 5: prompt running, idleNow answers idle', () => {
   it('ends with quiet, actor monitor, exit 124, and a worker-finding', () => {
     const result = agentLoop(readings);
     expect(kindsOf(result.writes)).toEqual(['worker-finding', 'loop-end']);
+    expect(result.writes[0]).toEqual({
+      kind: 'worker-finding',
+      worktree: WORKTREE,
+      branch: BRANCH,
+      finding: 'idle',
+      since: '2026-10-05T10:00:00.000Z',
+      evidence: 'the watcher reported idle',
+    });
     const end = endWrite(result.writes);
     expect(end?.reason).toBe('quiet');
     expect(end?.actor).toBe('monitor');
@@ -1001,7 +1040,7 @@ describe('perform-fs skips every write kind agentLoop can emit, and still throws
           detail: 'x',
           exitCode: 0,
         },
-        { kind: 'worker-finding', worktree: WORKTREE, finding: 'idle' },
+        { kind: 'worker-finding', worktree: WORKTREE, branch: BRANCH, finding: 'idle', since: '', evidence: '' },
         {
           kind: 'build-finding',
           worktree: WORKTREE,

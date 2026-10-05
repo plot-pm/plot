@@ -1,5 +1,5 @@
 import { answered, failed, type PortResult } from '../../port-result.js';
-import type { Desk, EndingRecord } from '../../ports/desk.js';
+import type { Desk, DeskFinding, EndingRecord } from '../../ports/desk.js';
 
 /** Every call this estate received, for a test to assert against. */
 export interface DeskFixtureCalls {
@@ -10,7 +10,7 @@ export interface DeskFixtureCalls {
   limitedRecords: { worktree: string; resetEpoch: number; resetIso: string; limitLine: string }[];
   limitedClears: string[];
   moves: { from: string; to: string }[];
-  findings: { worktree: string; finding: string }[];
+  findings: { worktree: string; finding: DeskFinding }[];
 }
 
 /** What a fixture `Desk` answers from, and what it records having been asked. */
