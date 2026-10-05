@@ -84,13 +84,6 @@ if [ "$(cfg "Worker loop" shell)" = "js" ]; then
   [ -f "$bundle" ] || { echo "plot-worker-loop: Worker loop is js and $bundle is missing — the-shell-shrinks-into-the-domain" >&2; exit 2; }
   exec node "$bundle"; fi
 
-# STAMPS `loop: shell` INTO THE MANIFEST, so slice 5 can count slices by that
-# line. Best-effort and silent on any failure, matching every other manifest
-# writer here: a stamp that cannot land costs a count, never the run.
-[ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ] &&
-  node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.loop="shell";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,2)+"\n");' "$PLOT_MANIFEST_FILE" 2>/dev/null
-true
-
 # THE TRANSCRIPT READER. Until `bug/the-loop-reports-idle` this was sourced for
 # the ENDING MESSAGE alone, asked once after a signal had already fired:
 # *could the reading have been made at all?* The watcher below now reads it on
