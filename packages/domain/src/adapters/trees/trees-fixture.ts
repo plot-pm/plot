@@ -1,5 +1,5 @@
 import type { Worktree } from '../../entities/worktree.js';
-import { answered, failed } from '../../port-result.js';
+import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
 
@@ -65,6 +65,18 @@ export interface TreesFixture {
    * takes for a path it was told about.
    */
   statuses?: Readonly<Record<string, string>>;
+  /** Paths where `resetOnto` refuses — the checkout-failure case. */
+  resetRefusedAt?: readonly string[];
+  /** Paths where `commit` fails. */
+  commitFailsAt?: readonly string[];
+  /** Paths where `push` fails. */
+  pushFailsAt?: readonly string[];
+  /** Every call received, for a test to assert against. */
+  calls?: {
+    resets: { path: string; branch: string; base: string }[];
+    commits: { path: string; message: string }[];
+    pushes: { path: string; branch: string }[];
+  };
 }
 
 /**
@@ -145,5 +157,23 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     statusSync: (path) => answered(statuses[path] ?? ''),
 
     listSync: () => answered(worktrees),
+
+    resetOnto: async (path, branch, base): Promise<PortResult<void>> => {
+      if ((fixture.resetRefusedAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.resets.push({ path, branch, base });
+      return answered(undefined);
+    },
+
+    commit: async (path, message): Promise<PortResult<void>> => {
+      if ((fixture.commitFailsAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.commits.push({ path, message });
+      return answered(undefined);
+    },
+
+    push: async (path, branch): Promise<PortResult<void>> => {
+      if ((fixture.pushFailsAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.pushes.push({ path, branch });
+      return answered(undefined);
+    },
   };
 };

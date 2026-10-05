@@ -1,6 +1,7 @@
 import { globToRegExp } from '../../rules/local-checks.js';
 import type { FleetReading } from '../../entities/fleet.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
+import type { RemoteTipReading } from '../../rules/checks-verdict.js';
 import type {
   BranchDate,
   BranchTip,
@@ -128,6 +129,14 @@ export interface RefsFixture {
   tagsContaining?: Readonly<Record<string, readonly string[]>>;
   /** Tag name to its commit date, for {@link Refs.tagDate}. A tag absent fails. */
   tagDates?: Readonly<Record<string, string>>;
+  /**
+   * The branch's live remote tip, for {@link Refs.remoteTip}.
+   *
+   * A branch absent from the table answers `unknown` — the same reading a
+   * failed or timed-out `git ls-remote` gives, since a fixture that never
+   * asked about a branch cannot tell its caller any more than that.
+   */
+  remoteTips?: Readonly<Record<string, string>>;
 }
 
 /** What a fixture reports when it was not told a default branch. */
@@ -372,6 +381,12 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     tagDate: async (tag) => {
       const date = fixture.tagDates?.[tag];
       return date === undefined ? failed<string>() : answered(date);
+    },
+
+    remoteTip: async (branch, pushedSha): Promise<PortResult<RemoteTipReading>> => {
+      const tip = fixture.remoteTips?.[branch];
+      if (tip === undefined) return answered<RemoteTipReading>('unknown');
+      return answered<RemoteTipReading>(tip === pushedSha ? 'pushed' : 'other');
     },
   };
 };

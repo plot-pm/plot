@@ -63,6 +63,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "@vitest/coverage-v8": "4.1.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "esbuild": "^0.28.0",
@@ -75,7 +76,7 @@
     "typescript": "^5.9.0",
     "vite": "^8.1.0",
     "vite-plugin-singlefile": "^2.3.0",
-    "vitest": "^4.1.10",
+    "vitest": "4.1.11",
     "zod": "^4.4.0"
   },
   "engines": {

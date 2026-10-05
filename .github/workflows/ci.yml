@@ -1279,6 +1279,16 @@ jobs:
         # HOME, and a leftover entry fails the step.
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board test
 
+      # THE BOARD'S FIRST GATED FILE, beside the domain's own coverage gate
+      # above and for the same reason: `loop-writes.ts` is reachable from a
+      # plain call with no process, no port and no browser of its own, so an
+      # uncovered line there is a line nobody specified. Scoped to one path —
+      # `vitest.config.ts`'s own `coverage.include` — rather than the whole
+      # package, which cannot meet 100% today.
+      - name: Board loop-writes coverage gate
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run --project parallel --coverage
+
       # ── Board integration tests: a real browser (Playwright) renders the just-
       #    built artifact against the tiny-garden fixture, asserting the mobile
       #    no-horizontal-scroll fix and the inline-sprint filter. ───────────────
