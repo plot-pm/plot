@@ -24,9 +24,9 @@ import type { Rung } from '@plot-pm/domain/rules/question-escalation';
  */
 
 /** The file's path, relative to `.plot/state/` like every other machine-local record. */
-export function escalationsPath(repoRoot: string): string {
+export const escalationsPath = (repoRoot: string): string => {
   return path.join(repoRoot, '.plot', 'state', 'escalations.tsv');
-}
+};
 
 /** One rung this tick (or an earlier one) already recorded reaching. */
 export interface EscalationRecord {
@@ -48,9 +48,9 @@ export interface EscalationRecord {
  * @param record - the record to encode.
  * @returns the line, ending in `\n`.
  */
-export function encodeEscalation(record: EscalationRecord): string {
+export const encodeEscalation = (record: EscalationRecord): string => {
   return [record.worktree, record.askedAt, record.rung, record.at, record.status].join('\t') + '\n';
-}
+};
 
 /**
  * Parses one TSV line into a record, or `null` where it does not parse.
@@ -63,13 +63,13 @@ export function encodeEscalation(record: EscalationRecord): string {
  * @param line - one line, without its trailing newline.
  * @returns the record, or `null`.
  */
-export function parseEscalationLine(line: string): EscalationRecord | null {
+export const parseEscalationLine = (line: string): EscalationRecord | null => {
   const parts = line.split('\t');
   if (parts.length !== 5) return null;
   const [worktree, askedAt, rung, at, status] = parts;
   if (worktree === '' || askedAt === '' || rung === '' || at === '' || status === '') return null;
   return { worktree, askedAt, rung: rung as Rung, at, status };
-}
+};
 
 /**
  * Every record the file holds, or empty where it is missing, empty, or
@@ -85,7 +85,7 @@ export function parseEscalationLine(line: string): EscalationRecord | null {
  * @param repoRoot - the repository root.
  * @returns every parseable record, in file order.
  */
-export function readEscalations(repoRoot: string): readonly EscalationRecord[] {
+export const readEscalations = (repoRoot: string): readonly EscalationRecord[] => {
   let text: string;
   try {
     text = fs.readFileSync(escalationsPath(repoRoot), 'utf8');
@@ -99,7 +99,7 @@ export function readEscalations(repoRoot: string): readonly EscalationRecord[] {
     if (record) records.push(record);
   }
   return records;
-}
+};
 
 /**
  * Every rung already recorded for one desk's exact marker — `worktree` AND
@@ -116,17 +116,17 @@ export function readEscalations(repoRoot: string): readonly EscalationRecord[] {
  * @param askedAt - the marker's modification time, ISO-8601.
  * @returns the rungs recorded for exactly this desk and this marker.
  */
-export function recordedRungsFor(
+export const recordedRungsFor = (
   records: readonly EscalationRecord[],
   worktree: string,
   askedAt: string,
-): ReadonlySet<Rung> {
+): ReadonlySet<Rung> => {
   const rungs = new Set<Rung>();
   for (const record of records) {
     if (record.worktree === worktree && record.askedAt === askedAt) rungs.add(record.rung);
   }
   return rungs;
-}
+};
 
 /**
  * Appends one record.
@@ -142,7 +142,7 @@ export function recordedRungsFor(
  * @param repoRoot - the repository root.
  * @param record - the record to append.
  */
-export function appendEscalation(repoRoot: string, record: EscalationRecord): void {
+export const appendEscalation = (repoRoot: string, record: EscalationRecord): void => {
   const file = escalationsPath(repoRoot);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -151,4 +151,4 @@ export function appendEscalation(repoRoot: string, record: EscalationRecord): vo
     // Swallowed. See the doc comment above: a missed append costs one possible
     // repeat notification, never a swallowed one.
   }
-}
+};
