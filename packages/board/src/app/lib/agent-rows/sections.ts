@@ -650,11 +650,13 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
  * exists to remove: a slice whose branches span sections could be counted
  * differently here than the server counted it in DONE.
  *
- * Counted over the slices the server placed in `not-started` FOR THIS PLAN. A
- * merged slice the server put in DONE is not counted here even if one of its rows
- * lingers under the plan head; a blocked slice IS counted — it is unstarted work
- * waiting on an earlier slice, which the row filter (`isUnbegun`, `open` only)
- * would have dropped.
+ * Counted over this plan's server slices that the head's own rows belong to
+ * (`headSliceNames`). `slicesElsewhere` counts against the same set, so the two
+ * numbers sum to the plan's slice count, less any slice the head shows only as
+ * deferred branches. A slice whose branch is in WORKING has
+ * no row under a NOT STARTED head, so that head counts it as elsewhere and not
+ * as its own. A slice whose rows `isUnbegun` drops, such as a blocked slice with
+ * a `wip` row, is still counted.
  *
  * Counted over the UNBEGUN rows only. A deferred branch keeps a row of its own
  * beneath the plan, with its own PR and age, so counting it into "3 slices" would
@@ -686,14 +688,19 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
  * Exported for test — the section-scoped count is the half that reads like a bug
  * until it is stated.
  */
-export function sliceSummaryFor(group: PlanGroup, slices?: Slice[]): string {
+export const sliceSummaryFor = (group: PlanGroup, slices?: Slice[]): string => {
   const unbegun = group.rows.filter(isUnbegun);
-  // COUNTED FROM THE SERVER'S SLICES where the payload carries them: the entries
-  // the server placed in `not-started` for this plan. `deriveSlices` gives an
-  // incomplete slice exactly one home — `not-started` — so this is every slice of
-  // the plan that is not yet done, counted once however many branches it holds.
+  // COUNTED FROM THE SERVER'S SLICES where the payload carries them: this plan's
+  // entries that the head's own rows belong to, each counted once however many
+  // branches it holds.
+  //
+  // A slice whose rows under this head are all deferred is not counted: each of
+  // those rows is a branch somebody set down and renders on its own.
+  const here = headSliceNames(group);
+  const shelvedOnly = (name: string) =>
+    group.rows.every((r) => r.wave !== name || r.state === 'deferred');
   const count = slices
-    ? slices.filter((w) => w.plan === group.plan && w.section === 'not-started').length
+    ? slices.filter((w) => w.plan === group.plan && here.has(w.name) && !shelvedOnly(w.name)).length
     : // FALLBACK for a pre-slice server: count the unbegun rows' slices, the way
       // the head did before the contract carried the slice. `groupBySlice`
       // collapses a multi-branch slice to one, which is the reading the count
@@ -702,7 +709,20 @@ export function sliceSummaryFor(group: PlanGroup, slices?: Slice[]): string {
   if (count === 0) return '';
   const label = `${count} slice${count === 1 ? '' : 's'}`;
   return unbegun.some(isStartable) ? `${label}, first eligible` : label;
-}
+};
+
+/**
+ * The names of the slices a plan head's own rows belong to.
+ *
+ * The one set both head counts read: `sliceSummaryFor` counts the plan's slices
+ * in it, and `slicesElsewhere` counts the plan's slices outside it. A row with no
+ * slice name adds nothing.
+ *
+ * @param group - the plan group the head renders.
+ * @returns the slice names of the group's rows.
+ */
+export const headSliceNames = (group: PlanGroup): Set<string> =>
+  new Set(group.rows.map((r) => r.wave).filter(Boolean));
 
 /**
  * How many of a PLAN's slices belong in a DIFFERENT section from this head's.

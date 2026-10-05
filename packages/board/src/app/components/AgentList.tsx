@@ -65,7 +65,7 @@ import {
   writeMineOnly,
 } from '../lib/agent-rows/mine-filter.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
-import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, ungroupedRows, sliceGroupsFor, slicesElsewhere, sliceKeyOf } from '../lib/agent-rows/sections.js';
+import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, ungroupedRows, sliceGroupsFor, slicesElsewhere, sliceKeyOf, headSliceNames } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
@@ -1665,7 +1665,7 @@ export function AgentList({
                           // six, so the section comparison called a head's own
                           // slice elsewhere whenever the row needed attention.
                           elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
-                            new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
+                            headSliceNames(group))}
                           // A ONE-SLICE plan carries its slice's *Start work* on
                           // this row. Never its verdict: a plan row states plan
                           // facts only, and the slice row prints the verdict.
@@ -1998,7 +1998,7 @@ export function AgentList({
                         // unstarted slice says so here rather than reading as a
                         // plan wholly done.
                         elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
-                          new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
+                          headSliceNames(group))}
                         // A ONE-SLICE plan carries its slice's *Start work* on
                         // this row. Never its verdict: a plan row states plan
                         // facts only, and the slice row prints the verdict.
