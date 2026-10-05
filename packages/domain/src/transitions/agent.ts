@@ -388,6 +388,11 @@ export interface EndingAttributionInput {
  * gives a vanished manifest an ending rather than the `Worker bound`'s silent
  * `free on ?` forever.
  *
+ * **`holding-work` IS A FOURTH READING NO WATCHER PRODUCES.** After a prompt
+ * exits `ran`, the loop asks `desk_reset_refusal` about its own desk — no clock
+ * expired and no monitor published anything; the agent's own loop measured its
+ * desk and found uncommitted changes or unpushed commits.
+ *
  * The check survives every enum change because it reads STRINGS: an ending file
  * on a desk is bytes until something validates them, and a worker of an older
  * vintage may have written a value no type admits.
@@ -406,12 +411,13 @@ export const endingIsAttributable = (
     input.actor === 'agent' &&
     input.reason !== 'unstarted' &&
     input.reason !== 'limited' &&
-    input.reason !== 'unregistered'
+    input.reason !== 'unregistered' &&
+    input.reason !== 'holding-work'
   ) {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited' or 'unregistered' ending names the agent, because no watcher produces those.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered' or 'holding-work' ending names the agent, because no watcher produces those.`,
     );
   }
 

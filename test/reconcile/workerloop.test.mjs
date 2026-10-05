@@ -79,6 +79,10 @@ function fixture(label, boundSeconds, bodySh) {
       ? `# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n`
       : `# t\n\n## Plot Config\n\n- **Worker bound:** ${boundSeconds}\n`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), bodySh);
+  // A fixture prompt proves it ran by touching a `*.marker` file in the desk.
+  // The file is ignored, so that proof is not unlanded work: an uncommitted
+  // file ends the loop with `holding-work`, which these tests do not measure.
+  fs.writeFileSync(path.join(t, '.gitignore'), '*.marker\n');
   git(t, 'add', '-A');
   git(t, 'commit', '-qm', 'init');
   return t;
@@ -132,7 +136,7 @@ function killGroup(pid, signal) {
   try { process.kill(-pid, signal); } catch { /* already gone */ }
 }
 
-function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
+function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM', script = loop } = {}) {
   return new Promise((resolve) => {
     // `detached` MAKES THE LOOP A PROCESS-GROUP LEADER, so it can be killed as
     // a GROUP. Without it the loop shares the runner's group, `child.kill()`
@@ -144,7 +148,7 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
     // aged 10-12 minutes, holding 14 `sleep`s — after every test had PASSED.
     // The runner reported `ok 877` (this file's last test) and then hung until
     // the job ceiling killed it. That is the whole of the reconcile-suite hang.
-    const child = spawn('bash', [loop], {
+    const child = spawn('bash', [script], {
       cwd,
       detached: true,
       env: {
@@ -1445,7 +1449,9 @@ test('worker-loop: a hop on the create path moves the watcher to the new desk', 
   // in `desk_reset_refusal`, which forces the CREATE path rather than a reset
   // in place — the shape this test is pinned to, not the reset path #1218
   // already covers via its own fixture.
-  fs.writeFileSync(path.join(dir, 'leftover.txt'), 'never committed\n');
+  // An agent-written marker holds the desk, so taking up `bug/y` cuts a new
+  // desk. Unlanded work would end the loop with `holding-work` before the hop.
+  fs.writeFileSync(path.join(dir, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: a question for a person\n');
 
   // THE TRANSCRIPT IS FOUND BY WORKTREE PATH, NOT BY SESSION ID
   // (`plot-transcript-quiet.sh`'s own header). After the hop the watcher asks
@@ -1640,4 +1646,310 @@ test('worker-loop: a hand-started loop with no manifest at all keeps waiting', s
     'an unset manifest must never be read as a gone one');
   assert.equal(fs.existsSync(path.join(t, '.plot-worker.ending.json')), false,
     'the ordinary wait-bound ending writes no ending record');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE LOOP HOLDS UNLANDED WORK RATHER THAN HOPPING — #1246
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Measured 2026-10-03 and 2026-10-04: an agent ended its prompt turn while it
+// waited on a background job. The loop found the desk dirty, cut a new desk
+// for the next slice and went on, leaving 14 files behind — twice, each time
+// found by a person on a desk no agent and no manifest named.
+//
+// THE CHECK RUNS BEFORE `seal_declaration`, `record_slice_spend` AND
+// `clear_manifest_branch` — before the agent gives up the desk, the claim and
+// the branch. These fixtures assert the declaration is NOT sealed and the
+// manifest KEEPS its branch, which is the assertion a naive implementation —
+// one that checked only after the hop — would pass without.
+
+const manifestFixture = (t, branch) => {
+  const manifest = path.join(t, 'manifest.json');
+  fs.writeFileSync(manifest, JSON.stringify({ branch, worktree: t }));
+  return manifest;
+};
+
+/**
+ * A transcript home holding one assistant turn on `branch` for the desk `dir`,
+ * and an empty slice-spend home beside it.
+ *
+ * `record_slice_spend` writes `slice-spend.jsonl` into the spend home only when
+ * the transcript has a turn on the branch, so with these homes an absent record
+ * means the loop never reached `record_slice_spend`.
+ */
+const spendHomes = (dir, branch) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wloop-spend-'));
+  const projects = path.join(root, 'transcripts', '.claude', 'projects', dir.replace(/[/.]/g, '-'));
+  fs.mkdirSync(projects, { recursive: true });
+  fs.writeFileSync(path.join(projects, 'session.jsonl'), `${JSON.stringify({
+    type: 'assistant', gitBranch: branch, message: { model: 'claude-opus-5', usage: { input_tokens: 1, output_tokens: 1 } },
+  })}\n`);
+  const spend = path.join(root, 'spend');
+  fs.mkdirSync(spend);
+  return {
+    root,
+    env: { PLOT_TRANSCRIPT_HOME: path.join(root, 'transcripts'), PLOT_SLICE_SPEND_HOME: spend },
+    record: path.join(spend, 'slice-spend.jsonl'),
+  };
+};
+
+test('worker-loop: uncommitted changes after a ran prompt end holding-work, exit 0', serial, async () => {
+  const t = fixture('holding-dirty', 30,
+    'echo ran >&2; echo leftover > "$PLOT_WORKTREE/leftover.txt"\n');
+  const manifest = manifestFixture(t, 'bug/x');
+  const spend = spendHomes(t, 'bug/x');
+
+  const r = await runLoop(t, { env: { PLOT_MANIFEST_FILE: manifest, ...spend.env } });
+
+  assert.equal(r.code, 0, `an intentional stop reports 0, not a timeout\n--- stderr ---\n${r.stderr}`);
+  assert.match(r.stderr, /held by uncommitted-changes/,
+    `the log names the condition: ${r.stderr}`);
+
+  const endingPath = path.join(t, '.plot-worker.ending.json');
+  assert.ok(fs.existsSync(endingPath), 'an ending record must be written');
+  const ending = JSON.parse(fs.readFileSync(endingPath, 'utf8'));
+  assert.equal(ending.reason, 'holding-work');
+  assert.equal(ending.actor, 'agent');
+  assert.match(ending.detail, /uncommitted changes/);
+
+  // NO HOP. The desk keeps its files and no sibling `plot-wt-*` worktree is
+  // cut for a next slice — the assertion `a-timed-out-worker-exits-without-
+  // hopping` already makes for the bound, applied here to this ending.
+  const parent = path.dirname(t);
+  const siblings = fs.readdirSync(parent).filter((n) => n.startsWith('plot-wt-'));
+  assert.equal(siblings.length, 0, 'no next-slice worktree was created');
+  assert.ok(fs.existsSync(path.join(t, 'leftover.txt')), 'the original desk keeps its files');
+
+  // THE DECLARATION IS NOT SEALED. A loop that wrote the ending and exited 0
+  // AFTER `seal_declaration` would pass every assertion above; this is what
+  // catches it. `clear_manifest_branch` is never called either — but
+  // `_cleanup_on_exit` (pre-existing, unconditional on every ending this loop
+  // has ever written) removes `PLOT_MANIFEST_FILE` on every exit path, so the
+  // file itself does not survive to be asserted on. See the PR body.
+  assert.equal(fs.existsSync(path.join(t, '.plot-worker.envelope.json')), false,
+    'no declaration exists for this branch');
+  assert.equal(fs.existsSync(spend.record), false, 'no slice-spend record is written');
+
+  fs.rmSync(spend.root, { recursive: true, force: true });
+  discard(t);
+});
+
+test('worker-loop: unpushed commits after a ran prompt end holding-work, exit 0', serial, async () => {
+  // A REAL ORIGIN, unlike `fixture()`'s bare local repo: `@{upstream}` must
+  // exist for `desk_reset_refusal` to count commits ahead of it, the same
+  // reason the hop-on-create-path test above builds its own remote.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wloop-holding-unpushed-'));
+  const origin = path.join(parent, 'origin.git');
+  const t = path.join(parent, 'wt');
+  git(parent, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(parent, 'clone', '-q', origin, 'wt');
+  git(t, 'config', 'user.email', 'test@example.invalid');
+  git(t, 'config', 'user.name', 'Plot Test');
+  git(t, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(t, '.plot'), { recursive: true });
+  fs.writeFileSync(path.join(t, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 30\n');
+  fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'),
+    'echo ran >&2; echo committed > "$PLOT_WORKTREE/committed.txt"; ' +
+    'git -C "$PLOT_WORKTREE" add -A; git -C "$PLOT_WORKTREE" commit -qm work\n');
+  git(t, 'add', '-A');
+  git(t, 'commit', '-qm', 'init');
+  git(t, 'push', '-q', '-u', 'origin', 'main');
+  const manifest = manifestFixture(t, 'bug/y');
+  const spend = spendHomes(t, 'bug/y');
+
+  const r = await runLoop(t, { env: { PLOT_MANIFEST_FILE: manifest, ...spend.env } });
+
+  assert.equal(r.code, 0, `an intentional stop reports 0, not a timeout\n--- stderr ---\n${r.stderr}`);
+  assert.match(r.stderr, /held by unpushed-commits/,
+    `the log names the condition: ${r.stderr}`);
+
+  const endingPath = path.join(t, '.plot-worker.ending.json');
+  assert.ok(fs.existsSync(endingPath), 'an ending record must be written');
+  const ending = JSON.parse(fs.readFileSync(endingPath, 'utf8'));
+  assert.equal(ending.reason, 'holding-work');
+  assert.equal(ending.actor, 'agent');
+  assert.match(ending.detail, /not pushed/);
+
+  const siblings = fs.readdirSync(parent).filter((n) => n.startsWith('plot-wt-'));
+  assert.equal(siblings.length, 0, 'no next-slice worktree was created');
+  assert.equal(fs.existsSync(path.join(t, '.plot-worker.envelope.json')), false,
+    'no declaration exists for this branch');
+  assert.equal(fs.existsSync(spend.record), false, 'no slice-spend record is written');
+
+  fs.rmSync(spend.root, { recursive: true, force: true });
+  fs.rmSync(parent, { recursive: true, force: true });
+});
+
+test('worker-loop: an agent-written marker on a dirty desk keeps today\'s path', serial, async () => {
+  // `desk_reset_refusal` reads `blocked-marker` BEFORE `uncommitted-changes` —
+  // `resetRefusals`'s own order. A status-only check would read this desk as
+  // holding-work; this asserts the WORD is read instead, and the marker's own
+  // path (write a blocked marker, then exit) continues unchanged.
+  const t = fixture('holding-marker', 30,
+    'echo leftover > "$PLOT_WORKTREE/leftover.txt"; ' +
+    'echo "PLOT-BLOCKED: a question" > "$PLOT_WORKTREE/PLOT-BLOCKED.md"\n');
+  const manifest = manifestFixture(t, 'bug/x');
+
+  const r = await runLoop(t, { env: { PLOT_MANIFEST_FILE: manifest } });
+
+  // TODAY'S PATH: the slice finishes, the agent waits for work, and the wait
+  // bound ends it with 124 — `assertRanToItsOwnEnd` says why the code is 124.
+  assert.equal(r.code, 124, `today's path ends on the wait bound\n--- stderr ---\n${r.stderr}`);
+  assertRanToItsOwnEnd(r, 'a marked desk');
+  assert.doesNotMatch(r.stderr, /held by uncommitted-changes/,
+    `a marked desk must not be read as holding-work: ${r.stderr}`);
+  assert.equal(fs.existsSync(path.join(t, '.plot-worker.ending.json')), false,
+    'a marker on the desk writes no ending, holding-work or other');
+  // TODAY'S PATH SEALS THE SLICE, which the holding-work path never reaches.
+  assert.equal(declarationOf(t)?.branch, 'bug/x', 'the declaration names the branch that finished');
+
+  discard(t);
+});
+
+test('worker-loop: each holding-work ending adds one line to endings.jsonl', serial, async () => {
+  const t = fixture('holding-jsonl', 30,
+    'echo leftover > "$PLOT_WORKTREE/leftover.txt"\n');
+  const manifest = manifestFixture(t, 'bug/x');
+
+  const r = await runLoop(t, { env: { PLOT_MANIFEST_FILE: manifest } });
+  assert.equal(r.code, 0, `--- stderr ---\n${r.stderr}`);
+
+  // `t` IS BOTH THE MAIN CHECKOUT AND THE DESK HERE — `fixture()` builds one
+  // bare worktree with no `git worktree add` — so `main_checkout_path` resolves
+  // to `t` itself and the append lands in `t/.plot/state/endings.jsonl`.
+  const endingsPath = path.join(t, '.plot', 'state', 'endings.jsonl');
+  assert.ok(fs.existsSync(endingsPath), 'endings.jsonl must be written');
+  const lines = fs.readFileSync(endingsPath, 'utf8').trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).reason, 'holding-work');
+
+  discard(t);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE HOLD CHECK AROUND A CORRECTION AND THE CHECKS WAIT
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// These run the whole loop against a real origin with a pushed `bug/x`, and a
+// copy of the scripts directory whose `plot-host.sh` answers `pr-state` with an
+// open PR — the one host question the loop asks, in `pr_is_open` — and touches
+// `pr-asked` beside the desk when asked. With a pushed head and an open PR,
+// `wait_for_checks` waits for a BuildMonitor line about that head, so the
+// fixture prompt writes the BuildMonitor's lines itself into the desk's
+// `.plot-worker.monitor.build.jsonl`.
+
+/**
+ * A desk on `bug/x` pushed to a bare origin, a scripts copy whose host reports
+ * an open PR, and `prompt` as the worker prompt.
+ *
+ * Returns `{ parent, t, script }`; `discard(t)` removes all of it.
+ */
+const checksFixture = (label, prompt) => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), `plot-wloop-${label}-`));
+  const origin = path.join(parent, 'origin.git');
+  const t = path.join(parent, 'wt');
+  git(parent, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(parent, 'clone', '-q', origin, 'wt');
+  git(t, 'config', 'user.email', 'test@example.invalid');
+  git(t, 'config', 'user.name', 'Plot Test');
+  git(t, 'config', 'commit.gpgsign', 'false');
+  git(t, 'checkout', '-q', '-b', 'bug/x');
+  fs.mkdirSync(path.join(t, '.plot'), { recursive: true });
+  fs.writeFileSync(path.join(t, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 120\n');
+  fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), prompt);
+  git(t, 'add', '-A');
+  git(t, 'commit', '-qm', 'init');
+  git(t, 'push', '-q', '-u', 'origin', 'bug/x');
+  const dir = path.join(parent, 'scripts');
+  fs.cpSync(scripts, dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'plot-host.sh'),
+    `#!/usr/bin/env bash\ncase "$1" in pr-state) touch ${JSON.stringify(path.join(parent, 'pr-asked'))}; printf '{"state":"OPEN"}\\n' ;; *) exit 1 ;; esac\n`,
+    { mode: 0o755 });
+  return { parent, t, script: path.join(dir, 'plot-worker-loop.sh') };
+};
+
+/** The env every checks-wait run shares: a short wait and no fleet outlook. */
+const checksEnv = (manifest, extra = {}) => ({
+  PLOT_MANIFEST_FILE: manifest,
+  PLOT_SLUG: '',
+  PLOT_CHECKS_WAIT_SECONDS: '3',
+  PLOT_CHECKS_POLL_SECONDS: '1',
+  ...extra,
+});
+
+/** Shell that appends one BuildMonitor line saying the build failed for the desk's HEAD. */
+const failedBuildLine = [
+  'sha=$(git -C "$PLOT_WORKTREE" rev-parse HEAD)',
+  'printf \'{"monitor":"BuildMonitor","branch":"bug/x","worktree":"/x","finding":"build failed","since":"2026-10-05T00:00:00Z","evidence":"the run at https://ci/run/1 for %s concluded failure","measuredAt":"2026-10-05T00:00:00Z"}\\n\' "$sha" >> "$PLOT_WORKTREE/.plot-worker.monitor.build.jsonl"',
+].join('\n');
+
+test('worker-loop: a corrected prompt that pushes its fix reaches the checks wait, not holding-work', serial, async () => {
+  // PASS 1 commits and pushes, and the build fails for that head: the loop
+  // writes `PLOT-CORRECTION.md` untracked into the desk and runs the prompt
+  // again. PASS 2 commits and pushes a fix and leaves the correction file
+  // where the loop put it. The desk then holds nothing but the loop's own file,
+  // so the loop must wait for the checks on the new head and seal the slice.
+  const passes = (p) => path.join(p, 'passes');
+  const prompt = (parent) => [
+    `n=$(( $(cat ${JSON.stringify(passes(parent))} 2>/dev/null || echo 0) + 1 )); echo "$n" > ${JSON.stringify(passes(parent))}`,
+    `[ -f "$PLOT_WORKTREE/PLOT-CORRECTION.md" ] && cp "$PLOT_WORKTREE/PLOT-CORRECTION.md" ${JSON.stringify(parent)}/correction-seen-$n.md`,
+    'echo "pass $n" > "$PLOT_WORKTREE/work.txt"',
+    'git -C "$PLOT_WORKTREE" add work.txt && git -C "$PLOT_WORKTREE" commit -qm "pass $n" && git -C "$PLOT_WORKTREE" push -q origin bug/x',
+    `if [ "$n" = 1 ]; then\n${failedBuildLine}\nfi`,
+    '',
+  ].join('\n');
+  // The prompt names the fixture's own parent, which exists only once the
+  // fixture is built — so it is written in after.
+  const { parent, t, script } = checksFixture('corrected', '');
+  fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), prompt(parent));
+  git(t, 'commit', '-qam', 'the prompt');
+  git(t, 'push', '-q', 'origin', 'bug/x');
+  const manifest = path.join(parent, 'manifest.json');
+  fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/x', worktree: t }));
+  const spend = spendHomes(t, 'bug/x');
+
+  try {
+    const r = await runLoop(t, { script, env: checksEnv(manifest, spend.env) });
+
+    assert.equal(fs.readFileSync(passes(parent), 'utf8').trim(), '2', `two prompts ran\n--- stderr ---\n${r.stderr}`);
+    assert.match(fs.readFileSync(path.join(parent, 'correction-seen-2.md'), 'utf8'), /Correction 1 of 2/,
+      'the corrected prompt found the correction in its desk');
+    assert.doesNotMatch(r.stderr, /held by /, `the correction file is not unlanded work: ${r.stderr}`);
+    assert.equal(fs.existsSync(path.join(t, '.plot-worker.ending.json')), false, 'no ending is written');
+    assert.match(r.stderr, /waiting for the checks on bug\/x/, `the loop waits for the fix's checks: ${r.stderr}`);
+    assert.equal(declarationOf(t)?.branch, 'bug/x', 'the slice is sealed after the wait');
+    assert.ok(fs.existsSync(spend.record), 'the slice-spend record is written on this path');
+  } finally {
+    fs.rmSync(spend.root, { recursive: true, force: true });
+    discard(t);
+  }
+});
+
+test('worker-loop: a write that lands during the checks wait ends holding-work before the seal', serial, async () => {
+  // The prompt commits and pushes, then leaves a background job that writes a
+  // file once `wait_for_checks` asks the host whether the PR is open — after
+  // the first hold check, and before the wait expires. The first hold check
+  // sees a clean desk; the second, before `seal_declaration`, sees the file.
+  const { parent, t, script } = checksFixture('late-write',
+    'echo work > "$PLOT_WORKTREE/work.txt"\n' +
+    'git -C "$PLOT_WORKTREE" add work.txt && git -C "$PLOT_WORKTREE" commit -qm work && git -C "$PLOT_WORKTREE" push -q origin bug/x\n' +
+    '( i=0; while [ ! -f "$PLOT_WORKTREE/../pr-asked" ] && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i + 1)); done; ' +
+    'echo late > "$PLOT_WORKTREE/late.txt" ) </dev/null >/dev/null 2>&1 &\n');
+  const manifest = path.join(parent, 'manifest.json');
+  fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/x', worktree: t }));
+  const spend = spendHomes(t, 'bug/x');
+
+  try {
+    const r = await runLoop(t, { script, env: checksEnv(manifest, spend.env) });
+
+    assert.equal(r.code, 0, `an intentional stop reports 0\n--- stderr ---\n${r.stderr}`);
+    assert.match(r.stderr, /waiting for the checks on bug\/x/, `the first check let the loop wait: ${r.stderr}`);
+    assert.match(r.stderr, /held by uncommitted-changes/, `the second check names the late file: ${r.stderr}`);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(t, '.plot-worker.ending.json'), 'utf8')).reason, 'holding-work');
+    assert.equal(declarationOf(t), null, 'the slice is not sealed');
+    assert.equal(fs.existsSync(spend.record), false, 'no slice-spend record is written');
+  } finally {
+    fs.rmSync(spend.root, { recursive: true, force: true });
+    discard(t);
+  }
 });

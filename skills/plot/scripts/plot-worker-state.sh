@@ -499,6 +499,15 @@ plot_worker_blocked_file() { # $1=worktree → prints the marker's basename
 # exact population this state must not name. Excluding them is not widening the
 # rule; it is the `.tmp1` case again, for files Plot itself dropped there.
 #
+# NOR IS AN UNTRACKED ROOT `PLOT-CORRECTION.md`. `plot-worker-loop.sh`'s
+# `write_correction` writes it untracked into the desk for the agent to read,
+# and `reset_desk` removes it when the desk takes the next slice. A desk whose
+# only other content is that file holds no unlanded work, so the loop waits for
+# the checks rather than ending `holding-work`. The match is the whole
+# porcelain line `?? PLOT-CORRECTION.md`, the line `plot-desk-dirt.sh`'s
+# `desk_dirt` drops: a `docs/PLOT-CORRECTION.md`, or a staged, modified or
+# deleted copy, is content and counts.
+#
 # THE EXCLUSION STAYS NARROW OTHERWISE, by suffix and by Plot's own filenames.
 # An uncommitted source file is precisely the case this detection exists for, so
 # anything broader — "untracked files do not count", "only tracked changes
@@ -565,7 +574,7 @@ plot_worker_dirty_filter() { # $1=`git status --porcelain` output $2=worktree (o
   # `--porcelain` is the STABLE format; `git status` prose is localised and
   # reflows. Cut at column 4: the first three bytes are the XY status pair and a
   # space, and a filename can contain spaces of its own.
-  printf '%s' "$status" \
+  printf '%s' "$status" | grep -vxF '?? PLOT-CORRECTION.md' \
     | cut -c4- \
     | grep -vE "(^|/)$PLOT_WORKER_RECORD" \
     | grep -vE "$PLOT_EDITOR_LEFTOVER" \

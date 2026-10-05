@@ -1227,6 +1227,8 @@ function defaultCleanliness(): CleanlinessResolver {
  * - Editor leftovers (`.tmp1`, `.swp`, etc.) are ignored.
  * - Plot's own records (`.plot-worker.*`) are ignored.
  * - Tool scratch directories (`.playwright-mcp/`, `.plot/agents/`, `.omc/state/`) are ignored.
+ * - An untracked root `PLOT-CORRECTION.md` (the exact porcelain line
+ *   `?? PLOT-CORRECTION.md`) is ignored; a staged, modified or nested copy counts.
  *
  * **Exported for use by fleet.ts**, where the board enables dropping of settled
  * workers. The registry itself defaults to keeping all entries.
@@ -1289,6 +1291,7 @@ export async function bashCleanliness(worktrees: string[]): Promise<boolean[]> {
         done)
       fi
       filtered=$(printf '%s' "$status" \\
+        | grep -vxF '?? PLOT-CORRECTION.md' \\
         | cut -c4- \\
         | grep -vE "(^|/)$PLOT_WORKER_RECORD" \\
         | grep -vE "$PLOT_EDITOR_LEFTOVER" \\

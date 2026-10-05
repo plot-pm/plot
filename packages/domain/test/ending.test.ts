@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the seven reasons apart', () => {
+  it('reads the eight reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -50,6 +50,7 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'unstarted',
       'limited',
       'unregistered',
+      'holding-work',
     ]);
   });
 
@@ -136,6 +137,25 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
     expect(unregistered).not.toEqual(readEnding(ended({ reason: 'bound' })));
     expect(endedSpent(unregistered)).toBe(false);
     expect(endedOnAReading(unregistered)).toBe(false);
+  });
+
+  it('keeps a desk holding unlanded work apart from every other reason', () => {
+    // #1246: the loop's own desk held uncommitted changes or unpushed commits
+    // after a prompt exited `ran` — no watcher fired, same family as
+    // unstarted, limited and unregistered.
+    const holdingWork = readEnding(ended({
+      reason: 'holding-work',
+      actor: 'agent',
+      detail: 'uncommitted changes in 14 file(s)',
+    }));
+
+    expect(holdingWork.read).toBe('ended');
+    expect(holdingWork).not.toEqual(readEnding(ended({ reason: 'unstarted', actor: 'agent' })));
+    expect(holdingWork).not.toEqual(readEnding(ended({ reason: 'limited', actor: 'agent' })));
+    expect(holdingWork).not.toEqual(readEnding(ended({ reason: 'unregistered', actor: 'agent' })));
+    expect(holdingWork).not.toEqual(readEnding(ended({ reason: 'bound' })));
+    expect(endedSpent(holdingWork)).toBe(false);
+    expect(endedOnAReading(holdingWork)).toBe(false);
   });
 
   it('refuses a reason nobody defined', () => {

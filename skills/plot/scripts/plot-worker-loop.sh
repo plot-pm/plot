@@ -789,6 +789,18 @@ desk_is_resettable() { # $1=worktree → 0 when the desk may be taken over
   ! desk_reset_refusal "$1" >/dev/null
 }
 
+# End the worker with `holding-work` when its own desk holds unlanded work.
+#
+# Asks `desk_reset_refusal` about `$PLOT_WORKTREE` (or the working directory).
+# On `uncommitted-changes` or `unpushed-commits` it logs the reason, writes the
+# ending `holding-work` with actor `agent`, and exits the worker with 0. On any
+# other answer — including `blocked-marker`, whose marker already asks a person —
+# it returns 0 and the caller continues. The loop calls it twice: right after
+# a prompt exits `ran`, and again right before `seal_declaration`, so a write
+# that lands during `wait_for_checks` is caught before the hop.
+end_if_holding_work() { local wt="${PLOT_WORKTREE:-$PWD}" held reason; held=$(desk_reset_refusal "$wt"); case "$held" in uncommitted-changes|unpushed-commits) reason=$(desk_hold_reason "$wt") ;; *) return 0 ;; esac
+  echo "plot-worker-loop: the desk at $wt is held by $held ($reason) after the prompt on ${PLOT_BRANCH:-?} ran — keeping the desk and ending worker rather than handing it to the next slice." >&2; write_ending "$wt" holding-work agent "${PLOT_BRANCH:-}" "$reason"; exit 0; }
+
 # Which worktree holds this branch, if any?
 #
 # ASKED OF GIT, never rebuilt from the branch name. A checkout left by
@@ -818,8 +830,11 @@ EOF
 }
 
 # The main checkout's path — `git worktree list --porcelain`'s first entry.
-main_checkout_path() { # → the main worktree's path
-  git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print substr($0,10); exit}'
+#
+# $1, when given, names any worktree of the repository to ask; without it git
+# asks the repository of the process's working directory.
+main_checkout_path() { # $1=a worktree (optional) → the main worktree's path
+  git ${1:+-C "$1"} worktree list --porcelain 2>/dev/null | awk '/^worktree /{print substr($0,10); exit}'
 }
 
 # Does an agent manifest name this checkout?
@@ -1081,7 +1096,12 @@ reset_desk() { # $1=worktree $2=branch → 0 when the desk now holds the branch
   # left on the floor. The declaration for the finished branch has done its job
   # by the time the hop reaches here — `seal_declaration` ran before `--next`
   # was asked.
-  rm -f "$wt/$DECLARATION_FILE_NAME" 2>/dev/null || true
+  #
+  # THE PREVIOUS SLICE'S `PLOT-CORRECTION.md` LEAVES WITH IT. The untracked
+  # root file does not hold the desk (`plot_worker_dirty_filter`), and the
+  # detach below keeps untracked files, so without this the next slice's agent
+  # reads the last slice's correction and `write_correction` appends to it.
+  rm -f "$wt/$DECLARATION_FILE_NAME" "$wt/$(correction_file_name)" 2>/dev/null || true
 
   # STEP 0b — THE GENERATED BUNDLES ARE RESTORED BEFORE THE DETACH, path by
   # path, never `git clean` or `git reset --hard` over the whole tree.
@@ -1297,24 +1317,30 @@ ENDING_FILE_NAME='.plot-worker.ending.json'
 # So absence stays load-bearing here as it is for the declaration: no ending
 # file means nobody recorded one, which is what a SIGKILL leaves behind.
 write_ending() { # $1=worktree $2=reason $3=actor $4=branch $5=detail
-  local worktree="$1" reason="$2" actor="$3" branch="$4" detail="$5" file tmp
-  [ -n "$worktree" ] || return 0
-  [ -d "$worktree" ] || return 0
-  [ -n "$reason" ] || return 0
-  [ -n "$actor" ] || return 0
-  file="$worktree/$ENDING_FILE_NAME"
-  tmp="$file.plot-ending-tmp"
+  local worktree="$1" reason="$2" actor="$3" branch="$4" detail="$5" file tmp main
+  [ -n "$worktree" ] && [ -d "$worktree" ] && [ -n "$reason" ] && [ -n "$actor" ] || return 0
+  file="$worktree/$ENDING_FILE_NAME"; tmp="$file.plot-ending-tmp"; main=$(main_checkout_path "$worktree") || main=''
 
   # USES NODE for the reason `seal_declaration` does: JSON in portable shell is
   # brittle, and the Worker command already requires node. The write goes
   # through a temp file and a rename, so a reader never sees a partial record —
   # the one shape this file must never produce, since its own contract keeps a
   # file that exists and does not parse apart from one that is absent.
+  #
+  # THE SAME PROCESS ALSO APPENDS one JSON line to the `.plot/state/endings.jsonl`
+  # of the main checkout of `$worktree`, never of the working directory's
+  # repository, which differs whenever the caller runs elsewhere. `plot-reap.sh`
+  # does not reach that file, since it removes a finished desk's own ending file
+  # along with the rest of the worktree. `main` is `""` where no main checkout
+  # could be resolved, which the script reads as "append nothing" rather than
+  # failing the write it rides beside. BEST EFFORT, LIKE THE MARKER AND THE SPEND RECORD BESIDE IT: a
+  # missing main checkout, a missing `.plot/state` directory or a failed append
+  # changes no ending, no exit code and no return status of this function.
   node -e '
-    const fs = require("fs");
-    const [tmp, reason, actor, branch, detail] = process.argv.slice(1);
-    fs.writeFileSync(tmp, JSON.stringify({ reason, actor, branch, detail }, null, 2) + "\n");
-  ' "$tmp" "$reason" "$actor" "$branch" "$detail" 2>/dev/null || { rm -f "$tmp"; return 0; }
+    const fs = require("fs"), [tmp, main, reason, actor, branch, detail] = process.argv.slice(1);
+    const record = { reason, actor, branch, detail }; fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n");
+    try { if (main) { fs.mkdirSync(`${main}/.plot/state`, { recursive: true }); fs.appendFileSync(`${main}/.plot/state/endings.jsonl`, JSON.stringify(record) + "\n"); } } catch {}
+  ' "$tmp" "$main" "$reason" "$actor" "$branch" "$detail" 2>/dev/null || { rm -f "$tmp"; return 0; }
 
   mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
@@ -2771,6 +2797,40 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   clear_limited_record "${PLOT_WORKTREE:-$PWD}"
 
   # ---------------------------------------------------------------------------
+  # THE DESK HOLDS UNLANDED WORK — a ninth ending, asked before any of the
+  # three acts that give the desk away
+  # ---------------------------------------------------------------------------
+  #
+  # Measured 2026-10-03 and 2026-10-04 (#1246): an agent ended its turn while it
+  # waited on a background job, the loop found the desk dirty, cut a new desk
+  # for the next slice and left 14 files behind — twice, each time found by a
+  # person on a desk no agent and no manifest named.
+  #
+  # THE SAME QUESTION THE HOP ALREADY ASKS, asked here first. `desk_reset_refusal`
+  # is the shell side of `resetRefusals`, and a second rule asking the same three
+  # questions is what `corpus/desk-reset.corpus.test.ts` exists to prevent.
+  #
+  # THE WORD, NOT THE STATUS. The function returns 0 for `blocked-marker` too —
+  # a desk holding an agent-written `PLOT-BLOCKED` keeps today's path, because
+  # the marker already tells a person. Only `uncommitted-changes` and
+  # `unpushed-commits` are unlanded work this slice is about.
+  #
+  # BEFORE `wait_for_checks` AND THE BUILD-FAILED ARM, not after. Unpushed
+  # commits have no CI run to wait on, and a dirty tree is not what the checks
+  # measure — waiting here would ask a question this desk cannot answer.
+  #
+  # BEFORE `seal_declaration`, `record_slice_spend` AND `clear_manifest_branch`,
+  # which is the position the mechanism depends on. After any of them the agent
+  # has already declared the slice finished and given the branch back to the
+  # queue, so the manifest would read this agent as free while its desk still
+  # holds the work.
+  #
+  # ASKED A SECOND TIME RIGHT BEFORE `seal_declaration`, through the same
+  # function: a background job that writes during `wait_for_checks` leaves the
+  # desk dirty after the first answer, and the hop would cut a new desk for it.
+  end_if_holding_work
+
+  # ---------------------------------------------------------------------------
   # THE BUILD FAILED — a fifth ending, and the first one Plot corrects instead
   # ---------------------------------------------------------------------------
   #
@@ -2860,6 +2920,11 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   # hop moves `$PLOT_BRANCH`. Both orderings matter: a declaration written after
   # the hop would name the branch the worker moved TO, and one written after the
   # loop ends would never exist for any branch but the last.
+  #
+  # THE DESK IS ASKED AGAIN FIRST — see `end_if_holding_work`. The checks wait
+  # above can run for `Checks wait` seconds, and a late write in it is unlanded
+  # work the first answer could not see.
+  end_if_holding_work
   seal_declaration "${PLOT_WORKTREE:-$PWD}" "${PLOT_BRANCH:-}"
 
   # AND RECORD WHAT IT SPENT, at the same moment and for the same reason: this

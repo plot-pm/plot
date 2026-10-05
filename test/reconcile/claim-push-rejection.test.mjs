@@ -51,9 +51,14 @@ const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd 
  * reading the test's own manifest as irrelevant, because `PLOT_BRANCH` was
  * already non-empty. Every env this file hands the loop starts from this
  * base and no other.
+ *
+ * `PLOT_BUDGET_HOME` and `PLOT_PR_INDEX_HOME` are kept: they name where this
+ * run's own state goes, not an outer agent's slice, and without them the
+ * loop's host calls write into the run's `HOME/.plot/state`.
  */
+const RUN_STATE_KEYS = new Set(['PLOT_BUDGET_HOME', 'PLOT_PR_INDEX_HOME']);
 const cleanEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('PLOT_')),
+  Object.entries(process.env).filter(([key]) => !key.startsWith('PLOT_') || RUN_STATE_KEYS.has(key)),
 );
 
 /** A bare origin and a clone holding `main`, with a Plot Config and a no-op prompt. */
@@ -280,11 +285,16 @@ test('claim push: the manifest naming the rejected branch is cleared, and PLOT_B
   const sb = sandbox();
   try {
     const { wt, manifest } = deskHandedTo(sb, 'feature/previous', 'feature/taken2');
-    // The previous slice is FINISHED: it carries one real commit, so a prompt
-    // run on it again would be visible as a second commit on a done slice.
+    // The previous slice is FINISHED: it carries one real commit, PUSHED, so a
+    // prompt run on it again would be visible as a second commit on a done
+    // slice. Pushed, because a genuinely finished slice is — the loop never
+    // pushes a slice's own work itself; only the agent's prompt does, same as
+    // production — and an unpushed commit here is unlanded work by this
+    // slice's own rule, a different ending from the one this test is about.
     fs.writeFileSync(path.join(wt, 'done.txt'), 'finished work\n');
     git(wt, 'add', 'done.txt');
     git(wt, 'commit', '-qm', 'finished work');
+    git(wt, 'push', '-q', 'origin', 'feature/previous');
 
     // THE PROMPT RECORDS EVERY RUN, so a second run after the rejection is
     // directly observable rather than inferred from the tree.
