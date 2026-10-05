@@ -73,11 +73,22 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   to the wait the agent is owed an answer to. #1255 is `no-answer`'s: a
  *   continued agent's wait expired after 1,800 s reading "no CI answer" while
  *   CI had already failed, because nothing watched the build for it.
+ * - `corrections-spent` — the slice's own `Correction budget` ran out: the
+ *   build failed again after every correction this slice is owed was handed
+ *   back, and the loop stops rather than spend a budget that is not its own to
+ *   extend. Until this value existed the ending was `unstarted`, which already
+ *   meant something else — a prompt that never ran — and the two were told
+ *   apart only by reading `detail`'s prose. `freshAgentAfterCorrections`
+ *   (`rules/fresh-agent.ts`) is the one reader of this value: it answers
+ *   `start-fresh` the first time a slice reaches it and `needs-a-person`
+ *   thereafter, which is the one-fresh-session-then-a-person rule
+ *   `a-spent-correction-budget-gets-a-fresh-agent` settles.
  *
- * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked` AND
- * `checks-unanswered` ARE THE REASONS NO WATCHER PRODUCED. The other four are
- * the floor firing or the monitor publishing; these six are the agent's own
- * loop reporting what it found, which is why their actor is `agent`.
+ * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked`,
+ * `checks-unanswered` AND `corrections-spent` ARE THE REASONS NO WATCHER
+ * PRODUCED. The other four are the floor firing or the monitor publishing;
+ * these seven are the agent's own loop reporting what it found, which is why
+ * their actor is `agent`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -104,6 +115,7 @@ export const EndingReasonSchema = z.enum([
   'holding-work',
   'blocked',
   'checks-unanswered',
+  'corrections-spent',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 

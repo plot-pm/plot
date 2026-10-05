@@ -2909,7 +2909,7 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
     # replacing it with Plot's would answer a question nobody asked. That
     # function also names the branch and the session that wrote it.
     echo "plot-worker-loop: the build kept failing on ${PLOT_BRANCH:-?} — $CORRECTION_BUDGET corrections were handed back and the last still failed: $_correction. The slice stays claimed and a person is asked; ending worker." >&2
-    write_ending "${PLOT_WORKTREE:-$PWD}" unstarted agent "${PLOT_BRANCH:-}" \
+    write_ending "${PLOT_WORKTREE:-$PWD}" corrections-spent agent "${PLOT_BRANCH:-}" \
       "the build failed on each of $CORRECTION_BUDGET corrections; the last was: $_correction"
     write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
       "PLOT-BLOCKED: the build for \`${PLOT_BRANCH:-?}\` failed after $CORRECTION_BUDGET corrections were handed back to the agent. The last failure: $_correction. Every attempt is recorded in \`$(correction_file_name)\` in this worktree, newest last. The work is pushed and the slice is still claimed by this agent. Read the run, fix what CI is failing on, then restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
