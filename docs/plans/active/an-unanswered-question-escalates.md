@@ -1,0 +1,1 @@
+../2026-10-05-an-unanswered-question-escalates.md
