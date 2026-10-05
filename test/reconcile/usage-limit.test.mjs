@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
+import { excludeDeskFilesOnJs, testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -208,8 +208,7 @@ ${workerLoopLine()}`);
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
-  // A desk's `.plot/` and its `.plot-worker.*` files are the desk's own, not unlanded work: the JS loop refuses to take up a desk that holds untracked files.
-  fs.appendFileSync(path.join(work, '.git', 'info', 'exclude'), '.plot/\n.plot-worker.*\n');
+  excludeDeskFilesOnJs(work, fs.appendFileSync);
   return { root, origin, work };
 }
 

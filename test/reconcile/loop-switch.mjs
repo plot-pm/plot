@@ -36,3 +36,20 @@ export const workerLoopLine = (env = process.env) => {
   const value = testWorkerLoop(env);
   return value === '' ? '' : `- **Worker loop:** ${value}\n`;
 };
+
+/**
+ * Keeps a desk's own files out of `git status` on the JS loop.
+ *
+ * The JS loop refuses to take up a desk that holds untracked files, and a
+ * fixture's `.plot/` and `.plot-worker.*` are untracked. The shell loop reads
+ * the same files as the desk's holdings, and several tests assert that it
+ * names them, so only the JS run excludes them.
+ *
+ * @param {string} work - the clone whose common git directory takes the entry.
+ * @param {NodeJS.ProcessEnv} [env] - the environment to read.
+ * @param {(file: string, text: string) => void} append - writes the entry, `fs.appendFileSync`.
+ */
+export const excludeDeskFilesOnJs = (work, append, env = process.env) => {
+  if (testWorkerLoop(env) !== 'js') return;
+  append(`${work}/.git/info/exclude`, '.plot/\n.plot-worker.*\n');
+};
