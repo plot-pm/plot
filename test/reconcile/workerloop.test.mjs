@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workerLoopLine } from './loop-switch.mjs';
+import { testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 
 // TESTS IN THIS FILE RUN ONE AT A TIME, and that is a correctness requirement
 // rather than tidiness. Every test here spawns a loop that sleeps, and several
@@ -37,7 +37,11 @@ import { workerLoopLine } from './loop-switch.mjs';
 // `--test-concurrency` would have to be set by whoever invokes the suite, which
 // puts a correctness requirement of THIS file in `package.json` where the next
 // person to add a test cannot see it. The option travels with the test.
-const serial = { concurrency: false };
+// Every test here hands the loop its branch through `PLOT_BRANCH` with no
+// manifest and no remote. The JS loop takes its assignment from the registry's
+// manifest and reads the BuildMonitor through a `BuildPort`, so this fixture
+// asks it a question it does not have; the file runs on the shell loop only.
+const serial = { concurrency: false, skip: testWorkerLoop() === 'js' && 'the JS loop takes its branch from the manifest, not PLOT_BRANCH' };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
