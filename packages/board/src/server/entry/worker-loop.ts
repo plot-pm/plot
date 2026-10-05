@@ -686,6 +686,9 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     if (ending !== undefined && ending.kind === 'loop-end' && ending.reason === 'unstarted') {
       deps.log(`plot-worker-loop: the prompt never started on ${readings.assignedBranch} — the command exited ${held.status} on each of ${deps.config.maxStartRetries} attempts. The slice stays claimed and a person is asked; ending worker.`);
     }
+    if (decision.detail.exitCode === 124 && readings.assignedBranch === '' && readings.waitedSeconds >= readings.boundSeconds) {
+      deps.log(`plot-worker-loop: the wait ran out on ${deps.slug || '?'} — free for ${readings.waitedSeconds}s with no slice offered, past the ${deps.config.waitBudgetSeconds}s wait bound; ending worker. Nothing was cut short: no prompt was running, the agent holds no branch, and its work is pushed.`);
+    }
     if (decision.detail.exitCode !== null) return decision.detail.exitCode;
     if (applied.length < decision.writes.length) {
       await deps.sleep(deps.config.passIntervalMs);

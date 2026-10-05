@@ -179,6 +179,14 @@ describe('runWorkerLoop — a free loop', () => {
     const r = rig({ ...ASSIGNED, branch: '' }, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.sleeps[0]).toBe(PASS_INTERVAL_MS);
+    expect(r.logs.join('\n')).toMatch(/the wait ran out on \? — free for \d+s with no slice offered, past the 100s wait bound; ending worker/);
+  });
+
+  it('does not say a wait ran out when the manifest went away', async () => {
+    const r = rig(null, []);
+    r.deps = { ...r.deps, manifestFile: path.join(r.dir, 'gone.json') };
+    await runWorkerLoop(r.deps);
+    expect(r.logs.join('\n')).not.toContain('the wait ran out');
   });
 
   it('names the wait once, with the slug', async () => {
