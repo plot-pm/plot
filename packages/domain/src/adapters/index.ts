@@ -39,6 +39,13 @@ export { trackerNone } from './tracker/tracker-none.js';
 export { TRACKER_LISTERS, trackerFor, trackerShell } from './tracker/tracker-resolve.js';
 export { trackerFixture, type TrackerFixture } from './tracker/tracker-fixture.js';
 
+// THE NOTIFIER'S ONE ADAPTER AND ITS `none`, following the tracker's shape:
+// `notifierNone` is not a fixture, it is the default configuration a
+// repository with no `Notify command` runs under.
+export { notifierCommand, NOTIFY_MESSAGE_ENV } from './notifier/notifier-command.js';
+export { notifierNone } from './notifier/notifier-none.js';
+export { notifierFixture, type NotifierFixture } from './notifier/notifier-fixture.js';
+
 // THE BUILD PIPELINE'S CONNECTORS, and the same rule holds: each owns its own
 // account, token and window. `buildNone` beside them is not a fixture — it is a
 // repository that declared no CI, and an unaskable CI is a different fact from

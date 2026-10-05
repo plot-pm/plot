@@ -78,6 +78,7 @@ export * from './rules/adoption.js';
 export * from './rules/slice-pr.js';
 export * from './rules/ownership.js';
 export * from './rules/handed-to.js';
+export * from './rules/question-escalation.js';
 /**
  * The BranchState producer, beside the three rules that consume it.
  *
@@ -497,6 +498,7 @@ export type * from './ports/plan-store.js';
 export type * from './ports/refs.js';
 export type * from './ports/host.js';
 export type * from './ports/tracker.js';
+export type * from './ports/notifier.js';
 export type * from './ports/build.js';
 export type * from './ports/budget.js';
 export type * from './ports/slice-spend.js';
