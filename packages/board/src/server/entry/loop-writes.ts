@@ -176,7 +176,7 @@ const landOne = async (
       return ports.desk.writeBlockedMarker(write.worktree, write.question);
 
     case 'declaration':
-      return ports.desk.sealDeclaration(write.worktree, write.branch);
+      return ports.desk.sealDeclaration(write.worktree, write.branch, write.status);
 
     case 'slice-spend':
       // ALREADY A PORT OF ITS OWN. `record_slice_spend` asks

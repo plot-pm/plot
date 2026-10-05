@@ -1,5 +1,5 @@
 import { answered, failed, type PortResult } from '../../port-result.js';
-import type { AgentDesk, AgentManifest, Agents } from '../../ports/agents.js';
+import type { AgentDesk, AgentManifest, AgentRegistration, Agents } from '../../ports/agents.js';
 
 /** The estate a fixture {@link Agents} answers from. */
 export interface AgentsFixture {
@@ -19,7 +19,11 @@ export interface AgentsFixture {
     attempts: { worktree: string; attempts: number }[];
     corrections: { worktree: string; correctionAttempts: number }[];
     clearedAssignments: string[];
+    registered?: AgentRegistration[];
+    deregistered?: string[];
   };
+  /** Makes `register` answer `failed`. */
+  registerFails?: boolean;
 }
 
 /**
@@ -109,6 +113,17 @@ export const agentsFixture = (fixture: AgentsFixture = {}): Agents => {
 
     raiseCorrections: async (worktree, correctionAttempts): Promise<PortResult<void>> => {
       fixture.calls?.corrections.push({ worktree, correctionAttempts });
+      return answered(undefined);
+    },
+
+    register: async (agent): Promise<PortResult<string>> => {
+      if (fixture.registerFails === true) return failed<string>();
+      fixture.calls?.registered?.push(agent);
+      return answered(`/fixture/${agent.session}.json`);
+    },
+
+    deregister: async (session): Promise<PortResult<void>> => {
+      fixture.calls?.deregistered?.push(session);
       return answered(undefined);
     },
 

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -201,6 +201,8 @@ export interface AgentsFsOptions {
    * directory is read from `## Plot Config` once per call.
    */
   manifestDir?: string;
+  /** The clock `register` stamps `startedAt` from; defaults to the current time. */
+  now?: () => Date;
 }
 
 /**
@@ -344,6 +346,47 @@ export const agentsFs = (context: ShellContext, options: AgentsFsOptions = {}): 
 
     raiseCorrections: (worktree, correctionAttempts) =>
       raiseField(worktree, 'correctionAttempts', correctionAttempts),
+
+    register: async (agent): Promise<PortResult<string>> => {
+      const dir = await manifestDir(context, options.manifestDir);
+      const file = join(dir, `${agent.session}.json`);
+      const tmp = `${file}.plot-tmp`;
+      // THE SHELL'S FIELDS IN THE SHELL'S ORDER, with `startedAt` at second
+      // precision like `date -u +%Y-%m-%dT%H:%M:%SZ`.
+      const manifest = {
+        session: agent.session,
+        resumeId: agent.session,
+        branch: agent.branch,
+        worktree: agent.worktree,
+        command: agent.command,
+        pid: '',
+        attempts: 0,
+        startedAt: (options.now?.() ?? new Date()).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      };
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`);
+        renameSync(tmp, file);
+      } catch {
+        try {
+          rmSync(tmp, { force: true });
+        } catch {
+          /* nothing to clean up */
+        }
+        return failed<string>();
+      }
+      return answered(file);
+    },
+
+    deregister: async (session): Promise<PortResult<void>> => {
+      const dir = await manifestDir(context, options.manifestDir);
+      try {
+        rmSync(join(dir, `${session}.json`), { force: true });
+      } catch {
+        return failed<void>();
+      }
+      return answered(undefined);
+    },
 
     clearAssignment: async (session): Promise<PortResult<void>> => {
       const dir = await manifestDir(context, options.manifestDir);

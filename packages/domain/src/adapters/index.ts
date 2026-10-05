@@ -59,6 +59,13 @@ export {
 } from './slice-spend/slice-spend-file.js';
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 
+export {
+  freshAgentRecordFile,
+  decodeFreshAgentRow,
+  FRESH_AGENT_RECORD_HOME_ENV,
+  type FreshAgentRecordFileOptions,
+} from './fresh-agent-record/fresh-agent-record-file.js';
+
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
 
 // THE PR STORE'S FILE ADAPTER. One file per connector under the COMMON git

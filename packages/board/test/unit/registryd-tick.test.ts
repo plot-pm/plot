@@ -112,6 +112,36 @@ describe('the tick reads the registry and decides', () => {
   });
 });
 
+describe('the tick carries the worktrees it read', () => {
+  const desk = {
+    path: '/estate/.worktrees/feature-two',
+    branch: 'feature/two',
+    isMain: false,
+    prunable: false,
+    planNamed: true,
+    plan: '2026-10-05-a-plan',
+    dirtyCount: 0,
+  };
+
+  it('names each worktree with whether a manifest names it, for the fresh-agent step', async () => {
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({
+        trees: async () => [desk, { ...desk, path: '/estate/.worktrees/feature-one', branch: 'feature/one' }],
+      }),
+    });
+    expect(report.trees?.map((t) => [t.branch, t.registered, t.plan])).toEqual([
+      ['feature/two', false, '2026-10-05-a-plan'],
+      ['feature/one', true, '2026-10-05-a-plan'],
+    ]);
+  });
+
+  it('carries no trees where the world reads none', async () => {
+    const report = await tick({ registry: async () => [], world: world() });
+    expect(report.trees).toBeUndefined();
+  });
+});
+
 describe('the tick reads attempts, not relaunches', () => {
   /**
    * THE DEFECT THE PLAN NAMES, asserted where the manifest is read rather than
