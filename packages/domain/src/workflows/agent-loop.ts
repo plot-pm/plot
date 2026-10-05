@@ -438,9 +438,9 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     );
   }
 
-  // ROWS 12-18 — the exit is `ran`, work is pushed and a PR is open. A switch
-  // over every `ChecksFromRuns` value, so a new value fails typecheck until it
-  // has a row.
+  // ROWS 12-18 — the exit is `ran`, work is pushed and a PR is open. The
+  // switch has a case for every `ChecksFromRuns` value and no `default`; with
+  // the declared return type, a new value fails typecheck until it has a row.
   const checks = readings.checks;
   switch (checks) {
     case null:
@@ -473,10 +473,5 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
 
     case 'settled':
       return settled(readings, branch);
-
-    default: {
-      const unhandled: never = checks;
-      throw new Error(`agentLoop: unhandled checks reading ${String(unhandled)}`);
-    }
   }
 };
