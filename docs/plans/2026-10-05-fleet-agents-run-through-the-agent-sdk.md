@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Story:** the-supervisor-delivers-the-approved-scope
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 2
+- **Approved:** 2026-10-05, jwloka, in-session
 
 ## Changelog
 
