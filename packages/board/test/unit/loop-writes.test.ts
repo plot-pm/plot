@@ -174,7 +174,16 @@ describe('performLoopWrites — one arm per write kind', () => {
       { desk: deskFixture({ calls }) },
     );
     expect(result.ok).toBe(true);
-    expect(calls.declarations).toEqual([{ worktree: WORKTREE, branch: 'infra/x' }]);
+    expect(calls.declarations).toEqual([{ worktree: WORKTREE, branch: 'infra/x', status: 'ok' }]);
+  });
+
+  it('a blocked declaration reaches Desk as blocked, not as ok', async () => {
+    const calls = deskFixtureCalls();
+    await apply(
+      { kind: 'declaration', worktree: WORKTREE, branch: 'infra/x', status: 'blocked', summary: 'x' },
+      { desk: deskFixture({ calls }) },
+    );
+    expect(calls.declarations).toEqual([{ worktree: WORKTREE, branch: 'infra/x', status: 'blocked' }]);
   });
 
   it('slice-spend is out of this applier\'s scope: no port is reached, and it answers ok', async () => {
