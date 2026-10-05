@@ -18,7 +18,7 @@ const WORKTREE = '/estate/.worktrees/infra-the-loop-has-a-workflow';
 const SESSION = 'sess-the-loop-has-a-workflow';
 
 /** A full readings object, idle and free, that every test starts from and overrides. */
-const base: AgentLoopReadings = {
+const freeLoop: AgentLoopReadings = {
   assignedBranch: '',
   waitedSeconds: 0,
   boundSeconds: 28800,
@@ -78,7 +78,7 @@ const superviseAfter = (readings: AgentLoopReadings) =>
 
 describe('agentLoop — row 1: no assignment, inside Worker bound', () => {
   it('waits one pass with no writes and no ending', () => {
-    const result = agentLoop({ ...base, waitedSeconds: 100 });
+    const result = agentLoop({ ...freeLoop, waitedSeconds: 100 });
     expect(result.outcome).toBe('decided');
     expect(result.writes).toEqual([]);
     expect(result.detail.exitCode).toBeNull();
@@ -95,7 +95,7 @@ describe('agentLoop — row 1: no assignment, inside Worker bound', () => {
 
 describe('agentLoop — row 2: no assignment, Worker bound reached', () => {
   it('ends the free wait with no ending reason, exit 124', () => {
-    const result = agentLoop({ ...base, waitedSeconds: 28800, boundSeconds: 28800 });
+    const result = agentLoop({ ...freeLoop, waitedSeconds: 28800, boundSeconds: 28800 });
     expect(result.writes).toEqual([]);
     expect(result.detail.exitCode).toBe(124);
     expect(endWrite(result.writes)).toBeUndefined();
@@ -104,7 +104,7 @@ describe('agentLoop — row 2: no assignment, Worker bound reached', () => {
 
 describe('agentLoop — row 3: manifest gone (loopRegistration answers gone)', () => {
   it('ends with unregistered, actor agent, exit 124', () => {
-    const result = agentLoop({ ...base, registration: 'gone' });
+    const result = agentLoop({ ...freeLoop, registration: 'gone' });
     const end = endWrite(result.writes);
     expect(end).toBeDefined();
     expect(end?.reason).toBe('unregistered');
@@ -125,31 +125,63 @@ describe('agentLoop — row 3: manifest gone (loopRegistration answers gone)', (
 });
 
 describe('agentLoop — row 4: an assignment', () => {
-  it('resets the desk onto the branch, records the first prompt run and pushes the claim', () => {
-    const result = agentLoop({ ...base, assignedBranch: BRANCH, claim: 'absent' });
-    expect(kindsOf(result.writes)).toEqual(['desk-reset', 'prompt-run', 'push']);
-    expect(result.writes[0]).toEqual({ kind: 'desk-reset', worktree: WORKTREE, branch: BRANCH, base: 'origin/main' });
-    const push = result.writes.find((w) => w.kind === 'push');
-    expect(push).toMatchObject({ kind: 'push', branch: BRANCH });
+  it('resets the desk, commits and pushes the claim, then runs the first prompt — in that order', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, claim: 'absent' });
+    expect(result.writes).toEqual([
+      { kind: 'desk-reset', worktree: WORKTREE, branch: BRANCH, base: 'origin/main' },
+      { kind: 'commit', message: `plot: claim ${BRANCH}`, paths: [] },
+      { kind: 'push', branch: BRANCH, onto: '' },
+      { kind: 'prompt-run', worktree: WORKTREE, branch: BRANCH },
+    ]);
     expect(result.detail.exitCode).toBeNull();
     expect(result.detail.note).toContain('desk reset');
   });
 
-  it('emits no desk-reset over a desk resetRefusals names', () => {
-    const result = agentLoop({ ...base, assignedBranch: BRANCH, resetRefusals: ['uncommitted-changes'] });
-    expect(kindsOf(result.writes)).toEqual(['prompt-run', 'push']);
-    expect(result.detail.note).toContain('desk not reset (uncommitted-changes)');
+  it('runs over a desk holding only a PLOT-BLOCKED marker without resetting it', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: ['blocked-marker'] });
+    expect(kindsOf(result.writes)).toEqual(['commit', 'push', 'prompt-run']);
+    expect(result.detail.note).toContain('desk not reset (blocked-marker)');
   });
 
   it('reports the claim read as unknown when the caller supplied none', () => {
-    const result = agentLoop({ ...base, assignedBranch: BRANCH, claim: null });
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, claim: null });
     expect(result.detail.note).toContain('unknown');
+  });
+});
+
+describe('agentLoop — row 4: a desk holding unlanded work at take-up', () => {
+  for (const held of [['uncommitted-changes'], ['unpushed-commits'], ['blocked-marker', 'unpushed-commits']] as const) {
+    it(`ends holding-work over ${held.join(' + ')}: no reset, no claim, no prompt, no declaration`, () => {
+      const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: held });
+      expect(kindsOf(result.writes)).toEqual(['loop-end']);
+      const end = endWrite(result.writes);
+      expect(end?.reason).toBe('holding-work');
+      expect(end?.actor).toBe('agent');
+      expect(end?.exitCode).toBe(0);
+      expect(end?.detail).toContain(held[held.length - 1]);
+      expect(end?.detail).not.toContain('blocked-marker');
+      expect(declarationWrite(result.writes)).toBeUndefined();
+    });
+  }
+
+  it('names both conditions when the desk holds both', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      resetRefusals: ['uncommitted-changes', 'unpushed-commits'],
+    });
+    expect(endWrite(result.writes)?.detail).toContain('uncommitted-changes, unpushed-commits');
+  });
+
+  it('supervise answers correct — with no declaration, the agent is handed land-your-work', () => {
+    const result = superviseAfter({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: ['uncommitted-changes'] });
+    expect(result.detail.correcting).toEqual([BRANCH]);
   });
 });
 
 describe('agentLoop — row 5: prompt running, idleNow answers idle', () => {
   const readings: AgentLoopReadings = {
-    ...base,
+    ...freeLoop,
     assignedBranch: BRANCH,
     running: { verdict: 'idle', transcriptReadable: true },
   };
@@ -187,7 +219,7 @@ describe('agentLoop — row 5: prompt running, idleNow answers idle', () => {
 describe('agentLoop — row 6: prompt running, idle reading unavailable past the floor', () => {
   it('ends bound when a transcript could be read', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       running: { verdict: 'silent', transcriptReadable: true },
       waitedSeconds: 28800,
@@ -201,7 +233,7 @@ describe('agentLoop — row 6: prompt running, idle reading unavailable past the
 
   it('ends unreadable when no transcript could be read', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       running: { verdict: 'silent', transcriptReadable: false },
       waitedSeconds: 28800,
@@ -215,7 +247,7 @@ describe('agentLoop — row 6: prompt running, idle reading unavailable past the
 
   it('waits while still inside the bound, whatever the transcript readability', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       running: { verdict: 'silent', transcriptReadable: false },
       waitedSeconds: 100,
@@ -235,7 +267,7 @@ describe('agentLoop — row 6: prompt running, idle reading unavailable past the
 describe('agentLoop — row 7: prompt exit unstarted', () => {
   it('retries with agent-attempt while under the retry budget', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'unstarted' },
       startRetries: 0,
@@ -249,7 +281,7 @@ describe('agentLoop — row 7: prompt exit unstarted', () => {
 
   it('blocks once retries are spent: marker, declaration, loop-end unstarted exit 1', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'unstarted' },
       startRetries: 2,
@@ -271,7 +303,7 @@ describe('agentLoop — row 7: prompt exit unstarted', () => {
 
   it('supervise answers needs-a-person from the declaration this row writes', () => {
     const result = superviseAfter({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'unstarted' },
       startRetries: 2,
@@ -303,7 +335,7 @@ describe('agentLoop — row 7: prompt exit unstarted', () => {
 
   it('the three-count test: a start retry raises attempts and never correctionAttempts', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'unstarted' },
       startRetries: 0,
@@ -319,7 +351,7 @@ describe('agentLoop — row 7: prompt exit unstarted', () => {
 describe('agentLoop — row 8: prompt exit wait (a usage limit with a known reset)', () => {
   it('waits until the reset, inside Worker bound, with no writes', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: {
         answer: 'wait',
@@ -335,7 +367,7 @@ describe('agentLoop — row 8: prompt exit wait (a usage limit with a known rese
 describe('agentLoop — row 9: prompt exit end-limited', () => {
   it('blocks: marker, declaration, loop-end limited exit 1', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'end-limited', line: '5-hour limit reached', cause: 'past-bound' },
     });
@@ -352,7 +384,7 @@ describe('agentLoop — row 9: prompt exit end-limited', () => {
 
   it('supervise answers needs-a-person from the declaration this row writes', () => {
     const result = superviseAfter({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'end-limited', line: '5-hour limit reached', cause: 'past-bound' },
     });
@@ -370,7 +402,7 @@ describe('agentLoop — row 9: prompt exit end-limited', () => {
 describe('agentLoop — row 10: prompt exit ran, the agent wrote a PLOT-BLOCKED marker', () => {
   it('declares blocked and ends blocked, exit 0, no marker write (the agent already wrote one)', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       markerWritten: true,
@@ -390,7 +422,7 @@ describe('agentLoop — row 10: prompt exit ran, the agent wrote a PLOT-BLOCKED 
 
   it('supervise answers needs-a-person straight from the declaration this row writes, before any gate runs', () => {
     const result = superviseAfter({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       markerWritten: true,
@@ -410,7 +442,7 @@ describe('agentLoop — row 10: prompt exit ran, the agent wrote a PLOT-BLOCKED 
 describe('agentLoop — row 11: prompt exit ran, no marker, resetRefusals names unlanded work', () => {
   it('ends holding-work, exit 0, with NO declaration', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       markerWritten: false,
@@ -426,7 +458,7 @@ describe('agentLoop — row 11: prompt exit ran, no marker, resetRefusals names 
 
   it('also ends holding-work for unpushed-commits', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       resetRefusals: ['unpushed-commits'],
@@ -460,7 +492,7 @@ describe('agentLoop — row 11: prompt exit ran, no marker, resetRefusals names 
 describe('agentLoop — row 12: prompt exit ran, work pushed, a PR open', () => {
   it('waits for checks, with no writes', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -474,7 +506,7 @@ describe('agentLoop — row 12: prompt exit ran, work pushed, a PR open', () => 
 
 describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open', () => {
   it('seals and frees the slice with no checks wait when nothing was pushed', () => {
-    const result = agentLoop({ ...base, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: false, prOpen: false });
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: false, prOpen: false });
     expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
     expect(declarationWrite(result.writes)?.status).toBe('ok');
     expect(endWrite(result.writes)).toBeUndefined();
@@ -482,14 +514,14 @@ describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open',
   });
 
   it('seals and frees the slice with no checks wait when no PR is open', () => {
-    const result = agentLoop({ ...base, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: true, prOpen: false });
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: true, prOpen: false });
     expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
     expect(result.detail.note).toBe('no PR open, no checks wait');
   });
 
   it('still ends holding-work first when the desk holds unlanded work', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       resetRefusals: ['unpushed-commits'],
@@ -498,11 +530,61 @@ describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open',
   });
 });
 
+describe('agentLoop — row 12a applies before the CI wait only', () => {
+  it('a moved tip mid-wait ends checks-unanswered with a blocked declaration, though pushed now reads false', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: false,
+      prOpen: true,
+      checks: 'tip-moved',
+      tip: 'other',
+    });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+    expect(endWrite(result.writes)?.reason).toBe('checks-unanswered');
+    expect(endWrite(result.writes)?.detail).toMatch(/^tip-moved: /);
+  });
+
+  it('an unreadable tip mid-wait keeps waiting, though pushed reads false', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: false,
+      prOpen: true,
+      checks: 'wait',
+      tip: 'unknown',
+    });
+    expect(result.writes).toEqual([]);
+    expect(result.detail.exitCode).toBeNull();
+  });
+
+  it('a settled failing build never seals ok, though the PR now reads closed', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: false,
+      checks: 'settled',
+      checksPassed: false,
+      correctionAttempts: 2,
+      correctionBudget: 2,
+      pr: 1279,
+    });
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+    expect(endWrite(result.writes)?.reason).toBe('blocked');
+    expect(kindsOf(result.writes)).not.toContain('assignment-clear');
+  });
+});
+
 describe('agentLoop — row 12b: Checks wait disables the wait', () => {
   it('seals and frees the slice when checksFromRuns answers none', () => {
     const checks = checksFromRuns({ pushedSha: 'f743e573', run: null, tip: 'pushed', waitedSeconds: 0, boundSeconds: 0 });
     expect(checks).toBe('none');
-    const result = agentLoop({ ...base, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: true, prOpen: true, checks });
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: true, prOpen: true, checks });
     expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
     expect(result.detail.note).toBe('the checks wait is disabled');
   });
@@ -511,7 +593,7 @@ describe('agentLoop — row 12b: Checks wait disables the wait', () => {
 describe('agentLoop — row 13: checks pass', () => {
   it('declares ok, records slice-spend, clears the assignment, then free', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -535,7 +617,7 @@ describe('agentLoop — row 13: checks pass', () => {
 describe('agentLoop — row 14: checks fail, correction budget left', () => {
   it('hands a correction and raises correctionAttempts, never attempts', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -558,7 +640,7 @@ describe('agentLoop — row 14: checks fail, correction budget left', () => {
 
   it('the three-count test: a correction raises correctionAttempts and never attempts', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -577,7 +659,7 @@ describe('agentLoop — row 14: checks fail, correction budget left', () => {
 describe('agentLoop — row 15: checks fail, budget spent', () => {
   it('ends blocked, exit 0, with a marker naming the PR and corrections', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -599,7 +681,7 @@ describe('agentLoop — row 15: checks fail, budget spent', () => {
 
   it('names "its PR" rather than a number when the caller named none', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -616,7 +698,7 @@ describe('agentLoop — row 15: checks fail, budget spent', () => {
 
   it('supervise answers needs-a-person from the declaration this row writes', () => {
     const result = superviseAfter({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -640,7 +722,7 @@ describe('agentLoop — row 15: checks fail, budget spent', () => {
 describe('agentLoop — row 16: no check answer by Checks wait', () => {
   it('ends checks-unanswered, detail no-answer, exit 0', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -664,7 +746,7 @@ describe('agentLoop — row 16: no check answer by Checks wait', () => {
 
   it('supervise answers needs-a-person from the declaration this row writes', () => {
     const result = superviseAfter({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -678,7 +760,7 @@ describe('agentLoop — row 16: no check answer by Checks wait', () => {
 describe('agentLoop — row 17: the remote tip is no longer the pushed commit', () => {
   it('ends checks-unanswered, detail tip-moved, exit 0, even with a green run for the new tip', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -698,7 +780,7 @@ describe('agentLoop — row 17: the remote tip is no longer the pushed commit', 
 
   it('ends tip-moved even deep inside the bound — the tip reading overrides the wait', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -714,7 +796,7 @@ describe('agentLoop — row 17: the remote tip is no longer the pushed commit', 
 
   it('supervise answers needs-a-person from the declaration this row writes', () => {
     const result = superviseAfter({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -729,7 +811,7 @@ describe('agentLoop — row 17: the remote tip is no longer the pushed commit', 
 describe('agentLoop — row 18: the remote tip cannot be read', () => {
   it('keeps waiting, inside Checks wait, with no writes', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -751,7 +833,7 @@ describe('agentLoop — row 18: the remote tip cannot be read', () => {
     });
     expect(checks).toBe('no-answer');
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -766,7 +848,7 @@ describe('agentLoop — row 18: the remote tip cannot be read', () => {
 describe('failures 1 to 4 as table cases', () => {
   it('failure 1: a desk holding 14 uncommitted files ends holding-work rather than cutting a new desk', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       resetRefusals: ['uncommitted-changes'],
@@ -779,7 +861,7 @@ describe('failures 1 to 4 as table cases', () => {
 
   it('failure 2: a continued agent with no BuildMonitor reads the build connector directly and settles on a real answer', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -796,7 +878,7 @@ describe('failures 1 to 4 as table cases', () => {
 
   it('failure 3: the run after a correction is read on the very next settled pass', () => {
     const corrected = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -811,7 +893,7 @@ describe('failures 1 to 4 as table cases', () => {
 
   it('failure 4: a PLOT-BLOCKED marker ends exit 0, which the dispatch wrapper reads as clear rather than gone', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       markerWritten: true,
@@ -824,16 +906,16 @@ describe('failures 1 to 4 as table cases', () => {
 describe('agentLoop carries no state between passes', () => {
   it('no write it returns ever names a loop state field', () => {
     const allWrites: Write[] = [
-      ...agentLoop({ ...base, assignedBranch: BRANCH, claim: 'absent' }).writes,
+      ...agentLoop({ ...freeLoop, assignedBranch: BRANCH, claim: 'absent' }).writes,
       ...agentLoop({
-        ...base,
+        ...freeLoop,
         assignedBranch: BRANCH,
         exit: { answer: 'ran' },
         markerWritten: true,
         markerText: 'x',
       }).writes,
       ...agentLoop({
-        ...base,
+        ...freeLoop,
         assignedBranch: BRANCH,
         exit: { answer: 'ran' },
         pushed: true,
@@ -850,7 +932,7 @@ describe('agentLoop carries no state between passes', () => {
 
   it('is a pure function: the same readings produce the same decision every time', () => {
     const readings: AgentLoopReadings = {
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
@@ -876,7 +958,7 @@ describe("endingIsAttributable still refuses the watcher's own reasons for actor
 describe('perform-fs: readDeclaration round-trips what agentLoop writes', () => {
   it('parses the summary agentLoop puts into a declaration write as a believable blocked declaration', () => {
     const result = agentLoop({
-      ...base,
+      ...freeLoop,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       markerWritten: true,
