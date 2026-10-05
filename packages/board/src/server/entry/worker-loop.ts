@@ -1,4 +1,7 @@
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
 import {
@@ -15,7 +18,9 @@ import {
   type ShellContext,
 } from '@plot-pm/domain/adapters';
 import { checksFromRuns, type RemoteTipReading } from '@plot-pm/domain/rules/checks-verdict';
+import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
+import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
 import { agentLoop, type AgentLoopReadings } from '@plot-pm/domain/workflows/agent-loop';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
@@ -23,7 +28,8 @@ import type { Agents, BoundedRun, Desk, Processes, Refs, Trees } from '@plot-pm/
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 
-import { performLoopWrites, type LoopWritePorts } from './loop-writes.js';
+import { answer as promptAnswer } from './prompt.js';
+import { performLoopWrites, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 
 /**
  * `plot-worker-loop.mjs` — the JS loop, one process for an agent's whole life.
@@ -100,11 +106,7 @@ export const workerLoopPorts = async (context: ShellContext): Promise<WorkerLoop
     boundedRun,
     build,
     host,
-    transcriptQuietSeconds: async (worktree: string) => {
-      const answer = await transcript.quietSeconds(worktree);
-      if (!answer.ok) return 'unavailable';
-      return answer.value.quiet === 'unavailable' ? 'unavailable' : answer.value.seconds;
-    },
+    transcriptQuietSeconds: async (worktree: string) => quietReading(await transcript.quietSeconds(worktree)),
   };
 };
 
@@ -229,7 +231,7 @@ export const readResetRefusals = async (
 export const readMarkerText = async (worktree: string): Promise<string> => {
   try {
     const text = await readFile(join(worktree, 'PLOT-BLOCKED.md'), 'utf8');
-    return text.split('\n')[0] ?? '';
+    return text.split('\n', 1).join('');
   } catch {
     return '';
   }
@@ -323,24 +325,23 @@ export const readPass = async (
       waitedSeconds: Math.floor((Date.now() - clock.since) / 1000),
     };
   }
-  clock.since = null;
+  // THE CHECKS WAIT KEEPS ITS START ACROSS PASSES: only a pass outside it, or a
+  // prompt that ran again (the caller resets the clock), starts it afresh.
+  if (prompt.exit?.answer !== 'ran') clock.since = null;
 
   const worktree = manifest.worktree;
   const branch = manifest.branch;
 
-  // ROW 4 — an assignment was just read, no prompt has run on it yet.
-  if (prompt.running === null && prompt.exit === null) {
+  const exit = prompt.exit;
+  if (exit === null) {
+    // ROWS 5-6 — a prompt is running this pass; its idle reading is already in
+    // `prompt.running`, so nothing further is read.
+    if (prompt.running !== null) return base;
+    // ROW 4 — an assignment was just read, no prompt has run on it yet.
     const refusals = await readResetRefusals(ports, worktree);
     const markerText = refusals.includes('blocked-marker') ? await readMarkerText(worktree) : '';
     return { ...base, resetRefusals: refusals, markerText };
   }
-
-  // ROWS 5-6 — a prompt is running this pass; its idle reading is already in
-  // `prompt.running`, so nothing further is read.
-  if (prompt.running !== null) return base;
-
-  const exit = prompt.exit;
-  if (exit === null) return base;
 
   // ROWS 7-9 — the prompt exited `unstarted`, `wait` or `end-limited`. None of
   // these reads anything about the desk or the host.
@@ -400,18 +401,349 @@ export const readPass = async (
   };
 };
 
-// THE IDLE WATCH ITSELF IS NOT WIRED IN THIS SLICE — SEE PLOT-BLOCKED.md.
-// `idleNow` (rules/sample.ts) takes six readings: pid, spoken, transcript
-// silence, a CPU-on-core veto over the agent's process subtree, how long the
-// desk's TREE has been quiet (file mtimes, not transcript mtimes), and whether
-// the branch already carries real commits. This slice's scope gave the entry
-// `transcriptFs` for the transcript silence reading alone. The other three —
-// a recursive child-process CPU sampler (`plot_worker_activity`), a worktree
-// mtime walk (`plot_worker_tree_quiet_seconds`), and a has-real-commits check
-// (`plot_worker_has_commits`) — have no domain port today, and inventing one
-// under this slice's own time pressure risks shipping an idle detector that is
-// wrong in a way nothing here would catch. `readPass` above already takes
-// `PromptState.running` as a value its CALLER supplies, so wiring these three
-// readings is additive once they exist — it does not reshape anything above.
+/** What a `.plot-worker.limited` record says, first field: the reset instant in epoch seconds; `null` where absent or unreadable. */
+export const readLimitedReset = async (worktree: string): Promise<number | null> => {
+  try {
+    const first = (await readFile(join(worktree, '.plot-worker.limited'), 'utf8')).split(/[\t\n]/, 1).join('');
+    const epoch = Number(first);
+    return Number.isFinite(epoch) && first !== '' ? epoch : null;
+  } catch {
+    return null;
+  }
+};
+
+/** What the idle watch needs beyond {@link WorkerLoopPorts}. */
+export interface IdleDeps {
+  readonly selfPid: number;
+  readonly windowSeconds: number;
+  readonly intervalMs: number;
+  readonly transcript: { spoken(worktree: string, handle: string): Promise<{ ok: boolean; value?: boolean }> };
+}
+
+/**
+ * One idle-watch reading of the running prompt, judged by {@link idleNow}.
+ *
+ * The prompt is this process's direct child, so its pid is read from the
+ * process table rather than held. Silence is clamped by the reset instant of a
+ * usage-limit wait and by how long the prompt has run, matching
+ * `plot_worker_idle_watch_pass`. A reading that cannot be taken withholds
+ * `idle`.
+ *
+ * @param ports - where the readings come from.
+ * @param idle - the watch's own settings.
+ * @param worktree - the desk the prompt runs in.
+ * @param handle - the session handle the prompt writes its conversation under.
+ * @param ranSeconds - how long the prompt has run.
+ * @param nowSeconds - now, epoch seconds.
+ * @returns `idle`, or the verdict `idleNow` gave for any other case.
+ */
+export const idleVerdict = async (
+  ports: WorkerLoopPorts,
+  idle: IdleDeps,
+  worktree: string,
+  handle: string,
+  ranSeconds: number,
+  nowSeconds: number,
+): Promise<ReturnType<typeof idleNow>> => {
+  const children = await ports.processes.childrenOf(idle.selfPid);
+  const pid = children.ok ? children.value[0] : undefined;
+  const alive = pid === undefined ? null : await ports.processes.isAlive(pid);
+  const quiet = await ports.transcriptQuietSeconds(worktree);
+  const reset = await readLimitedReset(worktree);
+  let silence = quiet === 'unavailable' ? 0 : quiet;
+  if (reset !== null) silence = Math.min(silence, Math.max(0, nowSeconds - reset));
+  silence = Math.min(silence, ranSeconds);
+  const spoken = await idle.transcript.spoken(worktree, handle);
+  const activity = pid === undefined ? null : await ports.processes.activity(pid);
+  const treeQuiet = await ports.trees.quietSeconds(worktree);
+  const commits = await ports.trees.hasCommits(worktree);
+  const reading: DeskReading = {
+    pid: pid !== undefined && alive !== null && alive.ok && alive.value ? 'alive' : 'dead',
+    spoken: spoken.ok && spoken.value === true,
+    silenceSeconds: silence,
+    childOnCore: activity !== null && activity.ok && activity.value === 'working',
+    treeQuietSeconds: treeQuiet.ok && treeQuiet.value !== null ? treeQuiet.value : 0,
+    commits: commits.ok ? commits.value : 'unanswerable',
+  };
+  return idleNow(reading, idle.windowSeconds);
+};
+
+/** Everything {@link runWorkerLoop} needs, injected so a test drives it without a process. */
+export interface LoopDeps {
+  readonly ports: WorkerLoopPorts;
+  readonly idle: IdleDeps;
+  readonly manifestFile: string;
+  /** The repository root the prompt resolves under. */
+  readonly repoRoot: string;
+  /** The desk, used where the manifest names none. */
+  readonly worktree: string;
+  readonly agent: string;
+  readonly harness: string;
+  readonly config: PassConfig;
+  /** Seconds past a usage-limit reset to wait before the next prompt. */
+  readonly limitMarginSeconds: number;
+  /** Whether the idle watch may end the prompt (`PLOT_MONITOR_ENDS_WORKER`). */
+  readonly monitorEndsWorker: boolean;
+  /** Where a prompt's output is appended. */
+  readonly outFile: string;
+  /** The prompt's session handle where the manifest names none. */
+  readonly sessionId: string;
+  /** Epoch milliseconds. */
+  readonly now: () => number;
+  readonly sleep: (ms: number) => Promise<void>;
+  readonly log: (line: string) => void;
+  /** Resolves which prompt file runs: `<resolution>\t<prompt>\t<detail>`. */
+  readonly resolvePrompt?: (repoRoot: string, agent: string) => string;
+}
+
+/** What the loop holds across passes: the prompt's own state, and the wait it came back from. */
+interface Held {
+  exit: AgentLoopReadings['exit'];
+  pushedSha: string;
+  afterWait: boolean;
+  aheadAtWait: number;
+}
+
+const FRESH: Held = { exit: null, pushedSha: '', afterWait: false, aheadAtWait: 0 };
+
+/**
+ * Runs one prompt through `boundedRun`, with the idle watch beside it.
+ *
+ * @returns the prompt's exit as {@link promptExit} classifies it, or `'idle'`
+ *   where the watch ended the worker.
+ */
+const runPrompt = async (
+  deps: LoopDeps,
+  worktree: string,
+  held: Held,
+): Promise<{ ended: 'idle' } | { ended: 'exit'; exit: NonNullable<AgentLoopReadings['exit']> }> => {
+  const resolved = (deps.resolvePrompt ?? promptAnswer)(deps.repoRoot, deps.agent).split('\t');
+  const [verb, named, why] = resolved;
+  const file = verb === 'refused' || !named ? '' : join(deps.repoRoot, named);
+  if (file === '') {
+    deps.log(`plot-worker-loop: refusing to launch — ${why ?? 'no prompt'}`);
+    return { ended: 'exit', exit: { answer: 'unstarted' } };
+  }
+
+  const manifest = await readManifestFields(deps.manifestFile);
+  const handle = manifest.resumeId !== '' ? manifest.resumeId : deps.sessionId;
+  const spoken = await deps.idle.transcript.spoken(worktree, handle);
+  const env: Record<string, string> = {
+    PLOT_SESSION_FLAG: spoken.ok && spoken.value === true ? '--resume' : '--session-id',
+    PLOT_SESSION_ID: handle,
+    PLOT_CORRECTION_FILE: join(worktree, 'PLOT-CORRECTION.md'),
+  };
+
+  // A FRESH OUTPUT FILE PER PROMPT, as the shell's `rm -f` before each run: the
+  // run appends, so a limit line from the last prompt would be read again.
+  await writeFile(deps.outFile, '', 'utf8');
+  const startedAt = deps.now();
+  let ended = false;
+  // RESOLVES ONLY WHEN THE WORKER IS IDLE: a watcher whose prompt already ended
+  // never answers, so the race below has exactly two outcomes.
+  const watcher = (async (): Promise<'idle'> => {
+    while (!ended) {
+      await deps.sleep(deps.idle.intervalMs);
+      const seconds = Math.floor((deps.now() - startedAt) / 1000);
+      const verdict = await idleVerdict(deps.ports, deps.idle, worktree, handle, seconds, Math.floor(deps.now() / 1000));
+      if (verdict === 'idle' && deps.monitorEndsWorker) return 'idle';
+    }
+    return new Promise<never>(() => undefined);
+  })();
+
+  const run = deps.ports.boundedRun.run('env', ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1"', '_', file], {
+    cwd: worktree,
+    env,
+    boundSeconds: deps.config.boundSeconds,
+    outFile: deps.outFile,
+  });
+
+  const first = await Promise.race([run.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
+  if ('idle' in first) return { ended: 'idle' };
+  const result = first.run;
+  ended = true;
+
+  let output = '';
+  try {
+    output = (await readFile(deps.outFile, 'utf8')).split('\n').slice(-200).join('\n');
+  } catch {
+    /* an unreadable output is an exit with no limit line */
+  }
+  const status = result.ok ? (result.value.status ?? 124) : 1;
+  const ranSeconds = result.ok ? result.value.ranSeconds : 0;
+  const ahead = deps.ports.refs.countAheadSync(manifest.branch);
+  const commitsSinceWait = held.afterWait && ahead.ok ? Math.max(0, ahead.value - held.aheadAtWait) : 0;
+  return {
+    ended: 'exit',
+    exit: promptExit(
+      {
+        status,
+        output,
+        now: Math.floor(deps.now() / 1000),
+        boundSeconds: deps.config.boundSeconds,
+        ranSeconds,
+        afterWait: held.afterWait,
+        commitsSinceWait,
+      },
+      HARNESS_LIMIT_LINES[deps.harness],
+    ),
+  };
+};
+
+/**
+ * Runs the loop for one agent's whole life.
+ *
+ * Each pass reads, decides through {@link agentLoop}, applies the writes
+ * through {@link performLoopWrites}, and then does the one thing a write
+ * only records: run the prompt. A prompt that was ended by the idle watch
+ * answers through `agentLoop` with `idle`, and the loop exits 124 so the
+ * process group stop reaches the prompt.
+ *
+ * @param deps - the injected ports, clock and configuration.
+ * @returns the process exit code the decision named.
+ */
+export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
+  const clock: WaitClock = { since: null };
+  let held: Held = { ...FRESH };
+  for (;;) {
+    const prompt: PromptState = { running: null, exit: held.exit, pushedSha: held.pushedSha };
+    const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
+    const decision = agentLoop(readings);
+    const worktree = readings.worktree || deps.worktree;
+    const applied = await performLoopWrites(decision.writes as readonly LoopWrite[], deps.ports, worktree);
+    for (const a of applied) if (!a.result.ok) deps.log([`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
+    if (decision.detail.exitCode !== null) return decision.detail.exitCode;
+    if (applied.length < decision.writes.length) {
+      await deps.sleep(PASS_INTERVAL_MS);
+      continue;
+    }
+
+    const kinds = new Set(decision.writes.map((w) => w.kind));
+    if (kinds.has('assignment-clear')) {
+      held = { ...FRESH };
+      continue;
+    }
+
+    const resume = decision.writes.find((w) => w.kind === 'agent-resume');
+    if (resume !== undefined && resume.kind === 'agent-resume') {
+      await deps.ports.desk.writeCorrection(
+        resume.worktree,
+        resume.branch,
+        resume.correction,
+        readings.correctionAttempts + 1,
+        readings.correctionBudget,
+      );
+    }
+
+    if (readings.exit?.answer === 'wait') {
+      const exit = readings.exit;
+      await deps.ports.desk.writeLimitedRecord(worktree, exit.reset.epoch, exit.reset.iso, exit.line);
+      const ahead = deps.ports.refs.countAheadSync(readings.assignedBranch);
+      held = { ...held, afterWait: true, aheadAtWait: ahead.ok ? ahead.value : 0 };
+      const until = (exit.reset.epoch + deps.limitMarginSeconds) * 1000;
+      await deps.sleep(Math.max(0, until - deps.now()));
+      await deps.ports.desk.clearLimitedRecord(worktree);
+    } else if (!kinds.has('prompt-run') && !kinds.has('agent-attempt') && resume === undefined) {
+      await deps.sleep(PASS_INTERVAL_MS);
+      continue;
+    }
+
+    const ran = await runPrompt(deps, worktree, held);
+    clock.since = null;
+    if (ran.ended === 'idle') {
+      const idleReadings = { ...readings, running: { verdict: 'idle' as const, transcriptReadable: true }, exit: null };
+      const idleDecision = agentLoop(idleReadings);
+      await performLoopWrites(idleDecision.writes as readonly LoopWrite[], deps.ports, worktree);
+      return 124;
+    }
+    const head = await deps.ports.refs.resolve('HEAD');
+    held = { ...held, exit: ran.exit, pushedSha: head.ok ? head.value : held.pushedSha };
+    if (ran.exit.answer !== 'wait') held = { ...held, afterWait: false };
+  }
+};
+
+/** The shell's own defaults for the loop's configuration, read from the environment. */
+const num = (raw: string | undefined, fallback: number): number => {
+  const n = Number(raw);
+  return raw !== undefined && raw !== '' && Number.isFinite(n) ? n : fallback;
+};
+
+/** Waits on the real clock — the loop's `sleep` when run as a process. */
+export const systemSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Writes one line to stderr — the loop's `log` when run as a process. */
+export const stderrLog = (line: string): void => {
+  process.stderr.write(`${line}\n`);
+};
+
+/**
+ * Reads a transcript-quiet answer as the idle watch's reading.
+ *
+ * @param answer - the transcript port's answer.
+ * @returns the quiet seconds, or `unavailable` where the port failed or has no transcript.
+ */
+export const quietReading = (
+  answer: Awaited<ReturnType<ReturnType<typeof transcriptFs>['quietSeconds']>>,
+): number | 'unavailable' => {
+  if (!answer.ok) return 'unavailable';
+  return answer.value.quiet === 'unavailable' ? 'unavailable' : answer.value.seconds;
+};
+
+/**
+ * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
+ *
+ * @param env - the process environment.
+ * @param scriptDir - where the helper scripts live, beside this bundle.
+ * @returns the process exit code.
+ */
+export const main = async (env: NodeJS.ProcessEnv, scriptDir: string): Promise<number> => {
+  const worktree = env.PLOT_WORKTREE ?? process.cwd();
+  const repoRoot = env.PLOT_REPO_ROOT ?? worktree;
+  const ports = await workerLoopPorts({ repoRoot: worktree, scriptDir });
+  const transcript = transcriptFs();
+  const manifestFile = env.PLOT_MANIFEST_FILE ?? '';
+  await stampManifestLoopJs(manifestFile);
+  const code = await runWorkerLoop({
+    ports,
+    idle: {
+      selfPid: process.pid,
+      windowSeconds: num(env.PLOT_IDLE_WINDOW, IDLE_WINDOW_SECONDS),
+      intervalMs: num(env.PLOT_MONITOR_INTERVAL, 30) * 1000,
+      transcript,
+    },
+    manifestFile,
+    repoRoot,
+    worktree,
+    agent: env.PLOT_AGENT ?? '',
+    harness: env.PLOT_HARNESS ?? 'claude',
+    config: {
+      boundSeconds: num(env.PLOT_WORKER_BOUND, 28800),
+      maxStartRetries: num(env.PLOT_START_ATTEMPTS, 3),
+      checksWaitSeconds: num(env.PLOT_CHECKS_WAIT, 1800),
+      correctionBudget: num(env.PLOT_CORRECTION_BUDGET, 2),
+      base: env.PLOT_BASE ?? 'origin/main',
+    },
+    limitMarginSeconds: num(env.PLOT_LIMIT_MARGIN_SECONDS, 60),
+    monitorEndsWorker: (env.PLOT_MONITOR_ENDS_WORKER ?? '1') === '1',
+    outFile: join(tmpdir(), `plot-worker-loop-${process.pid}.out`),
+    sessionId: env.PLOT_SESSION_ID ?? '',
+    now: Date.now,
+    sleep: systemSleep,
+    log: stderrLog,
+  });
+  if (manifestFile !== '') await rm(manifestFile, { force: true });
+  await ports.desk.clearLimitedRecord(worktree);
+  return code;
+};
+
+// Only when RUN, never when imported — see `prompt-exit.ts` for why the
+// comparison goes through `realpathSync`. Executing the entry is what `main`'s
+// tests cannot do without starting a process, and the entry spawns none itself.
+/* v8 ignore start */
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  const scriptDir = new URL('.', import.meta.url).pathname.replace(/\/$/, '');
+  process.exit(await main(process.env, scriptDir));
+}
+/* v8 ignore stop */
 
 export { agentLoop, performLoopWrites, promptExit };

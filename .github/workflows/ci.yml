@@ -1292,7 +1292,7 @@ jobs:
       # uncovered line there is a line nobody specified. Scoped to one path —
       # `vitest.config.ts`'s own `coverage.include` — rather than the whole
       # package, which cannot meet 100% today.
-      - name: Board loop-writes coverage gate
+      - name: Board loop coverage gate
         timeout-minutes: 10
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run --project parallel --coverage
 
