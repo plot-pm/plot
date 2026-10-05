@@ -465,7 +465,8 @@ test('a hop leaves `attempts`, `relaunches` and `wavesCount` semantics as before
 });
 
 test('a hand-started loop with no manifest hops without error', () => {
-  const missing = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-corr-hop-')), 'nope.json');
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-corr-hop-'));
+  const missing = path.join(wt, 'nope.json');
   const script = `
     PLOT_WORKER_LOOP_SOURCED=1
     . ${JSON.stringify(loop)}
@@ -474,6 +475,7 @@ test('a hand-started loop with no manifest hops without error', () => {
   `;
   const out = execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: 60_000 });
   assert.match(out, /exit=0/, 'an absent manifest has nothing to reset, and the hop still reports success');
+  fs.rmSync(wt, { recursive: true, force: true });
 });
 
 test('an agent that spent its budget on slice A starts slice B with `Correction 1 of 2` on B’s first failure', () => {
