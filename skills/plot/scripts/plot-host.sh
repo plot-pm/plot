@@ -474,7 +474,6 @@ die3() { echo "plot-host: $*" >&2; exit 3; }
 # a person at a terminal want three different answers — and a retry inside the
 # adapter would hide the very state this code exists to surface, turning a
 # reportable fact into an unexplained four-minute call.
-die5() { echo "plot-host: $*" >&2; exit 5; }
 
 # Exit 6 — the host refused because too many calls arrived AT ONCE. A secondary
 # limit, and a different ceiling from the one exit 5 reports.
@@ -497,7 +496,6 @@ die5() { echo "plot-host: $*" >&2; exit 5; }
 #
 # NOT A RETRY, for the reason exit 5 states: whether to wait is the caller's
 # decision, and this adapter reports rather than reacts.
-die6() { echo "plot-host: $*" >&2; exit 6; }
 
 # WHICH FAILURE, read off the wording — the same shape `bb_issue_exit_code`
 # uses, and for the same reason: the exit code cannot split these cases. `gh`
