@@ -2707,20 +2707,20 @@ describe('rowsFromPulse', () => {
     });
 
     // The questions map, in the shape `rowsFromPulse` takes it: branch → the
-    // marker line the scan's `waiting` verdict was made from.
-    const asking = (question: string) => new Map([['feature/d', question]]);
+    // marker's first line and the time `workerQuestions` read from its mtime.
+    const asking = (question: string, askedAt = new Date('2026-10-05T13:36:00.000Z').toISOString()) =>
+      new Map([['feature/d', { firstLine: question, askedAt }]]);
 
-    it('keeps a waiting worker in WORKING — it is an agent, not a result', () => {
-      // THE SECTION BOUNDARY, and it is the whole of this branch. WAITING ON
-      // YOU lists RESULTS to inspect on the git host; WORKING lists AGENTS. An
-      // agent that stopped to ask still holds its worktree and its context, and
-      // what unblocks it is an answer rather than a review — so an operator
-      // counting agents in WORKING must find it there. It sat in
-      // `waiting-on-you` until this change and undercounted every one.
+    it('moves a waiting worker WITH A QUESTION to WAITING ON YOU, not WORKING', () => {
+      // THE DEFECT `a-question-is-listed-as-waiting-on-you` FIXES. `waiting` IS
+      // the state the scan gives a branch because it found a marker, so a real
+      // `waiting` row always carries a question — and WAITING ON YOU, not
+      // WORKING, is where an outstanding question now sends a row, whatever
+      // the worker's own process state says.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
         null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which adapter?'));
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('working');
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
     });
 
     it('says what a waiting worker waits ON, not merely that it waits', () => {
@@ -2797,41 +2797,33 @@ describe('rowsFromPulse', () => {
       expect(new Set([say('waiting'), say('stalled'), say('finished')]).size).toBe(3);
     });
 
-    it('gives a waiting row the log offer, by landing it in WORKING', () => {
-      // TWO WAVES COMPOSING, asserted so neither can be undone without noticing.
-      // `showsWorkerLog` gates on WORKING membership alone — it knows nothing
-      // about worker states — so moving `waiting` into that section hands it the
-      // log the sibling wave shipped. The reader sees the question on the row
-      // and can open the reasoning behind it without a second tool. In
-      // `waiting-on-you` the row had neither.
+    it('does not give a questioning row the WORKING log offer — it is in WAITING ON YOU now', () => {
+      // `showsWorkerLog` gates on WORKING membership alone (menus.tsx), and
+      // that gate is unchanged by this slice — it is not this slice's to move.
+      // A question now sends the row to WAITING ON YOU instead, so the log
+      // offer built for WORKING no longer applies; whether WAITING ON YOU gets
+      // one of its own is a separate decision this branch does not make.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
         null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
-      expect(showsWorkerLog(rows.find((r) => r.branch === 'feature/d')!)).toBe(true);
+      const row = rows.find((r) => r.branch === 'feature/d')!;
+      expect(row.group).toBe('waiting-on-you');
+      expect(showsWorkerLog(row)).toBe(false);
     });
 
-    it('ranks waiting above stalled even with work on the floor', () => {
-      // THE ORDERING GUARANTEE, and moving `waiting` up beside `running` must
-      // not cost it. A worker that asked a question has almost always left the
-      // work it was doing uncommitted BESIDE the question, so a row reading
-      // `waiting` with dirty files is the normal case rather than a corner one.
-      // Ranking dirtiness first files it under *resume it* and invites a
-      // restart into the same wait — measured happening twice to one branch,
-      // the second restart re-running work the first had finished.
+    it('ranks the question above stalled even with work on the floor', () => {
+      // THE ORDERING GUARANTEE, carried from `waiting` ranking above `stalled`
+      // onto the question arm that now makes the same decision: a worker that
+      // asked a question has almost always left the work it was doing
+      // uncommitted BESIDE the question, so dirty files beside an outstanding
+      // question is the normal case rather than a corner one. Ranking
+      // dirtiness first would describe the floor instead of the ask.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900', ['src/half-done.ts']), ages, 'plot', QUIET,
         null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
       const row = rows.find((r) => r.branch === 'feature/d')!;
-      expect(row.group).toBe('working');
-      // REBOUND TO THE STALLED SENTENCE THAT EXISTS. This read `not
-      // toMatch(/resume it/)` until 2026-08-20, when the stalled note stopped
-      // prescribing a move — and a negative assertion against a string nothing
-      // composes any more passes whatever the ordering does, which is the one
-      // way this guarantee could have been lost silently. It now names the
-      // wording the stalled arm actually produces.
+      expect(row.group).toBe('waiting-on-you');
       expect(row.note).not.toMatch(/without finishing/);
-      // AND POSITIVELY: the question is what the row must carry. If dirtiness
-      // won, this row would describe the floor instead of the ask.
       expect(row.note).toMatch(/which one\?/);
     });
 

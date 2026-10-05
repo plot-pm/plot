@@ -106,6 +106,70 @@ function readMarkerFile(worktree: string): string {
 }
 
 /**
+ * What a desk's `PLOT-BLOCKED*` marker asks, and when it was written — or
+ * `null` where no marker file exists.
+ *
+ * ONE `stat`, SO THE LINE AND THE AGE DESCRIBE THE SAME FILE. `markerIn` reads
+ * the marker's first line without ever asking when it was written; a caller
+ * that wanted both by calling `markerIn` and a second `stat` in sequence could
+ * have the worker replace the file between the two reads, pairing one
+ * marker's words with another marker's timestamp. Reading `mtimeMs` from the
+ * same `statSync` this function already uses to find the file closes that gap.
+ *
+ * `null` MEANS NO MARKER, AND ONLY THAT. A found-but-unreadable marker is
+ * `{ firstLine: '', askedAt }` — the stated unknown `markerIn` already
+ * returns for its line, paired with the age the directory listing and the
+ * `stat` still established. `null` is reserved for the one case neither can
+ * discover anything from: no `PLOT-BLOCKED*` entry at the root, or a worktree
+ * that has gone.
+ */
+export function markerReading(worktree: string): Promise<{ firstLine: string; askedAt: string } | null> {
+  return Promise.resolve(readMarkerReading(worktree));
+}
+
+function readMarkerReading(worktree: string): { firstLine: string; askedAt: string } | null {
+  let names: string[];
+  try {
+    names = fs.readdirSync(worktree);
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    if (!name.startsWith(MARKER_PREFIX)) continue;
+    const full = path.join(worktree, name);
+    // THE NAME MATCHING THE PREFIX IS WHAT "FOUND A MARKER" MEANS, not the
+    // `stat` that follows it — so every failure past this point is the stated
+    // unknown `{ firstLine: '', askedAt }`, never `null`. `null` is reserved
+    // for "no entry at the root starts with the prefix at all".
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(full);
+    } catch {
+      // The name was listed and then vanished, or turned unreadable, between
+      // the `readdir` and this `stat` — the scan still found it.
+      return { firstLine: '', askedAt: new Date().toISOString() };
+    }
+    const askedAt = new Date(stat.mtimeMs).toISOString();
+    if (!stat.isFile()) {
+      // A directory named like a marker (`PLOT-BLOCKED.d/`) is found but has no
+      // line to read — the stated unknown, with the age this `stat` already
+      // established rather than the read-time fallback above.
+      return { firstLine: '', askedAt };
+    }
+    try {
+      return { firstLine: firstMarkerLine(fs.readFileSync(full, 'utf8')), askedAt };
+    } catch {
+      // The name matched and the `stat` succeeded, so the age is real even
+      // though the content read failed between the two calls — a permission
+      // change, a delete racing this read. The stated unknown for the line,
+      // paired with the age that was actually observed.
+      return { firstLine: '', askedAt };
+    }
+  }
+  return null;
+}
+
+/**
  * The first non-empty line of grep output, trimmed and bounded to
  * {@link QUESTION_MAX}.
  *
@@ -130,23 +194,29 @@ export function firstMarkerLine(out: string, max = QUESTION_MAX): string {
 }
 
 /**
- * Every branch the pulse reports as `waiting` that this machine has a worktree
- * for, paired with its worktree path.
+ * Every branch this machine holds a worktree for, paired with its path.
  *
- * BOTH CONDITIONS, and each drops a different population. `worker !== 'waiting'`
- * is every branch this module has nothing to say about — the search is skipped
- * rather than run and discarded, which is what keeps the cost proportional to
- * the number of waiting agents rather than to the size of the fleet. An empty
- * `local_worktree` is a branch waiting on ANOTHER machine: the scan there read
- * its marker, this one has nowhere to look, and looking anyway is how a path
- * gets guessed.
+ * NO LONGER GATED ON `worker === 'waiting'`. That condition is the defect
+ * `a-question-is-listed-as-waiting-on-you` removes: a worker that has stopped
+ * to ask is `waiting`, but a worker that wrote its marker and kept its loop
+ * alive beside it — still polling, still `running` — carries the same marker
+ * file and was invisible to this search. The marker is the reading; the
+ * worker's process state is not a precondition for it existing. See
+ * `rules/supervision.ts`'s `supervise`, which made the matching mistake in the
+ * other direction and answered `leave` for a live loop before it read anything
+ * else.
+ *
+ * `local_worktree` ALONE is the gate now, for the reason it always was: an
+ * empty one is a branch held on ANOTHER machine, where the scan there reads
+ * its own marker and this one has nowhere to look. Looking anyway is how a
+ * path gets guessed.
  */
 export function waitingWorktrees(pulse: FleetReading): Map<string, string> {
   const found = new Map<string, string>();
   for (const plan of pulse.plans) {
     for (const wave of plan.slices) {
       for (const b of wave.branches) {
-        if (b.worker === 'waiting' && b.local_worktree) found.set(b.branch, b.local_worktree);
+        if (b.local_worktree) found.set(b.branch, b.local_worktree);
       }
     }
   }
@@ -154,7 +224,7 @@ export function waitingWorktrees(pulse: FleetReading): Map<string, string> {
 }
 
 /**
- * What each waiting worker in the pulse is waiting on — branch → marker line.
+ * What each desk's marker asks, and when it was written — branch → reading.
  *
  * Run once per scan rather than once per render, and that placement is the
  * point. `classify` is a pure function called for every branch on every poll;
@@ -163,25 +233,24 @@ export function waitingWorktrees(pulse: FleetReading): Map<string, string> {
  * where a filesystem question about this machine belongs — it is already the
  * clock every other local fact on the row was read on.
  *
- * IN PARALLEL, because the searches are independent and the fleet is small: a
- * dispatch runs a handful of workers and only the waiting ones are asked at all.
+ * IN PARALLEL, because the searches are independent and the fleet is small.
  *
- * A BRANCH WITH NO ENTRY AND A BRANCH WITH "" MEAN THE SAME THING to the caller
- * — *waiting, reason unavailable* — and that is deliberate rather than sloppy.
- * The two arise differently (no worktree here, versus a worktree whose marker
- * would not read) but the row's sentence is identical, because the reader's move
- * is: go look in the tree. Splitting them would put two spellings of one errand
- * on the board. The panel, which can afford more words, is where that
- * distinction earns its keep.
+ * A BRANCH WITH NO ENTRY MEANS NO MARKER FILE — the honest `null`
+ * {@link markerReading} returns, and the caller renders no question at all.
+ * A found-but-unreadable marker still gets an entry, `{ firstLine: '',
+ * askedAt }`: the scan found the file, so the row stays in WAITING ON YOU with
+ * "reason unavailable" rather than reading as though nothing were asked.
  */
-export async function workerQuestions(pulse: FleetReading): Promise<Map<string, string>> {
+export async function workerQuestions(
+  pulse: FleetReading,
+): Promise<Map<string, { firstLine: string; askedAt: string }>> {
   const targets = [...waitingWorktrees(pulse)];
   if (targets.length === 0) return new Map();
-  const found = await Promise.all(targets.map(([, wt]) => markerIn(wt)));
-  const questions = new Map<string, string>();
+  const found = await Promise.all(targets.map(([, wt]) => markerReading(wt)));
+  const questions = new Map<string, { firstLine: string; askedAt: string }>();
   targets.forEach(([branch], i) => {
-    const q = found[i];
-    if (q) questions.set(branch, q);
+    const reading = found[i];
+    if (reading) questions.set(branch, reading);
   });
   return questions;
 }
