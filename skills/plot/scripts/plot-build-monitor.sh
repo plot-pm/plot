@@ -299,8 +299,8 @@ run_field() { # $1 = json, $2 = key → prints the value, or nothing for null
 published=''
 published_sha=''
 since=''
-# The shas whose builds have reached a terminal answer. Once a run has failed,
-# passed, or been superseded, asking again spends a host round trip to re-learn
+# The shas whose builds have reached a terminal answer. Once a run has failed
+# or passed, asking again spends a host round trip to re-learn
 # a fact already published — so it is not asked. THIS is the second half of "it
 # polls nothing when no run is live": the first half is having no head at all,
 # and this is having no OPEN question about the head there is.
@@ -365,9 +365,9 @@ sample_finding() { # → prints "finding\tevidence", or nothing
   # merge waiters reported on superseded runs and had to be stopped and
   # re-armed.
   #
-  # This fires when the host answered about a DIFFERENT sha than the one asked
-  # about, which is the shape a race actually takes: the head moved between the
-  # local read and the host's reply.
+  # This fires when the answer names a different sha than the head asked
+  # about. `run-for-sha` answers only for the sha it is given, so the arm
+  # guards a host or port that answers about another commit.
   if [ -n "$run_sha" ] && [ "$run_sha" != "$head" ]; then
     printf 'head moved\tthe run at %s is for %s, but the branch head is now %s; its answer is about the past\n' \
       "${url:-an unknown url}" "$run_sha" "$head"
@@ -437,12 +437,10 @@ monitor_pass() {
     if [ -n "$finding" ]; then
       since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       publish "$finding" "$evidence" "$since"
-      # SETTLED, so it is never asked about again — UNLESS the finding is
-      # `head moved`, which is terminal for the SUPERSEDED sha and says
-      # nothing about the one now at head. Settling the current head on that
-      # finding would stop the next pass from ever asking about it again, and
-      # the run this monitor exists to report — the one for the commit that
-      # is actually head — would never be asked for. Every OTHER finding is
+      # SETTLED, so it is never asked about again — EXCEPT `head moved`,
+      # which settles nothing: the run it names is for another commit, so the
+      # head's own run is still unasked, and settling the head here would
+      # stop every later pass from asking for it. Every other finding is
       # terminal for its sha: a failure stays failed, a pass stays passed.
       # Recording it here rather than in `sample_finding` keeps the decision
       # beside the publish it follows from.

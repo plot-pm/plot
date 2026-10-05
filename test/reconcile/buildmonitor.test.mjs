@@ -57,6 +57,9 @@ function drive(ports, passes = 1) {
   const script = `
     PLOT_MONITOR_NO_MAIN=1
     . ${JSON.stringify(monitor)}
+    # The host-call counter: one line per call, so a port can answer by the
+    # number of the call it is (\`wc -l\` is the call's own number, 1-based).
+    HOSTCALLS=${JSON.stringify(calls)}
     ${ports}
     # Wrap whatever the test defined so the round trips can be counted without
     # the test having to remember to do it.
@@ -353,50 +356,17 @@ test('head moved settles nothing: the next pass still asks, and answers for the 
   // drives ONE sourced monitor through two passes: pass 1 sees a run for the
   // OLDER sha while HEAD has already moved on; pass 2, with the host now
   // answering for the new head, must still be asked and must still publish.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bmon-'));
-  const file = path.join(dir, 'findings.jsonl');
-  const calls = path.join(dir, 'hostcalls');
-  const script = `
-    PLOT_MONITOR_NO_MAIN=1
-    . ${JSON.stringify(monitor)}
-    monitor_head_sha() { printf '%s' ${JSON.stringify(HEAD)}; }
-    monitor_run_for_sha() {
-      echo x >> ${JSON.stringify(calls)}
-      if [ -f ${JSON.stringify(dir)}/second ]; then
-        printf '%s' ${JSON.stringify(run({ sha: HEAD, conclusion: 'failure' }))}
-      else
-        printf '%s' ${JSON.stringify(run({ sha: OLDER, conclusion: 'success' }))}
-      fi
-      return 0
-    }
-    monitor_pass
-    touch ${JSON.stringify(dir)}/second
-    monitor_pass
-  `;
-  try {
-    execFileSync('bash', ['-c', script], {
-      encoding: 'utf8',
-      timeout: 30_000,
-      env: {
-        ...process.env,
-        PLOT_BRANCH: 'feature/watched',
-        PLOT_WORKTREE: dir,
-        PLOT_MONITOR_FILE: file,
-      },
-    });
-    const found = fs.existsSync(file)
-      ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
-      : [];
-    const hostCalls = fs.existsSync(calls)
-      ? fs.readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).length
-      : 0;
-    assert.equal(hostCalls, 2,
-      `the second pass must still ask the host; got ${hostCalls} call(s)`);
-    assert.deepEqual(found.map((f) => f.finding), ['head moved', 'build failed'],
-      `expected head moved then build failed for the new HEAD, got ${JSON.stringify(found.map((f) => f.finding))}`);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const { found, hostCalls } = drive(build(`
+    if [ "$(wc -l < "$HOSTCALLS")" -le 1 ]; then
+      printf '%s' ${JSON.stringify(run({ sha: OLDER, conclusion: 'success' }))}
+    else
+      printf '%s' ${JSON.stringify(run({ sha: HEAD, conclusion: 'failure' }))}
+    fi
+    return 0;
+  `), 2);
+  assert.equal(hostCalls, 2, `the second pass must still ask the host; got ${hostCalls} call(s)`);
+  assert.deepEqual(found.map((f) => f.finding), ['head moved', 'build failed'],
+    `expected head moved then build failed for the new HEAD, got ${JSON.stringify(found.map((f) => f.finding))}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -408,17 +378,33 @@ test('head moved settles nothing: the next pass still asks, and answers for the 
 // tests above stub this away by design, so without these the match rule —
 // only the asked-for sha, nothing else — would be untested.
 
-/** Run the op's jq filter over a `gh run list` payload. */
+/**
+ * Run the real `plot-host.sh run-for-sha` over a `gh run list` payload.
+ *
+ * A stubbed `gh` prints the payload; the op's own jq filter answers. Returns
+ * the parsed run, or null when the op prints nothing.
+ */
 function runForSha(payload, sha) {
-  const filter = '(map(select(.headSha == $sha)) | .[0])'
-    + ' | select(. != null)'
-    + ' | {sha:.headSha, status:.status,'
-    + '    conclusion:(if (.conclusion // "") == "" then null else .conclusion end),'
-    + '    url:.url, startedAt:.startedAt}';
-  const out = execFileSync('jq', ['-c', '--arg', 'sha', sha, filter], {
-    input: JSON.stringify(payload), encoding: 'utf8',
-  }).trim();
-  return out ? JSON.parse(out) : null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bmon-gh-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'payload.json'), JSON.stringify(payload));
+    fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\ncat ${JSON.stringify(path.join(dir, 'payload.json'))}\n`);
+    fs.chmodSync(path.join(dir, 'gh'), 0o755);
+    const out = execFileSync('bash', [path.join(scripts, 'plot-host.sh'), 'run-for-sha', 'feature/watched', sha], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        PLOT_HOST: 'github',
+        PLOT_CI: 'github-actions',
+        PLOT_BUDGET_HOME: path.join(dir, 'budget-home'),
+        PLOT_BUDGET_ACCOUNT: 'test-account',
+      },
+    }).trim();
+    return out ? JSON.parse(out) : null;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 const ghRun = (headSha, conclusion, status = 'completed') =>
