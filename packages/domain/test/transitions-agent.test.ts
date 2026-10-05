@@ -315,6 +315,24 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     }))).toBe(true);
   });
 
+  it('accepts actor agent on blocked, a marker or a spent budget the loop found itself', () => {
+    // The agent's own marker, or the loop's own retries or corrections running
+    // out while one was owed — no watcher fired either way.
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'blocked',
+    }))).toBe(true);
+  });
+
+  it('accepts actor agent on checks-unanswered, the loop giving up its own CI wait', () => {
+    // #1199, #1255: the loop's own CI wait ended with no usable answer, either
+    // reaching Checks wait or finding the remote tip had moved.
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'checks-unanswered',
+    }))).toBe(true);
+  });
+
   it('accepts the two actors the watcher paths write', () => {
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'bound' }))).toBe(true);
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'monitor' }))).toBe(true);

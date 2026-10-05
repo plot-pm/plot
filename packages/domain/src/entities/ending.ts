@@ -57,11 +57,27 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   question to a person. The loop asks `desk_reset_refusal` about its desk
  *   right after the prompt and again right before it seals the slice; on
  *   either answer it keeps the desk, writes this ending and exits 0.
+ * - `blocked` — the agent wrote its own `PLOT-BLOCKED` marker, or the loop's
+ *   own retries or corrections ran out while one was owed: a prompt exit
+ *   `unstarted` past its retries, a spent correction budget, or an exit
+ *   `end-limited`. Each of these also writes a `declaration` with `status:
+ *   'blocked'`, which is what lets `supervise` answer `needs-a-person` instead
+ *   of handing the agent a correction for a question it already asked.
+ * - `checks-unanswered` — the loop's own CI wait ended with no usable answer:
+ *   `detail` names which of two readings stopped it, `no-answer` (the wait
+ *   reached `Checks wait` with nothing from the build connector) or
+ *   `tip-moved` (the branch's remote tip is no longer the commit the agent
+ *   pushed, so no build the loop could read would be about that agent's work).
+ *   #1199 is `tip-moved`'s case: a person pushed `0e64fafd` on top of the
+ *   agent's `f743e573`, and a build of `0e64fafd` belongs to that person, not
+ *   to the wait the agent is owed an answer to. #1255 is `no-answer`'s: a
+ *   continued agent's wait expired after 1,800 s reading "no CI answer" while
+ *   CI had already failed, because nothing watched the build for it.
  *
- * `unstarted`, `limited`, `unregistered` AND `holding-work` ARE THE REASONS NO
- * WATCHER PRODUCED. The other four are the floor firing or the monitor
- * publishing; these four are the agent's own process reporting what it found,
- * which is why their actor is `agent`.
+ * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked` AND
+ * `checks-unanswered` ARE THE REASONS NO WATCHER PRODUCED. The other four are
+ * the floor firing or the monitor publishing; these six are the agent's own
+ * loop reporting what it found, which is why their actor is `agent`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -86,6 +102,8 @@ export const EndingReasonSchema = z.enum([
   'limited',
   'unregistered',
   'holding-work',
+  'blocked',
+  'checks-unanswered',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 

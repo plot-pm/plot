@@ -1,0 +1,9 @@
+---
+'plot': patch
+---
+
+`agentLoop(readings) -> Decision | Refusal` in `packages/domain/src/workflows/agent-loop.ts` is a pure domain workflow expressing the worker loop's eighteen-row decision table, with no caller yet. It reuses the write kinds that already exist (`blocked-marker`, `agent-resume`, `agent-attempt`, `push`) and adds nine new ones `decision.ts` had no kind for — `desk-reset`, `assignment-clear`, `prompt-run`, `correction-count`, `declaration`, `slice-spend`, `loop-end`, `worker-finding`, `build-finding` — each skipped on purpose by `perform-fs.ts`'s sandbox performer. `WorkflowName` gains `agent-loop`, placed beside `assign`, `reap` and `supervise` outside the five lifecycle phases. `EndingReasonSchema` gains two reasons no watcher produces, `blocked` and `checks-unanswered`, and `endingIsAttributable` admits actor `agent` for both, extending the doc comment on actor `agent` in `entities/ending.ts`. `checksFromRuns`, beside the unchanged `checksVerdict` in `rules/checks-verdict.ts`, reads the build connector's run for the agent's pushed commit and a three-valued remote-tip reading (`pushed` | `other` | `unknown`) to decide one pass of the loop's own CI wait — the tip comparison is equality rather than ancestry, so a build of a commit someone else pushed on top (#1199) never settles the wait, and a continued agent's wait reads a real connector answer instead of expiring after 1,800 s with "no CI answer" while CI had already failed (#1255). The workflow's table test asserts `supervise`'s verdict and `deskLifecycle`'s exit for every row, the three counters (`attempts`, `correctionAttempts`) stay apart, and `endingIsAttributable` and `perform-fs` agree with every new kind and reason. The domain's 100% coverage gate passes over `agent-loop.ts` and `checksFromRuns`.
+
+<!--
+plan: docs/plans/2026-10-04-the-worker-loop-runs-in-js.md
+-->

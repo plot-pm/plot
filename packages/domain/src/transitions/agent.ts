@@ -393,6 +393,15 @@ export interface EndingAttributionInput {
  * expired and no monitor published anything; the agent's own loop measured its
  * desk and found uncommitted changes or unpushed commits.
  *
+ * **`blocked` AND `checks-unanswered` ARE THE FIFTH AND SIXTH, AND BOTH ARE
+ * THE LOOP'S OWN JUDGEMENT OF ITS OWN DESK.** `blocked` covers a marker the
+ * agent wrote itself, a spent start-retry or correction budget, and a usage
+ * limit with no wait allowed — none of those is a clock expiring or a monitor
+ * publishing a finding. `checks-unanswered` is the loop's own CI wait giving
+ * up, either because `Checks wait` was reached with no answer or because the
+ * branch's remote tip moved out from under the pushed commit (#1199, #1255) —
+ * again a reading the loop's own pass took, not a watcher's.
+ *
  * The check survives every enum change because it reads STRINGS: an ending file
  * on a desk is bytes until something validates them, and a worker of an older
  * vintage may have written a value no type admits.
@@ -412,12 +421,14 @@ export const endingIsAttributable = (
     input.reason !== 'unstarted' &&
     input.reason !== 'limited' &&
     input.reason !== 'unregistered' &&
-    input.reason !== 'holding-work'
+    input.reason !== 'holding-work' &&
+    input.reason !== 'blocked' &&
+    input.reason !== 'checks-unanswered'
   ) {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered' or 'holding-work' ending names the agent, because no watcher produces those.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked' or 'checks-unanswered' ending names the agent, because no watcher produces those.`,
     );
   }
 

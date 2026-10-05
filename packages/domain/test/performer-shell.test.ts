@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { performerShell } from '../src/adapters/performer/performer-shell.js';
+import { performDecision } from '../src/adapters/performer/perform-fs.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
+import type { Write } from '../src/workflows/decision.js';
 
 /**
  * `startFreeAgent` against a stub `plot-dispatch.sh`.
@@ -53,5 +55,39 @@ describe('performerShell.startFreeAgent', () => {
   it('answers failed on any other non-zero exit', async () => {
     const context = dispatchThat('echo broken >&2; exit 1');
     expect(await performerShell(context).startFreeAgent('')).toEqual({ ok: false, why: 'failed' });
+  });
+});
+
+describe('perform-fs skips the agent-loop write kinds on purpose', () => {
+  const LOOP_KINDS: readonly Write['kind'][] = [
+    'desk-reset',
+    'assignment-clear',
+    'prompt-run',
+    'correction-count',
+    'declaration',
+    'slice-spend',
+    'loop-end',
+    'worker-finding',
+    'build-finding',
+  ];
+
+  it('skips every new kind rather than throwing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-perform-fs-'));
+    shells.push(root);
+    const writes = LOOP_KINDS.map(
+      (kind) => ({ kind }) as unknown as Write,
+    );
+    const report = performDecision({ root }, { outcome: 'decided', workflow: 'agent-loop', writes, detail: null });
+    expect(report.written).toEqual([]);
+    expect(report.skipped).toEqual(LOOP_KINDS);
+  });
+
+  it('still throws on a kind it does not name', () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-perform-fs-'));
+    shells.push(root);
+    const writes = [{ kind: 'not-a-real-kind' } as unknown as Write];
+    expect(() =>
+      performDecision({ root }, { outcome: 'decided', workflow: 'agent-loop', writes, detail: null }),
+    ).toThrow(/unrecognised write kind/);
   });
 });

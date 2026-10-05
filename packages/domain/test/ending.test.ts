@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the eight reasons apart', () => {
+  it('reads the ten reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -51,6 +51,8 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'limited',
       'unregistered',
       'holding-work',
+      'blocked',
+      'checks-unanswered',
     ]);
   });
 
@@ -156,6 +158,40 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
     expect(holdingWork).not.toEqual(readEnding(ended({ reason: 'bound' })));
     expect(endedSpent(holdingWork)).toBe(false);
     expect(endedOnAReading(holdingWork)).toBe(false);
+  });
+
+  it('keeps a blocked agent apart from every other reason', () => {
+    // The agent wrote its own PLOT-BLOCKED marker, or the loop's own retries or
+    // corrections ran out while one was owed — again no watcher fired.
+    const blocked = readEnding(ended({
+      reason: 'blocked',
+      actor: 'agent',
+      detail: 'the agent wrote PLOT-BLOCKED, asking whether to use fetch or axios',
+    }));
+
+    expect(blocked.read).toBe('ended');
+    expect(blocked).not.toEqual(readEnding(ended({ reason: 'unstarted', actor: 'agent' })));
+    expect(blocked).not.toEqual(readEnding(ended({ reason: 'holding-work', actor: 'agent' })));
+    expect(blocked).not.toEqual(readEnding(ended({ reason: 'bound' })));
+    expect(endedSpent(blocked)).toBe(false);
+    expect(endedOnAReading(blocked)).toBe(false);
+  });
+
+  it('keeps an unanswered CI wait apart from every other reason', () => {
+    // #1199, #1255: the loop's own CI wait gave up, either on `Checks wait` or
+    // on a remote tip that moved out from under the pushed commit.
+    const unanswered = readEnding(ended({
+      reason: 'checks-unanswered',
+      actor: 'agent',
+      detail: 'no-answer: no build for f743e573 by the 3600s Checks wait',
+    }));
+
+    expect(unanswered.read).toBe('ended');
+    expect(unanswered).not.toEqual(readEnding(ended({ reason: 'blocked', actor: 'agent' })));
+    expect(unanswered).not.toEqual(readEnding(ended({ reason: 'unregistered', actor: 'agent' })));
+    expect(unanswered).not.toEqual(readEnding(ended({ reason: 'bound' })));
+    expect(endedSpent(unanswered)).toBe(false);
+    expect(endedOnAReading(unanswered)).toBe(false);
   });
 
   it('refuses a reason nobody defined', () => {

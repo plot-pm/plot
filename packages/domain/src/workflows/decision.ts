@@ -6,6 +6,8 @@
  * reachable from a plain call with no repository, no host and no process.
  */
 
+import type { EndingActor, EndingReason } from '../entities/ending.js';
+
 /**
  * One write a decision would make, named so a performer can apply it and a
  * test can diff for it.
@@ -41,7 +43,16 @@ export type Write =
   | ManifestClearWrite
   | LogClearWrite
   | CommitWrite
-  | PushWrite;
+  | PushWrite
+  | DeskResetWrite
+  | AssignmentClearWrite
+  | PromptRunWrite
+  | CorrectionCountWrite
+  | DeclarationWrite
+  | SliceSpendWrite
+  | LoopEndWrite
+  | WorkerFindingWrite
+  | BuildFindingWrite;
 
 /** Sets a plan's `**State:**` field, inside its `## Status` section only. */
 export interface PlanPhaseWrite {
@@ -360,6 +371,155 @@ export interface PushWrite {
 }
 
 /**
+ * Resets a desk onto the branch the loop is handed, at take-up.
+ *
+ * The free wait comes before it: a desk is reset once an assignment is read,
+ * never while the loop still waits for one. Checking out a base and a branch
+ * with plain `git checkout` is what the shell's equivalent does, so a file the
+ * earlier readings missed makes the write refuse rather than overwrite —
+ * {@link AgentLoopReadings} in `agent-loop.ts` never emits this write over a
+ * desk `resetRefusals` names, for the same reason `deskIsResettable` exists.
+ */
+export interface DeskResetWrite {
+  readonly kind: 'desk-reset';
+  /** The worktree to reset, absolute. */
+  readonly worktree: string;
+  /** The branch to check it out onto. */
+  readonly branch: string;
+  /** What the branch is cut from when it does not already exist locally. */
+  readonly base: string;
+}
+
+/**
+ * Clears the manifest's `branch` field, as `clear_manifest_branch` does.
+ *
+ * NOT {@link ManifestClearWrite}, which deletes the whole manifest and is
+ * never what a free agent's loop means by *let go of this slice*. An agent
+ * keeps its identity and its desk between slices; only the assignment goes.
+ */
+export interface AssignmentClearWrite {
+  readonly kind: 'assignment-clear';
+  /** The agent's session id — the manifest the write lands in. */
+  readonly session: string;
+}
+
+/**
+ * Records that the loop ran its first prompt on the slice it now holds.
+ *
+ * Distinct from every later prompt on the same slice — a correction also runs
+ * a prompt, through {@link AgentResumeWrite} — so a reader asking *has this
+ * slice been attempted at all* has one write to look for rather than a count
+ * of {@link AgentResumeWrite}s that could be zero either because the slice
+ * never started or because it finished on the first try.
+ */
+export interface PromptRunWrite {
+  readonly kind: 'prompt-run';
+  /** The worktree the prompt ran in, absolute. */
+  readonly worktree: string;
+  /** The branch it ran on. */
+  readonly branch: string;
+}
+
+/**
+ * Records a correction's own count, `correctionAttempts`, separately from the
+ * manifest's `attempts`.
+ *
+ * TWO COUNTERS, NEVER ONE. `attempts` counts start retries
+ * ({@link AgentAttemptWrite}) and supervisor relaunches, and a correction
+ * raising it would let a CI failure exhaust the start-retry budget a prompt
+ * that never ran would also spend. The new value is carried rather than an
+ * increment, matching {@link AgentAttemptWrite}'s own reasoning: applying the
+ * write twice must land the same number.
+ */
+export interface CorrectionCountWrite {
+  readonly kind: 'correction-count';
+  /** The worktree whose desk records the count. */
+  readonly worktree: string;
+  /** What `correctionAttempts` becomes. */
+  readonly correctionAttempts: number;
+}
+
+/**
+ * Writes `.plot-worker.envelope.json`, the file `supervise` reads and the
+ * marker never is.
+ *
+ * EVERY ENDING THAT WAITS FOR A PERSON ALSO WRITES ONE, with `status:
+ * 'blocked'`. With no declaration `supervise` answers `correct`, and a
+ * correction is the wrong answer to a question the agent asked — so the loop
+ * declares itself blocked on the same pass it ends for `blocked`, `unstarted`,
+ * `limited` or `checks-unanswered`. `holding-work` writes none: that ending's
+ * correction is *land your work*, and `supervise` answering `correct` is the
+ * right answer there (`the-shell-loop-holds-unlanded-work`).
+ */
+export interface DeclarationWrite {
+  readonly kind: 'declaration';
+  /** The worktree the declaration lands in, absolute. */
+  readonly worktree: string;
+  /** The branch it is about. */
+  readonly branch: string;
+  /** Finished, or stopped and saying so. */
+  readonly status: 'ok' | 'blocked';
+  /** One sentence naming why; `''` when there is none to add. */
+  readonly summary: string;
+}
+
+/** Records one slice's token spend at the seal, as `record_slice_spend` does. */
+export interface SliceSpendWrite {
+  readonly kind: 'slice-spend';
+  /** The branch the slice was on. */
+  readonly branch: string;
+  /** The worktree it ran in, absolute. */
+  readonly worktree: string;
+}
+
+/**
+ * Ends the loop: the ending file, its `endings.jsonl` line, and — where the
+ * ending is `limited` — the limited record a `--restart` after the reset
+ * reads.
+ *
+ * ONE WRITE FOR THE WHOLE ENDING, rather than three kinds for three files that
+ * are always written together. `exitCode` carries the table's own column
+ * (0, 1 or 124) so a performer need not re-derive it from `reason`.
+ */
+export interface LoopEndWrite {
+  readonly kind: 'loop-end';
+  /** The worktree the loop ends in, absolute. */
+  readonly worktree: string;
+  /** The branch it held when it ended; `''` when it held none. */
+  readonly branch: string;
+  /** Why the loop ended. */
+  readonly reason: EndingReason;
+  /** Which party ended it — always `agent` for a reason this workflow emits. */
+  readonly actor: EndingActor;
+  /** One sentence naming the reading. */
+  readonly detail: string;
+  /** The process exit code the table gives this reason. */
+  readonly exitCode: number;
+}
+
+/** Publishes a WorkerMonitor-shaped finding: `gone`, `idle` or `clear`. */
+export interface WorkerFindingWrite {
+  readonly kind: 'worker-finding';
+  /** The worktree the finding is about, absolute. */
+  readonly worktree: string;
+  /** The finding to publish. */
+  readonly finding: 'gone' | 'idle' | 'clear';
+}
+
+/** Writes a build finding line, in the shape the BuildMonitor writes today. */
+export interface BuildFindingWrite {
+  readonly kind: 'build-finding';
+  /** The worktree the finding is about, absolute. */
+  readonly worktree: string;
+  /** The branch the finding is about. */
+  readonly branch: string;
+  /** The finding word: `build passed`, `build failed` or `build needs approval`. */
+  readonly finding: string;
+  /** The evidence sentence, naming the run and the commit. */
+  readonly evidence: string;
+}
+
+/**
  * A workflow that decided to proceed, and everything it would write.
  *
  * INERT. It says *merge PR #42, set State: Approved, write this record* and
@@ -511,6 +671,14 @@ export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   // and `plot-registryd` is this workflow's caller rather than its source, so
   // there is nothing with an exit code to compare against yet.
   supervise: 'fixture',
+  // FIXTURE-VERIFIED ONLY, AND DELIBERATELY NOT COMPARED AGAINST
+  // `plot-worker-loop.sh`. A script with an exit code exists, but
+  // docs/plans/2026-10-04-the-worker-loop-runs-in-js.md changes five of the
+  // table's eighteen rows from that script's own behaviour on purpose — a
+  // corpus comparison against it would fail on the rows the plan means to
+  // change. The table in the plan's Design section is the specification this
+  // workflow is checked against.
+  'agent-loop': 'fixture',
 };
 
 /**
