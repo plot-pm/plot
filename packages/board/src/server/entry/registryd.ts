@@ -3,6 +3,14 @@ import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workfl
 import type { Decision } from '@plot-pm/domain/workflows/decision';
 import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
+import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
+import {
+  freshAgentAfterCorrections,
+  freshAgentAnswer,
+  type FreshAgentVerdict,
+} from '@plot-pm/domain/rules/fresh-agent';
+import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
+import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 
 import { readTick, type SupervisorWorld } from '../supervisor.js';
 import { readQueue, type QueueWorld } from '../queue-reading.js';
@@ -459,3 +467,174 @@ export const unclaimedLines = (report: TickReport): string[] => {
     }),
   ];
 };
+
+/**
+ * A desk whose worker ended, no manifest names it, and some plan claims its
+ * branch — the ONE population {@link freshAgentAfterCorrections} can answer
+ * about, and the one neither `supervise` nor {@link unclaimedTrees} sees.
+ *
+ * **WHY NEITHER EXISTING READING NAMES THIS DESK.** `supervise` reads the
+ * REGISTRY, and the exit trap that runs on every ending already removed this
+ * desk's manifest — so it is not in the registry's list at all. `isUnclaimedTree`
+ * reads every registered worktree and excludes any whose branch a plan names,
+ * precisely because a plan-named branch is somebody's work even with no
+ * manifest — which is exactly this desk's shape. Both readings are right for
+ * the population they describe; this is a third population neither one was
+ * built to see.
+ *
+ * **THE JOIN IS: unregistered, plan-named, not the main checkout.** That is
+ * `RegisteredTreeReadings` itself, minus `isUnclaimedTree`'s own filter —
+ * `!registered && !isMain && planNamed` rather than `!planNamed`.
+ */
+export const freshAgentCandidateTrees = (
+  trees: readonly RegisteredTreeReadings[],
+): readonly RegisteredTreeReadings[] =>
+  trees.filter((tree) => !tree.isMain && !tree.registered && tree.planNamed);
+
+/** What one tick read of one fresh-agent candidate desk, before deciding. */
+export interface FreshAgentCandidateReadings {
+  /** The branch the desk holds. */
+  branch: string;
+  /** The desk, absolute. */
+  worktree: string;
+  /** The desk's own ending reason, or `null` where none was written or it could not be read. */
+  ending: EndingReason | null;
+  /** `PLOT-CORRECTION.md`'s text, verbatim; `''` where it could not be read. */
+  correctionsText: string;
+  /** The failing run's URL and failed step, parsed from the ending's own `detail`. */
+  runUrl: string;
+  failedStep: string;
+  /** How many fresh sessions this slice already had. */
+  priorFreshSessions: number;
+}
+
+/** `PLOT-CORRECTION.md`'s filename — the desk's own account of every attempt. */
+const CORRECTION_FILENAME = 'PLOT-CORRECTION.md';
+
+/**
+ * Pulls the failing run's URL and failed step out of an ending's `detail`.
+ *
+ * **A READING, NOT A RE-DERIVATION.** `write_ending`'s own text for a spent
+ * budget is *"the build failed on each of N corrections; the last was: <the
+ * monitor's evidence>"*, and the monitor's evidence is itself *"the run at
+ * <url> for <sha> concluded <conclusion>"* (`build_says_failed`,
+ * `plot-worker-loop.sh:1693`). This parses the same sentence the shell already
+ * wrote rather than reading a second source, so a change to the monitor's
+ * wording is the one place this can go stale — matching the shell's own
+ * `build_says_failed`, which parses the identical sentence from the other
+ * direction.
+ *
+ * @param detail - the ending's `detail` field, verbatim.
+ * @returns the run's URL and what it reported failing, or `''` for either
+ *   where the sentence does not hold them.
+ */
+export const runFromEndingDetail = (detail: string): { runUrl: string; failedStep: string } => {
+  const url = /the run at (\S+) for/.exec(detail)?.[1] ?? '';
+  const step = /concluded (.+)$/.exec(detail)?.[1]?.trim() ?? '';
+  return { runUrl: url, failedStep: step };
+};
+
+/**
+ * Reads what one tick needs about every fresh-agent candidate desk.
+ *
+ * **ONE DESK FILE READ AND ONE STORE READ PER CANDIDATE**, the same shape
+ * {@link readTick} already takes per registered agent. The candidate list
+ * itself is expected to be small: it holds only a desk whose worker already
+ * ended and whose manifest is already gone, which is the rare case this rule
+ * exists for rather than the steady state.
+ *
+ * @param candidates - the desks {@link freshAgentCandidateTrees} named.
+ * @param deskFile - reads one file from a desk, or null where it is not there.
+ * @param freshAgents - the `.plot/state/fresh-agents.tsv` store.
+ * @returns one reading per candidate, in the order given.
+ */
+export const readFreshAgentCandidates = async (
+  candidates: readonly RegisteredTreeReadings[],
+  deskFile: (worktree: string, name: string) => string | null,
+  freshAgents: Pick<FreshAgentRecordStore, 'rowsFor'>,
+): Promise<readonly FreshAgentCandidateReadings[]> => {
+  const out: FreshAgentCandidateReadings[] = [];
+  for (const tree of candidates) {
+    const endingText = deskFile(tree.path, ENDING_FILENAME);
+    const endingReading = readEnding(endingText);
+    const ending = endingReading.read === 'ended' ? endingReading.ending.reason : null;
+    const detail = endingReading.read === 'ended' ? endingReading.ending.detail : '';
+    const { runUrl, failedStep } = runFromEndingDetail(detail);
+    const rows = await freshAgents.rowsFor(tree.branch);
+    out.push({
+      branch: tree.branch,
+      worktree: tree.path,
+      ending,
+      correctionsText: deskFile(tree.path, CORRECTION_FILENAME) ?? '',
+      runUrl,
+      failedStep,
+      // AN UNANSWERABLE STORE READS AS ZERO, the rule {@link
+      // freshAgentAfterCorrections} already states: absence can start one
+      // session too many and must never strand a slice at a person for a
+      // record this estate never wrote.
+      priorFreshSessions: rows.ok ? rows.value.length : 0,
+    });
+  }
+  return out;
+};
+
+/** What this tick decided about one fresh-agent candidate. */
+export interface FreshAgentDecision {
+  branch: string;
+  worktree: string;
+  verdict: FreshAgentVerdict;
+  /** The fresh session's composed answer; `''` where the verdict is not `start-fresh`. */
+  answer: string;
+}
+
+/**
+ * Decides every fresh-agent candidate this tick read.
+ *
+ * **PURE, LIKE EVERY OTHER DECISION HERE.** It takes readings and returns a
+ * verdict per desk; nothing here touches a file or a process. Applying
+ * `start-fresh` — starting the new session and recording it in
+ * `fresh-agents.tsv` — is the performer's, through the same port
+ * {@link freshAgentAfterCorrections}'s own doc names: a budget — and that
+ * applier does not exist yet. See the plan's PR for why: the one spawn path
+ * that attaches a manifest, a session id and the WorkerMonitor/AgentMonitor
+ * pair is `plot-dispatch.sh`'s `start_worker`, which this branch's scope does
+ * not reach, and `/api/continue` refuses a desk with no manifest and no
+ * marker-born question — the exact shape a spent budget leaves behind. This
+ * decision is the half that can be built and tested without guessing at that
+ * applier's shape.
+ *
+ * @param candidates - what {@link readFreshAgentCandidates} read.
+ * @param budget - the repository's `Correction budget`, for the composed answer.
+ * @returns one decision per candidate, in the order given.
+ */
+export const freshAgentDecisions = (
+  candidates: readonly FreshAgentCandidateReadings[],
+  budget: number,
+): readonly FreshAgentDecision[] =>
+  candidates.map((reading) => {
+    const verdict = freshAgentAfterCorrections({
+      ending: reading.ending,
+      // A CANDIDATE IS ALREADY `!registered` BY CONSTRUCTION — see
+      // `freshAgentCandidateTrees` — so every reading handed to the rule
+      // carries `hasManifest: false`. A desk a manifest names again before
+      // this tick acts is a desk the NEXT tick's registry read already
+      // supervises, not this population.
+      hasManifest: false,
+      priorFreshSessions: reading.priorFreshSessions,
+    });
+    return {
+      branch: reading.branch,
+      worktree: reading.worktree,
+      verdict,
+      answer:
+        verdict === 'start-fresh'
+          ? freshAgentAnswer({
+              branch: reading.branch,
+              budget,
+              correctionsText: reading.correctionsText,
+              runUrl: reading.runUrl,
+              failedStep: reading.failedStep,
+            })
+          : '',
+    };
+  });
