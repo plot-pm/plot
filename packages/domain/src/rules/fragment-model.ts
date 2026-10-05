@@ -1,13 +1,10 @@
 /**
- * Reads the model a command fragment names, the same reading the board roles
- * use.
+ * Reads the model a command fragment names.
  *
- * **ABSENT IS NOT FALSE.** A fragment naming no model answers `none`, never
- * the string `''` taken as a model name — the charter precedence this plan
- * states (`charter.ts:104-118`, then `Agent models`, then the fragment, then
+ * A fragment naming no model answers `none`, never the string `''` taken as
+ * a model name: the model precedence (charter, `Agent models`, the fragment,
  * the CLI's default) reads each step only where the one before it answered
- * none, and a `''` read as a model would short-circuit that chain on every
- * fragment that simply does not set one.
+ * none.
  */
 
 /** No model was named. */
@@ -30,26 +27,35 @@ const FLAG_EQUALS = /(?:^|\s)--model=(\S+)/;
 const PLOT_MODEL_PREFIX = /(?:^|\s)PLOT_MODEL=(\S+)/;
 
 /**
+ * A flag or prefix value with surrounding quotes removed, or {@link NONE}
+ * where the value is a shell expansion (`$NAME`, `${...}`) whose result the
+ * fragment does not state.
+ */
+const modelValue = (raw: string): ModelReading => {
+  const unquoted = raw.replace(/^(['"])(.*)\1$/, '$2');
+  if (unquoted === '' || unquoted.includes('$')) return NONE;
+  return { named: true, model: unquoted };
+};
+
+/**
  * Reads the model one command fragment names.
  *
- * Checked in this order: a `--model` flag (either spelling) first, because it
- * is the harness's own option and the more specific reading; the
- * `PLOT_MODEL=` prefix second, because `Worker command` sets it ahead of the
- * harness invocation and a fragment naming both would have the flag win on
- * the harness's own command line regardless.
+ * Checked in this order: a `--model` flag (either spelling) first, then the
+ * `PLOT_MODEL=` prefix. Surrounding quotes are removed from the value.
  *
  * @param fragment - the command fragment, verbatim.
- * @returns the model named, or {@link NoModel} where the fragment names none.
+ * @returns the model named, or {@link NoModel} where the fragment names none
+ *   or names it through a shell expansion such as `${PLOT_MODEL}`.
  */
 export const fragmentModel = (fragment: string): ModelReading => {
   const flagged = FLAG_EQUALS.exec(fragment) ?? FLAG_SPACED.exec(fragment);
   if (flagged) {
-    return { named: true, model: flagged[1]! };
+    return modelValue(flagged[1]!);
   }
 
   const prefixed = PLOT_MODEL_PREFIX.exec(fragment);
   if (prefixed) {
-    return { named: true, model: prefixed[1]! };
+    return modelValue(prefixed[1]!);
   }
 
   return NONE;

@@ -1,32 +1,55 @@
 import { describe, expect, it } from 'vitest';
 import { pollRefusal, POLL_REFUSAL_PREFIX } from '../src/rules/poll-refusal.js';
 
+const TASK_OUTPUT = '/private/tmp/claude-501/-Users-me-project/3f2a9c1e-session/tasks/b8k2.output';
+
 describe('pollRefusal', () => {
   it.each([
-    ['true', { command: 'true' }],
-    ['sleep 60', { command: 'sleep 60' }],
-    ['sleep 30 && gh pr checks', { command: 'sleep 30 && gh pr checks' }],
-    ['gh run watch', { command: 'gh run watch' }],
-    ['ps -p 123', { command: 'ps -p 123' }],
-  ])('refuses Bash %s', (_label, input) => {
-    const reason = pollRefusal('Bash', input);
+    ['true', 'true'],
+    ['sleep 60', 'sleep 60'],
+    ['sleep 30 && gh pr checks', 'sleep 30 && gh pr checks'],
+    ['gh run watch', 'gh run watch'],
+    ['gh pr checks', 'gh pr checks'],
+    ['ps -p 123', 'ps -p 123'],
+    ['a while loop around gh pr checks', 'while ! gh pr checks; do sleep 30; done'],
+    ['an until loop around gh pr checks', 'until gh pr checks 12; do sleep 10; done'],
+    ['newline-separated sleep and gh pr checks', 'sleep 60\ngh pr checks 12'],
+    ['sleep || true', 'sleep 5 || true'],
+    ['a bare wait', 'wait'],
+    ['a trailing-& background start', 'pnpm test > /tmp/o.log 2>&1 &'],
+    ['a cat of a background task output file', `cat ${TASK_OUTPUT}`],
+    ['a tail of a background task output file', `tail -n 50 ${TASK_OUTPUT}`],
+    ['sleep then a head of a background task output file', `sleep 20; head ${TASK_OUTPUT}`],
+    ['a less of a background task output file', `less ${TASK_OUTPUT}`],
+  ])('refuses Bash: %s', (_label, command) => {
+    const reason = pollRefusal('Bash', { command });
     expect(reason).not.toBeNull();
     expect(reason).toMatch(new RegExp(`^${POLL_REFUSAL_PREFIX}`));
   });
 
-  it('refuses a cat of a background task output file', () => {
-    const reason = pollRefusal('Bash', { command: 'cat .plot/background-task-123.log' });
-    expect(reason).not.toBeNull();
+  it.each([
+    ['a foreground pnpm test', 'pnpm test'],
+    ['git diff with a true fallback', 'git diff --stat || true'],
+    ['a build, a short sleep, then a script', 'pnpm build && sleep 1 && node x.js'],
+    ['ps aux piped to grep', 'ps aux | grep vitest'],
+    ['a redirect into 2>&1 run in the foreground', 'pnpm test > /tmp/o.log 2>&1'],
+    ['gh pr view', 'gh pr view'],
+    ['gh run list', 'gh run list'],
+    ['a cat of an ordinary file', 'cat packages/domain/src/index.ts'],
+    ['a command that is only separators', '&&'],
+    ['an if around gh pr checks that does other work', 'if gh pr checks; then echo ok; fi'],
+  ])('allows Bash: %s', (_label, command) => {
+    expect(pollRefusal('Bash', { command })).toBeNull();
   });
 
   it('refuses a Read of a background task output file', () => {
-    const reason = pollRefusal('Read', { path: '.plot/background-task-456.log' });
-    expect(reason).not.toBeNull();
+    const reason = pollRefusal('Read', { path: TASK_OUTPUT });
     expect(reason).toMatch(new RegExp(`^${POLL_REFUSAL_PREFIX}`));
   });
 
-  it('allows a Read of an ordinary file', () => {
+  it('allows a Read of an ordinary file, and of a file merely named .output', () => {
     expect(pollRefusal('Read', { path: 'packages/domain/src/index.ts' })).toBeNull();
+    expect(pollRefusal('Read', { path: '/repo/build.output' })).toBeNull();
   });
 
   it('refuses Bash run_in_background true', () => {
@@ -37,27 +60,15 @@ describe('pollRefusal', () => {
     expect(pollRefusal('Agent', { runInBackground: true })).not.toBeNull();
   });
 
-  it('allows a foreground pnpm test', () => {
-    expect(pollRefusal('Bash', { command: 'pnpm test' })).toBeNull();
-  });
-
   it('allows a foreground Agent call', () => {
     expect(pollRefusal('Agent', { runInBackground: false })).toBeNull();
   });
 
-  it('allows a command that is only separators, which segments to nothing', () => {
-    expect(pollRefusal('Bash', { command: '&&' })).toBeNull();
+  it('allows a Bash call with an empty command', () => {
+    expect(pollRefusal('Bash', { command: '' })).toBeNull();
   });
 
-  it('allows gh with no status-reading subcommand', () => {
-    expect(pollRefusal('Bash', { command: 'gh pr view' })).toBeNull();
-  });
-
-  it('allows gh run list, which is neither run watch nor pr checks', () => {
-    expect(pollRefusal('Bash', { command: 'gh run list' })).toBeNull();
-  });
-
-  it('refuses gh pr checks on its own', () => {
-    expect(pollRefusal('Bash', { command: 'gh pr checks' })).not.toBeNull();
+  it('names the CI status read rather than the sleep beside it', () => {
+    expect(pollRefusal('Bash', { command: 'sleep 30 && gh pr checks' })).toContain('`gh pr checks`');
   });
 });

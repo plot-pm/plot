@@ -31,4 +31,22 @@ describe('fragmentModel', () => {
     const fragment = 'PLOT_MODEL=sonnet claude -p --model opus';
     expect(fragmentModel(fragment)).toEqual({ named: true, model: 'opus' });
   });
+
+  it.each([
+    ['claude -p --model "opus"', 'opus'],
+    ["claude -p --model 'sonnet'", 'sonnet'],
+    ['claude -p --model="opus"', 'opus'],
+    ['PLOT_MODEL="sonnet" plot-worker-loop.sh', 'sonnet'],
+  ])('strips surrounding quotes: %s', (fragment, model) => {
+    expect(fragmentModel(fragment)).toEqual({ named: true, model });
+  });
+
+  it.each([
+    ['claude -p --model ${PLOT_MODEL:-opus}'],
+    ['claude -p --model "$MODEL"'],
+    ['PLOT_MODEL=${MODEL} plot-worker-loop.sh'],
+    ['claude -p --model ""'],
+  ])('answers none for a value the fragment does not state: %s', (fragment) => {
+    expect(fragmentModel(fragment)).toEqual({ named: false });
+  });
 });

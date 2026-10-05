@@ -141,4 +141,58 @@ describe('sdkRunExit', () => {
     if (result.answer !== 'ran') return;
     expect(result.handBack).toEqual({ next: 'done', summary: '' });
   });
+
+  it('answers ran with no hand-back for error_max_structured_output_retries with is_error true, as the SDK sends it', () => {
+    const result = sdkRunExit(
+      base({ subtype: 'error_max_structured_output_retries', isError: true, structuredOutput: null }),
+    );
+    expect(result).toEqual({
+      answer: 'ran',
+      handBack: null,
+      detail: 'error_max_structured_output_retries: no hand-back',
+    });
+  });
+
+  it('answers bound for a bound abort that left no result message', () => {
+    const result = sdkRunExit(base({ abortedOnBound: true, noResult: true, subtype: null }));
+    expect(result).toEqual({ answer: 'bound' });
+  });
+
+  it('answers the limit for a zero-turn error that observed a rejected rate_limit_event', () => {
+    const result = sdkRunExit(
+      base({
+        subtype: 'error_during_execution',
+        numTurns: 0,
+        isError: true,
+        structuredOutput: undefined,
+        rateLimitEvent: { status: 'rejected', resetsAt: NOW + 600 },
+      }),
+    );
+    expect(result).toEqual({ answer: 'wait', resetEpoch: NOW + 600 });
+  });
+
+  it('reads resetsAt as epoch seconds: a reset 3600 s after now waits for exactly that epoch', () => {
+    const result = sdkRunExit(base({ rateLimitEvent: { status: 'rejected', resetsAt: NOW + 3600 } }));
+    expect(result).toEqual({ answer: 'wait', resetEpoch: NOW + 3600 });
+  });
+
+  it('answers end-limited no-reset for a rejected event that names no reset', () => {
+    const result = sdkRunExit(base({ rateLimitEvent: { status: 'rejected', resetsAt: null } }));
+    expect(result).toEqual({ answer: 'end-limited', cause: 'no-reset' });
+  });
+
+  it("answers turn-limit for terminal_reason 'max_turns'", () => {
+    const result = sdkRunExit(base({ subtype: null, isError: true, terminalReason: 'max_turns' }));
+    expect(result).toEqual({ answer: 'turn-limit' });
+  });
+
+  it("answers spend-limit for terminal_reason 'budget_exhausted'", () => {
+    const result = sdkRunExit(base({ subtype: null, isError: true, terminalReason: 'budget_exhausted' }));
+    expect(result).toEqual({ answer: 'spend-limit' });
+  });
+
+  it('reads no hand-back from an error_during_execution result that is not marked is_error', () => {
+    const result = sdkRunExit(base({ subtype: 'error_during_execution', numTurns: 3 }));
+    expect(result).toEqual({ answer: 'ran', handBack: null, detail: 'success with no structured_output' });
+  });
 });

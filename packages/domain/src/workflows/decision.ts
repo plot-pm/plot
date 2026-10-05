@@ -255,18 +255,11 @@ export interface AgentResumeWrite {
 }
 
 /**
- * Tells the performer to run the local checks and resume the session with
- * the result — no model turn between the checks and the resume.
- *
- * **{@link AgentResumeWrite} IS THE MODEL FOR THIS.** Both hand an agent's
- * own session a result to continue from; they differ in what produces that
- * result. `agent-resume` carries a correction a person's build gate already
- * computed. This carries nothing to hand back yet, because the checks have
- * not run: the performer runs `plot-local-checks.mjs`'s own commands through
- * `boundedRun`, then resumes {@link resumeId} with either the one line "local
- * checks passed: <summary>" on a pass, or the failing command and the last 80
- * lines of its output on a fail. Neither text is a field here, because
- * neither is known until the performer runs the checks.
+ * Tells the performer to run the local checks a `checks` hand-back asked for.
+ * No model turn runs. The next pass reads the checks' answer as
+ * `localChecks` and resumes {@link resumeId} through an `agent-resume` write:
+ * on a pass with the one line "local checks passed: <summary>", on a fail
+ * with the failing command and the tail of its output.
  */
 export interface ChecksWrite {
   readonly kind: 'checks';
@@ -274,9 +267,9 @@ export interface ChecksWrite {
   readonly branch: string;
   /** The worktree to run the checks in, absolute. */
   readonly worktree: string;
-  /** The session to resume with the checks' result. */
+  /** The session the next pass resumes with the checks' answer. */
   readonly resumeId: string;
-  /** The hand-back's own summary, for the resume's own context. */
+  /** The hand-back's own summary. */
   readonly summary: string;
 }
 

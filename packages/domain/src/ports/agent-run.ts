@@ -4,18 +4,10 @@ import type { TokenCountsRecord } from '../entities/slice-spend.js';
 /**
  * One agent run — the connector a fleet agent starts from TypeScript.
  *
- * **A CONNECTOR, BEHIND ITS OWN PORT, NEITHER `BoundedRun` NOR `Performer`.**
- * `BoundedRun` runs any command to its bound and owns no account; a
- * connector's duties here (record the spend, report the usage limit) must
- * not land on a port that implements neither. `Performer` starts detached
- * processes that outlive the caller; an agent run is owned by its caller and
- * must stay in the caller's process group (#1084), so it cannot be a
- * `Performer` start either.
- *
- * **IT NAMES NO SDK TYPE.** The request and the result describe only the
- * shape a caller needs, so a reader of this file learns nothing about
- * `@anthropic-ai/claude-agent-sdk` — the purity gate allows that package only
- * under `adapters/`, and the connector that imports it is wave 2's.
+ * A connector port, separate from `BoundedRun` and `Performer`: it records
+ * the run's spend and reports the account's usage limit, and the run stays in
+ * its caller's process group. The request and the result name no SDK type;
+ * an adapter under `adapters/` translates them.
  */
 export interface AgentRun {
   /**
@@ -75,7 +67,7 @@ export interface AgentRunRequest {
  * session's totals from its transcript, not from the run just asked for, and
  * this carries that figure verbatim — a reader that wants what THIS run
  * added derives it from the difference against the session's previous line
- * (`readSpend`, wave 3), rather than this port computing one.
+ * (`readSpend`, slice 3), rather than this port computing one.
  */
 export type AgentRunUsage = TokenCountsRecord;
 
@@ -83,16 +75,13 @@ export type AgentRunUsage = TokenCountsRecord;
  * A reading of the account's usage limit, taken during this run.
  *
  * Sent for claude.ai subscription accounts only; an API-key account's run
- * carries none. The scale of `utilization` and `resetAt` is an open question
- * (wave 3's fixture fixes it) — this port carries the SDK's own numbers
- * unconverted, so that question stays open here rather than being answered
- * twice.
+ * carries none. `utilization` is carried in the SDK's own scale, unconverted.
  */
 export interface AgentRunLimitReading {
   /** `allowed`, `allowed_warning` or `rejected`, as the event names it. */
   readonly status: string;
-  /** When the window resets, as the event states it. */
-  readonly resetsAt: number;
+  /** When the window resets, in epoch seconds as the SDK sends it; `null` where the event names none. */
+  readonly resetsAt: number | null;
   /** Which limit this reading is about, in the event's own word. */
   readonly rateLimitType: string;
   /** How much of the window is spent, in the event's own scale. */
@@ -121,6 +110,7 @@ export type AgentHandBack =
  */
 export type AgentRunEnd =
   | { readonly answer: 'unstarted'; readonly detail: string }
+  /** A usage limit the loop may wait out; `resetEpoch` is the reset in epoch seconds. */
   | { readonly answer: 'wait'; readonly resetEpoch: number }
   | { readonly answer: 'end-limited'; readonly cause: 'no-reset' | 'past-bound' | 'no-progress' }
   | { readonly answer: 'bound' }
@@ -133,7 +123,7 @@ export type AgentRunEnd =
  *
  * **THE USAGE IS THE SESSION'S CUMULATIVE FIGURE, NEVER A SUM THIS PORT
  * COMPUTES.** A reader wanting what one run added derives it from the
- * difference against the previous run line — see `readSpend`, wave 3. `turns`
+ * difference against the previous run line — see `readSpend`, slice 3. `turns`
  * is this run's own turns, counted by the adapter as it streams the
  * `assistant` messages; it is not cumulative.
  */

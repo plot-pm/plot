@@ -48,9 +48,8 @@ export { buildNone } from './build/build-none.js';
 export { buildFor, buildShell } from './build/build-resolve.js';
 export { buildFixture, type BuildFixture } from './build/build-fixture.js';
 
-// THE AGENT-RUN CONNECTOR'S FIXTURE. The SDK and `command` adapters are
-// wave 2's and are deliberately absent here — this wave ships only the port
-// and a fixture, with no SDK dependency.
+// THE AGENT-RUN CONNECTOR'S FIXTURE. The SDK and `command` adapters arrive
+// in slice 2; this slice ships the port and a fixture, with no SDK dependency.
 export {
   agentRunFixture,
   type AgentRunFixture,

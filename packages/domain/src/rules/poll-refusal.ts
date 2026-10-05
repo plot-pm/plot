@@ -1,21 +1,12 @@
 /**
  * Refuses a tool call shaped to wait for a background task.
  *
- * **THE GATE REMOVES THE BACKGROUND START; IT DOES NOT CHASE EACH POLL
- * SHAPE.** Measured 2026-10-05: 803 of 13,844 fleet tool turns were polls —
- * `true`, a `cat` of a background task's output, `ListAgents` — and every one
- * of them follows a background start. Refusing those three shapes one by one
- * would leave the model free to find the next one, so the SDK adapter's
- * `disallowedTools` and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` remove the
- * START (wave 2); this rule is the third part, refusing a background start on
- * its own and refusing the poll shapes that need no background start at all
- * — a `sleep` loop around `gh pr checks` starts nothing in the background and
- * still waits inside the model's own turn.
- *
- * **THE REASON'S FIRST WORDS ARE A CONTRACT.** Wave 5's
- * `scripts/count-fleet-turns.mjs` counts a refused poll by the fixed string
- * `plot: poll refused` appearing in a tool result, so this rule's reason must
- * always open with it verbatim.
+ * Refuses a background start (`run_in_background: true` on `Bash` or
+ * `Agent`), a read of a background task's output file, and a Bash command
+ * whose every segment is a poll shape: `sleep`, `true`, a `ps` read, a
+ * `wait`, or a CI status read (`gh run watch`, `gh pr checks`). A command
+ * with one segment that does other work is allowed. Every refusal opens with
+ * {@link POLL_REFUSAL_PREFIX}.
  */
 
 /** What the caller measured about one tool call, before it runs. */
@@ -28,7 +19,10 @@ export interface PollCheck {
   readonly path?: string;
 }
 
-/** The fixed prefix every refusal opens with — wave 5 counts a poll by this string. */
+/**
+ * The fixed prefix every refusal opens with. A refused poll is counted by
+ * this string in a tool result, so it does not change.
+ */
 export const POLL_REFUSAL_PREFIX = 'plot: poll refused';
 
 /** What the rule tells the model to do instead, appended to every refusal. */
@@ -38,12 +32,17 @@ const INSTRUCTION =
 /** Builds a refusal, with the fixed prefix and the shape that triggered it. */
 const refuse = (shape: string): string => `${POLL_REFUSAL_PREFIX}: ${shape} — ${INSTRUCTION}`;
 
-/** The tool names a background start or a background read can come from. */
+/** The tool names a background start can come from. */
 const BACKGROUNDABLE = new Set(['Bash', 'Agent']);
 
-/** Whether a command's argv list is only a `ps` read of one process. */
-const isPsRead = (words: readonly string[]): boolean =>
-  words.length > 0 && wordBasename(words[0]) === 'ps';
+/** The shell keywords stripped from a segment's front before its first word is read. */
+const LEADING_KEYWORDS = new Set(['while', 'until', 'if', 'elif', 'do', 'then', 'else', '!', '{', '(']);
+
+/** The shell keywords that close a loop or a group and carry no command. */
+const CLOSING_KEYWORDS = new Set(['done', 'fi', '}', ')']);
+
+/** The commands that print a file, for the background-output-file shape. */
+const FILE_READERS = new Set(['cat', 'tail', 'head', 'less']);
 
 /** A command's basename, stripping any leading path. */
 const wordBasename = (word: string): string => {
@@ -51,66 +50,69 @@ const wordBasename = (word: string): string => {
   return parts[parts.length - 1]!;
 };
 
-/** Whether one `&&`/`;`/`|`-joined segment is only `sleep <n>`. */
-const isSleepOnly = (words: readonly string[]): boolean =>
-  words.length >= 1 &&
-  wordBasename(words[0]) === 'sleep' &&
-  words.slice(1).every((w) => /^[\d.]+[smhd]?$/.test(w));
+/**
+ * Whether a path names a background task's output file.
+ *
+ * Claude Code writes a background task's output to `<dir>/tasks/<id>.output`.
+ */
+const isBackgroundOutputPath = (path: string): boolean => /\/tasks\/[^/]+\.output$/.test(path);
 
-/** Whether one segment is exactly `true`, with no arguments. */
-const isTrueOnly = (words: readonly string[]): boolean =>
-  words.length === 1 && wordBasename(words[0]) === 'true';
-
-/** Whether one segment reads CI status: `gh run watch` or `gh pr checks`. */
-const isCiStatusRead = (words: readonly string[]): boolean => {
-  if (wordBasename(words[0]!) !== 'gh') return false;
-  return (words[1] === 'run' && words[2] === 'watch') || (words[1] === 'pr' && words[2] === 'checks');
+/** The poll shape one segment's words take, or `null` where the segment does other work. */
+const segmentShape = (words: readonly string[]): string | null => {
+  const first = wordBasename(words[0]!);
+  const args = words.slice(1);
+  if (first === 'true' && args.length === 0) return '`true`';
+  if (first === 'sleep' && args.every((w) => /^[\d.]+[smhd]?$/.test(w))) return '`sleep`';
+  if (first === 'wait') return '`wait`';
+  if (first === 'ps' && args.includes('-p')) return 'a `ps` read of a process';
+  if (first === 'gh' && args[0] === 'run' && args[1] === 'watch') return '`gh run watch`';
+  if (first === 'gh' && args[0] === 'pr' && args[1] === 'checks') return '`gh pr checks`';
+  if (FILE_READERS.has(first) && args.some(isBackgroundOutputPath)) {
+    return "a read of a background task's output file";
+  }
+  return null;
 };
 
 /**
- * Whether a path names a background task's own output file.
+ * Splits a shell command into its segments, each tokenised, with loop and
+ * group keywords removed.
  *
- * The SDK's background-task files carry a name no foreground command's
- * output would — the caller's own convention, read as a reading rather than
- * matched against a hardcoded path here, since the file name is the
- * adapter's to supply where wave 2 wires this in.
+ * Splits on newlines, `&&`, `||`, `;`, `|` and a lone `&`; the `&` of a
+ * redirection such as `2>&1` does not split. A segment that holds only a
+ * keyword such as `done` is dropped.
  */
-const isBackgroundOutputPath = (path: string): boolean =>
-  /\.plot[/-]?background|background[-_]?task/i.test(path);
-
-/** Whether one segment is a `cat` of a background task's own output file. */
-const isBackgroundCat = (words: readonly string[]): boolean =>
-  wordBasename(words[0]!) === 'cat' && words.slice(1).some((word) => isBackgroundOutputPath(word));
-
-/** Splits a shell command into its `&&`/`;`/`|`-joined segments, each tokenised. */
 const segments = (command: string): readonly string[][] =>
   command
-    .split(/&&|;|\|/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment !== '')
-    .map((segment) => segment.split(/\s+/));
+    .split(/\n|&&|\|\||;|\||(?<![<>&])&(?![>&])/)
+    .map((segment) => {
+      const words = segment.trim().split(/\s+/).filter((word) => word !== '');
+      while (words.length > 0 && LEADING_KEYWORDS.has(words[0]!)) words.shift();
+      return words.filter((word) => !CLOSING_KEYWORDS.has(word));
+    })
+    .filter((words) => words.length > 0);
 
 /**
- * Whether a Bash command is shaped like a poll.
+ * Whether a command ends with a lone `&`, which starts it in the background.
+ * `&&` and a redirection such as `2>&1` are not a lone `&`.
+ */
+const startsInBackground = (command: string): boolean => /(?:^|[^&>])&\s*$/.test(command.trim());
+
+/**
+ * The poll shape a Bash command takes, or `null` where it does other work.
  *
- * Checked SEGMENT BY SEGMENT, so `sleep 30 && gh pr checks` is refused by its
- * second segment even though neither alone exhausts the command: a sleep
- * before a status read is the shape a `pnpm test` run never takes, because a
- * foreground test's own segments are neither `sleep`, `true`, a `ps` read nor
- * a CI status read.
+ * @param command - the Bash command, verbatim.
+ * @returns the shape's description where every segment is a poll shape, or
+ *   the command starts in the background; `null` otherwise.
  */
 const commandPolls = (command: string): string | null => {
+  if (startsInBackground(command)) return 'a command started in the background with `&`';
+
   const parts = segments(command);
   if (parts.length === 0) return null;
 
-  for (const words of parts) {
-    if (isTrueOnly(words)) return '`true`';
-    if (isSleepOnly(words)) return 'a bare `sleep`';
-    if (isPsRead(words)) return 'a `ps` read of a process';
-    if (isCiStatusRead(words)) return '`gh run watch` or `gh pr checks`';
-    if (isBackgroundCat(words)) return "a `cat` of a background task's output file";
-  }
-  return null;
+  const shapes = parts.map(segmentShape);
+  if (shapes.some((shape) => shape === null)) return null;
+  return shapes.find((shape) => shape !== '`sleep`') ?? '`sleep`';
 };
 
 /**

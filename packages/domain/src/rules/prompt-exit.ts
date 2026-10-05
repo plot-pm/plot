@@ -291,14 +291,9 @@ export type LimitVerdict =
  * Classifies a limit whose reset, if any, is already resolved to an absolute
  * epoch.
  *
- * **Extracted from {@link promptExit} so `sdkRunExit` can share it.** An SDK
- * run carries no text output to search for a limit line, but it faces the
- * same three questions once a `rate_limit_event`'s `resetsAt` stands in for
- * the line's reset: is a reset known at all, is it within the bound, and did
- * the prompt make progress since the last wait. `promptExit` resolves its
- * epoch from the line's text (`resolveReset`, which stays there because an
- * SDK event carries no text to parse) and calls this; `sdkRunExit` resolves
- * it from the event's own field and calls the same function.
+ * Shared by {@link promptExit}, which resolves the reset from a limit line's
+ * text, and `sdkRunExit`, which reads it from a `rate_limit_event`'s
+ * `resetsAt`.
  *
  * Three answers, and `cause` says which gate refused the wait:
  *
