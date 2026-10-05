@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { checksFromRuns, type ChecksFromRunsReadings } from '../src/rules/checks-verdict.js';
+import { checksFromRuns, checksVerdict, type ChecksFromRunsReadings } from '../src/rules/checks-verdict.js';
 import type { ShaRun } from '../src/entities/build.js';
 
-const BRANCH = 'infra/the-loop-has-a-workflow';
 const PUSHED = 'f743e5730000000000000000000000000000000';
 const OTHER = '0e64fafd0000000000000000000000000000000';
 
@@ -23,7 +22,6 @@ const concludedRun = (sha: string, conclusion: string): ShaRun => ({
 });
 
 const base: ChecksFromRunsReadings = {
-  branch: BRANCH,
   pushedSha: PUSHED,
   run: null,
   tip: 'pushed',
@@ -96,8 +94,25 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     expect(checksFromRuns({ ...base, tip: 'unknown' })).toBe('wait');
   });
 
-  it('never ends no-answer from an unknown tip alone, even at the bound', () => {
+  it('ends an unknown tip at the bound as no-answer, never as tip-moved', () => {
     expect(checksFromRuns({ ...base, tip: 'unknown', waitedSeconds: 3600 })).toBe('no-answer');
+  });
+
+  it('answers none for a bound of 0, before any wait starts, as checksVerdict does', () => {
+    expect(checksFromRuns({ ...base, boundSeconds: 0 })).toBe('none');
+    expect(checksFromRuns({ ...base, boundSeconds: 0, tip: 'other' })).toBe('none');
+    expect(checksFromRuns({ ...base, boundSeconds: -1, run: concludedRun(PUSHED, 'failure') })).toBe('none');
+    expect(
+      checksVerdict({
+        branch: 'b',
+        head: PUSHED,
+        pushed: true,
+        prOpen: true,
+        last: null,
+        waitedSeconds: 0,
+        boundSeconds: 0,
+      }),
+    ).toBe('none');
   });
 
   it('reads the fallback run as evidence about its own sha only, never the pushed one', () => {

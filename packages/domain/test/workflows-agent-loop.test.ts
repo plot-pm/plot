@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { agentLoop, type AgentLoopReadings } from '../src/workflows/agent-loop.js';
 import type { Write } from '../src/workflows/decision.js';
 import { supervise } from '../src/workflows/supervise.js';
+import { checksFromRuns } from '../src/rules/checks-verdict.js';
 import type { SupervisionReadings } from '../src/rules/supervision.js';
 import { deskLifecycle, type DeskReadings as LifecycleDeskReadings } from '../src/rules/desk-lifecycle.js';
 import { endingIsAttributable, isDecision, isRefusal } from '../src/transitions/agent.js';
@@ -23,6 +24,7 @@ const base: AgentLoopReadings = {
   boundSeconds: 28800,
   registration: 'unset',
   claim: null,
+  base: 'origin/main',
   running: null,
   exit: null,
   startRetries: 0,
@@ -53,6 +55,26 @@ const endWrite = (writes: readonly Write[]) =>
 /** The one `declaration` write a decision carries, or undefined. */
 const declarationWrite = (writes: readonly Write[]) =>
   writes.find((w): w is Extract<Write, { kind: 'declaration' }> => w.kind === 'declaration');
+
+/**
+ * The declaration file `supervise` would read after this decision: the
+ * `declaration` write `agentLoop` emitted, serialised and read back through
+ * `readDeclaration`; `absent` when the decision emitted none.
+ */
+const declarationReadFrom = (writes: readonly Write[]) => {
+  const write = declarationWrite(writes);
+  return readDeclaration(
+    write === undefined
+      ? null
+      : JSON.stringify({ branch: write.branch, status: write.status, artifacts: [], pr: null, summary: write.summary }),
+  );
+};
+
+/** What `supervise` answers for a dead agent whose desk holds what `readings` made `agentLoop` write. */
+const superviseAfter = (readings: AgentLoopReadings) =>
+  supervise({
+    agents: [agentFor(BRANCH, { workerAlive: false, declaration: declarationReadFrom(agentLoop(readings).writes) })],
+  });
 
 describe('agentLoop — row 1: no assignment, inside Worker bound', () => {
   it('waits one pass with no writes and no ending', () => {
@@ -103,12 +125,20 @@ describe('agentLoop — row 3: manifest gone (loopRegistration answers gone)', (
 });
 
 describe('agentLoop — row 4: an assignment', () => {
-  it('pushes the claim and records the first prompt run', () => {
+  it('resets the desk onto the branch, records the first prompt run and pushes the claim', () => {
     const result = agentLoop({ ...base, assignedBranch: BRANCH, claim: 'absent' });
-    expect(kindsOf(result.writes)).toEqual(['prompt-run', 'push']);
+    expect(kindsOf(result.writes)).toEqual(['desk-reset', 'prompt-run', 'push']);
+    expect(result.writes[0]).toEqual({ kind: 'desk-reset', worktree: WORKTREE, branch: BRANCH, base: 'origin/main' });
     const push = result.writes.find((w) => w.kind === 'push');
     expect(push).toMatchObject({ kind: 'push', branch: BRANCH });
     expect(result.detail.exitCode).toBeNull();
+    expect(result.detail.note).toContain('desk reset');
+  });
+
+  it('emits no desk-reset over a desk resetRefusals names', () => {
+    const result = agentLoop({ ...base, assignedBranch: BRANCH, resetRefusals: ['uncommitted-changes'] });
+    expect(kindsOf(result.writes)).toEqual(['prompt-run', 'push']);
+    expect(result.detail.note).toContain('desk not reset (uncommitted-changes)');
   });
 
   it('reports the claim read as unknown when the caller supplied none', () => {
@@ -239,12 +269,14 @@ describe('agentLoop — row 7: prompt exit unstarted', () => {
     );
   });
 
-  it('supervise answers needs-a-person for a blocked declaration', () => {
-    const agent = agentFor(BRANCH, {
-      workerAlive: false,
-      declaration: { read: 'declared', declaration: declaredBlocked(BRANCH) },
+  it('supervise answers needs-a-person from the declaration this row writes', () => {
+    const result = superviseAfter({
+      ...base,
+      assignedBranch: BRANCH,
+      exit: { answer: 'unstarted' },
+      startRetries: 2,
+      maxStartRetries: 2,
     });
-    const result = supervise({ agents: [agent] });
     expect(result.detail.needingAPerson).toEqual([BRANCH]);
   });
 
@@ -318,12 +350,12 @@ describe('agentLoop — row 9: prompt exit end-limited', () => {
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'agent', reason: 'limited' }))).toBe(true);
   });
 
-  it('supervise answers needs-a-person', () => {
-    const agent = agentFor(BRANCH, {
-      workerAlive: false,
-      declaration: { read: 'declared', declaration: declaredBlocked(BRANCH) },
+  it('supervise answers needs-a-person from the declaration this row writes', () => {
+    const result = superviseAfter({
+      ...base,
+      assignedBranch: BRANCH,
+      exit: { answer: 'end-limited', line: '5-hour limit reached', cause: 'past-bound' },
     });
-    const result = supervise({ agents: [agent] });
     expect(result.detail.needingAPerson).toEqual([BRANCH]);
   });
 
@@ -356,12 +388,14 @@ describe('agentLoop — row 10: prompt exit ran, the agent wrote a PLOT-BLOCKED 
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'agent', reason: 'blocked' }))).toBe(true);
   });
 
-  it('supervise answers needs-a-person straight from the declaration, before any gate runs', () => {
-    const agent = agentFor(BRANCH, {
-      workerAlive: false,
-      declaration: { read: 'declared', declaration: declaredBlocked(BRANCH) },
+  it('supervise answers needs-a-person straight from the declaration this row writes, before any gate runs', () => {
+    const result = superviseAfter({
+      ...base,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      markerWritten: true,
+      markerText: 'PLOT-BLOCKED: use fetch or axios?',
     });
-    const result = supervise({ agents: [agent] });
     expect(result.detail.needingAPerson).toEqual([BRANCH]);
   });
 
@@ -435,6 +469,42 @@ describe('agentLoop — row 12: prompt exit ran, work pushed, a PR open', () => 
     });
     expect(result.writes).toEqual([]);
     expect(result.detail.exitCode).toBeNull();
+  });
+});
+
+describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open', () => {
+  it('seals and frees the slice with no checks wait when nothing was pushed', () => {
+    const result = agentLoop({ ...base, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: false, prOpen: false });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
+    expect(declarationWrite(result.writes)?.status).toBe('ok');
+    expect(endWrite(result.writes)).toBeUndefined();
+    expect(result.detail.note).toBe('nothing pushed, no checks wait');
+  });
+
+  it('seals and frees the slice with no checks wait when no PR is open', () => {
+    const result = agentLoop({ ...base, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: true, prOpen: false });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
+    expect(result.detail.note).toBe('no PR open, no checks wait');
+  });
+
+  it('still ends holding-work first when the desk holds unlanded work', () => {
+    const result = agentLoop({
+      ...base,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      resetRefusals: ['unpushed-commits'],
+    });
+    expect(endWrite(result.writes)?.reason).toBe('holding-work');
+  });
+});
+
+describe('agentLoop — row 12b: Checks wait disables the wait', () => {
+  it('seals and frees the slice when checksFromRuns answers none', () => {
+    const checks = checksFromRuns({ pushedSha: 'f743e573', run: null, tip: 'pushed', waitedSeconds: 0, boundSeconds: 0 });
+    expect(checks).toBe('none');
+    const result = agentLoop({ ...base, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: true, prOpen: true, checks });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
+    expect(result.detail.note).toBe('the checks wait is disabled');
   });
 });
 
@@ -544,12 +614,18 @@ describe('agentLoop — row 15: checks fail, budget spent', () => {
     expect(marker && 'question' in marker ? marker.question : '').toContain('its PR');
   });
 
-  it('supervise answers needs-a-person', () => {
-    const agent = agentFor(BRANCH, {
-      workerAlive: false,
-      declaration: { read: 'declared', declaration: declaredBlocked(BRANCH) },
+  it('supervise answers needs-a-person from the declaration this row writes', () => {
+    const result = superviseAfter({
+      ...base,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: false,
+      correctionAttempts: 2,
+      correctionBudget: 2,
     });
-    const result = supervise({ agents: [agent] });
     expect(result.detail.needingAPerson).toEqual([BRANCH]);
   });
 
@@ -586,12 +662,15 @@ describe('agentLoop — row 16: no check answer by Checks wait', () => {
     ).toBe(true);
   });
 
-  it('supervise answers needs-a-person', () => {
-    const agent = agentFor(BRANCH, {
-      workerAlive: false,
-      declaration: { read: 'declared', declaration: declaredBlocked(BRANCH) },
+  it('supervise answers needs-a-person from the declaration this row writes', () => {
+    const result = superviseAfter({
+      ...base,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'no-answer',
     });
-    const result = supervise({ agents: [agent] });
     expect(result.detail.needingAPerson).toEqual([BRANCH]);
   });
 });
@@ -607,9 +686,12 @@ describe('agentLoop — row 17: the remote tip is no longer the pushed commit', 
       checks: 'tip-moved',
       tip: 'other',
     });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
     const end = endWrite(result.writes);
     expect(end?.reason).toBe('checks-unanswered');
-    expect(end?.detail).toBe('tip-moved');
+    expect(end?.detail).toMatch(/^tip-moved: /);
+    expect(end?.detail).toContain(BRANCH);
     expect(end?.actor).toBe('agent');
     expect(end?.exitCode).toBe(0);
   });
@@ -626,15 +708,20 @@ describe('agentLoop — row 17: the remote tip is no longer the pushed commit', 
       waitedSeconds: 1,
       boundSeconds: 3600,
     });
-    expect(endWrite(result.writes)?.detail).toBe('tip-moved');
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    expect(endWrite(result.writes)?.detail).toMatch(/^tip-moved: /);
   });
 
-  it('supervise answers needs-a-person', () => {
-    const agent = agentFor(BRANCH, {
-      workerAlive: false,
-      declaration: { read: 'declared', declaration: declaredBlocked(BRANCH) },
+  it('supervise answers needs-a-person from the declaration this row writes', () => {
+    const result = superviseAfter({
+      ...base,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'tip-moved',
+      tip: 'other',
     });
-    const result = supervise({ agents: [agent] });
     expect(result.detail.needingAPerson).toEqual([BRANCH]);
   });
 });
@@ -654,20 +741,25 @@ describe('agentLoop — row 18: the remote tip cannot be read', () => {
     expect(result.detail.exitCode).toBeNull();
   });
 
-  it('never reads unknown as no-answer, even past the bound — a failure to observe is not evidence', () => {
+  it('an unknown tip at Checks wait ends no-answer, never tip-moved', () => {
+    const checks = checksFromRuns({
+      pushedSha: 'f743e573',
+      run: null,
+      tip: 'unknown',
+      waitedSeconds: 3600,
+      boundSeconds: 3600,
+    });
+    expect(checks).toBe('no-answer');
     const result = agentLoop({
       ...base,
       assignedBranch: BRANCH,
       exit: { answer: 'ran' },
       pushed: true,
       prOpen: true,
-      checks: 'wait',
+      checks,
       tip: 'unknown',
-      waitedSeconds: 3600,
-      boundSeconds: 3600,
     });
-    expect(result.writes).toEqual([]);
-    expect(result.detail.exitCode).toBeNull();
+    expect(endWrite(result.writes)?.detail).toBe('no-answer');
   });
 });
 
@@ -880,14 +972,6 @@ const agentFor = (branch: string, over: Partial<SupervisionReadings> = {}): Supe
   madeProgress: true,
   headroom: 'clear',
   ...over,
-});
-
-const declaredBlocked = (branch: string) => ({
-  branch,
-  status: 'blocked' as const,
-  artifacts: [],
-  pr: null,
-  summary: 'blocked',
 });
 
 /** A clean, claimed, unmarked lifecycle desk, overridden per test. */

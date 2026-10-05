@@ -50,6 +50,12 @@ export interface AgentLoopReadings {
    * a performer's question.
    */
   readonly claim: ClaimHolderAnswer | null;
+  /**
+   * The ref a desk reset cuts the branch from when it does not exist locally:
+   * `origin/<default branch>`, as the shell's `reset_desk` uses. Read at
+   * take-up only.
+   */
+  readonly base: string;
 
   /**
    * Whether a prompt is running this pass, and if so, what the idle watch
@@ -68,7 +74,13 @@ export interface AgentLoopReadings {
    * while {@link running} is non-null, or before any prompt has run yet.
    */
   readonly exit: PromptExit | null;
-  /** How many start retries this slice has spent on an `unstarted` exit. */
+  /**
+   * The manifest's `attempts` field, as the shell reads it. The supervisor's
+   * relaunches raise the same field, so it is not a per-slice count: an
+   * `unstarted` retry writes this value plus one through `agent-attempt`, and
+   * a caller that passes anything but the manifest's own value moves the
+   * supervisor's `MAX_ATTEMPTS` budget with it.
+   */
   readonly startRetries: number;
   /** How many start retries are allowed before the loop gives up and blocks. */
   readonly maxStartRetries: number;
@@ -76,17 +88,30 @@ export interface AgentLoopReadings {
   readonly markerWritten: boolean;
   /** The marker's own text, for the `declaration` and `blocked-marker` writes. */
   readonly markerText: string;
-  /** Why this desk may not be reset — empty when nothing holds it. */
+  /**
+   * Why this desk may not be reset — empty when nothing holds it. Read at
+   * take-up, where a non-empty list withholds the `desk-reset` write, and
+   * after a `ran` exit, where it ends the loop `holding-work`.
+   */
   readonly resetRefusals: readonly ResetRefusal[];
-  /** Whether the desk's `HEAD` has been pushed to the remote. */
+  /**
+   * Whether the desk's `HEAD` is on the remote, read after a `ran` exit. With
+   * `false` no CI answer can come, so the slice is sealed and freed with no
+   * checks wait.
+   */
   readonly pushed: boolean;
-  /** Whether an open pull request carries the branch. */
+  /**
+   * Whether an open pull request carries the branch, read after a `ran` exit.
+   * With `false` no CI answer can come, so the slice is sealed and freed with
+   * no checks wait.
+   */
   readonly prOpen: boolean;
 
   /**
    * What the build connector and the tip reading answer for the pushed
    * commit, once a PR is open and the CI wait has started. `null` before the
-   * wait has asked at all (the pass right after the push, row 12).
+   * wait has asked at all (the pass right after the push, row 12). `'none'`
+   * when `Checks wait` disables the wait, which seals and frees the slice.
    */
   readonly checks: ChecksFromRuns | null;
   /** Whether the settled run passed, read only where {@link checks} is `'settled'`. */
@@ -150,6 +175,21 @@ const blockedDeclaration = (worktree: string, branch: string, summary: string): 
 });
 
 /**
+ * A decision that seals the slice and frees the loop: `declaration` ok, the
+ * slice's spend, and the manifest's assignment cleared.
+ */
+const seal = (worktree: string, branch: string, session: string, note: string): Decision<AgentLoopDetail> =>
+  decide(
+    'agent-loop',
+    [
+      { kind: 'declaration', worktree, branch, status: 'ok', summary: '' },
+      { kind: 'slice-spend', branch, worktree },
+      { kind: 'assignment-clear', session },
+    ],
+    { branch, exitCode: null, note },
+  );
+
+/**
  * Decides one pass of an agent's loop: what it writes next, and whether it
  * ends.
  *
@@ -206,15 +246,21 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
 
   const branch = readings.assignedBranch;
 
-  // ROW 4 — an assignment was just read: push the claim.
+  // ROW 4 — an assignment was just read: reset the desk onto it, push the
+  // claim, run the first prompt. A desk `resetRefusals` names is not reset.
   if (readings.running === null && readings.exit === null) {
+    const resettable = readings.resetRefusals.length === 0;
+    const reset: readonly Write[] = resettable
+      ? [{ kind: 'desk-reset', worktree, branch, base: readings.base }]
+      : [];
     return decide(
       'agent-loop',
-      [
-        { kind: 'prompt-run', worktree, branch },
-        { kind: 'push', branch, onto: '' },
-      ],
-      { branch, exitCode: null, note: `claim pushed, read: ${readings.claim ?? 'unknown'}` },
+      [...reset, { kind: 'prompt-run', worktree, branch }, { kind: 'push', branch, onto: '' }],
+      {
+        branch,
+        exitCode: null,
+        note: `${resettable ? 'desk reset, ' : `desk not reset (${readings.resetRefusals.join(', ')}), `}claim pushed, read: ${readings.claim ?? 'unknown'}`,
+      },
     );
   }
 
@@ -306,12 +352,26 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     return end(worktree, branch, 'holding-work', 'agent', `the desk holds unlanded work: ${refusal}`, 0);
   }
 
-  // ROW 12 — work pushed, a PR open, the CI wait has not been asked yet. The
-  // same wait also covers a `ran` exit whose push or PR has not landed yet
-  // this pass — `checks` stays `null` until both are true, so there is
-  // nothing more specific to decide from here than "keep waiting."
+  // ROW 12a — nothing pushed, or no PR open: no CI answer can come, so the
+  // slice is sealed and freed with no checks wait. `checksVerdict` answers
+  // `none` for the same readings, and the shell seals the slice on it.
+  if (exit !== null && exit.answer === 'ran' && (!readings.pushed || !readings.prOpen)) {
+    return seal(
+      worktree,
+      branch,
+      readings.session,
+      readings.pushed ? 'no PR open, no checks wait' : 'nothing pushed, no checks wait',
+    );
+  }
+
+  // ROW 12 — work pushed, a PR open, the CI wait has not been asked yet.
   if (exit !== null && exit.answer === 'ran' && readings.checks === null) {
     return wait(branch, 'waiting for checks');
+  }
+
+  // ROW 12b — `Checks wait` disables the wait: sealed and freed, as for 12a.
+  if (readings.checks === 'none') {
+    return seal(worktree, branch, readings.session, 'the checks wait is disabled');
   }
 
   // ROWS 13-18 — the CI wait is in progress.
@@ -321,7 +381,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   // where `checksFromRuns` would otherwise still read `wait` (a green run can
   // exist for the NEW tip, and that run is not evidence about this one).
   if (readings.checks === 'tip-moved') {
-    return end(worktree, branch, 'checks-unanswered', 'agent', 'tip-moved', 0, [
+    return end(worktree, branch, 'checks-unanswered', 'agent', `tip-moved: the remote tip of \`${branch}\` is no longer the pushed commit`, 0, [
       blockedDeclaration(worktree, branch, 'the remote tip moved away from the pushed commit'),
     ]);
   }
@@ -346,15 +406,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   if (readings.checksPassed === true) {
     // ROW 13 — checks pass: declare ok, record the spend, clear the
     // assignment, then the loop is free again.
-    return decide(
-      'agent-loop',
-      [
-        { kind: 'declaration', worktree, branch, status: 'ok', summary: '' },
-        { kind: 'slice-spend', branch, worktree },
-        { kind: 'assignment-clear', session: readings.session },
-      ],
-      { branch, exitCode: null, note: 'checks passed' },
-    );
+    return seal(worktree, branch, readings.session, 'checks passed');
   }
 
   if (readings.correctionAttempts < readings.correctionBudget) {

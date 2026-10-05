@@ -395,9 +395,8 @@ export interface EndingAttributionInput {
  *
  * **`blocked` AND `checks-unanswered` ARE THE FIFTH AND SIXTH, AND BOTH ARE
  * THE LOOP'S OWN JUDGEMENT OF ITS OWN DESK.** `blocked` covers a marker the
- * agent wrote itself, a spent start-retry or correction budget, and a usage
- * limit with no wait allowed — none of those is a clock expiring or a monitor
- * publishing a finding. `checks-unanswered` is the loop's own CI wait giving
+ * agent wrote itself and a spent correction budget — neither is a clock
+ * expiring or a monitor publishing a finding. `checks-unanswered` is the loop's own CI wait giving
  * up, either because `Checks wait` was reached with no answer or because the
  * branch's remote tip moved out from under the pushed commit (#1199, #1255) —
  * again a reading the loop's own pass took, not a watcher's.

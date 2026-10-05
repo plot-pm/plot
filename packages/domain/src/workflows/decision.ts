@@ -376,9 +376,10 @@ export interface PushWrite {
  * The free wait comes before it: a desk is reset once an assignment is read,
  * never while the loop still waits for one. Checking out a base and a branch
  * with plain `git checkout` is what the shell's equivalent does, so a file the
- * earlier readings missed makes the write refuse rather than overwrite —
- * {@link AgentLoopReadings} in `agent-loop.ts` never emits this write over a
- * desk `resetRefusals` names, for the same reason `deskIsResettable` exists.
+ * earlier readings missed makes the write refuse rather than overwrite.
+ * `agentLoop` in `agent-loop.ts` emits it at take-up only when the desk's
+ * `resetRefusals` names nothing, for the same reason `deskIsResettable`
+ * exists.
  */
 export interface DeskResetWrite {
   readonly kind: 'desk-reset';
@@ -489,7 +490,10 @@ export interface LoopEndWrite {
   readonly branch: string;
   /** Why the loop ended. */
   readonly reason: EndingReason;
-  /** Which party ended it — always `agent` for a reason this workflow emits. */
+  /**
+   * Which party ended it: `monitor` for `quiet`, `bound` for `bound` and
+   * `unreadable`, and `agent` for every other reason `agentLoop` emits.
+   */
   readonly actor: EndingActor;
   /** One sentence naming the reading. */
   readonly detail: string;

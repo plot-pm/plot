@@ -107,8 +107,6 @@ export type RemoteTipReading = 'pushed' | 'other' | 'unknown';
 
 /** What `checksFromRuns` needs to decide one pass of the loop's CI wait. */
 export interface ChecksFromRunsReadings {
-  /** The branch the agent holds. */
-  readonly branch: string;
   /** The commit the agent pushed — the desk's `HEAD` at the time it pushed. */
   readonly pushedSha: string;
   /**
@@ -142,6 +140,8 @@ const SETTLED_CONCLUSIONS: readonly string[] = ['success', 'failure', 'action_re
 /**
  * The answer to one pass of the loop's own CI wait.
  *
+ * - `none`: waiting is disabled (`Checks wait` is `0` or less); no wait
+ *   starts. The same answer {@link checksVerdict} gives for that bound.
  * - `wait`: the run for the pushed commit has no conclusion yet, and the tip
  *   is still that commit (or unreadable this pass). Keep waiting.
  * - `settled`: the run for the pushed commit concluded. The caller reads
@@ -151,7 +151,7 @@ const SETTLED_CONCLUSIONS: readonly string[] = ['success', 'failure', 'action_re
  *   even inside the bound, because no build this loop could read would be
  *   about the agent's own work.
  */
-export type ChecksFromRuns = 'wait' | 'settled' | 'no-answer' | 'tip-moved';
+export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'no-answer' | 'tip-moved';
 
 /**
  * Decides one pass of the loop's own CI wait, from the build connector's run
@@ -170,14 +170,19 @@ export type ChecksFromRuns = 'wait' | 'settled' | 'no-answer' | 'tip-moved';
  * {@link ShaRun.sha} too, and a run for any other commit is the same as no
  * run at all.
  *
- * `unknown` NEVER ENDS THE WAIT. A tip that could not be read this pass is not
- * evidence it moved — the same reading-over-absence rule every other part of
- * this estate keeps — so the wait continues and the next pass tries again.
+ * `unknown` NEVER ENDS THE WAIT AS `tip-moved`. A tip that could not be read
+ * this pass is not evidence it moved, so the wait continues and the next pass
+ * tries again. At `Checks wait` it ends `no-answer`, as any wait with nothing
+ * conclusive does.
+ *
+ * A BOUND OF `0` OR LESS ANSWERS `none` before any other reading, as
+ * {@link checksVerdict} does: no wait starts.
  *
  * @param readings - what the loop measured this pass.
  * @returns the verdict for this pass.
  */
 export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns => {
+  if (readings.boundSeconds <= 0) return 'none';
   if (readings.tip === 'other') return 'tip-moved';
 
   const run = readings.run !== null && readings.run.sha === readings.pushedSha ? readings.run : null;
