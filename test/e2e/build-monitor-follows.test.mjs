@@ -255,41 +255,21 @@ test('a run for a sha this branch never had publishes nothing, on the real path'
   // `run-for-sha` answers only for the sha it is asked about. The host's only
   // run is for a sha this branch never had, so the real op — the real
   // `gh run list` piped through the real jq filter — answers nothing, and the
-  // monitor must stay silent rather than inventing `head moved` from an
-  // unrelated run: that finding exists for a run the host itself reports as
-  // being for a DIFFERENT sha than the one asked about, which a run-for-sha
-  // answering nothing can no longer produce.
+  // monitor stays silent. The host call is asserted first: an empty findings
+  // file is also what a monitor that never ran leaves.
   const stub = stubHost(runForOtherSha);
   const run = dispatchOne('build-head-moved', { workerCommand: COMMITS_AND_EXITS, stub });
 
-  waitFor(run.findingsFile, () => false, 6_000);
+  const asked = () => stub.calls().some((c) => c.startsWith('gh run list'));
+  for (const deadline = Date.now() + 20_000; !asked() && Date.now() < deadline;) {
+    execFileSync('sleep', ['0.2']);
+  }
+  assert.ok(asked(), `the monitor never asked the host for a run: ${JSON.stringify(stub.calls())}`);
+
+  waitFor(run.findingsFile, () => false, 3_000);
   const found = fs.existsSync(run.findingsFile)
     ? fs.readFileSync(run.findingsFile, 'utf8').trim().split('\n').filter(Boolean)
     : [];
   assert.deepEqual(found, [],
     `a run for a sha this branch never had produced a finding: ${JSON.stringify(found)}`);
-});
-
-test('a worker whose branch has no run publishes nothing, and stops asking', () => {
-  // THE SILENCE, ACROSS THE BOUNDARY. `it polls nothing when no run is live` is
-  // asserted against counted ports in the unit file; here the subject is that
-  // silence is what a real, correctly-behaving monitor actually produces — an
-  // empty findings file rather than a heartbeat, a "nothing measured yet", or a
-  // finding invented out of an empty answer.
-  //
-  // The host says it has no runs at all, which is the ordinary state of a fresh
-  // push before CI wakes up.
-  const stub = stubHost(`
-    if (argv.includes("run") && argv.includes("list")) process.stdout.write("[]");
-    else if (argv.includes("pr") && argv.includes("list")) process.stdout.write("[]");
-    else process.stdout.write("{}");
-  `);
-  const run = dispatchOne('build-silent', { workerCommand: COMMITS_AND_EXITS, stub });
-
-  waitFor(run.findingsFile, () => false, 6_000);
-  const found = fs.existsSync(run.findingsFile)
-    ? fs.readFileSync(run.findingsFile, 'utf8').trim().split('\n').filter(Boolean)
-    : [];
-  assert.deepEqual(found, [],
-    `a branch with no run produced findings: ${JSON.stringify(found)}`);
 });

@@ -55,9 +55,10 @@ const finding = (word, sha, branch = BRANCH) =>
  *
  * `pushed` and `prOpen` answer the two network readings. `late` is a line the
  * test appends to the findings file `lateAfter` seconds into the wait, standing
- * in for the BuildMonitor publishing while the loop polls.
+ * in for the BuildMonitor publishing while the loop polls. `background` is a
+ * shell command started beside the wait, for a test that runs the real monitor.
  */
-const wait = ({ wt, pushed = true, prOpen = true, lines = [], late = null, lateAfter = 2, waitSeconds = 30 }) => {
+const wait = ({ wt, pushed = true, prOpen = true, lines = [], late = null, lateAfter = 2, waitSeconds = 30, background = null }) => {
   const file = path.join(wt, '.plot-worker.monitor.build.jsonl');
   fs.writeFileSync(file, lines.map((l) => `${l}\n`).join(''));
   const script = `
@@ -69,6 +70,7 @@ const wait = ({ wt, pushed = true, prOpen = true, lines = [], late = null, lateA
     head_is_pushed() { return ${pushed ? 0 : 1}; }
     pr_is_open() { return ${prOpen ? 0 : 1}; }
     ${late ? `( sleep ${lateAfter}; printf '%s\\n' ${JSON.stringify(late)} >> ${JSON.stringify(file)} ) &` : ''}
+    ${background ? `${background} &` : ''}
     wait_for_checks
     echo RETURNED
   `;
@@ -91,6 +93,40 @@ test('a pushed head with an open PR waits until the BuildMonitor reports a resul
     assert.match(log, /CI answered on feature\/waits-for-checks/, log);
     assert.ok(seconds >= 2, `returned after ${seconds}s, before the result was published`);
   } finally {
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
+
+test('a monitor that finds no run for the new commit, then a run for it, ends the wait on that answer', () => {
+  // The real BuildMonitor, sourced, asks a host that has no run for the pushed
+  // commit on the first pass and a failed run for it on the second. The wait
+  // ends on the second pass's finding, well inside its 30 s bound.
+  const { wt, head } = desk();
+  const monitor = path.join(path.dirname(loop), 'plot-build-monitor.sh');
+  const run = JSON.stringify({ sha: head, status: 'completed', conclusion: 'failure', url: 'https://ci/run/2', startedAt: 't' });
+  const driver = path.join(wt, '..', `${path.basename(wt)}-monitor.sh`);
+  fs.writeFileSync(driver, `
+    PLOT_MONITOR_NO_MAIN=1
+    . ${JSON.stringify(monitor)}
+    monitor_head_sha() { printf '%s' ${JSON.stringify(head)}; }
+    monitor_run_for_sha() { [ -f ${JSON.stringify(path.join(wt, 'ci-started'))} ] && printf '%s' '${run}'; return 0; }
+    monitor_pass
+    sleep 2
+    touch ${JSON.stringify(path.join(wt, 'ci-started'))}
+    monitor_pass
+  `);
+  const background = `bash ${JSON.stringify(driver)}`;
+  const env = { PLOT_BRANCH: BRANCH, PLOT_WORKTREE: wt, PLOT_MONITOR_FILE: path.join(wt, '.plot-worker.monitor.build.jsonl') };
+  Object.assign(process.env, env);
+  try {
+    const { log, seconds } = wait({ wt, background });
+    assert.match(log, /waiting for the checks/, log);
+    assert.match(log, /CI answered on feature\/waits-for-checks/, log);
+    assert.doesNotMatch(log, /no CI answer/, log);
+    assert.ok(seconds >= 2 && seconds < 15, `ended after ${seconds}s, not on the second pass's answer`);
+  } finally {
+    for (const k of Object.keys(env)) delete process.env[k];
+    fs.rmSync(driver, { force: true });
     fs.rmSync(wt, { recursive: true, force: true });
   }
 });

@@ -4364,9 +4364,9 @@ case "$op" in
     # deliberately NOT an error: a monitor polling a fresh push sees it on every
     # pass until CI wakes up.
     #
-    # Bitbucket reports nothing rather than something invented, exactly as
-    # `runs` does: `bb` has no run listing, and silence here reads as
-    # unavailable, never as "this sha has no build".
+    # A Bitbucket remote exits 4 (`bb` has no run listing), as does a failing
+    # `gh` or Jenkins that cannot be asked: exit 4 reads as unavailable, never
+    # as "this sha has no build".
     branch="${1:?run-for-sha needs a branch}"; shift
     sha="${1:?run-for-sha needs a sha}"; shift
     # Enough runs to find the sha among its neighbours. A branch accumulates
@@ -4505,14 +4505,18 @@ case "$op" in
     # live answer for a commit the branch has already moved past, which is
     # worse than no answer. No match means no output, read the same as a
     # branch with no runs at all.
-    gh run list --branch "$branch" --limit "$limit" \
-      --json headSha,conclusion,status,startedAt,url 2>/dev/null \
-      | jq -c --arg sha "$sha" \
-          '(map(select(.headSha == $sha)) | .[0])
-           | select(. != null)
-           | {sha:.headSha, status:.status,
-              conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
-              url:.url, startedAt:.startedAt}' 2>/dev/null || true
+    #
+    # A FAILING `gh` IS NOT AN EMPTY HISTORY. An expired token, a rate limit or
+    # a network failure exits 4 here, the way the Jenkins arm does, so the
+    # monitor reads *could not ask* and not *no run yet*.
+    _gh_runs=$(gh run list --branch "$branch" --limit "$limit" \
+      --json headSha,conclusion,status,startedAt,url 2>/dev/null) \
+      || { echo "plot-host: run-for-sha — gh run list failed for '$branch'" >&2; exit 4; }
+    printf '%s' "$_gh_runs" | jq -c --arg sha "$sha" \
+      '(map(select(.headSha == $sha)) | .[0]) | select(. != null)
+       | {sha:.headSha, status:.status,
+          conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
+          url:.url, startedAt:.startedAt}' || exit 4
     ;;
 
   issue-list)
