@@ -97,21 +97,25 @@ export type WorkflowName =
   | 'reconcile'
   | 'implement'
   | 'release'
-  | 'supervise';
+  | 'supervise'
+  | 'agent-loop';
 
 /**
  * The workflows belonging to each phase, in the order a phase performs them.
  *
- * WHAT THIS ADDS: `WorkflowName` is a flat union of eight names, and the phases
+ * WHAT THIS ADDS: `WorkflowName` is a flat union of nine names, and the phases
  * are an ordered list of five. Nothing connected them, so *which work does this
  * phase name* had no answer in the domain.
  *
  * **THE FLEET'S WORKFLOWS BELONG TO NO PHASE, AND THAT IS THE ASSERTION.**
- * `assign`, `reap` and `supervise` act on **agents and desks**; the five below
- * act on **a plan moving through its lifecycle**. The two sets share no
- * successor relation — reaping a desk does not come after delivering a plan in
- * any sense a workflow could compute — so a list mixing them cannot answer
- * *what comes next*. They are absent here deliberately, not pending.
+ * `assign`, `reap`, `supervise` and `agent-loop` act on **agents and desks**;
+ * the five below act on **a plan moving through its lifecycle**. The two sets
+ * share no successor relation — reaping a desk does not come after delivering
+ * a plan in any sense a workflow could compute — so a list mixing them cannot
+ * answer *what comes next*. They are absent here deliberately, not pending.
+ * `agent-loop` decides one agent's own pass rather than a plan's lifecycle
+ * move, which is why it joins the three rather than gaining a phase of its
+ * own.
  *
  * So this is a PARTITION rather than an annotation: {@link phaseOf} answers
  * `null` for those three, and `null` is a stated answer.

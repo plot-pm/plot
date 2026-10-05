@@ -1,3 +1,5 @@
+import type { ShaRun } from '../entities/build.js';
+
 /**
  * Whether an agent that finished a prompt still waits for its pull request's
  * checks.
@@ -89,4 +91,105 @@ export const checksVerdict = (readings: ChecksReadings): ChecksVerdict => {
     return 'settled';
   }
   return readings.waitedSeconds >= readings.boundSeconds ? 'expired' : 'wait';
+};
+
+/**
+ * The branch's remote tip, as the loop's CI wait compares it.
+ *
+ * THREE VALUES, AND THE COMPARISON IS EQUALITY, NOT ANCESTRY. `pushed` is the
+ * tip the loop's own commit; `other` is a different commit — another party
+ * pushed on top, as in #1199 where a person's `0e64fafd` landed on the agent's
+ * `f743e573` — and the wait ends rather than settling on a stranger's build.
+ * `unknown` is a failure to read the tip at all (the git call failed or timed
+ * out), which is not evidence that the tip moved: the wait keeps going.
+ */
+export type RemoteTipReading = 'pushed' | 'other' | 'unknown';
+
+/** What `checksFromRuns` needs to decide one pass of the loop's CI wait. */
+export interface ChecksFromRunsReadings {
+  /** The commit the agent pushed — the desk's `HEAD` at the time it pushed. */
+  readonly pushedSha: string;
+  /**
+   * The run `BuildPort.runForSha(branch, pushedSha)` answered, already
+   * unwrapped: `null` for a branch with no runs at all, and `unknown` is
+   * carried through {@link ChecksFromRunsReadings.tip} rather than here — a
+   * connector that answers `unaskable` reads as no different from one that has
+   * not run yet, because neither is evidence the pushed commit failed.
+   *
+   * MAY NOT BE FOR `pushedSha`. `runForSha`'s documented fallback is the
+   * branch's newest run when it holds none for the asked-for commit, and
+   * {@link ShaRun.sha} says which one was found — `checksFromRuns` reads it
+   * and treats a run for any other commit as no run at all.
+   */
+  readonly run: ShaRun | null;
+  /** Whether the remote tip is still the pushed commit. */
+  readonly tip: RemoteTipReading;
+  /** Seconds the agent has waited so far. */
+  readonly waitedSeconds: number;
+  /** `Checks wait` in seconds; `0` disables the wait. */
+  readonly boundSeconds: number;
+}
+
+/**
+ * The run conclusions that settle the wait — the same three words
+ * {@link SETTLED_FINDINGS} already carries, read from {@link ShaRun.conclusion}
+ * rather than from a BuildMonitor finding.
+ */
+const SETTLED_CONCLUSIONS: readonly string[] = ['success', 'failure', 'action_required'];
+
+/**
+ * The answer to one pass of the loop's own CI wait.
+ *
+ * - `none`: waiting is disabled (`Checks wait` is `0` or less); no wait
+ *   starts. The same answer {@link checksVerdict} gives for that bound.
+ * - `wait`: the run for the pushed commit has no conclusion yet, and the tip
+ *   is still that commit (or unreadable this pass). Keep waiting.
+ * - `settled`: the run for the pushed commit concluded. The caller reads
+ *   {@link ShaRun.conclusion} to decide pass or fail.
+ * - `no-answer`: the wait reached `Checks wait` with nothing conclusive.
+ * - `tip-moved`: the remote tip is no longer the pushed commit. The wait ends
+ *   even inside the bound, because no build this loop could read would be
+ *   about the agent's own work.
+ */
+export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'no-answer' | 'tip-moved';
+
+/**
+ * Decides one pass of the loop's own CI wait, from the build connector's run
+ * for the pushed commit and the branch's remote tip.
+ *
+ * THE TIP IS CHECKED FIRST, AND THE COMPARISON IS EQUALITY. `other` ends the
+ * wait even with no run at all and even inside the bound, because no build
+ * this loop could read would be about the agent's own work (#1199).
+ *
+ * **A RUN IS EVIDENCE ONLY FOR ITS OWN SHA.** {@link BuildPort.runForSha}
+ * falls back to the branch's newest run when it has none for the asked-for
+ * commit, and {@link ShaRun.sha} says which run it found. A fallback run for
+ * an older commit settles nothing about the pushed one — the tip reading
+ * alone cannot rule this out, because the tip can still read `pushed` while
+ * CI simply has not started a run for the new commit yet. So this rule reads
+ * {@link ShaRun.sha} too, and a run for any other commit is the same as no
+ * run at all.
+ *
+ * `unknown` NEVER ENDS THE WAIT AS `tip-moved`. A tip that could not be read
+ * this pass is not evidence it moved, so the wait continues and the next pass
+ * tries again. At `Checks wait` it ends `no-answer`, as any wait with nothing
+ * conclusive does.
+ *
+ * A BOUND OF `0` OR LESS ANSWERS `none` before any other reading, as
+ * {@link checksVerdict} does: no wait starts.
+ *
+ * @param readings - what the loop measured this pass.
+ * @returns the verdict for this pass.
+ */
+export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns => {
+  if (readings.boundSeconds <= 0) return 'none';
+  if (readings.tip === 'other') return 'tip-moved';
+
+  const run = readings.run !== null && readings.run.sha === readings.pushedSha ? readings.run : null;
+
+  if (run !== null && run.conclusion !== null && SETTLED_CONCLUSIONS.includes(run.conclusion)) {
+    return 'settled';
+  }
+
+  return readings.waitedSeconds >= readings.boundSeconds ? 'no-answer' : 'wait';
 };

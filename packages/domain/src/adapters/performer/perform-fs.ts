@@ -66,6 +66,15 @@ const BEYOND_THE_FILESYSTEM: ReadonlySet<Write['kind']> = new Set([
   'log-clear',
   'commit',
   'push',
+  'desk-reset',
+  'assignment-clear',
+  'prompt-run',
+  'correction-count',
+  'declaration',
+  'slice-spend',
+  'loop-end',
+  'worker-finding',
+  'build-finding',
 ]);
 
 /**

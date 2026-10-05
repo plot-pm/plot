@@ -172,11 +172,12 @@ describe('the phase order agrees with the state transitions', () => {
  */
 describe('the work a phase names', () => {
   /** The workflows that act on agents and desks rather than on a plan. */
-  const FLEET: readonly WorkflowName[] = ['assign', 'reap', 'supervise'];
+  const FLEET: readonly WorkflowName[] = ['assign', 'reap', 'supervise', 'agent-loop'];
 
   /** Every name the union carries, from the placements plus the fleet's. */
   const ALL: readonly WorkflowName[] = [
     'approve', 'assign', 'deliver', 'dispatch', 'reap', 'implement', 'release', 'supervise',
+    'agent-loop',
   ];
 
   it('places every phase workflow in exactly one phase', () => {
