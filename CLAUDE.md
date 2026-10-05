@@ -95,7 +95,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 
 - **Story command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 - **Brief command:** PLOT_UNATTENDED=1 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
-- **Implement command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Implement command:** PLOT_UNATTENDED=1 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 - **Interrogate command:** PLOT_UNATTENDED=1 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 
 <!-- `Implement command` runs `/plot-implement <slug>` for the board's
