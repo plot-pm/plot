@@ -58,7 +58,7 @@ Measured 2026-10-05 on this estate, with auto-dispatch on:
 
 ### The correction budget counts per slice
 
-- `bug/the-correction-budget-counts-per-slice` — the loop keys `correctionAttempts` to the branch it works on and resets it on a hop; no net shell growth <!-- builds: the per-slice correction count -->
+- `bug/the-correction-budget-counts-per-slice` — the loop keys `correctionAttempts` to the branch it works on and resets it on a hop; no net shell growth → #1285 <!-- builds: the per-slice correction count -->
 
 ### A spent correction budget gets a fresh agent
 
