@@ -79,6 +79,10 @@ function fixture(label, boundSeconds, bodySh) {
       ? `# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n`
       : `# t\n\n## Plot Config\n\n- **Worker bound:** ${boundSeconds}\n`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), bodySh);
+  // A fixture prompt proves it ran by touching a `*.marker` file in the desk.
+  // The file is ignored, so that proof is not unlanded work: an uncommitted
+  // file ends the loop with `holding-work`, which these tests do not measure.
+  fs.writeFileSync(path.join(t, '.gitignore'), '*.marker\n');
   git(t, 'add', '-A');
   git(t, 'commit', '-qm', 'init');
   return t;
@@ -1445,7 +1449,9 @@ test('worker-loop: a hop on the create path moves the watcher to the new desk', 
   // in `desk_reset_refusal`, which forces the CREATE path rather than a reset
   // in place — the shape this test is pinned to, not the reset path #1218
   // already covers via its own fixture.
-  fs.writeFileSync(path.join(dir, 'leftover.txt'), 'never committed\n');
+  // An agent-written marker holds the desk, so taking up `bug/y` cuts a new
+  // desk. Unlanded work would end the loop with `holding-work` before the hop.
+  fs.writeFileSync(path.join(dir, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: a question for a person\n');
 
   // THE TRANSCRIPT IS FOUND BY WORKTREE PATH, NOT BY SESSION ID
   // (`plot-transcript-quiet.sh`'s own header). After the hop the watcher asks

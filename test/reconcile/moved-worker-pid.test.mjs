@@ -88,7 +88,8 @@ const sandbox = (leave) => {
 - \`feature/api\` — blocked behind the seam
 `);
   // THE PROMPT IS TRACKED, as an adopting repository tracks it, so the desk
-  // holds no untracked file of its own and only `left-behind.txt` can hold it.
+  // holds no untracked file of its own and only the first slice's
+  // `PLOT-BLOCKED.md` can hold it.
   fs.mkdirSync(path.join(work, '.plot'), { recursive: true });
   fs.writeFileSync(path.join(work, '.plot', 'worker-prompt.sh'), prompt(work, leave));
   git(work, 'add', '-A');
@@ -109,7 +110,7 @@ const claim = (sb, branch) => {
 
 /**
  * The fixture agent lands its slice as a merge commit. With `leave` set, the
- * FIRST slice also leaves an untracked file on its desk, which is what holds
+ * FIRST slice also leaves a `PLOT-BLOCKED.md` on its desk, which is what holds
  * the desk and makes the loop cut a new one. It stages only its own file, so
  * the pid records never enter a commit.
  */
@@ -121,7 +122,7 @@ git -C "$PLOT_WORKTREE" push -q origin "$PLOT_BRANCH"
 git -C ${work} fetch -q origin
 git -C ${work} merge -q --no-ff -m "Merge $PLOT_BRANCH" "origin/$PLOT_BRANCH"
 git -C ${work} push -q origin main
-${leave ? 'if [ "$PLOT_BRANCH" = feature/seam ]; then echo left > "$PLOT_WORKTREE/left-behind.txt"; fi' : ''}
+${leave ? 'if [ "$PLOT_BRANCH" = feature/seam ]; then echo "PLOT-BLOCKED: a question for a person" > "$PLOT_WORKTREE/PLOT-BLOCKED.md"; fi' : ''}
 `;
 
 /**
