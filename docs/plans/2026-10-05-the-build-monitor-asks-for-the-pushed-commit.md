@@ -61,7 +61,7 @@ So a pass that runs between the push and the start of its CI run publishes `head
 
 ### The BuildMonitor asks for the pushed commit
 
-- `bug/the-build-monitor-asks-for-the-pushed-commit` — `run-for-sha` answers only for the asked commit, and `head moved` no longer settles the desk's HEAD; no net shell growth <!-- builds: the run-for-sha exact-commit answer -->
+- `bug/the-build-monitor-asks-for-the-pushed-commit` — `run-for-sha` answers only for the asked commit, and `head moved` no longer settles the desk's HEAD; no net shell growth → #1286 <!-- builds: the run-for-sha exact-commit answer -->
 
 ## Notes
 
