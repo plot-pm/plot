@@ -1,5 +1,6 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -182,6 +183,30 @@ export const stampManifestLoopJs = async (manifestFile: string): Promise<void> =
     await rename(tmp, manifestFile);
   } catch {
     /* best-effort, matching every other manifest writer (`plot-agent-manifest.sh`) */
+  }
+};
+
+/**
+ * Records a hop in the manifest, best-effort, as `update_manifest_on_hop`
+ * does: `wavesCount` goes up by one, and a non-empty `handle` replaces
+ * `resumeId` — one conversation per slice.
+ *
+ * @param manifestFile - the manifest's own path; a no-op when empty or unreadable.
+ * @param handle - the new handle; `''` leaves `resumeId` as it is.
+ */
+export const writeHop = async (manifestFile: string, handle: string): Promise<void> => {
+  if (manifestFile === '') return;
+  try {
+    const parsed: unknown = JSON.parse(await readFile(manifestFile, 'utf8'));
+    if (typeof parsed !== 'object' || parsed === null) return;
+    const tmp = `${manifestFile}.plot-hop-tmp`;
+    const was = parsed as Record<string, unknown>;
+    const waves = typeof was.wavesCount === 'number' && was.wavesCount > 0 ? was.wavesCount : 1;
+    const next = { ...was, wavesCount: waves + 1, ...(handle !== '' ? { resumeId: handle } : {}) };
+    await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+    await rename(tmp, manifestFile);
+  } catch {
+    /* best-effort, matching every other manifest writer */
   }
 };
 
@@ -498,6 +523,8 @@ export interface LoopDeps {
   readonly outFile: string;
   /** The prompt's session handle where the manifest names none. */
   readonly sessionId: string;
+  /** Mints the handle a hop writes; defaults to a random UUID. */
+  readonly mintHandle?: () => string;
   /** Epoch milliseconds. */
   readonly now: () => number;
   readonly sleep: (ms: number) => Promise<void>;
@@ -512,9 +539,11 @@ interface Held {
   pushedSha: string;
   afterWait: boolean;
   aheadAtWait: number;
+  /** The last prompt's own exit status, for the operator's line about a prompt that never started. */
+  status: number;
 }
 
-const FRESH: Held = { exit: null, pushedSha: '', afterWait: false, aheadAtWait: 0 };
+const FRESH: Held = { exit: null, pushedSha: '', afterWait: false, aheadAtWait: 0, status: 0 };
 
 /**
  * Runs one prompt through `boundedRun`, with the idle watch beside it.
@@ -526,16 +555,24 @@ const runPrompt = async (
   deps: LoopDeps,
   worktree: string,
   held: Held,
-): Promise<{ ended: 'idle' } | { ended: 'exit'; exit: NonNullable<AgentLoopReadings['exit']> }> => {
+  hopFrom: string,
+): Promise<{ ended: 'idle' } | { ended: 'exit'; status: number; exit: NonNullable<AgentLoopReadings['exit']> }> => {
   const resolved = (deps.resolvePrompt ?? promptAnswer)(deps.repoRoot, deps.agent).split('\t');
   const [verb, named, why] = resolved;
   const file = verb === 'refused' || !named ? '' : join(deps.repoRoot, named);
   if (file === '') {
     deps.log(`plot-worker-loop: refusing to launch — ${why ?? 'no prompt'}`);
-    return { ended: 'exit', exit: { answer: 'unstarted' } };
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' } };
   }
 
   const manifest = await readManifestFields(deps.manifestFile);
+  // A HOP TO ANOTHER BRANCH MINTS A HANDLE: one conversation per slice, so the
+  // first prompt on the new slice runs `--session-id` and loads nothing.
+  if (hopFrom !== '') {
+    const minted = hopFrom === manifest.branch ? '' : (deps.mintHandle ?? randomUUID)().toLowerCase();
+    await writeHop(deps.manifestFile, minted);
+    if (minted !== '') manifest.resumeId = minted;
+  }
   const handle = manifest.resumeId !== '' ? manifest.resumeId : deps.sessionId;
   const spoken = await deps.idle.transcript.spoken(worktree, handle);
   const env: Record<string, string> = {
@@ -587,6 +624,7 @@ const runPrompt = async (
   const commitsSinceWait = held.afterWait && ahead.ok ? Math.max(0, ahead.value - held.aheadAtWait) : 0;
   return {
     ended: 'exit',
+    status,
     exit: promptExit(
       {
         status,
@@ -617,6 +655,8 @@ const runPrompt = async (
 export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
   const clock: WaitClock = { since: null };
   let held: Held = { ...FRESH };
+  let previousBranch = '';
+  let hopFrom = '';
   for (;;) {
     const prompt: PromptState = { running: null, exit: held.exit, pushedSha: held.pushedSha };
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
@@ -624,6 +664,15 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     const worktree = readings.worktree || deps.worktree;
     const applied = await performLoopWrites(decision.writes as readonly LoopWrite[], deps.ports, worktree);
     for (const a of applied) if (!a.result.ok) deps.log([`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
+    // THE OPERATOR'S LINES ABOUT A PROMPT THAT NEVER RAN, as the shell prints them.
+    const attempt = decision.writes.find((w) => w.kind === 'agent-attempt');
+    if (attempt !== undefined && attempt.kind === 'agent-attempt') {
+      deps.log(`plot-worker-loop: the prompt failed to run on ${readings.assignedBranch} — the command exited ${held.status} without the agent doing any work. The slice stays claimed; retrying (${attempt.attempts} of ${deps.config.maxStartRetries}).`);
+    }
+    const ending = decision.writes.find((w) => w.kind === 'loop-end');
+    if (ending !== undefined && ending.kind === 'loop-end' && ending.reason === 'unstarted') {
+      deps.log(`plot-worker-loop: the prompt never started on ${readings.assignedBranch} — the command exited ${held.status} on each of ${deps.config.maxStartRetries} attempts. The slice stays claimed and a person is asked; ending worker.`);
+    }
     if (decision.detail.exitCode !== null) return decision.detail.exitCode;
     if (applied.length < decision.writes.length) {
       await deps.sleep(deps.config.passIntervalMs);
@@ -633,6 +682,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     const kinds = new Set(decision.writes.map((w) => w.kind));
     if (kinds.has('assignment-clear')) {
       held = { ...FRESH };
+      hopFrom = previousBranch;
       continue;
     }
 
@@ -660,7 +710,9 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       continue;
     }
 
-    const ran = await runPrompt(deps, worktree, held);
+    const ran = await runPrompt(deps, worktree, held, hopFrom);
+    previousBranch = readings.assignedBranch;
+    hopFrom = '';
     clock.since = null;
     if (ran.ended === 'idle') {
       const idleReadings = { ...readings, running: { verdict: 'idle' as const, transcriptReadable: true }, exit: null };
@@ -669,7 +721,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       return 124;
     }
     const head = await deps.ports.refs.resolve('HEAD');
-    held = { ...held, exit: ran.exit, pushedSha: head.ok ? head.value : held.pushedSha };
+    held = { ...held, exit: ran.exit, status: ran.status, pushedSha: head.ok ? head.value : held.pushedSha };
     if (ran.exit.answer !== 'wait') held = { ...held, afterWait: false };
   }
 };

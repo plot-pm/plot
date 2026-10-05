@@ -31,6 +31,7 @@ import {
   runWorkerLoop,
   shippedConfig,
   stampManifestLoopJs,
+  writeHop,
   workerLoopPorts,
   type IdleDeps,
   type LoopDeps,
@@ -227,6 +228,8 @@ describe('runWorkerLoop — a prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(1);
     expect(r.calls.attempts.map((a) => a.attempts)).toEqual([1, 2]);
     expect(r.runs).toHaveLength(3);
+    expect(r.logs).toContain(`plot-worker-loop: the prompt failed to run on ${BRANCH} — the command exited 1 without the agent doing any work. The slice stays claimed; retrying (1 of 2).`);
+    expect(r.logs.at(-1)).toContain(`the prompt never started on ${BRANCH} — the command exited 1 on each of 2 attempts`);
   });
 
   it('reads an unreadable output file and a failed run as an exit with no limit line', async () => {
@@ -297,6 +300,64 @@ describe('runWorkerLoop — a prompt', () => {
   it('logs the applier reason for a refused write', async () => {
     const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }]);
     expect(await runWorkerLoop(r.deps)).toBe(0);
+  });
+});
+
+describe('runWorkerLoop — a hop', () => {
+  const hopRig = (next: string, resumeId: string) => {
+    const marker = (r: { wt: string }) => () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n');
+    const minted: string[] = [];
+    const r = rig({ ...ASSIGNED, resumeId }, [{}, { during: () => marker(r)() }], {
+      mintHandle: () => {
+        minted.push('M');
+        return 'H-New';
+      },
+      sleep: async (ms) => {
+        if (r.read().branch === '') r.write({ ...r.read(), branch: next });
+        vi.setSystemTime(Date.now() + ms);
+      },
+    });
+    return { r, minted };
+  };
+
+  it('mints a handle for a different branch, runs --session-id on it, and counts the wave', async () => {
+    const { r, minted } = hopRig('feature/next', 'h-1');
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(minted).toEqual(['M']);
+    expect(r.runs[1].env).toMatchObject({ PLOT_BRANCH: 'feature/next', PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
+    expect(r.read()).toMatchObject({ resumeId: 'h-new', wavesCount: 2 });
+  });
+
+  it('mints a random lowercase UUID where no minter is injected', async () => {
+    const { r } = hopRig('feature/next', 'h-1');
+    r.deps = { ...r.deps, mintHandle: undefined };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.runs[1].env?.PLOT_SESSION_ID).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it('keeps the handle when the hop lands on the same branch, and still counts the wave', async () => {
+    const { r, minted } = hopRig(BRANCH, 'h-1');
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(minted).toEqual([]);
+    expect(r.runs[1].env?.PLOT_SESSION_ID).toBe('h-1');
+    expect(r.read()).toMatchObject({ resumeId: 'h-1', wavesCount: 2 });
+  });
+
+  it('writes a hop into the manifest and leaves an absent, empty-path or non-object one alone', async () => {
+    const r = rig(null, []);
+    const f = path.join(r.dir, 'h.json');
+    await writeHop('', 'x');
+    await writeHop(f, 'x');
+    expect(fs.existsSync(f)).toBe(false);
+    fs.writeFileSync(f, 'null');
+    await writeHop(f, 'x');
+    expect(fs.readFileSync(f, 'utf8')).toBe('null');
+    fs.writeFileSync(f, '{"a":1,"wavesCount":3,"resumeId":"old"}');
+    await writeHop(f, '');
+    expect(JSON.parse(fs.readFileSync(f, 'utf8'))).toEqual({ a: 1, wavesCount: 4, resumeId: 'old' });
+    fs.writeFileSync(f, '{"wavesCount":"x"}');
+    await writeHop(f, 'new');
+    expect(JSON.parse(fs.readFileSync(f, 'utf8'))).toEqual({ wavesCount: 2, resumeId: 'new' });
   });
 });
 
