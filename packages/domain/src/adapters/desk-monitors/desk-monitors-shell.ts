@@ -1,5 +1,5 @@
 import { accessSync, closeSync, constants, openSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { DeskMonitors, MonitorPids, MonitoredDesk } from '../../ports/desk-monitors.js';
@@ -10,6 +10,19 @@ const AGENT_MONITOR = 'plot-agent-monitor.sh';
 
 /** The BuildMonitor script, which watches the agent's CI run. */
 const BUILD_MONITOR = 'plot-build-monitor.sh';
+
+/**
+ * The command line of a live pid, or `null` when no process has that pid.
+ *
+ * `ps` exits non-zero for a pid it cannot find.
+ */
+const commandOf = (pid: number): string | null => {
+  try {
+    return execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+};
 
 const isExecutable = (file: string): boolean => {
   try {
@@ -26,7 +39,8 @@ const isExecutable = (file: string): boolean => {
  * `PLOT_WORKTREE`, `PLOT_MANIFEST_FILE` and `PLOT_PID_FILE`.
  *
  * A script that is absent or not executable is skipped and reported as `''`,
- * as the wrapper skips it.
+ * as the wrapper skips it. `stop` sends SIGTERM only to a live pid whose
+ * command line names a monitor script.
  *
  * @param context - the repository and where its helper scripts live.
  * @returns the monitors port.
@@ -59,5 +73,23 @@ export const deskMonitorsShell = (context: ShellContext): DeskMonitors => ({
     } finally {
       closeSync(out);
     }
+  },
+
+  stop: (pids: readonly string[]): PortResult<readonly string[]> => {
+    const signalled: string[] = [];
+    for (const raw of pids) {
+      const pid = Number(raw);
+      if (!/^\d+$/.test(raw) || pid <= 1) continue;
+      const command = commandOf(pid);
+      if (command === null || !(command.includes(AGENT_MONITOR) || command.includes(BUILD_MONITOR))) continue;
+      try {
+        process.kill(pid, 'SIGTERM');
+        signalled.push(raw);
+      } catch (err) {
+        // ESRCH: the monitor ended between the `ps` and the signal.
+        if ((err as NodeJS.ErrnoException).code !== 'ESRCH') return failed<readonly string[]>();
+      }
+    }
+    return answered(signalled);
   },
 });

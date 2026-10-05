@@ -36,4 +36,17 @@ export interface DeskMonitors {
    *   as `''`. `failed` when the log cannot be opened.
    */
   start(desk: MonitoredDesk): PortResult<MonitorPids>;
+
+  /**
+   * Stops monitors an earlier start began, so a desk keeps one pair.
+   *
+   * A pid that is empty or already gone needs no signal. A live pid whose
+   * command line names neither monitor script is a reused pid and is left
+   * alone.
+   *
+   * @param pids - the monitor pids a manifest recorded.
+   * @returns the pids that were signalled. `failed` when a monitor could not
+   *   be signalled.
+   */
+  stop(pids: readonly string[]): PortResult<readonly string[]>;
 }

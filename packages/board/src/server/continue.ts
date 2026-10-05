@@ -13,7 +13,7 @@ import { deskManifestFor, writeManifestStamp, writeResumeId } from './manifest-s
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell } from '@plot-pm/domain/adapters';
-import type { DeskMonitors } from '@plot-pm/domain';
+import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and
@@ -527,6 +527,58 @@ export interface DeskContinuationInput {
   monitors?: DeskMonitors;
 }
 
+/** The monitor pids a manifest records; `[]` when it cannot be read. */
+const recordedMonitorPids = (manifestFile: string): string[] => {
+  try {
+    const m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
+    return [m.agentMonitorPid, m.buildMonitorPid].filter((p): p is string => typeof p === 'string' && p !== '');
+  } catch {
+    return [];
+  }
+};
+
+/** Appends one line to the desk's log, or to the board's stderr when the log cannot take it. */
+const logLine = (log: string, line: string): void => {
+  try {
+    fs.appendFileSync(log, `plot-continue: ${line}\n`);
+  } catch {
+    console.error(`continuation: ${line}`);
+  }
+};
+
+/**
+ * Replaces the desk's monitor pair: stops the pair the manifest records, then
+ * starts a new one for the new run.
+ *
+ * The monitors start only after `.plot-worker.pid` names the new run, because
+ * each monitor ends when that pid is gone. The old pair would watch the new
+ * pid too, so it is stopped first and the desk keeps one pair (#1255). Every
+ * step that does not happen is written to the desk's log.
+ *
+ * @returns the new pair's pids, `''` for a monitor not started.
+ */
+const startMonitors = (input: { monitors: DeskMonitors; desk: MonitoredDesk; pidRecorded: boolean }): MonitorPids => {
+  const { monitors, desk } = input;
+  const none: MonitorPids = { agentMonitorPid: '', buildMonitorPid: '' };
+  const previous = recordedMonitorPids(desk.manifestFile);
+  if (previous.length > 0 && !monitors.stop(previous).ok) {
+    logLine(desk.log, `could not stop the previous monitors (pids ${previous.join(', ')}); they may still run`);
+  }
+  if (!input.pidRecorded) {
+    logLine(desk.log, `AgentMonitor and BuildMonitor not started: ${desk.pidFile} could not be written, so they would watch the previous run`);
+    return none;
+  }
+  const result = monitors.start(desk);
+  if (!result.ok) {
+    logLine(desk.log, `AgentMonitor and BuildMonitor not started: the start answered ${result.why}`);
+    return none;
+  }
+  for (const [name, pid] of [['AgentMonitor', result.value.agentMonitorPid], ['BuildMonitor', result.value.buildMonitorPid]]) {
+    if (pid === '') logLine(desk.log, `${name} not started: its script is not executable under the scripts directory`);
+  }
+  return result.value;
+};
+
 /**
  * Starts a new worker on a desk that holds an unanswered `PLOT-BLOCKED`
  * marker, with `answer` in its prompt.
@@ -706,6 +758,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
 
   const pid = child.pid ?? 0;
   if (pid > 0) {
+    let pidRecorded = true;
     try {
       fs.writeFileSync(path.join(worktree, '.plot-worker.pid'), String(pid), 'utf8');
     } catch (err) {
@@ -713,7 +766,19 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       // reporting a failure that would invite a second spawn into the same
       // worktree.
       console.error('continuation started but its pid could not be recorded:', err);
+      pidRecorded = false;
     }
+    const started = startMonitors({
+      monitors: input.monitors ?? deskMonitorsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+      desk: {
+        branch,
+        worktree,
+        manifestFile: manifestAnswer.path,
+        pidFile: path.join(worktree, '.plot-worker.pid'),
+        log,
+      },
+      pidRecorded,
+    });
     // STAMP THE MANIFEST — the path the reported defect came from. This route
     // spawns directly and never runs `plot-dispatch.sh`, so the dispatcher's awk
     // fix does not reach it; the manifest that names this worktree would keep
@@ -723,20 +788,6 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // `named` — refused above otherwise — so its path is reused rather than
     // re-reading the registry directory a second time.
     //
-    // THE MONITORS START AFTER THE PID FILE NAMES THE NEW RUN. Each monitor
-    // ends when the pid in `.plot-worker.pid` is gone, so starting one while
-    // the file still names the previous run would end it on its first check.
-    // They get the environment `plot-dispatch.sh`'s wrapper gives them, so a
-    // continued agent's `wait_for_checks` reads a BuildMonitor's findings as a
-    // dispatched agent's does (#1255).
-    const monitors = (input.monitors ?? deskMonitorsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })).start({
-      branch,
-      worktree,
-      manifestFile: manifestAnswer.path,
-      pidFile: path.join(worktree, '.plot-worker.pid'),
-      log,
-    });
-    const started = monitors.ok ? monitors.value : { agentMonitorPid: '', buildMonitorPid: '' };
     // No wrapper and no WorkerMonitor exist for a continued run, so those two
     // are recorded `''`; omitting them would leave the previous dispatch's
     // pids on the row. The stamp re-emits the whole group on every write.

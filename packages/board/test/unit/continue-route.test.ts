@@ -388,6 +388,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
         pidAtStart = fs.readFileSync(desk.pidFile, 'utf8');
         return { ok: true, value: { agentMonitorPid: '7001', buildMonitorPid: '7002' } };
       },
+      stop: () => ({ ok: true, value: [] }),
     };
 
     const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
@@ -407,6 +408,92 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
     assert.equal(m.buildMonitorPid, '7002');
     assert.equal(m.agentMonitorPid, '7001');
+  });
+
+  it('a second continue stops the monitor pair the first one started', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const stopped: (readonly string[])[] = [];
+    let next = 7000;
+    const monitors: DeskMonitors = {
+      start: () => ({ ok: true, value: { agentMonitorPid: String(++next), buildMonitorPid: String(++next) } }),
+      stop: (pids) => {
+        stopped.push(pids);
+        return { ok: true, value: pids };
+      },
+    };
+
+    const first = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+    fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
+    const second = await postTo(root, { branch: BRANCH, answer: 'go' }, {
+      pulse: () => pulseWith2(wt, (first.body as { pid: string }).pid),
+      config: (_o, key, fb) => (key === 'Worker command' ? 'true' : fb),
+      monitors,
+    });
+
+    assert.equal(first.status, 202);
+    assert.equal(second.status, 202);
+    assert.deepEqual(stopped, [['7001', '7002']], 'the first continue had no pair to stop; the second stops the first pair');
+  });
+
+  it('logs a monitor start that failed', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const monitors: DeskMonitors = {
+      start: () => ({ ok: false, why: 'failed' }),
+      stop: () => ({ ok: true, value: [] }),
+    };
+
+    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+
+    assert.equal(out.status, 202);
+    assert.match(
+      fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8'),
+      /AgentMonitor and BuildMonitor not started: the start answered failed/,
+    );
+  });
+
+  it('starts the monitor scripts under the configured scripts directory by default', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root, manifest } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-scripts-'));
+    roots.push(scriptsDir);
+    for (const name of ['plot-agent-monitor.sh', 'plot-build-monitor.sh']) {
+      const file = path.join(scriptsDir, name);
+      fs.writeFileSync(
+        file,
+        `#!/bin/sh\nprintf '%s\\n' "$PLOT_BRANCH" "$PLOT_WORKTREE" > "$PLOT_WORKTREE/${name}.env.tmp" && mv "$PLOT_WORKTREE/${name}.env.tmp" "$PLOT_WORKTREE/${name}.env"\n`,
+      );
+      fs.chmodSync(file, 0o755);
+    }
+
+    const started = await continueOnDesk({
+      opts: { ...opts, repoRoot: root, scriptsDir, manifestDir: path.dirname(manifest) },
+      readCfg: (_o, key, fb) => (key === 'Worker command' ? 'true' : fb),
+      branch: BRANCH,
+      worktree: wt,
+      main: 'main',
+      previousPid: '424242',
+      answer: 'go',
+    });
+    assert.equal(started.kind, 'started');
+    spawned.add(wt);
+
+    const envFile = path.join(wt, 'plot-build-monitor.sh.env');
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(envFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(fs.readFileSync(envFile, 'utf8').split('\n').slice(0, 2), [BRANCH, wt]);
+    const agentEnv = path.join(wt, 'plot-agent-monitor.sh.env');
+    while (!fs.existsSync(agentEnv) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    assert.match(m.buildMonitorPid, /^\d+$/);
+    assert.match(m.agentMonitorPid, /^\d+$/);
   });
 
   it('refuses a continuation when no manifest names the worktree', async () => {
