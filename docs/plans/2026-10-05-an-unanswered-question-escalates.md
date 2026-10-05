@@ -7,6 +7,7 @@
 - **State:** Approved
 - **Type:** feature
 - **Issue:** #1283, #1250
+- **Story:** the-supervisor-delivers-the-approved-scope
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-10-05, jwloka, in-session
