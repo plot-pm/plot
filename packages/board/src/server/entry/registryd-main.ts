@@ -14,7 +14,14 @@ import {
   prIndexFile,
   supervisionReportFile,
   tempSweepShell,
+  notifierCommand,
+  notifierNone,
 } from '@plot-pm/domain/adapters';
+import type { Notifier } from '@plot-pm/domain/ports/notifier';
+import {
+  parseQuestionEscalation,
+  DEFAULT_QUESTION_ESCALATION,
+} from '@plot-pm/domain/rules/question-escalation';
 import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
 import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
 import { headroomFor } from '@plot-pm/domain/entities/machine';
@@ -34,6 +41,13 @@ import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gat
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
 import { readFleetSettings } from '../fleet-settings.js';
+import { readConfigAsync } from '../board.js';
+import { markerReading } from '../worker-question.js';
+import {
+  appendEscalation,
+  readEscalations,
+  recordedRungsFor,
+} from '../escalations.js';
 import {
   fileOrNull,
   worldFrom,
@@ -48,6 +62,7 @@ import {
   TICK_INTERVAL_MS,
   type TickReport,
   type TickSpend,
+  type EscalationWorld,
 } from './registryd.js';
 import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
@@ -867,6 +882,56 @@ export const handOverWorldForRepo = (
   };
 };
 
+/** The `## Plot Config` key naming the comma-separated escalation ages. */
+export const QUESTION_ESCALATION_KEY = 'Question escalation';
+/** The `## Plot Config` key naming the command a `notify` write runs. */
+export const NOTIFY_COMMAND_KEY = 'Notify command';
+
+/**
+ * The `Notifier` a repository's `Notify command` configures — {@link notifierNone}
+ * for an absent or empty value, same as a tracker nobody declared.
+ *
+ * @param configured - the `Notify command` value, as `plot-config.sh` hands it back.
+ * @returns the notifier to send through.
+ */
+export const notifierFor = (configured: string): Notifier => {
+  const trimmed = configured.trim();
+  return trimmed === '' ? notifierNone() : notifierCommand(trimmed);
+};
+
+/**
+ * What the tick reads to decide a desk's question escalation: the marker, the
+ * configured ages, and the rungs `.plot/state/escalations.tsv` already holds
+ * for this exact desk and modification time.
+ *
+ * **THE TSV IS RE-READ PER DESK, NOT ONCE PER TICK.** A tick with ten desks
+ * reads ten times rather than once and filters in memory — a repository's
+ * desk count bounds the read count, and the file itself is small (one line per
+ * rung ever reached), so the simplicity is worth more than the saved reads.
+ *
+ * @param repoRoot - the repository root.
+ * @param scriptsDir - where the helper scripts are.
+ * @returns the world {@link escalationWrites} reads through.
+ */
+export const escalationWorldForRepo = (repoRoot: string, scriptsDir: string): EscalationWorld => ({
+  marker: (worktree) => markerReading(worktree),
+  // THE FALLBACK IS THE DEFAULT, NOT `''`. `plot-config.sh get` answers its
+  // caller's fallback for BOTH an absent key and one written with no value
+  // after the colon (`[ -n "$value" ]` at the script's tail) — so there is no
+  // way through that script for a person to configure an explicitly empty
+  // list today. `parseQuestionEscalation('')` still answers `[]`, honouring
+  // "an empty value disables notification" at the layer this slice owns; a
+  // repository author reaching it needs a change to `plot-config.sh` itself,
+  // which is out of this slice's scope (CLAUDE.md names it an existing shell
+  // file this branch does not touch).
+  ages: async () =>
+    parseQuestionEscalation(
+      await readConfigAsync({ repoRoot, scriptsDir }, QUESTION_ESCALATION_KEY, DEFAULT_QUESTION_ESCALATION),
+    ),
+  recordedRungs: async (worktree, askedAt) =>
+    recordedRungsFor(readEscalations(repoRoot), worktree, askedAt),
+});
+
 /**
  * How many desks one tick is willing to cut.
  *
@@ -1157,6 +1222,47 @@ export const startAgents = async (
 };
 
 /**
+ * Applies the tick's `notify` writes: sends each through the configured
+ * `Notifier` and appends one line per rung to `.plot/state/escalations.tsv`.
+ *
+ * **ONE RECORD, WHATEVER THE SEND ANSWERED.** `sent`, `unaskable` or
+ * `failed <code>` are all recorded — the record is of the RUNG having been
+ * reached and considered, not only of a successful send. Recording `unaskable`
+ * is what stops a repository with no `Notify command` writing a line every
+ * tick for the same rung ({@link notifierNone} answers the same way every
+ * time, and nothing short of a record would make that answer change).
+ *
+ * **APPLIED HERE RATHER THAN BY A SHELL PERFORMER**, unlike `blocked-marker`
+ * and its neighbours: both the `Notifier` port and the TSV are TypeScript-
+ * native, with no shell equivalent to apply them from.
+ *
+ * @param report - what the tick decided.
+ * @param repoRoot - the repository root the TSV lives under.
+ * @param notifier - what sends the message.
+ * @param write - where a sent notification is reported.
+ */
+export const notifyEscalations = async (
+  report: TickReport,
+  repoRoot: string,
+  notifier: Notifier,
+  write: (s: string) => void,
+): Promise<void> => {
+  for (const item of report.decision.writes) {
+    if (item.kind !== 'notify') continue;
+    const result = await notifier.notify(item.message);
+    const status = result.ok ? 'sent' : result.why === 'unaskable' ? 'unaskable' : `failed ${result.code}`;
+    appendEscalation(repoRoot, {
+      worktree: item.worktree,
+      askedAt: item.askedAt,
+      rung: item.rung,
+      at: new Date().toISOString(),
+      status,
+    });
+    if (result.ok) write(`  ${item.worktree}: notified at ${item.rung}\n`);
+  }
+};
+
+/**
  * Runs the daemon.
  *
  * **THE INTERVAL IS WAITED AFTER A TICK, NOT BETWEEN STARTS.** A slow tick
@@ -1321,6 +1427,12 @@ export const run = async (
   // not, so a second writer would race.
   const reportStore = supervisionReportFile({ cwd: repoRoot });
   const tempSweep = tempSweepShell({ repoRoot, scriptDir: scriptsDir });
+  const escalation = escalationWorldForRepo(repoRoot, scriptsDir);
+  // READ ONCE AT DAEMON START, NOT PER TICK. The `Notifier` is a choice of
+  // ADAPTER — which command runs, if any — and that does not change while the
+  // daemon runs; re-reading it every sixty seconds would spend a config call
+  // for an answer that cannot have moved since the last one.
+  const notifier = notifierFor(await readConfigAsync({ repoRoot, scriptsDir }, NOTIFY_COMMAND_KEY, ''));
 
   write(`plot-registryd: supervising ${registryDir}\n`);
 
@@ -1366,6 +1478,10 @@ export const run = async (
         // the right size* rather than as *nobody asked me to grow it*.
         fleet: args.startAgents ? () => fleetCapForRepo(repoRoot, scriptsDir) : undefined,
         max: args.max,
+        // ESCALATION RUNS EVERY TICK, REGARDLESS OF `--start-agents`. It is not
+        // an agent-starting decision — a desk's question ages whether or not
+        // this daemon is allowed to grow the fleet.
+        escalation,
       });
     } catch (err) {
       // STDERR, AND THE ERROR'S OWN TEXT. `registryd.err` being empty on both
@@ -1406,6 +1522,10 @@ export const run = async (
     // AFTER `reportTick`, so a tick whose report cannot be written still logs.
     await writeSupervisionReport(report, reportStore, warn);
     if (args.startAgents) await startAgents(report, performer, handOverWorld, write, warn);
+    // UNGATED BY `args.startAgents`, the same reasoning the tick's own
+    // `escalation` world follows: a question ages whether or not this daemon
+    // may grow the fleet.
+    await notifyEscalations(report, repoRoot, notifier, write);
     if (args.sweepTemp) await sweepTempIfDue(tempSweep, Date.now(), write, warn);
 
     // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.

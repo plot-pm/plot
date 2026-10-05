@@ -1,12 +1,14 @@
-import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/supervise';
+import { supervise, type SuperviseDetail, type SupervisedAgent } from '@plot-pm/domain/workflows/supervise';
 import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
-import type { Decision } from '@plot-pm/domain/workflows/decision';
+import type { Decision, NotifyWrite } from '@plot-pm/domain/workflows/decision';
 import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
+import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-escalation';
 
 import { readTick, type SupervisorWorld } from '../supervisor.js';
 import { readQueue, type QueueWorld } from '../queue-reading.js';
 import type { AgentEntry } from '../registry.js';
+import type { MarkerReading } from '../worker-question.js';
 
 /**
  * How long the daemon waits between ticks, in milliseconds.
@@ -132,6 +134,22 @@ export interface TickSpend {
   minePerHour: number;
 }
 
+/**
+ * What the tick needs to decide a desk's question escalation — every reading
+ * `questionEscalation` takes, supplied as values rather than read inside the
+ * domain, matching every other rule in this package.
+ */
+export interface EscalationWorld {
+  /** The desk's marker, or `null` where it holds none. */
+  marker(worktree: string): Promise<MarkerReading | null>;
+  /** The configured escalation ages, in milliseconds, ascending. */
+  ages(): Promise<readonly number[]>;
+  /** The rungs already recorded for this desk path and this marker's modification time. */
+  recordedRungs(worktree: string, askedAt: string): Promise<ReadonlySet<Rung>>;
+  /** The clock, for the age computation; `Date.now` when omitted. */
+  now?(): number;
+}
+
 /** What a daemon needs to run one tick. */
 export interface TickOptions {
   /** The registry's manifests, re-read at the start of every tick. */
@@ -163,6 +181,17 @@ export interface TickOptions {
    * restart.
    */
   fleet?(): Promise<FleetCap>;
+  /**
+   * What to read a desk's question escalation through, or absent to decide
+   * nothing about it.
+   *
+   * **A THIRD WORLD, FOR THE SAME REASON `queue` IS A SECOND ONE.** The
+   * supervisor reads what each agent LEFT BEHIND and the queue reads what the
+   * plans have WAITING; this reads what a desk's MARKER says and how old it
+   * is — a third question, about a population `supervise` does not decide
+   * from (`left` included).
+   */
+  escalation?: EscalationWorld;
   /** The clock, so a test can hold one. */
   now?(): number;
 }
@@ -207,7 +236,21 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
   try {
     const entries = await options.registry();
     const readings = await readTick(entries, options.world);
-    const decision = supervise(readings, { max: options.max ?? 0 });
+    const supervised = supervise(readings, { max: options.max ?? 0 });
+
+    // THE ESCALATION PASS RUNS AFTER `supervise`, FOR EVERY DESK IT READ —
+    // `left` included. THE MARKER IS THE READING, NOT THE LOOP: a live free
+    // loop, a dead loop and an ended loop all reach this pass the same way,
+    // because `supervise`'s own verdict says nothing about a question's age.
+    // Placing this inside the `needs-a-person` arm would miss exactly the
+    // 2026-10-05 case — a live loop that went free after asking.
+    const decision =
+      options.escalation === undefined
+        ? supervised
+        : { ...supervised, writes: [...supervised.writes, ...(await escalationWrites(
+            supervised.detail.agents,
+            options.escalation,
+          ))] };
 
     // THE HAND-OVER RUNS AFTER SUPERVISION, WITHIN ONE TICK, and the order is
     // load-bearing: supervision is what frees an agent, by reaping a finished
@@ -255,6 +298,59 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
       incomplete: reasonFor(error),
     };
   }
+};
+
+/**
+ * One `notify` write per desk whose question reached a new rung, for every
+ * desk `supervise` read — its verdict included, `left` and all.
+ *
+ * **THE DOMAIN TAKES READINGS AS VALUES.** This is where the marker, the
+ * config and the TSV are read; `questionEscalation` itself imports no port and
+ * awaits nothing. A `listed` rung produces no write: that rung is the board's
+ * own, and the `Notifier` port is never reached for it.
+ *
+ * @param agents - every desk `supervise` decided about, in registry order.
+ * @param world - what to read the marker, the config and the record through.
+ * @returns one `notify` write per desk whose rung is new.
+ */
+const escalationWrites = async (
+  agents: readonly SupervisedAgent[],
+  world: EscalationWorld,
+): Promise<readonly NotifyWrite[]> => {
+  const now = world.now ?? Date.now;
+  const ages = await world.ages();
+  const writes: NotifyWrite[] = [];
+  for (const agent of agents) {
+    const marker = await world.marker(agent.worktree);
+    if (marker === null) continue;
+    const recordedRungs = await world.recordedRungs(agent.worktree, marker.askedAt);
+    const ageMs = now() - new Date(marker.askedAt).getTime();
+    const result = questionEscalation({ marker, ageMs, ages, recordedRungs });
+    if (!result.isNew || result.rung === null || result.rung === 'listed') continue;
+    writes.push({
+      kind: 'notify',
+      worktree: agent.worktree,
+      askedAt: marker.askedAt,
+      rung: result.rung,
+      message: escalationMessage(agent.branch, marker.firstLine, result.rung, ageMs),
+    });
+  }
+  return writes;
+};
+
+/**
+ * The message a `notify` write sends — the branch, the question and how long
+ * it has waited, one line a person can act on without opening the board.
+ *
+ * @param branch - the branch the desk holds.
+ * @param question - the marker's first line.
+ * @param rung - the rung reached.
+ * @param ageMs - how old the marker is.
+ * @returns the message text.
+ */
+const escalationMessage = (branch: string, question: string, rung: Rung, ageMs: number): string => {
+  const minutes = Math.round(ageMs / 60_000);
+  return `plot: ${branch} has been waiting on you for ${minutes}m (${rung}) — ${question}`;
 };
 
 /**
