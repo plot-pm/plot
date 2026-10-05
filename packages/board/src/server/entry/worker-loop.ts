@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
+import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
+
 import {
   agentsFs,
   boundedRunProcess,
@@ -256,6 +258,10 @@ export interface PromptState {
 /** What one pass is told about the repository's config, read once at start. */
 export interface PassConfig {
   readonly boundSeconds: number;
+  /** How long a free or checks wait may run — `Worker bound` unless a test seam shortens it. */
+  readonly waitBudgetSeconds: number;
+  /** Milliseconds one pass sleeps before the next. */
+  readonly passIntervalMs: number;
   readonly maxStartRetries: number;
   readonly checksWaitSeconds: number;
   readonly correctionBudget: number;
@@ -288,7 +294,7 @@ export const readPass = async (
   const base: AgentLoopReadings = {
     assignedBranch: manifest.branch,
     waitedSeconds: 0,
-    boundSeconds: config.boundSeconds,
+    boundSeconds: config.waitBudgetSeconds,
     registration: 'registered',
     claim: null,
     base: config.base,
@@ -614,7 +620,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     for (const a of applied) if (!a.result.ok) deps.log([`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
     if (decision.detail.exitCode !== null) return decision.detail.exitCode;
     if (applied.length < decision.writes.length) {
-      await deps.sleep(PASS_INTERVAL_MS);
+      await deps.sleep(deps.config.passIntervalMs);
       continue;
     }
 
@@ -644,7 +650,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       await deps.sleep(Math.max(0, until - deps.now()));
       await deps.ports.desk.clearLimitedRecord(worktree);
     } else if (!kinds.has('prompt-run') && !kinds.has('agent-attempt') && resume === undefined) {
-      await deps.sleep(PASS_INTERVAL_MS);
+      await deps.sleep(deps.config.passIntervalMs);
       continue;
     }
 
@@ -689,6 +695,22 @@ export const quietReading = (
   return answer.value.quiet === 'unavailable' ? 'unavailable' : answer.value.seconds;
 };
 
+/** Reads one `## Plot Config` key of the repository at `repoRoot`; `undefined` when it cannot be read. */
+export type ConfigReader = (repoRoot: string, key: string) => string | undefined;
+
+/**
+ * The config reader backed by `plot-config.sh` beside this bundle, through the
+ * scripts adapter — the entry spawns nothing itself.
+ *
+ * @param scriptDir - where the helper scripts live.
+ * @returns a reader answering the key's value, or `undefined` when the script cannot answer.
+ */
+export const shippedConfig = (scriptDir: string): ConfigReader => (repoRoot, key) => {
+  const read = scriptsShell({ repoRoot, scriptDir }).configSync(key, '');
+  const value = read.ok ? read.value.trim() : '';
+  return value === '' ? undefined : value;
+};
+
 /**
  * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
  *
@@ -696,9 +718,14 @@ export const quietReading = (
  * @param scriptDir - where the helper scripts live, beside this bundle.
  * @returns the process exit code.
  */
-export const main = async (env: NodeJS.ProcessEnv, scriptDir: string): Promise<number> => {
+export const main = async (
+  env: NodeJS.ProcessEnv,
+  scriptDir: string,
+  configKey: ConfigReader = shippedConfig(scriptDir),
+): Promise<number> => {
   const worktree = env.PLOT_WORKTREE ?? process.cwd();
   const repoRoot = env.PLOT_REPO_ROOT ?? worktree;
+  const boundSeconds = num(env.PLOT_WORKER_BOUND, num(configKey(worktree, 'Worker bound'), 28800));
   const ports = await workerLoopPorts({ repoRoot: worktree, scriptDir });
   const transcript = transcriptFs();
   const manifestFile = env.PLOT_MANIFEST_FILE ?? '';
@@ -717,10 +744,12 @@ export const main = async (env: NodeJS.ProcessEnv, scriptDir: string): Promise<n
     agent: env.PLOT_AGENT ?? '',
     harness: env.PLOT_HARNESS ?? 'claude',
     config: {
-      boundSeconds: num(env.PLOT_WORKER_BOUND, 28800),
+      boundSeconds,
+      waitBudgetSeconds: num(env.PLOT_WAIT_BUDGET_SECONDS, boundSeconds),
+      passIntervalMs: num(env.PLOT_WAIT_POLL_SECONDS, PASS_INTERVAL_MS / 1000) * 1000,
       maxStartRetries: num(env.PLOT_START_ATTEMPTS, 3),
-      checksWaitSeconds: num(env.PLOT_CHECKS_WAIT, 1800),
-      correctionBudget: num(env.PLOT_CORRECTION_BUDGET, 2),
+      checksWaitSeconds: num(env.PLOT_CHECKS_WAIT, num(configKey(worktree, 'Checks wait'), 1800)),
+      correctionBudget: num(env.PLOT_CORRECTION_BUDGET, num(configKey(worktree, 'Correction budget'), 2)),
       base: env.PLOT_BASE ?? 'origin/main',
     },
     limitMarginSeconds: num(env.PLOT_LIMIT_MARGIN_SECONDS, 60),

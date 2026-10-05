@@ -425,6 +425,7 @@ await esbuild.build({
   format: 'esm',
   target: 'node20',
   outfile: workerLoopArtifact,
+  define: { PLOT_EMBEDDED: 'true' },
   minify: true,
   legalComments: 'none',
   banner: { js: '#!/usr/bin/env node' },

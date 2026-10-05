@@ -29,6 +29,7 @@ import {
   systemSleep,
   readResetRefusals,
   runWorkerLoop,
+  shippedConfig,
   stampManifestLoopJs,
   workerLoopPorts,
   type IdleDeps,
@@ -143,7 +144,7 @@ const rig = (
     worktree: wt,
     agent: '',
     harness: 'claude',
-    config: { boundSeconds: 28_800, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, base: 'origin/main' },
+    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, base: 'origin/main' },
     limitMarginSeconds: 60,
     monitorEndsWorker: true,
     outFile,
@@ -170,7 +171,7 @@ afterEach(() => vi.useRealTimers());
 
 describe('runWorkerLoop — a free loop', () => {
   it('waits a pass at a time, then ends 124 past the bound (rows 1-2)', async () => {
-    const r = rig({ ...ASSIGNED, branch: '' }, [], { config: { ...rigConfig(), boundSeconds: 100 } });
+    const r = rig({ ...ASSIGNED, branch: '' }, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.sleeps[0]).toBe(PASS_INTERVAL_MS);
   });
@@ -184,6 +185,8 @@ describe('runWorkerLoop — a free loop', () => {
 
 const rigConfig = () => ({
   boundSeconds: 28_800,
+  waitBudgetSeconds: 28_800,
+  passIntervalMs: PASS_INTERVAL_MS,
   maxStartRetries: 3,
   checksWaitSeconds: 1_800,
   correctionBudget: 2,
@@ -502,6 +505,32 @@ describe('main', () => {
       r.dir,
     ).catch((e: unknown) => (e as Error).message);
     expect(typeof code === 'number' || typeof code === 'string').toBe(true);
+  });
+});
+
+describe('main — configuration', () => {
+  it('reads the bound, the checks wait and the correction budget from the config, and lets the environment win', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    vi.setSystemTime(ZURICH_NOON);
+    const asked: string[] = [];
+    const r = rig(null, []);
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(r.wt);
+    const config = (_root: string, key: string) => {
+      asked.push(key);
+      return key === 'Worker bound' ? '1' : undefined;
+    };
+    expect(await driven(main({}, r.dir, config))).toBe(124);
+    expect(asked).toEqual(['Worker bound', 'Checks wait', 'Correction budget']);
+    asked.length = 0;
+    expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config))).toBe(124);
+    cwd.mockRestore();
+  });
+
+  it('answers a key through plot-config.sh, and nothing where the script cannot answer', () => {
+    const scripts = path.join(__dirname, '../../../../skills/plot/scripts');
+    expect(shippedConfig(scripts)(path.join(__dirname, '../../../..'), 'Worker bound')).toBe('28800');
+    expect(shippedConfig(scripts)(path.join(__dirname, '../../../..'), 'No such key')).toBeUndefined();
+    expect(shippedConfig(path.join(os.tmpdir(), 'no-such-scripts'))(os.tmpdir(), 'Worker bound')).toBeUndefined();
   });
 });
 
