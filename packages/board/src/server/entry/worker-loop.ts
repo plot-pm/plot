@@ -857,7 +857,7 @@ export const main = async (
     ports,
     idle: {
       selfPid: process.pid,
-      windowSeconds: num(env.PLOT_IDLE_WINDOW, IDLE_WINDOW_SECONDS),
+      windowSeconds: num(env.PLOT_MONITOR_QUIET_SECONDS, IDLE_WINDOW_SECONDS),
       intervalMs: num(env.PLOT_MONITOR_INTERVAL, 30) * 1000,
       transcript,
     },
