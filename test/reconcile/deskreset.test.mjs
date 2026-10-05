@@ -139,6 +139,36 @@ test('desk: Plot’s own records do not hold the desk', () => {
   } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
 });
 
+// The loop writes `PLOT-CORRECTION.md` untracked at the desk root. That file
+// does not hold the desk, so the reset must remove it: `git checkout` keeps
+// untracked files, and the next slice's agent would read the last slice's
+// correction.
+test('desk: an untracked root correction does not hold the desk, and the reset removes it', () => {
+  const sb = sandbox('correction');
+  try {
+    fs.writeFileSync(path.join(sb.wt, 'PLOT-CORRECTION.md'), '# Correction 1 of 2 for feature/one\n');
+    const out = withLoopFns(sb.wt, 'desk_is_resettable "$PWD" && echo RESETTABLE || echo HELD');
+    assert.match(out, /RESETTABLE/, 'the loop\u2019s own correction file is not work on the floor');
+
+    withLoopFns(sb.wt, 'reset_desk "$PWD" feature/two || exit 1');
+
+    assert.equal(git(sb.wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'feature/two',
+      'precondition: the desk must hold the new branch');
+    assert.equal(fs.existsSync(path.join(sb.wt, 'PLOT-CORRECTION.md')), false,
+      'the previous slice\u2019s correction must not reach the next slice');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
+test('desk: a staged correction holds the desk', () => {
+  const sb = sandbox('correction-staged');
+  try {
+    fs.writeFileSync(path.join(sb.wt, 'PLOT-CORRECTION.md'), 'somebody staged this\n');
+    git(sb.wt, 'add', 'PLOT-CORRECTION.md');
+    const out = withLoopFns(sb.wt, 'desk_is_resettable "$PWD" && echo RESETTABLE || echo HELD');
+    assert.match(out, /HELD/, 'the loop never stages the file, so a staged copy is somebody\u2019s decision');
+  } finally { fs.rmSync(sb.root, { recursive: true, force: true }); }
+});
+
 // -----------------------------------------------------------------------
 // The reset — base first, then the branch
 // -----------------------------------------------------------------------

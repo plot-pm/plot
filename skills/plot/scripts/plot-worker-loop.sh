@@ -1096,7 +1096,12 @@ reset_desk() { # $1=worktree $2=branch → 0 when the desk now holds the branch
   # left on the floor. The declaration for the finished branch has done its job
   # by the time the hop reaches here — `seal_declaration` ran before `--next`
   # was asked.
-  rm -f "$wt/$DECLARATION_FILE_NAME" 2>/dev/null || true
+  #
+  # THE PREVIOUS SLICE'S `PLOT-CORRECTION.md` LEAVES WITH IT. The untracked
+  # root file does not hold the desk (`plot_worker_dirty_filter`), and the
+  # detach below keeps untracked files, so without this the next slice's agent
+  # reads the last slice's correction and `write_correction` appends to it.
+  rm -f "$wt/$DECLARATION_FILE_NAME" "$wt/$(correction_file_name)" 2>/dev/null || true
 
   # STEP 0b — THE GENERATED BUNDLES ARE RESTORED BEFORE THE DETACH, path by
   # path, never `git clean` or `git reset --hard` over the whole tree.

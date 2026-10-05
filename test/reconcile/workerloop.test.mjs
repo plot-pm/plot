@@ -1755,7 +1755,7 @@ test('worker-loop: unpushed commits after a ran prompt end holding-work, exit 0'
   git(t, 'commit', '-qm', 'init');
   git(t, 'push', '-q', '-u', 'origin', 'main');
   const manifest = manifestFixture(t, 'bug/y');
-  const spend = spendHomes(t, 'bug/x');
+  const spend = spendHomes(t, 'bug/y');
 
   const r = await runLoop(t, { env: { PLOT_MANIFEST_FILE: manifest, ...spend.env } });
 
@@ -1832,10 +1832,11 @@ test('worker-loop: each holding-work ending adds one line to endings.jsonl', ser
 //
 // These run the whole loop against a real origin with a pushed `bug/x`, and a
 // copy of the scripts directory whose `plot-host.sh` answers `pr-state` with an
-// open PR — the one host question the loop asks, in `pr_is_open`. With a pushed
-// head and an open PR, `wait_for_checks` waits for a BuildMonitor line about
-// that head, so the fixture prompt writes the BuildMonitor's lines itself into
-// the desk's `.plot-worker.monitor.build.jsonl`.
+// open PR — the one host question the loop asks, in `pr_is_open` — and touches
+// `pr-asked` beside the desk when asked. With a pushed head and an open PR,
+// `wait_for_checks` waits for a BuildMonitor line about that head, so the
+// fixture prompt writes the BuildMonitor's lines itself into the desk's
+// `.plot-worker.monitor.build.jsonl`.
 
 /**
  * A desk on `bug/x` pushed to a bare origin, a scripts copy whose host reports
@@ -1862,7 +1863,7 @@ const checksFixture = (label, prompt) => {
   const dir = path.join(parent, 'scripts');
   fs.cpSync(scripts, dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'plot-host.sh'),
-    '#!/usr/bin/env bash\ncase "$1" in pr-state) printf \'{"state":"OPEN"}\\n\' ;; *) exit 1 ;; esac\n',
+    `#!/usr/bin/env bash\ncase "$1" in pr-state) touch ${JSON.stringify(path.join(parent, 'pr-asked'))}; printf '{"state":"OPEN"}\\n' ;; *) exit 1 ;; esac\n`,
     { mode: 0o755 });
   return { parent, t, script: path.join(dir, 'plot-worker-loop.sh') };
 };
@@ -1926,12 +1927,14 @@ test('worker-loop: a corrected prompt that pushes its fix reaches the checks wai
 
 test('worker-loop: a write that lands during the checks wait ends holding-work before the seal', serial, async () => {
   // The prompt commits and pushes, then leaves a background job that writes a
-  // file one second later — while `wait_for_checks` polls. The first hold check
+  // file once `wait_for_checks` asks the host whether the PR is open — after
+  // the first hold check, and before the wait expires. The first hold check
   // sees a clean desk; the second, before `seal_declaration`, sees the file.
   const { parent, t, script } = checksFixture('late-write',
     'echo work > "$PLOT_WORKTREE/work.txt"\n' +
     'git -C "$PLOT_WORKTREE" add work.txt && git -C "$PLOT_WORKTREE" commit -qm work && git -C "$PLOT_WORKTREE" push -q origin bug/x\n' +
-    '( sleep 1; echo late > "$PLOT_WORKTREE/late.txt" ) </dev/null >/dev/null 2>&1 &\n');
+    '( i=0; while [ ! -f "$PLOT_WORKTREE/../pr-asked" ] && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i + 1)); done; ' +
+    'echo late > "$PLOT_WORKTREE/late.txt" ) </dev/null >/dev/null 2>&1 &\n');
   const manifest = path.join(parent, 'manifest.json');
   fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/x', worktree: t }));
   const spend = spendHomes(t, 'bug/x');

@@ -1183,3 +1183,63 @@ describe('bashCleanliness — a rebuilt bundle is excused, a source change besid
     assert.equal(clean, false, 'a source change beside the bundle is still unlanded work');
   });
 });
+
+describe('bashCleanliness — PLOT-CORRECTION.md reads as the shell readers read it', () => {
+  // `plot-desk-dirt.sh` names the readers that must read one desk the same
+  // way. This compares the board's drop rule against `plot_worker_dirty`
+  // (`plot-worker-state.sh`) and `desk_dirt` (`plot-desk-dirt.sh`) on one
+  // real worktree per shape: only the untracked root file is excused.
+  let repo = '';
+  afterEach(() => {
+    if (repo) rmTree(repo);
+    repo = '';
+  });
+
+  const tree = (): string => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bashclean-corr-'));
+    const g = (...a: string[]) =>
+      execFileSync('git', ['-C', repo, ...a], { stdio: ['ignore', 'pipe', 'ignore'] });
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
+    g('config', 'user.email', 't@e.x');
+    g('config', 'user.name', 'T');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'r\n');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'init');
+    return repo;
+  };
+
+  /** `true` when both shell readers find nothing counted in `wt`. */
+  const shellClean = (wt: string): { worker: boolean; reaper: boolean } => {
+    const out = execFileSync('bash', ['-c', `
+      . "$1/plot-worker-state.sh"
+      printf 'worker=%s\\n' "$(plot_worker_dirty "$2" | wc -l | tr -d ' ')"
+      printf 'reaper=%s\\n' "$(desk_dirt "$2" | grep -c . || true)"
+    `, 'bash', SCRIPTS_DIR, wt], { encoding: 'utf8' });
+    return { worker: /worker=0\b/.test(out), reaper: /reaper=0\b/.test(out) };
+  };
+
+  const shapes: Array<[string, (wt: string) => void, boolean]> = [
+    ['an untracked root correction', (wt) => {
+      fs.writeFileSync(path.join(wt, 'PLOT-CORRECTION.md'), '# Correction 1 of 2\n');
+    }, true],
+    ['a staged root correction', (wt) => {
+      fs.writeFileSync(path.join(wt, 'PLOT-CORRECTION.md'), '# Correction 1 of 2\n');
+      execFileSync('git', ['-C', wt, 'add', 'PLOT-CORRECTION.md'], { stdio: 'ignore' });
+    }, false],
+    ['a nested untracked correction', (wt) => {
+      fs.mkdirSync(path.join(wt, 'docs'));
+      fs.writeFileSync(path.join(wt, 'docs', 'PLOT-CORRECTION.md'), 'content\n');
+    }, false],
+  ];
+
+  for (const [name, arrange, expected] of shapes) {
+    it(`reads ${expected ? 'clean' : 'dirty'} for ${name}, as the shell readers do`, async () => {
+      const wt = tree();
+      arrange(wt);
+      const [clean] = await bashCleanliness([wt]);
+      assert.equal(clean, expected, `bashCleanliness on ${name}`);
+      assert.deepEqual(shellClean(wt), { worker: expected, reaper: expected },
+        `the shell readers on ${name}`);
+    });
+  }
+});
