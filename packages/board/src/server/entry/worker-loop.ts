@@ -291,6 +291,8 @@ export interface PassConfig {
   readonly waitBudgetSeconds: number;
   /** Milliseconds one pass sleeps before the next. */
   readonly passIntervalMs: number;
+  /** Milliseconds a pass sleeps while it waits on a pushed slice's checks; the shell's `PLOT_CHECKS_POLL_SECONDS`. */
+  readonly checksPollMs: number;
   readonly maxStartRetries: number;
   readonly checksWaitSeconds: number;
   readonly correctionBudget: number;
@@ -723,7 +725,8 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       await deps.sleep(Math.max(0, until - deps.now()));
       await deps.ports.desk.clearLimitedRecord(worktree);
     } else if (!kinds.has('prompt-run') && !kinds.has('agent-attempt') && resume === undefined) {
-      await deps.sleep(deps.config.passIntervalMs);
+      const onChecks = readings.assignedBranch !== '' && readings.exit?.answer === 'ran';
+      await deps.sleep(onChecks ? deps.config.checksPollMs : deps.config.passIntervalMs);
       continue;
     }
 
@@ -873,6 +876,7 @@ export const main = async (
       boundSeconds,
       waitBudgetSeconds: num(env.PLOT_WAIT_BUDGET_SECONDS, boundSeconds),
       passIntervalMs: num(env.PLOT_WAIT_POLL_SECONDS, PASS_INTERVAL_MS / 1000) * 1000,
+      checksPollMs: num(env.PLOT_CHECKS_POLL_SECONDS, PASS_INTERVAL_MS / 1000) * 1000,
       maxStartRetries: num(env.PLOT_START_ATTEMPT_BUDGET, 3),
       checksWaitSeconds: num(env.PLOT_CHECKS_WAIT_SECONDS, num(configKey(worktree, 'Checks wait'), 1800)),
       correctionBudget: num(env.PLOT_CORRECTION_BUDGET, num(configKey(worktree, 'Correction budget'), 2)),

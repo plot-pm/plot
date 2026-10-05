@@ -149,7 +149,7 @@ const rig = (
     worktree: wt,
     agent: '',
     harness: 'claude',
-    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, base: 'origin/main' },
+    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, checksPollMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, base: 'origin/main' },
     limitMarginSeconds: 60,
     monitorEndsWorker: true,
     outFile,
@@ -213,6 +213,7 @@ const rigConfig = () => ({
   boundSeconds: 28_800,
   waitBudgetSeconds: 28_800,
   passIntervalMs: PASS_INTERVAL_MS,
+  checksPollMs: PASS_INTERVAL_MS,
   maxStartRetries: 3,
   checksWaitSeconds: 1_800,
   correctionBudget: 2,
@@ -421,10 +422,11 @@ describe('runWorkerLoop — after the prompt', () => {
         ...r.ports,
         build: buildFixture({ shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'in_progress', conclusion: null, url: 'u', startedAt: '' }] } }),
       },
-      config: { ...rigConfig(), checksWaitSeconds: 120 },
+      config: { ...rigConfig(), checksWaitSeconds: 120, checksPollMs: 7_000 },
     };
     expect(await runWorkerLoop(r.deps)).toBe(0);
-    expect(r.sleeps.filter((s) => s === PASS_INTERVAL_MS).length).toBeGreaterThanOrEqual(1);
+    expect(r.sleeps.filter((s) => s === 7_000).length).toBeGreaterThanOrEqual(1);
+    expect(r.sleeps).not.toContain(PASS_INTERVAL_MS);
   });
 
   it('hands a failed build back as a correction and runs again (row 14)', async () => {
