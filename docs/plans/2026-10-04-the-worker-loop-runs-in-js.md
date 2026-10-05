@@ -255,7 +255,7 @@ The rest of `plot-worker-state.sh` stays, `plot_worker_idle_now` included, becau
 
 ### The loop writes through ports
 
-- `infra/the-loop-writes-through-ports` — `performLoopWrites`, the `boundedRun` and `desk` ports, `refs.remoteTip`, and a bounded prompt run in the agent's process group <!-- builds: performLoopWrites and the loop's ports -->
+- `infra/the-loop-writes-through-ports` — `performLoopWrites`, the `boundedRun` and `desk` ports, `refs.remoteTip`, and a bounded prompt run in the agent's process group → #1282 <!-- builds: performLoopWrites and the loop's ports -->
 
 ### The loop runs in one process
 
