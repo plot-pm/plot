@@ -59,46 +59,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { workerLoopLine } from './loop-switch.mjs';
+import { registryWatcher } from './registry-watcher.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const scan = path.join(scripts, 'plot-fleet-scan.sh');
-
-/**
- * The scripts directory, copied, with `plot-fleet-scan.sh` wrapped in a shim
- * that hands over the next slice ONCE.
- *
- * IT IS THE REGISTRY, ACTING WHERE THE REGISTRY ACTS — the loop reaches this
- * script exactly once per free window, asking `--why-nothing` on the way into a
- * wait. Writing `branch` there is the whole of `agent-assign`: one field, no
- * second file.
- *
- * ONCE, because handing the same slice out twice is what `matchQueue` makes
- * unreachable and a fixture must not model a broken registry.
- *
- * THE COPY IS THE WHOLE DIRECTORY because `script_dir` is the loop's own
- * location and every helper resolves from it.
- */
-function shimmedScripts(root, manifest, handOver) {
-  const dir = path.join(root, 'scripts');
-  fs.cpSync(scripts, dir, { recursive: true });
-  const real = path.join(dir, 'plot-fleet-scan.real.sh');
-  fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
-  const once = path.join(root, 'handed-over');
-  fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
-if [ -f ${JSON.stringify(manifest)} ] && [ ! -f ${JSON.stringify(once)} ]; then
-  touch ${JSON.stringify(once)}
-  node -e '
-    const fs = require("fs");
-    const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    m.branch = process.argv[2];
-    fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
-  ' ${JSON.stringify(manifest)} ${JSON.stringify(handOver)}
-fi
-exec bash ${JSON.stringify(real)} "\$@"
-`, { mode: 0o755 });
-  return dir;
-}
 
 const DECLARATION = '.plot-worker.envelope.json';
 
@@ -228,7 +193,8 @@ test('declaration: one hopping worker leaves one declaration per branch', () => 
       attempts: 0,
       startedAt: '2026-09-03T09:00:00Z',
     }, null, 2) + '\n');
-    const dir = shimmedScripts(sb.root, manifest, 'feature/api');
+    const dir = scripts;
+    const watcher = registryWatcher(manifest, 'feature/api');
 
     // THE LOOP ENDS ON ITS BOUND, NOT ON SILENCE. Since
     // `an-agent-waits-for-work` an agent handed nothing WAITS rather than
@@ -255,6 +221,8 @@ test('declaration: one hopping worker leaves one declaration per branch', () => 
     } catch (err) {
       assert.equal(err.status, 124,
         'the loop may only end on its own bound here, never on any other failure');
+    } finally {
+      watcher.kill();
     }
 
     // THE HOP HAPPENED, and it happened WITHOUT a second desk. The prompt ran
