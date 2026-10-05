@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
@@ -8,7 +9,7 @@ import { pulseFor } from './fleet.js';
 import type { FleetReading } from '../contract/schema.js';
 import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
-import { deskManifestFor, writeManifestStamp } from './manifest-stamp.js';
+import { deskManifestFor, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 
@@ -443,17 +444,114 @@ export async function handleContinue(
     return;
   }
 
+  const started = await continueOnDesk({
+    opts,
+    readCfg,
+    branch,
+    worktree: found.worktree,
+    main: pulse?.main ?? '',
+    previousPid: found.pid,
+    answer,
+  });
+  if (started.kind === 'refused') {
+    refuse(started.status, started.reason, branch, started.detail);
+    return;
+  }
+  if (started.kind === 'failed') {
+    json(500, { error: started.error });
+    return;
+  }
+  json(202, {
+    ok: true,
+    branch,
+    /** The NEW pid. A caller asserting a new run compares this to the old one. */
+    pid: started.pid,
+    /** The pid this continuation replaced, so the answer names both. */
+    previousPid: started.previousPid,
+    prompt: started.prompt,
+    log: started.log,
+  });
+}
+
+/** What starting a continuation on one desk came to. */
+export type DeskContinuation =
+  | {
+      kind: 'started';
+      /** The NEW pid. A caller asserting a new run compares this to the old one. */
+      pid: string;
+      /** The pid this continuation replaced, so the answer names both. */
+      previousPid: string;
+      prompt: string;
+      log: string;
+    }
+  | { kind: 'refused'; status: number; reason: ContinueRefusal; detail: string }
+  | { kind: 'failed'; error: string };
+
+/** What {@link continueOnDesk} needs to start a continuation on a desk. */
+export interface DeskContinuationInput {
+  opts: BuildBoardOptions;
+  /** The configured-value reader; defaults to the board's own. */
+  readCfg?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
+  /** The branch the desk holds. */
+  branch: string;
+  /** The desk, absolute. */
+  worktree: string;
+  /** The default branch the landed commits are listed against, or `''` where unknown. */
+  main: string;
+  /** The pid of the run being replaced, or `''`. */
+  previousPid: string;
+  /** The answer the new run reads. */
+  answer: string;
+  /**
+   * Starts a NEW conversation instead of continuing the manifest's own.
+   *
+   * The loop resumes the session its manifest's `resumeId` names whenever a
+   * transcript exists for it. With `fresh`, the manifest's `resumeId` is
+   * replaced by a new id before the start, so the loop finds no transcript and
+   * creates a session. Absent or false, the manifest is left as it is.
+   */
+  fresh?: boolean;
+  /**
+   * Runs after every refusal check has passed and before the first change to
+   * the desk or the manifest. Returning false stops the start with a
+   * `failed` result. A caller that records the start writes its record here,
+   * so a start that throws afterwards cannot be repeated unrecorded.
+   */
+  beforeStart?: () => Promise<boolean>;
+}
+
+/**
+ * Starts a new worker on a desk that holds an unanswered `PLOT-BLOCKED`
+ * marker, with `answer` in its prompt.
+ *
+ * Both callers share this: `POST /api/continue` after it has found the desk
+ * through the pulse, and the registry tick for a desk whose correction budget
+ * is spent. The refusals are the route's own, in the route's own order: no
+ * marker, no `Worker command`, no single manifest naming the desk. Each
+ * refusal happens before any write to the desk.
+ *
+ * @param input - the desk, the answer, and how to start.
+ * @returns the started run, a refusal with its HTTP status and reason, or a
+ *   failure to write the prompt, open the log, or replace the resume id.
+ */
+export const continueOnDesk = async (input: DeskContinuationInput): Promise<DeskContinuation> => {
+  const { opts, branch, worktree, main, answer } = input;
+  const readCfg = input.readCfg ?? readConfig;
+  const refused = (
+    status: number,
+    reason: ContinueRefusal,
+    detail: string,
+  ): DeskContinuation => ({ kind: 'refused', status, reason, detail });
+
   // Read the question BEFORE spawning, and refuse when there is none. This is
   // both the precondition and the prompt's first section — see the header.
-  const question = await markerIn(found.worktree);
+  const question = await markerIn(worktree);
   if (!question) {
-    refuse(
+    return refused(
       409,
       'no-question',
-      branch,
       'no unanswered PLOT-BLOCKED marker in that worktree — nothing is waiting on an answer',
     );
-    return;
   }
 
   const cmd = readCfg(opts, 'Worker command', '');
@@ -461,13 +559,11 @@ export async function handleContinue(
     // The same `none` handling `start_worker` performs, and for the same
     // reason: `none` is a repo answering *we start workers by hand*, and
     // running it would spawn `none: command not found`.
-    refuse(
+    return refused(
       409,
       'no-worker-command',
-      branch,
       'no `Worker command` in Plot Config — start the continuation yourself in the worktree',
     );
-    return;
   }
 
   // ASKED BEFORE ANY WRITE, and that is the decision: a refused continuation
@@ -477,42 +573,56 @@ export async function handleContinue(
   // can name which one — see `ContinueRefusal.no-manifest`. `several` is
   // refused rather than tie-broken: a first match would hide an estate defect
   // the plan's second Open Point leaves open.
-  const manifestAnswer = deskManifestFor(opts.repoRoot, found.worktree, opts);
+  const manifestAnswer = deskManifestFor(opts.repoRoot, worktree, opts);
   if (manifestAnswer.kind !== 'named') {
-    refuse(
+    return refused(
       409,
       'no-manifest',
-      branch,
       manifestAnswer.kind === 'several'
-        ? `more than one manifest names ${found.worktree}: ${manifestAnswer.paths.join(', ')}`
-        : `no manifest names ${found.worktree}`,
+        ? `more than one manifest names ${worktree}: ${manifestAnswer.paths.join(', ')}`
+        : `no manifest names ${worktree}`,
     );
-    return;
+  }
+
+  if (input.beforeStart !== undefined && !(await input.beforeStart())) {
+    return { kind: 'failed', error: 'the caller stopped the start before it began' };
+  }
+
+  // A FRESH SESSION IS DECIDED BEFORE ANY WRITE TO THE DESK. The loop resumes
+  // whatever conversation the manifest's `resumeId` names while a transcript
+  // exists for it; a new id has no transcript, so the loop creates a session.
+  // A manifest that cannot take the new id would resume the spent session, so
+  // the start does not happen.
+  if (input.fresh === true && !writeResumeId(manifestAnswer.path, randomUUID())) {
+    return {
+      kind: 'failed',
+      error: `cannot replace the resume id in ${manifestAnswer.path}; a start now would resume the previous session`,
+    };
   }
 
   const rel = briefPathFor(branch);
-  const landed = landedCommits(found.worktree, pulse?.main ?? '');
+  const landed = landedCommits(worktree, main);
   const prompt = composeContinuation({
     branch,
     briefPath: rel,
-    briefText: readBrief(found.worktree, rel),
+    briefText: readBrief(worktree, rel),
     answer,
     question,
     landed,
     truncated: landed.length >= COMMIT_MAX,
   });
 
-  const promptPath = path.join(found.worktree, CONTINUATION_NAME);
+  const promptPath = path.join(worktree, CONTINUATION_NAME);
   try {
     fs.writeFileSync(promptPath, prompt, 'utf8');
   } catch (err) {
-    json(500, {
+    return {
+      kind: 'failed',
       error: `cannot write ${promptPath}: ${err instanceof Error ? err.message : String(err)}`,
-    });
-    return;
+    };
   }
 
-  const log = path.join(found.worktree, '.plot-worker.log');
+  const log = path.join(worktree, '.plot-worker.log');
   let out: number;
   try {
     // APPEND, never truncate. The previous run's log is the record of the
@@ -520,8 +630,10 @@ export async function handleContinue(
     // context a reader needs to judge whether the answer was the right one.
     out = fs.openSync(log, 'a');
   } catch (err) {
-    json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
-    return;
+    return {
+      kind: 'failed',
+      error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   // A NEW RUN, and every part of this says so. The previous `.plot-worker.exit`
@@ -530,7 +642,7 @@ export async function handleContinue(
   // code. The pid file is OVERWRITTEN below with the new child's pid; the old
   // one is never inherited, which is the assertion the plan asks for.
   try {
-    fs.rmSync(path.join(found.worktree, '.plot-worker.exit'), { force: true });
+    fs.rmSync(path.join(worktree, '.plot-worker.exit'), { force: true });
   } catch {
     /* a missing exit file is the normal case */
   }
@@ -544,7 +656,7 @@ export async function handleContinue(
   // file itself (`.plot-worker.pid`) is NOT removed — it is overwritten below
   // with the new child's pid.
   try {
-    fs.rmSync(path.join(found.worktree, '.plot-worker.wrapper.pid'), { force: true });
+    fs.rmSync(path.join(worktree, '.plot-worker.wrapper.pid'), { force: true });
   } catch {
     /* a missing wrapper pid file is the normal case */
   }
@@ -559,18 +671,18 @@ export async function handleContinue(
   // works under `/plot-dispatch` works here unchanged. Nothing from the request
   // is interpolated into that string: the answer reached the worktree as a
   // file, and its PATH travels in the environment.
-  const exitFile = path.join(found.worktree, '.plot-worker.exit');
+  const exitFile = path.join(worktree, '.plot-worker.exit');
   const child = spawn(
     'sh',
     ['-c', `( ${cmd} ); rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"`],
     {
-      cwd: found.worktree,
+      cwd: worktree,
       detached: true,
       stdio: ['ignore', out, out],
       env: {
         ...process.env,
         PLOT_BRANCH: branch,
-        PLOT_WORKTREE: found.worktree,
+        PLOT_WORKTREE: worktree,
         PLOT_EXIT_FILE: exitFile,
         // THE MANIFEST THAT NAMES THIS DESK, so the loop's own wait can end
         // honestly if that file later vanishes — `loopRegistration`'s `gone`.
@@ -588,7 +700,7 @@ export async function handleContinue(
   const pid = child.pid ?? 0;
   if (pid > 0) {
     try {
-      fs.writeFileSync(path.join(found.worktree, '.plot-worker.pid'), String(pid), 'utf8');
+      fs.writeFileSync(path.join(worktree, '.plot-worker.pid'), String(pid), 'utf8');
     } catch (err) {
       // The worker IS running; only the record of it failed. Say so rather than
       // reporting a failure that would invite a second spawn into the same
@@ -619,17 +731,8 @@ export async function handleContinue(
       agentMonitorPid: '',
     });
   }
-  json(202, {
-    ok: true,
-    branch,
-    /** The NEW pid. A caller asserting a new run compares this to the old one. */
-    pid: String(pid),
-    /** The pid this continuation replaced, so the answer names both. */
-    previousPid: found.pid,
-    prompt: promptPath,
-    log,
-  });
-}
+  return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log };
+};
 
 /**
  * Whether continuing is available at all — the same binding question

@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the thirteen reasons apart', () => {
+  it('reads the fourteen reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -53,6 +53,7 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'holding-work',
       'blocked',
       'checks-unanswered',
+      'corrections-spent',
       'turn-limit',
       'run-limit',
       'spend-limit',
@@ -68,6 +69,16 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
     expect(unstarted.read).toBe('ended');
     expect(limited.read).toBe('ended');
     expect(unstarted).not.toEqual(limited);
+  });
+
+  it('keeps a spent correction budget apart from a prompt that never started', () => {
+    // The shell wrote `corrections-spent` as `unstarted` until this value
+    // existed, which is the same collapse #1141 named for `limited` above.
+    const correctionsSpent = readEnding(ended({ reason: 'corrections-spent', actor: 'agent' }));
+    const unstarted = readEnding(ended({ reason: 'unstarted', actor: 'agent' }));
+
+    expect(correctionsSpent.read).toBe('ended');
+    expect(correctionsSpent).not.toEqual(unstarted);
   });
 
   it('does not collapse spent into bound', () => {

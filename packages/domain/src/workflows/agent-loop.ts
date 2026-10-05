@@ -229,7 +229,7 @@ const seal = (worktree: string, branch: string, session: string, note: string): 
  * @param readings - this pass's readings.
  * @param branch - the branch the slice is on.
  * @returns the seal on a pass, a correction while budget is left, and a
- *   `blocked` ending once it is spent.
+ *   `corrections-spent` ending once it is spent.
  */
 const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
   const { worktree } = readings;
@@ -260,7 +260,7 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
   // ROW 15 — checks fail, budget spent.
   const prText = readings.pr === null ? 'its PR' : `PR #${readings.pr}`;
   const question = `PLOT-BLOCKED: \`${branch}\`'s checks failed after ${readings.correctionAttempts} corrections against ${prText} — a person decides what to do next.`;
-  return end(worktree, branch, 'blocked', 'agent', 'correction budget spent', 0, [
+  return end(worktree, branch, 'corrections-spent', 'agent', 'correction budget spent', 0, [
     { kind: 'blocked-marker', worktree, branch, question },
     blockedDeclaration(worktree, branch, `${readings.correctionAttempts} corrections spent, checks still failing`),
   ]);
@@ -284,8 +284,8 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
  * write this function ever returns carries a loop state.
  *
  * **EVERY ENDING THAT WAITS FOR A PERSON ALSO WRITES A `declaration` WITH
- * `status: 'blocked'`** — `blocked`, `unstarted`, `limited` and
- * `checks-unanswered` — because `supervise` reads the declaration file and
+ * `status: 'blocked'`** — `blocked`, `unstarted`, `limited`,
+ * `checks-unanswered` and `corrections-spent` — because `supervise` reads the declaration file and
  * never the marker, and answers `correct` where none exists. `holding-work`
  * writes none: its correction is *land your work*, and `supervise` answering
  * `correct` is the right answer there.

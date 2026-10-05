@@ -310,3 +310,36 @@ export function writeManifestStamp(manifestPath: string, stamp: Stamp): boolean 
     return false;
   }
 }
+
+/**
+ * Replaces a manifest's `resumeId` on disk, atomically.
+ *
+ * The loop reads the conversation to resume from this field. A new id names no
+ * transcript, so the next run creates a session. The rewrite parses and
+ * re-serialises the manifest the way the loop's own hop does
+ * (`update_manifest_on_hop`), and every other field is kept.
+ *
+ * @param manifestPath - the manifest file.
+ * @param resumeId - the new, non-empty id.
+ * @returns true when the new id landed, false where the manifest could not be
+ *   read, parsed or written, or where `resumeId` is empty.
+ */
+export const writeResumeId = (manifestPath: string, resumeId: string): boolean => {
+  if (resumeId === '') return false;
+  const tmp = `${manifestPath}.plot-resume-tmp`;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+    if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) return false;
+    manifest.resumeId = resumeId;
+    fs.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, manifestPath);
+    return true;
+  } catch {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* nothing to clean up */
+    }
+    return false;
+  }
+};

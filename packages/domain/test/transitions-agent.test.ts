@@ -315,12 +315,23 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     }))).toBe(true);
   });
 
-  it('accepts actor agent on blocked, a marker or a spent budget the loop found itself', () => {
-    // The agent's own marker, or the loop's own retries or corrections running
-    // out while one was owed — no watcher fired either way.
+  it('accepts actor agent on blocked, a marker or the loop retries running out', () => {
+    // The agent's own marker, or the loop's own start retries running out while
+    // one was owed — no watcher fired either way.
     expect(isDecision(endingIsAttributable(SESSION, {
       actor: 'agent',
       reason: 'blocked',
+    }))).toBe(true);
+  });
+
+  it('accepts actor agent on corrections-spent, the slice budget running out', () => {
+    // a-spent-correction-budget-gets-a-fresh-agent: the slice's own correction
+    // budget ran out and the build still failed. No clock expired and no
+    // monitor published anything — the loop itself counts corrections and
+    // decided the budget was gone, same shape as unstarted and blocked.
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'corrections-spent',
     }))).toBe(true);
   });
 

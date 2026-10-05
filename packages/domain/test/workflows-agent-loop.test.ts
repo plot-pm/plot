@@ -617,7 +617,7 @@ describe('agentLoop — row 12a applies before the CI wait only', () => {
       pr: 1279,
     });
     expect(declarationWrite(result.writes)?.status).toBe('blocked');
-    expect(endWrite(result.writes)?.reason).toBe('blocked');
+    expect(endWrite(result.writes)?.reason).toBe('corrections-spent');
     expect(kindsOf(result.writes)).not.toContain('assignment-clear');
   });
 });
@@ -699,7 +699,7 @@ describe('agentLoop — row 14: checks fail, correction budget left', () => {
 });
 
 describe('agentLoop — row 15: checks fail, budget spent', () => {
-  it('ends blocked, exit 0, with a marker naming the PR and corrections', () => {
+  it('ends corrections-spent, exit 0, with a marker naming the PR and corrections', () => {
     const result = agentLoop({
       ...freeLoop,
       assignedBranch: BRANCH,
@@ -716,7 +716,7 @@ describe('agentLoop — row 15: checks fail, budget spent', () => {
     const marker = result.writes.find((w) => w.kind === 'blocked-marker');
     expect(marker && 'question' in marker ? marker.question : '').toContain('#1249');
     const end = endWrite(result.writes);
-    expect(end?.reason).toBe('blocked');
+    expect(end?.reason).toBe('corrections-spent');
     expect(end?.actor).toBe('agent');
     expect(end?.exitCode).toBe(0);
   });
