@@ -31,6 +31,12 @@ const freeLoop: AgentLoopReadings = {
   maxStartRetries: 2,
   markerWritten: false,
   markerText: '',
+  handBack: null,
+  checksResumeId: '',
+  handBackSummary: '',
+  localChecks: null,
+  sliceRuns: 0,
+  sliceMaxRuns: 12,
   resetRefusals: [],
   pushed: false,
   prOpen: false,
@@ -982,6 +988,256 @@ describe('agentLoop carries no state between passes', () => {
       correctionBudget: 2,
     };
     expect(agentLoop(readings)).toEqual(agentLoop(readings));
+  });
+});
+
+describe('agentLoop — the hand-back rows', () => {
+  const ran = { ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'ran' } } as const;
+
+  it('next: checks with no local-checks answer yet emits a checks write with no loop-end', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+      handBackSummary: 'implemented the port',
+      resetRefusals: ['unpushed-commits'],
+    });
+    expect(result.writes).toEqual([
+      {
+        kind: 'checks',
+        branch: BRANCH,
+        worktree: WORKTREE,
+        resumeId: 'sess-123',
+        summary: 'implemented the port',
+      },
+    ]);
+    expect(endWrite(result.writes)).toBeUndefined();
+  });
+
+  it('next: checks with passing local checks resumes the session with the one pass line', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+      handBackSummary: 'implemented the port',
+      localChecks: { passed: true },
+    });
+    expect(result.writes).toEqual([
+      {
+        kind: 'agent-resume',
+        branch: BRANCH,
+        worktree: WORKTREE,
+        resumeId: 'sess-123',
+        correction: 'local checks passed: implemented the port',
+      },
+    ]);
+  });
+
+  it('next: checks with a failing local check resumes with the failing command and its tail', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+      handBackSummary: 'implemented the port',
+      localChecks: {
+        passed: false,
+        command: 'pnpm --filter @plot-pm/domain exec tsc --noEmit -p .',
+        tail: "src/x.ts(3,1): error TS2304: Cannot find name 'y'.",
+      },
+    });
+    expect(result.writes).toHaveLength(1);
+    const resume = result.writes[0];
+    expect(resume?.kind).toBe('agent-resume');
+    if (resume?.kind !== 'agent-resume') return;
+    expect(resume.resumeId).toBe('sess-123');
+    expect(resume.correction).toContain('pnpm --filter @plot-pm/domain exec tsc --noEmit -p .');
+    expect(resume.correction).toContain("error TS2304: Cannot find name 'y'.");
+    expect(resume.correction).not.toContain('passed');
+  });
+
+  it('next: checks at Slice max runs starts no resume and ends run-limit with a blocked declaration', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+      localChecks: { passed: true },
+      sliceRuns: 12,
+      sliceMaxRuns: 12,
+    });
+    expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('run-limit');
+    expect(endWrite(result.writes)?.actor).toBe('agent');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it('next: checks with uncommitted changes ends holding-work rather than running the checks', () => {
+    const result = agentLoop({ ...ran, handBack: 'checks', resetRefusals: ['uncommitted-changes'] });
+    expect(endWrite(result.writes)?.reason).toBe('holding-work');
+    expect(result.writes.some((w) => w.kind === 'checks')).toBe(false);
+  });
+
+  it('a PLOT-BLOCKED marker outranks a checks hand-back', () => {
+    const result = agentLoop({ ...ran, handBack: 'checks', markerWritten: true, markerText: 'which schema?' });
+    expect(endWrite(result.writes)?.reason).toBe('blocked');
+    expect(declarationWrite(result.writes)?.summary).toBe('which schema?');
+  });
+
+  it('next: blocked ends blocked with a declaration carrying the summary', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'blocked',
+      handBackSummary: 'need a person to decide the migration approach',
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('blocked');
+    expect(end?.actor).toBe('agent');
+    expect(declarationWrite(result.writes)).toMatchObject({
+      status: 'blocked',
+      summary: 'need a person to decide the migration approach',
+    });
+  });
+
+  it('next: blocked with an empty summary declares a fallback summary, never an empty one', () => {
+    const result = agentLoop({ ...ran, handBack: 'blocked', handBackSummary: '' });
+    expect(declarationWrite(result.writes)?.summary).toBe('the agent handed back blocked');
+  });
+
+  it('a PLOT-BLOCKED marker outranks a pushed hand-back', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'pushed',
+      markerWritten: true,
+      markerText: 'which schema?',
+      pushed: true,
+      prOpen: true,
+    });
+    expect(endWrite(result.writes)?.reason).toBe('blocked');
+  });
+
+  it('unlanded work outranks a pushed hand-back', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'pushed',
+      resetRefusals: ['uncommitted-changes'],
+      pushed: true,
+      prOpen: true,
+    });
+    expect(endWrite(result.writes)?.reason).toBe('holding-work');
+  });
+
+  it('a pushed hand-back whose push did not happen reads the nothing-pushed row', () => {
+    const result = agentLoop({ ...ran, handBack: 'pushed', pushed: false, prOpen: false });
+    expect(result.detail.note).toBe('nothing pushed, no checks wait');
+  });
+
+  it('next: pushed with the push on the remote and a PR open waits for CI', () => {
+    const result = agentLoop({ ...ran, handBack: 'pushed', pushed: true, prOpen: true, checks: null });
+    expect(result.detail.note).toBe('waiting for checks');
+    expect(result.writes).toEqual([]);
+  });
+
+  it('next: pushed seals on a settled pass, same as the existing CI wait', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'pushed',
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: true,
+    });
+    expect(declarationWrite(result.writes)?.status).toBe('ok');
+  });
+
+  it('next: done falls through unchanged to the marker row, same as no hand-back', () => {
+    const withDone = agentLoop({ ...ran, handBack: 'done', markerWritten: true, markerText: 'x' });
+    const withNull = agentLoop({ ...ran, handBack: null, markerWritten: true, markerText: 'x' });
+    expect(withDone).toEqual(withNull);
+  });
+
+  it('a null hand-back (no structured_output) reads the desk, same as today', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: null,
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: true,
+    });
+    expect(declarationWrite(result.writes)?.status).toBe('ok');
+  });
+
+  it('a checks hand-back with a limit exit answers the limit, never the hand-back', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'end-limited', line: 'limit', cause: 'no-reset' },
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+    });
+    expect(endWrite(result.writes)?.reason).toBe('limited');
+    expect(result.writes.some((w) => w.kind === 'checks')).toBe(false);
+  });
+
+  it('a pushed hand-back with a limit exit also answers the limit', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'end-limited', line: 'limit', cause: 'past-bound' },
+      handBack: 'pushed',
+    });
+    expect(endWrite(result.writes)?.reason).toBe('limited');
+  });
+});
+
+describe('agentLoop — Slice max runs', () => {
+  it('at take-up, a slice at its run limit starts no run and ends run-limit with a blocked declaration', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, sliceRuns: 12, sliceMaxRuns: 12 });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    expect(result.writes.some((w) => w.kind === 'prompt-run')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('run-limit');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it('below the limit, take-up starts the run', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, sliceRuns: 11, sliceMaxRuns: 12 });
+    expect(result.writes.some((w) => w.kind === 'prompt-run')).toBe(true);
+  });
+
+  it('a failed CI build with correction budget left starts no correction run at the limit', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: false,
+      correctionAttempts: 0,
+      correctionBudget: 2,
+      sliceRuns: 12,
+      sliceMaxRuns: 12,
+    });
+    expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('run-limit');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+});
+
+describe('agentLoop — the ends only an SDK run reports', () => {
+  it('a bound abort ends bound, attributed to the bound, with a gone finding', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'bound' } });
+    expect(endWrite(result.writes)).toMatchObject({ reason: 'bound', actor: 'bound', exitCode: 124 });
+    expect(result.writes.some((w) => w.kind === 'worker-finding')).toBe(true);
+  });
+
+  it.each([
+    ['turn-limit' as const],
+    ['spend-limit' as const],
+  ])('%s ends with that reason and a blocked declaration', (answer) => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, exit: { answer }, handBack: 'pushed' });
+    expect(endWrite(result.writes)).toMatchObject({ reason: answer, actor: 'agent' });
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+    expect(isDecision(endingIsAttributable(SESSION, { actor: 'agent', reason: answer }))).toBe(true);
   });
 });
 

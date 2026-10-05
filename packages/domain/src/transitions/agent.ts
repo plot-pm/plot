@@ -409,6 +409,16 @@ export interface EndingAttributionInput {
  * it its own value so `freshAgentAfterCorrections` could tell *the build kept
  * failing* apart from *the prompt never ran* without parsing `detail`'s prose.
  *
+ * **`turn-limit`, `run-limit` AND `spend-limit` ARE THE EIGHTH, NINTH AND
+ * TENTH, AND THE SAME ARGUMENT COVERS ALL THREE.** None is a clock expiring
+ * or a monitor publishing a finding: `turn-limit` and `spend-limit` are an
+ * SDK run's own structured result, read by `sdkRunExit`, and `run-limit` is
+ * `runLimitRefusal` deciding — before a run is even started — that the
+ * slice's own count has reached `Slice max runs`. No watcher measured a
+ * running agent in any of the three; the loop's own reading of a result or a
+ * count is what ended it, the same shape `unstarted` and `limited` already
+ * establish for a non-zero prompt exit and a harness's own usage limit.
+ *
  * The check survives every enum change because it reads STRINGS: an ending file
  * on a desk is bytes until something validates them, and a worker of an older
  * vintage may have written a value no type admits.
@@ -431,12 +441,15 @@ export const endingIsAttributable = (
     input.reason !== 'holding-work' &&
     input.reason !== 'blocked' &&
     input.reason !== 'checks-unanswered' &&
-    input.reason !== 'corrections-spent'
+    input.reason !== 'corrections-spent' &&
+    input.reason !== 'turn-limit' &&
+    input.reason !== 'run-limit' &&
+    input.reason !== 'spend-limit'
   ) {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered' or 'corrections-spent' ending names the agent, because no watcher produces those.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered', 'corrections-spent', 'turn-limit', 'run-limit' or 'spend-limit' ending names the agent, because no watcher produces those.`,
     );
   }
 

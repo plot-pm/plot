@@ -60,6 +60,7 @@ const BEYOND_THE_FILESYSTEM: ReadonlySet<Write['kind']> = new Set([
   'worker-start',
   'worker-signal',
   'agent-resume',
+  'checks',
   'agent-attempt',
   'blocked-marker',
   'manifest-clear',
