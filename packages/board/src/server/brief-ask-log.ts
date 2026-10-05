@@ -19,7 +19,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { implementLogPath, implementStatePath } from './implement.js';
+import { implementLogPath, implementStatePath, implementStatus } from './implement.js';
 import { askForBriefLogPath } from './brief-ask.js';
 
 /**
@@ -37,47 +37,25 @@ import { askForBriefLogPath } from './brief-ask.js';
 export const DISPATCH_SCRIPT_ASK_LOG = (slug: string): string => path.join('.plot', `brief-${slug}.log`);
 
 /**
- * The three places an ask leaves its log, because there are three askers.
+ * The three places an ask leaves its log, one per asker.
  *
- * **MEASURED 2026-09-13 AND AGAIN 2026-10-04, and the plan did not anticipate
- * either.** The plan named one path — `.plot/brief-<slug>.log`, which is
- * `plot-dispatch.sh`'s — and that is the population the operator first
- * measured. The board's own asker writes somewhere else entirely:
- * `brief-ask.ts`'s `askForBrief` puts `.plot-brief-<slug>.log` at the
- * repository root. Since `aa1f36296` ("a dispatch names the act it started",
- * 2026-09-29) a THIRD asker exists: the dispatch controller writes a slice's
- * brief through the implement route with `--brief-only`, which logs through
- * `implementLogPath` to `.worktrees/plot-implement-<plan-slug>.log`. A list that
- * named only the first two went blind to every brief a dispatch asked for since
- * that date — the defect this file now closes.
- *
- * Each path comes from the function that WRITES it, not from a copied string:
- * `implementLogPath` from `implement.ts`, `askForBriefLogPath` from
- * `brief-ask.ts`, and `DISPATCH_SCRIPT_ASK_LOG` declared beside this function —
- * a shell string a test cannot import. A fourth spelling of where a log lives
- * is how a reading goes blind to the next ask.
- *
- *   `plot-dispatch.sh`     `.plot/brief-<branch-slug>.log`       keyed on the BRANCH
- *   `brief-ask.ts`         `.plot-brief-<plan-slug>.log`         keyed on the PLAN
+ *   `plot-dispatch.sh`     `.plot/brief-<branch-slug>.log`              keyed on the BRANCH
+ *   `brief-ask.ts`         `.plot-brief-<plan-slug>.log`                keyed on the PLAN
  *   `implement.ts`         `.worktrees/plot-implement-<plan-slug>.log`  keyed on the PLAN
  *
- * On this estate the branch and plan slugs usually coincide, because a slice's
- * branch is named for its plan's slug. They are not the same key by
- * construction, and the DIRECTORY differs unconditionally between all three.
- *
- * Reading only a subset would leave some brief the board asked for invisible —
- * which inverts the plan's own closing sentence, *"the board now asks for
- * briefs by itself, so the state this renders is the state it creates."* All
- * three are read, and the EARLIEST is reported: the ask is when somebody first
- * asked, and a second asker arriving later did not restart the wait the reader
- * is judging.
+ * The implement route is the asker when the dispatch controller writes a
+ * slice's brief with `--brief-only`. Each path comes from the function that
+ * writes it — `DISPATCH_SCRIPT_ASK_LOG`, `askForBriefLogPath`,
+ * `implementLogPath` — never from a copied string. The branch and plan slugs
+ * coincide only by naming convention; the directories always differ.
  *
  * @param repoRoot - absolute path to the repository root, which
  *                   `implementLogPath` needs to compute its path.
  * @param branchSlug - the branch's last path segment.
  * @param planSlug - the plan's slug (its filename without the date prefix and
- *                   `.md`), which is what the implement route is keyed on.
- * @returns Repository-relative paths, in no significant order.
+ *                   `.md`), which the board asker and the implement route are
+ *                   keyed on.
+ * @returns Repository-relative paths, in the order of the table above.
  */
 export const briefAskLogPaths = (repoRoot: string, branchSlug: string, planSlug: string): string[] => [
   DISPATCH_SCRIPT_ASK_LOG(branchSlug),
@@ -85,88 +63,93 @@ export const briefAskLogPaths = (repoRoot: string, branchSlug: string, planSlug:
   path.relative(repoRoot, implementLogPath(repoRoot, planSlug)),
 ];
 
-/**
- * When this branch's brief was asked for, as epoch milliseconds — or null.
- *
- * **NULL IS *NOBODY ASKED HERE*, AND IT IS ALSO *I COULD NOT LOOK*.** The two
- * collapse on purpose, and that is the one place this differs from
- * `briefState`'s three-valued answer. There, the third state earns its keep
- * because `missing` is a CLAIM that sends a person to write a file. Here the
- * negative asserts nothing and offers nothing: the row falls back to the
- * sentence it has said all along, which is what this machine can truthfully say
- * either way.
- *
- * **PER-MACHINE, AND THAT IS HONEST.** A brief asked for on another machine
- * leaves no log here, so the row says *nobody has asked* — true of this machine,
- * and the only alternative would be inferring an ask from its absence.
- *
- * The mtime rather than the birthtime: the asker opens the log with `'a'` and
- * writes into it as the session talks, so mtime moves while a writer works.
- * Both answer the reader's question *when was this asked* to within the width of
- * the label, and mtime is the one every filesystem here reports.
- *
- * @param repoRoot - absolute path to the repository root.
- * @param branch - the branch name, with or without its prefix.
- * @param planSlug - the plan's slug, beside the branch slug: the implement
- *                   route is keyed on the PLAN, and the two agree only by
- *                   naming convention. See `briefAskLogPaths`.
- * @returns Epoch milliseconds of the earliest ask, or null where none was found.
- */
-export const briefAskedAt = (repoRoot: string, branch: string, planSlug: string): number | null => {
-  const branchSlug = branch.split('/').pop() ?? branch;
-  let earliest: number | null = null;
-  for (const rel of briefAskLogPaths(repoRoot, branchSlug, planSlug)) {
-    try {
-      // `statSync` rather than `existsSync` + `stat`: one call, and the throw is
-      // the absence. A log that exists and will not be stat'd lands in the same
-      // catch as one that is not there, which is the collapse the docstring
-      // above licenses — neither answer makes a claim.
-      const at = fs.statSync(path.join(repoRoot, rel)).mtimeMs;
-      if (earliest === null || at < earliest) earliest = at;
-    } catch {
-      // No log at this path. Not a statement about the other one.
-    }
+/** A file's mtime in epoch milliseconds, or null where it cannot be stat'd. */
+const mtimeOf = (file: string): number | null => {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return null;
   }
-  return earliest;
 };
 
 /**
- * The implement log's path, where its run recorded a non-zero exit AFTER this
- * row's brief was asked for — or null.
+ * The asks this branch's brief has, as one epoch-millisecond time per asker
+ * whose log counts.
  *
- * **READ FROM THE RECORDED EXIT, NEVER FROM A PROCESS.** `#905` decided against
- * judging liveness — see this file's own header — and a failure reading is the
- * same decision made the other way: an exit code `implementStatePath` holds is
- * a recorded fact, not a guess from whether something is still running. No
- * liveness probe, no size check, no timeout.
- *
- * **NULL FOR AN OLD FAILURE.** A run that failed BEFORE this ask — an earlier
- * attempt at the same plan slug, since the implement log is per PLAN and
- * outlives any one run — must not be read as today's writer failing. The
- * state file's mtime is compared against `askedAt`: a recorded exit that is
- * older than the ask it would explain is not this ask's answer.
- *
- * **A `done` RUN IS NOT A FAILURE**, which `implementStatePath`'s own content
- * already says (`'0'`), so no extra branch is needed for it here.
+ * The dispatch script's log and the board asker's log count whenever they
+ * exist. The implement route's log counts only while its run is unfinished
+ * (`implementStatus` reads `running`) or failed (`failed`): that log is keyed
+ * per PLAN and outlives its run, while a brief is per BRANCH, so a run that
+ * recorded `0` wrote some branch's brief and is not an ask for a branch whose
+ * brief is still missing.
  *
  * @param repoRoot - absolute path to the repository root.
+ * @param branch - the branch name, with or without its prefix.
  * @param planSlug - the plan's slug the implement route is keyed on.
- * @param askedAt - this row's `briefAskedAt`, or null where nothing asked.
- * @returns the implement log's repository-relative path, or null.
+ * @returns `others` — the mtimes of the dispatch script's and the board
+ *          asker's logs that exist; `implement` — the implement log's mtime
+ *          where it counts, otherwise null.
  */
-export const briefFailed = (repoRoot: string, planSlug: string, askedAt: number | null): string | null => {
-  if (askedAt === null) return null;
-  const statePath = implementStatePath(repoRoot, planSlug);
-  let recorded: string;
-  let recordedAt: number;
-  try {
-    const stat = fs.statSync(statePath);
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-    recordedAt = stat.mtimeMs;
-  } catch {
-    return null; // no recorded exit — running, or never started
-  }
-  if (recorded === '' || recorded === '0') return null; // done, or unreadable content
-  if (recordedAt < askedAt) return null; // an old failure, not this ask's
-  return path.relative(repoRoot, implementLogPath(repoRoot, planSlug));
+const briefAsks = (
+  repoRoot: string,
+  branch: string,
+  planSlug: string,
+): { others: number[]; implement: number | null } => {
+  const branchSlug = branch.split('/').pop() ?? branch;
+  const [dispatchLog, boardLog] = briefAskLogPaths(repoRoot, branchSlug, planSlug);
+  const others = [dispatchLog, boardLog]
+    .map((rel) => mtimeOf(path.join(repoRoot, rel)))
+    .filter((at): at is number => at !== null);
+  const { state, log } = implementStatus({ repoRoot, scriptsDir: '' }, planSlug);
+  const implement = state === 'running' || state === 'failed' ? mtimeOf(log) : null;
+  return { others, implement };
+};
+
+/**
+ * When this branch's brief was asked for, as epoch milliseconds — or null.
+ *
+ * Reads the mtime of each asker's log and reports the earliest. The implement
+ * route's log counts only while its run is unfinished or failed — see
+ * `briefAsks`. The mtime is read, never the size: an empty log is an ask.
+ *
+ * The reading is per machine: an ask made on another machine leaves no log
+ * here and reads as null.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param branch - the branch name, with or without its prefix.
+ * @param planSlug - the plan's slug, which the board asker and the implement
+ *                   route are keyed on. See `briefAskLogPaths`.
+ * @returns Epoch milliseconds of the earliest ask, or null where no log counts
+ *          or none could be stat'd.
+ */
+export const briefAskedAt = (repoRoot: string, branch: string, planSlug: string): number | null => {
+  const { others, implement } = briefAsks(repoRoot, branch, planSlug);
+  const times = implement === null ? others : [...others, implement];
+  return times.length === 0 ? null : Math.min(...times);
+};
+
+/**
+ * The implement log's path, where the implement route recorded a non-zero exit
+ * and no other asker's log is newer than that record — or null.
+ *
+ * Reads the recorded exit through `implementStatus` and the state file's mtime;
+ * it never probes a process. The comparison runs against the LATEST log of the
+ * dispatch script and the board asker: a newer log from either means another
+ * writer was asked after the failure, so the failure is not reported.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param branch - the branch name, with or without its prefix.
+ * @param planSlug - the plan's slug the implement route is keyed on.
+ * @returns the implement log's repository-relative path, or null while the run
+ *          is unfinished, after it recorded `0`, with no run at all, when the
+ *          state file cannot be stat'd, or when another asker's log is newer.
+ */
+export const briefFailed = (repoRoot: string, branch: string, planSlug: string): string | null => {
+  const { state, log } = implementStatus({ repoRoot, scriptsDir: '' }, planSlug);
+  if (state !== 'failed') return null;
+  const recordedAt = mtimeOf(implementStatePath(repoRoot, planSlug));
+  if (recordedAt === null) return null;
+  const { others } = briefAsks(repoRoot, branch, planSlug);
+  if (others.some((at) => at > recordedAt)) return null;
+  return path.relative(repoRoot, log);
 };

@@ -24,9 +24,7 @@ import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummar
 import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../components/PlanCard.js';
 import { cn } from '../utils.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
-import {
-  briefAsked, briefAskedNote, briefFailedNote, briefGapNote, briefWriterFailed, needsBrief, waitingTone,
-} from './row-identity.js';
+import { type BriefNote, briefGapNote, briefNote, needsBrief, waitingTone } from './row-identity.js';
 // THE DOMAIN'S OWN DISCRIMINATOR, not a re-read of the field. `identity ===
 // 'manifest'` is a rule with a test beside it in
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
@@ -1526,6 +1524,27 @@ export function startableNote(row: AgentRow): string {
 }
 
 /**
+ * Renders a brief note `briefNote` chose: the failed note in amber, the asked
+ * note in the quiet tone. Decides nothing.
+ */
+const BriefNoteCell = ({ note }: { note: BriefNote }) => (
+  <span
+    role="gridcell"
+    {...(note.kind === 'failed' ? { 'data-brief-failed': true } : { 'data-brief-asked': true })}
+    className={cn(
+      'flex w-full items-baseline gap-x-2 text-xs sm:col-start-3 sm:col-end-[-1]',
+      note.kind === 'failed'
+        ? 'text-amber-700 dark:text-amber-400'
+        : 'text-slate-500 dark:text-slate-400',
+    )}
+    title={note.text}
+  >
+    <span className="shrink-0 font-medium">{note.label}</span>
+    <span className="min-w-0 max-sm:whitespace-normal">{note.text}</span>
+  </span>
+);
+
+/**
  * A BRANCH, A PR OR A RELEASE, as a tuple — and this is an ADAPTER, not a row.
  *
  * The row itself is `TupleRowView`, and it is the same component a plan and a
@@ -1722,6 +1741,8 @@ export function Row({
   // number, and the projection cannot see which section is asking. That is the
   // adapter's question, which is what an adapter is for.
   const inheritedClock = inPlanGroup && row.ageMinutes === null;
+  // The brief note, read once per render against the reader's clock.
+  const rowBriefNote = briefNote(row, Date.now());
 
   // THE SLICE'S VERDICT OUTRANKS THE BRANCH'S STATE, and inside a slice's fold
   // the branch does not restate it.
@@ -2153,56 +2174,15 @@ export function Row({
               genuinely next. What was wrong was the row stopping there — so the
               fact is added beside the verdict rather than replacing it. */}
           {needsBrief(row) && (
-            briefWriterFailed(row) ? (
-              /* THE THIRD ANSWER. A brief writer that recorded a non-zero exit
-                 is not still waiting and not a person's errand either — it is
-                 the one case that invites a look. AMBER, like the missing-brief
-                 arm below: both need a person, where `briefAsked` alone does
-                 not. Checked BEFORE `briefAsked`, because a failed run still
-                 leaves its ask's log behind — the two fields can both be set,
-                 and failure is the more useful fact to surface. */
-              <span
-                role="gridcell"
-                data-brief-failed
-                className="flex w-full items-baseline gap-x-2 text-xs text-amber-700 sm:col-start-3 sm:col-end-[-1] dark:text-amber-400"
-                title={briefFailedNote(row.briefFailed!)}
-              >
-                <span className="shrink-0 font-medium">brief failed</span>
-                <span className="min-w-0 max-sm:whitespace-normal">{briefFailedNote(row.briefFailed!)}</span>
-              </span>
-            ) : briefAsked(row) ? (
-              /* THE SAME ROW, THE OTHER ANSWER. A brief that is missing AND has
-                 been asked for is not an errand — it is a wait, and the two
-                 states read identically until this line. Measured 2026-09-12:
-                 `a-marker-names-its-writer` said *approved — nobody has taken
-                 it* while its brief was being written, and the operator asked
-                 the question the board could not answer.
-
-                 NOT AMBER. The gap note's colour is the `waitingOn: 'you'` one
-                 because a missing brief is a person's errand; this is the
-                 opposite state — somebody already ran the errand, and the only
-                 correct action is to let it finish. Colouring it the same would
-                 tell the reader to act on work already in flight, which is the
-                 whole defect. The quiet tone is `waitingTone('time')`'s
-                 argument: nothing here needs a person. */
-              <span
-                role="gridcell"
-                data-brief-asked
-                className="flex w-full items-baseline gap-x-2 text-xs text-slate-500 sm:col-start-3 sm:col-end-[-1] dark:text-slate-400"
-                title={briefAskedNote(Date.now() - row.briefAskedAt!)}
-              >
-                {/* THE ELAPSED TIME IS READ AT RENDER, never carried in the
-                    payload — the same clock `RegistryRow` reads for an agent's
-                    uptime. The server records WHEN the ask happened, which is a
-                    fact; how long ago it was is a view of that fact against the
-                    reader's own clock. Shipping the elapsed value would freeze
-                    it at pulse time, so a tab left open would go on saying
-                    *asked 5s ago* forever. */}
-                <span className="shrink-0 font-medium">brief asked</span>
-                <span className="min-w-0 max-sm:whitespace-normal">
-                  {briefAskedNote(Date.now() - row.briefAskedAt!)}
-                </span>
-              </span>
+            rowBriefNote ? (
+              /* THE NOTE IS DECIDED IN `briefNote` (row-identity.ts); this only
+                 renders it. A `failed` note is AMBER, like the missing-brief
+                 arm below: both need a person. An `asked` note is quiet —
+                 somebody already ran the errand, and the only correct action is
+                 to let it finish. The elapsed time is read at render against
+                 the reader's clock, never carried in the payload, so an open
+                 tab does not freeze at pulse time. */
+              <BriefNoteCell note={rowBriefNote} />
             ) : (
             <span
               role="gridcell"

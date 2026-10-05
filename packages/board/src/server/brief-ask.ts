@@ -66,6 +66,18 @@ export const briefAskPrompt = (slug: string, branch: string, main: string): stri
   `that path on origin/${main}, so a brief left uncommitted is invisible to it.`;
 
 /**
+ * Where `askForBrief` writes its log for one plan. `brief-ask-log.ts` reads
+ * the same path through this function, so the writer and the reader share one
+ * spelling.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug.
+ * @returns the log's absolute path.
+ */
+export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
+  path.join(repoRoot, `.plot-brief-${slug}.log`);
+
+/**
  * Runs the configured brief command for one plan, detached, and returns.
  *
  * **THE COMMAND IS A SHELL FRAGMENT AND THE PROMPT IS AN ARGUMENT.** The shape
@@ -91,18 +103,6 @@ export const briefAskPrompt = (slug: string, branch: string, main: string): stri
  * @param prompt - the assembled prompt, passed as one argument.
  * @returns the log path the session writes to, or `''` when the spawn failed.
  */
-/**
- * Where this asker's log lives for one plan — the path `brief-ask-log.ts`'s
- * `BOARD_ASK_LOG` names, so the two cannot drift: that module reads this
- * path's own function rather than a copied string.
- *
- * @param repoRoot - absolute path to the repository root.
- * @param slug - the plan slug.
- * @returns the log's absolute path.
- */
-export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
-  path.join(repoRoot, `.plot-brief-${slug}.log`);
-
 export const askForBrief = (
   opts: BuildBoardOptions,
   command: string,

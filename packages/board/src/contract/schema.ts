@@ -2794,7 +2794,7 @@ export const AgentRowSchema = z.object({
   briefAskedAt: z.number().nullable().default(null),
   /**
    * The implement log's path, where the brief writer for this row's plan
-   * recorded a non-zero exit after the ask — or null.
+   * recorded a non-zero exit and no other asker's log is newer — or null.
    *
    * **READ FROM THE RECORDED EXIT CODE, never from a process.** The same rule
    * `briefAskedAt` states above: a dead-looking log is not evidence of a dead
@@ -2805,8 +2805,8 @@ export const AgentRowSchema = z.object({
    * **NULL WHILE RUNNING, FOR SUCCESS, AND FOR NO RUN AT ALL.** A running
    * writer keeps saying the age of the ask (`briefAskedAt` alone); a succeeded
    * one wrote the brief, so `brief` reads `present` and this field stays out of
-   * the way. Null is also what an OLD failure reads, recorded before this ask —
-   * see `briefFailed` in `brief-ask-log.ts`.
+   * the way. Null is also what a failure reads once another asker's log is newer
+   * than it — see `briefFailed` in `brief-ask-log.ts`.
    *
    * **NULL IS THE DEFAULT AND MAKES NO CLAIM**, the same rule `briefAskedAt`
    * follows: a pulse from a server predating this field validates to null and

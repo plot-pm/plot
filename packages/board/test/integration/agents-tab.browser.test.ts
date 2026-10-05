@@ -4122,4 +4122,48 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.close();
     }
   });
+
+  // A ROW WHOSE BRIEF WRITER FAILED SAYS SO, AND NOT THAT THE BRIEF WAS ASKED.
+  // `briefNote` (row-identity.ts) decides between the two notes, and its unit
+  // test covers a row with both fields set; this asserts the rendered result.
+  // The row joins the scenario's `toms-open` wave, which already holds two
+  // branches: a single-branch slice renders through `SliceRow`, which shows no
+  // brief note at all.
+  it('a row with briefFailed set shows the failed note and not the asked note', async () => {
+    const log = '.worktrees/plot-implement-plant-tomatoes.log';
+    const payload = fleet({
+      rows: [
+        ...scenario('ten-rows-one-kind-each').fleet.rows,
+        row({
+          branch: 'feature/writer-failed', wave: 'toms-open', plan: 'plant-tomatoes', planFile: '2026-03-01-plant-tomatoes.md',
+          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
+          brief: 'missing', startability: 'needs-brief',
+          briefAskedAt: Date.now() - 45_000, briefFailed: log,
+          branchUrl: '', waitingDays: 3,
+        }),
+      ],
+    });
+    const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
+    try {
+      const notStarted = page.locator('section', {
+        has: page.locator('[data-group-toggle="not-started"]'),
+      });
+      const rowLocator = notStarted.locator('li[role="row"]')
+        .filter({ has: page.locator('[data-branch="feature/writer-failed"]') });
+
+      await expect.poll(async () => {
+        await expandAgentFolds(page);
+        return rowLocator.count();
+      }, { timeout: 20_000 }).toBeGreaterThan(0);
+
+      const failed = rowLocator.locator('[data-brief-failed]');
+      await expect.poll(() => failed.count()).toBe(1);
+      expect(await failed.textContent()).toContain(log);
+      expect(await rowLocator.locator('[data-brief-asked]').count()).toBe(0);
+      expect(await rowLocator.locator('[data-brief-gap]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
 });

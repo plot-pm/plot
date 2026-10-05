@@ -450,11 +450,7 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 58 → 59 on 2026-10-03: `an-unnamed-desk-says-so.browser.test.ts` (#1101),
 // for the row of a desk no manifest names. It serves its state through the
 // catalogue and starts no board.
-// 59 → 60 on 2026-10-04: `brief-asked-via-implement.browser.test.ts`, for the
-// "brief asked" note on a row whose only ask is an implement-route log. A
-// plain addition; it serves its state through the catalogue and starts no
-// board.
-const EXPECTED_FILES = 60;
+const EXPECTED_FILES = 59;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -642,9 +638,9 @@ const EXPECTED_FILES = 60;
 // 540 → 544 on 2026-10-03: four `it(` in the new
 // `an-unnamed-desk-says-so.browser.test.ts` (#1101), for the row of a desk no
 // manifest names. A file was added, so `EXPECTED_FILES` moves too.
-// 544 → 545 on 2026-10-04: one `it(` in the new
-// `brief-asked-via-implement.browser.test.ts`, for the "brief asked" note on
-// an implement-route-only ask. A file was added, so `EXPECTED_FILES` moves too.
+// 544 → 545 on 2026-10-05: one `it(` in `agents-tab.browser.test.ts`, for the
+// "brief failed" note on a row whose brief writer recorded a non-zero exit. It
+// joins a file that already drove a page, so `EXPECTED_FILES` is unchanged.
 const EXPECTED_TESTS = 545;
 
 /**

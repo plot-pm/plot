@@ -4,9 +4,9 @@
 //
 // THE DECISION STAYS IN THE PAYLOAD; THE ROW READS IT. `fleet.ts` computes
 // `briefFailed` from the implement route's recorded exit; `row-identity.ts`
-// decides the sentence from the field alone, so these are unit tests, not
-// browser ones. One browser test (`brief-asked-note.browser.test.ts`) proves
-// the implement-route ask renders at all.
+// decides the note from the fields alone (`briefNote`), so these are unit
+// tests. One browser test in `agents-tab.browser.test.ts` proves the failed
+// note renders.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,7 +19,7 @@ import {
 import { rowsFromPulse } from '../../src/server/fleet.js';
 import { implementLogPath, implementStatePath } from '../../src/server/implement.js';
 import {
-  briefFailedNote, briefWriterFailed, needsBrief,
+  briefFailedNote, briefNote, briefWriterFailed, needsBrief,
 } from '../../src/app/lib/agent-rows/row-identity.js';
 import { type AgentRow, type FleetReading } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
@@ -39,10 +39,10 @@ afterEach(() => {
   rmTree(root);
 });
 
-function write(file: string, content = ''): void {
+const write = (file: string, content = ''): void => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
-}
+};
 
 /** One approved plan, one eligible wave, one open branch — the reported shape. */
 const pulse = (branch = BRANCH): FleetReading => ({
@@ -124,5 +124,30 @@ describe('row-identity gives the failed sentence', () => {
   it('briefWriterFailed reads the field, not the filesystem', () => {
     expect(briefWriterFailed({ briefFailed: null })).toBe(false);
     expect(briefWriterFailed({ briefFailed: '.worktrees/plot-implement-a-plan.log' })).toBe(true);
+  });
+
+  it('briefWriterFailed reads a missing field as not failed — the client casts, never parses', () => {
+    expect(briefWriterFailed({})).toBe(false);
+    expect(briefWriterFailed({ briefFailed: undefined })).toBe(false);
+  });
+});
+
+describe('briefNote chooses the note a row shows', () => {
+  const NOW = 1_000_000_000_000;
+  const LOG = '.worktrees/plot-implement-a-plan.log';
+
+  it('shows the failed note when both briefFailed and briefAskedAt are set', () => {
+    const note = briefNote({ briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW);
+    expect(note).toEqual({ kind: 'failed', label: 'brief failed', text: briefFailedNote(LOG) });
+  });
+
+  it('shows the asked note, aged against the given clock, when only briefAskedAt is set', () => {
+    const note = briefNote({ briefFailed: null, briefAskedAt: NOW - 45_000 }, NOW);
+    expect(note).toEqual({ kind: 'asked', label: 'brief asked', text: 'a brief was asked for 45s ago' });
+  });
+
+  it('is null when neither is set, or both are missing from an older payload', () => {
+    expect(briefNote({ briefFailed: null, briefAskedAt: null }, NOW)).toBeNull();
+    expect(briefNote({}, NOW)).toBeNull();
   });
 });

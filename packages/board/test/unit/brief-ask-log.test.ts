@@ -37,18 +37,23 @@ afterEach(() => {
 });
 
 /** A repo root under a fresh tmpdir; agent logs live beside it, in its parent. */
-function repo(): string {
+const repo = (): string => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-brief-ask-log-'));
   made.push(parent);
   const dir = path.join(parent, 'repo');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
-}
+};
 
-function write(file: string, content = ''): void {
+const write = (file: string, content = ''): void => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
-}
+};
+
+/** Sets a file's mtime to `ms` epoch milliseconds. */
+const touchAt = (file: string, ms: number): void => {
+  fs.utimesSync(file, ms / 1000, ms / 1000);
+};
 
 describe('briefAskLogPaths names every asker, by its own path function', () => {
   it('covers the dispatch script, the board asker, and the implement route', () => {
@@ -62,30 +67,43 @@ describe('briefAskLogPaths names every asker, by its own path function', () => {
   });
 
   it('pins the dispatch script constant to the script\'s own line', () => {
-    // A shell string a test cannot import, so the script's TEXT is read and the
-    // constant's directory, prefix and suffix are asserted against it — a
-    // changed shell path then fails this test rather than the operator's board.
-    // `plot-dispatch.sh:805` composes its slug in shell
-    // (`${branch##*/}`), so only the literal parts around it are compared.
+    // A shell string a test cannot import, so the literal path is captured from
+    // the script's `log="$repo_root/..."` assignment, its slug expression is
+    // replaced with a placeholder, and the result is compared with the constant.
     const scriptPath = path.resolve(__dirname, '../../../../skills/plot/scripts/plot-dispatch.sh');
     const script = fs.readFileSync(scriptPath, 'utf8');
-    const line = script.split('\n').find((l) => l.includes('.plot/brief-') && l.includes('.log"'));
-    expect(line).toBeDefined();
+    const match = /^\s*log="\$repo_root\/(\.plot\/brief-.*\.log)"$/m.exec(script);
+    expect(match).not.toBeNull();
 
-    const constantPath = DISPATCH_SCRIPT_ASK_LOG('SLUG');
-    const [dirAndPrefix, suffix] = constantPath.split('SLUG');
-    expect(line).toContain(dirAndPrefix);
-    expect(line).toContain(suffix);
+    const literal = match![1].replace(`$(printf '%s' "\${branch##*/}")`, 'SLUG');
+    expect(literal).toBe(DISPATCH_SCRIPT_ASK_LOG('SLUG'));
   });
 });
 
 describe('briefAskedAt reads the implement route\'s log beside the other two', () => {
-  it('returns the implement log\'s mtime when it is the only ask', () => {
+  it('returns the implement log\'s mtime while its run is unfinished — no state file', () => {
     const root = repo();
     write(implementLogPath(root, PLAN_SLUG));
     const at = briefAskedAt(root, BRANCH, PLAN_SLUG);
     expect(at).not.toBeNull();
     expect(at).toBe(fs.statSync(implementLogPath(root, PLAN_SLUG)).mtimeMs);
+  });
+
+  it('returns the implement log\'s mtime when its run recorded a failure', () => {
+    const root = repo();
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), '1');
+    expect(briefAskedAt(root, BRANCH, PLAN_SLUG)).toBe(fs.statSync(implementLogPath(root, PLAN_SLUG)).mtimeMs);
+  });
+
+  it('is null when the implement run recorded 0 and the brief is still missing', () => {
+    // The implement log is per PLAN and a `--brief-only` run writes ONE
+    // branch's brief: a finished run is not an ask for a sibling slice.
+    const root = repo();
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), '0');
+    expect(briefAskedAt(root, BRANCH, PLAN_SLUG)).toBeNull();
+    expect(briefAskedAt(root, 'feature/a-sibling-slice', PLAN_SLUG)).toBeNull();
   });
 
   it('reports the earliest of several asks', () => {
@@ -109,48 +127,72 @@ describe('briefAskedAt reads the implement route\'s log beside the other two', (
 });
 
 describe('briefFailed reads the recorded exit, never a process', () => {
-  it('holds the log path for a non-zero recorded exit after the ask', () => {
+  it('holds the log path for a non-zero recorded exit', () => {
     const root = repo();
     write(implementLogPath(root, PLAN_SLUG));
-    const askedAt = fs.statSync(implementLogPath(root, PLAN_SLUG)).mtimeMs;
     write(implementStatePath(root, PLAN_SLUG), '1');
 
-    expect(briefFailed(root, PLAN_SLUG, askedAt)).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
+    expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
   });
 
   it('is null for a running run — a log with no state file', () => {
     const root = repo();
     write(implementLogPath(root, PLAN_SLUG));
-    const askedAt = fs.statSync(implementLogPath(root, PLAN_SLUG)).mtimeMs;
 
-    expect(briefFailed(root, PLAN_SLUG, askedAt)).toBeNull();
+    expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBeNull();
   });
 
   it('is null for a recorded exit of 0', () => {
     const root = repo();
     write(implementLogPath(root, PLAN_SLUG));
-    const askedAt = fs.statSync(implementLogPath(root, PLAN_SLUG)).mtimeMs;
     write(implementStatePath(root, PLAN_SLUG), '0');
 
-    expect(briefFailed(root, PLAN_SLUG, askedAt)).toBeNull();
+    expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBeNull();
   });
 
-  it('is null where nothing asked at all', () => {
+  it('is null where no run ever happened', () => {
     const root = repo();
-    expect(briefFailed(root, PLAN_SLUG, null)).toBeNull();
+    expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBeNull();
   });
 
-  it('is null for an exit recorded BEFORE the ask — an old failure, not this one', () => {
-    // The implement log is per PLAN and outlives any one run, so an earlier
-    // slice's failed attempt must not be read as THIS ask's writer failing.
+  it('is null for an old failure when the dispatch script\'s log is newer', () => {
     const root = repo();
-    write(implementStatePath(root, PLAN_SLUG), '1');
-    const oldExit = fs.statSync(implementStatePath(root, PLAN_SLUG)).mtimeMs;
-    // The new ask's log, written after the old exit was recorded.
-    fs.utimesSync(implementStatePath(root, PLAN_SLUG), oldExit / 1000 - 100, oldExit / 1000 - 100);
+    const now = Date.now();
     write(implementLogPath(root, PLAN_SLUG));
-    const askedAt = fs.statSync(implementLogPath(root, PLAN_SLUG)).mtimeMs;
+    write(implementStatePath(root, PLAN_SLUG), '1');
+    touchAt(implementLogPath(root, PLAN_SLUG), now - 200_000);
+    touchAt(implementStatePath(root, PLAN_SLUG), now - 100_000);
+    const dispatchLog = path.join(root, DISPATCH_SCRIPT_ASK_LOG(BRANCH_SLUG));
+    write(dispatchLog);
+    touchAt(dispatchLog, now);
 
-    expect(briefFailed(root, PLAN_SLUG, askedAt)).toBeNull();
+    expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBeNull();
+  });
+
+  it('is null for an old failure when the board asker\'s log is newer', () => {
+    const root = repo();
+    const now = Date.now();
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), '1');
+    touchAt(implementStatePath(root, PLAN_SLUG), now - 100_000);
+    write(askForBriefLogPath(root, PLAN_SLUG));
+    touchAt(askForBriefLogPath(root, PLAN_SLUG), now);
+
+    expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBeNull();
+  });
+
+  it('still reports the failure when the other askers\' logs are older than it', () => {
+    // Compared against the LATEST other ask, not the earliest: an old dispatch
+    // log does not hide a failure recorded after it.
+    const root = repo();
+    const now = Date.now();
+    const dispatchLog = path.join(root, DISPATCH_SCRIPT_ASK_LOG(BRANCH_SLUG));
+    write(dispatchLog);
+    touchAt(dispatchLog, now - 300_000);
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), '1');
+    touchAt(implementStatePath(root, PLAN_SLUG), now);
+
+    expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
   });
 });

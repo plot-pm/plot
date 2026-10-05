@@ -7137,13 +7137,10 @@ export function rowsFromPulse(
         // once per plan above.
         const rowNote =
           waitingOn === 'time' ? blockedNote(blockerName, blockerOutstanding) : note;
-        // THE PLAN SLUG, beside the branch — what the implement route is keyed
-        // on. The branch's last segment agrees with it only by naming
-        // convention; this is the fact itself, derived from `plan.file` the
-        // same way `plan` and `sprint` below already do. See `briefAskedAt` in
-        // `brief-ask-log.ts`.
+        // THE PLAN SLUG, computed once: the row's `plan` and `sprint` fields
+        // read it, and so do the brief readings, whose board asker and
+        // implement route are keyed on the plan rather than the branch.
         const planSlug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
-        const branchBriefAskedAt = repoRoot ? briefAskedAt(repoRoot, b.branch, planSlug) : null;
         rows.push({
           repo,
           // WHAT THIS ROW IS — decided here, where the branch name, the PR and
@@ -7179,14 +7176,14 @@ export function rowsFromPulse(
             plan.file,
           ),
           branch: b.branch,
-          plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
+          plan: planSlug,
           planFile: plan.file,
           // WHICH ACTIVE SPRINT names this plan — joined on the slug, which is
           // exactly `plan` one line up. Read from the caller's map, "" when no
           // active sprint lists it: membership is the sprint FILE's list, not the
           // plan's own `Sprint:` field, so a plan the file omits carries no sprint
           // even where its field is filled. See `AgentRowSchema.sprint`.
-          sprint: sprintOf?.get(plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')) ?? '',
+          sprint: sprintOf?.get(planSlug) ?? '',
           // NEVER A RELEASE, so never a version: this loop walks the branches a
           // PLAN names, and `changeset-release/*` belongs to no plan — it
           // reaches the board through the planless-PR loop below, which is where
@@ -7307,12 +7304,13 @@ export function rowsFromPulse(
           // Null where no root was passed — a caller that did not look — which
           // is the same value an older server's pulse validates to, so the
           // renderer says nothing extra for either.
-          briefAskedAt: branchBriefAskedAt,
+          briefAskedAt: repoRoot ? briefAskedAt(repoRoot, b.branch, planSlug) : null,
           // AND WHETHER THAT ASK'S WRITER FAILED — the implement log's path
-          // when its run recorded a non-zero exit after this ask, null
-          // otherwise (running, succeeded, or no root to look from). See
+          // when its run recorded a non-zero exit and no other asker's log is
+          // newer, null otherwise (running, succeeded, re-asked, or no root to
+          // look from). See
           // `briefFailed` in `brief-ask-log.ts`.
-          briefFailed: repoRoot ? briefFailed(repoRoot, planSlug, branchBriefAskedAt) : null,
+          briefFailed: repoRoot ? briefFailed(repoRoot, b.branch, planSlug) : null,
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
