@@ -219,13 +219,11 @@
 #                                 empty: `jen job list` carries no history and
 #                                 no timestamps, and inventing them would be a
 #                                 collector reaching a verdict.
-#   run-for-sha <branch> <sha>    the run for ONE sha — else the branch's newest
-#                                 run, with `sha` saying which it is — as a
-#                                 single JSON object, or nothing when the branch
-#                                 has no runs at all. Dispatched on the `CI` key
-#                                 like `runs`, and EXITS 4 on jenkins: `jen job
-#                                 list` names no commit, so there is nothing to
-#                                 match a sha against. Output:
+#   run-for-sha <branch> <sha>    the run for ONE sha, and nothing for any
+#                                 other sha — as a single JSON object, or
+#                                 nothing when the branch has no run for this
+#                                 sha. Dispatched on the `CI` key like `runs`.
+#                                 Output:
 #                                   {"sha":"…","status":"queued|in_progress|
 #                                    completed|waiting|requested",
 #                                    "conclusion":"success|failure|…|null",
@@ -235,22 +233,12 @@
 #                                 and sha-blind, and `gh run list --branch X`
 #                                 returns runs for every sha that branch ever
 #                                 had — the newest run is NOT necessarily for
-#                                 the newest commit. A green answer read off the
-#                                 wrong run reports success for code nobody will
-#                                 merge, which is worse than no answer: it
-#                                 invites a merge of the wrong thing. Measured
-#                                 2026-08-30: two merge waiters reported on
-#                                 superseded runs and had to be stopped and
-#                                 re-armed.
-#                                 THE FALLBACK IS WHAT MAKES THAT VISIBLE. Were
-#                                 it to report nothing when the asked-for sha
-#                                 has no run, a run IN FLIGHT for a superseded
-#                                 commit would look exactly like no run at all,
-#                                 and a caller could not tell "CI has not
-#                                 started" from "CI is answering about the
-#                                 past". `sha` names the run's own commit, and
-#                                 comparing it to the one asked about is the
-#                                 CALLER's rule — this decides nothing.
+#                                 the newest commit. A run for any sha but the
+#                                 one asked about is not evidence about it, so
+#                                 reporting it would invite a merge of the
+#                                 wrong thing. Measured 2026-08-30: two merge
+#                                 waiters reported on superseded runs and had
+#                                 to be stopped and re-armed.
 #                                 `status` AND `conclusion` ARE BOTH REPORTED,
 #                                 never collapsed. A run that is `completed` has
 #                                 a conclusion; one that is `waiting` or
@@ -4349,7 +4337,7 @@ case "$op" in
     ;;
 
   run-for-sha)
-    # The newest run for ONE sha — the BuildMonitor's only host question.
+    # The run for ONE sha, or nothing — the BuildMonitor's only host question.
     #
     # WHY THIS IS NOT `runs`. `runs` is branch-scoped and reports no sha at all,
     # so a caller cannot tell which commit an answer is about. `gh run list
@@ -4467,10 +4455,9 @@ case "$op" in
           echo "plot-host: run-for-sha — Jenkins did not answer for '$_jen_host'" >&2
           exit 4
         fi
-        # THE SAME FALLBACK RULE AS THE GITHUB ARM, and it is inherited rather
-        # than invented: the asked-for sha if a build carries it, else the
-        # newest build, and `sha` says WHICH. A caller that could not tell the
-        # two apart would be back to the branch-scoped guessing this op ends.
+        # THE SAME MATCH RULE AS THE GITHUB ARM: only the asked-for sha, never
+        # another build's. A build for any other commit is not evidence about
+        # this one, so no match means no output.
         #
         # `result` is null while a build runs, which is Jenkins' own word for
         # *in flight* — mapped to the `status`/`conclusion` split the contract
@@ -4482,7 +4469,7 @@ case "$op" in
                 conclusion: (if .building then null else (.result // null) end),
                 url: (.url // ""),
                 startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end) } ]
-          | ((map(select(.sha == $sha)) | .[0]) // .[0])
+          | (map(select(.sha == $sha)) | .[0])
           | select(. != null)' 2>/dev/null || true
         # THIS ARM ANSWERS AND THE OP IS OVER. Everything below the `esac` is
         # the GitHub path — the old jenkins arm reached it only because it
@@ -4512,26 +4499,16 @@ case "$op" in
     # newest-first, and a sha can carry several (a rerun, or several
     # workflows). The newest is the live answer; older ones for the same sha
     # are superseded by the same argument that superseded runs for older shas.
-    # THE SHA ASKED ABOUT IF THERE IS ONE, ELSE THE NEWEST RUN ON THE BRANCH —
-    # and `sha` in the output says WHICH, because a caller that could not tell
-    # the two apart would be back to the branch-scoped guessing this op exists
-    # to end.
     #
-    # WHY IT FALLS BACK AT ALL, rather than reporting nothing. Filtering to
-    # the asked-for sha and stopping makes the most important case invisible:
-    # a run IN FLIGHT for a commit the branch has already moved past reports
-    # identically to no run at all, so a caller cannot distinguish *CI has not
-    # started yet* from *CI is busy answering about the past*. The second is
-    # the state that had two merge waiters reporting on superseded runs on
-    # 2026-08-30, and it is exactly what a caller needs to see.
-    #
-    # IT STILL DECIDES NOTHING (Principle 3). It reports the run it found and
-    # the sha that run is for; whether that sha being different from the one
-    # asked about means "superseded" is the caller's rule. This collects.
+    # ONLY THE ASKED-FOR SHA, NEVER ANOTHER ONE'S RUN. A run for any other
+    # commit is not evidence about this one — reporting it would read as a
+    # live answer for a commit the branch has already moved past, which is
+    # worse than no answer. No match means no output, read the same as a
+    # branch with no runs at all.
     gh run list --branch "$branch" --limit "$limit" \
       --json headSha,conclusion,status,startedAt,url 2>/dev/null \
       | jq -c --arg sha "$sha" \
-          '(map(select(.headSha == $sha)) | .[0]) // .[0]
+          '(map(select(.headSha == $sha)) | .[0])
            | select(. != null)
            | {sha:.headSha, status:.status,
               conclusion:(if (.conclusion // "") == "" then null else .conclusion end),

@@ -18,10 +18,9 @@ export interface BuildFixture {
   /**
    * The sha-pinned runs `runForSha` reports, by branch then sha.
    *
-   * A branch with no entry answers null — the branch has no runs at all, which
-   * is what a caller polling a fresh push sees. A branch WITH an entry and no
-   * match for the sha answers its newest run, which is the fallback the real
-   * connector makes and the case a caller must be able to test.
+   * A branch with no entry, or with an entry that holds no run for the asked
+   * sha, answers null — the same answer the real connectors give for a
+   * branch that has no runs at all, or none for this commit.
    */
   shaRuns?: Readonly<Record<string, readonly ShaRun[]>>;
   /**
@@ -66,10 +65,9 @@ export const buildFixture = (fixture: BuildFixture = {}): BuildPort => {
     runForSha: async (branch, sha): Promise<PortResult<ShaRun | null>> => {
       if (broken) return failed();
       const history = shaRuns[branch] ?? [];
-      // THE SHA ASKED ABOUT IF THERE IS ONE, ELSE THE NEWEST — the fallback the
-      // real connector makes, reproduced here because a caller's rule about a
-      // superseded run is the thing a test needs to exercise.
-      return answered(history.find((run) => run.sha === sha) ?? history[0] ?? null);
+      // ONLY THE ASKED-FOR SHA, matching the real connectors: a run for any
+      // other commit is not evidence about this one.
+      return answered(history.find((run) => run.sha === sha) ?? null);
     },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {

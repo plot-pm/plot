@@ -367,12 +367,12 @@ describe('the build fixture answers as a CI connector', () => {
     expect(build.lastRefusal()).toBeNull();
   });
 
-  it('falls back to the newest run and SAYS which sha it found', async () => {
-    // The case a caller must be able to test: a run in flight for a commit the
-    // branch has moved past reads identically to no run at all unless the
-    // answer names its own sha.
-    const found = answer<ShaRun | null>(await forge().runForSha('feature/open', 'absent'));
-    expect(found?.sha).toBe('newest');
+  it('answers null for a sha this branch has no run for, never another sha’s run', async () => {
+    // A run for any OTHER commit is not evidence about the one asked for, so a
+    // branch WITH history but none for this sha answers the same as a branch
+    // with no runs at all.
+    const found = await forge().runForSha('feature/open', 'absent');
+    expect(found).toEqual({ ok: true, value: null });
   });
 
   it('answers null where the branch has no runs at all', async () => {
