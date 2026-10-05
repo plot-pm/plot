@@ -2,7 +2,7 @@ import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 
@@ -86,13 +86,17 @@ export interface WorkerLoopPorts extends LoopWritePorts {
  * Builds the real ports this loop runs against.
  *
  * @param context - the repository root and where its helper scripts live.
+ * @param manifestDir - the registry directory holding this agent's manifest, when the launcher named one; absent, it is read from `## Plot Config`.
  * @returns the ports a pass reads and writes through.
  */
-export const workerLoopPorts = async (context: ShellContext): Promise<WorkerLoopPorts> => {
+export const workerLoopPorts = async (
+  context: ShellContext,
+  manifestDir?: string,
+): Promise<WorkerLoopPorts> => {
   const processes: Processes = processesShell(context);
   const trees: Trees = treesGit(context);
   const refs: Refs = { ...refsGit(context), ...refsRemoteGit(context) };
-  const agents: Agents = agentsFs(context);
+  const agents: Agents = agentsFs(context, { manifestDir });
   const desk: Desk = deskFs(trees);
   const boundedRun: BoundedRun = boundedRunProcess(processes);
   const transcript = transcriptFs();
@@ -535,6 +539,8 @@ const runPrompt = async (
   const handle = manifest.resumeId !== '' ? manifest.resumeId : deps.sessionId;
   const spoken = await deps.idle.transcript.spoken(worktree, handle);
   const env: Record<string, string> = {
+    PLOT_BRANCH: manifest.branch,
+    PLOT_WORKTREE: worktree,
     PLOT_SESSION_FLAG: spoken.ok && spoken.value === true ? '--resume' : '--session-id',
     PLOT_SESSION_ID: handle,
     PLOT_CORRECTION_FILE: join(worktree, 'PLOT-CORRECTION.md'),
@@ -726,9 +732,12 @@ export const main = async (
   const worktree = env.PLOT_WORKTREE ?? process.cwd();
   const repoRoot = env.PLOT_REPO_ROOT ?? worktree;
   const boundSeconds = num(env.PLOT_WORKER_BOUND, num(configKey(worktree, 'Worker bound'), 28800));
-  const ports = await workerLoopPorts({ repoRoot: worktree, scriptDir });
-  const transcript = transcriptFs();
   const manifestFile = env.PLOT_MANIFEST_FILE ?? '';
+  const ports = await workerLoopPorts(
+    { repoRoot: worktree, scriptDir },
+    manifestFile === '' ? undefined : dirname(manifestFile),
+  );
+  const transcript = transcriptFs();
   await stampManifestLoopJs(manifestFile);
   const code = await runWorkerLoop({
     ports,

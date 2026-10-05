@@ -28,7 +28,7 @@
 // would edit the repo under a running fleet.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -101,49 +101,39 @@ function claim(sb, branch) {
 }
 
 /**
- * The scripts directory, copied, with `plot-fleet-scan.sh` wrapped in a shim
- * that snapshots the manifest and then HANDS OVER the next slice.
+ * A process that plays the registry: it polls the manifest, and the first time
+ * the manifest names no branch it snapshots what the registry would read and
+ * HANDS OVER the next slice by writing `branch`.
  *
- * IT IS THE REGISTRY, ACTING WHERE THE REGISTRY ACTS. The loop reaches this
- * script exactly once per free window — `--why-nothing`, asked on the way into
- * a wait — which is the same instant a daemon tick would find this agent free
- * and match it. So the shim takes the snapshot and writes `branch` into the
- * manifest, which is the whole of `agent-assign`: no second file, no socket,
- * one field.
+ * IT IS THE REGISTRY, ACTING WHERE THE REGISTRY ACTS. A daemon tick finds an
+ * agent free when its manifest names no branch and matches it; this watcher
+ * does the same from outside the loop, so it holds for the shell loop and the
+ * JS loop alike — neither is asked to call anything for the test's sake. The
+ * write is the whole of `agent-assign`: no second file, no socket, one field.
  *
- * IT HANDS OVER ONCE. A shim that wrote the assignment on every call would
- * re-hand a slice the agent already holds, which is the double assignment
- * `matchQueue` exists to make unreachable — so it refuses itself the second
- * time, the way the pool does.
- *
- * IT STILL DELEGATES. `--why-nothing` decides the operator's sentence and the
- * real scan is what answers it; a stub would test the shim.
+ * IT HANDS OVER ONCE, the way the pool does: a second write would re-hand a
+ * slice the agent already holds, the double assignment `matchQueue` makes
+ * unreachable. The write is a rename, so the loop never reads half a manifest.
  */
-function shimmedScripts(root, snapshotLog, manifest, handOver) {
-  const dir = path.join(root, 'scripts');
-  fs.cpSync(scripts, dir, { recursive: true });
-  const real = path.join(dir, 'plot-fleet-scan.real.sh');
-  fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
-  const once = path.join(root, 'handed-over');
-  fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
-# Snapshot the manifest as the registry would read it right now.
-if [ -n "\${PLOT_MANIFEST_FILE:-}" ] && [ -f "\$PLOT_MANIFEST_FILE" ]; then
-  cat "\$PLOT_MANIFEST_FILE" >> ${JSON.stringify(snapshotLog)}
-  printf '\\n--SNAP--\\n' >> ${JSON.stringify(snapshotLog)}
-  # Then hand over the next slice, once — the registry's own write.
-  if [ ! -f ${JSON.stringify(once)} ]; then
-    touch ${JSON.stringify(once)}
-    node -e '
-      const fs = require("fs");
-      const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      m.branch = process.argv[2];
-      fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
-    ' "\$PLOT_MANIFEST_FILE" ${JSON.stringify(handOver)}
-  fi
-fi
-exec bash ${JSON.stringify(real)} "\$@"
-`, { mode: 0o755 });
-  return dir;
+function registryWatcher(snapshotLog, manifest, handOver) {
+  const script = `
+    const fs = require('fs');
+    const [manifest, handOver, snapshotLog] = process.argv.slice(1);
+    const tick = () => {
+      let text;
+      try { text = fs.readFileSync(manifest, 'utf8'); } catch { return; }
+      let m;
+      try { m = JSON.parse(text); } catch { return; }
+      if (m.branch !== '') return;
+      fs.appendFileSync(snapshotLog, text + '\\n--SNAP--\\n');
+      m.branch = handOver;
+      fs.writeFileSync(manifest + '.watch-tmp', JSON.stringify(m, null, 2) + '\\n');
+      fs.renameSync(manifest + '.watch-tmp', manifest);
+      clearInterval(timer);
+    };
+    const timer = setInterval(tick, 100);
+  `;
+  return spawn(process.execPath, ['-e', script, manifest, handOver, snapshotLog], { stdio: 'ignore' });
 }
 
 /**
@@ -171,10 +161,10 @@ test('free window: the manifest names no branch between the finish and the hop',
   try {
     const { wt, wtRoot } = claim(sb, 'feature/seam');
     const snapshotLog = path.join(sb.root, 'snapshots.txt');
-    const dir = shimmedScripts(sb.root, snapshotLog, path.join(sb.work, '.plot', 'agents', 'sess-freewin.json'), 'feature/api');
+    const dir = scripts;
 
     // PRECONDITION: wave 2 must be blocked, or the hop is over ungated work.
-    const before = execFileSync('bash', [path.join(dir, 'plot-fleet-scan.real.sh'), '--offline', 'freewin'],
+    const before = execFileSync('bash', [path.join(dir, 'plot-fleet-scan.sh'), '--offline', 'freewin'],
       { encoding: 'utf8', cwd: sb.work });
     assert.match(before, /Implementation — blocked/,
       'precondition: the second wave must be blocked, or the hop proves nothing');
@@ -208,6 +198,7 @@ test('free window: the manifest names no branch between the finish and the hop',
     // does when `Worker bound` runs out while it is free. `execFileSync` throws
     // on that, so it is caught: the exit code is not what any assertion below
     // is about.
+    const watcher = registryWatcher(snapshotLog, manifest, 'feature/api');
     try {
       execFileSync('bash', [path.join(dir, 'plot-worker-loop.sh')], {
         cwd: wt,
@@ -230,7 +221,8 @@ test('free window: the manifest names no branch between the finish and the hop',
       });
     } catch (err) {
       assert.equal(err.status, 124,
-        'the loop may only end on its own bound here, never on any other failure');
+        'the loop may only end on its own bound here, never on any other failure');    } finally {
+      watcher.kill();
     }
 
     // THE HOP HAPPENED, AND IT HAPPENED BECAUSE THE SLICE WAS HANDED OVER.
