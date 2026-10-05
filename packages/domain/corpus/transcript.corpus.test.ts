@@ -214,4 +214,24 @@ describe('transcriptFs().quietSeconds agrees with plot_transcript_quiet_seconds'
     }
     expect(found.map(report)).toEqual([]);
   });
+
+  it('answers whether a conversation has written, as plot_transcript_exists does', async () => {
+    const wt = built.get('one-session-fresh')!;
+    const handles = ['sess-1', 'sess-2', ''];
+    const script = `
+      export PLOT_TRANSCRIPT_HOME=${JSON.stringify(home)}
+      . ${JSON.stringify(TRANSCRIPT_LIB)}
+      for h in ${handles.map((h) => `'${h}'`).join(' ')}; do
+        if plot_transcript_exists ${JSON.stringify(wt)} "$h"; then echo yes; else echo no; fi
+      done
+    `;
+    const shell = execFileSync('bash', ['-c', script], { encoding: 'utf8' }).trim().split('\n');
+    const found: Disagreement[] = [];
+    for (let i = 0; i < handles.length; i += 1) {
+      const answer = await transcriptFs({ transcriptHome: home }).spoken(wt, handles[i]);
+      compareField(found, `spoken:${handles[i] || 'empty'}`, 'spoken', answer.ok && answer.value ? 'yes' : 'no', shell[i]);
+    }
+    expect(shell).toEqual(['yes', 'no', 'no']);
+    expect(found.map(report)).toEqual([]);
+  });
 });

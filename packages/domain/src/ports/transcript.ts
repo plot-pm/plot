@@ -42,4 +42,19 @@ export interface Transcript {
    *   is the same first-class answer the shell gives, not a port failure.
    */
   quietSeconds(worktree: string): Promise<PortResult<QuietReading>>;
+
+  /**
+   * Whether a conversation has written its transcript yet.
+   *
+   * Asked as a file's existence, never as a time: until a new conversation
+   * writes its first line, the desk's newest transcript belongs to the previous
+   * one. The loop reads it to choose `--session-id` or `--resume`, and the idle
+   * watch reads it before it calls a quiet desk idle.
+   *
+   * @param worktree - the desk's absolute path.
+   * @param handle - the conversation's session id.
+   * @returns true where `<transcript dir>/<handle>.jsonl` exists; false for an
+   *   empty path or handle, or no such file.
+   */
+  spoken(worktree: string, handle: string): Promise<PortResult<boolean>>;
 }

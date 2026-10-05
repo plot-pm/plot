@@ -33,6 +33,15 @@ export const transcriptFs = (options: TranscriptFsOptions = {}): Transcript => {
   const home = options.transcriptHome ?? env[TRANSCRIPT_HOME_ENV] ?? homedir();
 
   return {
+    spoken: async (worktree: string, handle: string): Promise<PortResult<boolean>> => {
+      if (worktree === '' || handle === '') return answered(false);
+      try {
+        return answered((await stat(join(transcriptDirFor(worktree, home), `${handle}.jsonl`))).isFile());
+      } catch {
+        return answered(false);
+      }
+    },
+
     quietSeconds: async (worktree: string): Promise<PortResult<QuietReading>> => {
       if (worktree === '') return answered<QuietReading>({ quiet: 'unavailable' });
       const dir = transcriptDirFor(worktree, home);
