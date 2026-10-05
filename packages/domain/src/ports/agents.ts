@@ -108,6 +108,18 @@ export interface AgentDesk {
  *
  * What the repository does own is that neither entry composes a path.
  */
+/** What {@link Agents.register} needs to write a manifest. */
+export interface AgentRegistration {
+  /** The new agent's session id; also its first `resumeId`. */
+  session: string;
+  /** The branch it holds, or `''` for a free agent. */
+  branch: string;
+  /** The desk it works in, absolute. */
+  worktree: string;
+  /** The `Worker command` it runs. */
+  command: string;
+}
+
 export interface Agents {
   /**
    * Every agent the dispatcher has declared.
@@ -183,4 +195,27 @@ export interface Agents {
    * @returns nothing; absent is not a failure, matching {@link raiseAttempts}.
    */
   clearAssignment(session: string): Promise<PortResult<void>>;
+
+  /**
+   * Registers a new agent: writes its manifest, naming a desk it will work in.
+   *
+   * **A DECLARED TWIN OF `write_agent_manifest`** in the dispatcher, and the
+   * pair is held by `corpus/agent-manifest.corpus.test.ts`. The fields and
+   * their order are the shell's: `session`, `resumeId` (equal to `session` at
+   * launch), `branch`, `worktree`, `command`, `pid` (empty: no process runs
+   * yet), `attempts` (0) and `startedAt`. The file is `<session>.json` in the
+   * registry directory, written through a temp file and a rename.
+   *
+   * @param agent - the identity, the desk and the command the agent runs.
+   * @returns the manifest's path; `failed` where it could not be written.
+   */
+  register(agent: AgentRegistration): Promise<PortResult<string>>;
+
+  /**
+   * Removes the manifest {@link register} wrote.
+   *
+   * @param session - the agent's session id, naming its manifest.
+   * @returns nothing; a manifest that is already absent is not a failure.
+   */
+  deregister(session: string): Promise<PortResult<void>>;
 }

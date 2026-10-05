@@ -16,6 +16,7 @@ import {
   tempSweepShell,
   freshAgentRecordFile,
   deskFs,
+  agentsFs,
 } from '@plot-pm/domain/adapters';
 import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
 import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
@@ -74,7 +75,9 @@ import {
 import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
 import { logDir, processLog, truncateInherited } from '../process-log.js';
 import { readConfig } from '../board.js';
-import { continueOnDesk } from '../continue.js';
+import { continueOnDesk, type DeskContinuation, type DeskContinuationInput } from '../continue.js';
+import { randomUUID } from 'node:crypto';
+import type { Agents } from '@plot-pm/domain/ports/agents';
 
 /**
  * `plot-registryd` — the supervisor, one per repository.
@@ -1267,6 +1270,75 @@ export const writeSupervisionReport = async (
 };
 
 /**
+ * Starts the fresh session for a spent desk: registers a new agent for it, then
+ * continues the desk.
+ *
+ * **THE DESK HAS NO MANIFEST, SO ONE IS WRITTEN FIRST.** The loop's exit trap
+ * removed the spent agent's manifest, and `continueOnDesk` refuses a desk no
+ * manifest names. The fresh agent is a new agent: a new session id, which is
+ * also its `resumeId`, so the loop finds no transcript and creates a session.
+ *
+ * **THE ORDER IS REGISTER, THEN CONTINUE'S CHECKS, THEN `beforeStart`, THEN THE
+ * SPAWN.** The caller's record row is written in `beforeStart`, after continue
+ * accepted the desk and before it spawned, so a crash never starts two
+ * sessions. A crash between the registration and the row leaves a manifest and
+ * no process, which the next tick's supervision reads as a dead agent.
+ *
+ * **A MANIFEST THAT STARTED NOTHING IS REMOVED.** A refusal, a failure or a
+ * throw after the registration deregisters the agent, so no ghost registration
+ * stays.
+ *
+ * @param input - the desk, the answer, and the caller's `beforeStart`.
+ * @param deps - the registry port, the `Worker command`, an id source, and the
+ *   continue workflow.
+ * @returns what continue answered, or `failed` where the registration failed.
+ */
+export const startFreshSession = async (
+  input: {
+    branch: string;
+    worktree: string;
+    answer: string;
+    main: string;
+    beforeStart: () => Promise<boolean>;
+  },
+  deps: {
+    agents: Pick<Agents, 'register' | 'deregister'>;
+    command: string;
+    newSession: () => string;
+    continueDesk: (input: DeskContinuationInput) => Promise<DeskContinuation>;
+    opts: DeskContinuationInput['opts'];
+  },
+): Promise<DeskContinuation> => {
+  const session = deps.newSession();
+  const registered = await deps.agents.register({
+    session,
+    branch: input.branch,
+    worktree: input.worktree,
+    command: deps.command,
+  });
+  if (!registered.ok) {
+    return { kind: 'failed', error: 'the fresh agent could not be registered' };
+  }
+  try {
+    const result = await deps.continueDesk({
+      opts: deps.opts,
+      branch: input.branch,
+      worktree: input.worktree,
+      main: input.main,
+      previousPid: '',
+      answer: input.answer,
+      fresh: true,
+      beforeStart: input.beforeStart,
+    });
+    if (result.kind !== 'started') await deps.agents.deregister(session);
+    return result;
+  } catch (error) {
+    await deps.agents.deregister(session);
+    throw error;
+  }
+};
+
+/**
  * Reads, decides and applies the fresh-agent step for one completed tick.
  *
  * Desks whose worker ended `corrections-spent` with no manifest left get one
@@ -1390,16 +1462,16 @@ export const run = async (
     now: () => new Date(),
     start: async ({ branch, worktree, answer, beforeStart }) => {
       const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
-      return continueOnDesk({
-        opts: boardOpts,
-        branch,
-        worktree,
-        main: base.ok ? base.value : '',
-        previousPid: '',
-        answer,
-        fresh: true,
-        beforeStart,
-      });
+      return startFreshSession(
+        { branch, worktree, answer, main: base.ok ? base.value : '', beforeStart },
+        {
+          agents: agentsFs({ repoRoot, scriptDir: scriptsDir }, { manifestDir: registryDir }),
+          command: readConfig(boardOpts, 'Worker command', ''),
+          newSession: () => randomUUID(),
+          continueDesk: continueOnDesk,
+          opts: boardOpts,
+        },
+      );
     },
   };
 

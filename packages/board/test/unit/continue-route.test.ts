@@ -32,6 +32,8 @@ import {
 import type { ContinueDeps } from '../../src/server/continue.js';
 import type { FleetReading } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
+import { agentsFs } from '@plot-pm/domain/adapters';
+import { startFreshSession } from '../../src/server/entry/registryd-main.js';
 
 const BRANCH = 'feature/continue-with-an-answer';
 
@@ -854,5 +856,47 @@ describe('continueOnDesk, as the registry tick calls it', () => {
     assert.equal(asked, 0);
     assert.equal(result.kind, 'refused');
     assert.equal(result.kind === 'refused' ? result.reason : '', 'no-manifest');
+  });
+});
+
+describe('startFreshSession over the real registry, for a desk with no manifest', () => {
+  const run = (wt: string, dir: string) =>
+    startFreshSession(
+      { branch: BRANCH, worktree: wt, answer: 'the composed answer', main: 'main', beforeStart: async () => true },
+      {
+        agents: agentsFs({ repoRoot: dir, scriptDir: dir }, { manifestDir: dir }),
+        command: 'true',
+        newSession: () => 'fresh-session-1',
+        continueDesk: (i) =>
+          continueOnDesk({
+            ...i,
+            readCfg: (_o, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+          }),
+        opts: { ...opts, manifestDir: dir },
+      },
+    );
+
+  it('registers the agent so continue accepts the desk, and leaves the manifest naming it', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fresh-registry-'));
+    manifestDirs.push(dir);
+    const result = await run(wt, dir);
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'fresh-session-1.json'), 'utf8'));
+    assert.equal(manifest.worktree, wt);
+    assert.equal(manifest.branch, BRANCH);
+    assert.notEqual(manifest.resumeId, 'fresh-session-1', 'the fresh start replaced the resume id');
+  });
+
+  it('leaves no manifest where continue refuses the desk', async () => {
+    const wt = worktree({ marker: false });
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fresh-registry-'));
+    manifestDirs.push(dir);
+    const result = await run(wt, dir);
+    assert.equal(result.kind, 'refused');
+    assert.deepEqual(fs.readdirSync(dir), []);
   });
 });

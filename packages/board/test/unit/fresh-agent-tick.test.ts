@@ -21,6 +21,8 @@ import {
   type FreshAgentCandidateReadings,
 } from '../../src/server/entry/registryd.js';
 import type { DeskContinuation } from '../../src/server/continue.js';
+import { startFreshSession } from '../../src/server/entry/registryd-main.js';
+import { agentsFixture } from '@plot-pm/domain/adapters/agents/agents-fixture';
 
 const PLAN = '2026-10-05-a-plan';
 
@@ -410,5 +412,107 @@ describe('freshAgentLines', () => {
     ]);
     expect(lines.map((l) => l.error)).toEqual([false, false, true]);
     expect(lines[2]?.line).toBe('plot-registryd fresh-agent c: refused — no');
+  });
+});
+
+describe('startFreshSession registers the agent a spent desk lacks', () => {
+  const calls = () => ({
+    attempts: [],
+    corrections: [],
+    clearedAssignments: [],
+    registered: [] as { session: string; branch: string; worktree: string; command: string }[],
+    deregistered: [] as string[],
+  });
+  const wiring = (
+    c: ReturnType<typeof calls>,
+    continueDesk: Parameters<typeof startFreshSession>[1]['continueDesk'],
+    registerFails = false,
+  ): Parameters<typeof startFreshSession>[1] => ({
+    agents: agentsFixture({ calls: c, registerFails }),
+    command: 'loop.sh',
+    newSession: () => 'new-session',
+    continueDesk,
+    opts: { repoRoot: '/r', scriptsDir: '/s' },
+  });
+  const input = (beforeStart: () => Promise<boolean>) => ({
+    branch: 'feature/x',
+    worktree: tree().path,
+    answer: 'the composed answer',
+    main: 'main',
+    beforeStart,
+  });
+
+  it('a spent desk with no manifest gets one registration and one continue with the composed answer', async () => {
+    const c = calls();
+    const seen: { answer: string; fresh?: boolean }[] = [];
+    const result = await startFreshSession(
+      input(async () => true),
+      wiring(c, async (i) => {
+        seen.push({ answer: i.answer, fresh: i.fresh });
+        return { kind: 'started', pid: '7', previousPid: '', prompt: '', log: '' };
+      }),
+    );
+    expect(result.kind).toBe('started');
+    expect(c.registered).toEqual([
+      { session: 'new-session', branch: 'feature/x', worktree: tree().path, command: 'loop.sh' },
+    ]);
+    expect(seen).toEqual([{ answer: 'the composed answer', fresh: true }]);
+    expect(c.deregistered).toEqual([]);
+  });
+
+  it('a failed registration starts nothing and leaves no row', async () => {
+    const c = calls();
+    let continues = 0;
+    const rigged = rig(async (i) =>
+      startFreshSession(
+        { ...input(i.beforeStart) },
+        wiring(
+          c,
+          async () => {
+            continues += 1;
+            return { kind: 'started', pid: '7', previousPid: '', prompt: '', log: '' };
+          },
+          true,
+        ),
+      ),
+    );
+    const applied = await rigged.tickOver(spentDesk());
+    expect(applied.map((a) => a.outcome)).toEqual(['start-failed']);
+    expect(continues).toBe(0);
+    const rows = await rigged.record.rowsFor(PLAN, 'feature/x');
+    expect(rows.ok && rows.value.length).toBe(0);
+  });
+
+  it('a continue refusal after the registration removes the manifest', async () => {
+    const c = calls();
+    const result = await startFreshSession(
+      input(async () => true),
+      wiring(c, async () => ({ kind: 'refused', status: 409, reason: 'no-question', detail: 'x' })),
+    );
+    expect(result.kind).toBe('refused');
+    expect(c.registered).toHaveLength(1);
+    expect(c.deregistered).toEqual(['new-session']);
+  });
+
+  it('a failed continue removes the manifest too', async () => {
+    const c = calls();
+    await startFreshSession(
+      input(async () => true),
+      wiring(c, async () => ({ kind: 'failed', error: 'x' })),
+    );
+    expect(c.deregistered).toEqual(['new-session']);
+  });
+
+  it('a throw after the registration removes the manifest and rethrows', async () => {
+    const c = calls();
+    await expect(
+      startFreshSession(
+        input(async () => true),
+        wiring(c, async () => {
+          throw new Error('spawn died');
+        }),
+      ),
+    ).rejects.toThrow('spawn died');
+    expect(c.deregistered).toEqual(['new-session']);
   });
 });
