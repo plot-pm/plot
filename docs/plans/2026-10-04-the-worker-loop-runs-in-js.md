@@ -250,7 +250,7 @@ The rest of `plot-worker-state.sh` stays, `plot_worker_idle_now` included, becau
 
 ### The loop has a workflow
 
-- `infra/the-loop-has-a-workflow` — `agentLoop(readings) -> Decision | Refusal` in `packages/domain/src/workflows/agent-loop.ts`, its table and the tests through `agentState`, `deskState`, `deskLifecycle` and `supervise`, the loop's `Write` kinds and endings, and `checksFromRuns` <!-- builds: agentLoop, a domain workflow --> <!-- waits: infra/the-shell-loop-holds-unlanded-work -->
+- `infra/the-loop-has-a-workflow` — `agentLoop(readings) -> Decision | Refusal` in `packages/domain/src/workflows/agent-loop.ts`, its table and the tests through `agentState`, `deskState`, `deskLifecycle` and `supervise`, the loop's `Write` kinds and endings, and `checksFromRuns` → #1279 <!-- builds: agentLoop, a domain workflow --> <!-- waits: infra/the-shell-loop-holds-unlanded-work -->
 
 ### The loop writes through ports
 
