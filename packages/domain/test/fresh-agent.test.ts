@@ -128,4 +128,16 @@ describe('freshAgentAnswer', () => {
     const answer = freshAgentAnswer({ ...input, runUrl: '', failedStep: '' });
     expect(answer).toContain('No run could be read');
   });
+
+  it('holds the run URL alone when the failed step could not be read', () => {
+    const answer = freshAgentAnswer({ ...input, failedStep: '' });
+    expect(answer).toContain(input.runUrl);
+    expect(answer).not.toContain('failed step:');
+  });
+
+  it('holds the failed step alone when the run URL could not be read', () => {
+    const answer = freshAgentAnswer({ ...input, runUrl: '' });
+    expect(answer).not.toContain('No run could be read');
+    expect(answer).toContain('failed step: domain coverage');
+  });
 });
