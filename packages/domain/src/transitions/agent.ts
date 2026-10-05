@@ -390,9 +390,8 @@ export interface EndingAttributionInput {
  *
  * **`holding-work` IS A FOURTH READING NO WATCHER PRODUCES.** After a prompt
  * exits `ran`, the loop asks `desk_reset_refusal` about its own desk — no clock
- * expired and no monitor published anything, the agent's own loop measured its
- * desk and found uncommitted changes or unpushed commits. #1246 is what gives
- * that desk an ending rather than letting the loop hop and abandon it.
+ * expired and no monitor published anything; the agent's own loop measured its
+ * desk and found uncommitted changes or unpushed commits.
  *
  * The check survives every enum change because it reads STRINGS: an ending file
  * on a desk is bytes until something validates them, and a worker of an older

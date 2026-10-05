@@ -54,12 +54,9 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   is `agent` alongside `unstarted` and `limited` rather than a third watcher.
  * - `holding-work` — the loop's own desk held uncommitted changes or unpushed
  *   commits after a prompt exited `ran`, with no `PLOT-BLOCKED` marker naming a
- *   question to a person. Measured 2026-10-03 and 2026-10-04 (#1246): an agent
- *   ended its turn mid-background-job, the loop found the desk dirty, cut a new
- *   desk for the next slice and left 14 files behind — twice, each time found
- *   by a person on a desk no agent and no manifest named. The loop now asks
- *   `desk_reset_refusal` about its own desk before it would seal the slice or
- *   hop, and keeps the desk rather than abandoning it.
+ *   question to a person. The loop asks `desk_reset_refusal` about its desk
+ *   right after the prompt and again right before it seals the slice; on
+ *   either answer it keeps the desk, writes this ending and exits 0.
  *
  * `unstarted`, `limited`, `unregistered` AND `holding-work` ARE THE REASONS NO
  * WATCHER PRODUCED. The other four are the floor firing or the monitor

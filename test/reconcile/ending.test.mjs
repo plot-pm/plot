@@ -39,19 +39,17 @@ const desk = () => fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ending-'));
 /**
  * Source the loop and call `write_ending` with the five arguments it takes.
  *
- * RUN FROM `wt`, never the test file's own cwd. `main_checkout_path` asks bare
- * `git worktree list`, which answers for the CURRENT directory — the real loop
- * always runs with its cwd at `$PLOT_WORKTREE` (`workerloop.test.mjs`'s
- * `runLoop` spawns with `cwd: dir`), and a test calling from elsewhere would
- * ask `main_checkout_path` a question about the wrong repository.
+ * `cwd` is the process's working directory, `wt` by default. `write_ending`
+ * resolves the main checkout from `wt`, so a different `cwd` must change
+ * nothing it writes.
  */
-const writeEnding = (wt, reason, actor, branch, detail) =>
+const writeEnding = (wt, reason, actor, branch, detail, cwd = wt) =>
   execFileSync('bash', ['-c',
     `PLOT_WORKER_LOOP_SOURCED=1
 . "$1" >/dev/null 2>&1
 write_ending "$2" "$3" "$4" "$5" "$6"`,
     'bash', loop, wt, reason, actor, branch, detail],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd: wt });
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd });
 
 /** Source the state script and ask it for the desk's ending record. */
 const readEnding = (wt) => {
@@ -188,7 +186,7 @@ test('ending: the record is ignored by git, like the rest of its family', (t) =>
 // asks `git worktree list`, so these tests build a main checkout plus a second
 // worktree and write the ending FROM the second one — the shape a real desk
 // takes.
-function mainAndDesk() {
+const mainAndDesk = () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ending-jsonl-'));
   const main = path.join(parent, 'main');
   const wt = path.join(parent, 'wt');
@@ -200,9 +198,9 @@ function mainAndDesk() {
   fs.writeFileSync(path.join(main, 'f'), 'x\n');
   execFileSync('git', ['add', '-A'], { cwd: main });
   execFileSync('git', ['commit', '-qm', 'init'], { cwd: main });
-  execFileSync('git', ['worktree', 'add', '-b', 'feature/x', wt], { cwd: main });
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'feature/x', wt], { cwd: main });
   return { parent, main, wt };
-}
+};
 
 const endingsPath = (main) => path.join(main, '.plot', 'state', 'endings.jsonl');
 
@@ -220,6 +218,24 @@ test('ending: each write_ending appends one line to the main checkout\'s endings
     branch: 'feature/x',
     detail: 'uncommitted changes in 1 file(s)',
   });
+});
+
+test('ending: the line lands in the desk\'s main checkout whatever the working directory is', (t) => {
+  const { parent, main, wt } = mainAndDesk();
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  // ANOTHER REPOSITORY as the working directory: a resolution that followed
+  // the cwd would append to this one.
+  const other = path.join(parent, 'other');
+  fs.mkdirSync(other);
+  execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: other });
+
+  writeEnding(wt, 'holding-work', 'agent', 'feature/x', 'uncommitted changes in 1 file(s)', other);
+
+  const lines = fs.readFileSync(endingsPath(main), 'utf8').trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).reason, 'holding-work');
+  assert.equal(fs.existsSync(endingsPath(other)), false, 'nothing is appended in the working directory\'s repository');
+  assert.equal(fs.existsSync(endingsPath(wt)), false, 'nothing is appended inside the desk');
 });
 
 test('ending: two endings from one desk give two lines, in order, never rewritten', (t) => {

@@ -499,6 +499,14 @@ plot_worker_blocked_file() { # $1=worktree → prints the marker's basename
 # exact population this state must not name. Excluding them is not widening the
 # rule; it is the `.tmp1` case again, for files Plot itself dropped there.
 #
+# NOR IS THE ROOT `PLOT-CORRECTION.md`. `plot-worker-loop.sh`'s
+# `write_correction` writes it untracked into the desk and hands the desk back
+# to the agent, so counting it made every corrected desk read `uncommitted-changes`
+# after the agent had committed and pushed its fix — and the loop ended
+# `holding-work` instead of waiting for the checks. `plot-desk-dirt.sh`'s
+# `desk_dirt` drops the same anchored line for the reaper. Only the root file:
+# a `docs/PLOT-CORRECTION.md` is content.
+#
 # THE EXCLUSION STAYS NARROW OTHERWISE, by suffix and by Plot's own filenames.
 # An uncommitted source file is precisely the case this detection exists for, so
 # anything broader — "untracked files do not count", "only tracked changes
@@ -567,7 +575,7 @@ plot_worker_dirty_filter() { # $1=`git status --porcelain` output $2=worktree (o
   # space, and a filename can contain spaces of its own.
   printf '%s' "$status" \
     | cut -c4- \
-    | grep -vE "(^|/)$PLOT_WORKER_RECORD" \
+    | grep -vE "(^|/)$PLOT_WORKER_RECORD|^PLOT-CORRECTION\.md$" \
     | grep -vE "$PLOT_EDITOR_LEFTOVER" \
     | grep -vE "$PLOT_TOOL_SCRATCH" || true
 }
