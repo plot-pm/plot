@@ -61,7 +61,7 @@ export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 
 export {
   freshAgentRecordFile,
-  decodeRow as decodeFreshAgentRow,
+  decodeRow,
   FRESH_AGENT_RECORD_HOME_ENV,
   type FreshAgentRecordFileOptions,
 } from './fresh-agent-record/fresh-agent-record-file.js';
