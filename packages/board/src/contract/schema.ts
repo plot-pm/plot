@@ -2970,6 +2970,17 @@ export const AgentRowSchema = z.object({
    */
   worker_activity: WorkerActivitySchema.default(''),
   /**
+   * What this desk's `PLOT-BLOCKED*` marker asks and when it was written:
+   * `firstLine` is the marker's first line, "" when the content did not read,
+   * and `askedAt` is the file's modification time as an ISO-8601 string. `null`
+   * where no marker exists. Set for any branch with a local worktree, whatever
+   * its `worker` state. Defaults to `null`.
+   */
+  question: z.object({
+    firstLine: z.string(),
+    askedAt: z.string(),
+  }).nullable().default(null),
+  /**
    * The processes this board can see running for this branch — [] when it can
    * see none.
    *

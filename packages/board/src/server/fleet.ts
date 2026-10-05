@@ -700,7 +700,7 @@ export interface CacheEntry {
    * instead, which renders as *reason unavailable* until the first scan lands —
    * an unknown the reader can act on rather than a stale claim they cannot.
    */
-  questions: Map<string, string>;
+  questions: Map<string, { firstLine: string; askedAt: string }>;
   /**
    * PR data is cached BESIDE the pulse, with its own timestamp and error — the
    * two sources fail independently. The host can be down while git is fine, and
@@ -4400,6 +4400,51 @@ function prerequisiteList(names: readonly string[]): string {
 }
 
 /**
+ * The note for a desk's outstanding question: `waiting on you: <first line>`,
+ * or a reason-unavailable sentence when the first line is empty, followed by
+ * `asked <age> ago` when the age is known.
+ *
+ * @param workerQuestion The marker's first line, "" when it could not be read.
+ * @param questionAgeMinutes Minutes since the marker was written, or `null`.
+ */
+const questionNote = (workerQuestion: string, questionAgeMinutes: number | null): string => {
+  const asked = workerQuestion
+    ? `waiting on you: ${workerQuestion}`
+    : 'waiting on you — reason unavailable, look in its worktree';
+  return questionAgeMinutes === null ? asked : `${asked} · asked ${humanAge(questionAgeMinutes)} ago`;
+};
+
+/**
+ * Whether a row has a question: a first line was read, or an age was read.
+ * A marker whose content could not be read has an empty first line and an age.
+ *
+ * @param workerQuestion The marker's first line, "" when none was read.
+ * @param questionAgeMinutes Minutes since the marker was written, or `null`.
+ */
+const hasQuestion = (workerQuestion: string, questionAgeMinutes: number | null): boolean =>
+  workerQuestion !== '' || questionAgeMinutes !== null;
+
+/**
+ * The open PR's condition as a clause: `PR #n, conflicts`, `PR #n, CI running`,
+ * `PR #n, checks failing`, and so on, followed by the review note.
+ *
+ * @param pr The open PR on the branch.
+ */
+const prEvidence = (pr: PrRecord): string => {
+  if (pr.draft) return draftNote(pr);
+  const base = `PR #${pr.number}`;
+  const clause =
+    pr.mergeable === 'conflicting' ? ', conflicts'
+      : pr.mergeable !== 'mergeable' ? ', cannot say whether it merges'
+        : pr.checks === 'pending' ? ', CI running'
+          : pr.checks === 'failing' ? ', checks failing'
+            : pr.checks === 'none' ? ', no checks'
+              : pr.checks === 'unknown' ? ', cannot read the checks'
+                : ' green';
+  return withNote(`${base}${clause}`, reviewNote(pr));
+};
+
+/**
  * What kind of row this branch is — its section and its sentence.
  *
  * The whole of the old `classify`, unchanged, and split out for one reason:
@@ -4708,6 +4753,11 @@ function classifyGroup(
    * branch waits on all of them.
    */
   waitsOn: readonly string[] = [],
+  /**
+   * Minutes since the desk's `PLOT-BLOCKED*` marker was written, from the
+   * marker's modification time; `null` where no marker was read.
+   */
+  questionAgeMinutes: number | null = null,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -4834,6 +4884,13 @@ function classifyGroup(
     return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
 
+  // A desk with a question is waiting on you, whatever its worker is doing and
+  // whatever its PR says. The PR condition follows the question as evidence.
+  if (state !== 'merged' && state !== 'open' && hasQuestion(workerQuestion, questionAgeMinutes)) {
+    const exited = worker === 'failed' && workerExit ? ` (worker exited ${workerExit})` : '';
+    const asked = `${questionNote(workerQuestion, questionAgeMinutes)}${exited}`;
+    return { group: 'waiting-on-you', note: pr ? withNote(asked, prEvidence(pr)) : asked };
+  }
   // A PR outranks the git state for work in flight: once a branch has one,
   // what it waits for is decided there, not by commit age. Merged and
   // not-yet-pushed branches keep their git answer.
@@ -5197,73 +5254,8 @@ function classifyGroup(
     if (worker === 'running') {
       return { group: 'working', note: `worker running (pid ${workerPid})` };
     }
-    // A WAITING WORKER IS STILL A WORKER, AND WORKING IS WHERE IT BELONGS.
-    //
-    // It sat in `waiting-on-you` until now, below `finished`, and the effect was
-    // that an agent left the section answering *who is working?* at the moment
-    // it stopped to ask something. An operator counting agents in WORKING
-    // undercounted every one that had a question outstanding — and the row
-    // arrived in WAITING ON YOU carrying none of what that section is built to
-    // show: no PR to open, no checks to read, nothing to inspect on the host.
-    //
-    // THE TWO SECTIONS ANSWER DIFFERENT QUESTIONS, and that is the whole rule.
-    // WAITING ON YOU is for RESULTS — branches, PRs, CI, failures, things a
-    // person inspects and decides about on the git host. WORKING is for AGENTS.
-    // An agent that has stopped to ask is still mid-run: its worktree is live,
-    // its context is intact, and what unblocks it is an ANSWER rather than a
-    // review. Filing it under the other verb is what made one incident's row
-    // read *worker finished — review it* over two local commits and a question.
-    //
-    // PLACED WITH `running` RATHER THAN WITH THE STOPPED STATES, and the comment
-    // above `running` is the precedent: a worker's own state outranks reasoning
-    // from commit age, and these two are the pair that say an agent still holds
-    // the branch. The three below say a person is needed.
-    //
-    // STILL ABOVE `stalled`, which is the ordering guarantee this arm has
-    // carried since the state shipped, and moving the arm must not cost it. A
-    // marker is the worker saying *your turn*, and a worker that asked a
-    // question has almost always left the work it was doing uncommitted beside
-    // the question — so ranking dirtiness first files every such branch under
-    // *resume it* and invites a restart into the same wait. Measured happening
-    // twice to one branch, the second restart re-running work the first had
-    // finished. `stalled` is now further down than it was, which strengthens
-    // that guarantee rather than weakening it.
-    //
-    // THE PR ARM 120 LINES ABOVE STILL OUTRANKS THIS, deliberately and
-    // unchanged: a PR with conflicts or failing checks is a person's errand even
-    // while an agent waits. `running` is exempted from that arm where the PR
-    // asks nobody anything; `waiting` is NOT given the same exemption, because
-    // the exemption exists for an agent that opened a PR and kept working, and
-    // an agent that has stopped is not that.
-    if (worker === 'waiting') {
-      // NAME THE QUESTION. The row exists so a reader can answer it, and *what
-      // is it waiting on* is the question the old sentence provoked and did not
-      // answer — the reader had to open the worktree to learn whether it was
-      // theirs to answer at all.
-      //
-      // AN UNREADABLE MARKER IS A STATED UNKNOWN, NEVER A GUESS. The scan found
-      // a marker (that is what made this `waiting`); an empty string here means
-      // this read did not. Saying so sends the reader to the tree, which is
-      // where the answer is. Inventing a plausible question would send them to
-      // answer the wrong one, with nothing to signal the substitution.
-      return {
-        group: 'working',
-        note: workerQuestion
-          ? `worker waiting on you: ${workerQuestion}`
-          : 'worker waiting on you — reason unavailable, look in its worktree',
-      };
-    }
-    // A BROKEN AGENT IS THE ONE AGENT THIS SECTION HOLDS, and the three arms
-    // below are it: `failed`, `ended`, `stalled`. WAITING ON YOU is for what
-    // needs a person's DECISION, so its normal population is a PR, a branch, a
-    // plan, a release. An agent has no business here while it works — an agent
-    // IS the worker — and `running` and `waiting` are already gone above, into
-    // WORKING where they belong.
-    //
-    // So the presence of an agent here is ITSELF the signal, which is the
-    // property the exception is worth having and the reason it must stay rare.
-    // Rarity is a property of the RULE: only a problem state admits an agent,
-    // and the arms above are what keep a working one out.
+    // A broken agent is what this section holds besides a question: `failed`,
+    // `ended`, `stalled`. A row with a question never reaches this point.
     //
     // THE NOTES SAY WHAT WAS OBSERVED, NEVER WHAT TO DO. They read *restart it*
     // and *resume it* until now, and both were verdicts about the schedule — a
@@ -5296,12 +5288,11 @@ function classifyGroup(
     if (worker === 'finished') {
       return { group: 'waiting-on-you', note: 'worker finished — review it' };
     }
-    // `waiting` is handled ABOVE, beside `running` — it is an agent still
-    // holding the branch rather than a result for a person, and it keeps its
-    // place in WORKING. It stays ranked above this arm, which is the ordering
-    // guarantee the scan draws too; see there for the restart-into-the-wait
-    // measurement that earned it.
-    //
+    // `waiting` without a question reading: the scan found a marker and no
+    // reading of it reached this function.
+    if (worker === 'waiting') {
+      return { group: 'working', note: 'worker waiting on you — reason unavailable, look in its worktree' };
+    }
     // A person's errand, and a different one from a question: nothing is being asked, work
     // is simply on the floor with no PR over it. The board REPORTS it and
     // restarts nothing — relaunching is `/plot-dispatch`'s to do, and this row
@@ -5327,12 +5318,8 @@ function classifyGroup(
       // there is no exit code to report and nothing crashed; what is observable
       // is that it stopped without finishing and without asking.
       //
-      // WITHOUT ASKING is the half that earns the phrase, and it is not
-      // rhetorical: a worker that stopped to ask is `waiting` and left in
-      // WORKING by the arm far above — its question is its note. Reaching here
-      // means the scan found no marker, so nobody was asked anything. That
-      // distinction is exactly what a reader needs to know they are looking at
-      // an abandonment rather than a question they overlooked.
+      // A row with a question is placed above, so this note holds only where
+      // no marker was found.
       return {
         group: 'waiting-on-you',
         note: `worker stopped without finishing and without asking${what}${whereToLook(localWorktree)}`,
@@ -6441,6 +6428,18 @@ export function humanAge(minutes: number): string {
 }
 
 /**
+ * Minutes since an ISO-8601 instant, against `now` (epoch milliseconds),
+ * rounded and never negative; `null` where the string does not parse.
+ *
+ * @param iso An ISO-8601 timestamp.
+ * @param now The reference time in epoch milliseconds.
+ */
+export const minutesSince = (iso: string, now: number): number | null => {
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? null : Math.max(0, Math.round((now - at) / 60_000));
+};
+
+/**
  * Actionable before diagnostic.
  *
  * `not-started` sits ABOVE `quiet` because the two ask different things of a
@@ -6721,17 +6720,11 @@ export function rowsFromPulse(
    */
   runs?: Map<string, StuckRun[]> | null,
   /**
-   * What each `waiting` worker asked, by branch — see `workerQuestions`. Read
-   * on the SCAN's clock, not this one: the map arrives already built, because
-   * this function is the render path and a subprocess per row per poll is not a
-   * cost it can carry.
-   *
-   * Last in the parameter list because it is the newest, so every existing
-   * caller is unchanged. A caller with nothing to say passes nothing, and every
-   * waiting row then reads *reason unavailable* — which is exactly true of a
-   * caller that did not look.
+   * What each desk's marker asks, and when it was written, by branch — see
+   * `workerQuestions`. The map is built on the scan, not on this render path.
+   * A caller that passes nothing gives every row no question.
    */
-  questions?: Map<string, string> | null,
+  questions?: Map<string, { firstLine: string; askedAt: string }> | null,
   /**
    * Every PR keyed by head — merged and closed included — for the LINK only.
    * See `CacheEntry.prsByHead`.
@@ -6963,6 +6956,8 @@ export function rowsFromPulse(
         // unchanged either way.
         const held = prsByHeadMap?.get(b.branch) ?? null;
         const linked = held && held.state === 'CLOSED' ? pr : (held ?? pr);
+        // The desk's question reading, used for the first line, the age and the row's `question`.
+        const questionReading = questions?.get(b.branch) ?? null;
         const { group: openGroup, note: openNote, verdict } = classify(
           b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
           // The plan's own phase, which the pulse has carried since #140 and
@@ -6982,10 +6977,8 @@ export function rowsFromPulse(
           // What a `stalled` worker left uncommitted, so the note can name it.
           // Empty for every other state, and empty adds nothing.
           b.worker_dirty_paths,
-          // What a `waiting` worker asked, so the row says what it waits ON.
-          // Absent for every other state; absent HERE, on a waiting row, is the
-          // stated unknown — never a question invented to fill the sentence.
-          questions?.get(b.branch) ?? '',
+          // The marker's first line; "" where no marker was read or its content did not read.
+          questionReading?.firstLine ?? '',
           // Whether a worktree HOLDS this branch — the path with the merged tip
           // excluded, the AND the scan computed. It decides the WORKING lift, so
           // a leftover worktree on a merged branch stays in NOT STARTED instead
@@ -7036,7 +7029,9 @@ export function rowsFromPulse(
           hostUnasked,
           // WHAT A `blocked` OR `waiting` BRANCH WAITS FOR, so its NOT STARTED
           // row names the prerequisite rather than only that there is one.
-          b.waits_on);
+          b.waits_on,
+          // Minutes from the marker's `askedAt` to this render's `now`.
+          questionReading ? minutesSince(questionReading.askedAt, now) : null);
         // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
         //
         // That function states the rule twice and records the mistake being
@@ -7077,8 +7072,9 @@ export function rowsFromPulse(
         // opened #1089 from its claim commit, closed it 38 s later, and sat in
         // DONE with a live marker while its agent kept committing — measured
         // 2026-09-30. So `running` and `waiting` keep the row in `openGroup`,
-        // and the closed PR travels as a second fact in the note.
-        const liveAgent = b.worker === 'running' || b.worker === 'waiting';
+        // and the closed PR travels as a second fact in the note. A row with a
+        // question keeps it too.
+        const liveAgent = b.worker === 'running' || b.worker === 'waiting' || questionReading !== null;
         const declined = closedPr && !liveAgent;
         const group = declined ? 'done' : openGroup;
         // THE SENTENCE WITHOUT A `PR #n` PREFIX, deliberately, and this is the
@@ -7204,6 +7200,8 @@ export function rowsFromPulse(
           group,
           ageMinutes: age,
           note: b.claimed ? `${rowNote} · ${b.claimed}` : rowNote,
+          // The reading `classify` was given. See `AgentRowSchema.question`.
+          question: questionReading ?? null,
           // The link the row could not offer before, and now the condition too.
           // `url` is the adapter's string or "", never anything this file
           // composed; `state` and `draft` are the same facts the note spells
@@ -7569,6 +7567,8 @@ export function rowsFromPulse(
       group,
       ageMinutes,
       note,
+      // No worktree was read for a planless branch.
+      question: null,
       branch,
       // Encoded per path SEGMENT, matching the planned rows above: a branch
       // name always contains a slash, and encoding it whole yields `bug%2Ffix`
@@ -7866,6 +7866,8 @@ export function rowsFromPulse(
       group: placed,
       ageMinutes,
       note,
+      // No worktree was read for this row.
+      question: null,
       branch,
       // Encoded per path SEGMENT, matching every other row: a branch name
       // contains a slash, and encoding it whole yields `bug%2Ffix` — a link that

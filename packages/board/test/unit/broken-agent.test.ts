@@ -61,12 +61,14 @@ const classifyWorker = (over: {
   exit?: string;
   dirty?: readonly string[];
   question?: string;
+  questionAge?: number | null;
   worktree?: string;
   pr?: PrRecord | null;
 }) => classify(
   'wip', 'eligible', 5, QUIET, over.pr ?? null, false, 0, 'approved',
   over.worker as never, over.exit ?? '', '4242', false,
   over.dirty ?? [], over.question ?? '', true, over.worktree ?? WT,
+  false, '', false, false, [], over.questionAge ?? null,
 );
 
 describe('a broken agent appears in WAITING ON YOU', () => {
@@ -192,48 +194,64 @@ describe('the row says where to look', () => {
   });
 });
 
-describe('every other agent state stays out of WAITING ON YOU', () => {
-  it('keeps a RUNNING worker in WORKING', () => {
+describe('every other agent state stays out of WAITING ON YOU — unless it has a question', () => {
+  it('keeps a RUNNING worker in WORKING, with no question outstanding', () => {
     // The section answers *what needs my decision*. A running agent needs
     // nothing; it is the thing doing the work.
     const r = classifyWorker({ worker: 'running' });
     expect(r.group).toBe('working');
   });
 
-  it('keeps a WAITING worker in WORKING, with its question as the note', () => {
-    // THE NEGATIVE THAT MATTERS MOST, and the one `worker !== 'running'` gets
-    // wrong. A worker that stopped to ask IS WORKING: its worktree is live, its
-    // context is intact, and what unblocks it is an ANSWER rather than a
-    // decision about whether it should continue existing. Moving it here would
-    // say a person must decide when an agent is mid-task.
-    const r = classifyWorker({ worker: 'waiting', question: 'which retry semantics?' });
-    expect(r.group).toBe('working');
-    // THE NOTE, NOT ONLY THE GROUP — and this is the half the group cannot
-    // carry. Measured while mutating this arm shut: a `waiting` row that stops
-    // being recognised as a worker does not leave WORKING, it falls through to
-    // the commit clock and lands there again as *last commit 5 min ago*. Right
-    // section, and the question gone — the agent's reason for needing a person
-    // silently replaced by its branch's age. Asserting the group alone would
-    // have called that correct.
+  it('moves a RUNNING worker WITH A QUESTION to WAITING ON YOU — the 2026-10-05 case', () => {
+    // THE DEFECT `a-question-is-listed-as-waiting-on-you` FIXES. A live loop
+    // that wrote a marker and kept polling beside it is `running`, not
+    // `waiting` — and a placement rule that reads `worker === 'waiting'` first
+    // never sees it. Measured 2026-10-05: a worker wrote its question at 13:36
+    // and the row read *worker running*, carrying no sign that anyone was
+    // needed, until 18:20.
+    const r = classifyWorker({ worker: 'running', question: 'which retry semantics?' });
+    expect(r.group).toBe('waiting-on-you');
     expect(r.note).toContain('which retry semantics?');
   });
 
-  it('recognises a waiting worker AS a worker, not by its branch age', () => {
-    // The pairing for the note assertion above, stated where age cannot help.
-    // A branch whose last commit is ANCIENT is `quiet` by the clock — so if the
-    // worker arm stops firing, this row leaves WORKING altogether. The question
-    // is what keeps it there, which is the whole claim: *the agent is working*.
+  it('moves a WAITING worker WITH ITS QUESTION to WAITING ON YOU', () => {
+    // `waiting` IS the state the scan gives a branch BECAUSE it found a marker,
+    // so this is the ordinary case rather than an edge one — and it is the
+    // state the old arm kept in WORKING on the reasoning that an agent mid-ask
+    // still holds its worktree. The marker is the reading now, not the
+    // process's own state: WAITING ON YOU is for what needs a person's
+    // decision, and an unanswered question is exactly that, whichever
+    // process state sits beside it.
+    const r = classifyWorker({ worker: 'waiting', question: 'which retry semantics?' });
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toContain('which retry semantics?');
+  });
+
+  it('reports the age beside the question, not only the question itself', () => {
+    // THE PAIRING for the note assertion above, stated where the age is known.
+    // `questionAgeMinutes` is the marker file's own modification time, read on
+    // the SAME clock `ageMinutes` is — so a question outstanding for hours
+    // reads as hours, not as the branch's unrelated commit age.
     const r = classify(
       'wip', 'eligible', 5000, QUIET, null, false, 0, 'approved',
       'waiting', '', '4242', false, [], 'which retry semantics?', true, WT,
+      false, '', false, false, [], 240,
     );
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('waiting-on-you');
     expect(r.note).toContain('which retry semantics?');
+    expect(r.note).toContain('4 hours');
   });
 
-  it('does not describe a waiting worker as broken', () => {
-    // The pairing for the above: a row in the right section carrying the wrong
-    // sentence is the same defect one layer in.
+  it('keeps a WAITING worker with no question reading in WORKING, reason unavailable', () => {
+    const r = classifyWorker({ worker: 'waiting' });
+    expect(r.group).toBe('working');
+    expect(r.note).toContain('reason unavailable');
+  });
+
+  it('does not describe a questioning worker as broken', () => {
+    // A row moved here by a QUESTION is not the same claim as a row moved here
+    // by a crash — the pairing above states the move; this states the
+    // sentence is not borrowed from the broken-agent arms.
     const r = classifyWorker({ worker: 'waiting', question: 'which retry semantics?' });
     expect(r.note).not.toContain('crashed');
     expect(r.note).not.toContain('without finishing');
@@ -248,13 +266,13 @@ describe('every other agent state stays out of WAITING ON YOU', () => {
     expect(r.note).not.toContain('without finishing');
   });
 
-  it('leaves the two WORKING states with no location clause at all', () => {
+  it('leaves the two WORKING states with no location clause, with no question outstanding', () => {
     // WHERE TO LOOK IS THE BROKEN ROW'S CLAUSE, and its presence is part of the
     // signal. A running agent's row carrying a log path would read as an errand
     // — and an implementation that appended the clause unconditionally passes
     // every assertion in the section above.
     for (const worker of ['running', 'waiting'] as const) {
-      const r = classifyWorker({ worker, question: 'q?' });
+      const r = classifyWorker({ worker });
       expect(r.note, `${worker} must not be sent to a log`).not.toContain('log:');
     }
   });

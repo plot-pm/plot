@@ -225,7 +225,7 @@ So the default derives from what the project wrote, as `MANIFESTO.md` Principle 
 
 ### An agent run is a port
 
-- `infra/an-agent-run-is-a-port` — the `agentRun` port and its fixture adapter; `pollRefusal`, `agentRunEnv`, `backgroundSwitchRefusal`, `sdkRunExit` with `limitAnswer` extracted from `promptExit`, `runLimitRefusal`, `runnerChoice` and `fragmentModel`; the `next` hand-back rows in `agentLoop`; the endings `turn-limit`, `run-limit` and `spend-limit`; all in `packages/domain`, with no SDK dependency <!-- builds: agentRun, the agent-run connector port -->
+- `infra/an-agent-run-is-a-port` — the `agentRun` port and its fixture adapter; `pollRefusal`, `agentRunEnv`, `backgroundSwitchRefusal`, `sdkRunExit` with `limitAnswer` extracted from `promptExit`, `runLimitRefusal`, `runnerChoice` and `fragmentModel`; the `next` hand-back rows in `agentLoop`; the endings `turn-limit`, `run-limit` and `spend-limit`; all in `packages/domain`, with no SDK dependency → #1293 <!-- builds: agentRun, the agent-run connector port -->
 
 ### The loop waits, the model does not
 
