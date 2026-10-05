@@ -96,4 +96,18 @@ export interface Processes {
    * @returns the elapsed seconds, or null where the pid holds no process.
    */
   uptimeSeconds(pid: number): Promise<PortResult<number | null>>;
+
+  /**
+   * Whether the process tree under a pid is burning CPU.
+   *
+   * Samples the CPU time of the pid and every descendant twice, a short
+   * interval apart, and compares: any growth reads `working`, none reads
+   * `idle`. A child on a core vetoes `idle`; a caller reads it beside a live
+   * pid and never as liveness.
+   *
+   * @param pid - the root of the subtree to sample.
+   * @returns `working` or `idle`; `''` where the pid names no process or is
+   *   not a number — nothing to measure is an answer, not a failure.
+   */
+  activity(pid: number): Promise<PortResult<WorkerActivity>>;
 }

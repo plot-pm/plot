@@ -1,10 +1,11 @@
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
+import type { CommitReading } from '../../rules/sample.js';
 import { asLines, asText, runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -194,6 +195,83 @@ export const treesGit = (context: ShellContext): Trees => {
         asLines,
         inRepo,
       ),
+    // THE SHELL'S `plot_worker_tree_quiet_seconds`, with the dirty filter
+    // SOURCED rather than copied, as `dirtyPaths` does. `-uall` is for this
+    // reading only: a directory's mtime does not move when a file inside it is
+    // written, so a collapsed `?? dir/` would read an agent mid-edit as quiet.
+    // The desk root's own mtime is never read — the loop rewrites its records
+    // there — so a parent counts only below the root.
+    quietSeconds: async (path) => {
+      let directory = false;
+      try {
+        directory = statSync(path).isDirectory();
+      } catch {
+        directory = false;
+      }
+      if (path === '' || !directory) return answered<number | null>(null);
+      const head = await runProcess('git', ['-C', path, 'log', '-1', '--format=%ct'], inRepo);
+      const headTime = /^\d+$/.test(head.stdout.trim()) ? Number(head.stdout.trim()) : null;
+      const filtered = await runProcess(
+        'bash',
+        [
+          '-c',
+          '. "$1" && plot_worker_dirty_filter "$(git -C "$2" status --porcelain -uall 2>/dev/null)"',
+          'bash',
+          workerState,
+          path,
+        ],
+        inRepo,
+      );
+      let newest = headTime;
+      for (const raw of filtered.code === 0 ? filtered.stdout.split('\n') : []) {
+        let line = raw;
+        const arrow = line.indexOf(' -> ');
+        if (arrow >= 0) line = line.slice(arrow + 4);
+        if (line.startsWith('"') && line.endsWith('"') && line.length >= 2) line = line.slice(1, -1);
+        if (line === '') continue;
+        const targets = [join(path, line)];
+        if (line.includes('/')) {
+          const parent = line.replace(/\/[^/]*$/, '');
+          if (parent !== '' && parent !== '.') targets.push(join(path, parent));
+        }
+        for (const target of targets) {
+          try {
+            const seconds = Math.floor(statSync(target).mtimeMs / 1000);
+            if (newest === null || seconds > newest) newest = seconds;
+          } catch {
+            // A deleted path has no mtime; its parent carries the change.
+          }
+        }
+      }
+      if (newest === null) return answered<number | null>(null);
+      return answered<number | null>(Math.max(0, Math.floor(Date.now() / 1000) - newest));
+    },
+
+    // THE SHELL'S `plot_worker_has_commits`. The `-- .` pathspec keeps only
+    // commits that touched a file, so the empty claim commit never counts. No
+    // fetch: with no local `origin/<default>` ref the question is unanswerable.
+    hasCommits: async (path) => {
+      const unanswerable = answered<CommitReading>('unanswerable');
+      let directory = false;
+      try {
+        directory = statSync(path).isDirectory();
+      } catch {
+        directory = false;
+      }
+      if (path === '' || !directory) return unanswerable;
+      const git = (args: readonly string[]) => runProcess('git', ['-C', path, ...args], inRepo);
+      let base = '';
+      const head = await git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+      if (head.code === 0) base = head.stdout.trim();
+      if (base === '') {
+        const main = await git(['rev-parse', '--verify', '--quiet', 'origin/main']);
+        if (main.code === 0) base = 'origin/main';
+      }
+      if (base === '') return unanswerable;
+      const count = await git(['rev-list', '--count', `${base}..HEAD`, '--', '.']);
+      if (count.code !== 0 || !/^\d+$/.test(count.stdout.trim())) return unanswerable;
+      return answered<CommitReading>(Number(count.stdout.trim()) > 0 ? 'yes' : 'no');
+    },
     prune: async () => {
       const run = await runProcess('git', ['worktree', 'prune'], inRepo);
       return run.code === 0 ? answered(undefined) : failed<void>();
