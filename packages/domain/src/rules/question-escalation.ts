@@ -96,10 +96,11 @@ const UNIT_MS: Readonly<Record<string, number>> = {
 const parseDuration = (text: string): number | null => {
   const match = /^(\d+(?:\.\d+)?)(s|m|h|d)$/.exec(text);
   if (!match) return null;
-  const amount = Number(match[1]);
-  const unit = UNIT_MS[match[2]];
-  if (!Number.isFinite(amount) || unit === undefined) return null;
-  return amount * unit;
+  // BOTH CAPTURES ARE ALREADY VALID BY CONSTRUCTION. Group 1 is `\d+(?:\.\d+)?`,
+  // so `Number(...)` is always finite; group 2 is the literal alternation
+  // `(s|m|h|d)`, so it is always a key `UNIT_MS` holds. A guard against either
+  // failing would be dead code the regex already made unreachable.
+  return Number(match[1]) * UNIT_MS[match[2]];
 };
 
 /**
