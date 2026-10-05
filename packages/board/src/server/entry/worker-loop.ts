@@ -713,7 +713,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       await deps.ports.desk.writeLimitedRecord(worktree, exit.reset.epoch, exit.reset.iso, exit.line);
       const ahead = deps.ports.refs.countAheadSync(readings.assignedBranch);
       held = { ...held, afterWait: true, aheadAtWait: ahead.ok ? ahead.value : 0 };
-      deps.log(`plot-worker-loop: usage limit on ${readings.assignedBranch || '?'} until ${exit.reset.iso}; waiting`);
+      deps.log(`plot-worker-loop: usage limit on ${readings.assignedBranch} until ${exit.reset.iso}; waiting`);
       const until = (exit.reset.epoch + deps.limitMarginSeconds) * 1000;
       await deps.sleep(Math.max(0, until - deps.now()));
       await deps.ports.desk.clearLimitedRecord(worktree);
