@@ -20,6 +20,7 @@ import { findingsInLog, MONITOR_LOGS } from '../../src/server/findings.js';
 import { FindingSchema } from '../../src/contract/index.js';
 import type { LoopWrite, LoopWritePorts } from '../../src/server/entry/loop-writes.js';
 import { performLoopWrites } from '../../src/server/entry/loop-writes.js';
+import { rmTree } from '../helpers.mjs';
 
 const WORKTREE = '/tmp/desk';
 
@@ -259,7 +260,7 @@ describe('performLoopWrites — one arm per write kind', () => {
         since: '2026-10-05T10:00:00.000Z',
       });
     } finally {
-      fs.rmSync(desk, { recursive: true, force: true });
+      rmTree(desk);
     }
   });
 });
