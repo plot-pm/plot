@@ -20,6 +20,8 @@ import {
   PASS_INTERVAL_MS,
   idleVerdict,
   main,
+  offsetClock,
+  harnessName,
   readLimitedReset,
   readManifestFields,
   readMarkerText,
@@ -277,6 +279,7 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.deskCalls.limitedClears.length).toBeGreaterThanOrEqual(1);
     expect(r.sleeps.some((ms) => ms > 18_000_000 && ms < 19_300_000)).toBe(true);
     expect(r.runs).toHaveLength(2);
+    expect(r.logs.some((l) => /usage limit on \S+ until .*; waiting/.test(l))).toBe(true);
   });
 
   it('ends limited when the limit gives no reset (row 9)', async () => {
@@ -624,6 +627,19 @@ describe('main — configuration', () => {
     asked.length = 0;
     expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config, noStop))).toBe(124);
     cwd.mockRestore();
+  });
+
+  it('names claude for an absent or empty harness, and the named one otherwise', () => {
+    expect(harnessName({})).toBe('claude');
+    expect(harnessName({ PLOT_HARNESS: '' })).toBe('claude');
+    expect(harnessName({ PLOT_HARNESS: 'codex' })).toBe('codex');
+  });
+
+  it('moves the clock by the offset the shell honours, and by nothing without one', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(ZURICH_NOON);
+    expect(offsetClock({})()).toBe(ZURICH_NOON);
+    expect(offsetClock({ PLOT_CLOCK_OFFSET_SECONDS: '630' })()).toBe(ZURICH_NOON + 630_000);
   });
 
   it('answers a key through plot-config.sh, and nothing where the script cannot answer', () => {

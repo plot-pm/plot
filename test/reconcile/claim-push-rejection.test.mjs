@@ -33,7 +33,15 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workerLoopLine } from './loop-switch.mjs';
+import { testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
+
+// SHELL-BOUND. `claim_push` in `plot-worker-loop.sh` classifies a rejected claim
+// push — absent ref, live holder, stale empty claim — and ends the agent with the
+// matching line. The JS loop applies `push` through `performLoopWrites`, logs the
+// port's reason and retries on the next pass until its bound; it has no
+// classification to assert. Reported rather than ported: the diagnostics are not
+// in `agentLoop`'s table.
+const SHELL_ONLY = { skip: testWorkerLoop() === 'js' && 'the JS loop does not classify a rejected claim push' };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -189,7 +197,7 @@ function runOnce(wt, manifest, extraEnv = {}) {
   }
 }
 
-test('claim push: an absent remote branch is named, not reported as a lock violation', () => {
+test('claim push: an absent remote branch is named, not reported as a lock violation', SHELL_ONLY, () => {
   const sb = sandbox();
   try {
     const { wt, manifest } = deskHandedTo(sb, 'feature/start', 'feature/gone');
@@ -208,7 +216,7 @@ test('claim push: an absent remote branch is named, not reported as a lock viola
   }
 });
 
-test('claim push: a present ref with a LIVE holder keeps the registry-lock violation line', () => {
+test('claim push: a present ref with a LIVE holder keeps the registry-lock violation line', SHELL_ONLY, () => {
   const sb = sandbox();
   let pid;
   try {
@@ -243,7 +251,7 @@ test('claim push: a present ref with a LIVE holder keeps the registry-lock viola
   }
 });
 
-test('claim push: a stale empty claim with no live holder names the release command, not a lock violation', () => {
+test('claim push: a stale empty claim with no live holder names the release command, not a lock violation', SHELL_ONLY, () => {
   // ALSO THE HOLDER-EXCLUDED-ASKER CASE: `deskHandedTo` writes the manifest
   // naming `targetBranch` (here `feature/stale`) BEFORE the push is attempted
   // — it is this agent's OWN manifest, already naming the branch it is about
@@ -276,7 +284,7 @@ test('claim push: a stale empty claim with no live holder names the release comm
   }
 });
 
-test('claim push: the manifest naming the rejected branch is cleared, and PLOT_BRANCH no longer runs the previous prompt', () => {
+test('claim push: the manifest naming the rejected branch is cleared, and PLOT_BRANCH no longer runs the previous prompt', SHELL_ONLY, () => {
   // THE `8111e3ec` REPLAY. A loop whose `PLOT_BRANCH` names a FINISHED
   // previous slice is handed a branch whose claim push is rejected. Before
   // this slice, `continue` left `PLOT_BRANCH` naming the previous slice, so

@@ -713,6 +713,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       await deps.ports.desk.writeLimitedRecord(worktree, exit.reset.epoch, exit.reset.iso, exit.line);
       const ahead = deps.ports.refs.countAheadSync(readings.assignedBranch);
       held = { ...held, afterWait: true, aheadAtWait: ahead.ok ? ahead.value : 0 };
+      deps.log(`plot-worker-loop: usage limit on ${readings.assignedBranch || '?'} until ${exit.reset.iso}; waiting`);
       const until = (exit.reset.epoch + deps.limitMarginSeconds) * 1000;
       await deps.sleep(Math.max(0, until - deps.now()));
       await deps.ports.desk.clearLimitedRecord(worktree);
@@ -809,6 +810,13 @@ export const shippedConfig = (scriptDir: string): ConfigReader => (repoRoot, key
  * @param scriptDir - where the helper scripts live, beside this bundle.
  * @returns the process exit code.
  */
+/** The harness a launch names; an empty `PLOT_HARNESS` (a launch with no charter exports one) means `claude`. */
+export const harnessName = (env: NodeJS.ProcessEnv): string => env.PLOT_HARNESS || 'claude';
+
+/** The wall clock in ms, moved by `PLOT_CLOCK_OFFSET_SECONDS` as the shell's `clock_now` is. */
+export const offsetClock = (env: NodeJS.ProcessEnv): (() => number) =>
+  () => Date.now() + num(env.PLOT_CLOCK_OFFSET_SECONDS, 0) * 1000;
+
 export const main = async (
   env: NodeJS.ProcessEnv,
   scriptDir: string,
@@ -842,7 +850,7 @@ export const main = async (
     repoRoot,
     worktree,
     agent: env.PLOT_AGENT ?? '',
-    harness: env.PLOT_HARNESS ?? 'claude',
+    harness: harnessName(env),
     config: {
       boundSeconds,
       waitBudgetSeconds: num(env.PLOT_WAIT_BUDGET_SECONDS, boundSeconds),
@@ -857,7 +865,7 @@ export const main = async (
     outFile: join(tmpdir(), `plot-worker-loop-${process.pid}.out`),
     sessionId: env.PLOT_SESSION_ID ?? '',
     slug: env.PLOT_SLUG ?? '',
-    now: Date.now,
+    now: offsetClock(env),
     sleep: systemSleep,
     log: stderrLog,
   });
