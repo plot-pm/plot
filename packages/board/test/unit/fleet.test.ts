@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { describe, it, expect } from 'vitest';
+import fs, { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
@@ -12,7 +14,10 @@ import {
   waitingOnFor,
   withEstate,
   estateReport,
+  minutesSince,
 } from '../../src/server/fleet.js';
+import { workerQuestions } from '../../src/server/worker-question.js';
+import { rmTree } from '../helpers.mjs';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, PR_UNKNOWN_NOTE, toBoardPhase, unknownPhaseNote,
   type AgentRow, type FleetReading,
@@ -2735,17 +2740,114 @@ describe('rowsFromPulse', () => {
         .toMatch(/which adapter should the fallback use\?/);
     });
 
-    it('degrades an unreadable marker to a STATED unknown, never a guess', () => {
-      // The scan already found a marker — that is what made this `waiting` — so
-      // no question here means THIS read did not find what that one did. The
-      // row must say so and stay in WORKING. A fabricated question would send a
-      // reader to answer the wrong one with nothing to signal the substitution,
-      // which is strictly worse than a blank.
+    it('states reason-unavailable for a waiting worker with no question reading', () => {
+      // The fallback arm: `waiting` with no entry in the questions map keeps
+      // the row in WORKING and invents no question.
       const rows = rowsFromPulse(withWorker('waiting', '0', '900'), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('working');
       expect(row.note).toMatch(/unavailable/i);
       expect(row.note).toMatch(/worktree/i);
+    });
+
+    describe('a desk with a question', () => {
+      const NOW = Date.parse('2026-10-05T18:20:00.000Z');
+      const ASKED = new Date(NOW - 45 * 60_000).toISOString();
+      const reading = (firstLine: string) => new Map([['feature/d', { firstLine, askedAt: ASKED }]]);
+      const prOf = (over: Record<string, unknown>) => ({
+        number: 9, url: '', head: 'feature/d', draft: false, state: 'OPEN', checks: 'green',
+        mergeable: 'mergeable', failing_checks: [], ...over,
+      }) as unknown as PrRecord;
+      const rowOf = (
+        worker: 'running' | 'finished' | 'waiting' | 'failed',
+        questions: Map<string, { firstLine: string; askedAt: string }>,
+        opts: { exit?: string; pr?: PrRecord; closed?: PrRecord } = {},
+      ) => rowsFromPulse(
+        withWorker(worker, opts.exit ?? '', '900'), ages, 'plot', QUIET,
+        opts.pr ? new Map([['feature/d', opts.pr]]) : null, '', null, NOW, null, null, null,
+        questions, opts.closed ? new Map([['feature/d', opts.closed]]) : null,
+      ).find((r) => r.branch === 'feature/d')!;
+
+      it('keeps the question and the exit code on a failed worker', () => {
+        const row = rowOf('failed', reading('which adapter?'), { exit: '124' });
+        expect(row.group).toBe('waiting-on-you');
+        expect(row.note).toContain('waiting on you: which adapter?');
+        expect(row.note).toContain('(worker exited 124)');
+      });
+
+      it('carries the age on the note and the reading on the row', () => {
+        const row = rowOf('running', reading('which adapter?'));
+        expect(row.note).toContain('asked 45 min ago');
+        expect(row.question).toEqual({ firstLine: 'which adapter?', askedAt: ASKED });
+      });
+
+      it('gives a row with no marker a null question', () => {
+        expect(rowOf('running', new Map()).question).toBeNull();
+      });
+
+      for (const worker of ['failed', 'waiting', 'finished'] as const) {
+        it(`outranks an open PR with pending CI on a ${worker} worker`, () => {
+          const row = rowOf(worker, reading('which adapter?'), { pr: prOf({ checks: 'pending' }) });
+          expect(row.group).toBe('waiting-on-you');
+          expect(row.note.indexOf('waiting on you: which adapter?')).toBe(0);
+          expect(row.note).toContain('PR #9, CI running');
+        });
+      }
+
+      it('outranks a PR with conflicts on a running worker, and keeps the age', () => {
+        const row = rowOf('running', reading('which adapter?'), { pr: prOf({ mergeable: 'conflicting' }) });
+        expect(row.group).toBe('waiting-on-you');
+        expect(row.note.indexOf('waiting on you: which adapter?')).toBe(0);
+        expect(row.note).toContain('asked 45 min ago');
+        expect(row.note).toContain('PR #9, conflicts');
+      });
+
+      it('outranks a closed PR on a finished worker', () => {
+        const row = rowOf('finished', reading('which adapter?'), {
+          closed: prOf({ state: 'CLOSED', number: 1089 }),
+        });
+        expect(row.group).toBe('waiting-on-you');
+        expect(row.note).toContain('waiting on you: which adapter?');
+        expect(row.quietKind ?? null).not.toBe('closed-pr');
+      });
+
+      it('leaves a running worker with no marker in WORKING', () => {
+        const row = rowOf('running', new Map());
+        expect(row.group).toBe('working');
+        expect(row.note).toMatch(/worker running/);
+      });
+
+      describe('read from a real worktree', () => {
+        let tmp: string;
+        beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-question-')); });
+        afterEach(() => { rmTree(tmp); });
+
+        const withWorktree = (worker: 'running', dir: string): FleetReading => {
+          const base = withWorker(worker, '', '900');
+          base.plans[0].slices[0].branches[0].local_worktree = dir;
+          return base;
+        };
+
+        it('lists a running worker whose marker cannot be read as WAITING ON YOU with reason unavailable', async () => {
+          fs.mkdirSync(path.join(tmp, 'PLOT-BLOCKED.d'));
+          const p = withWorktree('running', tmp);
+          const questions = await workerQuestions(p);
+          const row = rowsFromPulse(p, ages, 'plot', QUIET, null, '', null, NOW, null, null, null, questions)
+            .find((r) => r.branch === 'feature/d')!;
+          expect(row.group).toBe('waiting-on-you');
+          expect(row.note).toContain('reason unavailable');
+        });
+
+        it('lists a running worker with no marker as WORKING and reads no question', async () => {
+          const p = withWorktree('running', tmp);
+          const questions = await workerQuestions(p);
+          expect(questions.size).toBe(0);
+          const row = rowsFromPulse(p, ages, 'plot', QUIET, null, '', null, NOW, null, null, null, questions)
+            .find((r) => r.branch === 'feature/d')!;
+          expect(row.group).toBe('working');
+          expect(row.question).toBeNull();
+        });
+      });
     });
 
     it('still sends a finished worker to WAITING ON YOU — that one IS a result', () => {
@@ -4882,5 +4984,25 @@ describe('the PR cadence divides by what the account is observed to spend', () =
     const naiveTotal = naive.reduce((sum, ms) => sum + spendOf(ms, 'github'), 0);
     expect(naiveTotal).toBe(120);
     expect(naiveTotal).toBeGreaterThan(spendOf(PERIOD, 'github'));
+  });
+});
+
+describe('minutesSince', () => {
+  const NOW = Date.parse('2026-10-05T18:20:00.000Z');
+
+  it('counts whole minutes from an instant to now', () => {
+    expect(minutesSince('2026-10-05T13:36:00.000Z', NOW)).toBe(284);
+  });
+
+  it('rounds to the nearest minute', () => {
+    expect(minutesSince('2026-10-05T18:19:20.000Z', NOW)).toBe(1);
+  });
+
+  it('never returns a negative age', () => {
+    expect(minutesSince('2026-10-05T18:30:00.000Z', NOW)).toBe(0);
+  });
+
+  it('returns null for a string that does not parse', () => {
+    expect(minutesSince('not a date', NOW)).toBeNull();
   });
 });

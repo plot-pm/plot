@@ -242,6 +242,12 @@ describe('every other agent state stays out of WAITING ON YOU — unless it has 
     expect(r.note).toContain('4 hours');
   });
 
+  it('keeps a WAITING worker with no question reading in WORKING, reason unavailable', () => {
+    const r = classifyWorker({ worker: 'waiting' });
+    expect(r.group).toBe('working');
+    expect(r.note).toContain('reason unavailable');
+  });
+
   it('does not describe a questioning worker as broken', () => {
     // A row moved here by a QUESTION is not the same claim as a row moved here
     // by a crash — the pairing above states the move; this states the

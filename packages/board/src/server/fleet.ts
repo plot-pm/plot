@@ -4400,47 +4400,49 @@ function prerequisiteList(names: readonly string[]): string {
 }
 
 /**
- * The sentence a desk's outstanding question adds to a row's note — or ""
- * where `workerQuestion` says there is none.
+ * The note for a desk's outstanding question: `waiting on you: <first line>`,
+ * or a reason-unavailable sentence when the first line is empty, followed by
+ * `asked <age> ago` when the age is known.
  *
- * A STATED UNKNOWN STILL PRINTS A SENTENCE. `workerQuestion === ''` reaching
- * here means the scan found a marker and this read could not — never that
- * nothing was asked — so the empty case still renders *reason unavailable*
- * rather than silence. The age rides beside it where it is known, exactly as
- * `quietNote` appends a claim's age beside its own sentence.
- *
- * THE AGE IS OMITTED, NOT ZEROED, where `questionAgeMinutes` is `null` — a
- * marker this machine could not time (an unreadable `stat`, a caller that
- * never read one) says so by leaving the clause out, not by claiming the
- * question is brand new.
+ * @param workerQuestion The marker's first line, "" when it could not be read.
+ * @param questionAgeMinutes Minutes since the marker was written, or `null`.
  */
-function questionNote(workerQuestion: string, questionAgeMinutes: number | null): string {
+const questionNote = (workerQuestion: string, questionAgeMinutes: number | null): string => {
   const asked = workerQuestion
     ? `waiting on you: ${workerQuestion}`
     : 'waiting on you — reason unavailable, look in its worktree';
   return questionAgeMinutes === null ? asked : `${asked} · asked ${humanAge(questionAgeMinutes)} ago`;
-}
+};
 
 /**
- * Whether this row has a question at all — a marker the scan found, whether
- * or not its content read.
+ * Whether a row has a question: a first line was read, or an age was read.
+ * A marker whose content could not be read has an empty first line and an age.
  *
- * THE ONE TEST THAT MAY DECIDE PLACEMENT. `workerQuestion` alone cannot: "" is
- * the stated unknown for a marker that WAS found, so testing it for truthiness
- * would read an unreadable marker as no marker at all and send the row back
- * to the ordinary worker arms. `questionAgeMinutes` is what a found marker
- * always carries — a timed one, or `null` only where the caller never read
- * one — so the pair distinguishes *no marker* from *marker, unreadable
- * content* the same way `workerQuestions` does on its own side of the map.
- *
- * NOT A FLAG OF ITS OWN, deliberately — a caller that wants to say "there is a
- * marker, I just could not time it" has no way to express that today, and
- * none of this slice's callers need to: every caller that found a marker also
- * has its `stat`, so the two travel together or not at all.
+ * @param workerQuestion The marker's first line, "" when none was read.
+ * @param questionAgeMinutes Minutes since the marker was written, or `null`.
  */
-function hasQuestion(workerQuestion: string, questionAgeMinutes: number | null): boolean {
-  return workerQuestion !== '' || questionAgeMinutes !== null;
-}
+const hasQuestion = (workerQuestion: string, questionAgeMinutes: number | null): boolean =>
+  workerQuestion !== '' || questionAgeMinutes !== null;
+
+/**
+ * The open PR's condition as a clause: `PR #n, conflicts`, `PR #n, CI running`,
+ * `PR #n, checks failing`, and so on, followed by the review note.
+ *
+ * @param pr The open PR on the branch.
+ */
+const prEvidence = (pr: PrRecord): string => {
+  if (pr.draft) return draftNote(pr);
+  const base = `PR #${pr.number}`;
+  const clause =
+    pr.mergeable === 'conflicting' ? ', conflicts'
+      : pr.mergeable !== 'mergeable' ? ', cannot say whether it merges'
+        : pr.checks === 'pending' ? ', CI running'
+          : pr.checks === 'failing' ? ', checks failing'
+            : pr.checks === 'none' ? ', no checks'
+              : pr.checks === 'unknown' ? ', cannot read the checks'
+                : ' green';
+  return withNote(`${base}${clause}`, reviewNote(pr));
+};
 
 /**
  * What kind of row this branch is — its section and its sentence.
@@ -4738,6 +4740,8 @@ function classifyGroup(
    * Every branch this one waits for — `BranchSchema.waits_on`, the names in the
    * plan's `waits:` annotation, or `[]`.
    *
+   * LAST, BECAUSE IT IS THE NEWEST, by the rule `prUnknown` records above.
+   *
    * Named in the note of a `blocked` or `waiting` branch and read for nothing
    * else. Both states arise only from a `waits:` annotation, so the scan always
    * has a name for them; `[]` on such a row is a stated unknown and the note
@@ -4750,19 +4754,8 @@ function classifyGroup(
    */
   waitsOn: readonly string[] = [],
   /**
-   * How long ago the desk's `PLOT-BLOCKED*` marker was written, in minutes —
-   * see `minutesSince`. `null` where `workerQuestion` is "" (no marker, or one
-   * this read could not time) and wherever the caller has nothing to say.
-   *
-   * THE MARKER'S MODIFICATION TIME, NOT THE WORKER'S LAST COMMIT. A worker that
-   * keeps committing beside its own question would reset this age if it were
-   * read from commit activity, understating how long the question has gone
-   * unanswered — the exact failure `a-question-is-listed-as-waiting-on-you`
-   * exists to fix. See `workerQuestions` / `markerReading` for where it is read.
-   *
-   * LAST, BECAUSE IT IS THE NEWEST — the rule `prUnknown` and `waitsOn` record
-   * above, and for the reason recorded there: inserting a parameter mid-list
-   * shifts every spread-tuple caller in the suite silently past the compiler.
+   * Minutes since the desk's `PLOT-BLOCKED*` marker was written, from the
+   * marker's modification time; `null` where no marker was read.
    */
   questionAgeMinutes: number | null = null,
 ): { group: WaitingGroup; note: string } {
@@ -4891,6 +4884,13 @@ function classifyGroup(
     return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
 
+  // A desk with a question is waiting on you, whatever its worker is doing and
+  // whatever its PR says. The PR condition follows the question as evidence.
+  if (state !== 'merged' && state !== 'open' && hasQuestion(workerQuestion, questionAgeMinutes)) {
+    const exited = worker === 'failed' && workerExit ? ` (worker exited ${workerExit})` : '';
+    const asked = `${questionNote(workerQuestion, questionAgeMinutes)}${exited}`;
+    return { group: 'waiting-on-you', note: pr ? withNote(asked, prEvidence(pr)) : asked };
+  }
   // A PR outranks the git state for work in flight: once a branch has one,
   // what it waits for is decided there, not by commit age. Merged and
   // not-yet-pushed branches keep their git answer.
@@ -5251,68 +5251,11 @@ function classifyGroup(
     // worker, and deliberately: a PR with conflicts or failing checks is a
     // person's errand even while an agent is mid-run. That is a narrower claim
     // than the old ordering made, and it is the one this change keeps.
-    // A QUESTION OUTRANKS A LIVE PROCESS. The marker is the reading, not the
-    // loop's process state — `supervise` (`rules/supervision.ts`) made exactly
-    // the mistake this guards against, answering `leave` for any live loop
-    // before it asked whether one had stopped to ask. A loop that keeps polling
-    // beside its own unanswered marker is still `running`, and a rule that
-    // checked `worker === 'waiting'` first never saw it: measured 2026-10-05,
-    // `registryd.log` counted `person=0` on all 10,521 ticks that day. So the
-    // question is asked BEFORE each worker-state arm below decides its note —
-    // a live loop, a dead one and an ended one with the same marker land in the
-    // same section, WAITING ON YOU, whatever their own state would otherwise
-    // have said.
-    //
-    // EACH ARM STILL NAMES ITS OWN EVIDENCE BESIDE THE QUESTION. A question
-    // replaces the PLACEMENT a worker's own state would have chosen, never the
-    // STATE'S OWN FACTS — `failed` keeps its exit code, because that is the one
-    // thing the question cannot tell a reader: a crashed process and a live one
-    // both leave a marker behind, and only the exit code says which happened.
-    if (hasQuestion(workerQuestion, questionAgeMinutes)) {
-      const asked = questionNote(workerQuestion, questionAgeMinutes);
-      if (worker === 'failed') {
-        return {
-          group: 'waiting-on-you',
-          note: workerExit ? `${asked} (worker exited ${workerExit})` : asked,
-        };
-      }
-      return { group: 'waiting-on-you', note: asked };
-    }
     if (worker === 'running') {
       return { group: 'working', note: `worker running (pid ${workerPid})` };
     }
-    // `waiting` NO LONGER HAS AN ARM OF ITS OWN HERE.
-    //
-    // Until `a-question-is-listed-as-waiting-on-you`, this is where `waiting`
-    // was kept in WORKING beside `running` — a worker that stopped to ask was
-    // read as still mid-task, and the row's question was its note. That answer
-    // is now the `hasQuestion` arm above, reached for every worker state rather
-    // than for `waiting` alone: `waiting` IS the state the scan gives a branch
-    // BECAUSE it found a marker, so every row that would have arrived here now
-    // takes the branch above instead, routed to WAITING ON YOU with the same
-    // question in its note.
-    //
-    // A CALLER THAT REPORTS `waiting` WITH NO QUESTION FALLS THROUGH to the
-    // `finished`/`failed`/`stalled`/`ended` arms below without a dedicated
-    // sentence of its own — a scan predating this field, or a test that built
-    // the state without the marker fields beside it. That caller was already
-    // answering a question this function cannot — a `waiting` state asserts a
-    // marker exists — so there is nothing honest left to say that the generic
-    // arms below do not already cover.
-    // A BROKEN AGENT, OR A QUESTIONING ONE, IS WHAT THIS SECTION ADMITS NOW,
-    // and the three arms below are the broken half: `failed`, `ended`,
-    // `stalled`. WAITING ON YOU is for what needs a person's DECISION, so its
-    // normal population is a PR, a branch, a plan, a release. A working agent
-    // with nothing outstanding has no business here — and a `running` or
-    // `waiting` row with NO question is already gone above, into WORKING where
-    // it belongs; only a question, or one of the three broken states, reaches
-    // this far.
-    //
-    // So the presence of an agent here is ITSELF the signal, which is the
-    // property the exception is worth having and the reason it must stay rare.
-    // Rarity is a property of the RULE: only a problem state OR an outstanding
-    // question admits an agent, and the arms above are what keep a working one
-    // with nothing to report out.
+    // A broken agent is what this section holds besides a question: `failed`,
+    // `ended`, `stalled`. A row with a question never reaches this point.
     //
     // THE NOTES SAY WHAT WAS OBSERVED, NEVER WHAT TO DO. They read *restart it*
     // and *resume it* until now, and both were verdicts about the schedule — a
@@ -5345,12 +5288,8 @@ function classifyGroup(
     if (worker === 'finished') {
       return { group: 'waiting-on-you', note: 'worker finished — review it' };
     }
-    // THE DEGENERATE CASE ONLY: `waiting` WITH NO QUESTION SUPPLIED. The scan
-    // sets `waiting` because it found a marker, so the `hasQuestion` arm above
-    // is where every real row of this state now lands — this exists only for a
-    // caller that reports the state without the fields that go with it (an
-    // older scan, a test built by hand), and it answers the same way the state
-    // always has: still a worker holding the branch, not a result for a person.
+    // `waiting` without a question reading: the scan found a marker and no
+    // reading of it reached this function.
     if (worker === 'waiting') {
       return { group: 'working', note: 'worker waiting on you — reason unavailable, look in its worktree' };
     }
@@ -5379,13 +5318,8 @@ function classifyGroup(
       // there is no exit code to report and nothing crashed; what is observable
       // is that it stopped without finishing and without asking.
       //
-      // WITHOUT ASKING is the half that earns the phrase, and it is not
-      // rhetorical: a worker that stopped to ask carries a marker, and the
-      // `hasQuestion` arm far above routes every such row to WAITING ON YOU
-      // with the question as its note before `stalled` is ever asked. Reaching
-      // here means the scan found no marker, so nobody was asked anything.
-      // That distinction is exactly what a reader needs to know they are
-      // looking at an abandonment rather than a question they overlooked.
+      // A row with a question is placed above, so this note holds only where
+      // no marker was found.
       return {
         group: 'waiting-on-you',
         note: `worker stopped without finishing and without asking${what}${whereToLook(localWorktree)}`,
@@ -6494,22 +6428,16 @@ export function humanAge(minutes: number): string {
 }
 
 /**
- * Minutes since an ISO-8601 instant, against `now` — or `null` where the
- * string does not parse.
+ * Minutes since an ISO-8601 instant, against `now` (epoch milliseconds),
+ * rounded and never negative; `null` where the string does not parse.
  *
- * THE QUESTION'S AGE IS THE MARKER FILE'S MODIFICATION TIME, computed here
- * rather than carried as a raw timestamp into `classify`: every other age on a
- * row (`ageMinutes` itself) reaches that function pre-converted to minutes, and
- * a question's age follows the same shape so `humanAge` renders both the same
- * way. Computed on the RENDER clock (`rowsFromPulse`'s own `now`), not the
- * scan's: a question asked three minutes ago must not read "4 hours" because
- * the scan that read the file ran once and the render polls every five
- * seconds.
+ * @param iso An ISO-8601 timestamp.
+ * @param now The reference time in epoch milliseconds.
  */
-function minutesSince(iso: string, now: number): number | null {
+export const minutesSince = (iso: string, now: number): number | null => {
   const at = Date.parse(iso);
   return Number.isNaN(at) ? null : Math.max(0, Math.round((now - at) / 60_000));
-}
+};
 
 /**
  * Actionable before diagnostic.
@@ -6793,18 +6721,8 @@ export function rowsFromPulse(
   runs?: Map<string, StuckRun[]> | null,
   /**
    * What each desk's marker asks, and when it was written, by branch — see
-   * `workerQuestions`. Read on the SCAN's clock, not this one: the map arrives
-   * already built, because this function is the render path and a subprocess
-   * per row per poll is not a cost it can carry.
-   *
-   * NO LONGER ONLY `waiting` WORKERS. `workerQuestions` widened to every branch
-   * with a local worktree, so a `running` row can carry an entry here too —
-   * see `classify`'s `hasQuestion` arm, which is where that now matters.
-   *
-   * Last in the parameter list because it is the newest, so every existing
-   * caller is unchanged. A caller with nothing to say passes nothing, and every
-   * row with a marker-bearing state then reads *reason unavailable* — which is
-   * exactly true of a caller that did not look.
+   * `workerQuestions`. The map is built on the scan, not on this render path.
+   * A caller that passes nothing gives every row no question.
    */
   questions?: Map<string, { firstLine: string; askedAt: string }> | null,
   /**
@@ -7038,9 +6956,7 @@ export function rowsFromPulse(
         // unchanged either way.
         const held = prsByHeadMap?.get(b.branch) ?? null;
         const linked = held && held.state === 'CLOSED' ? pr : (held ?? pr);
-        // THE DESK'S QUESTION, READ ONCE FOR BOTH ARGUMENTS BELOW. `questions`
-        // now carries an entry for any branch with a local worktree the scan
-        // found a marker on — not only a `waiting` one — see `workerQuestions`.
+        // The desk's question reading, used for the first line, the age and the row's `question`.
         const questionReading = questions?.get(b.branch) ?? null;
         const { group: openGroup, note: openNote, verdict } = classify(
           b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
@@ -7061,10 +6977,7 @@ export function rowsFromPulse(
           // What a `stalled` worker left uncommitted, so the note can name it.
           // Empty for every other state, and empty adds nothing.
           b.worker_dirty_paths,
-          // What a desk's marker asks, so the row says what it waits ON.
-          // "" where no marker was found — never a question invented to fill
-          // the sentence. A found-but-unreadable marker still reaches here as
-          // "", the stated unknown `questionReading.firstLine` carries.
+          // The marker's first line; "" where no marker was read or its content did not read.
           questionReading?.firstLine ?? '',
           // Whether a worktree HOLDS this branch — the path with the merged tip
           // excluded, the AND the scan computed. It decides the WORKING lift, so
@@ -7117,12 +7030,7 @@ export function rowsFromPulse(
           // WHAT A `blocked` OR `waiting` BRANCH WAITS FOR, so its NOT STARTED
           // row names the prerequisite rather than only that there is one.
           b.waits_on,
-          // HOW LONG AGO THE MARKER WAS WRITTEN — the render clock's `now`
-          // against the reading's `askedAt`, computed here rather than in
-          // `classify` because `now` is this function's own and `classify`
-          // stays a pure function of what it is handed. `null` where no marker
-          // was found, which `classify`'s `hasQuestion` reads as "no question"
-          // only when `firstLine` is also "".
+          // Minutes from the marker's `askedAt` to this render's `now`.
           questionReading ? minutesSince(questionReading.askedAt, now) : null);
         // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
         //
@@ -7164,8 +7072,9 @@ export function rowsFromPulse(
         // opened #1089 from its claim commit, closed it 38 s later, and sat in
         // DONE with a live marker while its agent kept committing — measured
         // 2026-09-30. So `running` and `waiting` keep the row in `openGroup`,
-        // and the closed PR travels as a second fact in the note.
-        const liveAgent = b.worker === 'running' || b.worker === 'waiting';
+        // and the closed PR travels as a second fact in the note. A row with a
+        // question keeps it too.
+        const liveAgent = b.worker === 'running' || b.worker === 'waiting' || questionReading !== null;
         const declined = closedPr && !liveAgent;
         const group = declined ? 'done' : openGroup;
         // THE SENTENCE WITHOUT A `PR #n` PREFIX, deliberately, and this is the
@@ -7291,9 +7200,7 @@ export function rowsFromPulse(
           group,
           ageMinutes: age,
           note: b.claimed ? `${rowNote} · ${b.claimed}` : rowNote,
-          // FORWARDED, NEVER RE-DERIVED — the same reading `classify` was
-          // handed a few lines up, travelling onto the row as DATA beside the
-          // prose its placement already produced. See `AgentRowSchema.question`.
+          // The reading `classify` was given. See `AgentRowSchema.question`.
           question: questionReading ?? null,
           // The link the row could not offer before, and now the condition too.
           // `url` is the adapter's string or "", never anything this file
@@ -7660,9 +7567,7 @@ export function rowsFromPulse(
       group,
       ageMinutes,
       note,
-      // No worktree scan ever looked at a planless branch, so there is no
-      // marker reading to forward — the same honest absence `held` and the
-      // local-activity fields below carry.
+      // No worktree was read for a planless branch.
       question: null,
       branch,
       // Encoded per path SEGMENT, matching the planned rows above: a branch
@@ -7961,9 +7866,7 @@ export function rowsFromPulse(
       group: placed,
       ageMinutes,
       note,
-      // NO WORKTREE WAS VISITED for this row, the same absence `localDirty`
-      // and its neighbours below state explicitly — so there is no marker
-      // reading to forward.
+      // No worktree was read for this row.
       question: null,
       branch,
       // Encoded per path SEGMENT, matching every other row: a branch name

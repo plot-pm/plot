@@ -2970,35 +2970,11 @@ export const AgentRowSchema = z.object({
    */
   worker_activity: WorkerActivitySchema.default(''),
   /**
-   * What this desk's `PLOT-BLOCKED*` marker asks, and when it was written — the
-   * reading `workerQuestions` built, forwarded onto the row unchanged. `null`
-   * where this machine found no marker file for the branch.
-   *
-   * THE MARKER IS THE READING, NOT THE WORKER'S PROCESS STATE. A live loop that
-   * wrote a marker and kept polling beside it, a dead one, and one that ended
-   * all carry the same marker — so this field is populated for any branch with
-   * a local worktree, never gated on `worker`. See
-   * `a-question-is-listed-as-waiting-on-you`: a rule that read `worker ===
-   * 'waiting'` first missed exactly the live-loop case, measured 2026-10-05 as
-   * `person=0` across 10,521 registry ticks.
-   *
-   * `null` MEANS NO MARKER FILE, AND ONLY THAT. A marker that exists but whose
-   * content would not read is `{ firstLine: '', askedAt }` — a stated unknown,
-   * never `null` — because the scan still found the file and the row still
-   * needs to say so rather than claim nothing was asked.
-   *
-   * A FIELD RATHER THAN A STRING MATCH, for the same reason `worker` above is
-   * one: `note` already says *waiting on you* in prose once a question moves a
-   * row to WAITING ON YOU, and a consumer that needs the question or its age
-   * as DATA — rather than parsing a sentence — should not have to.
-   *
-   * FORWARDED, NEVER RE-DERIVED. `classify` is what decides whether a question
-   * moves the row; this is a copy of the reading that decision was made from,
-   * travelling outward the way `worker` and `worker_exit` already do.
-   *
-   * Defaults to `null` so a pulse from an older server still validates: a
-   * caller that never read a marker is indistinguishable from a branch with
-   * none.
+   * What this desk's `PLOT-BLOCKED*` marker asks and when it was written:
+   * `firstLine` is the marker's first line, "" when the content did not read,
+   * and `askedAt` is the file's modification time as an ISO-8601 string. `null`
+   * where no marker exists. Set for any branch with a local worktree, whatever
+   * its `worker` state. Defaults to `null`.
    */
   question: z.object({
     firstLine: z.string(),

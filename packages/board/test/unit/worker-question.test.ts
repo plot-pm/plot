@@ -256,6 +256,38 @@ describe('markerReading — the line and the age, from one stat', () => {
   });
 });
 
+describe('markerReading — a marker that changes between reads', () => {
+  it('returns null for a marker deleted after the directory listing', async () => {
+    // A dangling symlink is listed by `readdir` and fails `stat` with ENOENT.
+    const wt = treeWith({});
+    fs.symlinkSync(path.join(wt, 'gone'), path.join(wt, 'PLOT-BLOCKED.md'));
+    await expect(markerReading(wt)).resolves.toBeNull();
+  });
+
+  it('gives a replaced marker file a later askedAt', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'first question?\n' });
+    const full = path.join(wt, 'PLOT-BLOCKED.md');
+    const old = new Date('2026-10-05T13:36:00.000Z');
+    fs.utimesSync(full, old, old);
+    const before = await markerReading(wt);
+    fs.rmSync(full);
+    fs.writeFileSync(full, 'second question?\n');
+    const later = new Date('2026-10-05T18:20:00.000Z');
+    fs.utimesSync(full, later, later);
+    const after = await markerReading(wt);
+    expect(before?.askedAt).toBe(old.toISOString());
+    expect(after).toEqual({ firstLine: 'second question?', askedAt: later.toISOString() });
+    expect(Date.parse(after!.askedAt)).toBeGreaterThan(Date.parse(before!.askedAt));
+  });
+
+  it('reads a regular marker file listed after a directory with a marker name', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'which adapter?\n' });
+    fs.mkdirSync(path.join(wt, 'PLOT-BLOCKED.d'));
+    expect((await markerReading(wt))?.firstLine).toBe('which adapter?');
+    expect(await markerIn(wt)).toBe('which adapter?');
+  });
+});
+
 describe('waitingWorktrees — who gets asked at all', () => {
   it('selects every branch with a local worktree, whatever the worker state', () => {
     // WIDENED, deliberately. A live loop that wrote a marker and kept polling
@@ -305,6 +337,19 @@ describe('workerQuestions — the map the row is annotated from', () => {
     const plain = fs.mkdtempSync(path.join(tmp, 'plain-'));
     const p = pulse([{ branch: 'feature/asking', worker: 'waiting', local_worktree: plain }]);
     expect((await workerQuestions(p)).has('feature/asking')).toBe(false);
+  });
+
+  it('gives a RUNNING branch with a local worktree and no marker no entry', async () => {
+    const plain = fs.mkdtempSync(path.join(tmp, 'plain-'));
+    const p = pulse([{ branch: 'feature/alive', worker: 'running', local_worktree: plain }]);
+    await expect(workerQuestions(p)).resolves.toEqual(new Map());
+  });
+
+  it('gives a branch whose marker is a directory an entry with an empty first line', async () => {
+    const wt = treeWith({});
+    fs.mkdirSync(path.join(wt, 'PLOT-BLOCKED.d'));
+    const p = pulse([{ branch: 'feature/alive', worker: 'running', local_worktree: wt }]);
+    expect((await workerQuestions(p)).get('feature/alive')?.firstLine).toBe('');
   });
 
   it('spawns nothing when no branch holds a local worktree', () => {
