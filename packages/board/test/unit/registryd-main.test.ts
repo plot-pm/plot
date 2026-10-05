@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'node:fs';
+import { describe, it, expect, afterAll } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,6 +9,9 @@ import {
   sweepTempIfDue,
   startFreshAgents,
   mergeMemoOver,
+  escalationWorldForRepo,
+  notifierFor,
+  notifyEscalations,
   queueWorldForRepo,
   readRegistry,
   reportTick,
@@ -18,6 +21,8 @@ import {
   worldForRepo,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
+import { escalationMemory, readEscalations } from '../../src/server/escalations.js';
+import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { PortResult } from '@plot-pm/domain';
@@ -1663,6 +1668,142 @@ describe('the hourly temp sweep', () => {
     const err: string[] = [];
     expect(await sweepTempIfDue(s.port, 0, () => {}, (x) => err.push(x))).toBe(true);
     expect(err.join('')).toMatch(/temp sweep did not run/);
+  });
+});
+
+describe('notifierFor — the Notifier an empty Notify command answers unaskable', () => {
+  it('answers unaskable for an empty value, same as a tracker nobody declared', async () => {
+    expect(await notifierFor('').notify('x')).toEqual({ ok: false, why: 'unaskable' });
+    expect(await notifierFor('   ').notify('x')).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
+describe('notifyEscalations — applies the tick\'s notify writes, once each', () => {
+  const notifyTick = (worktree: string, rung: 'notified-1' | 'notified-2' | 'notified-3'): TickReport => ({
+    startedAt: 0,
+    costMs: 1,
+    agents: 1,
+    incomplete: '',
+    handOver: null,
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [
+        { kind: 'notify', worktree, askedAt: '2020-01-01T00:00:00.000Z', rung, message: 'hi' },
+      ],
+      detail: {
+        agents: [],
+        left: [],
+        reaping: [],
+        correcting: [],
+        needingAPerson: [],
+        deferred: [],
+        unclaimed: [],
+      },
+    },
+  });
+
+  const dirs: string[] = [];
+  const repo = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-notify-escalations-'));
+    dirs.push(dir);
+    return dir;
+  };
+
+  it('records sent on a successful send', async () => {
+    const root = repo();
+    const sent: string[] = [];
+    const notifier: Notifier = { notify: async (m) => { sent.push(m); return { ok: true }; } };
+    await notifyEscalations(notifyTick('/estate/a', 'notified-1'), root, async () => notifier, escalationMemory(), () => {}, () => {});
+    expect(sent).toEqual(['hi']);
+    const records = readEscalations(root);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ worktree: '/estate/a', rung: 'notified-1', status: 'sent' });
+  });
+
+  it('records unaskable without sending, when no Notify command is configured', async () => {
+    const root = repo();
+    const notifier: Notifier = { notify: async () => ({ ok: false, why: 'unaskable' }) };
+    await notifyEscalations(notifyTick('/estate/a', 'notified-1'), root, async () => notifier, escalationMemory(), () => {}, () => {});
+    expect(readEscalations(root)[0]).toMatchObject({ status: 'unaskable' });
+  });
+
+  it('records failed with the exit code on a broken command', async () => {
+    const root = repo();
+    const notifier: Notifier = { notify: async () => ({ ok: false, why: 'failed', code: 7 }) };
+    await notifyEscalations(notifyTick('/estate/a', 'notified-1'), root, async () => notifier, escalationMemory(), () => {}, () => {});
+    expect(readEscalations(root)[0]).toMatchObject({ status: 'failed 7' });
+  });
+
+  it('sends every notify write concurrently, so the slowest send bounds the pass', async () => {
+    const root = repo();
+    let inFlight = 0;
+    let peak = 0;
+    const notifier: Notifier = {
+      notify: async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inFlight -= 1;
+        return { ok: true };
+      },
+    };
+    const report = notifyTick('/estate/a', 'notified-1');
+    const writes = ['/estate/a', '/estate/b', '/estate/c'].map((worktree) => ({
+      kind: 'notify' as const,
+      worktree,
+      askedAt: '2020-01-01T00:00:00.000Z',
+      rung: 'notified-1' as const,
+      message: worktree,
+    }));
+    await notifyEscalations(
+      { ...report, decision: { ...report.decision, writes } },
+      root,
+      async () => notifier,
+      escalationMemory(),
+      () => {},
+      () => {},
+    );
+    expect(peak).toBe(3);
+    expect(readEscalations(root)).toHaveLength(3);
+  });
+
+  it('asks for the notifier only where the tick holds a notify write', async () => {
+    const root = repo();
+    let asked = 0;
+    const report = notifyTick('/estate/a', 'notified-1');
+    await notifyEscalations(
+      { ...report, decision: { ...report.decision, writes: [] } },
+      root,
+      async () => {
+        asked += 1;
+        return { notify: async () => ({ ok: true }) };
+      },
+      escalationMemory(),
+      () => {},
+      () => {},
+    );
+    expect(asked).toBe(0);
+  });
+
+  it('holds a rung in memory and reports once where the record cannot be appended', async () => {
+    const root = repo();
+    // `.plot/state` IS A FILE, so `mkdirSync` and the append both throw.
+    mkdirSync(join(root, '.plot'));
+    writeFileSync(join(root, '.plot', 'state'), '');
+    const memory = escalationMemory();
+    const warned: string[] = [];
+    const notifier: Notifier = { notify: async () => ({ ok: true }) };
+    await notifyEscalations(notifyTick('/estate/a', 'notified-1'), root, async () => notifier, memory, () => {}, (s) => warned.push(s));
+    await notifyEscalations(notifyTick('/estate/b', 'notified-1'), root, async () => notifier, memory, () => {}, (s) => warned.push(s));
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatch(/could not append/);
+    const world = escalationWorldForRepo(root, '/nonexistent', memory);
+    expect([...(await world.recordedRungs('/estate/a', '2020-01-01T00:00:00.000Z'))]).toEqual(['notified-1']);
+  });
+
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   });
 });
 

@@ -53,7 +53,8 @@ export type Write =
   | SliceSpendWrite
   | LoopEndWrite
   | AgentFindingWrite
-  | BuildFindingWrite;
+  | BuildFindingWrite
+  | NotifyWrite;
 
 /** Sets a plan's `**State:**` field, inside its `## Status` section only. */
 export interface PlanPhaseWrite {
@@ -547,6 +548,34 @@ export interface AgentFindingWrite {
   readonly since: string;
   /** One sentence naming the measurement behind the finding. */
   readonly evidence: string;
+}
+
+/**
+ * Sends one escalation message about a desk's aged question, and records
+ * which rung it was for.
+ *
+ * **NOT APPLIED BY THE SAME ROUTE AS `blocked-marker` AND ITS NEIGHBOURS.**
+ * Those writes are applied by the shell side that already owns the marker
+ * file and the manifest; this one reaches the `Notifier` port and
+ * `.plot/state/escalations.tsv`, both TypeScript-native, so it is applied in
+ * `registryd-main.ts` beside `startAgents` rather than by a shell performer.
+ *
+ * **THE RUNG TRAVELS WITH THE WRITE**, not just the message, because the
+ * applier records `worktree`, `askedAt` and `rung` as one line regardless of
+ * whether the send answered `sent`, `unaskable` or `failed <code>` — the
+ * record is of the RUNG being reached, and the send's own outcome is the
+ * `status` column on that same line.
+ */
+export interface NotifyWrite {
+  readonly kind: 'notify';
+  /** The desk's worktree path, absolute — half the record's key. */
+  readonly worktree: string;
+  /** The marker's modification time, ISO-8601 — the other half of the key. */
+  readonly askedAt: string;
+  /** The rung reached. */
+  readonly rung: `notified-${number}`;
+  /** The message to send. */
+  readonly message: string;
 }
 
 /** Writes a build finding line, in the shape the BuildMonitor writes today. */

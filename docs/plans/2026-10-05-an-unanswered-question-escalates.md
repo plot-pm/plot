@@ -57,12 +57,12 @@ A rung is reported as new only once per marker. A new marker (a new modification
 
 **The tick records which rungs it reached.** The registry tick is stateless today ("no journal, no lock file", `registryd.ts:176-189`). Escalation needs one record, because a notification sent twice is the failure this rule exists to prevent. Each reached rung is appended as one line to `.plot/state/escalations.tsv` in the main checkout: desk path, marker modification time, rung, the time, and `sent`, `unaskable` or `failed <code>`. The tick reads the lines for the desks it sees. The file is append-only and machine-local, and a missing or unreadable file reads as "no rung reached", which can notify once more but never stays silent.
 
-**`Question escalation` sets the ages.** A Plot Config key with a comma-separated list of durations, default `15m, 1h, 4h`. An empty value disables notification and keeps the board listing.
+**`Question escalation` sets the ages.** A Plot Config key with a comma-separated list of durations, default `15m, 1h, 4h`. The value `none` disables notification and keeps the board listing. An empty value reads as the default, because `plot-config.sh` answers the default for a key whose value is empty.
 
 **What this plan does not do.** It does not release a slice whose question stays unanswered, and it does not answer a question. Releasing a claim has no controller yet (#1276), and an answer is a person's. Both are open questions below.
 
 **Tests.**
-- `questionEscalation`: no marker gives no rung; age 0 gives `listed`; each configured age gives its rung once; a recorded rung is not new again; a new modification time starts again; an empty `Question escalation` gives `listed` only.
+- `questionEscalation`: no marker gives no rung; age 0 gives `listed`; each configured age gives its rung once; a recorded rung is not new again; a new modification time starts again; a `Question escalation` of `none` gives `listed` only.
 - The placement rule: a row with a question goes to WAITING ON YOU for each worker state (`running`, `waiting`, `failed`, `finished`), and keeps the exit code on a `failed` row.
 - The tick: a live free loop with a marker produces a `notify` write at the first age; the same tick input with the rung recorded produces none; `notifierNone` records `unaskable`.
 - The adapter: the message reaches the command through the environment, and a message holding shell metacharacters runs nothing.
