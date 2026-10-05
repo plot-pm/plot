@@ -117,6 +117,8 @@ ${workerLoopLine()}`);
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
+  // A desk's `.plot/` and its `.plot-worker.*` files are the desk's own, not unlanded work: the JS loop refuses to take up a desk that holds untracked files.
+  fs.appendFileSync(path.join(work, '.git', 'info', 'exclude'), '.plot/\n.plot-worker.*\n');
   return { root, origin, work };
 }
 

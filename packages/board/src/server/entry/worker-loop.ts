@@ -853,8 +853,10 @@ export const main = async (
     manifestFile === '' ? undefined : dirname(manifestFile),
   );
   const transcript = transcriptFs();
+  const outFile = join(tmpdir(), `plot-worker-loop-${process.pid}.out`);
   const leave = async (): Promise<void> => {
     if (manifestFile !== '') await rm(manifestFile, { force: true });
+    await rm(outFile, { force: true });
     await ports.desk.clearLimitedRecord(worktree);
   };
   onStop(target, leave);
@@ -884,7 +886,7 @@ export const main = async (
     },
     limitMarginSeconds: num(env.PLOT_LIMIT_MARGIN_SECONDS, 60),
     monitorEndsWorker: (env.PLOT_MONITOR_ENDS_WORKER ?? '1') === '1',
-    outFile: join(tmpdir(), `plot-worker-loop-${process.pid}.out`),
+    outFile,
     sessionId: env.PLOT_SESSION_ID ?? '',
     slug: env.PLOT_SLUG ?? '',
     now: offsetClock(env),

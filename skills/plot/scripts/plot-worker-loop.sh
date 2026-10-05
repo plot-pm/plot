@@ -80,7 +80,7 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 # loop for a week. No bundle on `js` is a loud exit 2, never a start of `node`
 # on the `shell` path, which is the default and runs no Node at all.
 if [ "$(cfg "Worker loop" shell)" = "js" ]; then bundle="$script_dir/board/plot-worker-loop.mjs"
-  [ -f "$bundle" ] || { echo "plot-worker-loop: Worker loop is js and $bundle is missing — the-shell-shrinks-into-the-domain" >&2; exit 2; }; exec node "$bundle"; fi
+  [ -f "$bundle" ] || { echo "plot-worker-loop: Worker loop is js and $bundle is missing — the-shell-shrinks-into-the-domain" >&2; exit 2; }; rm -f "$PLOT_TMP_REGISTRY"; exec node "$bundle"; fi
 
 # THE TRANSCRIPT READER. Until `bug/the-loop-reports-idle` this was sourced for
 # the ENDING MESSAGE alone, asked once after a signal had already fired:
