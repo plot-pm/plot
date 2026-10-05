@@ -31,6 +31,8 @@ import {
   runWorkerLoop,
   shippedConfig,
   stampManifestLoopJs,
+  onStop,
+  type StopTarget,
   writeHop,
   workerLoopPorts,
   type IdleDeps,
@@ -175,6 +177,19 @@ describe('runWorkerLoop — a free loop', () => {
     const r = rig({ ...ASSIGNED, branch: '' }, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.sleeps[0]).toBe(PASS_INTERVAL_MS);
+  });
+
+  it('names the wait once, with the slug', async () => {
+    const r = rig({ ...ASSIGNED, branch: '' }, [], { slug: 'agent-x' });
+    await runWorkerLoop(r.deps);
+    const lines = r.logs.filter((l) => l.includes('free on agent-x'));
+    expect(lines).toEqual(['plot-worker-loop: free on agent-x — nothing handed over yet. Waiting to be handed work: reading the manifest every 60s, for up to 28800s; stop it with /plot-fleet --stop']);
+  });
+
+  it('names an unnamed agent with a question mark', async () => {
+    const r = rig({ ...ASSIGNED, branch: '' }, []);
+    await runWorkerLoop(r.deps);
+    expect(r.logs[0]).toContain('free on ? —');
   });
 
   it('ends 124 once its manifest is gone (row 3)', async () => {
@@ -553,6 +568,28 @@ describe('readLimitedReset', () => {
   });
 });
 
+const noStop: StopTarget = { once: () => undefined, exit: () => undefined };
+
+describe('onStop', () => {
+  it('removes the registration and exits 128 plus the signal number, for each of the three signals', async () => {
+    const handlers = new Map<string, () => void>();
+    const exits: number[] = [];
+    let cleaned = 0;
+    onStop(
+      { once: (signal, listener) => handlers.set(signal, listener), exit: (code) => exits.push(code) },
+      async () => {
+        cleaned += 1;
+      },
+    );
+    expect([...handlers.keys()]).toEqual(['SIGTERM', 'SIGINT', 'SIGHUP']);
+    handlers.get('SIGTERM')?.();
+    handlers.get('SIGINT')?.();
+    handlers.get('SIGHUP')?.();
+    await vi.waitFor(() => expect(exits).toEqual([143, 130, 129]));
+    expect(cleaned).toBe(3);
+  });
+});
+
 describe('main', () => {
   it('stamps the manifest, runs the loop from the environment, and cleans up', async () => {
     const r = rig({ ...ASSIGNED, branch: '' }, []);
@@ -564,6 +601,8 @@ describe('main', () => {
         PLOT_AGENT: '',
       },
       r.dir,
+      shippedConfig(r.dir),
+      noStop,
     ).catch((e: unknown) => (e as Error).message);
     expect(typeof code === 'number' || typeof code === 'string').toBe(true);
   });
@@ -580,10 +619,10 @@ describe('main — configuration', () => {
       asked.push(key);
       return key === 'Worker bound' ? '1' : undefined;
     };
-    expect(await driven(main({}, r.dir, config))).toBe(124);
+    expect(await driven(main({}, r.dir, config, noStop))).toBe(124);
     expect(asked).toEqual(['Worker bound', 'Checks wait', 'Correction budget']);
     asked.length = 0;
-    expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config))).toBe(124);
+    expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config, noStop))).toBe(124);
     cwd.mockRestore();
   });
 
@@ -710,7 +749,7 @@ describe('workerLoopPorts and main', () => {
     vi.setSystemTime(ZURICH_NOON);
     const r = rig(null, []);
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(r.wt);
-    expect(await driven(main({ PLOT_WORKER_BOUND: '1' }, r.dir))).toBe(124);
+    expect(await driven(main({ PLOT_WORKER_BOUND: '1' }, r.dir, shippedConfig(r.dir), noStop))).toBe(124);
     cwd.mockRestore();
   });
 
@@ -722,6 +761,8 @@ describe('workerLoopPorts and main', () => {
     const done = main(
       { PLOT_WORKTREE: r.wt, PLOT_MANIFEST_FILE: r.manifestFile, PLOT_WORKER_BOUND: '1', PLOT_MONITOR_ENDS_WORKER: '0' },
       r.dir,
+      shippedConfig(r.dir),
+      noStop,
     );
     expect(await driven(done)).toBe(124);
     expect(fs.existsSync(r.manifestFile)).toBe(false);

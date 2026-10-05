@@ -1,7 +1,7 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
+import { constants, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -523,6 +523,8 @@ export interface LoopDeps {
   readonly outFile: string;
   /** The prompt's session handle where the manifest names none. */
   readonly sessionId: string;
+  /** The agent's slug, for the operator's lines; `''` where the launcher gave none. */
+  readonly slug?: string;
   /** Mints the handle a hop writes; defaults to a random UUID. */
   readonly mintHandle?: () => string;
   /** Epoch milliseconds. */
@@ -657,10 +659,19 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
   let held: Held = { ...FRESH };
   let previousBranch = '';
   let hopFrom = '';
+  let announcedFree = false;
   for (;;) {
     const prompt: PromptState = { running: null, exit: held.exit, pushedSha: held.pushedSha };
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
     const decision = agentLoop(readings);
+    // THE WAIT, NAMED ONCE. A wait an operator cannot see is the stall it avoids
+    // being. The shell also names the branches whose landing would open a slice,
+    // which needs the fleet scan's `--why-nothing`; this loop never asks it.
+    if (readings.assignedBranch !== '') announcedFree = false;
+    else if (!announcedFree) {
+      announcedFree = true;
+      deps.log(`plot-worker-loop: free on ${deps.slug || '?'} — nothing handed over yet. Waiting to be handed work: reading the manifest every ${deps.config.passIntervalMs / 1000}s, for up to ${deps.config.waitBudgetSeconds}s; stop it with /plot-fleet --stop`);
+    }
     const worktree = readings.worktree || deps.worktree;
     const applied = await performLoopWrites(decision.writes as readonly LoopWrite[], deps.ports, worktree);
     for (const a of applied) if (!a.result.ok) deps.log([`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
@@ -726,6 +737,28 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
   }
 };
 
+/** What {@link onStop} needs of the process: its signal hooks and its exit. */
+export interface StopTarget {
+  once(signal: NodeJS.Signals, listener: () => void): unknown;
+  exit(code: number): unknown;
+}
+
+/**
+ * Cleans up and exits on `SIGTERM`, `SIGINT` and `SIGHUP`, as the shell's exit
+ * trap does for `plot-dispatch.sh --stop`: a stopped agent leaves the registry
+ * at once rather than waiting for a sweep.
+ *
+ * @param target - the process; a fake in tests.
+ * @param cleanup - what a leaving agent removes.
+ */
+export const onStop = (target: StopTarget, cleanup: () => Promise<void>): void => {
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+    target.once(signal, () => {
+      void cleanup().finally(() => target.exit(128 + constants.signals[signal]));
+    });
+  }
+};
+
 /** The shell's own defaults for the loop's configuration, read from the environment. */
 const num = (raw: string | undefined, fallback: number): number => {
   const n = Number(raw);
@@ -780,6 +813,7 @@ export const main = async (
   env: NodeJS.ProcessEnv,
   scriptDir: string,
   configKey: ConfigReader = shippedConfig(scriptDir),
+  target: StopTarget = process,
 ): Promise<number> => {
   const worktree = env.PLOT_WORKTREE ?? process.cwd();
   const repoRoot = env.PLOT_REPO_ROOT ?? worktree;
@@ -790,6 +824,11 @@ export const main = async (
     manifestFile === '' ? undefined : dirname(manifestFile),
   );
   const transcript = transcriptFs();
+  const leave = async (): Promise<void> => {
+    if (manifestFile !== '') await rm(manifestFile, { force: true });
+    await ports.desk.clearLimitedRecord(worktree);
+  };
+  onStop(target, leave);
   await stampManifestLoopJs(manifestFile);
   const code = await runWorkerLoop({
     ports,
@@ -817,12 +856,12 @@ export const main = async (
     monitorEndsWorker: (env.PLOT_MONITOR_ENDS_WORKER ?? '1') === '1',
     outFile: join(tmpdir(), `plot-worker-loop-${process.pid}.out`),
     sessionId: env.PLOT_SESSION_ID ?? '',
+    slug: env.PLOT_SLUG ?? '',
     now: Date.now,
     sleep: systemSleep,
     log: stderrLog,
   });
-  if (manifestFile !== '') await rm(manifestFile, { force: true });
-  await ports.desk.clearLimitedRecord(worktree);
+  await leave();
   return code;
 };
 

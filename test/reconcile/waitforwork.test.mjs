@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workerLoopLine } from './loop-switch.mjs';
+import { testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -194,8 +194,12 @@ test('a free agent waits instead of exiting, and can still be stopped', async ()
       90000, 'the loop to report itself free');
     assert.match(logged, /nothing handed over yet/,
       'the wait says what it is waiting FOR — an assignment, not a branch to shop for');
-    assert.match(logged, /feature\/seam has still to land/,
-      'and it still names the branch whose landing would open the blocked slice');
+    // SHELL-ONLY: naming the blocking branch needs the fleet scan's
+    // `--why-nothing`, which the JS loop never asks.
+    if (testWorkerLoop() !== 'js') {
+      assert.match(logged, /feature\/seam has still to land/,
+        'and it still names the branch whose landing would open the blocked slice');
+    }
     assert.match(logged, /--stop/, 'the wait tells an operator how to end it');
 
     // IT IS STILL RUNNING. This is the assertion the old `|| break` fails: the
