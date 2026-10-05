@@ -558,7 +558,7 @@ const runPrompt = async (
   worktree: string,
   held: Held,
   hopFrom: string,
-): Promise<{ ended: 'idle' } | { ended: 'exit'; status: number; exit: NonNullable<AgentLoopReadings['exit']> }> => {
+): Promise<{ ended: 'idle' } | { ended: 'bound' } | { ended: 'exit'; status: number; exit: NonNullable<AgentLoopReadings['exit']> }> => {
   const resolved = (deps.resolvePrompt ?? promptAnswer)(deps.repoRoot, deps.agent).split('\t');
   const [verb, named, why] = resolved;
   const file = verb === 'refused' || !named ? '' : join(deps.repoRoot, named);
@@ -613,6 +613,8 @@ const runPrompt = async (
   if ('idle' in first) return { ended: 'idle' };
   const result = first.run;
   ended = true;
+  // THE BOUND KILLED THE PROMPT: `agentLoop` row 6 names it, so it is not read as a prompt that never started.
+  if (result.ok && result.value.timedOut) return { ended: 'bound' };
 
   let output = '';
   try {
@@ -732,6 +734,19 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       await performLoopWrites(idleDecision.writes as readonly LoopWrite[], deps.ports, worktree);
       return 124;
     }
+    if (ran.ended === 'bound') {
+      const boundReadings = {
+        ...readings,
+        running: { verdict: 'silent' as const, transcriptReadable: true },
+        exit: null,
+        boundSeconds: deps.config.boundSeconds,
+        waitedSeconds: deps.config.boundSeconds,
+      };
+      const boundDecision = agentLoop(boundReadings);
+      await performLoopWrites(boundDecision.writes as readonly LoopWrite[], deps.ports, worktree);
+      deps.log(`plot-worker-loop: the bound expired on ${readings.assignedBranch} — the prompt exceeded the ${deps.config.boundSeconds}s bound; ending worker without hopping`);
+      return 124;
+    }
     const head = await deps.ports.refs.resolve('HEAD');
     held = { ...held, exit: ran.exit, status: ran.status, pushedSha: head.ok ? head.value : held.pushedSha };
     if (ran.exit.answer !== 'wait') held = { ...held, afterWait: false };
@@ -807,7 +822,7 @@ export const shippedConfig = (scriptDir: string): ConfigReader => (repoRoot, key
  * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
  *
  * @param env - the process environment.
- * @param scriptDir - where the helper scripts live, beside this bundle.
+ * @param scriptDir - where the helper scripts live, one level above this bundle.
  * @returns the process exit code.
  */
 /** The harness a launch names; an empty `PLOT_HARNESS` (a launch with no charter exports one) means `claude`. */
@@ -878,7 +893,8 @@ export const main = async (
 // tests cannot do without starting a process, and the entry spawns none itself.
 /* v8 ignore start */
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const scriptDir = new URL('.', import.meta.url).pathname.replace(/\/$/, '');
+  // The bundle sits in `scripts/board/`; the helper scripts are one level up.
+  const scriptDir = dirname(new URL('.', import.meta.url).pathname.replace(/\/$/, ''));
   process.exit(await main(process.env, scriptDir));
 }
 /* v8 ignore stop */

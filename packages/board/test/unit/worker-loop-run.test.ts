@@ -259,11 +259,21 @@ describe('runWorkerLoop — a prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(1);
   });
 
-  it('reads a run killed by a signal (status null) as 124', async () => {
+  it('ends 124 and says so when the bound killed the prompt (row 6)', async () => {
     const r = rig(ASSIGNED, []);
     r.deps = {
       ...r.deps,
       ports: { ...r.ports, boundedRun: { run: async () => ({ ok: true, value: { status: null, timedOut: true, ranSeconds: 9 } }) } },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.logs.join('\n')).toMatch(/the bound expired on \S+ — the prompt exceeded the \d+s bound/);
+  });
+
+  it('reads a run killed by a signal the bound did not send (status null) as 124', async () => {
+    const r = rig(ASSIGNED, []);
+    r.deps = {
+      ...r.deps,
+      ports: { ...r.ports, boundedRun: { run: async () => ({ ok: true, value: { status: null, timedOut: false, ranSeconds: 9 } }) } },
       config: { ...rigConfig(), maxStartRetries: 1 },
     };
     expect(await runWorkerLoop(r.deps)).toBe(1);

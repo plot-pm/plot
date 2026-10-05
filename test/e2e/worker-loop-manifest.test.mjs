@@ -39,7 +39,7 @@ function makeTestEnv({ name }) {
     session: 'test-session',
     pid: process.pid,
     branch: 'test/branch',
-    worktree: tmp,
+    worktree: path.join(tmp, 'worktree'),
     startedAt: new Date().toISOString(),
     wavesCount: 1,
   }, null, 2));
@@ -53,6 +53,17 @@ function makeTestEnv({ name }) {
   execFileSync('git', ['config', 'user.email', 't@t'], { cwd: worktreeDir });
   execFileSync('git', ['config', 'user.name', 't'], { cwd: worktreeDir });
   execFileSync('git', ['commit', '--allow-empty', '-m', 'init'], { cwd: worktreeDir });
+  // The JS loop resets a taken-up desk onto `origin/main` and pushes to `origin`,
+  // which a real desk always has: a remote holding the base and the slice's branch.
+  const remote = path.join(tmp, 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', remote]);
+  execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: worktreeDir });
+  execFileSync('git', ['checkout', '-q', '-b', 'test/branch'], { cwd: worktreeDir });
+  execFileSync('git', ['push', '-q', '-u', 'origin', 'test/branch:test/branch', 'HEAD:main'], { cwd: worktreeDir });
+  execFileSync('git', ['fetch', '-q', 'origin'], { cwd: worktreeDir });
+  // The config and the prompt file are the desk's own, as a real desk's `.plot/` is: not unlanded work.
+  fs.mkdirSync(path.join(worktreeDir, '.git', 'info'), { recursive: true });
+  fs.appendFileSync(path.join(worktreeDir, '.git', 'info', 'exclude'), 'CLAUDE.md\n.plot/\n');
 
   // Create .plot directory
   const plotDir = path.join(worktreeDir, '.plot');
