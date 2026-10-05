@@ -14,9 +14,16 @@ import {
   worldFrom,
   type SupervisorWorld,
 } from '../../src/server/supervisor.js';
-import { tick, tickLine, TICK_INTERVAL_MS, TICK_COST_MS } from '../../src/server/entry/registryd.js';
+import {
+  tick,
+  tickLine,
+  TICK_INTERVAL_MS,
+  TICK_COST_MS,
+  type EscalationWorld,
+} from '../../src/server/entry/registryd.js';
 import type { QueueWorld } from '../../src/server/queue-reading.js';
 import type { AgentEntry } from '../../src/server/registry.js';
+import type { MarkerReading } from '../../src/server/worker-question.js';
 
 const OPEN = '<!' + '--';
 const CLOSE = '--' + '>';
@@ -1111,5 +1118,67 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
     // the account's load and chose to REPORT rather than stretch. A later plan
     // that adds backoff changes this value and must re-measure who spends.
     expect(TICK_INTERVAL_MS).toBe(60_000);
+  });
+});
+
+describe('the tick escalates a desk\'s aged question, for every verdict including leave', () => {
+  const AGES = [900_000, 3_600_000, 14_400_000]; // 15m, 1h, 4h
+
+  const escalation = (over: Partial<EscalationWorld> = {}): EscalationWorld => ({
+    marker: async () => null,
+    ages: async () => AGES,
+    recordedRungs: async () => new Set(),
+    ...over,
+  });
+
+  it('is a notify write at the first age for a live free loop with a marker — the 2026-10-05 case', async () => {
+    // THE LOOP IS ALIVE, which `supervise` reads as `leave` and would never
+    // reach the `needs-a-person` arm for. A call placed there would miss this
+    // test entirely — the marker is read for EVERY verdict, `leave` included.
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: '2020-01-01T00:00:00.000Z' };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({ marker: async () => marker }),
+    });
+    expect(report.decision.detail.left).toEqual(['feature/one']);
+    const notify = report.decision.writes.filter((w) => w.kind === 'notify');
+    expect(notify).toHaveLength(1);
+    expect(notify[0]).toMatchObject({
+      kind: 'notify',
+      worktree: '/estate/.worktrees/feature-one',
+      askedAt: marker.askedAt,
+      rung: 'notified-3',
+    });
+  });
+
+  it('writes nothing for a desk with no marker', async () => {
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation(),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([]);
+  });
+
+  it('writes nothing once the rung is already recorded — the once-per-age rule', async () => {
+    const marker: MarkerReading = { firstLine: 'x', askedAt: '2020-01-01T00:00:00.000Z' };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({
+        marker: async () => marker,
+        recordedRungs: async () => new Set(['notified-3']),
+      }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([]);
+  });
+
+  it('writes nothing with no escalation world — nobody asked', async () => {
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([]);
   });
 });

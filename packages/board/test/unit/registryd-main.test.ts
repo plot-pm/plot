@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,8 @@ import {
   argsFrom,
   sweepTempIfDue,
   mergeMemoOver,
+  notifierFor,
+  notifyEscalations,
   queueWorldForRepo,
   readRegistry,
   reportTick,
@@ -17,6 +19,8 @@ import {
   worldForRepo,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
+import { readEscalations } from '../../src/server/escalations.js';
+import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { PortResult } from '@plot-pm/domain';
@@ -1662,5 +1666,74 @@ describe('the hourly temp sweep', () => {
     const err: string[] = [];
     expect(await sweepTempIfDue(s.port, 0, () => {}, (x) => err.push(x))).toBe(true);
     expect(err.join('')).toMatch(/temp sweep did not run/);
+  });
+});
+
+describe('notifierFor — the Notifier an empty Notify command answers unaskable', () => {
+  it('answers unaskable for an empty value, same as a tracker nobody declared', async () => {
+    expect(await notifierFor('').notify('x')).toEqual({ ok: false, why: 'unaskable' });
+    expect(await notifierFor('   ').notify('x')).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
+describe('notifyEscalations — applies the tick\'s notify writes, once each', () => {
+  const notifyTick = (worktree: string, rung: 'notified-1' | 'notified-2' | 'notified-3'): TickReport => ({
+    startedAt: 0,
+    costMs: 1,
+    agents: 1,
+    incomplete: '',
+    handOver: null,
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [
+        { kind: 'notify', worktree, askedAt: '2020-01-01T00:00:00.000Z', rung, message: 'hi' },
+      ],
+      detail: {
+        agents: [],
+        left: [],
+        reaping: [],
+        correcting: [],
+        needingAPerson: [],
+        deferred: [],
+        unclaimed: [],
+      },
+    },
+  });
+
+  const dirs: string[] = [];
+  const repo = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-notify-escalations-'));
+    dirs.push(dir);
+    return dir;
+  };
+
+  it('records sent on a successful send', async () => {
+    const root = repo();
+    const sent: string[] = [];
+    const notifier: Notifier = { notify: async (m) => { sent.push(m); return { ok: true }; } };
+    await notifyEscalations(notifyTick('/estate/a', 'notified-1'), root, notifier, () => {});
+    expect(sent).toEqual(['hi']);
+    const records = readEscalations(root);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ worktree: '/estate/a', rung: 'notified-1', status: 'sent' });
+  });
+
+  it('records unaskable without sending, when no Notify command is configured', async () => {
+    const root = repo();
+    const notifier: Notifier = { notify: async () => ({ ok: false, why: 'unaskable' }) };
+    await notifyEscalations(notifyTick('/estate/a', 'notified-1'), root, notifier, () => {});
+    expect(readEscalations(root)[0]).toMatchObject({ status: 'unaskable' });
+  });
+
+  it('records failed with the exit code on a broken command', async () => {
+    const root = repo();
+    const notifier: Notifier = { notify: async () => ({ ok: false, why: 'failed', code: 7 }) };
+    await notifyEscalations(notifyTick('/estate/a', 'notified-1'), root, notifier, () => {});
+    expect(readEscalations(root)[0]).toMatchObject({ status: 'failed 7' });
+  });
+
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   });
 });
