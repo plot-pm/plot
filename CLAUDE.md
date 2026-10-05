@@ -252,8 +252,9 @@ than the actor:
 
 - the six process states (`running`, `finished`, `failed`, `ended`, `none`,
   `elsewhere`) — literal process-table observations
-- the config keys `Worker command` and `Worker bound`, which name what a
-  dispatched agent *runs* and how long its loop may take
+- the config keys `Worker command`, `Worker bound` and `Worker loop`, which
+  name what a dispatched agent *runs*, how long its loop may take, and which
+  loop implementation runs it
 
 **A Worker is the process an Agent runs on a Machine.** It is not a synonym for
 either and not merely a view of one — it is what connects them:
@@ -300,7 +301,7 @@ The specs already speak this way. `DESIGN-machine.md` measures *"7 workers died
 it.
 
 That is why the exceptions are exceptions rather than inconsistencies: the six
-process states, `WorkerActivity`, and `Worker command` / `Worker bound` are all
+process states, `WorkerActivity`, and `Worker command` / `Worker bound` / `Worker loop` are all
 things the machine observes or launches. **A specialised agent that never
 becomes a loop-worker still has a registry entry and still has no worker
 fields** — which is precisely the shape this split keeps expressible.

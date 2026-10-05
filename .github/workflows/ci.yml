@@ -1091,11 +1091,11 @@ jobs:
           # context that tells `Worker command` apart from a bare `Worker`.
           hits=$(grep -rnaE "\bWorker[A-Za-z]*" packages/domain/src/ \
                  | grep -vE "WorkerState|WorkerActivity|WorkerMonitor" \
-                 | grep -vE "\`?Worker (command|bound)\`?" || true)
+                 | grep -vE "\`?Worker (command|bound|loop)\`?" || true)
           if [ -n "$hits" ]; then
             echo "::error::the actor is an Agent — 'Worker' names the process, never the actor:"
             echo "$hits"
-            echo "Allowed: WorkerState*, WorkerActivity*, and the Worker command/bound config keys."
+            echo "Allowed: WorkerState*, WorkerActivity*, and the Worker command/bound/loop config keys."
             exit 1
           fi
           echo "Domain actor-name gate: clean."
