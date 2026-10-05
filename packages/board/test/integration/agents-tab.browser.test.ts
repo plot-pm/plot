@@ -4123,45 +4123,64 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  // A ROW WHOSE BRIEF WRITER FAILED SAYS SO, AND NOT THAT THE BRIEF WAS ASKED.
-  // `briefNote` (row-identity.ts) decides between the two notes, and its unit
-  // test covers a row with both fields set; this asserts the rendered result.
-  // The row joins the scenario's `toms-open` wave, which already holds two
-  // branches: a single-branch slice renders through `SliceRow`, which shows no
-  // brief note at all.
-  it('a row with briefFailed set shows the failed note and not the asked note', async () => {
-    const log = '.worktrees/plot-implement-plant-tomatoes.log';
-    const payload = fleet({
-      rows: [
-        ...scenario('ten-rows-one-kind-each').fleet.rows,
-        row({
-          branch: 'feature/writer-failed', wave: 'toms-open', plan: 'plant-tomatoes', planFile: '2026-03-01-plant-tomatoes.md',
-          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
-          waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
-          brief: 'missing', startability: 'needs-brief',
-          briefAskedAt: Date.now() - 45_000, briefFailed: log,
-          branchUrl: '', waitingDays: 3,
-        }),
-      ],
+  // A SINGLE-BRANCH SLICE SAYS WHAT HAPPENED TO ITS BRIEF. `briefNote`
+  // (row-identity.ts) decides between the asked and the failed note, and its
+  // unit test covers a row with both fields set; these assert the rendered
+  // result on the shape most slices have: one plan, one slice, one branch,
+  // rendered as a slice row with no fold and no branch row beneath it.
+  const soleSliceFleet = (branch: string, over: Partial<AgentRow>): Fleet => fleet({
+    rows: [
+      ...scenario('ten-rows-one-kind-each').fleet.rows,
+      row({
+        branch, wave: 'only-slice', plan: 'brief-sole', planFile: '2026-10-05-brief-sole.md',
+        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
+        brief: 'missing', startability: 'needs-brief',
+        branchUrl: '', waitingDays: 3,
+        ...over,
+      }),
+    ],
+  });
+
+  const soleSliceRow = async (page: Page) => {
+    const sliceRow = page.locator('[data-slice-list="brief-sole"] [data-slice-row="only-slice"]');
+    await expect.poll(async () => {
+      await expandAgentFolds(page);
+      return sliceRow.count();
+    }, { timeout: 20_000 }).toBe(1);
+    return sliceRow;
+  };
+
+  it('a single-branch slice whose brief was asked for shows the asked note', async () => {
+    const payload = soleSliceFleet('feature/brief-asked-sole', {
+      briefAskedAt: Date.now() - 45_000, briefFailed: null,
     });
     const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
     try {
-      const notStarted = page.locator('section', {
-        has: page.locator('[data-group-toggle="not-started"]'),
-      });
-      const rowLocator = notStarted.locator('li[role="row"]')
-        .filter({ has: page.locator('[data-branch="feature/writer-failed"]') });
+      const sliceRow = await soleSliceRow(page);
+      const asked = sliceRow.locator('[data-brief-asked]');
+      await expect.poll(() => asked.count()).toBe(1);
+      expect(await asked.textContent()).toContain('brief asked');
+      expect(await sliceRow.locator('[data-brief-failed]').count()).toBe(0);
+      expect(await sliceRow.locator('[data-brief-gap]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
 
-      await expect.poll(async () => {
-        await expandAgentFolds(page);
-        return rowLocator.count();
-      }, { timeout: 20_000 }).toBeGreaterThan(0);
-
-      const failed = rowLocator.locator('[data-brief-failed]');
+  it('a single-branch slice whose brief writer failed shows the failed note and not the asked note', async () => {
+    const log = '.worktrees/plot-implement-brief-sole.log';
+    const payload = soleSliceFleet('feature/brief-failed-sole', {
+      briefAskedAt: Date.now() - 45_000, briefFailed: log,
+    });
+    const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
+    try {
+      const sliceRow = await soleSliceRow(page);
+      const failed = sliceRow.locator('[data-brief-failed]');
       await expect.poll(() => failed.count()).toBe(1);
       expect(await failed.textContent()).toContain(log);
-      expect(await rowLocator.locator('[data-brief-asked]').count()).toBe(0);
-      expect(await rowLocator.locator('[data-brief-gap]').count()).toBe(0);
+      expect(await sliceRow.locator('[data-brief-asked]').count()).toBe(0);
+      expect(await sliceRow.locator('[data-brief-gap]').count()).toBe(0);
     } finally {
       await page.close();
     }

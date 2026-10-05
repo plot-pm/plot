@@ -1,5 +1,5 @@
-// `briefAskedAt` reads every asker's log, and `briefFailed` reads a recorded
-// exit — never a process.
+// `briefReading` reads every asker's log for the ask, and the recorded exit
+// for a failure — never a process.
 //
 // THE DEFECT THIS COVERS: since `aa1f36296` ("a dispatch names the act it
 // started", 2026-09-29) the dispatch controller writes a slice's brief through
@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  briefAskedAt, briefAskLogPaths, briefFailed, DISPATCH_SCRIPT_ASK_LOG,
+  briefAskLogPaths, briefReading, DISPATCH_SCRIPT_ASK_LOG,
 } from '../../src/server/brief-ask-log.js';
 import { askForBriefLogPath } from '../../src/server/brief-ask.js';
 import { implementLogPath, implementStatePath } from '../../src/server/implement.js';
@@ -27,6 +27,12 @@ import { rmTree } from '../helpers.mjs';
 const BRANCH = 'bug/a-brief-the-fleet-writes-shows-as-asked';
 const BRANCH_SLUG = 'a-brief-the-fleet-writes-shows-as-asked';
 const PLAN_SLUG = 'a-brief-the-fleet-writes-shows-as-asked';
+
+/** The two halves of one `briefReading`, named for the row fields they fill. */
+const briefAskedAt = (root: string, branch: string, planSlug: string): number | null =>
+  briefReading(root, branch, planSlug).askedAt;
+const briefFailed = (root: string, branch: string, planSlug: string): string | null =>
+  briefReading(root, branch, planSlug).failed;
 
 const made: string[] = [];
 afterEach(() => {
@@ -118,6 +124,25 @@ describe('briefAskedAt reads the implement route\'s log beside the other two', (
 
     const at = briefAskedAt(root, BRANCH, PLAN_SLUG);
     expect(at).toBe(fs.statSync(path.join(root, DISPATCH_SCRIPT_ASK_LOG(BRANCH_SLUG))).mtimeMs);
+  });
+
+  it('a stale failure does not set the age once another asker re-asked', () => {
+    // Day 1: the implement run failed. Day 3: the dispatch script asked again.
+    // The row reads the day-3 ask, not "asked 2d ago", and no failure.
+    const root = repo();
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), '1');
+    touchAt(implementLogPath(root, PLAN_SLUG), now - 2 * day);
+    touchAt(implementStatePath(root, PLAN_SLUG), now - 2 * day);
+    const dispatchLog = path.join(root, DISPATCH_SCRIPT_ASK_LOG(BRANCH_SLUG));
+    write(dispatchLog);
+    touchAt(dispatchLog, now);
+
+    const reading = briefReading(root, BRANCH, PLAN_SLUG);
+    expect(reading.askedAt).toBe(fs.statSync(dispatchLog).mtimeMs);
+    expect(reading.failed).toBeNull();
   });
 
   it('answers null where none of the three askers left a log', () => {

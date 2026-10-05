@@ -1031,6 +1031,9 @@ export function SliceRow({
   // failing`. The verdict sentences are about starting, and this branch is
   // started.
   const soleNote = soleRow ? noteWithoutPr(soleRow.note, soleRow.pr) : '';
+  // The one branch whose brief this row reports: the sole row where the caller
+  // passed one, otherwise the slice's only row. See the brief line below.
+  const briefRow = soleRow ?? (group.rows.length === 1 ? group.rows[0] : undefined);
   // THE VERDICT IS THE WAITING-STATE, and these are the two cases NOT STARTED
   // holds: a slice a person may start, and a slice an earlier one is holding back.
   // Both are already answered by the verdict — see `aside` below for why the
@@ -1356,6 +1359,12 @@ export function SliceRow({
           {(soleRow ?? group.rows[0])?.stuck?.state === 'unsliced-wave'
             ? <StuckCell row={group.rows[0]} />
             : soleRow?.stuck ? <StuckCell row={soleRow} /> : null}
+          {/* THE SOLE BRANCH'S BRIEF LINE: a slice of one branch has no fold,
+              so this row is the only place its brief note can show. Read from
+              `group.rows` as well as `soleRow`, because NOT STARTED passes no
+              `soleRow` (its slice row states the slice's verdict) and that
+              section is where a missing brief is the common case. */}
+          {briefRow ? <BriefLine row={briefRow} /> : null}
         </>
       }
       // START WORK, ON THE SLICE THAT CAN BE STARTED — and it went missing when
@@ -1543,6 +1552,35 @@ const BriefNoteCell = ({ note }: { note: BriefNote }) => (
     <span className="min-w-0 max-sm:whitespace-normal">{note.text}</span>
   </span>
 );
+
+/**
+ * The line beneath a row whose brief is missing: the note `briefNote` chose,
+ * or the missing-brief note where no ask and no failure is recorded. Renders
+ * nothing where `needsBrief` is false. The branch row and the single-branch
+ * slice row both render it, so each shape says the same thing about one
+ * branch. A one-slice plan's slice row renders beneath its plan row, so the
+ * plan row does not repeat it.
+ */
+const BriefLine = ({ row }: { row: AgentRow }) => {
+  if (!needsBrief(row)) return null;
+  // Read at render against the reader's clock, never carried in the payload,
+  // so an open tab does not freeze the age at pulse time.
+  const note = briefNote(row, Date.now());
+  if (note) return <BriefNoteCell note={note} />;
+  return (
+    <span
+      role="gridcell"
+      data-brief-gap
+      className="flex w-full items-baseline gap-x-2 text-xs text-amber-700 sm:col-start-3 sm:col-end-[-1] dark:text-amber-400"
+      title={briefGapNote(row.branch)}
+    >
+      {/* AMBER, the `waitingOn: 'you'` colour: a missing brief is a person's
+          errand and nothing in git will clear it. */}
+      <span className="shrink-0 font-medium">needs a brief</span>
+      <span className="min-w-0 max-sm:whitespace-normal">{briefGapNote(row.branch)}</span>
+    </span>
+  );
+};
 
 /**
  * A BRANCH, A PR OR A RELEASE, as a tuple — and this is an ADAPTER, not a row.
@@ -1741,8 +1779,6 @@ export function Row({
   // number, and the projection cannot see which section is asking. That is the
   // adapter's question, which is what an adapter is for.
   const inheritedClock = inPlanGroup && row.ageMinutes === null;
-  // The brief note, read once per render against the reader's clock.
-  const rowBriefNote = briefNote(row, Date.now());
 
   // THE SLICE'S VERDICT OUTRANKS THE BRANCH'S STATE, and inside a slice's fold
   // the branch does not restate it.
@@ -2173,31 +2209,7 @@ export function Row({
               than a leftover. The slice arithmetic IS satisfied: the branch is
               genuinely next. What was wrong was the row stopping there — so the
               fact is added beside the verdict rather than replacing it. */}
-          {needsBrief(row) && (
-            rowBriefNote ? (
-              /* THE NOTE IS DECIDED IN `briefNote` (row-identity.ts); this only
-                 renders it. A `failed` note is AMBER, like the missing-brief
-                 arm below: both need a person. An `asked` note is quiet —
-                 somebody already ran the errand, and the only correct action is
-                 to let it finish. The elapsed time is read at render against
-                 the reader's clock, never carried in the payload, so an open
-                 tab does not freeze at pulse time. */
-              <BriefNoteCell note={rowBriefNote} />
-            ) : (
-            <span
-              role="gridcell"
-              data-brief-gap
-              className="flex w-full items-baseline gap-x-2 text-xs text-amber-700 sm:col-start-3 sm:col-end-[-1] dark:text-amber-400"
-              title={briefGapNote(row.branch)}
-            >
-              {/* AMBER, the `waitingOn: 'you'` colour — because that is what
-                  this is. A missing brief is a person's errand and nothing in
-                  git will clear it. */}
-              <span className="shrink-0 font-medium">needs a brief</span>
-              <span className="min-w-0 max-sm:whitespace-normal">{briefGapNote(row.branch)}</span>
-            </span>
-            )
-          )}
+          <BriefLine row={row} />
           {/* Mounted only while open — which is what makes the log on-demand in
               fact and not merely in intent. The panel owns its own polling, so
               an unmounted one fetches nothing at all. */}

@@ -94,7 +94,7 @@ import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 import { briefPath as briefPathOf } from './brief-path.js';
-import { briefAskedAt, briefFailed } from './brief-ask-log.js';
+import { briefReading } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
 
 /**
@@ -7141,6 +7141,8 @@ export function rowsFromPulse(
         // read it, and so do the brief readings, whose board asker and
         // implement route are keyed on the plan rather than the branch.
         const planSlug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+        // ONE READING of the brief askers' logs per row, for both fields below.
+        const askReading = repoRoot ? briefReading(repoRoot, b.branch, planSlug) : null;
         rows.push({
           repo,
           // WHAT THIS ROW IS — decided here, where the branch name, the PR and
@@ -7304,13 +7306,13 @@ export function rowsFromPulse(
           // Null where no root was passed — a caller that did not look — which
           // is the same value an older server's pulse validates to, so the
           // renderer says nothing extra for either.
-          briefAskedAt: repoRoot ? briefAskedAt(repoRoot, b.branch, planSlug) : null,
+          briefAskedAt: askReading?.askedAt ?? null,
           // AND WHETHER THAT ASK'S WRITER FAILED — the implement log's path
           // when its run recorded a non-zero exit and no other asker's log is
           // newer, null otherwise (running, succeeded, re-asked, or no root to
           // look from). See
-          // `briefFailed` in `brief-ask-log.ts`.
-          briefFailed: repoRoot ? briefFailed(repoRoot, b.branch, planSlug) : null,
+          // `briefReading` in `brief-ask-log.ts`.
+          briefFailed: askReading?.failed ?? null,
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
