@@ -51,7 +51,7 @@ export type Write =
   | DeclarationWrite
   | SliceSpendWrite
   | LoopEndWrite
-  | WorkerFindingWrite
+  | AgentFindingWrite
   | BuildFindingWrite;
 
 /** Sets a plan's `**State:**` field, inside its `## Status` section only. */
@@ -497,8 +497,17 @@ export interface LoopEndWrite {
   readonly exitCode: number;
 }
 
-/** Publishes a WorkerMonitor-shaped finding: `gone`, `idle` or `clear`. */
-export interface WorkerFindingWrite {
+/**
+ * Publishes a WorkerMonitor-shaped finding: `gone`, `idle` or `clear`.
+ *
+ * Named for the AGENT, not the process: `WorkerMonitor` in the doc comment
+ * names the shape this write's finding is published in — the file format an
+ * existing watcher already writes — while the write itself is the loop
+ * reporting what it found about the agent it is. The `kind` string stays
+ * `worker-finding` because that is the file and the vocabulary a reader greps
+ * for on disk; only the exported identifier is Agent-side.
+ */
+export interface AgentFindingWrite {
   readonly kind: 'worker-finding';
   /** The worktree the finding is about, absolute. */
   readonly worktree: string;
