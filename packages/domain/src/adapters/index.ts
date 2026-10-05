@@ -142,6 +142,8 @@ export { processesShell, parseEtime } from './processes/processes-shell.js';
 // is the whole substitution the ports exist for.
 export { performerShell } from './performer/performer-shell.js';
 
+export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
+
 export { boundedRunProcess } from './bounded-run/bounded-run-process.js';
 export { boundedRunFixture, type BoundedRunFixture } from './bounded-run/bounded-run-fixture.js';
 

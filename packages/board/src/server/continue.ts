@@ -12,6 +12,8 @@ import { markerIn } from './worker-question.js';
 import { deskManifestFor, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
+import { deskMonitorsShell } from '@plot-pm/domain/adapters';
+import type { DeskMonitors } from '@plot-pm/domain';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and
@@ -147,6 +149,8 @@ export interface ContinueDeps {
   pulse?: (opts: BuildBoardOptions) => FleetReading | null;
   /** The configured `Worker command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
+  /** Starts the desk's monitors; defaults to the shell scripts under `scriptsDir`. */
+  monitors?: DeskMonitors;
 }
 
 /** How many commits the prompt names before it says there are more. */
@@ -452,6 +456,7 @@ export async function handleContinue(
     main: pulse?.main ?? '',
     previousPid: found.pid,
     answer,
+    monitors: deps.monitors,
   });
   if (started.kind === 'refused') {
     refuse(started.status, started.reason, branch, started.detail);
@@ -518,6 +523,8 @@ export interface DeskContinuationInput {
    * so a start that throws afterwards cannot be repeated unrecorded.
    */
   beforeStart?: () => Promise<boolean>;
+  /** Starts the AgentMonitor and the BuildMonitor; defaults to the shell scripts under `scriptsDir`. */
+  monitors?: DeskMonitors;
 }
 
 /**
@@ -716,19 +723,30 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // `named` — refused above otherwise — so its path is reused rather than
     // re-reading the registry directory a second time.
     //
-    // THE GROUP IS RECORDED EMPTY, AND THAT IS THE TRUE ANSWER. This route
-    // spawns the agent DIRECTLY — no wrapper, no WorkerMonitor, no AgentMonitor
-    // — so there is no process beside it to name. Passing `''` for each member
-    // says *nothing else was started*, which is the fact; omitting them would
-    // leave the PREVIOUS dispatch's wrapper and monitors on the row, naming
-    // processes that belong to a run this one just replaced. The stamp re-emits
-    // the group on every write precisely so a stale one cannot survive.
+    // THE MONITORS START AFTER THE PID FILE NAMES THE NEW RUN. Each monitor
+    // ends when the pid in `.plot-worker.pid` is gone, so starting one while
+    // the file still names the previous run would end it on its first check.
+    // They get the environment `plot-dispatch.sh`'s wrapper gives them, so a
+    // continued agent's `wait_for_checks` reads a BuildMonitor's findings as a
+    // dispatched agent's does (#1255).
+    const monitors = (input.monitors ?? deskMonitorsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })).start({
+      branch,
+      worktree,
+      manifestFile: manifestAnswer.path,
+      pidFile: path.join(worktree, '.plot-worker.pid'),
+      log,
+    });
+    const started = monitors.ok ? monitors.value : { agentMonitorPid: '', buildMonitorPid: '' };
+    // No wrapper and no WorkerMonitor exist for a continued run, so those two
+    // are recorded `''`; omitting them would leave the previous dispatch's
+    // pids on the row. The stamp re-emits the whole group on every write.
     writeManifestStamp(manifestAnswer.path, {
       pid: String(pid),
       startedAt: new Date().toISOString(),
       wrapperPid: '',
       workerMonitorPid: '',
-      agentMonitorPid: '',
+      agentMonitorPid: started.agentMonitorPid,
+      buildMonitorPid: started.buildMonitorPid,
     });
   }
   return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log };

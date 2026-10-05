@@ -33,6 +33,7 @@ import type { ContinueDeps } from '../../src/server/continue.js';
 import type { FleetReading } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
 import { agentsFs } from '@plot-pm/domain/adapters';
+import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '../../src/server/entry/registryd-main.js';
 
 const BRANCH = 'feature/continue-with-an-answer';
@@ -372,6 +373,40 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
     assert.equal(m.relaunches, 2, 'counted across two relaunches, not just overwritten');
     assert.equal(m.previousPid, firstPid, 'the second relaunch displaced the first');
+  });
+
+  it('starts the BuildMonitor for the desk and records its pid (#1255)', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root, manifest } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const calls: MonitoredDesk[] = [];
+    let pidAtStart = '';
+    const monitors: DeskMonitors = {
+      start: (desk) => {
+        calls.push(desk);
+        pidAtStart = fs.readFileSync(desk.pidFile, 'utf8');
+        return { ok: true, value: { agentMonitorPid: '7001', buildMonitorPid: '7002' } };
+      },
+    };
+
+    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+    assert.equal(out.status, 202);
+    const body = out.body as { pid: string };
+
+    assert.deepEqual(calls, [
+      {
+        branch: BRANCH,
+        worktree: wt,
+        manifestFile: manifest,
+        pidFile: path.join(wt, '.plot-worker.pid'),
+        log: path.join(wt, '.plot-worker.log'),
+      },
+    ]);
+    assert.equal(pidAtStart, body.pid, 'the pid file names the new run before a monitor reads it');
+    const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    assert.equal(m.buildMonitorPid, '7002');
+    assert.equal(m.agentMonitorPid, '7001');
   });
 
   it('refuses a continuation when no manifest names the worktree', async () => {
