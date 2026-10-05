@@ -115,12 +115,13 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     ).toBe('none');
   });
 
-  it('reads the fallback run as evidence about its own sha only, never the pushed one', () => {
-    // BuildPort.runForSha falls back to the branch's newest run when it has
-    // none for the asked-for sha. A run whose sha differs from pushedSha
-    // settles nothing about the pushed commit, so the tip (not this rule
-    // re-deriving a sha comparison) is what the wait leans on.
-    const fallback = concludedRun('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success');
-    expect(checksFromRuns({ ...base, run: fallback })).toBe('wait');
+  it('reads a run for another sha as evidence about its own sha only, never the pushed one', () => {
+    // BuildPort.runForSha is documented to answer only for the sha it was
+    // asked about, but this rule reads `run.sha` rather than assuming it: a
+    // run whose sha differs from pushedSha settles nothing about the pushed
+    // commit, so the tip (not this rule re-deriving a sha comparison) is what
+    // the wait leans on.
+    const other = concludedRun('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success');
+    expect(checksFromRuns({ ...base, run: other })).toBe('wait');
   });
 });

@@ -116,10 +116,9 @@ export interface ChecksFromRunsReadings {
    * connector that answers `unaskable` reads as no different from one that has
    * not run yet, because neither is evidence the pushed commit failed.
    *
-   * MAY NOT BE FOR `pushedSha`. `runForSha`'s documented fallback is the
-   * branch's newest run when it holds none for the asked-for commit, and
-   * {@link ShaRun.sha} says which one was found — `checksFromRuns` reads it
-   * and treats a run for any other commit as no run at all.
+   * IS FOR `pushedSha` OR IS `null`. `runForSha` answers only for the sha it
+   * was asked about, never another commit's run, so {@link ShaRun.sha} here
+   * always equals `pushedSha` when `run` is non-null.
    */
   readonly run: ShaRun | null;
   /** Whether the remote tip is still the pushed commit. */
@@ -162,13 +161,10 @@ export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'no-answer' | 'tip-mo
  * this loop could read would be about the agent's own work (#1199).
  *
  * **A RUN IS EVIDENCE ONLY FOR ITS OWN SHA.** {@link BuildPort.runForSha}
- * falls back to the branch's newest run when it has none for the asked-for
- * commit, and {@link ShaRun.sha} says which run it found. A fallback run for
- * an older commit settles nothing about the pushed one — the tip reading
- * alone cannot rule this out, because the tip can still read `pushed` while
- * CI simply has not started a run for the new commit yet. So this rule reads
- * {@link ShaRun.sha} too, and a run for any other commit is the same as no
- * run at all.
+ * answers only for the sha it was asked about, so in practice `run.sha`
+ * always equals `pushedSha` here. This rule still reads {@link ShaRun.sha}
+ * rather than assuming it: a run for any other commit is read as no run at
+ * all, the same answer a connector that has not started one yet gives.
  *
  * `unknown` NEVER ENDS THE WAIT AS `tip-moved`. A tip that could not be read
  * this pass is not evidence it moved, so the wait continues and the next pass

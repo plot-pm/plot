@@ -39,10 +39,10 @@ const SYSTEM = 'jenkins';
  * answers `unaskable`, which is *this connector cannot be asked* rather than
  * *this branch has never built*.
  *
- * IT INHERITS THE GITHUB ARM'S FALLBACK RULE rather than inventing one: the
- * asked-for sha if a build carries it, else the newest build, with `sha`
- * saying which. A caller that could not tell those apart would be back to the
- * branch-scoped guessing this operation exists to end.
+ * IT INHERITS THE GITHUB ARM'S MATCH RULE rather than inventing one: only the
+ * asked-for sha, never another build's. A caller handed the wrong build's
+ * answer would be back to the branch-scoped guessing this operation exists to
+ * end.
  *
  * @param context - where the scripts and the repository are.
  * @returns a `BuildPort` backed by this vendor's connector.

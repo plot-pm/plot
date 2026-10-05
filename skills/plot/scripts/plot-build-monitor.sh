@@ -437,12 +437,16 @@ monitor_pass() {
     if [ -n "$finding" ]; then
       since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       publish "$finding" "$evidence" "$since"
-      # SETTLED, so it is never asked about again. Every finding this monitor
-      # publishes is terminal for its sha: a failure stays failed, a pass stays
-      # passed, and a superseded run does not become current. Recording it here
-      # rather than in `sample_finding` keeps the decision beside the publish it
-      # follows from.
-      [ -n "$head" ] && settled_shas="$settled_shas $head"
+      # SETTLED, so it is never asked about again — UNLESS the finding is
+      # `head moved`, which is terminal for the SUPERSEDED sha and says
+      # nothing about the one now at head. Settling the current head on that
+      # finding would stop the next pass from ever asking about it again, and
+      # the run this monitor exists to report — the one for the commit that
+      # is actually head — would never be asked for. Every OTHER finding is
+      # terminal for its sha: a failure stays failed, a pass stays passed.
+      # Recording it here rather than in `sample_finding` keeps the decision
+      # beside the publish it follows from.
+      [ -n "$head" ] && [ "$finding" != "head moved" ] && settled_shas="$settled_shas $head"
     fi
     # NO CLEARING PUBLISH, and that is the difference from the AgentMonitor. A
     # debt is cleared when it is paid — that is news. A build's answer is never
