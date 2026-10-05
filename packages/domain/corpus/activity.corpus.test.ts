@@ -26,7 +26,13 @@ let busyParent = 0;
 let sleeper = 0;
 let busyChildOfSleepingParent = 0;
 
+// Both sides read the sample window from `PLOT_ACTIVITY_INTERVAL`. The 0.4 s
+// default read `idle` for the busy subtree on a shared CI runner, so the pair
+// samples over 1.5 s, which both sides honour.
+const WINDOW_BEFORE = process.env.PLOT_ACTIVITY_INTERVAL;
+
 beforeAll(() => {
+  process.env.PLOT_ACTIVITY_INTERVAL = '1.5';
   // A parent whose CHILD burns the CPU: the subtree is what is sampled.
   const busy = spawn('bash', ['-c', 'yes > /dev/null & wait'], { stdio: 'ignore' });
   const quiet = spawn('sleep', ['120'], { stdio: 'ignore' });
@@ -38,6 +44,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  if (WINDOW_BEFORE === undefined) delete process.env.PLOT_ACTIVITY_INTERVAL;
+  else process.env.PLOT_ACTIVITY_INTERVAL = WINDOW_BEFORE;
   for (const child of spawned) {
     // Only the pids this file spawned, and the burner their shell started.
     try {

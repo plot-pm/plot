@@ -28,7 +28,7 @@ export type QuietReading = { readonly quiet: 'seconds'; readonly seconds: number
 export interface Transcript {
   /**
    * Seconds since the worktree's newest transcript line, across every session
-   * file the runtime holds for it — a worker that hopped waves, or an
+   * file the runtime holds for it — a worker that hopped to another slice, or an
    * operator's own session at the same desk, can leave more than one.
    *
    * A subagent's own transcript (a file named `agent-*`) is excluded: it is a
