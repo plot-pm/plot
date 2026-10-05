@@ -35,6 +35,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeSandbox, sh, staffDesk } from './helpers.mjs';
+import { workerLoopLine } from '../reconcile/loop-switch.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -77,7 +78,7 @@ function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'", interval = '1' }
   const sb = makeSandbox({ name, config: '' });
   fs.writeFileSync(
     path.join(sb.work, 'CLAUDE.md'),
-    `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${workerCommand}\n`,
+    `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${workerCommand}\n${workerLoopLine()}`,
   );
   dispatchablePlan(sb.work);
   // THE DESK IS LAID BY THE FIXTURE, not by the fan-out. Dispatch hands a slice

@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { workerLoopLine } from './loop-switch.mjs';
 
 // TESTS IN THIS FILE RUN ONE AT A TIME, and that is a correctness requirement
 // rather than tidiness. Every test here spawns a loop that sleeps, and several
@@ -76,8 +77,8 @@ function fixture(label, boundSeconds, bodySh) {
   // which is the only way to assert what the repo actually ships.
   fs.writeFileSync(path.join(t, 'CLAUDE.md'),
     boundSeconds === ''
-      ? `# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n`
-      : `# t\n\n## Plot Config\n\n- **Worker bound:** ${boundSeconds}\n`);
+      ? `# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n${workerLoopLine()}`
+      : `# t\n\n## Plot Config\n\n- **Worker bound:** ${boundSeconds}\n${workerLoopLine()}`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), bodySh);
   // A fixture prompt proves it ran by touching a `*.marker` file in the desk.
   // The file is ignored, so that proof is not unlanded work: an uncommitted
@@ -1423,7 +1424,7 @@ test('worker-loop: a hop on the create path moves the watcher to the new desk', 
   git(dir, 'config', 'user.name', 'Plot Test');
   git(dir, 'config', 'commit.gpgsign', 'false');
   fs.mkdirSync(path.join(dir, '.plot'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 900\n');
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# t\n\n## Plot Config\n\n- **Worker bound:** 900\n${workerLoopLine()}`);
   // `bug/x` finishes AT ONCE, which is what makes `clear_manifest_branch` run
   // promptly and open the hand-over window. `bug/y` — the hop target — makes a
   // REAL file-touching commit, the same shape `makeIdleDeskReady` gives every
@@ -1747,7 +1748,7 @@ test('worker-loop: unpushed commits after a ran prompt end holding-work, exit 0'
   git(t, 'config', 'user.name', 'Plot Test');
   git(t, 'config', 'commit.gpgsign', 'false');
   fs.mkdirSync(path.join(t, '.plot'), { recursive: true });
-  fs.writeFileSync(path.join(t, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 30\n');
+  fs.writeFileSync(path.join(t, 'CLAUDE.md'), `# t\n\n## Plot Config\n\n- **Worker bound:** 30\n${workerLoopLine()}`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'),
     'echo ran >&2; echo committed > "$PLOT_WORKTREE/committed.txt"; ' +
     'git -C "$PLOT_WORKTREE" add -A; git -C "$PLOT_WORKTREE" commit -qm work\n');
@@ -1855,7 +1856,7 @@ const checksFixture = (label, prompt) => {
   git(t, 'config', 'commit.gpgsign', 'false');
   git(t, 'checkout', '-q', '-b', 'bug/x');
   fs.mkdirSync(path.join(t, '.plot'), { recursive: true });
-  fs.writeFileSync(path.join(t, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 120\n');
+  fs.writeFileSync(path.join(t, 'CLAUDE.md'), `# t\n\n## Plot Config\n\n- **Worker bound:** 120\n${workerLoopLine()}`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), prompt);
   git(t, 'add', '-A');
   git(t, 'commit', '-qm', 'init');

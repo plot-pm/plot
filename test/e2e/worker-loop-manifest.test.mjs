@@ -19,6 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { workerLoopLine } from '../reconcile/loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, '..', '..');
@@ -90,7 +91,7 @@ function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000
 ## Plot Config
 
 - **Worker bound:** ${boundSeconds}
-`);
+${workerLoopLine()}`);
 
   const envVars = {
     ...process.env,

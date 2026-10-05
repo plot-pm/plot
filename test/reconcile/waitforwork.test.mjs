@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -81,7 +82,7 @@ function sandbox() {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 600
-`);
+${workerLoopLine()}`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-09-03-waitwork.md'), `# Wait for work
 
