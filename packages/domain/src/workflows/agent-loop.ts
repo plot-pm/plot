@@ -4,6 +4,7 @@ import type { LoopRegistration } from '../rules/desk-manifest.js';
 import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
 import type { MonitorVerdict } from '../rules/sample.js';
+import { runLimitRefusal } from '../rules/run-limit.js';
 import type { EndingActor, EndingReason } from '../entities/ending.js';
 import { type Decision, type Write, decide } from './decision.js';
 
@@ -73,7 +74,7 @@ export interface AgentLoopReadings {
    * What the prompt's last exit was, once it is no longer running. `null`
    * while {@link running} is non-null, or before any prompt has run yet.
    */
-  readonly exit: PromptExit | null;
+  readonly exit: LoopExit | null;
   /**
    * The manifest's `attempts` field, as the shell reads it. The supervisor's
    * relaunches raise the same field, so it is not a per-slice count: an
@@ -88,6 +89,33 @@ export interface AgentLoopReadings {
   readonly markerWritten: boolean;
   /** The marker's own text, for the `declaration` and `blocked-marker` writes. */
   readonly markerText: string;
+  /**
+   * The SDK runner's hand-back, read only where {@link exit}`.answer` is
+   * `ran`. `null` for a `command` runner, which hands back nothing, and for
+   * a run whose `structured_output` the SDK's own `sdkRunExit` could not
+   * read — both fall through to today's desk reading, same as `done`.
+   *
+   * **A READING, NEVER A STATE.** Filled by the caller from this pass's own
+   * run, the way every other reading here is; `agentLoop` stores nothing
+   * between passes.
+   */
+  readonly handBack: 'checks' | 'pushed' | 'blocked' | 'done' | null;
+  /** The session a `checks` hand-back resumes once the local checks answered. */
+  readonly checksResumeId: string;
+  /** The hand-back's own summary, carried into the `checks` write and the resume. */
+  readonly handBackSummary: string;
+  /**
+   * What the local checks answered for this `checks` hand-back; `null` while
+   * they have not run. Read only where {@link handBack} is `checks`.
+   */
+  readonly localChecks: LocalChecksReading | null;
+  /**
+   * How many agent runs this slice has started: the first run, each `checks`
+   * resume and each CI correction. Keyed to the branch; `0` after a hop.
+   */
+  readonly sliceRuns: number;
+  /** `Slice max runs` — the run count at which no further run starts. */
+  readonly sliceMaxRuns: number;
   /**
    * Why this desk may not be reset — empty when nothing holds it. Read at
    * take-up and after a `ran` exit. At either point, `uncommitted-changes` or
@@ -145,6 +173,28 @@ export interface AgentLoopReadings {
   readonly session: string;
 }
 
+/**
+ * How the last run ended: a `command` runner's {@link PromptExit}, or one of
+ * the three ends only an SDK run reports — its own bound abort, its turn
+ * limit, or its spend limit.
+ */
+export type LoopExit =
+  | PromptExit
+  | { readonly answer: 'bound' }
+  | { readonly answer: 'turn-limit' }
+  | { readonly answer: 'spend-limit' };
+
+/** What the local checks a `checks` hand-back asked for answered. */
+export type LocalChecksReading =
+  | { readonly passed: true }
+  | {
+      readonly passed: false;
+      /** The first command that failed, verbatim. */
+      readonly command: string;
+      /** The last lines of that command's output. */
+      readonly tail: string;
+    };
+
 /** What `agentLoop` reports beyond its writes. */
 export interface AgentLoopDetail {
   /** The branch this pass decided about; `''` for a free loop. */
@@ -183,6 +233,22 @@ const blockedDeclaration = (worktree: string, branch: string, summary: string): 
   status: 'blocked',
   summary,
 });
+
+/**
+ * The `run-limit` ending where this slice may start no further run, or `null`
+ * where the next run may start.
+ *
+ * @param readings - this pass's readings.
+ * @param branch - the branch the slice is on.
+ * @returns the ending, with a `blocked` declaration, or `null`.
+ */
+const runLimitEnding = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> | null => {
+  if (!runLimitRefusal(readings.sliceRuns, readings.sliceMaxRuns)) return null;
+  const summary = `the slice started ${readings.sliceRuns} runs, the Slice max runs limit of ${readings.sliceMaxRuns}`;
+  return end(readings.worktree, branch, 'run-limit', 'agent', summary, 0, [
+    blockedDeclaration(readings.worktree, branch, summary),
+  ]);
+};
 
 /** A `worker-finding` write about this pass's branch, holding from {@link AgentLoopReadings.passAt}. */
 const finding = (
@@ -225,7 +291,10 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
   }
 
   if (readings.correctionAttempts < readings.correctionBudget) {
-    // ROW 14 — checks fail, correction budget left.
+    // ROW 14 — checks fail, correction budget left. The correction is a run,
+    // so `Slice max runs` is asked first.
+    const limited = runLimitEnding(readings, branch);
+    if (limited !== null) return limited;
     return decide(
       'agent-loop',
       [
@@ -270,8 +339,9 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
  *
  * **EVERY ENDING THAT WAITS FOR A PERSON ALSO WRITES A `declaration` WITH
  * `status: 'blocked'`** — `blocked`, `unstarted`, `limited`,
- * `checks-unanswered` and `corrections-spent` — because `supervise` reads the declaration file and
- * never the marker, and answers `correct` where none exists. `holding-work`
+ * `checks-unanswered`, `corrections-spent`, `turn-limit`, `spend-limit` and
+ * `run-limit` — because `supervise` reads the declaration file and never the
+ * marker, and answers `correct` where none exists. `holding-work`
  * writes none: its correction is *land your work*, and `supervise` answering
  * `correct` is the right answer there.
  *
@@ -338,6 +408,8 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
         [blockedDeclaration(worktree, branch, readings.markerText || 'an unanswered PLOT-BLOCKED question')],
       );
     }
+    const limited = runLimitEnding(readings, branch);
+    if (limited !== null) return limited;
     return decide(
       'agent-loop',
       [
@@ -424,15 +496,58 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     ]);
   }
 
+  // ROW 9a — an SDK run aborted on its own bound.
+  if (exit !== null && exit.answer === 'bound') {
+    return end(worktree, branch, 'bound', 'bound', `the run exceeded the ${readings.boundSeconds}s bound`, 124, [
+      finding(readings, branch, 'gone', `the run exceeded the ${readings.boundSeconds}s bound`),
+    ]);
+  }
+
+  // ROW 9b — an SDK run reached `Agent max turns`.
+  if (exit !== null && exit.answer === 'turn-limit') {
+    return end(worktree, branch, 'turn-limit', 'agent', 'the run reached Agent max turns', 0, [
+      blockedDeclaration(worktree, branch, 'the run reached Agent max turns'),
+    ]);
+  }
+
+  // ROW 9c — an SDK run reached `Agent max spend`.
+  if (exit !== null && exit.answer === 'spend-limit') {
+    return end(worktree, branch, 'spend-limit', 'agent', 'the run reached Agent max spend', 0, [
+      blockedDeclaration(worktree, branch, 'the run reached Agent max spend'),
+    ]);
+  }
+
   // From here `exit` is `ran`, or the prompt has already run in an earlier
   // pass and the loop is now watching the CI wait (`exit` stays `ran`).
 
-  // ROW 10 — the agent wrote its own PLOT-BLOCKED marker.
+  // ROW 10 — the agent wrote its own PLOT-BLOCKED marker. Read before every
+  // hand-back: a marker on the desk answers whatever the agent handed back.
   if (exit !== null && exit.answer === 'ran' && readings.markerWritten) {
     return end(worktree, branch, 'blocked', 'agent', 'the agent declared itself blocked', 0, [
       blockedDeclaration(worktree, branch, readings.markerText),
     ]);
   }
+
+  // ROW 10a — the agent handed back `blocked`.
+  if (exit !== null && exit.answer === 'ran' && readings.handBack === 'blocked') {
+    return end(worktree, branch, 'blocked', 'agent', 'the agent handed back blocked', 0, [
+      blockedDeclaration(worktree, branch, readings.handBackSummary || 'the agent handed back blocked'),
+    ]);
+  }
+
+  // ROW 10b — the agent handed back `checks`. Its commits are not pushed yet,
+  // so only uncommitted changes outrank it (ROW 11 answers those).
+  if (
+    exit !== null &&
+    exit.answer === 'ran' &&
+    readings.handBack === 'checks' &&
+    !readings.resetRefusals.includes('uncommitted-changes')
+  ) {
+    return checksHandBack(readings, branch);
+  }
+
+  // A `pushed` or `done` hand-back, and no hand-back, read the desk from here:
+  // ROW 11's unlanded work, ROW 12a's nothing pushed or no PR, then the CI wait.
 
   // ROW 11 — unlanded work and no marker. No declaration: the correction is
   // "land your work", and `supervise` answering `correct` is the right
@@ -461,9 +576,58 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     );
   }
 
-  // ROWS 12-18 — the exit is `ran`, work is pushed and a PR is open. The
-  // switch has a case for every `ChecksFromRuns` value and no `default`; with
-  // the declared return type, a new value fails typecheck until it has a row.
+  return ciWait(readings, branch);
+};
+
+/**
+ * ROW 10b — a `checks` hand-back. While the local checks have not answered,
+ * the loop asks the performer to run them. Once they answered, it resumes the
+ * session with the result, unless `Slice max runs` is reached: on a pass the
+ * line "local checks passed: <summary>", on a fail the failing command and
+ * the tail of its output.
+ *
+ * @param readings - this pass's readings.
+ * @param branch - the branch the slice is on.
+ * @returns a `checks` write, an `agent-resume` write, or the `run-limit` ending.
+ */
+const checksHandBack = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
+  const { worktree } = readings;
+  const result = readings.localChecks;
+  if (result === null) {
+    return decide(
+      'agent-loop',
+      [{ kind: 'checks', branch, worktree, resumeId: readings.checksResumeId, summary: readings.handBackSummary }],
+      { branch, exitCode: null, note: 'hand-back: checks, running the local checks' },
+    );
+  }
+
+  const limited = runLimitEnding(readings, branch);
+  if (limited !== null) return limited;
+
+  const correction = result.passed
+    ? `local checks passed: ${readings.handBackSummary}`
+    : `local checks failed: \`${result.command}\`\n\n${result.tail}`;
+  return decide(
+    'agent-loop',
+    [{ kind: 'agent-resume', branch, worktree, resumeId: readings.checksResumeId, correction }],
+    { branch, exitCode: null, note: result.passed ? 'local checks passed, resuming' : 'local checks failed, resuming' },
+  );
+};
+
+/**
+ * ROWS 12-18 — the CI wait, once work is pushed and a PR is open: the switch
+ * has a case for every `ChecksFromRuns` value and no `default`, so a new
+ * value fails typecheck until it has a row.
+ *
+ * Reached by falling through ROWS 10-12a once `exit` is `ran`, whatever the
+ * hand-back.
+ *
+ * @param readings - this pass's readings.
+ * @param branch - the branch the slice is on.
+ * @returns the CI wait's decision for this pass.
+ */
+const ciWait = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
+  const { worktree } = readings;
   const checks = readings.checks;
   switch (checks) {
     case null:
