@@ -1,7 +1,8 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { rmTree } from '../helpers.mjs';
 
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import type { PortResult } from '@plot-pm/domain';
@@ -258,9 +259,16 @@ describe('freshAgentDecisions, escalation', () => {
   });
 });
 
+/** Every directory `rig` created, removed by its exact name after each test. */
+const homes: string[] = [];
+afterEach(() => {
+  for (const home of homes.splice(0)) rmTree(home);
+});
+
 /** A tick's worth of the real record in a private directory, with fake continue and desk ports. */
 const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Promise<DeskContinuation>) => {
   const home = mkdtempSync(join(tmpdir(), 'plot-fresh-tick-'));
+  homes.push(home);
   const record = freshAgentRecordFile({ home });
   const sealed: { worktree: string; branch: string; status?: string }[] = [];
   const starts: { branch: string; answer: string }[] = [];
