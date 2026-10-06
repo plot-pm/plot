@@ -126,6 +126,26 @@ describe('treesGit: the desks this machine holds', () => {
     });
   });
 
+  it('counts commits ahead of the configured upstream, and fails where none is configured', async () => {
+    // `@{upstream}..HEAD`, the shell's `desk_reset_refusal` form. A branch cut
+    // from a detached base has no upstream, and that is a failed reading.
+    const tracked = path.join(repo, '..', `${path.basename(repo)}-tracked`);
+    git(repo, ['worktree', 'add', '--quiet', '--detach', tracked, 'main']);
+    try {
+      git(tracked, ['checkout', '--quiet', '-b', 'feature/tracked']);
+      expect((await trees().aheadOfUpstream(tracked)).ok).toBe(false);
+      expect((await trees().aheadOfUpstream(detached)).ok).toBe(false);
+
+      git(tracked, ['branch', '--quiet', '--set-upstream-to=main']);
+      expect(await trees().aheadOfUpstream(tracked)).toEqual({ ok: true, value: 0 });
+      git(tracked, ['commit', '--quiet', '--allow-empty', '-m', 'ahead']);
+      expect(await trees().aheadOfUpstream(tracked)).toEqual({ ok: true, value: 1 });
+    } finally {
+      git(repo, ['worktree', 'remove', '--force', tracked]);
+      git(repo, ['branch', '--quiet', '-D', 'feature/tracked']);
+    }
+  });
+
   it('answers the email git commits under in one checkout', async () => {
     // What the board's identity reading asks of a worktree. `user.email` is set
     // on `repo` in setup, and a linked worktree shares the common config, so
@@ -298,6 +318,12 @@ describe('treesFixture: the same port with no machine behind it', () => {
     expect(await port.userEmail('/repo')).toEqual({ ok: true, value: 'someone@example.com' });
     const missing = await port.userEmail('/repo-wt');
     expect(missing.ok).toBe(false);
+  });
+
+  it('answers a stated ahead count, and an unstated one as failed', async () => {
+    const port = treesFixture({ ahead: { '/repo-wt': 2 } });
+    expect(await port.aheadOfUpstream('/repo-wt')).toEqual({ ok: true, value: 2 });
+    expect((await port.aheadOfUpstream('/repo')).ok).toBe(false);
   });
 
   it('reports every unstated tree as unclean, so unlanded work stays visible', async () => {

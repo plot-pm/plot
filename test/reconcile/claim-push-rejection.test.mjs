@@ -349,3 +349,55 @@ test('claim push: the manifest naming the rejected branch is cleared, and PLOT_B
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
 });
+
+test('claim push: the next assignment after a rejected claim push is taken up', () => {
+  // A REJECTED `push -u` SETS NO UPSTREAM, and the rejection's own fetch
+  // creates `refs/remotes/origin/feature/taken3` while the desk's local branch
+  // keeps its unpushed claim commit. The next reset counts unpushed commits
+  // against the configured upstream, so that claim commit refuses nothing and
+  // the second branch is taken up.
+  const sb = sandbox();
+  try {
+    // THE PROMPT IS READ FROM THE DESK'S OWN CHECKOUT, so it is committed to
+    // `main` before the desk is cut from `origin/main`. It records the branch
+    // it ran on, outside the desk, so the record leaves the tree clean.
+    const runsLog = path.join(sb.root, 'prompt-runs.log');
+    fs.writeFileSync(path.join(sb.work, '.plot', 'worker-prompt.sh'),
+      `git -C "$PLOT_WORKTREE" branch --show-current >> '${runsLog}'\nexit 0\n`);
+    git(sb.work, 'commit', '-qam', 'a prompt that records its branch');
+    git(sb.work, 'push', '-q', 'origin', 'main');
+    const { wt, manifest } = deskHandedTo(sb, 'feature/start', 'feature/taken3');
+
+    const other = path.join(sb.root, 'other');
+    git(sb.root, 'clone', '-q', sb.origin, other);
+    git(other, 'config', 'user.email', 'test@example.invalid');
+    git(other, 'config', 'user.name', 'Plot Test');
+    git(other, 'checkout', '-q', '-b', 'feature/taken3');
+    git(other, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/taken3 (the other agent)');
+    git(other, 'push', '-qu', 'origin', 'feature/taken3');
+
+    // THE SECOND ASSIGNMENT: once the rejection clears the manifest's branch,
+    // the watcher names `feature/second` in it, once, as the supervisor would.
+    const handOver = `const fs = require('node:fs');
+const m = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+if (m.branch !== '') process.exit(1);
+fs.writeFileSync(process.argv[1], JSON.stringify({ ...m, branch: 'feature/second' }, null, 2) + '\\n');`;
+    const watcher = spawn('bash', ['-c',
+      `while true; do [ -f "$1" ] && node -e "$2" "$1" 2>/dev/null && exit 0; sleep 0.2; done`,
+      'watcher', manifest, handOver,
+    ], { stdio: 'ignore' });
+    let out;
+    try {
+      out = runOnce(wt, manifest);
+    } finally {
+      watcher.kill();
+    }
+
+    const runs = fs.existsSync(runsLog) ? fs.readFileSync(runsLog, 'utf8').trim().split('\n').filter(Boolean) : [];
+    assert.deepEqual(runs, ['feature/second'], `the second branch must be taken up and its prompt run; loop said:\n${out}`);
+    assert.equal(git(sb.origin, 'log', '-1', '--format=%s', 'feature/second').trim(), 'plot: claim feature/second',
+      'the second claim reached origin');
+  } finally {
+    fs.rmSync(sb.root, { recursive: true, force: true });
+  }
+});
