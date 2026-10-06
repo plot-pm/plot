@@ -74,7 +74,7 @@ const TERMINAL_PHASES: ReadonlySet<string> = new Set([
 export interface PlanSlices {
   /** The plan's phase, as `plot-plan-meta.sh` spells it (lower case). */
   phase: string;
-  /** Every branch the plan's waves name, with the plan's `deferred:` flag. */
+  /** Every slice the plan names, with the plan's `deferred:` flag. */
   slices: readonly { branch: string; deferred: boolean }[];
 }
 
