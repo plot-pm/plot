@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { BranchStateSchema } from '../src/entities/fleet.js';
-import { branchState, waitVerdict, type BranchReadings, type WaitsReading } from '../src/rules/branch-state.js';
+import {
+  branchState,
+  namedSlices,
+  waitVerdict,
+  type BranchReadings,
+  type WaitsReading,
+} from '../src/rules/branch-state.js';
 
 /**
  * ONE CASE PER STATE, FROM READINGS THE TEST SUPPLIES — no host, no git.
@@ -517,5 +523,45 @@ describe('a resurrected ref is corrected by the host and by nothing else', () =>
     expect(
       branchState(reading({ refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0, pr: 'MERGED' })),
     ).toBe('claimed');
+  });
+});
+
+describe('namedSlices holds only the slices somebody may still start', () => {
+  const plan = (phase: string, ...slices: [string, boolean][]) => ({
+    phase,
+    slices: slices.map(([branch, deferred]) => ({ branch, deferred })),
+  });
+
+  it('holds a slice of every live plan, across plans', () => {
+    const names = namedSlices([
+      plan('approved', ['feature/a', false]),
+      plan('draft', ['bug/b', false]),
+      plan('unknown', ['infra/c', false]),
+    ]);
+    expect([...names].sort()).toEqual(['bug/b', 'feature/a', 'infra/c']);
+  });
+
+  it('leaves out a deferred slice', () => {
+    expect(namedSlices([plan('approved', ['feature/a', true], ['feature/b', false])])).toEqual(
+      new Set(['feature/b']),
+    );
+  });
+
+  it.each(['delivered', 'released', 'rejected', 'superseded'])('leaves out every slice of a %s plan', (phase) => {
+    expect(namedSlices([plan(phase, ['feature/a', false])]).size).toBe(0);
+  });
+
+  it('leaves out an idea/ branch and a file path', () => {
+    expect(namedSlices([plan('approved', ['idea/a', false], ['docs/note.md', false])]).size).toBe(0);
+  });
+
+  it('a merged slice of a terminal plan clears, and one with no pull request blocks', () => {
+    const names = namedSlices([plan('delivered', ['feature/done', false])]);
+    const wait = (pr: 'MERGED' | 'none'): WaitsReading => ({
+      branch: 'feature/done',
+      pr,
+      namedSlice: names.has('feature/done'),
+    });
+    expect([waitVerdict([wait('MERGED')]), waitVerdict([wait('none')])]).toEqual([null, 'blocked']);
   });
 });
