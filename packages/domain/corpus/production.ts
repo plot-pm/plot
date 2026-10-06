@@ -101,12 +101,23 @@ export const readFleetScan = (estate: Estate): Record<string, unknown> =>
  * empty list here, and the caller distinguishes the two by comparing against
  * what the pulse offers rather than by the exit code.
  *
+ * `fetch: false` adds `--offline`, which skips the scan's `git fetch` and
+ * nothing else: `--list-eligible` still asks the host, because the flag that
+ * implies `--next` sets `HOST_LOOKUP_OK` itself (`plot-fleet-scan.sh:577`). A
+ * caller that has just fetched through another scan passes it, so both
+ * readings see one `origin/<main>`.
+ *
  * @param estate - the repository to read.
+ * @param options - `fetch`: whether the scan fetches first; default `true`.
  * @returns the claimable branch names, in the order the scan offered them.
  */
-export const readListEligible = (estate: Estate): string[] => {
+export const readListEligible = (
+  estate: Estate,
+  { fetch = true }: { fetch?: boolean } = {},
+): string[] => {
+  const flags = fetch ? ['--list-eligible'] : ['--offline', '--list-eligible'];
   try {
-    return execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), '--list-eligible'], {
+    return execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), ...flags], {
       cwd: estate.root,
       encoding: 'utf8',
       maxBuffer: MAX_BUFFER,
