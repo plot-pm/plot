@@ -96,7 +96,7 @@ export const namedSlices = (plans: readonly PlanSlices[]): Set<string> =>
       .filter((plan) => !TERMINAL_PHASES.has(plan.phase))
       .flatMap((plan) => plan.slices)
       .filter((s) => !s.deferred && !s.branch.startsWith('idea/'))
-      .filter((s) => !(s.branch.split('/').at(-1) ?? '').includes('.'))
+      .filter((s) => !/\.[^/]*$/.test(s.branch))
       .map((s) => s.branch),
   );
 
