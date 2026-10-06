@@ -59,10 +59,11 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   either answer it keeps the desk, writes this ending and exits 0.
  * - `blocked` — the agent wrote its own `PLOT-BLOCKED` marker, the
  *   correction budget is spent and the checks still fail, or a turn ended
- *   with its background work dropped after the loop already resumed one. Both also write a
- *   `declaration` with `status: 'blocked'`, which is what lets `supervise`
- *   answer `needs-a-person` instead of handing the agent a correction for a
- *   question it already asked. A prompt that never started past its retries
+ *   with its background work dropped after the loop already resumed one.
+ *   `agentLoop` also writes a `declaration` with `status: 'blocked'` for
+ *   each, which is what lets `supervise` answer `needs-a-person` instead of
+ *   handing the agent a correction for a question it already asked; the
+ *   shell loop writes the marker and the ending, and no declaration. A prompt that never started past its retries
  *   ends `unstarted`, and a usage limit with no wait allowed ends `limited`.
  * - `checks-unanswered` — the loop's own CI wait ended with no usable answer:
  *   `detail` names which of two readings stopped it, `no-answer` (the wait

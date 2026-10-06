@@ -36,7 +36,6 @@ describe('droppedBackgroundLine', () => {
   it.each([
     "I'm waiting for the background agent to finish the docs.",
     'Waiting for the background build to complete.',
-    'Let me wait for the notification before I open the PR.',
   ])('finds the waiting line %j', (line) => {
     expect(droppedBackgroundLine(line, undefined)).toBe(line);
   });
@@ -45,6 +44,10 @@ describe('droppedBackgroundLine', () => {
     'I did not wait for background tasks; every test ran in the foreground.',
     "I'm not waiting for any background task.",
     'PR #12 is open. The checks run in CI and a correction comes back if they fail.',
+    'Let me know if I should wait for the notification.',
+    "I'm confident nothing is waiting in the background.",
+    'I am sure no task is waiting in the background.',
+    "I'll wait for CI; you will be notified by GitHub.",
   ])('reads %j as a finished turn', (line) => {
     expect(droppedBackgroundLine(line, PREFIX)).toBeUndefined();
   });

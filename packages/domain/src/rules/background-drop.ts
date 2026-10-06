@@ -12,16 +12,22 @@
 /** How many closing non-empty lines are read for the waiting shape. */
 const CLOSING_LINES = 5;
 
+/** What the agent waits on: a Monitor, a subagent, or a background task it started. */
+const WAIT_OBJECT = String.raw`(?:the|my|its)\s+(?:\w+\s+){0,2}?(?:Monitor|subagent|background\s+(?:agent|subagent|task|job|build|process|work))`;
+
 /**
- * A closing line that says the agent now waits on background work. The first
- * shape needs a first-person future or present phrase before the wait, and a
- * `not` or `never` in it does not count; the second is a line that opens with
- * `Waiting for` or `Waiting on`.
+ * A closing line that says the agent now waits on its own background work:
+ * a first-person `I'll`, `I will`, `I'm` or `I am` before the wait, or a line
+ * that opens with `Waiting for` or `Waiting on`, and in both a wait object
+ * {@link WAIT_OBJECT} names before the sentence ends.
  */
 const WAITING: readonly RegExp[] = [
-  /\b(?:I'll|I will|I'm|I am|let me)\s+(?:(?!not\b|never\b)\w+\s+){0,4}?(?:wait|waiting|pause|pausing)\b[^.!?\n]{0,80}\b(?:notification|notified|notify|background|Monitor)\b/i,
-  /^\W*waiting (?:for|on)\b[^.!?\n]{0,80}\b(?:notification|notified|background|Monitor)\b/i,
+  new RegExp(String.raw`\b(?:I'll|I will|I'm|I am)\s+(?:\w+\s+){0,4}?(?:wait|waiting|pause|pausing)\b[^.!?;\n]{0,60}?\b${WAIT_OBJECT}`, 'i'),
+  new RegExp(String.raw`^\W*waiting\s+(?:for|on)\s+${WAIT_OBJECT}`, 'i'),
 ];
+
+/** A negation anywhere in the line, which reads it as no wait. */
+const NEGATION = /\b(?:not|never|nothing|no|none|nobody)\b|n't\b/i;
 
 /**
  * The line that shows a turn ended with its background work dropped.
@@ -38,7 +44,7 @@ export const droppedBackgroundLine = (output: string, prefix: string | undefined
   if (terminated !== undefined) return terminated;
 
   const closing = lines.filter((line) => line.trim() !== '').slice(-CLOSING_LINES);
-  return closing.find((line) => WAITING.some((shape) => shape.test(line)));
+  return closing.find((line) => !NEGATION.test(line) && WAITING.some((shape) => shape.test(line)));
 };
 
 /** The heading of the correction a dropped turn writes. */
