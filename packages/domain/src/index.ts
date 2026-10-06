@@ -85,6 +85,7 @@ export * from './rules/agent-run-env.js';
 export * from './rules/run-limit.js';
 export * from './rules/runner-choice.js';
 export * from './rules/fragment-model.js';
+export * from './rules/loop-restart.js';
 export {
   limitAnswer,
   type LimitVerdict,
@@ -534,3 +535,4 @@ export type * from './ports/desk-monitors.js';
 export type * from './ports/agent-run.js';
 export type { MachineReading } from './ports/machine.js';
 export type { Machine as MachinePort } from './ports/machine.js';
+export type * from './ports/reexec.js';
