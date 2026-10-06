@@ -16,6 +16,7 @@ import {
   treesFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Pr, Trees } from '@plot-pm/domain';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +25,7 @@ import {
   count,
   defaultBase,
   failureLines,
+  dollarsOrUnset,
   integer,
   liveHolders,
   positive,
@@ -156,6 +158,9 @@ const rig = (
     recordSpend: async (worktree: string, branch: string) => {
       spends.push({ worktree, branch });
     },
+    recordRun: async () => null,
+    recordLimits: async () => 0,
+    sliceCostUsd: async () => null,
     ...portOver,
   };
 
@@ -174,7 +179,7 @@ const rig = (
     worktree: wt,
     agent: '',
     harness: 'claude',
-    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, checksPollMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, base: 'origin/main' },
+    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, checksPollMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, sliceMaxSpendUsd: null, base: 'origin/main' },
     limitMarginSeconds: 60,
     monitorEndsWorker: true,
     outFile,
@@ -246,6 +251,7 @@ const rigConfig = () => ({
   checksWaitSeconds: 1_800,
   correctionBudget: 2,
   sliceMaxRuns: 12,
+  sliceMaxSpendUsd: null,
   base: 'origin/main',
 });
 
@@ -995,6 +1001,11 @@ describe('configuration readers', () => {
     for (const raw of [undefined, '', '0', '-5', '0.5']) expect(positive(raw, 60)).toBe(60);
   });
 
+  it('reads a dollar amount, and an absent or unusable one as no limit rather than 0', () => {
+    expect(dollarsOrUnset('12.5')).toBe(12.5);
+    for (const raw of [undefined, '', '0', '-3', 'x']) expect(dollarsOrUnset(raw)).toBeNull();
+  });
+
   it('reads an integer of either sign for an offset', () => {
     expect(integer('-630', 0)).toBe(-630);
     expect(integer('630', 0)).toBe(630);
@@ -1047,7 +1058,15 @@ describe('main — configuration', () => {
       return key === 'Worker bound' ? '1' : undefined;
     };
     expect(await driven(main({}, r.dir, config, noStop))).toBe(124);
-    expect(asked).toEqual(['Worker bound', 'Agent runner', 'Worker command', 'Checks wait', 'Correction budget', 'Slice max runs']);
+    expect(asked).toEqual([
+      'Worker bound',
+      'Agent runner',
+      'Worker command',
+      'Checks wait',
+      'Correction budget',
+      'Slice max runs',
+      'Slice max spend',
+    ]);
     asked.length = 0;
     expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config, noStop))).toBe(124);
     cwd.mockRestore();
@@ -1167,6 +1186,27 @@ describe('workerLoopPorts and main', () => {
     expect(await ports.transcriptQuietSeconds(r.wt)).toBe('unavailable');
     // A desk with no transcripts records nothing, and the seal is not failed for it.
     await expect(ports.recordSpend(r.wt, BRANCH, '2026-10-06T00:00:00Z')).resolves.toBeUndefined();
+  });
+
+  it('composes the run records: a run line read back as the slice cost, a no-cost refusal, no budget entry for no reading', async () => {
+    const r = rig(null, []);
+    execFileSync('git', ['init', '--quiet'], { cwd: r.wt });
+    const ports = await workerLoopPorts({ repoRoot: r.wt, scriptDir: r.dir });
+    const result = {
+      sessionId: 'session-1',
+      end: { answer: 'ran', handBack: null },
+      usageByModel: { opus: { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 3, cacheReadTokens: 4 } },
+      costUsd: 1.5,
+      costUsdByModel: { opus: 1.5 },
+      turns: 2,
+      limitReadings: [],
+      account: null,
+    } as const;
+    expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBeNull();
+    expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', result)).toBeNull();
+    expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBe(1.5);
+    expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', { ...result, costUsd: null })).toBe('no-cost');
+    expect(await ports.recordLimits(result, 0)).toBe(0);
   });
 
   it('reads a transcript answer as quiet seconds, or unavailable', () => {

@@ -539,6 +539,9 @@ const loopPorts = (trees: Trees, boundedRun: BoundedRun, reexec: Reexec): Worker
   host: hostFixture({ prs: [] as Pr[] }),
   transcriptQuietSeconds: async () => 5000,
   recordSpend: async () => undefined,
+  recordRun: async () => null,
+  recordLimits: async () => 0,
+  sliceCostUsd: async () => null,
   reexec,
 });
 
@@ -551,7 +554,7 @@ const freeLoop = (dir: string, ports: WorkerLoopPorts, over: Partial<LoopDeps> =
   worktree: dir,
   agent: '',
   harness: 'claude',
-  config: { boundSeconds: 28_800, waitBudgetSeconds: 60, passIntervalMs: 10_000, checksPollMs: 10_000, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, base: 'origin/main' },
+  config: { boundSeconds: 28_800, waitBudgetSeconds: 60, passIntervalMs: 10_000, checksPollMs: 10_000, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, sliceMaxSpendUsd: null, base: 'origin/main' },
   limitMarginSeconds: 60,
   monitorEndsWorker: true,
   outFile: path.join(dir, 'out.txt'),

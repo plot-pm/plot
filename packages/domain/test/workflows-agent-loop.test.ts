@@ -40,6 +40,8 @@ const freeLoop: AgentLoopReadings = {
   sliceRuns: 0,
   sliceMaxRuns: 12,
   backgroundDropResumed: false,
+  sliceCostUsd: null,
+  sliceMaxSpendUsd: null,
   resetRefusals: [],
   pushed: false,
   prOpen: false,
@@ -524,6 +526,12 @@ describe('agentLoop — row 10c: the turn ended with its background work dropped
   it('at Slice max runs, starts no resume and ends run-limit', () => {
     const result = agentLoop({ ...dropped, sliceRuns: 12, sliceMaxRuns: 12 });
     expect(endWrite(result.writes)?.reason).toBe('run-limit');
+    expect(kindsOf(result.writes)).not.toContain('agent-resume');
+  });
+
+  it('at Slice max spend, starts no resume and ends spend-limit', () => {
+    const result = agentLoop({ ...dropped, sliceCostUsd: 5, sliceMaxSpendUsd: 5 });
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
     expect(kindsOf(result.writes)).not.toContain('agent-resume');
   });
 
@@ -1120,6 +1128,21 @@ describe('agentLoop — the hand-back rows', () => {
     expect(declarationWrite(result.writes)?.status).toBe('blocked');
   });
 
+  it('next: checks at Slice max spend starts no resume and ends spend-limit with a blocked declaration', () => {
+    const result = agentLoop({
+      ...ran,
+      handBack: 'checks',
+      checksResumeId: 'sess-123',
+      localChecks: { passed: true },
+      sliceCostUsd: 5,
+      sliceMaxSpendUsd: 5,
+    });
+    expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
+    expect(endWrite(result.writes)?.actor).toBe('agent');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
   it('next: checks with uncommitted changes ends holding-work rather than running the checks', () => {
     const result = agentLoop({ ...ran, handBack: 'checks', resetRefusals: ['uncommitted-changes'] });
     expect(endWrite(result.writes)?.reason).toBe('holding-work');
@@ -1269,6 +1292,45 @@ describe('agentLoop — Slice max runs', () => {
     });
     expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(false);
     expect(endWrite(result.writes)?.reason).toBe('run-limit');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+});
+
+describe('agentLoop — Slice max spend', () => {
+  it('at take-up, a slice at its spend limit starts no run and ends spend-limit with a blocked declaration', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, sliceCostUsd: 5, sliceMaxSpendUsd: 5 });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    expect(result.writes.some((w) => w.kind === 'prompt-run')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it('below the limit, take-up starts the run', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, sliceCostUsd: 4, sliceMaxSpendUsd: 5 });
+    expect(result.writes.some((w) => w.kind === 'prompt-run')).toBe(true);
+  });
+
+  it('with no Slice max spend configured, an unmeasured or costly slice still starts its run', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, sliceCostUsd: 1000, sliceMaxSpendUsd: null });
+    expect(result.writes.some((w) => w.kind === 'prompt-run')).toBe(true);
+  });
+
+  it('a failed CI build with correction budget left starts no correction run at the spend limit', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: false,
+      correctionAttempts: 0,
+      correctionBudget: 2,
+      sliceCostUsd: 5,
+      sliceMaxSpendUsd: 5,
+    });
+    expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
     expect(declarationWrite(result.writes)?.status).toBe('blocked');
   });
 });

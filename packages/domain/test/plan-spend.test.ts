@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { encodeSliceSpend, type SliceSpend } from '../src/entities/slice-spend.js';
+import { encodeSliceSpend, type SliceSpendRun, type SliceSpendSeal } from '../src/entities/slice-spend.js';
 import { planSpend, planSpendSummary } from '../src/rules/plan-spend.js';
 
 /**
@@ -9,7 +9,7 @@ import { planSpend, planSpendSummary } from '../src/rules/plan-spend.js';
  * @param branch - the branch the record is about.
  * @param over - fields to vary; `tokens` is replaced wholesale.
  */
-const line = (branch: string, over: Partial<SliceSpend> = {}): string =>
+const line = (branch: string, over: Partial<SliceSpendSeal> = {}): string =>
   encodeSliceSpend({
     branch,
     at: '2026-09-15T10:00:00.000Z',
@@ -68,6 +68,7 @@ describe('planSpend sums the measured slices', () => {
     ]);
     expect(Object.keys(actual).sort()).toEqual([
       'absent',
+      'fromRuns',
       'measured',
       'slices',
       'tokens',
@@ -240,5 +241,61 @@ describe('planSpendSummary', () => {
     };
 
     expect(planSpendSummary(mixed)).toContain('1 not measured here, 1 unreadable');
+  });
+});
+
+/**
+ * ONE RUN LINE: a session's cumulative figures after one SDK run.
+ *
+ * @param branch - the branch the run worked on.
+ * @param sessionId - the session the run ran under.
+ * @param costUsd - the session's cumulative cost.
+ * @param inputTokens - the session's cumulative input tokens.
+ */
+const runLine = (branch: string, sessionId: string, costUsd: number, inputTokens: number): string => {
+  const run: SliceSpendRun = {
+    kind: 'run',
+    branch,
+    at: '2026-10-06T10:00:00.000Z',
+    sessionId,
+    role: 'worker',
+    models: {
+      'claude-opus-5': { inputTokens, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd },
+    },
+    costUsd,
+    turns: 1,
+  };
+  return encodeSliceSpend(run);
+};
+
+describe('planSpend over run lines', () => {
+  it('counts a resumed session’s second run by its increase, once', () => {
+    const actual = planSpend(
+      [runLine('feature/a', 's1', 3, 100), runLine('feature/a', 's1', 5, 160)],
+      ['feature/a'],
+    );
+
+    expect(actual.tokens?.inputTokens).toBe(160);
+    expect(actual.fromRuns).toBe(1);
+  });
+
+  it('adds a counter reset’s own value', () => {
+    const actual = planSpend(
+      [runLine('feature/a', 's1', 5, 160), runLine('feature/a', 's1', 2, 40)],
+      ['feature/a'],
+    );
+
+    expect(actual.tokens?.inputTokens).toBe(200);
+  });
+
+  it('sums a seal line and run lines of one branch, and counts only run-line slices in fromRuns', () => {
+    const actual = planSpend(
+      [line('feature/a'), runLine('feature/a', 's1', 3, 100), line('feature/b')],
+      ['feature/a', 'feature/b'],
+    );
+
+    expect(actual.tokens?.inputTokens).toBe(102);
+    expect(actual.measured).toBe(2);
+    expect(actual.fromRuns).toBe(1);
   });
 });

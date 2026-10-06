@@ -226,6 +226,7 @@ describe('the cost a card carries', () => {
     ]);
     expect(Object.keys(cost!).sort()).toEqual([
       'absent',
+      'fromRuns',
       'measured',
       'slices',
       'tokens',
@@ -289,6 +290,13 @@ describe('the badge a reader sees', () => {
     expect(detail).toContain('40,690,450');
     expect(detail).toContain('3 of 5 slices measured');
     expect(detail).toContain('2 not measured here');
+  });
+
+  it('says beside the figure that SDK run lines count subagents and compaction', () => {
+    expect(costBadgeDetail(card({ cost: cost({ fromRuns: 2 }) }))).toContain(
+      '2 of the measured slices are read from SDK run lines, which include subagents and compaction',
+    );
+    expect(costBadgeDetail(card({ cost: cost() }))).not.toContain('SDK run lines');
   });
 
   it('says NOT MEASURED HERE rather than a zero', () => {

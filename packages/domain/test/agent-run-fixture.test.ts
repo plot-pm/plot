@@ -46,6 +46,8 @@ const freeLoop: AgentLoopReadings = {
   sliceRuns: 0,
   sliceMaxRuns: 12,
   backgroundDropResumed: false,
+  sliceCostUsd: null,
+  sliceMaxSpendUsd: null,
   resetRefusals: [],
   pushed: false,
   prOpen: false,
@@ -110,8 +112,10 @@ describe('agentRunFixture — a worker that hands back checks then pushed', () =
           end: { answer: 'ran', handBack: { next: 'checks', summary: 'implemented the port' } },
           usageByModel: {},
           costUsd: null,
+          costUsdByModel: {},
           turns: 12,
           limitReadings: [],
+          account: null,
         }),
         (resumed): AgentRunResult => {
           // The agent's second run pushes and opens its PR.
@@ -122,8 +126,10 @@ describe('agentRunFixture — a worker that hands back checks then pushed', () =
             end: { answer: 'ran', handBack: { next: 'pushed', summary: 'pushed and opened the PR' } },
             usageByModel: {},
             costUsd: null,
+            costUsdByModel: {},
             turns: 3,
             limitReadings: [],
+            account: null,
           };
         },
       ],

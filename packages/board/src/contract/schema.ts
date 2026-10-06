@@ -450,9 +450,14 @@ export const CardSchema = z.object({
    * row is a statement about one branch, and a plan-level rollup on every row
    * would be the crowding this board keeps removing.
    *
-   * The sum is biased LOW and that is a known property rather than a defect
-   * here: a worker killed by the `Worker bound` never reaches the write site,
-   * so the most expensive runs record nothing.
+   * The sum is biased LOW for a `command` slice, and that is a known property
+   * rather than a defect here: its one seal line is written at
+   * `seal_declaration`, so a worker killed by the `Worker bound` never reaches
+   * the write site and the most expensive runs record nothing. An SDK slice
+   * does not carry this bias the same way — each run appends its own line as
+   * it ends, so a run killed mid-flight still has every PRIOR run's line in
+   * the sum; only that one run's cost is missing, not the slice's whole
+   * history.
    */
   cost: z
     .object({
@@ -464,6 +469,12 @@ export const CardSchema = z.object({
       absent: z.number(),
       /** How many could not be read at all. */
       unreadable: z.number(),
+      /**
+       * How many measured slices carry SDK run lines, which count subagents
+       * and compaction where a seal line does not. Optional: a server older
+       * than the run line sends none.
+       */
+      fromRuns: z.number().optional(),
       /** How many slices the plan names — the denominator a reader needs. */
       slices: z.number(),
     })

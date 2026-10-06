@@ -2131,6 +2131,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
         measured: spend.measured,
         absent: spend.absent,
         unreadable: spend.unreadable,
+        fromRuns: spend.fromRuns,
         slices: spend.slices.length,
       };
     }
