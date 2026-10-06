@@ -994,19 +994,16 @@ describe('manifest and marker readers', () => {
         ...r.ports.trees,
         markers: async () => ({ ok: true as const, value: ['PLOT-BLOCKED.md'] }),
         dirtyPaths: async () => ({ ok: true as const, value: ['a'] }),
-        currentBranch: async () => ({ ok: true as const, value: BRANCH }),
+        aheadOfUpstream: async () => ({ ok: true as const, value: 2 }),
       },
-      refs: refsFixture({ ahead: { [BRANCH]: 2 } }),
     };
     expect(await readResetRefusals(holding, r.wt)).toEqual(['blocked-marker', 'uncommitted-changes', 'unpushed-commits']);
-    const level = { ...holding, refs: refsFixture({ ahead: { [BRANCH]: 0 } }) };
+    const level = { trees: { ...holding.trees, aheadOfUpstream: async () => ({ ok: true as const, value: 0 }) } };
     expect(await readResetRefusals(level, r.wt)).not.toContain('unpushed-commits');
-    const broken = {
-      trees: { ...r.ports.trees, markers: fail, dirtyPaths: fail, currentBranch: fail },
-      refs: r.ports.refs,
-    };
+    const broken = { trees: { ...r.ports.trees, markers: fail, dirtyPaths: fail, aheadOfUpstream: fail } };
     expect(await readResetRefusals(broken, r.wt)).toEqual([]);
-    const unaheadable = { ...holding, refs: { ...holding.refs, countAheadSync: () => ({ ok: false as const, why: 'failed' as const }) } };
+    // No upstream configured: the count cannot be taken, and that refuses nothing.
+    const unaheadable = { trees: { ...holding.trees, aheadOfUpstream: fail } };
     expect(await readResetRefusals(unaheadable, r.wt)).not.toContain('unpushed-commits');
   });
 });

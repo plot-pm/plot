@@ -127,6 +127,17 @@ export interface Trees {
   hasCommits(path: string): Promise<PortResult<CommitReading>>;
 
   /**
+   * How many commits a checkout's HEAD holds that its configured upstream does
+   * not: `git rev-list --count @{upstream}..HEAD`, the shell's
+   * `desk_reset_refusal` form.
+   *
+   * @param path - the checkout's absolute path.
+   * @returns the count; `failed` where the branch has no upstream configured,
+   *   HEAD is detached, or git cannot count.
+   */
+  aheadOfUpstream(path: string): Promise<PortResult<number>>;
+
+  /**
    * Names the branch a checkout is on.
    *
    * `''` for a detached HEAD, and the emptiness is an ANSWER rather than a
