@@ -2,17 +2,18 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { spawn } from 'node:child_process';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { agentRunFor, readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { readPhase } from './transition.js';
 import {
   IDEA_COMMAND_KEY,
+  IDEA_PROMPT_ENV,
   ideaAvailability,
   lastLines,
   usableCommand,
   type IdeaState,
 } from './idea.js';
+import { writtenPathResolution } from '@plot-pm/domain/rules/written-path';
 
 /**
  * Commissioning a Draft plan into Design — the twin of `/api/idea`, and the
@@ -387,65 +388,99 @@ export async function handleCommission(
 
   const log = commissionLogPath(opts.repoRoot, slug);
   const statePath = commissionStatePath(opts.repoRoot, slug);
-  let out: number;
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
-    // The same choice `idea.ts` makes, for the same reason.
+    // The same choice `idea.ts` makes, for the same reason. `agentRunCommand`/
+    // `agentRunSdk` truncate `request.logFile` again themselves; this write is
+    // also the 500-on-unwritable-log check.
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
+    fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }
 
-  // Through `sh -c` because `Idea command` is a shell FRAGMENT, the same
-  // interpretation `idea.ts` gives it. NOTHING from the request is interpolated
-  // into that string: the prompt reached the repo as a file, and its PATH
-  // travels in the environment and as ONE argument via `"$@"`. The slug is
-  // SLUG_RE-bounded, so even it carries nothing a shell would interpret.
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-commission', `Read ${promptPath} and follow it.`],
-    {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch — the same one `idea.ts` sets. There is
-        // nobody at this board to answer `AskUserQuestion`, so a skill that
-        // improvises here exits 0 having written nothing; setting it makes each
-        // skipped question name itself in the log.
-        PLOT_UNATTENDED: '1',
-        // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the same
-        // runner reads the same variable to find its prompt file.
-        PLOT_IDEA_PROMPT: promptPath,
-        PLOT_PLAN_SLUG: slug,
-      },
-    },
-  );
-  child.on('exit', (code, signal) => {
+  const choice = await agentRunFor(opts, 'commission', IDEA_COMMAND_KEY);
+  const writeState = (value: string) => {
     try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+      fs.writeFileSync(statePath, value, 'utf8');
     } catch {
       /* the state file is a convenience; the log is the record */
     }
-  });
-  child.on('error', (err) => {
-    console.error('commission failed to spawn:', err);
+  };
+  const appendLog = (message: string) => {
     try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
+      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
     } catch {
       /* nothing further to do */
     }
-  });
-  // `detached` WITHOUT `unref`, exactly as `idea.ts` is and for its reason:
-  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
-  // the handle keeps the exit listener above alive — dropping it would make
-  // every commission read as `running` forever.
-  fs.closeSync(out);
+  };
+
+  if (choice.runner === 'refused' || choice.agentRun === undefined) {
+    appendLog(choice.reason);
+    writeState('1');
+  } else {
+    const agentRun = choice.agentRun;
+    void agentRun
+      .run({
+        worktree: opts.repoRoot,
+        prompt: `Read ${promptPath} and follow it.`,
+        resumeId: '',
+        role: 'commission',
+        harness: '',
+        model: '',
+        effort: '',
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: 0,
+        contextWindow: 0,
+        capabilities: [],
+        env: {
+          // THE DECLARATION, not a switch — the same one `idea.ts` sets. There
+          // is nobody at this board to answer `AskUserQuestion`, so a skill
+          // that improvises here exits 0 having written nothing; setting it
+          // makes each skipped question name itself in the log.
+          PLOT_UNATTENDED: '1',
+          // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
+          // same runner reads the same variable to find its prompt file.
+          [IDEA_PROMPT_ENV]: promptPath,
+          PLOT_PLAN_SLUG: slug,
+        },
+        logFile: log,
+      })
+      .then((result) => {
+        if (!result.ok) {
+          appendLog(`commission run failed: ${result.why}`);
+          writeState('1');
+          return;
+        }
+        const end = result.value.end;
+        if (end.answer !== 'ran') {
+          appendLog(`commission run ended without running: ${end.answer}`);
+          writeState('1');
+          return;
+        }
+        const handBack = end.handBack;
+        if (handBack === null || !('written' in handBack)) {
+          appendLog('commission run ended with no written hand-back');
+          writeState('1');
+          return;
+        }
+        const resolution = writtenPathResolution(handBack.written, opts.repoRoot);
+        if (!resolution.inside) {
+          appendLog(`commission run's written path was refused: ${resolution.reason}`);
+          writeState('1');
+          return;
+        }
+        writeState('0');
+      })
+      .catch((err) => {
+        console.error('commission run failed:', err);
+        appendLog(err instanceof Error ? err.message : String(err));
+        writeState('1');
+      });
+  }
 
   json(202, { ok: true, slug, prompt: promptPath, log });
 }

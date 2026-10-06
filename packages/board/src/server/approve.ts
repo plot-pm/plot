@@ -2,8 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
-import { spawn } from 'node:child_process';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { agentRunFor, readConfig, type BuildBoardOptions } from './board.js';
 import {
   dispatchAvailability,
   isSameOrigin,
@@ -334,31 +333,29 @@ export async function handleApprove(
   }
 
   // TWO ENTRANCES, ONE IMPLEMENTATION. With `Approve command` declared the
-  // board asks for the skill by name and the project says what runs it; without
-  // one it runs the script Plot ships. The skill itself calls that same script,
-  // so the mechanical steps happen once either way and cannot drift.
+  // board asks for the skill by name and the project says what runs it,
+  // ROUTED THROUGH THE `agentRun` PORT rather than a raw `spawn`; without one
+  // it runs the script Plot ships, through the `Scripts` port as before. The
+  // skill itself calls that same script, so the mechanical steps happen once
+  // either way and cannot drift.
   //
-  // In the command case the prompt is passed as ONE argument, never
-  // interpolated into the command string. `sh -c "$cmd /plot-approve $slug"`
-  // would make a slug a shell injection point; `"$@"` makes it data. The slug is
-  // already validated, so this is defence in depth rather than the only barrier
-  // — which is precisely when it is worth having. The script case never builds a
-  // shell string at all.
-  // The exit code is written by a listener in THIS process rather than by a
-  // shell wrapper around the command, so a command that itself spawns and exits
-  // is timed the same way any other is.
-  const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+  // In the command case the prompt is passed as its own request field, never
+  // interpolated into a shell string. The script case never builds one at all.
+  //
+  // THE OUTCOME HAND-BACK DOES NOT CHANGE STATE. `outcome: 'done'` or
+  // `'refused'` is read only for the card's message; the plan's phase is
+  // still read from git exactly as before — this route asserts nothing about
+  // the host from the agent's own claim.
+  const writeState = (value: string) => {
     try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+      fs.writeFileSync(statePath, value, 'utf8');
     } catch {
       /* the state file is a convenience; the log is the record */
     }
   };
-  const onError = (err: Error): void => {
-    console.error('approve failed to spawn:', err);
+  const appendLog = (message: string) => {
     try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
+      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
     } catch {
       /* nothing further to do */
     }
@@ -370,19 +367,80 @@ export async function handleApprove(
   // agent's own script call is gated exactly as a master agent's is.
   recordActionReceipt(opts.repoRoot, 'approve', slug);
   if (command) {
-    const child = spawn(
-      'sh',
-      ['-c', `${command} "$@"`, 'plot-approve', approvePrompt(slug)],
-      { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
-    );
-    child.on('exit', onExit);
-    child.on('error', onError);
+    const choice = await agentRunFor(opts, 'approve', APPROVE_COMMAND_KEY);
+    fs.closeSync(out);
+    if (choice.runner === 'refused' || choice.agentRun === undefined) {
+      appendLog(choice.reason);
+      writeState('1');
+      json(202, { slug, log });
+      return;
+    }
+    const agentRun = choice.agentRun;
+    void agentRun
+      .run({
+        worktree: opts.repoRoot,
+        prompt: approvePrompt(slug),
+        resumeId: '',
+        role: 'approve',
+        harness: '',
+        model: '',
+        effort: '',
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: 0,
+        contextWindow: 0,
+        capabilities: [],
+        env: {},
+        logFile: log,
+      })
+      .then((result) => {
+        if (!result.ok) {
+          appendLog(`approve run failed: ${result.why}`);
+          writeState('1');
+          return;
+        }
+        const end = result.value.end;
+        if (end.answer !== 'ran') {
+          appendLog(`approve run ended without running: ${end.answer}`);
+          writeState('1');
+          return;
+        }
+        const handBack = end.handBack;
+        if (handBack === null || !('outcome' in handBack)) {
+          appendLog('approve run ended with no outcome hand-back');
+          writeState('1');
+          return;
+        }
+        if (handBack.outcome === 'refused') appendLog(handBack.summary);
+        writeState('0');
+      })
+      .catch((err) => {
+        console.error('approve run failed:', err);
+        appendLog(err instanceof Error ? err.message : String(err));
+        writeState('1');
+      });
   } else {
     // `--who` TRAVELS AS AN ARGUMENT, not folded into a shell string: this arm
     // never builds one at all, and `plot-approve.sh` itself refuses an empty
     // or undeclared handle on an in-session plan — this route supplies
     // whatever the caller sent, unvalidated, because the script is the one
     // place that rule is asked.
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      try {
+        fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+      } catch {
+        /* the state file is a convenience; the log is the record */
+      }
+    };
+    const onError = (err: Error): void => {
+      console.error('approve failed to spawn:', err);
+      try {
+        fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
+        fs.writeFileSync(statePath, '1', 'utf8');
+      } catch {
+        /* nothing further to do */
+      }
+    };
     const args = who ? [slug, '--who', who] : [slug];
     scriptsFor(opts).start(APPROVE_SCRIPT, args, {
       log: out,
@@ -393,22 +451,22 @@ export async function handleApprove(
       // terminal run of the same script.
       env: { ...process.env, PLOT_APPROVE_ENTRY: 'board' },
     });
+    // `detached` WITHOUT `unref`, which is deliberate and not the contradiction
+    // it looks like — the two flags answer different questions.
+    //
+    // `detached` puts the command in its own process group, so a Ctrl-C in the
+    // board's terminal does not land on it. An approval interrupted midway is
+    // the worst outcome available here: it can have merged the PR and not yet
+    // written the `Approved:` record, which is a plan whose file disagrees
+    // with its host. Finishing is strictly better than stopping.
+    //
+    // No `unref`, unlike the dispatcher's worker: that one must outlive the
+    // board by design (a fleet keeps running when the board is closed), while
+    // this one is short and its EXIT CODE is what the card is waiting for.
+    // Dropping the handle would drop the listener above with it, and every
+    // approval would read as `running` forever.
+    fs.closeSync(out);
   }
-  // `detached` WITHOUT `unref`, which is deliberate and not the contradiction
-  // it looks like — the two flags answer different questions.
-  //
-  // `detached` puts the command in its own process group, so a Ctrl-C in the
-  // board's terminal does not land on it. An approval interrupted midway is the
-  // worst outcome available here: it can have merged the PR and not yet written
-  // the `Approved:` record, which is a plan whose file disagrees with its host.
-  // Finishing is strictly better than stopping.
-  //
-  // No `unref`, unlike the dispatcher's worker: that one must outlive the board
-  // by design (a fleet keeps running when the board is closed), while this one
-  // is short and its EXIT CODE is what the card is waiting for. Dropping the
-  // handle would drop the listener above with it, and every approval would read
-  // as `running` forever.
-  fs.closeSync(out);
 
   json(202, { slug, log });
 }
