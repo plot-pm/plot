@@ -235,7 +235,7 @@ So the default derives from what the project wrote, as `MANIFESTO.md` Principle 
 
 ### A run records its spend and its limits
 
-- `infra/a-run-records-its-spend` — the run line in `SliceSpendSchema`, `readSpend` and `planSpend` that sum session increases, the seal that skips sessions with run lines; `rateLimitEntry` into the budget record; `Agent max spend`, `Slice max spend` with `sliceSpendRefusal`; `freshAgentAfterTurnLimit` and the supervisor's one fresh session for `turn-limit` <!-- builds: the per-run spend line and the turn-limit fresh session --> <!-- waits: infra/the-loop-waits-not-the-model --> <!-- waits: feature/a-spent-correction-budget-gets-a-fresh-agent -->
+- `infra/a-run-records-its-spend` — the run line in `SliceSpendSchema`, `readSpend` and `planSpend` that sum session increases, the seal that skips sessions with run lines; `rateLimitEntry` into the budget record; `Agent max spend`, `Slice max spend` with `sliceSpendRefusal`; `freshAgentAfterTurnLimit` and the supervisor's one fresh session for `turn-limit` → #1326 <!-- builds: the per-run spend line and the turn-limit fresh session --> <!-- waits: infra/the-loop-waits-not-the-model --> <!-- waits: feature/a-spent-correction-budget-gets-a-fresh-agent -->
 
 ### The board runs through the port
 
