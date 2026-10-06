@@ -1,5 +1,5 @@
-import { unaskable, failed } from '../port-result.js';
-import type { Reexec } from '../ports/reexec.js';
+import { unaskable, failed } from '../../port-result.js';
+import type { Reexec } from '../../ports/reexec.js';
 
 /** The slice of `process` this adapter needs — narrowed so a test can fake it without a real process. */
 export interface ExecveHost {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { processExec, type ExecveHost } from '../src/adapters/process-exec.js';
+import { processExec, type ExecveHost } from '../src/adapters/reexec/process-exec.js';
 
 describe('processExec — unaskable, never failed, when the host carries no execve', () => {
   it('answers unaskable on a host with no execve function', async () => {
