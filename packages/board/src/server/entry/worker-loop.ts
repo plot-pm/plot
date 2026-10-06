@@ -33,6 +33,7 @@ import {
 import { checksFromRuns, type RemoteTipReading } from '@plot-pm/domain/rules/checks-verdict';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
+import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
 import { restartAnswer, type LoopRestartReadings } from '@plot-pm/domain/rules/loop-restart';
 import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
 import { DEFAULT_AGENT_CONTEXT_WINDOW, DEFAULT_AGENT_MAX_TURNS, agentRunSettings } from '@plot-pm/domain/rules/agent-models';
@@ -626,6 +627,8 @@ export interface PromptState {
   readonly sessionId?: string;
   /** What the local checks answered for a `checks` hand-back; `null` while they have not run. */
   readonly localChecks?: LocalChecksReading | null;
+  /** The branch the loop already resumed once after a turn that dropped its background work; `''` for none. */
+  readonly droppedOn?: string;
 }
 
 /** What one pass is told about the repository's config, read once at start. */
@@ -693,6 +696,7 @@ export const readPass = async (
     handBackSummary: prompt.handBack?.summary ?? '',
     localChecks: prompt.localChecks ?? null,
     sliceRuns: manifest.sliceRuns,
+    backgroundDropResumed: manifest.branch !== '' && prompt.droppedOn === manifest.branch,
     sliceMaxRuns: config.sliceMaxRuns,
     sliceCostUsd,
     sliceMaxSpendUsd: config.sliceMaxSpendUsd,
@@ -743,11 +747,13 @@ export const readPass = async (
 
   // ROWS 7-9 — the prompt exited `unstarted`, `wait` or `end-limited`. None of
   // these reads anything about the desk or the host.
-  if (exit.answer !== 'ran') return base;
+  if (exit.answer !== 'ran' && exit.answer !== 'dropped') return base;
 
   // ROW 10 — the agent may have written its own marker.
   const markerText = await readMarkerText(worktree);
   if (markerText !== '') return { ...base, markerWritten: true, markerText };
+  // ROW 10c — a dropped turn reads nothing further.
+  if (exit.answer === 'dropped') return base;
 
   // ROW 11 — unlanded work with no marker.
   const refusals = await readResetRefusals(ports, worktree);
@@ -1154,6 +1160,8 @@ interface Held {
   sessionId: string;
   /** What the local checks answered for the last `checks` hand-back; `null` before they ran. */
   localChecks: LocalChecksReading | null;
+  /** The branch already resumed once after a turn that dropped its background work; `''` for none. */
+  droppedOn: string;
 }
 
 const FRESH: Held = {
@@ -1165,6 +1173,7 @@ const FRESH: Held = {
   handBack: null,
   sessionId: '',
   localChecks: null,
+  droppedOn: '',
 };
 
 /** How one run ended, for {@link runWorkerLoop}. */
@@ -1260,6 +1269,7 @@ const runPrompt = async (
     PLOT_SESSION_FLAG: spoken.ok && spoken.value === true ? '--resume' : '--session-id',
     PLOT_SESSION_ID: handle,
     PLOT_CORRECTION_FILE: join(worktree, 'PLOT-CORRECTION.md'),
+    ...backgroundGateEnv(),
   };
 
   // A FRESH OUTPUT FILE PER PROMPT, as the shell's `rm -f` before each run: the
@@ -1399,6 +1409,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       handBack: held.handBack,
       sessionId: held.sessionId,
       localChecks: held.localChecks,
+      droppedOn: held.droppedOn,
     };
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
     const decision = agentLoop(readings);
@@ -1458,9 +1469,16 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     }
 
     const resume = decision.writes.find((w) => w.kind === 'agent-resume');
+    // A DROPPED TURN'S CORRECTION IS WRITTEN AS THE DOMAIN BUILT IT, and the
+    // branch is held so the next drop on it ends the slice.
+    if (resume !== undefined && resume.kind === 'agent-resume' && readings.exit?.answer === 'dropped') {
+      await deps.ports.desk.appendCorrection(resume.worktree, resume.correction);
+      held = { ...held, droppedOn: resume.branch };
+      deps.log(`plot-worker-loop: the turn on ${resume.branch} ended with its background work dropped; resuming the session once`);
+    }
     // A CI CORRECTION IS WRITTEN TO THE DESK; a `checks` resume carries its
     // answer in the resumed turn alone.
-    if (resume !== undefined && resume.kind === 'agent-resume' && readings.handBack !== 'checks') {
+    else if (resume !== undefined && resume.kind === 'agent-resume' && readings.handBack !== 'checks') {
       await deps.ports.desk.writeCorrection(
         resume.worktree,
         resume.branch,

@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { AgentRun, AgentRunRequest, AgentRunResult } from '../../ports/agent-run.js';
 import type { BoundedRun } from '../../ports/bounded-run.js';
+import { backgroundGateEnv } from '../../rules/agent-run-env.js';
 import { promptExit, type LimitPatterns } from '../../rules/prompt-exit.js';
 
 /** What this adapter needs beyond the request itself. */
@@ -57,7 +58,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
     try {
       result = await deps.boundedRun.run('env', ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1"', '_', promptFile], {
         cwd: request.worktree,
-        env: request.env as Record<string, string>,
+        env: { ...request.env, ...backgroundGateEnv() },
         boundSeconds: request.boundSeconds,
         outFile: request.logFile,
       });
@@ -95,6 +96,8 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
           return { answer: 'end-limited', cause: exit.cause };
         case 'unstarted':
           return { answer: 'unstarted', detail: 'the command exited without the agent doing any work' };
+        case 'dropped':
+          return { answer: 'dropped', line: exit.line };
         case 'ran':
           return { answer: 'ran', handBack: null };
         default:

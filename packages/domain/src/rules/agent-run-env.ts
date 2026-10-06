@@ -9,8 +9,36 @@
  * place this plan builds that object, and it merges.
  */
 
-/** The variable the SDK adapter sets to stop the CLI backgrounding anything. */
+/** The variable every fleet run sets to stop the CLI backgrounding anything. */
 export const BACKGROUND_TASKS_ENV_VAR = 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS';
+
+/**
+ * The tools every fleet run disallows: each exists only to wait on or manage
+ * background work. The SDK runner passes them as `disallowedTools`; a
+ * `command` runner's prompt file reads them from
+ * {@link BACKGROUND_DENY_ENV_VAR} and passes `--disallowedTools`.
+ */
+export const BACKGROUND_DISALLOWED_TOOLS: readonly string[] = [
+  'Monitor',
+  'ScheduleWakeup',
+  'CronCreate',
+  'TaskStop',
+  'ListAgents',
+];
+
+/** The variable that carries {@link BACKGROUND_DISALLOWED_TOOLS}, comma-separated, to a prompt file. */
+export const BACKGROUND_DENY_ENV_VAR = 'PLOT_BACKGROUND_DENY';
+
+/**
+ * The background gate as environment, for every fleet run on either runner:
+ * the switch, and the disallowed tools for a prompt file's `--disallowedTools`.
+ *
+ * @returns the two variables and their values.
+ */
+export const backgroundGateEnv = (): Readonly<Record<string, string>> => ({
+  [BACKGROUND_TASKS_ENV_VAR]: '1',
+  [BACKGROUND_DENY_ENV_VAR]: BACKGROUND_DISALLOWED_TOOLS.join(','),
+});
 
 /**
  * Builds the child's environment: the inherited process environment, Plot's
@@ -34,7 +62,7 @@ export const BACKGROUND_TASKS_ENV_VAR = 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS';
  *
  * @param inherited - the parent process's own environment.
  * @param plotEnv - the `PLOT_*` values this run adds.
- * @returns the merged environment, background tasks disabled.
+ * @returns the merged environment, with {@link backgroundGateEnv} last.
  */
 export const agentRunEnv = (
   inherited: Readonly<Record<string, string>>,
@@ -42,7 +70,7 @@ export const agentRunEnv = (
 ): Readonly<Record<string, string>> => ({
   ...inherited,
   ...plotEnv,
-  [BACKGROUND_TASKS_ENV_VAR]: '1',
+  ...backgroundGateEnv(),
 });
 
 /** One settings file's `env` key, as the caller read it. */

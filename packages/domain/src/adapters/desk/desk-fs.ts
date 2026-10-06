@@ -153,6 +153,15 @@ export const deskFs = (trees: Trees): Desk => {
       return answered(undefined);
     },
 
+    appendCorrection: async (worktree, correction): Promise<PortResult<void>> => {
+      try {
+        appendFileSync(join(worktree, CORRECTION_FILE), `${correction}\n\n---\n\n`);
+      } catch {
+        /* best effort */
+      }
+      return answered(undefined);
+    },
+
     writeLimitedRecord: async (worktree, resetEpoch, resetIso, limitLine): Promise<PortResult<void>> => {
       bestEffortWrite(join(worktree, LIMITED_FILE), `${resetEpoch}\t${resetIso}\t${limitLine}\n`);
       return answered(undefined);

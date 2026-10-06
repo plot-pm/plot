@@ -24,6 +24,13 @@
  * You've hit your session limit · resets 5:20pm (Europe/Zurich)
  * ```
  *
+ * The `dropped` prefix was read from the 2.1.291 binary, which writes this line
+ * to stderr and then terminates the turn's background tasks:
+ *
+ * ```
+ * Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.
+ * ```
+ *
  * A reset shape not yet measured — a weekly reset carrying a date, or a spend
  * cap's month — reads as unreadable and ends the worker with a marker naming
  * the limit, until it is measured and added.
@@ -44,5 +51,6 @@ export const HARNESS_LIMIT_LINES: Readonly<Record<string, LimitPatterns>> = {
     prefix: "You've hit your ",
     names: ['session limit', 'weekly limit', 'Opus limit', 'fast limit', 'monthly spend limit'],
     resetSeparator: ' · resets ',
+    dropped: 'Background tasks still running after ',
   },
 };
