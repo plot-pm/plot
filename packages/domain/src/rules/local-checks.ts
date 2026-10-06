@@ -134,8 +134,21 @@ export const searchTerms = (path: string): string[] => {
   return terms;
 };
 
+/**
+ * One path as a shell word: as written where it holds only characters the
+ * shell takes literally, single-quoted otherwise. The loop runs each command
+ * through `bash -c`, so a path with a space or a quote stays one argument.
+ *
+ * @param path - the path.
+ * @returns the shell word.
+ */
+export const shellWord = (path: string): string =>
+  /^[A-Za-z0-9_/.@%+=:,-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
+
 const fill = (command: string, placeholder: string, paths: readonly string[], root: string): string =>
-  command.split(placeholder).join(paths.map((p) => (root ? `${root.replace(/\/+$/, '')}/${p}` : p)).join(' '));
+  command
+    .split(placeholder)
+    .join(paths.map((p) => shellWord(root ? `${root.replace(/\/+$/, '')}/${p}` : p)).join(' '));
 
 /**
  * Decides the checks for one branch.

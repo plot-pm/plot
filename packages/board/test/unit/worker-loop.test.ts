@@ -398,12 +398,21 @@ describe('loopWritesOf', () => {
     expect(loopWritesOf(writes)).toEqual(writes);
   });
 
-  it('leaves a checks write out: the entry runs the local checks itself', () => {
+  it('leaves a checks write out where the SDK runner runs the checks', () => {
     expect(
-      loopWritesOf([
-        { kind: 'checks', branch: 'infra/x', worktree: '/w', resumeId: 'r', summary: 's' },
-        { kind: 'assignment-clear', session: 's' },
-      ]),
+      loopWritesOf(
+        [
+          { kind: 'checks', branch: 'infra/x', worktree: '/w', resumeId: 'r', summary: 's' },
+          { kind: 'assignment-clear', session: 's' },
+        ],
+        true,
+      ),
     ).toEqual([{ kind: 'assignment-clear', session: 's' }]);
+  });
+
+  it('refuses a checks write without the SDK runner, naming its branch', () => {
+    expect(() =>
+      loopWritesOf([{ kind: 'checks', branch: 'infra/x', worktree: '/w', resumeId: 'r', summary: 's' }]),
+    ).toThrow('a checks write on infra/x without the SDK runner');
   });
 });

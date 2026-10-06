@@ -58,4 +58,10 @@ describe('agentRunSettings', () => {
     expect(agentRunSettings(reading({ charterContextWindow: 500_000 })).contextWindow).toBe(200_000);
     expect(agentRunSettings(reading({ charterContextWindow: 100_000, agentContextWindow: 0 })).contextWindow).toBe(100_000);
   });
+
+  it("clamps the window to the SDK's 100000-1000000 range, and keeps no cap as none", () => {
+    expect(agentRunSettings(reading({ charterContextWindow: 50_000 })).contextWindow).toBe(100_000);
+    expect(agentRunSettings(reading({ agentContextWindow: 2_000_000 })).contextWindow).toBe(1_000_000);
+    expect(agentRunSettings(reading({ agentContextWindow: 0 })).contextWindow).toBe(0);
+  });
 });

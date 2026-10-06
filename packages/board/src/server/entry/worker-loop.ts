@@ -187,8 +187,9 @@ const EMPTY_MANIFEST: ManifestFields = {
 /**
  * Reads the manifest's `sliceRuns` record for the assigned branch.
  *
- * The count is keyed to the branch, as `correctionAttempts` is (#1285): a
- * record naming another branch reads `0`, so a hop resets it.
+ * The record names the branch it counts, so a record naming another branch
+ * reads `0` and a hop starts the count again without a write.
+ * `correctionAttempts` reaches the same answer by a reset in {@link writeHop}.
  *
  * @param raw - the manifest's `sliceRuns` value, `{ branch, runs }`.
  * @param branch - the assigned branch.
@@ -201,16 +202,21 @@ export const sliceRunsOf = (raw: unknown, branch: string): number => {
 };
 
 /**
- * Records one more run on the assigned branch, best-effort.
+ * Records one more run on the assigned branch.
  *
- * @param manifestFile - the manifest's own path; a no-op when empty or unreadable.
- * @returns the new count, or `0` where the manifest could not be written.
+ * NOT BEST-EFFORT, unlike the other manifest writers here: `Slice max runs`
+ * reads this count, so a count that cannot be written would let a
+ * `checks` → resume cycle run without a limit. The caller starts no run
+ * where this answers `null`.
+ *
+ * @param manifestFile - the manifest's own path; `''` for a hand-started loop, which counts nothing.
+ * @returns the new count; `0` for a hand-started loop; `null` where the manifest could not be read or written.
  */
-export const raiseSliceRuns = async (manifestFile: string): Promise<number> => {
+export const raiseSliceRuns = async (manifestFile: string): Promise<number | null> => {
   if (manifestFile === '') return 0;
   try {
     const parsed: unknown = JSON.parse(await readFile(manifestFile, 'utf8'));
-    if (typeof parsed !== 'object' || parsed === null) return 0;
+    if (typeof parsed !== 'object' || parsed === null) return null;
     const was = parsed as Record<string, unknown>;
     const branch = typeof was.branch === 'string' ? was.branch : '';
     const runs = sliceRunsOf(was.sliceRuns, branch) + 1;
@@ -219,7 +225,7 @@ export const raiseSliceRuns = async (manifestFile: string): Promise<number> => {
     await rename(tmp, manifestFile);
     return runs;
   } catch {
-    return 0;
+    return null;
   }
 };
 
@@ -275,13 +281,16 @@ export const stampManifestLoopJs = async (manifestFile: string): Promise<void> =
 
 /**
  * Records a hop in the manifest, best-effort, as `update_manifest_on_hop`
- * does: `wavesCount` goes up by one, and a non-empty `handle` replaces
- * `resumeId` — one conversation per slice.
+ * does: `wavesCount` goes up by one, a non-empty `handle` replaces
+ * `resumeId` — one conversation per slice — and `correctionAttempts` resets
+ * to 0 when the hop comes from another branch, because the count belongs to
+ * the branch (`plot-worker-loop.sh:337`).
  *
  * @param manifestFile - the manifest's own path; a no-op when empty or unreadable.
  * @param handle - the new handle; `''` leaves `resumeId` as it is.
+ * @param from - the branch the agent held before the hop; absent leaves `correctionAttempts` as it is.
  */
-export const writeHop = async (manifestFile: string, handle: string): Promise<void> => {
+export const writeHop = async (manifestFile: string, handle: string, from?: string): Promise<void> => {
   if (manifestFile === '') return;
   try {
     const parsed: unknown = JSON.parse(await readFile(manifestFile, 'utf8'));
@@ -289,7 +298,12 @@ export const writeHop = async (manifestFile: string, handle: string): Promise<vo
     const tmp = `${manifestFile}.plot-hop-tmp`;
     const was = parsed as Record<string, unknown>;
     const waves = typeof was.wavesCount === 'number' && was.wavesCount > 0 ? was.wavesCount : 1;
-    const next = { ...was, wavesCount: waves + 1, ...(handle !== '' ? { resumeId: handle } : {}) };
+    const next = {
+      ...was,
+      wavesCount: waves + 1,
+      ...(handle !== '' ? { resumeId: handle } : {}),
+      ...(from !== undefined && from !== was.branch ? { correctionAttempts: 0 } : {}),
+    };
     await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
     await rename(tmp, manifestFile);
   } catch {
@@ -814,41 +828,59 @@ export interface SdkRunDeps {
  * A decision's writes as the {@link LoopWrite}s {@link performLoopWrites} applies.
  *
  * `checks` is not a port write: this entry runs the local checks itself,
- * through `boundedRun`, and reads the answer into the next pass.
+ * through `boundedRun`, and reads the answer into the next pass. Only an SDK
+ * run hands back `checks`, so a `checks` write without the SDK runner is a
+ * defect and throws rather than being dropped.
  *
  * @param writes - the decision's writes.
+ * @param runsChecks - whether this loop has the SDK runner, which runs the checks.
  * @returns the writes other than `checks`, typed as {@link LoopWrite}s.
+ * @throws Error where a write is `checks` and `runsChecks` is false.
  */
-export const loopWritesOf = (writes: readonly Write[]): readonly LoopWrite[] =>
-  writes.filter((w) => w.kind !== 'checks') as readonly LoopWrite[];
+export const loopWritesOf = (writes: readonly Write[], runsChecks = false): readonly LoopWrite[] => {
+  const checks = writes.find((w) => w.kind === 'checks');
+  if (checks !== undefined && !runsChecks) {
+    throw new Error(`plot-worker-loop: a checks write on ${checks.branch} without the SDK runner, which alone runs the checks`);
+  }
+  return writes.filter((w) => w.kind !== 'checks') as readonly LoopWrite[];
+};
 
 /**
  * Runs the local checks a `checks` hand-back asks for: the commands
  * `plot-local-checks.mjs` prints, each through `boundedRun`, in order, until
  * one fails.
  *
- * A worker's own `PLOT_*` variables are unset for each command, because a
+ * Only the lister's standard output names commands: its standard error goes
+ * to a file of its own, so a warning is never read as a command. That file
+ * joins the output a failed lister hands back.
+ *
+ * `PLOT_REPO_ROOT`, `PLOT_UNATTENDED`, `PLOT_MANIFEST_FILE` and
+ * `PLOT_WRAPPER_PID_FILE` are unset for the lister and each command, because a
  * test that builds a sandbox reads `PLOT_REPO_ROOT` as its root.
  *
  * @param boundedRun - the port each command runs through.
  * @param scriptDir - where the helper scripts live.
  * @param boundSeconds - the bound of each command.
  * @param outFile - where one command's output is written; emptied before each.
+ *   The lister's standard error goes to `<outFile>.err`.
  * @returns a pass, or the first failing command and the tail of its output.
  */
 export const localChecksRunner =
   (boundedRun: BoundedRun, scriptDir: string, boundSeconds: number, outFile: string) =>
   async (worktree: string): Promise<LocalChecksReading> => {
     const scrubbed = ['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_UNATTENDED', '-u', 'PLOT_MANIFEST_FILE', '-u', 'PLOT_WRAPPER_PID_FILE'];
+    const read = (path: string): Promise<string> => readFile(path, 'utf8').catch(() => '');
     const runOne = async (args: readonly string[]): Promise<{ passed: boolean; output: string }> => {
       await writeFile(outFile, '', 'utf8');
       const run = await boundedRun.run('env', [...scrubbed, ...args], { cwd: worktree, boundSeconds, outFile });
-      const output = await readFile(outFile, 'utf8').catch(() => '');
-      return { passed: run.ok && run.value.status === 0, output };
+      return { passed: run.ok && run.value.status === 0, output: await read(outFile) };
     };
     const lister = join(scriptDir, 'board', 'plot-local-checks.mjs');
-    const listed = await runOne(['node', lister]);
-    if (!listed.passed) return failedCheck(`node ${lister}`, listed.output);
+    const errFile = `${outFile}.err`;
+    const listed = await runOne(['bash', '-c', 'exec node "$1" 2>"$2"', '_', lister, errFile]);
+    const listerErr = await read(errFile);
+    await rm(errFile, { force: true });
+    if (!listed.passed) return failedCheck(`node ${lister}`, `${listed.output}${listerErr}`);
     for (const command of printedCommands(listed.output)) {
       const ran = await runOne(['bash', '-c', command]);
       if (!ran.passed) return failedCheck(command, ran.output);
@@ -959,11 +991,16 @@ const runPrompt = async (
   // first prompt on the new slice runs `--session-id` and loads nothing.
   if (hopFrom !== '') {
     const minted = hopFrom === manifest.branch ? '' : (deps.mintHandle ?? randomUUID)().toLowerCase();
-    await writeHop(deps.manifestFile, minted);
+    await writeHop(deps.manifestFile, minted, hopFrom);
     if (minted !== '') manifest.resumeId = minted;
   }
   const handle = manifest.resumeId !== '' ? manifest.resumeId : deps.sessionId;
-  await raiseSliceRuns(deps.manifestFile);
+  // A RUN THE MANIFEST CANNOT COUNT IS NOT STARTED: it ends `unstarted`, so
+  // the start-retry budget bounds it instead of nothing.
+  if ((await raiseSliceRuns(deps.manifestFile)) === null) {
+    deps.log(`plot-worker-loop: could not count this run in ${deps.manifestFile}; Slice max runs cannot hold, so no run starts`);
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
+  }
   const spoken = await deps.idle.transcript.spoken(worktree, handle);
   const env: Record<string, string> = {
     PLOT_BRANCH: manifest.branch,
@@ -1117,7 +1154,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       deps.log(`plot-worker-loop: free on ${deps.slug || '?'} — nothing handed over yet. Waiting to be handed work: reading the manifest every ${deps.config.passIntervalMs / 1000}s, for up to ${deps.config.waitBudgetSeconds}s; stop it with /plot-fleet --stop`);
     }
     const worktree = readings.worktree || deps.worktree;
-    const applied = await performLoopWrites(loopWritesOf(decision.writes), deps.ports, worktree);
+    const applied = await performLoopWrites(loopWritesOf(decision.writes, deps.sdk !== undefined), deps.ports, worktree);
     for (const line of failureLines(applied)) deps.log(line);
     const spend = decision.writes.find((w) => w.kind === 'slice-spend');
     if (spend !== undefined && spend.kind === 'slice-spend') await deps.ports.recordSpend(spend.worktree, spend.branch, readings.passAt);
@@ -1142,7 +1179,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       const claim = refused === 'push' ? await readClaimAnswer(deps.ports, branch, deps.config.base, readings.session) : null;
       deps.log(takeUpLine(refused, claim, branch, worktree));
       const cleared = agentLoop({ ...readings, takeUpRefused: refused, claim });
-      await performLoopWrites(loopWritesOf(cleared.writes), deps.ports, worktree);
+      await performLoopWrites(loopWritesOf(cleared.writes, deps.sdk !== undefined), deps.ports, worktree);
     }
 
     const kinds = new Set(decision.writes.map((w) => w.kind));
@@ -1155,9 +1192,9 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     // A `checks` HAND-BACK: the loop runs the local checks, with no model turn,
     // and the next pass resumes the session with the answer.
     const checks = decision.writes.find((w) => w.kind === 'checks');
-    if (checks !== undefined && checks.kind === 'checks' && deps.sdk !== undefined) {
+    if (checks !== undefined && checks.kind === 'checks') {
       deps.log(`plot-worker-loop: ${checks.branch} handed back checks; running the local checks`);
-      const answer = await deps.sdk.runChecks(checks.worktree);
+      const answer = await deps.sdk!.runChecks(checks.worktree);
       deps.log(answer.passed ? `plot-worker-loop: local checks passed on ${checks.branch}` : `plot-worker-loop: local check failed on ${checks.branch}: ${answer.command}`);
       held = { ...held, localChecks: answer };
       continue;

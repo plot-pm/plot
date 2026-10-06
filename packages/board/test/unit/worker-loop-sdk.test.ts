@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rmTree } from '../helpers.mjs';
 import {
   agentRunFixture,
+  boundedRunProcess,
+  processesShell,
   agentsFixture,
   buildFixture,
   deskFixture,
@@ -322,7 +324,8 @@ describe('localChecksRunner', () => {
     const base = scripted([{ output: 'a\nb\n', status: 0 }, { output: '', status: 0 }, { output: '', status: 0 }]);
     const runner: BoundedRun = { run: async (c, args, o) => (calls.push(args), base.run(c, args, o)) };
     expect(await localChecksRunner(runner, '/s', 60, outFile())('/w')).toEqual({ passed: true });
-    expect(calls[0]!.slice(-2)).toEqual(['node', '/s/board/plot-local-checks.mjs']);
+    expect(calls[0]!.slice(8, 12)).toEqual(['bash', '-c', 'exec node "$1" 2>"$2"', '_']);
+    expect(calls[0]![12]).toBe('/s/board/plot-local-checks.mjs');
     expect(calls.slice(1).map((a) => a.slice(-3))).toEqual([
       ['bash', '-c', 'a'],
       ['bash', '-c', 'b'],
@@ -341,6 +344,24 @@ describe('localChecksRunner', () => {
       command: 'a',
       tail: '',
     });
+  });
+});
+
+describe('localChecksRunner against a real process', () => {
+  it("reads only the lister's standard output as commands; a warning on standard error is not one", async () => {
+    const scripts = tempDir('plot-checks-scripts-');
+    fs.mkdirSync(path.join(scripts, 'board'));
+    fs.writeFileSync(
+      path.join(scripts, 'board', 'plot-local-checks.mjs'),
+      "process.stderr.write('could not read the branch against the default branch\\n');\nprocess.stdout.write('true\\nsummary: commands=1\\n');\n",
+    );
+    const out = path.join(tempDir('plot-checks-out-'), 'checks.out');
+    const runner = localChecksRunner(boundedRunProcess(processesShell({ repoRoot: scripts, scriptDir: scripts })), scripts, 60, out);
+    expect(await runner(scripts)).toEqual({ passed: true });
+    expect(fs.existsSync(`${out}.err`)).toBe(false);
+
+    fs.writeFileSync(path.join(scripts, 'board', 'plot-local-checks.mjs'), "process.stderr.write('lister broke\\n');\nprocess.exit(2);\n");
+    expect(await runner(scripts)).toMatchObject({ passed: false, tail: 'lister broke' });
   });
 });
 
@@ -366,12 +387,36 @@ describe('raiseSliceRuns', () => {
     expect(await raiseSliceRuns(file)).toBe(1);
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).sliceRuns).toEqual({ branch: 'infra/y', runs: 1 });
     expect(await raiseSliceRuns('')).toBe(0);
-    expect(await raiseSliceRuns(path.join(dir, 'gone.json'))).toBe(0);
+    expect(await raiseSliceRuns(path.join(dir, 'gone.json'))).toBeNull();
     fs.writeFileSync(file, 'null');
-    expect(await raiseSliceRuns(file)).toBe(0);
+    expect(await raiseSliceRuns(file)).toBeNull();
     fs.writeFileSync(file, JSON.stringify({ branch: 7 }));
     expect(await raiseSliceRuns(file)).toBe(1);
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).sliceRuns).toEqual({ branch: '', runs: 1 });
+  });
+});
+
+describe('the manifest across a hop, and a run it cannot count', () => {
+  it('writeHop resets the correction count on a hop from another branch, and keeps it on the same branch', async () => {
+    const r = rig([], async () => ({ passed: true }), { ...ASSIGNED, correctionAttempts: 2 });
+    const { writeHop } = await import('../../src/server/entry/worker-loop.js');
+    await writeHop(r.deps.manifestFile, 'h-2', 'infra/old');
+    expect(r.read()).toMatchObject({ correctionAttempts: 0, resumeId: 'h-2' });
+    fs.writeFileSync(r.deps.manifestFile, JSON.stringify({ ...r.read(), correctionAttempts: 1 }));
+    await writeHop(r.deps.manifestFile, '', BRANCH);
+    expect(r.read()).toMatchObject({ correctionAttempts: 1 });
+  });
+
+  it('starts no run, and ends unstarted, where the manifest cannot count it', async () => {
+    const logs: string[] = [];
+    const r = rig([ran('done')], async () => ({ passed: true }));
+    r.deps = { ...r.deps, log: (line) => logs.push(line) };
+    const real = r.deps.manifestFile;
+    // A DIRECTORY WHERE THE TEMP FILE GOES: the manifest reads, the count cannot be written.
+    fs.mkdirSync(`${real}.plot-runs-tmp`);
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    expect(r.requests).toEqual([]);
+    expect(logs.join('\n')).toContain('could not count this run');
   });
 });
 

@@ -512,8 +512,11 @@ describe('runWorkerLoop — a hop', () => {
 
   it('mints a handle for a different branch, runs --session-id on it, and counts the wave', async () => {
     const { r, minted } = hopRig('feature/next', 'h-1');
+    r.write({ ...r.read(), correctionAttempts: 2 });
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(minted).toEqual(['M']);
+    // THE COUNT BELONGS TO THE BRANCH: the next slice does not inherit it.
+    expect(r.read().correctionAttempts).toBe(0);
     expect(r.runs[1].env).toMatchObject({ PLOT_BRANCH: 'feature/next', PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
     expect(r.read()).toMatchObject({ resumeId: 'h-new', wavesCount: 2 });
   });
@@ -527,8 +530,10 @@ describe('runWorkerLoop — a hop', () => {
 
   it('keeps the handle when the hop lands on the same branch, and still counts the wave', async () => {
     const { r, minted } = hopRig(BRANCH, 'h-1');
+    r.write({ ...r.read(), correctionAttempts: 1 });
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(minted).toEqual([]);
+    expect(r.read().correctionAttempts).toBe(1);
     expect(r.runs[1].env?.PLOT_SESSION_ID).toBe('h-1');
     expect(r.read()).toMatchObject({ resumeId: 'h-1', wavesCount: 2 });
   });
