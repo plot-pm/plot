@@ -38,34 +38,56 @@ describe('agentRunCommand', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('writes the request.prompt TEXT to a scratch file and sources that file, never the prompt string itself as a path', async () => {
+  it('writes deps.fragment to a scratch file and sources it, passing request.prompt as that script\'s own argument', async () => {
     let sourcedFile = '';
-    let writtenAtRunTime = '';
+    let fragmentFileContent = '';
+    let promptArg = '';
     const boundedRun: BoundedRun = {
       run: async (_command, args) => {
-        // args: ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1"', '_', <promptFile>]
-        sourcedFile = args[args.length - 1] ?? '';
+        // args: ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1" "$2"', '_', <fragmentFile>, <prompt>]
+        sourcedFile = args[args.length - 2] ?? '';
+        promptArg = args[args.length - 1] ?? '';
         // Read it NOW — the adapter removes its scratch directory once this
         // call returns, so a read after `adapter.run` resolves finds nothing.
-        writtenAtRunTime = await readFile(sourcedFile, 'utf8');
+        fragmentFileContent = await readFile(sourcedFile, 'utf8');
         return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
       },
     };
-    const adapter = agentRunCommand({ boundedRun, limitPatterns: undefined, now: () => 0 });
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
 
-    const promptText = 'echo "the actual prompt text, not a path"';
+    const promptText = 'Read /repo/docs/plans/x.md and follow it.';
     const result = await adapter.run(request({ prompt: promptText }, dir, logFile));
 
     expect(result.ok).toBe(true);
-    expect(sourcedFile).not.toBe(promptText);
-    expect(writtenAtRunTime).toBe(promptText);
+    expect(fragmentFileContent).toBe('claude -p "$@"');
+    expect(promptArg).toBe(promptText);
+  });
+
+  it('never interpolates request.prompt into the sourced fragment file, even when the prompt contains shell metacharacters', async () => {
+    let fragmentFileContent = '';
+    let promptArg = '';
+    const boundedRun: BoundedRun = {
+      run: async (_command, args) => {
+        const sourcedFile = args[args.length - 2] ?? '';
+        promptArg = args[args.length - 1] ?? '';
+        fragmentFileContent = await readFile(sourcedFile, 'utf8');
+        return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
+      },
+    };
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
+
+    const dangerousPrompt = `Read "$(rm -rf /)" and follow it; echo pwned`;
+    await adapter.run(request({ prompt: dangerousPrompt }, dir, logFile));
+
+    expect(fragmentFileContent).not.toContain('rm -rf');
+    expect(promptArg).toBe(dangerousPrompt);
   });
 
   it('answers ran with a null hand-back on a zero exit status', async () => {
     const boundedRun: BoundedRun = {
       run: async () => answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 5 }),
     };
-    const adapter = agentRunCommand({ boundedRun, limitPatterns: undefined, now: () => 0 });
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
 
     const result = await adapter.run(request({}, dir, logFile));
     expect(result.ok).toBe(true);
@@ -77,7 +99,7 @@ describe('agentRunCommand', () => {
     const boundedRun: BoundedRun = {
       run: async () => answered<BoundedRunResult>({ status: 1, timedOut: false, ranSeconds: 1 }),
     };
-    const adapter = agentRunCommand({ boundedRun, limitPatterns: undefined, now: () => 0 });
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
 
     const result = await adapter.run(request({}, dir, logFile));
     expect(result.ok).toBe(true);
@@ -89,7 +111,7 @@ describe('agentRunCommand', () => {
     const boundedRun: BoundedRun = {
       run: async () => failed<BoundedRunResult>(),
     };
-    const adapter = agentRunCommand({ boundedRun, limitPatterns: undefined, now: () => 0 });
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
 
     const result = await adapter.run(request({}, dir, logFile));
     expect(result.ok).toBe(false);
@@ -103,7 +125,7 @@ describe('agentRunCommand', () => {
     const boundedRun: BoundedRun = {
       run: async () => answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 }),
     };
-    const adapter = agentRunCommand({ boundedRun, limitPatterns: undefined, now: () => 0 });
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
 
     const result = await adapter.run(request({}, dir, logFile));
     expect(result.ok).toBe(true);
@@ -117,7 +139,7 @@ describe('agentRunCommand', () => {
     const boundedRun: BoundedRun = {
       run: async () => answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 }),
     };
-    const adapter = agentRunCommand({ boundedRun, limitPatterns: undefined, now: () => 0 });
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
 
     const result = await adapter.run(request({ resumeId: 'resumed-session-42' }, dir, logFile));
     expect(result.ok).toBe(true);

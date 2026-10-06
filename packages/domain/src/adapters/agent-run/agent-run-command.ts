@@ -10,11 +10,15 @@
  * `promptExit` reads it today, so a project on `Agent runner: command` sees no
  * change in behaviour from before this port existed.
  *
- * **`request.prompt` IS TEXT, NOT A PATH** — the port's own doc names it
- * "the prompt text," the same string a fresh SDK run passes to `query()`. A
- * shell command has no way to run a string directly, so this adapter writes
- * it to a scratch file beside the log file and sources THAT, the way the loop
- * sources its resolved prompt file today.
+ * **THE FRAGMENT RUNS WITH `request.prompt` AS ITS OWN ARGUMENT, NEVER
+ * INTERPOLATED INTO A SHELL STRING.** `deps.fragment` is a shell FRAGMENT
+ * (e.g. `claude -p`), sourced as `. "$1" "$2"` with `$1` the fragment's own
+ * scratch file and `$2` the prompt text — the two-argument shape
+ * `spawn('sh', ['-c', '<fragment> "$@"', …, request.prompt])` used before this
+ * adapter existed, carried over rather than redesigned. Passing the prompt as
+ * a real positional argument (not string-concatenated into the sourced file)
+ * is what keeps a prompt containing a quote or a `$` from being read as shell
+ * syntax.
  */
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -28,6 +32,8 @@ import { promptExit, type LimitPatterns } from '../../rules/prompt-exit.js';
 /** What this adapter needs beyond the request itself. */
 export interface AgentRunCommandDeps {
   readonly boundedRun: BoundedRun;
+  /** The shell fragment to run, e.g. `claude -p` — read once, not per request. */
+  readonly fragment: string;
   /** The command's own basename, for reading its limit-line patterns. */
   readonly limitPatterns: LimitPatterns | undefined;
   /** Epoch milliseconds, for the exit classification's `now`. */
@@ -35,32 +41,36 @@ export interface AgentRunCommandDeps {
 }
 
 /**
- * An `AgentRun` that runs the request's command through `boundedRun`.
+ * An `AgentRun` that runs `deps.fragment` through `boundedRun`, with
+ * `request.prompt` passed as that fragment's own argument.
  *
- * `request.harness` names the command fragment to run (the loop resolves this
- * from the project's configured command before calling in); this adapter does
- * not interpret `request.model` or `request.effort` — a shell fragment either
- * already names a model (e.g. `PLOT_MODEL=sonnet`) or does not, and this
- * adapter has no CLI flag vocabulary to inject one with.
+ * This adapter does not interpret `request.model` or `request.effort` — a
+ * shell fragment either already names a model (e.g. `PLOT_MODEL=sonnet`) or
+ * does not, and this adapter has no CLI flag vocabulary to inject one with.
  *
- * @param deps - the bounded-run port, this harness's limit patterns, and a clock.
+ * @param deps - the bounded-run port, the fragment to run, this harness's
+ *   limit patterns, and a clock.
  * @returns an `AgentRun` backed by `boundedRun`.
  */
 export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
   run: async (request: AgentRunRequest): Promise<PortResult<AgentRunResult>> => {
     await writeFile(request.logFile, '', 'utf8');
     const scratchDir = await mkdtemp(join(tmpdir(), 'plot-agent-run-command-'));
-    const promptFile = join(scratchDir, 'prompt.sh');
-    await writeFile(promptFile, request.prompt, 'utf8');
+    const fragmentFile = join(scratchDir, 'fragment.sh');
+    await writeFile(fragmentFile, `${deps.fragment} "$@"`, 'utf8');
 
     let result;
     try {
-      result = await deps.boundedRun.run('env', ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1"', '_', promptFile], {
-        cwd: request.worktree,
-        env: request.env as Record<string, string>,
-        boundSeconds: request.boundSeconds,
-        outFile: request.logFile,
-      });
+      result = await deps.boundedRun.run(
+        'env',
+        ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1" "$2"', '_', fragmentFile, request.prompt],
+        {
+          cwd: request.worktree,
+          env: request.env as Record<string, string>,
+          boundSeconds: request.boundSeconds,
+          outFile: request.logFile,
+        },
+      );
     } finally {
       await rm(scratchDir, { recursive: true, force: true });
     }

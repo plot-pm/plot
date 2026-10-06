@@ -363,7 +363,7 @@ export const agentRunFor = async (
     return {
       runner: 'command',
       reason: choice.reason,
-      agentRun: agentRunCommand({ boundedRun, limitPatterns: HARNESS_LIMIT_LINES.claude, now }),
+      agentRun: agentRunCommand({ boundedRun, fragment, limitPatterns: HARNESS_LIMIT_LINES.claude, now }),
     };
   }
 
