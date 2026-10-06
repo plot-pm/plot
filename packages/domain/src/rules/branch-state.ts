@@ -54,11 +54,51 @@ export interface WaitsReading {
   /** What the host said about that branch's pull request. */
   pr: PrReading;
   /**
-   * Whether some plan names this branch as a slice. The caller reads it from
-   * the plan set; `false` means no plan contains the name.
+   * Whether the branch is in `namedSlices` of the whole plan estate: a slice
+   * that is not deferred, of a plan whose phase is not terminal. `false` for a
+   * name no plan contains, a deferred slice, and a slice of a delivered,
+   * released, rejected or superseded plan.
    */
   namedSlice: boolean;
 }
+
+/** The phases after which a plan starts no further slice. */
+const TERMINAL_PHASES: ReadonlySet<string> = new Set([
+  'delivered',
+  'released',
+  'rejected',
+  'superseded',
+]);
+
+/** One plan as `namedSlices` reads it. */
+export interface PlanSlices {
+  /** The plan's phase, as `plot-plan-meta.sh` spells it (lower case). */
+  phase: string;
+  /** Every branch the plan's waves name, with the plan's `deferred:` flag. */
+  slices: readonly { branch: string; deferred: boolean }[];
+}
+
+/**
+ * The slices somebody may still start: the set `WaitsReading.namedSlice` is
+ * read from.
+ *
+ * A branch is in the set when a plan in a non-terminal phase names it as a
+ * slice and does not defer it. An `idea/` branch and a name whose last segment
+ * holds a dot are not slices: the first carries a plan, the second is a file
+ * path. The caller passes every plan of the estate, never one plan.
+ *
+ * @param plans - every plan of the estate.
+ * @returns the branch names.
+ */
+export const namedSlices = (plans: readonly PlanSlices[]): Set<string> =>
+  new Set(
+    plans
+      .filter((plan) => !TERMINAL_PHASES.has(plan.phase))
+      .flatMap((plan) => plan.slices)
+      .filter((s) => !s.deferred && !s.branch.startsWith('idea/'))
+      .filter((s) => !(s.branch.split('/').at(-1) ?? '').includes('.'))
+      .map((s) => s.branch),
+  );
 
 /**
  * What was measured of ONE branch, from the four sources that can answer.
@@ -127,17 +167,22 @@ export interface BranchReadings {
  * `MERGED`                    cleared — the annotation stops mattering, and
  *                             the branch keeps the state its own readings
  *                             earned.
- * `none`, name in no plan     `blocked`: the host has no pull request for the
- *                             name and no plan contains it, so the plan names a
- *                             branch nobody will create. It resolves by editing
- *                             the plan.
- * `none`, a named slice       `waiting`: a slice nobody has started yet. Its
+ * `none`, not `namedSlice`   `blocked`: the host has no pull request for the
+ *                             name, and no live plan will start it — no plan
+ *                             names it, its plan defers it, or its plan is
+ *                             delivered, released, rejected or superseded. It
+ *                             resolves by editing the plan that waits.
+ * `none`, `namedSlice`        `waiting`: a slice nobody has started yet. Its
  *                             pull request opens when its work starts.
  * everything else             `waiting`. A CLOSED pull request counts here —
  *                             the host has seen the branch, so the name is
  *                             right; somebody withdrew the work. `unreadable`
  *                             counts here too: silence is neither permission
  *                             to start nor proof of a typo.
+ *
+ * A slice of a terminal plan whose pull request merged reads `MERGED` and
+ * clears, the same as any other merged prerequisite: `namedSlice` decides only
+ * what `none` means.
  *
  * `blocked` OUTRANKS `waiting`, in either order: a typo among several
  * prerequisites needs a plan edit and no merge clears it. An empty list clears,

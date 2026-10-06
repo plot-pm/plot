@@ -1,4 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 
 /**
  * PRODUCTION'S OWN READING, taken the way production takes it.
@@ -73,11 +76,12 @@ export const readPlanMeta = (
  * cache there on every run, and inheriting it buries the test output.
  *
  * @param estate - the repository to read.
+ * @param slug - a plan slug, to scan that plan alone.
  * @returns the raw pulse document, under the wire's own field names.
  */
-export const readFleetScan = (estate: Estate): Record<string, unknown> =>
+export const readFleetScan = (estate: Estate, slug?: string): Record<string, unknown> =>
   JSON.parse(
-    execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), '--json'], {
+    execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), '--json', ...(slug ? [slug] : [])], {
       cwd: estate.root,
       encoding: 'utf8',
       maxBuffer: MAX_BUFFER,
@@ -368,6 +372,97 @@ export const readMainBranch = (estate: Estate): string => {
   return 'main';
 };
 
+/**
+ * Every plan of the estate, enumerated the way `plot-fleet-scan.sh`'s
+ * `enumerate_estate` enumerates it in ref mode, and parsed by
+ * `plot-plan-meta.sh`.
+ *
+ * The plan directory of `origin/<main>`, one level, following a symlink to its
+ * target; then, for every `origin/` branch under a configured prefix in
+ * `for-each-ref` order, each regular `.md` file under the plan directory that
+ * the default branch does not carry and no earlier branch supplied. Read from
+ * git and never from the working tree, because the scan reads the ref.
+ *
+ * @param estate - the repository to read.
+ * @param mainBranch - the default branch's name.
+ * @returns one raw `plot-plan-meta.sh` record per plan.
+ */
+export const readEstatePlanMeta = (estate: Estate, mainBranch: string): Record<string, unknown>[] => {
+  const git = (...args: string[]): string =>
+    execFileSync('git', args, { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER });
+  const config = (key: string, fallback: string): string =>
+    execFileSync('bash', [scriptIn(estate, 'plot-config.sh'), 'get', key, fallback], {
+      cwd: estate.root,
+      encoding: 'utf8',
+    }).trim();
+  const planDir = config('Plan directory', 'docs/plans/');
+  const prefixes = config('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/')
+    .split(',')
+    .map((p) => p.trim().replace(/\/$/, ''))
+    .filter((p) => p !== '');
+  const tree = (ref: string): { mode: string; path: string }[] =>
+    git('ls-tree', '-z', ref, '--', planDir)
+      .split('\0')
+      .filter((line) => line.endsWith('.md'))
+      .map((line) => ({ mode: line.split(' ')[0] ?? '', path: line.split('\t')[1] ?? '' }));
+  const dir = mkdtempSync(join(tmpdir(), 'plot-estate-plans-'));
+  try {
+    const files: string[] = [];
+    const take = (ref: string, path: string): void => {
+      const target = join(dir, String(files.length));
+      mkdirSync(target);
+      const file = join(target, basename(path));
+      writeFileSync(file, `${git('show', `${ref}:${path}`).replace(/\n$/, '')}\n`);
+      files.push(file);
+    };
+    const main = `origin/${mainBranch}`;
+    const onDefault = new Set<string>();
+    for (const { mode, path } of tree(main)) {
+      onDefault.add(path);
+      if (mode !== '120000') {
+        take(main, path);
+        continue;
+      }
+      const link = git('show', `${main}:${path}`).trim();
+      const resolved = link.startsWith('/') ? `${planDir}${basename(link)}` : join(dirname(path), link);
+      take(main, resolved);
+    }
+    const seen = new Set<string>();
+    const branches = git('for-each-ref', '--format=%(refname:strip=3)', 'refs/remotes/origin')
+      .split('\n')
+      .filter((b) => b !== '' && b !== 'HEAD' && b !== mainBranch)
+      .filter((b) => prefixes.some((p) => b.startsWith(`${p}/`)));
+    for (const branch of branches) {
+      for (const { mode, path } of tree(`origin/${branch}`)) {
+        if (!['100644', '100755'].includes(mode) || onDefault.has(path) || seen.has(path)) continue;
+        seen.add(path);
+        take(`origin/${branch}`, path);
+      }
+    }
+    return files.length === 0 ? [] : readPlanMeta(estate, files);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+/**
+ * Runs `plot-fleet-scan.sh --slice-names`: the set a `waits:` name is looked
+ * up in.
+ *
+ * @param estate - the repository to read.
+ * @param slug - a plan slug, to read the set as a slug run reads it.
+ * @returns the branch names, in the order the scan printed them.
+ */
+export const readSliceNames = (estate: Estate, slug?: string): string[] =>
+  execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), '--slice-names', ...(slug ? [slug] : [])], {
+    cwd: estate.root,
+    encoding: 'utf8',
+    maxBuffer: MAX_BUFFER,
+    timeout: TIMEOUT_MS,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+    .split('\n')
+    .filter((line) => line !== '');
 
 /**
  * One MoSCoW item, as `plot-sprint-release.sh` reports it.

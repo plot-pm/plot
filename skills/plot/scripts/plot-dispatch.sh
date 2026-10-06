@@ -3043,9 +3043,9 @@ esac
 # merged PR outlives the branch it was cut from.
 #
 # `NONE` AND SILENCE ARE DIFFERENT ANSWERS. `NONE` means the host was asked and
-# has never seen a PR for that branch. For a slice this plan names, that is a
-# slice nobody started, which is `waiting`; for any other name it is a typo,
-# which is `blocked`. A host that
+# has never seen a PR for that branch. For a name in `plot-fleet-scan.sh
+# --slice-names` — a slice of any live plan, not deferred — that is a slice
+# nobody started, which is `waiting`; for any other name it is `blocked`. A host that
 # could not be asked is neither permission nor proof of a typo, so it HOLDS the
 # branch at `waiting`. Both refuse; only one tells the operator to fix the plan.
 
@@ -3174,15 +3174,18 @@ declare -a waits_freed=()
 # already sets: a dry run that offers what a real run would refuse is worse than
 # no dry run — it is the same wrong answer with a reassurance attached.
 run_waits_preflight() { # → prints refusals; fills waits_held, adds to n_skipped
-  local br prereq answer held
+  local br prereq answer held slice_names=""
   while IFS=$'\t' read -r br prereq; do
     [ -n "$br" ] || continue
     answer=$(prereq_answer "$prereq")
     case "$answer" in
       merged) continue ;;
-      # A sibling slice this plan names has no PR until its work starts: a wait,
-      # not a typo (#1305). Only a name the plan does not contain is `blocked`.
-      none)   case "$gate_meta" in *"{\"branch\":\"$prereq\""*) held=waiting ;; *) held=blocked ;; esac ;;
+      # A slice somebody may still start has no PR until its work starts: a
+      # wait, not a typo (#1305). The set is the scan's, of the whole estate,
+      # so a slice of ANOTHER plan reads as it does on the board. Asked once,
+      # and only when the host answered `none`.
+      none)   [ -n "$slice_names" ] || slice_names=$'\n'"$("$script_dir/plot-fleet-scan.sh" --slice-names 2>/dev/null)"$'\n'
+              case "$slice_names" in *$'\n'"$prereq"$'\n'*) held=waiting ;; *) held=blocked ;; esac ;;
       *)      held=waiting ;;
     esac
     # `--allow-waiting` SAYS SO ON THE LINE IT OVERRIDES, ONCE PER PREREQUISITE

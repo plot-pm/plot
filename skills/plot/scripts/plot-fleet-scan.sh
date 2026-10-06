@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Plot helper: fleet pulse — deterministic extractor for wave/claim state.
-# Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [<slug>]
+# Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [--slice-names] [<slug>]
+#   --slice-names  print every slice a `waits:` name may wait on, one per line,
+#               and exit: the estate's non-deferred slices of non-terminal plans,
+#               whatever slug is given. No fetch, no host call.
 #   --no-fetch  skip `git fetch`
 #   --offline   same (no fetch) — used for cheap, ambient pulses.
 #               The fetch also PRUNES remote-tracking refs, so skipping it
@@ -262,6 +265,7 @@ do_fetch=1
 next_only=0
 list_all=0
 why_nothing=0
+slice_names=0
 loose=0
 log_pulse=0
 as_json=0
@@ -296,6 +300,7 @@ while [ $# -gt 0 ]; do
     # about the SAME plans `--next` was silent over — a terminal plan admitted
     # here would answer `not-yet` about work somebody decided was not needed.
     --why-nothing) next_only=1; why_nothing=1 ;;
+    --slice-names) slice_names=1; do_fetch=0 ;;
     # `--json` ASSEMBLES BUT DOES NOT RECORD, and the two flags differ here for
     # a reason. `--stream` is what the BOARD spawns (`fleet.ts:2694`) and
     # `--log-pulse` is what `/plot-pulse` passes: both produce a pulse somebody
@@ -1572,9 +1577,9 @@ reached_review() { # $1=branch → 0 when an open or merged PR exists
 # the branch it was cut from, which is why `plot-pr-merged.sh` reads PRs and not
 # refs, and why this reads the same source.
 #
-# WHAT THE HOST SAID, AND NOT WHAT IT MEANS. This function answered
+# WHAT THE HOST SAID, AND NOT WHAT IT MEANS. The prerequisite reading answered
 # `waiting` / `blocked` / `""` until the derivation moved: the three answers and
-# why only `NONE` on a name no plan contains means `blocked` are `waitVerdict` in
+# why only `NONE` on a name outside `SLICE_NAMES` means `blocked` are `waitVerdict` in
 # `packages/domain/src/rules/branch-state.ts`, with a test per case. What stays
 # here is the READING and the cost argument above it, which is a fact about
 # this script's host budget rather than about what a wait means.
@@ -1583,7 +1588,8 @@ reached_review() { # $1=branch → 0 when an open or merged PR exists
 # may legitimately omit: its plan may be delivered and its ref gone. The bound
 # is the same one PR #216 set — ABSENT branches, not all branches — and the
 # cache above keeps it at one call per run.
-waits_pr_state() { host_pr_state "$1" --ask; } # $1=prerequisite branch → OPEN|MERGED|CLOSED|NONE|-
+# `host_pr_state "$name" --ask` → OPEN|MERGED|CLOSED|NONE|-, called once per
+# prerequisite name in the refill below.
 
 # Modification time of a path, in epoch seconds, following symlinks — or "" when
 # it cannot be read.
@@ -2992,13 +2998,7 @@ add_ref_plan() { # $1=path in ref
 # `$PLAN_DIR` by default, and their symlinks resolve to files already
 # enumerated — counting both would double every plan. `git ls-tree` without
 # `-r` lists one level, and the worktree glob `"$PLAN_DIR"*.md` does not
-# descend either.
-is_plan_phase() { # $1=normalized phase → 0 when this file is a plan
-  case "$1" in
-    ""|NONE) return 1 ;;
-    *) return 0 ;;
-  esac
-}
+# descend either. `add_plan_by_phase` below applies the rule.
 
 # ---------------------------------------------------------------------------
 # ONE PARSE FOR THE WHOLE ESTATE
@@ -3228,8 +3228,7 @@ for line in sys.stdin:
 # would have changed was never findable and stays unfindable. The compare is
 # literal, so a path holding `[`, `*` or `?` matches itself and never a glob.
 # THE SEARCH ITSELF, assigning to `plan_meta_index_reply`. Run it in the shell
-# whose cursor should advance; `plan_meta_index_of` below is the stdout wrapper
-# for callers that are already inside a `$(…)`.
+# whose cursor should advance.
 plan_meta_index_reply=""
 plan_meta_index_into() { # $1=file → sets plan_meta_index_reply
   plan_meta_index_reply=""
@@ -3258,37 +3257,13 @@ plan_meta_index_into() { # $1=file → sets plan_meta_index_reply
   done
 }
 
-# The stdout form, for the two callers that read it inside a command
-# substitution. The cursor it advances belongs to that subshell and dies with
-# it, which costs those callers nothing: both ask once per live plan, and the
-# weight was never there.
-plan_meta_index_of() { # $1=file → index on stdout, or ""
-  plan_meta_index_into "$1"
-  printf '%s' "$plan_meta_index_reply"
-}
-
-# The phase a file declares, or "" when it is not a plan. Read from the single
-# estate parse above rather than spawned per file.
-plan_phase_of() { # $1=file to parse → normalized phase on stdout
-  local i
-  i=$(plan_meta_index_of "$1")
-  [ -n "$i" ] || { printf ''; return 0; }
-  printf '%s' "${plan_meta_phases[$i]}"
-}
-
-# The same answer, ASSIGNED to `plan_phase_reply` instead of printed.
+# The phase a file declares, or "" when it is not a plan, ASSIGNED to
+# `plan_phase_reply`. Read from the single estate parse above rather than
+# spawned per file.
 #
-# THE CURSOR ONLY ADVANCES IN THE PARENT SHELL. `plan_phase_of` is read as
-# `$(plan_phase_of …)` and `plan_meta_index_of` as `$(plan_meta_index_of …)`,
-# and a subshell's write to `plan_meta_cursor` is discarded when it exits — so
-# the resumable search would restart from 0 on every call and the quadratic
-# shape would survive the fix. This form runs in the caller's own shell, which
-# is where `add_plan_by_phase` runs and where the 416 asks come from.
-#
-# A SECOND FUNCTION RATHER THAN A CHANGED CONTRACT. `plan_phase_of` keeps its
-# stdout form for the slug path at `:3308`, which asks once and whose answer is
-# interpolated into an array append. Rewriting that caller to read a global
-# would trade a one-off subshell for a less obvious assignment.
+# NO STDOUT FORM. A subshell's write to `plan_meta_cursor` is discarded when it
+# exits, so a `$(…)` reader would restart the search from 0 on every call. Every
+# caller of this and of `plan_meta_index_into` runs in the scan's own shell.
 plan_phase_reply=""
 plan_phase_into() { # $1=file to parse → sets plan_phase_reply
   plan_phase_reply=""
@@ -3313,124 +3288,11 @@ is_terminal_phase() { # $1=normalized phase → 0 when finished
   esac
 }
 
-if [ -n "$slug" ]; then
-  # A NAMED SLUG IS NOT A LIST, so it keeps its own resolution: the caller
-  # already said which plan it means, and the phase rule would only be able to
-  # refuse the answer. `$ACTIVE_DIR`/`$DELIVERED_DIR` stay in the search path
-  # because a slug is the one place their stable, undated names are the
-  # QUESTION — `plot-fleet-scan.sh plot-sprint-support` names a symlink, not a
-  # dated file, and every caller that passes a slug got it from one.
-  if [ "$PLAN_SOURCE" = "ref" ]; then
-    # Same precedence as the worktree form: the dated plan file first, then the
-    # active index, then delivered. `ref_ls` is filtered rather than globbed
-    # because the ref has no shell to expand `*`.
-    found=0
-    for cand in $(ref_ls "$PLAN_DIR" | grep "$slug\.md$") \
-                $(ref_ls "$ACTIVE_DIR" | grep "/$slug\.md$") \
-                $(ref_ls "$DELIVERED_DIR" | grep "/$slug\.md$"); do
-      add_ref_plan "$cand"
-      [ ${#plans[@]} -gt 0 ] && { found=1; break; }
-    done
-    [ "$found" = 1 ] || true
-  else
-    for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
-      [ -e "$cand" ] && {
-        plans+=("$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")")
-        plan_reads+=("${plans[${#plans[@]}-1]}")
-        break
-      }
-    done
-  fi
-  # The named plan's phase, recorded the same way the enumerated ones are so
-  # the loop below reads one array in both paths. A slug names ONE file, so the
-  # batch is a batch of one — it routes through the same estate parse anyway,
-  # because that is where every later question reads its answer from.
-  if [ ${#plans[@]} -gt 0 ]; then
-    parse_plan_estate "${plan_reads[0]}"
-    plan_phases+=("$(plan_phase_of "${plan_reads[0]}")")
-  fi
-else
-  # ---------------------------------------------------------------------------
-  # THE GROUP IS THE PHASE, not the symlink
-  # ---------------------------------------------------------------------------
-  #
-  # The list came from a glob over `$ACTIVE_DIR` plus one over `$DELIVERED_DIR`,
-  # so a plan was visible because a LINK existed and grouped by WHICH directory
-  # held the link. Both facts are hand-maintained copies of something the plan
-  # already says about itself, and a copy maintained by hand disagrees with its
-  # original the moment somebody forgets.
-  #
-  # Measured 2026-08-18: an agent wrote a plan file directly rather than through
-  # `/plot-idea`. It parsed `canonical`, carried `Phase: Approved`, named three
-  # branches in two waves and sat on `origin/main` — and every unscoped scan
-  # reported 12 plans without it. Two agents were already working its branches.
-  # The failure is silent in the direction that matters: the scan does not say
-  # "one plan is unindexed", it says nothing at all and its footer count is
-  # simply lower than reality. Nothing in the output distinguishes *this plan
-  # does not exist* from *this plan is not indexed*, which is why it was
-  # misdiagnosed three times as a board defect before anyone looked at the index.
-  #
-  # So the plan directory is enumerated and each file is grouped by the phase it
-  # DECLARES. `$ACTIVE_DIR` keeps working and keeps being written — this change
-  # only stops anything DEPENDING on it being right. A stale link is now inert
-  # in both directions: an unlinked Approved plan appears, and a link pointing
-  # at a delivered plan cannot resurrect it, because neither link is consulted.
-  #
-  # COST, measured on this repo 2026-08-19 rather than assumed: 64 plans parse
-  # in 371 ms, ~5.8 ms each, against a full scan this file's own comments record
-  # at 500–1050 ms (18.3 s with the host round trips). The plan's fixture
-  # measurement puts the worst realistic case at ~300 ms extra for 1000 plans,
-  # a scale no Plot repo has reached, behind the board's 5 s cache.
-  #
-  # The delivered mtime PRE-FILTER is gone with the directory it read, and it
-  # was buying less than it appeared to: it keyed off the `$DELIVERED_DIR`
-  # symlink's mtime, and a fresh checkout stamps every symlink at once — 56 of
-  # 56 delivered links admitted here, so the parse it was meant to avoid was
-  # already being paid in full. The `Delivered:` record's window was the filter
-  # that actually decided until 2026-10-01, when the phase alone took over, and the pre-filter's own
-  # contract was that it may only ever OVER-admit. Removing it takes that
-  # contract to its limit — strictly more correct, and on this repo not even
-  # more expensive.
-  #
-  # ORDER IS PRESERVED: active plans first, in enumeration order, with the
-  # terminal ones appended. A reader's list must not reshuffle when something is
-  # delivered, and it is the same order the two globs produced before.
-  #
-  # --next and --list-eligible skip the terminal group entirely rather than
-  # filter it later. Their question is "what may a worker claim", and a finished
-  # plan answers nothing to it: even an `open` branch under one is work somebody
-  # decided was not needed. Naming one would send a dispatcher at finished work.
-  terminal_plans=()
-  terminal_reads=()
-  terminal_phases=()
-
-  # One enumeration, two groups. `add_plan_by_phase` parses once and files the
-  # result, so no path below asks the format contract the same question twice.
-  add_plan_by_phase() { # $1=identity path, $2=file to parse
-    local id="$1" src="$2" ph
-    # NO COMMAND SUBSTITUTION. This runs once per candidate file — 416 on this
-    # estate — and `$(…)` would both fork a subshell per call and discard the
-    # lookup cursor's advance, which is the whole saving.
-    plan_phase_into "$src"
-    ph="$plan_phase_reply"
-    is_plan_phase "$ph" || return 0
-    if is_terminal_phase "$ph"; then
-      [ "$next_only" = 1 ] && return 0
-      terminal_plans+=("$id")
-      terminal_reads+=("$src")
-      terminal_phases+=("$ph")
-    else
-      plans+=("$id")
-      plan_reads+=("$src")
-      plan_phases+=("$ph")
-    fi
-  }
-
-  # THE CANDIDATE LIST IS BUILT BEFORE ANYTHING IS PARSED, because the estate
-  # is parsed in ONE call and a single call needs its whole argument list. In
-  # ref mode that means every blob is materialized first: the phase decides the
-  # group, so the file must exist before it can be asked, and it must be asked
-  # together with all the others rather than one at a time.
+# EVERY PLAN FILE OF THE ESTATE, into `cand_ids` (identity) and `cand_reads`
+# (the file to parse): the plan directory of `origin/$MAIN`, then each prefixed
+# branch's plans the default branch does not carry. A named slug reads one plan
+# and still enumerates the estate, because `SLICE_NAMES` is the estate's set.
+enumerate_estate() {
   cand_ids=()
   cand_reads=()
   if [ "$PLAN_SOURCE" = "ref" ]; then
@@ -3498,6 +3360,139 @@ else
       cand_reads+=("$plan_path")
     done
   fi
+}
+
+if [ -n "$slug" ]; then
+  # A NAMED SLUG IS NOT A LIST, so it keeps its own resolution: the caller
+  # already said which plan it means, and the phase rule would only be able to
+  # refuse the answer. `$ACTIVE_DIR`/`$DELIVERED_DIR` stay in the search path
+  # because a slug is the one place their stable, undated names are the
+  # QUESTION — `plot-fleet-scan.sh plot-sprint-support` names a symlink, not a
+  # dated file, and every caller that passes a slug got it from one.
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    # Same precedence as the worktree form: the dated plan file first, then the
+    # active index, then delivered. `ref_ls` is filtered rather than globbed
+    # because the ref has no shell to expand `*`.
+    found=0
+    for cand in $(ref_ls "$PLAN_DIR" | grep "$slug\.md$") \
+                $(ref_ls "$ACTIVE_DIR" | grep "/$slug\.md$") \
+                $(ref_ls "$DELIVERED_DIR" | grep "/$slug\.md$"); do
+      add_ref_plan "$cand"
+      [ ${#plans[@]} -gt 0 ] && { found=1; break; }
+    done
+    [ "$found" = 1 ] || true
+  else
+    for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
+      [ -e "$cand" ] && {
+        plans+=("$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")")
+        plan_reads+=("${plans[${#plans[@]}-1]}")
+        break
+      }
+    done
+  fi
+  # The named plan's phase, recorded the same way the enumerated ones are so
+  # the loop below reads one array in both paths. A slug names ONE file, so the
+  # batch is a batch of one — it routes through the same estate parse anyway,
+  # because that is where every later question reads its answer from.
+  if [ ${#plans[@]} -gt 0 ]; then
+    parse_plan_estate "${plan_reads[0]}"
+    plan_phase_into "${plan_reads[0]}"
+    plan_phases+=("$plan_phase_reply")
+  fi
+  # THE WHOLE ESTATE TOO, when a `waits:` name will be looked up in
+  # `SLICE_NAMES` below: a prerequisite that is a slice of ANOTHER plan must
+  # read the same here as on a full scan (#1305). The plan loop reads only
+  # `plans`, so the extra plans change no row. Asked only when needed, because
+  # it is the cost: measured 2026-10-06 on this estate (ref mode, `--offline`),
+  # a slug scan took 1.6 s alone and 5.2 s with the estate enumerated.
+  if [ "$slice_names" = 1 ] || printf '%s' ${plan_meta_waves[@]+"${plan_meta_waves[@]}"} | awk -F'\t' '$5 != "-" { w = 1 } END { exit !w }'; then
+    enumerate_estate
+    [ ${#cand_reads[@]} -gt 0 ] && parse_plan_estate "${cand_reads[@]}"
+  fi
+else
+  # ---------------------------------------------------------------------------
+  # THE GROUP IS THE PHASE, not the symlink
+  # ---------------------------------------------------------------------------
+  #
+  # The list came from a glob over `$ACTIVE_DIR` plus one over `$DELIVERED_DIR`,
+  # so a plan was visible because a LINK existed and grouped by WHICH directory
+  # held the link. Both facts are hand-maintained copies of something the plan
+  # already says about itself, and a copy maintained by hand disagrees with its
+  # original the moment somebody forgets.
+  #
+  # Measured 2026-08-18: an agent wrote a plan file directly rather than through
+  # `/plot-idea`. It parsed `canonical`, carried `Phase: Approved`, named three
+  # branches in two waves and sat on `origin/main` — and every unscoped scan
+  # reported 12 plans without it. Two agents were already working its branches.
+  # The failure is silent in the direction that matters: the scan does not say
+  # "one plan is unindexed", it says nothing at all and its footer count is
+  # simply lower than reality. Nothing in the output distinguishes *this plan
+  # does not exist* from *this plan is not indexed*, which is why it was
+  # misdiagnosed three times as a board defect before anyone looked at the index.
+  #
+  # So the plan directory is enumerated and each file is grouped by the phase it
+  # DECLARES. `$ACTIVE_DIR` keeps working and keeps being written — this change
+  # only stops anything DEPENDING on it being right. A stale link is now inert
+  # in both directions: an unlinked Approved plan appears, and a link pointing
+  # at a delivered plan cannot resurrect it, because neither link is consulted.
+  #
+  # COST, measured on this repo 2026-08-19 rather than assumed: 64 plans parse
+  # in 371 ms, ~5.8 ms each, against a full scan this file's own comments record
+  # at 500–1050 ms (18.3 s with the host round trips). The plan's fixture
+  # measurement puts the worst realistic case at ~300 ms extra for 1000 plans,
+  # a scale no Plot repo has reached, behind the board's 5 s cache.
+  #
+  # The delivered mtime PRE-FILTER is gone with the directory it read, and it
+  # was buying less than it appeared to: it keyed off the `$DELIVERED_DIR`
+  # symlink's mtime, and a fresh checkout stamps every symlink at once — 56 of
+  # 56 delivered links admitted here, so the parse it was meant to avoid was
+  # already being paid in full. The `Delivered:` record's window was the filter
+  # that actually decided until 2026-10-01, when the phase alone took over, and the pre-filter's own
+  # contract was that it may only ever OVER-admit. Removing it takes that
+  # contract to its limit — strictly more correct, and on this repo not even
+  # more expensive.
+  #
+  # ORDER IS PRESERVED: active plans first, in enumeration order, with the
+  # terminal ones appended. A reader's list must not reshuffle when something is
+  # delivered, and it is the same order the two globs produced before.
+  #
+  # --next and --list-eligible skip the terminal group entirely rather than
+  # filter it later. Their question is "what may a worker claim", and a finished
+  # plan answers nothing to it: even an `open` branch under one is work somebody
+  # decided was not needed. Naming one would send a dispatcher at finished work.
+  terminal_plans=()
+  terminal_reads=()
+  terminal_phases=()
+
+  # One enumeration, two groups. `add_plan_by_phase` parses once and files the
+  # result, so no path below asks the format contract the same question twice.
+  add_plan_by_phase() { # $1=identity path, $2=file to parse
+    local id="$1" src="$2" ph
+    # NO COMMAND SUBSTITUTION. This runs once per candidate file — 416 on this
+    # estate — and `$(…)` would both fork a subshell per call and discard the
+    # lookup cursor's advance, which is the whole saving.
+    plan_phase_into "$src"
+    ph="$plan_phase_reply"
+    # NOT A PLAN: no phase parsed — see "What makes a file a plan" above.
+    case "$ph" in ""|NONE) return 0 ;; esac
+    if is_terminal_phase "$ph"; then
+      [ "$next_only" = 1 ] && return 0
+      terminal_plans+=("$id")
+      terminal_reads+=("$src")
+      terminal_phases+=("$ph")
+    else
+      plans+=("$id")
+      plan_reads+=("$src")
+      plan_phases+=("$ph")
+    fi
+  }
+
+  # THE CANDIDATE LIST IS BUILT BEFORE ANYTHING IS PARSED, because the estate
+  # is parsed in ONE call and a single call needs its whole argument list. In
+  # ref mode that means every blob is materialized first: the phase decides the
+  # group, so the file must exist before it can be asked, and it must be asked
+  # together with all the others rather than one at a time.
+  enumerate_estate
 
   # ONE INVOCATION FOR THE WHOLE ESTATE. Everything below reads its result.
   [ ${#cand_reads[@]} -gt 0 ] && parse_plan_estate "${cand_reads[@]}"
@@ -3512,6 +3507,19 @@ else
     plan_phases+=("${terminal_phases[$i]}")
   done
 fi
+
+# EVERY SLICE SOMEBODY MAY STILL START, newline-framed for a `case` lookup: the
+# non-deferred slices (wave field 3) of every parsed plan whose phase is not
+# terminal. Every mode parses the whole estate, so a slug run, `--next` and the
+# full scan hold one set, and `plot-dispatch.sh` asks `--slice-names` for it
+# rather than reading its own plan. A `waits:` name in the set with no pull
+# request reads `waiting`; any other name with none reads `blocked` (#1305).
+# `namedSlices` in `rules/branch-state.ts` states the same rule, and
+# `branch-state.corpus.test.ts` holds the two to one answer.
+live_waves=()
+for _si in "${!plan_meta_files[@]}"; do is_terminal_phase "${plan_meta_phases[$_si]}" || live_waves+=("${plan_meta_waves[$_si]}"); done
+SLICE_NAMES=$'\n'"$(printf '%s' ${live_waves[@]+"${live_waves[@]}"} | awk -F'\t' '$3 != "true" && !seen[$2]++ { print $2 }')"$'\n'
+[ "$slice_names" = 1 ] && { printf '%s' "$SLICE_NAMES" | sed '/^$/d'; exit 0; }
 
 if [ ${#plans[@]} -eq 0 ]; then
   # --next/--list-eligible must stay silent and exit 1: "nothing to start" is
@@ -3686,7 +3694,8 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
     # — `$plan_reads[i]`, the same key the row loop uses at pass 1a. In ref mode
     # that is a materialized blob under a temp path and not `$PLAN_DIR` at all,
     # so a reconstructed path finds nothing.
-    _sp_meta_i=$(plan_meta_index_of "${plan_reads[$_sp_i]}" 2>/dev/null || echo "")
+    plan_meta_index_into "${plan_reads[$_sp_i]}"
+    _sp_meta_i=$plan_meta_index_reply
     [ -n "$_sp_meta_i" ] || continue
     _sp_branches=""
     while IFS=$'\t' read -r _sp_idx _sp_br _sp_rest; do
@@ -4212,12 +4221,6 @@ plan_files=()
 # second derivation that could disagree with them.
 outlook_lines=""
 
-# EVERY SLICE ANY PARSED PLAN NAMES, newline-framed for a `case` lookup. A
-# `waits:` name in this set is a slice nobody has started, which the rule reads
-# `waiting` without a pull request; a name outside it with none is a typo,
-# `blocked` (#1305). A named slug parses one plan, so there the set is that plan.
-SLICE_NAMES=$'\n'"$(printf '%s' ${plan_meta_waves[@]+"${plan_meta_waves[@]}"} | cut -f2)"$'\n'
-
 plan_idx=-1
 for plan in "${plans[@]}"; do
   # `plan` is the plan's IDENTITY (the path as the ref or the tree spells it);
@@ -4232,7 +4235,8 @@ for plan in "${plans[@]}"; do
   # The estate was parsed ONCE, before this loop. A plan absent from that
   # result could not be read at all, which is the same answer the per-plan
   # parse gave by failing — so it is skipped here exactly as it was then.
-  meta_i=$(plan_meta_index_of "$plan_read")
+  plan_meta_index_into "$plan_read"
+  meta_i=$plan_meta_index_reply
   [ -n "$meta_i" ] || continue
 
   # The plan's own phase, carried onto the pulse so a consumer can derive a row
@@ -4444,7 +4448,7 @@ for plan in "${plans[@]}"; do
       # clears the wait; skipping the call would hold the branch forever.
       waits_state="" waits_named=""
       for _wn in ${waits_br//,/ }; do
-        waits_state+="${waits_state:+,}$(waits_pr_state "$_wn")"
+        waits_state+="${waits_state:+,}$(host_pr_state "$_wn" --ask)"
         case "$SLICE_NAMES" in *$'\n'"$_wn"$'\n'*) waits_named+="${waits_named:+,}true" ;; *) waits_named+="${waits_named:+,}false" ;; esac
       done
       refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$waits_state	$(printf '%s' "$rd_line" | cut -f11)	$waits_named"$'\n'

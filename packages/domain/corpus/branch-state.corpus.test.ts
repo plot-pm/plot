@@ -6,6 +6,7 @@ import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js'
 import { mergeSubjectForms } from '../src/adapters/host/merge-subjects.js';
 import {
   branchState,
+  namedSlices,
   type BranchReadings,
   type HostReach,
   type PrReading,
@@ -13,14 +14,14 @@ import {
 import { mergedBySubject } from '../src/rules/merge-subject.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
 import {
-  listPlanFiles,
   readCommitsBeyond,
+  readEstatePlanMeta,
   readFleetScan,
   readMainBranch,
   readMergeSubjects,
-  readPlanMeta,
   readPrList,
   readRemoteRefs,
+  readSliceNames,
   type Estate,
   type PrRow,
 } from './production.js';
@@ -181,35 +182,26 @@ const bestPrPerBranch = (rows: readonly PrRow[]): Map<string, string> => {
 let prByBranch: Map<string, string>;
 
 /**
- * Every slice some plan names: the set a `waits:` name is looked up in.
+ * The set a `waits:` name is looked up in, computed by the rule.
  *
- * Read through `plot-plan-meta.sh` over every plan file, the parse the scan
- * builds its own set from, and joined with every branch the pulse reports, so
- * a plan carried only on its branch counts too. `idea/` branches and dotted
- * names are left out, as the scan leaves them out of a wave.
+ * `namedSlices` over every plan of the estate, enumerated as the scan
+ * enumerates it (`readEstatePlanMeta`): the plan directory of the default
+ * branch plus the plans carried only on prefixed branches. Never the working
+ * tree, which the scan does not read.
  *
- * @param reading - the pulse whose branches join the set.
  * @returns the branch names.
  */
-const readNamedSlices = (reading: FleetReading): Set<string> => {
-  const names = new Set<string>();
-  for (const plan of reading.plans) {
-    for (const slice of plan.slices) for (const b of slice.branches) names.add(b.branch);
-  }
-  for (const meta of readPlanMeta(estate, listPlanFiles(estate))) {
-    const waves = (meta.waves ?? meta.slices ?? []) as { branches?: { branch?: string }[] }[];
-    for (const wave of waves) {
-      for (const b of wave.branches ?? []) {
-        const name = b.branch ?? '';
-        if (name === '' || name.startsWith('idea/') || name.split('/').at(-1)?.includes('.')) continue;
-        names.add(name);
-      }
-    }
-  }
-  return names;
-};
+const readNamedSlices = (): Set<string> =>
+  namedSlices(
+    readEstatePlanMeta(estate, mainBranch).map((meta) => ({
+      phase: String(meta.phase ?? ''),
+      slices: ((meta.waves ?? []) as { branches?: { branch?: string; deferred?: boolean }[] }[]).flatMap(
+        (wave) => (wave.branches ?? []).map((b) => ({ branch: b.branch ?? '', deferred: b.deferred === true })),
+      ),
+    })),
+  );
 
-let namedSlices: Set<string>;
+let sliceNames: Set<string>;
 
 /**
  * How far the host got — `HOST_VERDICT`'s own word, classified in
@@ -317,7 +309,7 @@ const readingsFor = (
     waits: waitsOn.map((branch) => ({
       branch,
       pr: prFor(branch),
-      namedSlice: namedSlices.has(branch),
+      namedSlice: sliceNames.has(branch),
     })),
   };
 };
@@ -350,7 +342,7 @@ interface Pass {
  * @returns the count walked and every disagreement found.
  */
 const comparePass = (reading: FleetReading): Pass => {
-  namedSlices = readNamedSlices(reading);
+  sliceNames = readNamedSlices();
   const disagreements: Disagreement[] = [];
   let compared = 0;
   for (const plan of reading.plans) {
@@ -416,6 +408,21 @@ describe('the estate is really being read', () => {
     // branches as `adapter=unknown production=open`. One assertion here names
     // that as what it is; forty-eight lines about branches do not.
     expect(prList.verdict).toBe(rawHost);
+  });
+});
+
+describe('the named-slice set', () => {
+  it('is the same set in the scan and in the rule', () => {
+    // A DECLARED DUPLICATE. `plot-fleet-scan.sh` builds `SLICE_NAMES` in shell
+    // and `namedSlices` states the rule; both read the estate the scan reads.
+    // The set is read once more on a disagreement, for a plan that landed
+    // between the two readings.
+    const compare = () => ({ shell: [...readSliceNames(estate)].sort(), rule: [...readNamedSlices()].sort() });
+    const first = compare();
+    const { shell, rule } = first.shell.join() === first.rule.join() ? first : compare();
+    expect(rule.length).toBeGreaterThan(0);
+    expect(shell.filter((b) => !rule.includes(b))).toEqual([]);
+    expect(rule.filter((b) => !shell.includes(b))).toEqual([]);
   });
 });
 
