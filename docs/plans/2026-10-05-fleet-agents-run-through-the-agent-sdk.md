@@ -230,7 +230,7 @@ So the default derives from what the project wrote, as `MANIFESTO.md` Principle 
 
 ### The loop waits, the model does not
 
-- `infra/the-loop-waits-not-the-model` — the SDK connector and the command adapter; the JS loop runs its prompt through `agentRun`, runs the local checks on `next: checks` and resumes with the result; `Agent runner`, `Agent models`, `Agent max turns`, `Slice max runs` and `Agent context window`; the `dispatch` and `continue` refusal for `sdk` under `Worker loop: shell`; `skills/plot/templates/worker-prompt.md` and this repository's `.plot/worker-prompt.md`; the SDK in `plot-worker-loop.mjs`; default `command` <!-- builds: the SDK connector in the worker loop --> <!-- waits: infra/an-agent-run-is-a-port --> <!-- waits: infra/the-loop-runs-in-one-process -->
+- `infra/the-loop-waits-not-the-model` — the SDK connector and the command adapter; the JS loop runs its prompt through `agentRun`, runs the local checks on `next: checks` and resumes with the result; `Agent runner`, `Agent models`, `Agent max turns`, `Slice max runs` and `Agent context window`; the `dispatch` and `continue` refusal for `sdk` under `Worker loop: shell`; `skills/plot/templates/worker-prompt.md` and this repository's `.plot/worker-prompt.md`; the SDK in `plot-worker-loop.mjs`; default `command` → #1321 <!-- builds: the SDK connector in the worker loop --> <!-- waits: infra/an-agent-run-is-a-port --> <!-- waits: infra/the-loop-runs-in-one-process -->
 
 ### A run records its spend and its limits
 
