@@ -2,6 +2,7 @@
 // fixtures and a scripted `boundedRun`, plus the idle watch and the process
 // entry. No process starts: the prompt is a function the test supplies.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { rmTree } from '../helpers.mjs';
 import {
   agentsFixture,
   buildFixture,
@@ -183,7 +184,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of made.splice(0)) rmTree(dir);
 });
 
 describe('runWorkerLoop — a free loop', () => {

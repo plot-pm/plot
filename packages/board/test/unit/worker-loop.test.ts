@@ -1,6 +1,7 @@
 // `readPass` — does this entry gather the table's own readings in the table's
 // own order, reading only what the place the pass is in calls for?
 import { afterEach, describe, it, expect } from 'vitest';
+import { rmTree } from '../helpers.mjs';
 import {
   agentsFixture,
   buildFixture,
@@ -60,7 +61,7 @@ const tempDir = (prefix: string): string => {
   return dir;
 };
 afterEach(() => {
-  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of made.splice(0)) rmTree(dir);
 });
 
 const writeManifest = (fields: Record<string, unknown>): string => {
