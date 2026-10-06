@@ -189,6 +189,14 @@ export function costBadgeDetail(card: Card): string {
     return `${scope}. A run that was never measured here records nothing rather than zero.`;
   }
   const t = cost.tokens;
+  const fromRuns = cost.fromRuns ?? 0;
+  // A RUN LINE AND A SEAL LINE COUNT DIFFERENT THINGS: the SDK's figures
+  // include subagents and compaction, the seal's transcript sum excludes them.
+  const definition =
+    fromRuns === 0
+      ? ''
+      : ` ${fromRuns} of the measured slices are read from SDK run lines, which include ` +
+        `subagents and compaction; a seal line excludes them.`;
   // Grouped digits: these run to eight figures and an ungrouped number of that
   // size is unreadable at a glance, which is the whole complaint above.
   const n = (v: number) => v.toLocaleString('en-US');
@@ -197,7 +205,8 @@ export function costBadgeDetail(card: Card): string {
     `cache-write ${n(t.cacheCreationTokens)} · cache-read ${n(t.cacheReadTokens)}. ` +
     `${scope}. Counters are listed apart rather than summed — cache reads are ` +
     `the overwhelming majority of any total. Runs killed by the worker bound ` +
-    `record nothing, so this is biased low.`
+    `record nothing, so this is biased low.` +
+    definition
   );
 }
 

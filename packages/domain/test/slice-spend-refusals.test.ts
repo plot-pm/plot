@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { answered, failed, type PortResult } from '../src/port-result.js';
-import { encodeSliceSpend, type SliceSpend } from '../src/entities/slice-spend.js';
+import { encodeSliceSpend, type SliceSpendSeal } from '../src/entities/slice-spend.js';
 import type { SliceSpendRecord } from '../src/ports/slice-spend.js';
 import type { TranscriptLine } from '../src/rules/slice-tokens.js';
 import { readSpend } from '../src/rules/slice-spend-record.js';
@@ -35,7 +35,7 @@ const turn = (gitBranch: string, inputTokens: number): TranscriptLine => ({
   message: { model: 'claude-opus-5', usage: { input_tokens: inputTokens } },
 });
 
-const aRecord = (over: Partial<SliceSpend> = {}): SliceSpend => ({
+const aRecord = (over: Partial<SliceSpendSeal> = {}): SliceSpendSeal => ({
   branch: 'feature/a',
   at: '2026-09-15T10:00:00.000Z',
   tokens: { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 3, cacheReadTokens: 4 },
@@ -50,7 +50,11 @@ describe('recordSliceSpend refuses rather than recording a zero', () => {
     // empty one are different answers, and only one of them says the run was
     // free. This is the case a caller must never see as `no-turns`.
     const actual = await recordSliceSpend(
-      stubRecord({ sessions: async (): Promise<PortResult<readonly (readonly TranscriptLine[])[]>> => failed() }),
+      stubRecord({
+        sessions: async (): Promise<
+          PortResult<readonly { sessionId: string; lines: readonly TranscriptLine[] }[]>
+        > => failed(),
+      }),
       { worktree: '/desk', branch: 'feature/a', at: '2026-09-15T10:00:00.000Z' },
     );
 
@@ -59,7 +63,9 @@ describe('recordSliceSpend refuses rather than recording a zero', () => {
 
   it('says no-turns when the transcripts were read and hold none for this branch', async () => {
     const actual = await recordSliceSpend(
-      stubRecord({ sessions: async () => answered([[turn('feature/other', 10)]]) }),
+      stubRecord({
+        sessions: async () => answered([{ sessionId: 's1', lines: [turn('feature/other', 10)] }]),
+      }),
       { worktree: '/desk', branch: 'feature/a', at: '2026-09-15T10:00:00.000Z' },
     );
 
@@ -71,7 +77,7 @@ describe('recordSliceSpend refuses rather than recording a zero', () => {
     // would blame the transcript for a full disk.
     const actual = await recordSliceSpend(
       stubRecord({
-        sessions: async () => answered([[turn('feature/a', 10)]]),
+        sessions: async () => answered([{ sessionId: 's1', lines: [turn('feature/a', 10)] }]),
         append: async (): Promise<PortResult<void>> => failed(),
       }),
       { worktree: '/desk', branch: 'feature/a', at: '2026-09-15T10:00:00.000Z' },
@@ -88,6 +94,35 @@ describe('recordSliceSpend refuses rather than recording a zero', () => {
     });
 
     expect(actual).toEqual({ ok: false, refusal: 'no-branch' });
+  });
+
+  it('seals from every session when the existing record could not be read', async () => {
+    // An unreadable record is not a reason to refuse the seal outright — it
+    // means no run line can be EXCLUDED, so every session is still summed.
+    // The failure that matters here belongs to `lines()`, not to this write.
+    const actual = await recordSliceSpend(
+      stubRecord({
+        lines: async (): Promise<PortResult<readonly string[]>> => failed(),
+        sessions: async () => answered([{ sessionId: 's1', lines: [turn('feature/a', 10)] }]),
+      }),
+      { worktree: '/desk', branch: 'feature/a', at: '2026-09-15T10:00:00.000Z' },
+    );
+
+    expect(actual.ok).toBe(true);
+    expect(actual.ok && (actual.record as SliceSpendSeal).tokens.inputTokens).toBe(10);
+  });
+
+  it('skips a torn existing line rather than letting it break the run-line scan', async () => {
+    const actual = await recordSliceSpend(
+      stubRecord({
+        lines: async () => answered(['not json at all']),
+        sessions: async () => answered([{ sessionId: 's1', lines: [turn('feature/a', 10)] }]),
+      }),
+      { worktree: '/desk', branch: 'feature/a', at: '2026-09-15T10:00:00.000Z' },
+    );
+
+    expect(actual.ok).toBe(true);
+    expect(actual.ok && (actual.record as SliceSpendSeal).tokens.inputTokens).toBe(10);
   });
 });
 
@@ -155,7 +190,7 @@ describe('readSliceSpend', () => {
       stubRecord({
         sessions: async () => {
           sessionsCalls += 1;
-          return answered([[turn('feature/a', 10)]]);
+          return answered([{ sessionId: 's1', lines: [turn('feature/a', 10)] }]);
         },
         lines: async () => answered([]),
       }),

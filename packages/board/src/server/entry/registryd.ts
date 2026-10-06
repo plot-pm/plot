@@ -10,6 +10,10 @@ import {
   freshAgentAnswer,
   type FreshAgentVerdict,
 } from '@plot-pm/domain/rules/fresh-agent';
+import {
+  freshAgentAfterTurnLimit,
+  freshAgentTurnLimitAnswer,
+} from '@plot-pm/domain/rules/fresh-agent-turn-limit';
 import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
 import { readDeclaration, DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
@@ -710,6 +714,15 @@ export interface FreshAgentDecision {
  * Takes readings and returns a verdict per desk. It touches no file and no
  * process; {@link applyFreshAgentDecisions} applies the verdicts.
  *
+ * **TWO RULES, ONE SHARED COUNT, AT MOST ONE ANSWER.** `freshAgentAfterCorrections`
+ * and `freshAgentAfterTurnLimit` each answer `'none'` for every ending but
+ * their own, and an ending is exactly one value — so trying the corrections
+ * rule first and falling back to the turn-limit rule only when it answered
+ * `'none'` can never run both against a live verdict. Both read the same
+ * `priorFreshSessions` count, so a slice that already spent its one fresh
+ * session on one ending gets `needs-a-person` from the other rather than a
+ * second fresh session.
+ *
  * @param candidates - what {@link readFreshAgentCandidates} read.
  * @param budget - the repository's `Correction budget`, for the composed answer.
  * @returns one decision per candidate, in the order given.
@@ -719,30 +732,44 @@ export const freshAgentDecisions = (
   budget: number,
 ): readonly FreshAgentDecision[] =>
   candidates.map((reading) => {
-    const verdict = freshAgentAfterCorrections({
+    // A candidate is `!registered` by construction (see
+    // `freshAgentCandidateTrees`), so every reading carries
+    // `hasManifest: false`. A desk a manifest names before the next tick is
+    // supervised by that tick's registry read instead.
+    const corrections = freshAgentAfterCorrections({
       ending: reading.ending,
-      // A candidate is `!registered` by construction (see
-      // `freshAgentCandidateTrees`), so every reading carries
-      // `hasManifest: false`. A desk a manifest names before the next tick is
-      // supervised by that tick's registry read instead.
       hasManifest: false,
       priorFreshSessions: reading.priorFreshSessions,
     });
-    return {
-      plan: reading.plan,
-      branch: reading.branch,
-      worktree: reading.worktree,
-      verdict,
-      answer:
-        verdict === 'start-fresh'
-          ? freshAgentAnswer({
+    const firedTurnLimit = corrections === 'none';
+    const verdict: FreshAgentVerdict = firedTurnLimit
+      ? freshAgentAfterTurnLimit({
+          ending: reading.ending,
+          priorFreshSessions: reading.priorFreshSessions,
+        })
+      : corrections;
+    // THE COMPOSED ANSWER FOLLOWS WHICH RULE FIRED, NOT JUST THE VERDICT.
+    // `freshAgentAnswer`'s whole text is about a spent correction budget, which
+    // a `turn-limit` ending never had — reusing it here would tell the fresh
+    // session a budget was spent that was not.
+    const answer =
+      verdict !== 'start-fresh'
+        ? ''
+        : firedTurnLimit
+          ? freshAgentTurnLimitAnswer(reading.branch)
+          : freshAgentAnswer({
               branch: reading.branch,
               budget,
               correctionsText: reading.correctionsText,
               runUrl: reading.runUrl,
               conclusion: reading.conclusion,
-            })
-          : '',
+            });
+    return {
+      plan: reading.plan,
+      branch: reading.branch,
+      worktree: reading.worktree,
+      verdict,
+      answer,
       runUrl: reading.runUrl,
       escalate: verdict === 'needs-a-person' && !reading.escalated,
     };
@@ -850,7 +877,7 @@ export const applyFreshAgentDecisions = async (
             ? {
                 branch: decision.branch,
                 outcome: 'escalated',
-                detail: 'a second spent budget: declared blocked for a person',
+                detail: 'the slice already had its fresh session: declared blocked for a person',
               }
             : {
                 branch: decision.branch,

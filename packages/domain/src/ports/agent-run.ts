@@ -82,7 +82,9 @@ export type AgentRunUsage = TokenCountsRecord;
  * A reading of the account's usage limit, taken during this run.
  *
  * Sent for claude.ai subscription accounts only; an API-key account's run
- * carries none. `utilization` is carried in the SDK's own scale, unconverted.
+ * carries none. `utilization` is carried in the SDK's own scale, unconverted:
+ * a fraction from 0 to 1, read from one live event on 2026-10-06 (`0.14` for
+ * a `five_hour` window).
  */
 export interface AgentRunLimitReading {
   /** `allowed`, `allowed_warning` or `rejected`, as the event names it. */
@@ -91,8 +93,12 @@ export interface AgentRunLimitReading {
   readonly resetsAt: number | null;
   /** Which limit this reading is about, in the event's own word. */
   readonly rateLimitType: string;
-  /** How much of the window is spent, in the event's own scale. */
-  readonly utilization: number;
+  /**
+   * How much of the window is spent, 0 to 1; `null` where the event names
+   * none. An `allowed` event can omit the top-level figure and carry it only
+   * per window, so absent is unknown, never `0`.
+   */
+  readonly utilization: number | null;
 }
 
 /**
@@ -143,8 +149,20 @@ export interface AgentRunResult {
   readonly usageByModel: Readonly<Record<string, AgentRunUsage>>;
   /** The session's cumulative cost estimate, in dollars; `null` where unreported. */
   readonly costUsd: number | null;
+  /**
+   * The session's cumulative cost estimate per model, in dollars; empty where
+   * the connector reports none. Kept apart from {@link usageByModel} because
+   * that record's key set is the four token counters.
+   */
+  readonly costUsdByModel: Readonly<Record<string, number>>;
   /** How many turns this run itself took. */
   readonly turns: number;
   /** Every usage-limit reading this run observed, in order. */
   readonly limitReadings: readonly AgentRunLimitReading[];
+  /**
+   * The authenticated account's email, then organization, then `null` where
+   * the connector reports neither — the precedence `rateLimitEntry`'s caller
+   * resolves a budget entry's account from.
+   */
+  readonly account: string | null;
 }

@@ -197,6 +197,94 @@ describe('freshAgentDecisions', () => {
     expect(decision?.verdict).toBe('none');
     expect(decision?.answer).toBe('');
   });
+
+  it('decides start-fresh for a first turn-limit ending, with a turn-limit answer rather than the corrections wording', () => {
+    const [decision] = freshAgentDecisions(
+      [
+        {
+          plan: PLAN,
+          escalated: false,
+          branch: 'feature/x',
+          worktree: tree().path,
+          ending: 'turn-limit',
+          correctionsText: '',
+          runUrl: '',
+          conclusion: '',
+          priorFreshSessions: 0,
+        },
+      ],
+      2,
+    );
+    expect(decision?.verdict).toBe('start-fresh');
+    expect(decision?.answer).toContain('Agent max turns');
+    expect(decision?.answer).not.toContain('correction budget');
+  });
+
+  it('decides needs-a-person on a second turn-limit ending for the same slice', () => {
+    const [decision] = freshAgentDecisions(
+      [
+        {
+          plan: PLAN,
+          escalated: false,
+          branch: 'feature/x',
+          worktree: tree().path,
+          ending: 'turn-limit',
+          correctionsText: '',
+          runUrl: '',
+          conclusion: '',
+          priorFreshSessions: 1,
+        },
+      ],
+      2,
+    );
+    expect(decision?.verdict).toBe('needs-a-person');
+    expect(decision?.answer).toBe('');
+  });
+
+  it('a slice that already spent its fresh session on corrections-spent answers needs-a-person on a later turn-limit', () => {
+    // THE CROSS-RULE COMPOSITION THE BRIEF NAMES: two separate allowances must
+    // not let one slice start two fresh sessions. `priorFreshSessions` counts
+    // every fresh session this slice had regardless of which ending earned
+    // it, so a turn-limit reading after a corrections-spent fresh session
+    // already carries `priorFreshSessions: 1` and must not re-earn a second.
+    const [decision] = freshAgentDecisions(
+      [
+        {
+          plan: PLAN,
+          escalated: false,
+          branch: 'feature/x',
+          worktree: tree().path,
+          ending: 'turn-limit',
+          correctionsText: '',
+          runUrl: '',
+          conclusion: '',
+          priorFreshSessions: 1,
+        },
+      ],
+      2,
+    );
+    expect(decision?.verdict).toBe('needs-a-person');
+  });
+
+  it('a slice that already spent its fresh session on turn-limit answers needs-a-person on a later corrections-spent', () => {
+    const [decision] = freshAgentDecisions(
+      [
+        {
+          plan: PLAN,
+          escalated: false,
+          branch: 'feature/x',
+          worktree: tree().path,
+          ending: 'corrections-spent',
+          correctionsText: '',
+          runUrl: '',
+          conclusion: '',
+          priorFreshSessions: 1,
+        },
+      ],
+      2,
+    );
+    expect(decision?.verdict).toBe('needs-a-person');
+  });
 });
 
 describe('readFreshAgentCandidates, the declaration and the plan', () => {
@@ -401,6 +489,29 @@ describe('the tick starts one fresh session through continue', () => {
     const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile('unstarted') : null));
     expect(applied).toEqual([]);
     expect(starts).toEqual([]);
+  });
+
+  it('starts one fresh session for a turn-limit desk, and none on the next tick', async () => {
+    const { starts, sealed, tickOver } = rig(started);
+    const turnLimit = (_w: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('turn-limit', 'the run reached Agent max turns') : null;
+    const first = await tickOver(turnLimit);
+    const second = await tickOver(turnLimit);
+    expect(first.map((a) => a.outcome)).toEqual(['started']);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]?.answer).toContain('Agent max turns');
+    expect(second.map((a) => a.outcome)).toEqual(['escalated']);
+    expect(sealed).toHaveLength(1);
+  });
+
+  it('starts no fresh session for a spend-limit or run-limit desk, whatever the record holds', async () => {
+    for (const reason of ['spend-limit', 'run-limit']) {
+      const { starts, sealed, tickOver } = rig(started);
+      const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile(reason) : null));
+      expect(applied).toEqual([]);
+      expect(starts).toEqual([]);
+      expect(sealed).toEqual([]);
+    }
   });
 
   it('reports a thrown non-Error by its text', async () => {

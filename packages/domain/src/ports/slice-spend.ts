@@ -27,9 +27,12 @@ import type { TranscriptLine } from '../rules/slice-tokens.js';
  * green. `plot-install-commit-record.sh:42-43` already solved this and states
  * the reason; this inherits the rule rather than re-deriving it.
  *
- * **APPEND-ONLY, WRITTEN ONCE PER SLICE.** A second run writes a second line
- * rather than mutating the first, which keeps each line a measurement with a
- * timestamp rather than a running total nobody can place in time.
+ * **APPEND-ONLY: ONE SEAL LINE PER SEAL, ONE RUN LINE PER RUN.** A `command`
+ * slice's whole-run sum is written once, at `seal_declaration`; an SDK slice
+ * instead gets one line per run, each carrying its session's cumulative
+ * figures. Neither line is ever mutated — a second seal or a second run
+ * writes a second line — which keeps each line a measurement with a timestamp
+ * rather than a running total nobody can place in time.
  */
 export interface SliceSpendRecord {
   /**
@@ -54,11 +57,18 @@ export interface SliceSpendRecord {
    * turns, which is the half that does not. Measured: 40 of 41 desks hold more
    * than one.
    *
+   * **EACH ENTRY CARRIES THE SESSION'S ID** — the `.jsonl` filename, minus its
+   * suffix, which is the same id an SDK run line's `sessionId` names. The seal
+   * path needs it to skip a session a run line already covers; a run itself
+   * never calls this at all.
+   *
    * @param worktree - the desk whose transcripts to read.
-   * @returns one array of lines per session; `answered([])` where the directory
-   *   holds none, `failed` where it could not be read at all.
+   * @returns one entry per session; `answered([])` where the directory holds
+   *   none, `failed` where it could not be read at all.
    */
-  sessions(worktree: string): Promise<PortResult<readonly (readonly TranscriptLine[])[]>>;
+  sessions(
+    worktree: string,
+  ): Promise<PortResult<readonly { sessionId: string; lines: readonly TranscriptLine[] }[]>>;
 
   /**
    * Appends one finished slice's record.
