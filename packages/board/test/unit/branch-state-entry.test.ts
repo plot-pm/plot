@@ -5,10 +5,12 @@ import { answer, readingsFrom, run } from '../../src/server/entry/branch-state.j
  * THE ENTRY IS AN ADAPTER AND THESE TEST THE ADAPTATION.
  *
  * `branchState`'s own precedence is asserted in the domain, once. What can
- * only fail here is the wire: eleven tab-separated fields, where field 9 names
+ * only fail here is the wire: twelve tab-separated fields, where field 9 names
  * every prerequisite the plan declares (comma-separated, `-` for none) and
  * field 10 carries the parallel comma-separated PR-state list (`?` where the
- * question was not yet put, never a per-item marker).
+ * question was not yet put, never a per-item marker). Field 12 says, per
+ * prerequisite, whether some plan names it as a slice, and is `?` exactly where
+ * field 10 is.
  *
  * `the-parser-reads-every-wait` (slice 2) teaches the scan to emit several
  * names; today it always sends one, so every live case here is a one-item
@@ -16,7 +18,7 @@ import { answer, readingsFrom, run } from '../../src/server/entry/branch-state.j
  * borrowing the first or last column.
  */
 
-/** One branch line, as the scan's eleven tab-separated fields would write it. */
+/** One branch line, as the scan's twelve tab-separated fields would write it. */
 const line = (
   deferred: string,
   refTip: string,
@@ -29,8 +31,9 @@ const line = (
   waitsBranch: string,
   waitsPr: string,
   listComplete: string,
+  waitsNamed = '?',
 ): string =>
-  [deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete].join(
+  [deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete, waitsNamed].join(
     '\t',
   );
 
@@ -43,17 +46,17 @@ describe('readingsFrom — the waits columns', () => {
   });
 
   it('reads one name and one state as a one-item list', () => {
-    const [reading] = readingsFrom(`${line(...UNSTARTED, 'feature/prereq', 'OPEN', 'true')}\n`);
-    expect(reading?.waits).toEqual([{ branch: 'feature/prereq', pr: 'OPEN' }]);
+    const [reading] = readingsFrom(`${line(...UNSTARTED, 'feature/prereq', 'OPEN', 'true', 'true')}\n`);
+    expect(reading?.waits).toEqual([{ branch: 'feature/prereq', pr: 'OPEN', namedSlice: true }]);
   });
 
   it('reads several comma-separated names against their parallel states', () => {
     const [reading] = readingsFrom(
-      `${line(...UNSTARTED, 'feature/a,feature/b', 'MERGED,OPEN', 'true')}\n`,
+      `${line(...UNSTARTED, 'feature/a,feature/b', 'MERGED,OPEN', 'true', 'true,false')}\n`,
     );
     expect(reading?.waits).toEqual([
-      { branch: 'feature/a', pr: 'MERGED' },
-      { branch: 'feature/b', pr: 'OPEN' },
+      { branch: 'feature/a', pr: 'MERGED', namedSlice: true },
+      { branch: 'feature/b', pr: 'OPEN', namedSlice: false },
     ]);
   });
 
@@ -68,8 +71,29 @@ describe('readingsFrom — the waits columns', () => {
   it('throws naming the line when the name list and the state list disagree in length', () => {
     // A DEFECT IN THE SCAN, NEVER GUESSED AT. `countFrom` throws the same way
     // for a malformed count; this is the parallel-column equivalent.
-    expect(() => readingsFrom(`${line(...UNSTARTED, 'feature/a,feature/b', 'OPEN', 'true')}\n`)).toThrow(
+    expect(() => readingsFrom(`${line(...UNSTARTED, 'feature/a,feature/b', 'OPEN', 'true', 'true')}\n`)).toThrow(
       /line 1/,
+    );
+  });
+
+  it('throws when the named list and the state list disagree in length', () => {
+    expect(() =>
+      readingsFrom(`${line(...UNSTARTED, 'feature/a,feature/b', 'OPEN,OPEN', 'true', 'true')}\n`),
+    ).toThrow(/line 1: waitsNamed/);
+  });
+
+  it('throws when only one of the state list and the named list is `?`', () => {
+    expect(() => readingsFrom(`${line(...UNSTARTED, 'feature/a', 'OPEN', 'true', '?')}\n`)).toThrow(
+      /line 1: waitsNamed/,
+    );
+    expect(() => readingsFrom(`${line(...UNSTARTED, 'feature/a', '?', 'true', 'true')}\n`)).toThrow(
+      /line 1: waitsNamed/,
+    );
+  });
+
+  it('throws on a named word that is not true or false', () => {
+    expect(() => readingsFrom(`${line(...UNSTARTED, 'feature/a', 'NONE', 'true', 'yes')}\n`)).toThrow(
+      /line 1: waitsNamed is not true or false/,
     );
   });
 });
@@ -86,21 +110,35 @@ describe('answer — needsPrerequisite follows the name list, not the state list
   });
 
   it('does not re-ask a branch whose prerequisites already carry a reading', () => {
-    const out = answer(`${line(...UNSTARTED, 'feature/a,feature/b', 'MERGED,MERGED', 'true')}\n`);
+    const out = answer(
+      `${line(...UNSTARTED, 'feature/a,feature/b', 'MERGED,MERGED', 'true', 'true,true')}\n`,
+    );
     expect(out).toBe('open\t0\topen\n');
   });
 });
 
 describe('answer — the third column is the state under a prerequisite', () => {
   it('names `open` under a `waiting` branch the host could answer for', () => {
-    const out = answer(`${line(...UNSTARTED, 'feature/a', 'OPEN', 'true')}\n`);
+    const out = answer(`${line(...UNSTARTED, 'feature/a', 'OPEN', 'true', 'true')}\n`);
     expect(out).toBe('waiting\t0\topen\n');
   });
 
   it('names `unknown` under a `waiting` branch the host could not answer for', () => {
     const failed = ['false', '-', 'aaa', 'false', 'failed', 'NONE', '0', '0'] as const;
-    const out = answer(`${line(...failed, 'feature/a', 'OPEN', 'true')}\n`);
+    const out = answer(`${line(...failed, 'feature/a', 'OPEN', 'true', 'true')}\n`);
     expect(out).toBe('waiting\t0\tunknown\n');
+  });
+});
+
+describe('answer — a prerequisite with no pull request (#1305)', () => {
+  it('answers waiting for a slice some plan names', () => {
+    const out = answer(`${line(...UNSTARTED, 'feature/a', 'NONE', 'true', 'true')}\n`);
+    expect(out).toBe('waiting\t0\topen\n');
+  });
+
+  it('answers blocked for a name no plan contains', () => {
+    const out = answer(`${line(...UNSTARTED, 'feature/a', 'NONE', 'true', 'false')}\n`);
+    expect(out).toBe('blocked\t0\topen\n');
   });
 });
 

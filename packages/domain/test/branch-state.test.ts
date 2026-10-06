@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { BranchStateSchema } from '../src/entities/fleet.js';
-import { branchState, type BranchReadings } from '../src/rules/branch-state.js';
+import { branchState, waitVerdict, type BranchReadings, type WaitsReading } from '../src/rules/branch-state.js';
 
 /**
  * ONE CASE PER STATE, FROM READINGS THE TEST SUPPLIES — no host, no git.
@@ -67,11 +67,11 @@ describe('each of the eight states is produced from readings', () => {
   });
 
   it('waiting — the prerequisite has an open pull request', () => {
-    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'OPEN' }] }))).toBe('waiting');
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }] }))).toBe('waiting');
   });
 
   it('blocked — the host has never seen a pull request for the prerequisite', () => {
-    expect(branchState(reading({ waits: [{ branch: 'feature/typo', pr: 'none' }] }))).toBe('blocked');
+    expect(branchState(reading({ waits: [{ branch: 'feature/typo', pr: 'none', namedSlice: false }] }))).toBe('blocked');
   });
 
   it('produces nothing outside the eight the entity declares', () => {
@@ -85,8 +85,8 @@ describe('each of the eight states is produced from readings', () => {
       reading({ refTip: 'bbb' }),
       reading({ deferredByPlan: true }),
       reading({ hostReach: 'failed', pr: 'unreadable' }),
-      reading({ waits: [{ branch: 'feature/first', pr: 'CLOSED' }] }),
-      reading({ waits: [{ branch: 'feature/typo', pr: 'none' }] }),
+      reading({ waits: [{ branch: 'feature/first', pr: 'CLOSED', namedSlice: false }] }),
+      reading({ waits: [{ branch: 'feature/typo', pr: 'none', namedSlice: false }] }),
     ];
     for (const one of every) {
       expect(BranchStateSchema.options).toContain(branchState(one));
@@ -116,14 +116,14 @@ describe("a plan's deferred: beats a merged ref", () => {
     // Somebody gave the branch up, which is a decision, while waiting is a
     // measurement.
     expect(
-      branchState(reading({ deferredByPlan: true, waits: [{ branch: 'feature/first', pr: 'OPEN' }] })),
+      branchState(reading({ deferredByPlan: true, waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }] })),
     ).toBe('deferred');
   });
 });
 
 describe("a prerequisite's state beats open and unknown, and nothing else", () => {
   it('replaces open', () => {
-    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'OPEN' }] }))).toBe('waiting');
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }] }))).toBe('waiting');
   });
 
   it('replaces unknown', () => {
@@ -132,7 +132,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
         reading({
           hostReach: 'failed',
           pr: 'unreadable',
-          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
+          waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }],
         }),
       ),
     ).toBe('waiting');
@@ -145,7 +145,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
           refTip: 'bbb',
           commitsAhead: 2,
           realCommitsAhead: 2,
-          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
+          waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }],
         }),
       ),
     ).toBe('wip');
@@ -158,7 +158,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
           refTip: 'bbb',
           commitsAhead: 1,
           realCommitsAhead: 0,
-          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
+          waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }],
         }),
       ),
     ).toBe('claimed');
@@ -171,7 +171,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
           refTip: 'bbb',
           mainTip: 'aaa',
           pr: 'MERGED',
-          waits: [{ branch: 'feature/first', pr: 'OPEN' }],
+          waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }],
         }),
       ),
     ).toBe('merged');
@@ -182,20 +182,20 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
     // verdict applies to it like to any unstarted branch.
     expect(
       branchState(
-        reading({ refTip: 'bbb', mainTip: 'aaa', waits: [{ branch: 'feature/first', pr: 'OPEN' }] }),
+        reading({ refTip: 'bbb', mainTip: 'aaa', waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }] }),
       ),
     ).toBe('waiting');
   });
 
   it('clears when the prerequisite merged', () => {
-    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'MERGED' }] }))).toBe('open');
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'MERGED', namedSlice: false }] }))).toBe('open');
   });
 
   it('waits rather than blocks on a closed pull request', () => {
     // The host has seen the branch, so nothing is misspelt: somebody withdrew
     // the work, and that resolves by reopening it rather than by editing the
     // plan.
-    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'CLOSED' }] }))).toBe(
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'CLOSED', namedSlice: false }] }))).toBe(
       'waiting',
     );
   });
@@ -203,7 +203,7 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
   it('waits rather than blocks on an unreadable host', () => {
     // Silence is not evidence in either direction: not permission to start, and
     // not proof of a typo.
-    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'unreadable' }] }))).toBe(
+    expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'unreadable', namedSlice: false }] }))).toBe(
       'waiting',
     );
   });
@@ -213,8 +213,8 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
       branchState(
         reading({
           waits: [
-            { branch: 'feature/first', pr: 'MERGED' },
-            { branch: 'feature/second', pr: 'OPEN' },
+            { branch: 'feature/first', pr: 'MERGED', namedSlice: false },
+            { branch: 'feature/second', pr: 'OPEN', namedSlice: false },
           ],
         }),
       ),
@@ -223,8 +223,8 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
       branchState(
         reading({
           waits: [
-            { branch: 'feature/first', pr: 'OPEN' },
-            { branch: 'feature/second', pr: 'MERGED' },
+            { branch: 'feature/first', pr: 'OPEN', namedSlice: false },
+            { branch: 'feature/second', pr: 'MERGED', namedSlice: false },
           ],
         }),
       ),
@@ -236,8 +236,8 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
       branchState(
         reading({
           waits: [
-            { branch: 'feature/first', pr: 'OPEN' },
-            { branch: 'feature/typo', pr: 'none' },
+            { branch: 'feature/first', pr: 'OPEN', namedSlice: false },
+            { branch: 'feature/typo', pr: 'none', namedSlice: false },
           ],
         }),
       ),
@@ -246,8 +246,8 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
       branchState(
         reading({
           waits: [
-            { branch: 'feature/typo', pr: 'none' },
-            { branch: 'feature/first', pr: 'OPEN' },
+            { branch: 'feature/typo', pr: 'none', namedSlice: false },
+            { branch: 'feature/first', pr: 'OPEN', namedSlice: false },
           ],
         }),
       ),
@@ -259,12 +259,61 @@ describe("a prerequisite's state beats open and unknown, and nothing else", () =
       branchState(
         reading({
           waits: [
-            { branch: 'feature/first', pr: 'MERGED' },
-            { branch: 'feature/second', pr: 'MERGED' },
+            { branch: 'feature/first', pr: 'MERGED', namedSlice: false },
+            { branch: 'feature/second', pr: 'MERGED', namedSlice: false },
           ],
         }),
       ),
     ).toBe('open');
+  });
+});
+
+describe('a prerequisite some plan names as a slice (#1305)', () => {
+  const named = (pr: WaitsReading['pr']): WaitsReading => ({
+    branch: 'infra/an-unstarted-sibling',
+    pr,
+    namedSlice: true,
+  });
+  const unknown = (pr: WaitsReading['pr']): WaitsReading => ({
+    branch: 'infra/a-name-no-plan-contains',
+    pr,
+    namedSlice: false,
+  });
+
+  it('waits on a named slice the host has no pull request for', () => {
+    expect(waitVerdict([named('none')])).toBe('waiting');
+    expect(branchState(reading({ waits: [named('none')] }))).toBe('waiting');
+  });
+
+  it('answers null for no prerequisite and for every prerequisite merged', () => {
+    expect(waitVerdict([])).toBeNull();
+    expect(waitVerdict([named('MERGED'), unknown('MERGED')])).toBeNull();
+  });
+
+  it('blocks on a name no plan contains when the host has no pull request for it', () => {
+    expect(waitVerdict([unknown('none')])).toBe('blocked');
+    expect(branchState(reading({ waits: [unknown('none')] }))).toBe('blocked');
+  });
+
+  it('waits on a named slice whatever its pull request reads, short of merged', () => {
+    for (const pr of ['OPEN', 'CLOSED', 'unreadable', 'none'] as const) {
+      expect(branchState(reading({ waits: [named(pr)] }))).toBe('waiting');
+    }
+  });
+
+  it('clears on a named slice whose pull request merged', () => {
+    expect(branchState(reading({ waits: [named('MERGED')] }))).toBe('open');
+  });
+
+  it('still lets blocked outrank waiting when the two kinds are mixed, in both orders', () => {
+    expect(branchState(reading({ waits: [named('none'), unknown('none')] }))).toBe('blocked');
+    expect(branchState(reading({ waits: [unknown('none'), named('none')] }))).toBe('blocked');
+  });
+
+  it('waits on a chain of named slices in mixed states: no ref, open, merged', () => {
+    expect(
+      branchState(reading({ waits: [named('none'), named('OPEN'), named('MERGED')] })),
+    ).toBe('waiting');
   });
 });
 
@@ -405,7 +454,7 @@ describe('a ref behind main is decided by the host', () => {
   });
 
   it('lets a merged prerequisite leave the open standing', () => {
-    expect(branchState(at({ waits: [{ branch: 'feature/first', pr: 'MERGED' }] }))).toBe('open');
+    expect(branchState(at({ waits: [{ branch: 'feature/first', pr: 'MERGED', namedSlice: false }] }))).toBe('open');
   });
 });
 

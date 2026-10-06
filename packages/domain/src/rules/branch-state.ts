@@ -53,6 +53,11 @@ export interface WaitsReading {
   branch: string;
   /** What the host said about that branch's pull request. */
   pr: PrReading;
+  /**
+   * Whether some plan names this branch as a slice. The caller reads it from
+   * the plan set; `false` means no plan contains the name.
+   */
+  namedSlice: boolean;
 }
 
 /**
@@ -117,28 +122,33 @@ export interface BranchReadings {
 }
 
 /**
- * What every prerequisite's pull request means for the branch waiting on them.
+ * What the prerequisites mean for the branch waiting on them.
  *
- * `MERGED`          cleared — the annotation stops mattering, and the branch
- *                   keeps the state its own readings earned.
- * `none`            `blocked`: the host has never seen a pull request for that
- *                   name, so the plan names a branch nobody created. It
- *                   resolves by editing the plan.
- * everything else   `waiting`: a wait with an end. A CLOSED pull request counts
- *                   here rather than as `blocked` — the host has seen the
- *                   branch, so nothing is misspelt; somebody withdrew the work.
- *                   `unreadable` counts here too: silence is not evidence in
- *                   either direction — not permission to start, and not proof
- *                   of a typo.
+ * `MERGED`                    cleared — the annotation stops mattering, and
+ *                             the branch keeps the state its own readings
+ *                             earned.
+ * `none`, name in no plan     `blocked`: the host has no pull request for the
+ *                             name and no plan contains it, so the plan names a
+ *                             branch nobody will create. It resolves by editing
+ *                             the plan.
+ * `none`, a named slice       `waiting`: a slice nobody has started yet. Its
+ *                             pull request opens when its work starts.
+ * everything else             `waiting`. A CLOSED pull request counts here —
+ *                             the host has seen the branch, so the name is
+ *                             right; somebody withdrew the work. `unreadable`
+ *                             counts here too: silence is neither permission
+ *                             to start nor proof of a typo.
  *
  * `blocked` OUTRANKS `waiting`, in either order: a typo among several
- * prerequisites needs a plan edit and no merge clears it, so it is the answer
- * a reader must act on first. An empty list clears, the same as every member
- * reading `MERGED`.
+ * prerequisites needs a plan edit and no merge clears it. An empty list clears,
+ * the same as every member reading `MERGED`.
+ *
+ * @param waits - every prerequisite the plan names, with its readings.
+ * @returns `blocked`, `waiting`, or `null` where every prerequisite merged.
  */
-const waitVerdict = (prs: readonly PrReading[]): BranchState | null => {
-  if (prs.some((pr) => pr === 'none')) return 'blocked';
-  if (prs.some((pr) => pr !== 'MERGED')) return 'waiting';
+export const waitVerdict = (waits: readonly WaitsReading[]): BranchState | null => {
+  if (waits.some((w) => w.pr === 'none' && !w.namedSlice)) return 'blocked';
+  if (waits.some((w) => w.pr !== 'MERGED')) return 'waiting';
   return null;
 };
 
@@ -300,7 +310,7 @@ export const branchState = (readings: BranchReadings): BranchState => {
   const own = ownState(readings);
 
   if (readings.waits.length > 0 && REPLACEABLE_BY_PREREQUISITE.includes(own)) {
-    const verdict = waitVerdict(readings.waits.map((w) => w.pr));
+    const verdict = waitVerdict(readings.waits);
     if (verdict !== null) return verdict;
   }
 
