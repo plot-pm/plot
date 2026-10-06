@@ -531,6 +531,7 @@ export async function handleStory(
         contextWindow: 0,
         capabilities: [],
         env: {
+          ...process.env,
           // THE DECLARATION, not a switch. There is nobody at this board to
           // answer `AskUserQuestion`, and under `claude -p` that tool is not
           // even registered — so a skill that improvises here exits 0 having

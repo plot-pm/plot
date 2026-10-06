@@ -587,6 +587,7 @@ export async function handleDeliver(
         contextWindow: 0,
         capabilities: [],
         env: {
+          ...process.env,
           // THE DECLARATION, not a switch — the same one `reslice.ts` sets.
           // /plot-deliver unattended must STOP at a branch it cannot confirm
           // merged rather than delivering anyway; setting this makes a skipped

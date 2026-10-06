@@ -1,30 +1,44 @@
-// Contract test for the ten agent-runner spawn sites and the settings file they
+// Contract test for the ten agent-runner call sites and the settings file they
 // must inherit.
 //
 // THE MECHANISM IS INHERITANCE, NOT AN EDIT. `index.ts` resolves
 // `Agent settings` once at startup and assigns `process.env.PLOT_AGENT_SETTINGS`;
-// all ten spawns inherit it, so none of them is edited. That is what makes the
-// change one line instead of ten, and it is also what makes it FRAGILE in one
-// specific way: a site that grows an explicit `env: { … }` without
-// `...process.env` stops inheriting, silently, and the agent it starts loses the
-// settings file while every test about that route still passes.
+// every site inherits it, so none of them is edited to carry it explicitly.
+// That is what makes the change one line instead of ten, and it is also what
+// makes it FRAGILE in one specific way: a site that grows an explicit
+// `env: { … }` without `...process.env` stops inheriting, silently, and the
+// agent it starts loses the settings file while every test about that route
+// still passes.
 //
-// So these tests assert the two SHAPES that carry the variable:
+// `the-board-commands-run-through-the-port` (2026-10) moved six of the ten
+// sites off a raw `spawn` onto `agentRunFor`/`agentRun.run(...)` — the SHAPE
+// that carries the variable changed from a `spawn(...)` call to the `env`
+// object handed to `agentRun.run`, but the INHERITANCE RULE is unchanged:
+// `agentRunCommand` forwards `request.env` to its child verbatim, with no
+// merge against `process.env` of its own, so a converted route that drops
+// `...process.env` from that object loses the settings file exactly as a
+// `spawn` site would.
 //
-//   - eight sites spread `...process.env` into their `env`
-//   - two sites pass NO `env` at all, which in Node means inherit-everything
+// So these tests assert the three SHAPES that carry the variable:
 //
-// THE TWO NO-`env` SITES ARE THE ONES A REFACTOR BREAKS SILENTLY. They work for
-// a different reason from the other eight, and "add `env` for cwd/logging" is an
-// ordinary-looking change that would break exactly them.
+//   - four sites still spawn directly and spread `...process.env` into `env`
+//   - five sites run through `agentRunFor` and spread `...process.env` into
+//     the `env` object passed to `agentRun.run`
+//   - one site (`brief-ask.ts`) spawns directly and passes NO `env` at all,
+//     which in Node means inherit-everything
+//
+// THE NO-`env` SITE IS THE ONE A REFACTOR BREAKS SILENTLY. It works for a
+// different reason from the rest, and "add `env` for cwd/logging" is an
+// ordinary-looking change that would break exactly it.
 //
 // A RUNTIME TEST OF ALL TEN WAS CONSIDERED AND IS NOT WHAT THIS IS. Each site
-// spawns a project-configured agent command detached, and driving ten of them
-// through a real board means ten detached `sh -c` children per run. The property
-// that matters is structural — does this call site inherit the environment — and
-// a source assertion states it without starting anything. One runtime proof that
-// a spawned command SEES the variable is below, through a stub command, so the
-// inheritance claim itself is measured once rather than assumed.
+// starts a project-configured agent command, several of them detached, and
+// driving ten of them through a real board means ten children per run. The
+// property that matters is structural — does this call site inherit the
+// environment — and a source assertion states it without starting anything.
+// One runtime proof that a spawned command SEES the variable is below,
+// through a stub command, so the inheritance claim itself is measured once
+// rather than assumed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -39,28 +53,36 @@ const serverDir = path.join(repoRoot, 'packages', 'board', 'src', 'server');
 
 const source = (file) => readFileSync(path.join(serverDir, `${file}.ts`), 'utf8');
 
-/** The eight sites that spread `process.env` into an explicit `env`. */
-const SPREADING = [
-  'idea',
-  'implement',
-  'interrogate',
-  'story',
-  'auto-deliver',
-  'commission',
-  'deliver',
-  'reslice',
-];
+/** The four sites that still spawn directly and spread `process.env` into an explicit `env`. */
+const SPAWN_SPREADING = ['implement', 'interrogate', 'auto-deliver'];
 
-/** The two sites that pass no `env` and inherit the whole environment. */
-const INHERITING = ['brief-ask', 'approve'];
+/** The five sites that run through `agentRunFor` and spread `process.env` into `agentRun.run`'s `env`. */
+const PORT_SPREADING = ['idea', 'story', 'commission', 'deliver', 'reslice', 'approve'];
 
-for (const file of SPREADING) {
+/** The one site that passes no `env` and inherits the whole environment. */
+const INHERITING = ['brief-ask'];
+
+for (const file of SPAWN_SPREADING) {
   test(`${file}.ts spreads process.env into its agent spawn`, () => {
     const text = source(file);
     assert.ok(text.includes('spawn('), `${file}.ts should spawn an agent command`);
     assert.ok(
       text.includes('...process.env'),
       `${file}.ts must spread ...process.env, or the agent it starts loses PLOT_AGENT_SETTINGS`,
+    );
+  });
+}
+
+for (const file of PORT_SPREADING) {
+  test(`${file}.ts spreads process.env into its agentRun.run env`, () => {
+    const text = source(file);
+    assert.ok(
+      text.includes('agentRunFor('),
+      `${file}.ts should run its agent through agentRunFor, not a raw spawn`,
+    );
+    assert.ok(
+      text.includes('...process.env'),
+      `${file}.ts must spread ...process.env into the env object it hands agentRun.run, or the agent it starts loses PLOT_AGENT_SETTINGS`,
     );
   });
 }

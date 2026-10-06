@@ -760,6 +760,7 @@ export async function handleIdea(
         contextWindow: 0,
         capabilities: [],
         env: {
+          ...process.env,
           PLOT_UNATTENDED: '1',
           [IDEA_PROMPT_ENV]: promptPath,
           PLOT_ISSUE: String(number),

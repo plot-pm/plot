@@ -390,7 +390,10 @@ export async function handleApprove(
         boundSeconds: 0,
         contextWindow: 0,
         capabilities: [],
-        env: {},
+        // `process.env`'s index signature is `string | undefined`; nothing here
+        // adds a literal key to narrow it back, so the cast is explicit rather
+        // than relying on TS's inference of an adjacent computed key to do it.
+        env: { ...process.env } as Record<string, string>,
         logFile: log,
       })
       .then((result) => {

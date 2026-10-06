@@ -494,6 +494,7 @@ export async function handleReslice(
         contextWindow: 0,
         capabilities: [],
         env: {
+          ...process.env,
           // THE DECLARATION, not a switch — the same one `commission.ts` sets.
           // /plot-reslice unattended must STOP at the order it cannot choose
           // alone; setting this makes that skipped question name itself in the

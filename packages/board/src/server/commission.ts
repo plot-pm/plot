@@ -437,6 +437,7 @@ export async function handleCommission(
         contextWindow: 0,
         capabilities: [],
         env: {
+          ...process.env,
           // THE DECLARATION, not a switch — the same one `idea.ts` sets. There
           // is nobody at this board to answer `AskUserQuestion`, so a skill
           // that improvises here exits 0 having written nothing; setting it
