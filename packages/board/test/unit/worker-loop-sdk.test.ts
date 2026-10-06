@@ -223,6 +223,27 @@ describe('runWorkerLoop on the SDK runner — the run records', () => {
     expect(logs).toContain('plot-worker-loop: usage-limit readings not recorded (disk full)');
   });
 
+  it('logs a run line that throws and failed budget entries, and stays silent on a command run’s no-cost', async () => {
+    const r = rig([ran('checks'), ran('pushed')], async () => ({ passed: true }));
+    const logs: string[] = [];
+    let calls = 0;
+    Object.assign(r.deps, { log: (line: string) => logs.push(line) });
+    Object.assign(r.deps.ports, {
+      recordRun: async () => {
+        calls += 1;
+        if (calls === 1) throw 'record gone';
+        return 'no-cost';
+      },
+      recordLimits: async () => 2,
+    });
+
+    await runWorkerLoop(r.deps);
+
+    expect(logs).toContain(`plot-worker-loop: no run line for ${BRANCH} (record gone)`);
+    expect(logs.filter((line) => line.includes('no-cost'))).toEqual([]);
+    expect(logs).toContain('plot-worker-loop: 2 usage-limit reading(s) not recorded');
+  });
+
   it('starts no run on a slice whose recorded cost reached Slice max spend, and ends spend-limit', async () => {
     const r = rig([ran('pushed')], async () => ({ passed: true }));
     Object.assign(r.deps.config, { sliceMaxSpendUsd: 5 });
