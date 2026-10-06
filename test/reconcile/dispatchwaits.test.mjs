@@ -43,7 +43,7 @@ function git(cwd, ...args) {
 // annotation. `Worker command: none` so nothing is ever launched: this file
 // tests a REFUSAL, and a test that starts a detached agent to prove one did not
 // happen is a test that leaks processes.
-function makeRepo({ waitsOn = null, deferred = null, branch = 'feature/dependent' } = {}) {
+function makeRepo({ waitsOn = null, deferred = null, branch = 'feature/dependent', sibling = null } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waits-'));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -67,6 +67,7 @@ function makeRepo({ waitsOn = null, deferred = null, branch = 'feature/dependent
     '# Dependent plan\n\n## Status\n\n- **Phase:** Approved\n- **Type:** feature\n'
     + '- **Impl:** own branches\n\n'
     + '## Branches\n\n### Only\n\n'
+    + (sibling ? `- \`${sibling}\` — a slice nobody has started\n` : '')
     + `- \`${branch}\` ${notes} — the dependent work\n`);
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'init');
@@ -219,6 +220,17 @@ test('waits: a prerequisite the host has never seen a PR for reads BLOCKED', () 
   // file, `waiting` to the calendar. Collapsing them wastes one of the trips.
   assert.doesNotMatch(stdout, /waiting on/,
     `and it must not be reported as a wait:\n${stdout}`);
+});
+
+test('waits: a sibling slice the host has no PR for reads WAITING, not blocked (#1305)', () => {
+  // The plan names the prerequisite as a slice, so `NONE` means nobody started
+  // it yet. Only a name the plan does not contain is a typo.
+  const repo = makeRepo({ waitsOn: 'feature/first', sibling: 'feature/first' });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'], { gh: ghShim({ prereq: 'feature/first', state: null }) });
+
+  assert.match(stdout, /skipped feature\/dependent \(waiting on feature\/first\)/,
+    `a named sibling with no PR is a wait:\n${stdout}`);
+  assert.doesNotMatch(stdout, /blocked/, `and never a typo:\n${stdout}`);
 });
 
 test('waits: an unreachable host HOLDS the slice, and does not block it', () => {

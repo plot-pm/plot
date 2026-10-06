@@ -76,11 +76,12 @@
 # Branch states — the word each BRANCH carries, distinct from the wave verdicts
 # above. `open`, `wip`, `merged`, `claimed`, `deferred` and `unknown` are read
 # from git and the host. Two more are read from the plan's `waits:` annotation:
-#   waiting     the branch names a prerequisite branch that has not merged. A
+#   waiting     the branch names a prerequisite branch that has not merged —
+#               including a slice some plan names that nobody has started. A
 #               wait with an end: it clears when that branch lands, and the
 #               fleet payload carries `waits_on` so a reader sees on WHAT.
 #   blocked     the branch names a prerequisite the host has never seen a PR
-#               for — a typo, or a branch nobody created. A defect in the plan
+#               for and no plan names as a slice — a typo. A defect in the plan
 #               estate, not progress, which is why it is a separate word: the
 #               first resolves by waiting, the second by editing the plan.
 #               THE SAME WORD AS THE WAVE VERDICT, IN A DIFFERENT VOCABULARY.
@@ -1573,7 +1574,7 @@ reached_review() { # $1=branch → 0 when an open or merged PR exists
 #
 # WHAT THE HOST SAID, AND NOT WHAT IT MEANS. This function answered
 # `waiting` / `blocked` / `""` until the derivation moved: the three answers and
-# the reason `NONE` is the only one that means `blocked` are `waitVerdict` in
+# why only `NONE` on a name no plan contains means `blocked` are `waitVerdict` in
 # `packages/domain/src/rules/branch-state.ts`, with a test per case. What stays
 # here is the READING and the cost argument above it, which is a fact about
 # this script's host budget rather than about what a wait means.
@@ -1582,9 +1583,7 @@ reached_review() { # $1=branch → 0 when an open or merged PR exists
 # may legitimately omit: its plan may be delivered and its ref gone. The bound
 # is the same one PR #216 set — ABSENT branches, not all branches — and the
 # cache above keeps it at one call per run.
-waits_pr_state() { # $1=prerequisite branch → OPEN|MERGED|CLOSED|NONE|-
-  host_pr_state "$1" --ask
-}
+waits_pr_state() { host_pr_state "$1" --ask; } # $1=prerequisite branch → OPEN|MERGED|CLOSED|NONE|-
 
 # Modification time of a path, in epoch seconds, following symlinks — or "" when
 # it cannot be read.
@@ -4213,6 +4212,12 @@ plan_files=()
 # second derivation that could disagree with them.
 outlook_lines=""
 
+# EVERY SLICE ANY PARSED PLAN NAMES, newline-framed for a `case` lookup. A
+# `waits:` name in this set is a slice nobody has started, which the rule reads
+# `waiting` without a pull request; a name outside it with none is a typo,
+# `blocked` (#1305). A named slug parses one plan, so there the set is that plan.
+SLICE_NAMES=$'\n'"$(printf '%s' ${plan_meta_waves[@]+"${plan_meta_waves[@]}"} | cut -f2)"$'\n'
+
 plan_idx=-1
 for plan in "${plans[@]}"; do
   # `plan` is the plan's IDENTITY (the path as the ref or the tree spells it);
@@ -4363,7 +4368,7 @@ for plan in "${plans[@]}"; do
     # "-" is the absent marker the shim writes, for the tab-collapse reason
     # above. Normalized here so everything downstream tests emptiness.
     [ "$waits" = "-" ] && waits=""
-    readings+="$(branch_readings "$br" "$deferred" "$plan_base")	${waits:--}	?	$list_complete"$'\n'
+    readings+="$(branch_readings "$br" "$deferred" "$plan_base")	${waits:--}	?	$list_complete	?"$'\n'
     # Read from the readings line just built rather than from the variable: the
     # subshell `branch_readings` runs in cannot export it back.
     # FIELD 6 is the host's own word, in both arms of `branch_readings`:
@@ -4431,12 +4436,18 @@ for plan in "${plans[@]}"; do
       # IN THE SAME ORDER — one `waits_pr_state` call per name, joined the same
       # way. `entry/branch-state.ts` reads the two columns as parallel lists of
       # equal length and throws otherwise, so a single answer for several names
-      # would desync them. Field 11 is carried, unreplaced.
-      waits_state=""
+      # would desync them. Field 11 is carried, unreplaced. Field 12 says, in
+      # the same order, whether `SLICE_NAMES` holds each name.
+      #
+      # A NAMED SLICE WITH NO REF IS STILL ASKED. Its ref may be gone because it
+      # merged and `plot-release-refs.sh` reaped it, and only the host's MERGED
+      # clears the wait; skipping the call would hold the branch forever.
+      waits_state="" waits_named=""
       for _wn in ${waits_br//,/ }; do
         waits_state+="${waits_state:+,}$(waits_pr_state "$_wn")"
+        case "$SLICE_NAMES" in *$'\n'"$_wn"$'\n'*) waits_named+="${waits_named:+,}true" ;; *) waits_named+="${waits_named:+,}false" ;; esac
       done
-      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$waits_state	$(printf '%s' "$rd_line" | cut -f11)"$'\n'
+      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$waits_state	$(printf '%s' "$rd_line" | cut -f11)	$waits_named"$'\n'
     else
       refill+="$rd_line"$'\n'
     fi
@@ -4638,9 +4649,9 @@ for plan in "${plans[@]}"; do
         # whole of what this state adds over `open`.
         waiting)  n_waiting=$((n_waiting + 1))
                   note="waiting on $waits_prose" ;;
-        # A PREREQUISITE NOBODY DECLARED. The sentence says the host was asked
-        # and answered, because that is what separates this from `waiting`: a
-        # host that could not be asked holds the branch at `waiting` instead.
+        # A PREREQUISITE NOBODY DECLARED: no plan names it as a slice, and the
+        # host answered that no PR exists for it. A host that could not be
+        # asked, or a named slice nobody has started, reads `waiting` instead.
         blocked)  n_prereq_missing=$((n_prereq_missing + 1))
                   note="blocked — no PR found for $waits_prose" ;;
         # The REASON, where the plan recorded one. A bare `deferred` beside a

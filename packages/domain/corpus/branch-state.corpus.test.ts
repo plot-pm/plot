@@ -13,10 +13,12 @@ import {
 import { mergedBySubject } from '../src/rules/merge-subject.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
 import {
+  listPlanFiles,
   readCommitsBeyond,
   readFleetScan,
   readMainBranch,
   readMergeSubjects,
+  readPlanMeta,
   readPrList,
   readRemoteRefs,
   type Estate,
@@ -179,6 +181,37 @@ const bestPrPerBranch = (rows: readonly PrRow[]): Map<string, string> => {
 let prByBranch: Map<string, string>;
 
 /**
+ * Every slice some plan names: the set a `waits:` name is looked up in.
+ *
+ * Read through `plot-plan-meta.sh` over every plan file, the parse the scan
+ * builds its own set from, and joined with every branch the pulse reports, so
+ * a plan carried only on its branch counts too. `idea/` branches and dotted
+ * names are left out, as the scan leaves them out of a wave.
+ *
+ * @param reading - the pulse whose branches join the set.
+ * @returns the branch names.
+ */
+const readNamedSlices = (reading: FleetReading): Set<string> => {
+  const names = new Set<string>();
+  for (const plan of reading.plans) {
+    for (const slice of plan.slices) for (const b of slice.branches) names.add(b.branch);
+  }
+  for (const meta of readPlanMeta(estate, listPlanFiles(estate))) {
+    const waves = (meta.waves ?? meta.slices ?? []) as { branches?: { branch?: string }[] }[];
+    for (const wave of waves) {
+      for (const b of wave.branches ?? []) {
+        const name = b.branch ?? '';
+        if (name === '' || name.startsWith('idea/') || name.split('/').at(-1)?.includes('.')) continue;
+        names.add(name);
+      }
+    }
+  }
+  return names;
+};
+
+let namedSlices: Set<string>;
+
+/**
  * How far the host got — `HOST_VERDICT`'s own word, classified in
  * `production.ts` from the same exit code and stderr text the scan reads.
  *
@@ -281,7 +314,11 @@ const readingsFor = (
     prListComplete: prList.complete,
     commitsAhead: counts.total,
     realCommitsAhead: counts.real,
-    waits: waitsOn.map((branch) => ({ branch, pr: prFor(branch) })),
+    waits: waitsOn.map((branch) => ({
+      branch,
+      pr: prFor(branch),
+      namedSlice: namedSlices.has(branch),
+    })),
   };
 };
 
@@ -313,6 +350,7 @@ interface Pass {
  * @returns the count walked and every disagreement found.
  */
 const comparePass = (reading: FleetReading): Pass => {
+  namedSlices = readNamedSlices(reading);
   const disagreements: Disagreement[] = [];
   let compared = 0;
   for (const plan of reading.plans) {
@@ -568,6 +606,7 @@ describe('the bundle answers the zero-ahead table as the rule does', () => {
       '-',
       '?',
       String(r.prListComplete),
+      '?',
     ].join('\t');
 
   const runBundle = (input: string): { status: number | null; stdout: string } => {
@@ -587,8 +626,8 @@ describe('the bundle answers the zero-ahead table as the rule does', () => {
     expect(disagreements).toEqual([]);
   });
 
-  it('refuses a ten-field line with exit 2', () => {
-    const ten = lineFor(behind).split('\t').slice(0, 10).join('\t');
-    expect(runBundle(`${ten}\n`).status).toBe(2);
+  it('refuses an eleven-field line with exit 2', () => {
+    const eleven = lineFor(behind).split('\t').slice(0, 11).join('\t');
+    expect(runBundle(`${eleven}\n`).status).toBe(2);
   });
 });
