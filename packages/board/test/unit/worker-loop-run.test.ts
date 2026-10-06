@@ -296,6 +296,22 @@ describe('runWorkerLoop — a prompt', () => {
     };
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.logs.join('\n')).toMatch(/the bound expired on \S+ — the prompt exceeded the \d+s bound/);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('bound');
+  });
+
+  it('ends unreadable when the bound killed the prompt and no transcript could be read (row 6)', async () => {
+    const r = rig(ASSIGNED, []);
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        transcriptQuietSeconds: async () => 'unavailable',
+        boundedRun: { run: async () => ({ ok: true, value: { status: null, timedOut: true, ranSeconds: 9 } }) },
+      },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('unreadable');
+    expect(r.logs.join('\n')).toContain(`nobody could tell on ${BRANCH} — no transcript could be read for this worktree`);
   });
 
   it('reads a run killed by a signal the bound did not send (status null) as 124', async () => {
@@ -579,9 +595,71 @@ describe('runWorkerLoop — after the prompt', () => {
   });
 
   it('keeps the pushed sha it had when HEAD cannot be read', async () => {
+    const r = rig(ASSIGNED, [{}, {}]);
+    const asked: string[] = [];
+    let resolved = 0;
+    let conclusion = 'failure';
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        refs: {
+          ...r.ports.refs,
+          resolve: async () => (resolved++ === 0 ? { ok: true, value: 'sha-1' } : { ok: false, why: 'failed' }),
+        },
+        build: {
+          ...r.ports.build,
+          runForSha: async (_branch: string, sha: string) => {
+            asked.push(sha);
+            const run = { sha: 'sha-1', status: 'completed', conclusion, url: 'u', startedAt: '' };
+            conclusion = 'success';
+            return { ok: true, value: run };
+          },
+        },
+      },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(resolved).toBe(2);
+    expect(asked).toEqual(['sha-1', 'sha-1']);
+  });
+
+  it('asks the PR state once per checks wait, and does not seal on a host that fails inside it', async () => {
     const r = rig(ASSIGNED, [{}]);
-    r.deps = { ...r.deps, ports: { ...r.ports, refs: { ...r.ports.refs, resolve: async () => ({ ok: false, why: 'failed' }) } } };
-    await runWorkerLoop(r.deps);
+    let prAsks = 0;
+    let polls = 0;
+    const open: Pr = { number: 7, head: BRANCH, state: 'OPEN' } as Pr;
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        host: { prState: async () => (prAsks++ === 0 ? { ok: true, value: open } : { ok: false, why: 'failed' }) } as WorkerLoopPorts['host'],
+        build: {
+          ...r.ports.build,
+          runForSha: async () => {
+            polls += 1;
+            const status = polls < 3 ? 'in_progress' : 'completed';
+            return { ok: true, value: { sha: 'sha-1', status, conclusion: polls < 3 ? null : 'success', url: 'u', startedAt: '' } };
+          },
+        },
+      },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(prAsks).toBe(1);
+    expect(polls).toBe(3);
+    expect(r.deskCalls.declarations).toHaveLength(1);
+  });
+
+  it('starts the checks wait when the PR state cannot be read on entry', async () => {
+    const r = rig(ASSIGNED, [{}]);
+    r.deps = {
+      ...r.deps,
+      ports: { ...r.ports, host: { prState: async () => ({ ok: false, why: 'failed' }) } as WorkerLoopPorts['host'] },
+    };
+    const clock = { since: null };
+    const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
+    const readings = await readPass(r.deps.ports, r.manifestFile, ran, rigConfig(), clock);
+    expect(readings.checks).toBe('settled');
+    expect(readings.pr).toBeNull();
   });
 
   it('does not wait for checks when Checks wait is 0', async () => {
@@ -863,6 +941,7 @@ describe('readPass — unreadable host readings', () => {
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const a = await readPass(ports, r.manifestFile, ran, rigConfig(), clock);
     expect(a.prOpen).toBe(false);
+    expect(a.checks).not.toBeNull();
     const b = await readPass(
       { ...r.ports, refs: { ...r.ports.refs, remoteTip: fail } as WorkerLoopPorts['refs'], build: { ...r.ports.build, runForSha: fail } as WorkerLoopPorts['build'] },
       r.manifestFile,

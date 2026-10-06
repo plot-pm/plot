@@ -60,8 +60,9 @@ import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWri
  * **ONE EXCEPTION, NAMED RATHER THAN HIDDEN.** The moment the current free (or
  * checks) wait began is kept in a module-level field so slice 4's restart
  * cannot extend it — the plan's own requirement — but the wait's EXISTENCE is
- * still re-read every pass from the manifest's assignment; only its start time
- * is held across passes.
+ * still re-read every pass from the manifest's assignment. The checks wait
+ * also holds the PR number it read on entry, because the host is asked once
+ * per wait.
  *
  * **THE PROMPT RUNS THROUGH `boundedRun`, NEVER DETACHED.** `agentLoop` emits
  * `prompt-run`/`agent-resume` as RECORDS — `performLoopWrites` does not invoke
@@ -76,9 +77,16 @@ export const PASS_INTERVAL_MS = 60_000;
 /** The idle window `idleNow` judges a transcript's silence against — the shipped default. */
 export const IDLE_WINDOW_SECONDS = 900;
 
-/** The start of the CURRENT wait (free, or checks), epoch ms; `null` outside one. */
+/** The CURRENT wait (free, or checks): its start, and what the checks wait read on entry. */
 interface WaitClock {
+  /** The wait's start, epoch ms; `null` outside one. */
   since: number | null;
+  /**
+   * The PR number the checks wait read once, on entry; `null` where none was
+   * read or the host could not answer. The host is not asked again inside the
+   * wait, as the shell asks `pr_is_open` once per finished prompt.
+   */
+  pr?: number | null;
 }
 
 /** Every port this entry reads or writes through, composed once at start. */
@@ -419,21 +427,31 @@ export const readPass = async (
   if (refusals.length > 0) return { ...base, resetRefusals: refusals };
 
   // ROW 12a — before the wait starts: is the head pushed, and is a PR open?
-  const [pushedAnswer, prAnswer] = await Promise.all([
-    ports.refs.remoteHead(branch),
-    ports.host.prState(branch),
-  ]);
-  const pushed = pushedAnswer.ok && pushedAnswer.value === 'present';
-  const pr = prAnswer.ok ? prAnswer.value : null;
-  const prOpen = pr !== null && pr.state === 'OPEN';
-  const prNumber = pr !== null ? pr.number : null;
-
-  if (!pushed || !prOpen) {
-    return { ...base, pushed, prOpen, pr: prNumber };
+  // ASKED ONCE PER WAIT. Inside the wait the answers read on entry hold, so a
+  // host that fails one poll cannot seal the slice as if its PR had closed.
+  if (clock.since === null) {
+    const [pushedAnswer, prAnswer] = await Promise.all([
+      ports.refs.remoteHead(branch),
+      ports.host.prState(branch),
+    ]);
+    const pushed = pushedAnswer.ok && pushedAnswer.value === 'present';
+    const pr = prAnswer.ok ? prAnswer.value : null;
+    const prOpen = pr !== null && pr.state === 'OPEN';
+    const prNumber = pr !== null ? pr.number : null;
+    // AN UNREADABLE PR STATE STARTS THE WAIT. Only a host that answered with
+    // no open PR seals the slice; `Checks wait` bounds the wait either way.
+    if (!pushed || (prAnswer.ok && !prOpen)) {
+      return { ...base, pushed, prOpen, pr: prNumber };
+    }
+    clock.since = Date.now();
+    clock.pr = prNumber;
   }
 
-  // ROWS 12-18 — work is pushed and a PR is open: the CI wait.
-  if (clock.since === null) clock.since = Date.now();
+  // ROWS 12-18 — work is pushed and a PR is open, or the host could not say:
+  // the CI wait.
+  const pushed = true;
+  const prOpen = clock.pr !== null && clock.pr !== undefined;
+  const prNumber = clock.pr ?? null;
   const waitedSeconds = Math.floor((Date.now() - clock.since) / 1000);
 
   if (config.checksWaitSeconds <= 0) {
@@ -909,16 +927,21 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       return 124;
     }
     if (ran.ended === 'bound') {
+      const transcriptReadable = (await deps.ports.transcriptQuietSeconds(worktree)) !== 'unavailable';
       const boundReadings = {
         ...readings,
-        running: { verdict: 'silent' as const, transcriptReadable: true },
+        running: { verdict: 'silent' as const, transcriptReadable },
         exit: null,
         boundSeconds: deps.config.boundSeconds,
         waitedSeconds: deps.config.boundSeconds,
       };
       const boundDecision = agentLoop(boundReadings);
       await performLoopWrites(boundDecision.writes as readonly LoopWrite[], deps.ports, worktree);
-      deps.log(`plot-worker-loop: the bound expired on ${readings.assignedBranch} — the prompt exceeded the ${deps.config.boundSeconds}s bound; ending worker without hopping`);
+      deps.log(
+        transcriptReadable
+          ? `plot-worker-loop: the bound expired on ${readings.assignedBranch} — the prompt exceeded the ${deps.config.boundSeconds}s bound with the agent's transcript readable, and no monitor finding said why; ending worker without hopping`
+          : `plot-worker-loop: nobody could tell on ${readings.assignedBranch} — no transcript could be read for this worktree, so no reading distinguishes a thinking agent from a stopped one; the prompt exceeded the ${deps.config.boundSeconds}s bound and that is an absence of a reading, not a measurement; ending worker without hopping`,
+      );
       return 124;
     }
     const head = await deps.ports.refs.resolve('HEAD');
