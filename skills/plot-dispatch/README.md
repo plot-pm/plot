@@ -144,6 +144,8 @@ project's `.plot/worker-prompt.sh`, so Plot still hardcodes no agent tooling
 directory first on `PATH` for the command it launches; a plugin path would carry
 a version and an absolute path a machine.
 
+`Agent runner: sdk` runs the prompt through the Agent SDK in the JS loop, and its prompt file is `.plot/worker-prompt.md`, not the `.sh`. Step 3's prompt check names the `.md` for that runner; where it is absent the loop reads Plot's shipped `skills/plot/templates/worker-prompt.md`. The `dispatch` and `continue` controllers refuse `sdk` under `Worker loop: shell` (`sdk-needs-js-loop`), because the shell loop has no SDK runner.
+
 - **Not in `plot-dispatch.sh`.** A bash script cannot put a question to a human
   inside an agent session, and this repo's direction is that scripts collect and
   report while skills interpret. `test/reconcile/dispatch.test.mjs` pins that the

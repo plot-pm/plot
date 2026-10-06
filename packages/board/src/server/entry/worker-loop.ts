@@ -1,11 +1,18 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { realpathSync, rmSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { constants, tmpdir } from 'node:os';
+import { constants, homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
+import {
+  agentRunSdk,
+  claudeOnPath,
+  DEFAULT_READ_ONLY_DENY,
+  settingsFilesOf,
+  spawnAttached,
+} from '@plot-pm/domain/adapters/agent-run/agent-run-sdk';
 
 import {
   agentsFs,
@@ -25,19 +32,29 @@ import { checksFromRuns, type RemoteTipReading } from '@plot-pm/domain/rules/che
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
 import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
+import { DEFAULT_AGENT_CONTEXT_WINDOW, DEFAULT_AGENT_MAX_TURNS, agentRunSettings } from '@plot-pm/domain/rules/agent-models';
+import { failedCheck, printedCommands } from '@plot-pm/domain/rules/local-checks-run';
+import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
+import { parsePromptFile, promptCandidates, renderPrompt } from '@plot-pm/domain/rules/worker-prompt-text';
 import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
-import { agentLoop, type AgentLoopReadings, type TakeUpRefusal } from '@plot-pm/domain/workflows/agent-loop';
+import {
+  agentLoop,
+  type AgentLoopReadings,
+  type LocalChecksReading,
+  type TakeUpRefusal,
+} from '@plot-pm/domain/workflows/agent-loop';
 import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
 import { recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
+import type { AgentHandBack, AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
-import { answer as promptAnswer } from './prompt.js';
+import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 
 /**
@@ -65,11 +82,15 @@ import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWri
  * also holds the PR number it read on entry, because the host is asked once
  * per wait.
  *
- * **THE PROMPT RUNS THROUGH `boundedRun`, NEVER DETACHED.** `agentLoop` emits
- * `prompt-run`/`agent-resume` as RECORDS — `performLoopWrites` does not invoke
- * anything for them — and this entry is the caller that actually runs the
- * prompt, in the process group it inherited, so the dispatch wrapper's group
- * stop still reaches it.
+ * **THE PROMPT RUNS THROUGH `boundedRun` OR `agentRun`, NEVER DETACHED.**
+ * `agentLoop` emits `prompt-run`/`agent-resume` as RECORDS — `performLoopWrites`
+ * does not invoke anything for them — and this entry is the caller that runs
+ * the prompt, in the process group it inherited, so the dispatch wrapper's
+ * group stop still reaches it. `Agent runner: command` runs the prompt file
+ * through `boundedRun`; `Agent runner: sdk` runs one turn through the SDK
+ * connector, and on a `checks` hand-back this entry runs the local checks
+ * through `boundedRun` and resumes the session with the result, with no model
+ * turn between.
  */
 
 /** How long one pass sleeps before the next, in milliseconds — matches `WAIT_POLL_SECONDS`'s shell default. */
@@ -148,6 +169,8 @@ export interface ManifestFields {
   attempts: number;
   correctionAttempts: number;
   resumeId: string;
+  /** The runs this slice has started, keyed to `branch`: `0` where the manifest counts runs for another branch. */
+  sliceRuns: number;
 }
 
 /** The empty manifest reading — a hand-started loop, or a manifest this parse could not read. */
@@ -158,6 +181,46 @@ const EMPTY_MANIFEST: ManifestFields = {
   attempts: 0,
   correctionAttempts: 0,
   resumeId: '',
+  sliceRuns: 0,
+};
+
+/**
+ * Reads the manifest's `sliceRuns` record for the assigned branch.
+ *
+ * The count is keyed to the branch, as `correctionAttempts` is (#1285): a
+ * record naming another branch reads `0`, so a hop resets it.
+ *
+ * @param raw - the manifest's `sliceRuns` value, `{ branch, runs }`.
+ * @param branch - the assigned branch.
+ * @returns the runs started on `branch`; `0` where the record is absent, malformed or for another branch.
+ */
+export const sliceRunsOf = (raw: unknown, branch: string): number => {
+  if (typeof raw !== 'object' || raw === null || branch === '') return 0;
+  const record = raw as { branch?: unknown; runs?: unknown };
+  return record.branch === branch && typeof record.runs === 'number' && Number.isInteger(record.runs) ? record.runs : 0;
+};
+
+/**
+ * Records one more run on the assigned branch, best-effort.
+ *
+ * @param manifestFile - the manifest's own path; a no-op when empty or unreadable.
+ * @returns the new count, or `0` where the manifest could not be written.
+ */
+export const raiseSliceRuns = async (manifestFile: string): Promise<number> => {
+  if (manifestFile === '') return 0;
+  try {
+    const parsed: unknown = JSON.parse(await readFile(manifestFile, 'utf8'));
+    if (typeof parsed !== 'object' || parsed === null) return 0;
+    const was = parsed as Record<string, unknown>;
+    const branch = typeof was.branch === 'string' ? was.branch : '';
+    const runs = sliceRunsOf(was.sliceRuns, branch) + 1;
+    const tmp = `${manifestFile}.plot-runs-tmp`;
+    await writeFile(tmp, `${JSON.stringify({ ...was, sliceRuns: { branch, runs } }, null, 2)}\n`, 'utf8');
+    await rename(tmp, manifestFile);
+    return runs;
+  } catch {
+    return 0;
+  }
 };
 
 /**
@@ -183,6 +246,7 @@ export const readManifestFields = async (manifestFile: string): Promise<Manifest
           ? o.correctionAttempts
           : 0,
       resumeId: typeof o.resumeId === 'string' ? o.resumeId : '',
+      sliceRuns: sliceRunsOf(o.sliceRuns, typeof o.branch === 'string' ? o.branch : ''),
     };
   } catch {
     return EMPTY_MANIFEST;
@@ -305,6 +369,12 @@ export interface PromptState {
    * and no port today answers "this worktree's own HEAD sha" to re-derive it.
    */
   readonly pushedSha: string;
+  /** The SDK run's hand-back, read where `exit` is `ran`; `null` on the `command` runner. */
+  readonly handBack?: AgentHandBack | null;
+  /** The session the last SDK run ran under, which a `checks` resume continues. */
+  readonly sessionId?: string;
+  /** What the local checks answered for a `checks` hand-back; `null` while they have not run. */
+  readonly localChecks?: LocalChecksReading | null;
 }
 
 /** What one pass is told about the repository's config, read once at start. */
@@ -361,14 +431,12 @@ export const readPass = async (
     maxStartRetries: config.maxStartRetries,
     markerWritten: false,
     markerText: '',
-    // A `command` runner hands back nothing, so no `checks` hand-back is read.
-    handBack: null,
-    checksResumeId: '',
-    handBackSummary: '',
-    localChecks: null,
-    // The slice-spend record holds no run line before the SDK runner writes
-    // one, so no run of this slice is on record.
-    sliceRuns: 0,
+    // A `command` runner hands back nothing, so its hand-back reads `null`.
+    handBack: prompt.handBack?.next ?? null,
+    checksResumeId: prompt.sessionId ?? '',
+    handBackSummary: prompt.handBack?.summary ?? '',
+    localChecks: prompt.localChecks ?? null,
+    sliceRuns: manifest.sliceRuns,
     sliceMaxRuns: config.sliceMaxRuns,
     resetRefusals: [],
     pushed: false,
@@ -711,26 +779,82 @@ export interface LoopDeps {
    * absent runs the prompt with the variable unset, as the shell does.
    */
   readonly agentSettings?: string;
+  /** `Agent runner` as {@link runnerChoice} answered it; absent reads `command`. */
+  readonly runner?: 'command' | 'sdk';
+  /** What the SDK runner needs; read only where {@link runner} is `sdk`. */
+  readonly sdk?: SdkRunDeps;
+}
+
+/** What one SDK run's context tells the connector about the usage-limit wait it follows. */
+export interface SdkRunContext {
+  readonly afterWait: boolean;
+  /** Commits the desk gained since that wait began, read when the run ends. */
+  readonly commitsSinceWait: () => number;
+}
+
+/** What the SDK runner needs beyond {@link LoopDeps}, resolved once per agent start. */
+export interface SdkRunDeps {
+  /** The connector for one run. */
+  readonly agentRun: (context: SdkRunContext) => AgentRun;
+  /** The fresh prompt for a branch, with the placeholders filled. */
+  readonly prompt: (branch: string) => string;
+  readonly model: string;
+  readonly effort: string;
+  /** `Agent max turns`. */
+  readonly maxTurns: number;
+  /** `Agent context window`, capped by the charter. */
+  readonly contextWindow: number;
+  /** The charter's capabilities. */
+  readonly capabilities: readonly string[];
+  /** Runs the commands `plot-local-checks.mjs` prints for a `checks` hand-back. */
+  readonly runChecks: (worktree: string) => Promise<LocalChecksReading>;
 }
 
 /**
  * A decision's writes as the {@link LoopWrite}s {@link performLoopWrites} applies.
  *
- * `checks` is not applied by this entry: the local checks run with the SDK
- * runner (`infra/the-loop-waits-not-the-model`). This entry fills `handBack`
- * with `null`, so `agentLoop` does not emit `checks` here.
+ * `checks` is not a port write: this entry runs the local checks itself,
+ * through `boundedRun`, and reads the answer into the next pass.
  *
  * @param writes - the decision's writes.
- * @returns the same writes, typed as {@link LoopWrite}s.
- * @throws Error where a write is `checks`.
+ * @returns the writes other than `checks`, typed as {@link LoopWrite}s.
  */
-export const loopWritesOf = (writes: readonly Write[]): readonly LoopWrite[] => {
-  const checks = writes.find((w) => w.kind === 'checks');
-  if (checks !== undefined) {
-    throw new Error(`plot-worker-loop: a checks write on ${checks.branch} is not applied by this loop yet — the local checks run with the SDK runner`);
-  }
-  return writes as readonly LoopWrite[];
-};
+export const loopWritesOf = (writes: readonly Write[]): readonly LoopWrite[] =>
+  writes.filter((w) => w.kind !== 'checks') as readonly LoopWrite[];
+
+/**
+ * Runs the local checks a `checks` hand-back asks for: the commands
+ * `plot-local-checks.mjs` prints, each through `boundedRun`, in order, until
+ * one fails.
+ *
+ * A worker's own `PLOT_*` variables are unset for each command, because a
+ * test that builds a sandbox reads `PLOT_REPO_ROOT` as its root.
+ *
+ * @param boundedRun - the port each command runs through.
+ * @param scriptDir - where the helper scripts live.
+ * @param boundSeconds - the bound of each command.
+ * @param outFile - where one command's output is written; emptied before each.
+ * @returns a pass, or the first failing command and the tail of its output.
+ */
+export const localChecksRunner =
+  (boundedRun: BoundedRun, scriptDir: string, boundSeconds: number, outFile: string) =>
+  async (worktree: string): Promise<LocalChecksReading> => {
+    const scrubbed = ['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_UNATTENDED', '-u', 'PLOT_MANIFEST_FILE', '-u', 'PLOT_WRAPPER_PID_FILE'];
+    const runOne = async (args: readonly string[]): Promise<{ passed: boolean; output: string }> => {
+      await writeFile(outFile, '', 'utf8');
+      const run = await boundedRun.run('env', [...scrubbed, ...args], { cwd: worktree, boundSeconds, outFile });
+      const output = await readFile(outFile, 'utf8').catch(() => '');
+      return { passed: run.ok && run.value.status === 0, output };
+    };
+    const lister = join(scriptDir, 'board', 'plot-local-checks.mjs');
+    const listed = await runOne(['node', lister]);
+    if (!listed.passed) return failedCheck(`node ${lister}`, listed.output);
+    for (const command of printedCommands(listed.output)) {
+      const ran = await runOne(['bash', '-c', command]);
+      if (!ran.passed) return failedCheck(command, ran.output);
+    }
+    return { passed: true };
+  };
 
 /** What the loop holds across passes: the prompt's own state, and the wait it came back from. */
 interface Held {
@@ -740,28 +864,94 @@ interface Held {
   aheadAtWait: number;
   /** The last prompt's own exit status, for the operator's line about a prompt that never started. */
   status: number;
+  /** The last SDK run's hand-back; `null` on the `command` runner. */
+  handBack: AgentHandBack | null;
+  /** The session the last SDK run ran under. */
+  sessionId: string;
+  /** What the local checks answered for the last `checks` hand-back; `null` before they ran. */
+  localChecks: LocalChecksReading | null;
 }
 
-const FRESH: Held = { exit: null, pushedSha: '', afterWait: false, aheadAtWait: 0, status: 0 };
+const FRESH: Held = {
+  exit: null,
+  pushedSha: '',
+  afterWait: false,
+  aheadAtWait: 0,
+  status: 0,
+  handBack: null,
+  sessionId: '',
+  localChecks: null,
+};
+
+/** How one run ended, for {@link runWorkerLoop}. */
+type RunOutcome =
+  | { ended: 'idle' }
+  | { ended: 'bound' }
+  | {
+      ended: 'exit';
+      status: number;
+      exit: NonNullable<AgentLoopReadings['exit']>;
+      handBack: AgentHandBack | null;
+      sessionId: string;
+    };
+
+/** The line a usage-limit record holds for an SDK run, which prints no limit line. */
+const SDK_LIMIT_LINE = 'rate_limit_event: rejected';
 
 /**
- * Runs one prompt through `boundedRun`, with the idle watch beside it.
+ * Reads an SDK run's end as the loop's exit.
  *
- * @returns the prompt's exit as {@link promptExit} classifies it, or `'idle'`
- *   where the watch ended the worker.
+ * @param end - what the connector answered.
+ * @returns the exit {@link agentLoop} reads, or `bound` where the run met its bound.
+ */
+export const sdkOutcome = (
+  end: Extract<Awaited<ReturnType<AgentRun['run']>>, { ok: true }>['value']['end'],
+): { exit: NonNullable<AgentLoopReadings['exit']>; handBack: AgentHandBack | null } | 'bound' => {
+  switch (end.answer) {
+    case 'bound':
+      return 'bound';
+    case 'ran':
+      return { exit: { answer: 'ran' }, handBack: end.handBack };
+    case 'wait':
+      return {
+        exit: { answer: 'wait', reset: { epoch: end.resetEpoch, iso: new Date(end.resetEpoch * 1000).toISOString() }, line: SDK_LIMIT_LINE },
+        handBack: null,
+      };
+    case 'end-limited':
+      return { exit: { answer: 'end-limited', cause: end.cause, line: SDK_LIMIT_LINE }, handBack: null };
+    case 'unstarted':
+      return { exit: { answer: 'unstarted' }, handBack: null };
+    default:
+      return { exit: end, handBack: null };
+  }
+};
+
+/**
+ * Runs one prompt, with the idle watch beside it: through `agentRun` on the
+ * SDK runner, through `boundedRun` otherwise.
+ *
+ * @param resume - the session and the text an `agent-resume` write names;
+ *   `null` for a fresh prompt. Read on the SDK runner only: the `command`
+ *   runner's prompt file resumes by its own session flag.
+ * @returns the prompt's exit as {@link promptExit} or the SDK connector
+ *   classifies it, or `'idle'` where the watch ended the worker.
  */
 const runPrompt = async (
   deps: LoopDeps,
   worktree: string,
   held: Held,
   hopFrom: string,
-): Promise<{ ended: 'idle' } | { ended: 'bound' } | { ended: 'exit'; status: number; exit: NonNullable<AgentLoopReadings['exit']> }> => {
+  resume: { readonly resumeId: string; readonly text: string } | null,
+): Promise<RunOutcome> => {
+  const sdk = deps.runner === 'sdk' ? deps.sdk : undefined;
   const resolved = (deps.resolvePrompt ?? promptAnswer)(deps.repoRoot, deps.agent).split('\t');
   const [verb, named, why] = resolved;
   const file = verb === 'refused' || !named ? '' : join(deps.repoRoot, named);
-  if (file === '') {
+  // A REFUSED CHARTER REFUSES ON EITHER RUNNER; only the `command` runner
+  // needs the prompt file the resolution names.
+  if (verb === 'refused' || (file === '' && sdk === undefined)) {
     deps.log(`plot-worker-loop: refusing to launch — ${why ?? 'no prompt'}`);
-    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' } };
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: '' };
   }
 
   const manifest = await readManifestFields(deps.manifestFile);
@@ -773,6 +963,7 @@ const runPrompt = async (
     if (minted !== '') manifest.resumeId = minted;
   }
   const handle = manifest.resumeId !== '' ? manifest.resumeId : deps.sessionId;
+  await raiseSliceRuns(deps.manifestFile);
   const spoken = await deps.idle.transcript.spoken(worktree, handle);
   const env: Record<string, string> = {
     PLOT_BRANCH: manifest.branch,
@@ -799,10 +990,52 @@ const runPrompt = async (
     return new Promise<never>(() => undefined);
   })();
 
+  const commitsSinceWait = (): number => {
+    const ahead = deps.ports.refs.countAheadSync(manifest.branch);
+    return held.afterWait && ahead.ok ? Math.max(0, ahead.value - held.aheadAtWait) : 0;
+  };
+
   // THE SETTINGS FILE, OR THE VARIABLE UNSET: an inherited value must not
   // reach a prompt this loop resolved no settings file for.
   const settings = deps.agentSettings ?? '';
   if (settings !== '') env.PLOT_AGENT_SETTINGS = settings;
+
+  if (sdk !== undefined) {
+    const request: AgentRunRequest = {
+      worktree,
+      prompt: resume !== null ? resume.text : sdk.prompt(manifest.branch),
+      resumeId: resume !== null && resume.resumeId !== '' ? resume.resumeId : spoken.ok && spoken.value === true ? handle : '',
+      sessionId: handle,
+      role: 'worker',
+      harness: 'claude',
+      model: sdk.model,
+      effort: sdk.effort,
+      maxTurns: sdk.maxTurns,
+      maxSpendUsd: 0,
+      boundSeconds: deps.config.boundSeconds,
+      contextWindow: sdk.contextWindow,
+      capabilities: sdk.capabilities,
+      env,
+      logFile: deps.outFile,
+    };
+    const sdkRun = sdk.agentRun({ afterWait: held.afterWait, commitsSinceWait }).run(request);
+    const raced = await Promise.race([sdkRun.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
+    if ('idle' in raced) return { ended: 'idle' };
+    ended = true;
+    if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
+    const end = raced.run.value.end;
+    if (end.answer === 'unstarted') deps.log(`plot-worker-loop: the SDK run did not start on ${manifest.branch} — ${end.detail}`);
+    const outcome = sdkOutcome(end);
+    if (outcome === 'bound') return { ended: 'bound' };
+    return {
+      ended: 'exit',
+      status: outcome.exit.answer === 'unstarted' ? 1 : 0,
+      exit: outcome.exit,
+      handBack: outcome.handBack,
+      sessionId: raced.run.value.sessionId || handle,
+    };
+  }
+
   const unset = settings === '' ? ['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS'] : ['-u', 'PLOT_REPO_ROOT'];
   const run = deps.ports.boundedRun.run('env', [...unset, 'bash', '-c', '. "$1"', '_', file], {
     cwd: worktree,
@@ -826,11 +1059,11 @@ const runPrompt = async (
   }
   const status = result.ok ? (result.value.status ?? 124) : 1;
   const ranSeconds = result.ok ? result.value.ranSeconds : 0;
-  const ahead = deps.ports.refs.countAheadSync(manifest.branch);
-  const commitsSinceWait = held.afterWait && ahead.ok ? Math.max(0, ahead.value - held.aheadAtWait) : 0;
   return {
     ended: 'exit',
     status,
+    handBack: null,
+    sessionId: handle,
     exit: promptExit(
       {
         status,
@@ -839,7 +1072,7 @@ const runPrompt = async (
         boundSeconds: deps.config.boundSeconds,
         ranSeconds,
         afterWait: held.afterWait,
-        commitsSinceWait,
+        commitsSinceWait: commitsSinceWait(),
       },
       HARNESS_LIMIT_LINES[deps.harness],
     ),
@@ -865,7 +1098,14 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
   let hopFrom = '';
   let announcedFree = false;
   for (;;) {
-    const prompt: PromptState = { running: null, exit: held.exit, pushedSha: held.pushedSha };
+    const prompt: PromptState = {
+      running: null,
+      exit: held.exit,
+      pushedSha: held.pushedSha,
+      handBack: held.handBack,
+      sessionId: held.sessionId,
+      localChecks: held.localChecks,
+    };
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
     const decision = agentLoop(readings);
     // THE WAIT, NAMED ONCE. A wait an operator cannot see is the stall it avoids
@@ -912,8 +1152,21 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       continue;
     }
 
+    // A `checks` HAND-BACK: the loop runs the local checks, with no model turn,
+    // and the next pass resumes the session with the answer.
+    const checks = decision.writes.find((w) => w.kind === 'checks');
+    if (checks !== undefined && checks.kind === 'checks' && deps.sdk !== undefined) {
+      deps.log(`plot-worker-loop: ${checks.branch} handed back checks; running the local checks`);
+      const answer = await deps.sdk.runChecks(checks.worktree);
+      deps.log(answer.passed ? `plot-worker-loop: local checks passed on ${checks.branch}` : `plot-worker-loop: local check failed on ${checks.branch}: ${answer.command}`);
+      held = { ...held, localChecks: answer };
+      continue;
+    }
+
     const resume = decision.writes.find((w) => w.kind === 'agent-resume');
-    if (resume !== undefined && resume.kind === 'agent-resume') {
+    // A CI CORRECTION IS WRITTEN TO THE DESK; a `checks` resume carries its
+    // answer in the resumed turn alone.
+    if (resume !== undefined && resume.kind === 'agent-resume' && readings.handBack !== 'checks') {
       await deps.ports.desk.writeCorrection(
         resume.worktree,
         resume.branch,
@@ -938,7 +1191,13 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       continue;
     }
 
-    const ran = await runPrompt(deps, worktree, held, hopFrom);
+    const ran = await runPrompt(
+      deps,
+      worktree,
+      held,
+      hopFrom,
+      resume !== undefined && resume.kind === 'agent-resume' ? { resumeId: resume.resumeId, text: resume.correction } : null,
+    );
     previousBranch = readings.assignedBranch;
     hopFrom = '';
     clock.since = null;
@@ -967,7 +1226,15 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       return 124;
     }
     const head = await deps.ports.refs.resolve('HEAD');
-    held = { ...held, exit: ran.exit, status: ran.status, pushedSha: head.ok ? head.value : held.pushedSha };
+    held = {
+      ...held,
+      exit: ran.exit,
+      status: ran.status,
+      pushedSha: head.ok ? head.value : held.pushedSha,
+      handBack: ran.handBack,
+      sessionId: ran.sessionId,
+      localChecks: null,
+    };
     if (ran.exit.answer !== 'wait') held = { ...held, afterWait: false };
   }
 };
@@ -1084,13 +1351,128 @@ export const shippedConfig = (scriptDir: string): ConfigReader => (repoRoot, key
   return value === '' ? undefined : value;
 };
 
+/** What {@link runnerDeps} reads to choose the runner and build the SDK runner. */
+export interface RunnerInput {
+  readonly env: NodeJS.ProcessEnv;
+  readonly scriptDir: string;
+  readonly repoRoot: string;
+  readonly worktree: string;
+  readonly agent: string;
+  readonly configKey: ConfigReader;
+  readonly ports: Pick<WorkerLoopPorts, 'processes' | 'boundedRun'>;
+  readonly boundSeconds: number;
+  /** The `Agent settings` file `resolveAgentSettings` answered; `''` for none. */
+  readonly agentSettings: string;
+  /** Where one local check's output is written. */
+  readonly checksOutFile: string;
+  readonly now: () => number;
+  readonly log: (line: string) => void;
+}
+
 /**
- * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
+ * Chooses the runner through {@link runnerChoice} and, for `sdk`, builds what
+ * the SDK runner needs: the charter's model, effort, capabilities and window
+ * through {@link agentRunSettings}, the prompt text, the connector and the
+ * local-checks runner. It logs the choice once.
  *
- * @param env - the process environment.
- * @param scriptDir - where the helper scripts live, one level above this bundle.
- * @returns the process exit code.
+ * The SDK runner reads its prompt from the first of {@link promptCandidates}
+ * that exists, else from Plot's shipped `templates/worker-prompt.md`. Where
+ * neither can be read, the agent runs on `command`.
+ *
+ * @param input - the environment, the config reader and the ports.
+ * @returns the runner, and the SDK runner's deps where it is `sdk`.
  */
+export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command' | 'sdk'; sdk?: SdkRunDeps }> => {
+  const cfg = (key: string): string => input.configKey(input.worktree, key) ?? '';
+  const reading = readAgentCharter(input.repoRoot, input.agent);
+  const charter = reading.read === 'declared' ? reading.charter : null;
+  const runner = cfg('Agent runner');
+  const choice = runnerChoice({
+    agentRunner: runner === 'sdk' || runner === 'command' ? runner : '',
+    isWorker: true,
+    workerLoop: 'js',
+    fragment: cfg('Worker command'),
+    charterHarness: charter?.harness ?? '',
+    defaultsToSdkWhenNamed: false,
+  });
+  if (choice.runner !== 'sdk') {
+    if (runner !== '') input.log(`plot-worker-loop: the prompt runs on the command runner — ${choice.reason}`);
+    return { runner: 'command' };
+  }
+
+  const shipped = join(input.scriptDir, '..', 'templates', 'worker-prompt.md');
+  const files = [...promptCandidates(charter?.prompt ?? '').map((p) => join(input.repoRoot, p)), shipped];
+  const found = files.map((path) => ({ path, text: readOrNull(path) })).find((f) => f.text !== null);
+  if (found === undefined) {
+    input.log(`plot-worker-loop: no worker prompt could be read (${files.join(', ')}); the prompt runs on the command runner`);
+    return { runner: 'command' };
+  }
+  if (found.path === shipped) input.log(`plot-worker-loop: the project has no ${files[files.length - 2]}; the SDK runner reads Plot's shipped ${shipped}`);
+  const promptFile = parsePromptFile(found.text!);
+
+  const settings = agentRunSettings({
+    charterModel: charter?.model ?? '',
+    charterEffort: charter?.effort ?? '',
+    charterContextWindow: charter?.bounds.contextWindow ?? 0,
+    agentModels: cfg('Agent models'),
+    workerCommand: cfg('Worker command'),
+    agentContextWindow: count(cfg('Agent context window'), DEFAULT_AGENT_CONTEXT_WINDOW),
+  });
+  input.log(`plot-worker-loop: the prompt runs on the SDK runner — ${choice.reason}; model ${settings.model || 'the CLI default'} (${settings.modelSource})`);
+
+  const settingsText = input.agentSettings === '' ? null : readOrNull(input.agentSettings);
+  const agentSettings: unknown = settingsText === null ? undefined : parseOrUndefined(settingsText);
+  const inheritedEnv = Object.fromEntries(
+    Object.entries(input.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== 'PLOT_REPO_ROOT'),
+  );
+  const pathToClaudeCodeExecutable = await claudeOnPath(input.env.PATH ?? '');
+  const scripts = input.env.PLOT_SCRIPT_DIR || input.scriptDir;
+  return {
+    runner: 'sdk',
+    sdk: {
+      agentRun: (context) =>
+        agentRunSdk({
+          inheritedEnv,
+          readSettingsFiles: settingsFilesOf(input.env.HOME || homedir()),
+          agentSettings,
+          agentSettingsPath: input.agentSettings,
+          pathToClaudeCodeExecutable,
+          spawnClaudeCodeProcess: spawnAttached,
+          processes: input.ports.processes,
+          now: () => Math.floor(input.now() / 1000),
+          afterWait: context.afterWait,
+          commitsSinceWait: context.commitsSinceWait,
+          readOnlyDeny: promptFile.readOnlyDeny ?? DEFAULT_READ_ONLY_DENY,
+        }),
+      prompt: (branch) => renderPrompt(promptFile.body, branch, scripts),
+      model: settings.model,
+      effort: settings.effort,
+      maxTurns: positive(cfg('Agent max turns'), DEFAULT_AGENT_MAX_TURNS),
+      contextWindow: settings.contextWindow,
+      capabilities: charter?.capabilities ?? [],
+      runChecks: localChecksRunner(input.ports.boundedRun, input.scriptDir, input.boundSeconds, input.checksOutFile),
+    },
+  };
+};
+
+/** A file's text, or `null` where it cannot be read. */
+const readOrNull = (path: string): string | null => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+/** Parsed JSON, or `undefined` where the text does not parse. */
+const parseOrUndefined = (text: string): unknown => {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+};
+
 /** The harness a launch names; an empty `PLOT_HARNESS` (a launch with no charter exports one) means `claude`. */
 export const harnessName = (env: NodeJS.ProcessEnv): string => env.PLOT_HARNESS || 'claude';
 
@@ -1098,6 +1480,13 @@ export const harnessName = (env: NodeJS.ProcessEnv): string => env.PLOT_HARNESS 
 export const offsetClock = (env: NodeJS.ProcessEnv): (() => number) =>
   () => Date.now() + integer(env.PLOT_CLOCK_OFFSET_SECONDS, 0) * 1000;
 
+/**
+ * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
+ *
+ * @param env - the process environment.
+ * @param scriptDir - where the helper scripts live, one level above this bundle.
+ * @returns the process exit code.
+ */
 export const main = async (
   env: NodeJS.ProcessEnv,
   scriptDir: string,
@@ -1114,20 +1503,39 @@ export const main = async (
   );
   const transcript = transcriptFs();
   const outFile = join(tmpdir(), `plot-worker-loop-${process.pid}.out`);
+  const checksOutFile = join(tmpdir(), `plot-worker-checks-${process.pid}.out`);
   const leaveNow = (): void => {
     if (manifestFile !== '') rmSync(manifestFile, { force: true });
     rmSync(outFile, { force: true });
+    rmSync(checksOutFile, { force: true });
   };
   const leave = async (): Promise<void> => {
     if (manifestFile !== '') await rm(manifestFile, { force: true });
     await rm(outFile, { force: true });
+    await rm(checksOutFile, { force: true });
     await ports.desk.clearLimitedRecord(worktree);
   };
   onStop(target, leaveNow, leave);
   await stampManifestLoopJs(manifestFile);
   const agentSettings = await resolveAgentSettings(scriptsShell({ repoRoot: worktree, scriptDir }), stderrLog);
   const base = env.PLOT_BASE ?? (await defaultBase(ports.refs));
+  const now = offsetClock(env);
+  const runner = await runnerDeps({
+    env,
+    scriptDir,
+    repoRoot,
+    worktree,
+    agent: env.PLOT_AGENT ?? '',
+    configKey,
+    ports,
+    boundSeconds,
+    agentSettings,
+    checksOutFile,
+    now,
+    log: stderrLog,
+  });
   const code = await runWorkerLoop({
+    ...runner,
     ports,
     idle: {
       selfPid: process.pid,
@@ -1157,7 +1565,7 @@ export const main = async (
     sessionId: env.PLOT_SESSION_ID ?? '',
     slug: env.PLOT_SLUG ?? '',
     agentSettings,
-    now: offsetClock(env),
+    now,
     sleep: systemSleep,
     log: stderrLog,
   });
