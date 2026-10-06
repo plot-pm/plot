@@ -57,6 +57,9 @@ interface Script {
   hang?: boolean;
 }
 
+/** Every directory a rig made, removed by its exact name after each test. */
+const made: string[] = [];
+
 const rig = (
   manifest: Record<string, unknown> | null,
   scripts: Script[],
@@ -64,6 +67,7 @@ const rig = (
   portOver: Partial<WorkerLoopPorts> = {},
 ) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-worker-loop-run-'));
+  made.push(dir);
   const wt = path.join(dir, 'desk');
   fs.mkdirSync(wt);
   const manifestFile = path.join(dir, 'sess.json');
@@ -177,7 +181,10 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(ZURICH_NOON);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 describe('runWorkerLoop — a free loop', () => {
   it('waits a pass at a time, then ends 124 past the bound (rows 1-2)', async () => {

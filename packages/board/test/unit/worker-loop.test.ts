@@ -1,6 +1,6 @@
 // `readPass` — does this entry gather the table's own readings in the table's
 // own order, reading only what the place the pass is in calls for?
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import {
   agentsFixture,
   buildFixture,
@@ -52,8 +52,19 @@ const ports = (over: Partial<WorkerLoopPorts> = {}): WorkerLoopPorts => ({
   ...over,
 });
 
+/** Every directory a test made, removed by its exact name after each test. */
+const made: string[] = [];
+const tempDir = (prefix: string): string => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
+afterEach(() => {
+  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 const writeManifest = (fields: Record<string, unknown>): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-worker-loop-test-'));
+  const dir = tempDir('plot-worker-loop-test-');
   const file = path.join(dir, 'sess.json');
   fs.writeFileSync(file, JSON.stringify(fields, null, 2));
   return file;
@@ -229,7 +240,7 @@ describe('readPass — ROWS 7-9, an exit that is not ran', () => {
 
 describe('readPass — ROW 10, the agent wrote its own marker', () => {
   it('reads the marker text off the worktree root', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-worker-loop-desk-'));
+    const dir = tempDir('plot-worker-loop-desk-');
     fs.writeFileSync(path.join(dir, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: a question\n\nmore text\n');
     const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: dir });
     const clock = { since: null as number | null };
