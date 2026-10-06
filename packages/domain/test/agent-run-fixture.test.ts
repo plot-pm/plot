@@ -45,6 +45,8 @@ const freeLoop: AgentLoopReadings = {
   localChecks: null,
   sliceRuns: 0,
   sliceMaxRuns: 12,
+  sliceCostUsd: null,
+  sliceMaxSpendUsd: null,
   resetRefusals: [],
   pushed: false,
   prOpen: false,

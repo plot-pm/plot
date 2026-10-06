@@ -18,6 +18,7 @@ import {
   agentsFs,
   boundedRunProcess,
   buildShell,
+  budgetFile,
   deskFs,
   hostShell,
   processExec,
@@ -40,6 +41,7 @@ import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
 import { parsePromptFile, promptCandidates, renderPrompt } from '@plot-pm/domain/rules/worker-prompt-text';
 import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
+import { rateLimitEntry } from '@plot-pm/domain/rules/rate-limit-entry';
 import {
   agentLoop,
   type AgentLoopReadings,
@@ -47,10 +49,10 @@ import {
   type TakeUpRefusal,
 } from '@plot-pm/domain/workflows/agent-loop';
 import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
-import { recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
+import { readSliceSpend, recordSliceRun, recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
-import type { AgentHandBack, AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
+import type { AgentHandBack, AgentRun, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
@@ -125,6 +127,19 @@ export interface WorkerLoopPorts extends LoopWritePorts {
    * a refusal leaves the seal as it is, as `record_slice_spend` does.
    */
   readonly recordSpend: (worktree: string, branch: string, at: string) => Promise<void>;
+  /**
+   * Appends one SDK run's line to the checkout's slice-spend record, right
+   * after the run that produced it ends. Best effort, the same as
+   * {@link recordSpend}: a write failure is logged and does not fail the run.
+   */
+  readonly recordRun: (worktree: string, branch: string, role: string, at: string, result: AgentRunResult) => Promise<void>;
+  /**
+   * Appends one budget entry per `rate_limit_event` the run observed, to this
+   * computer's budget record. Best effort, the same as {@link recordSpend}.
+   */
+  readonly recordLimits: (result: AgentRunResult, at: number) => Promise<void>;
+  /** What the slice-spend record reads for this branch, for `Slice max spend`. */
+  readonly sliceCostUsd: (worktree: string, branch: string) => Promise<number | null>;
   /** Replaces this process's own image — {@link runWorkerLoop}'s one path to a self-restart. */
   readonly reexec: Reexec;
 }
@@ -162,6 +177,20 @@ export const workerLoopPorts = async (
     transcriptQuietSeconds: async (worktree: string) => quietReading(await transcript.quietSeconds(worktree)),
     recordSpend: async (worktree: string, branch: string, at: string) => {
       await recordSliceSpend(sliceSpendFile({ cwd: worktree }), { worktree, branch, at });
+    },
+    recordRun: async (worktree: string, branch: string, role: string, at: string, result: AgentRunResult) => {
+      await recordSliceRun(sliceSpendFile({ cwd: worktree }), { branch, role, at }, result);
+    },
+    recordLimits: async (result: AgentRunResult, at: number) => {
+      const account = result.account ?? 'unknown';
+      const record = budgetFile();
+      for (const reading of result.limitReadings) {
+        await record.append(rateLimitEntry(reading, account, at));
+      }
+    },
+    sliceCostUsd: async (worktree: string, branch: string) => {
+      const read = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
+      return read.costUsd;
     },
     reexec: processExec(),
   };
@@ -609,6 +638,8 @@ export interface PassConfig {
   readonly correctionBudget: number;
   /** `Slice max runs`; {@link DEFAULT_SLICE_MAX_RUNS} where the key is absent. */
   readonly sliceMaxRuns: number;
+  /** `Slice max spend`, in dollars; `null` where the key is absent — no default stands in for it. */
+  readonly sliceMaxSpendUsd: number | null;
   readonly base: string;
 }
 
@@ -634,6 +665,9 @@ export const readPass = async (
 ): Promise<AgentLoopReadings> => {
   const manifest = await readManifestFields(manifestFile);
   const passAt = new Date().toISOString();
+  // ASKED ONLY WHEN A BRANCH IS ASSIGNED — a reading for a place the pass is
+  // not in is never asked of the world, `readPass`'s own doc comment.
+  const sliceCostUsd = manifest.branch === '' ? null : await ports.sliceCostUsd(manifest.worktree, manifest.branch);
 
   const base: AgentLoopReadings = {
     assignedBranch: manifest.branch,
@@ -656,6 +690,8 @@ export const readPass = async (
     localChecks: prompt.localChecks ?? null,
     sliceRuns: manifest.sliceRuns,
     sliceMaxRuns: config.sliceMaxRuns,
+    sliceCostUsd,
+    sliceMaxSpendUsd: config.sliceMaxSpendUsd,
     resetRefusals: [],
     pushed: false,
     prOpen: false,
@@ -1270,7 +1306,10 @@ const runPrompt = async (
     if ('idle' in raced) return { ended: 'idle' };
     ended = true;
     if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
-    const end = raced.run.value.end;
+    const result = raced.run.value;
+    await deps.ports.recordRun(worktree, manifest.branch, 'worker', new Date().toISOString(), result);
+    await deps.ports.recordLimits(result, Date.now());
+    const end = result.end;
     if (end.answer === 'unstarted') deps.log(`plot-worker-loop: the SDK run did not start on ${manifest.branch} — ${end.detail}`);
     const outcome = sdkOutcome(end);
     if (outcome === 'bound') return { ended: 'bound' };
@@ -1279,7 +1318,7 @@ const runPrompt = async (
       status: outcome.exit.answer === 'unstarted' ? 1 : 0,
       exit: outcome.exit,
       handBack: outcome.handBack,
-      sessionId: raced.run.value.sessionId || handle,
+      sessionId: result.sessionId || handle,
     };
   }
 
@@ -1536,6 +1575,18 @@ export const positive = (raw: string | undefined, fallback: number): number => {
 /** A whole number of either sign, as the shell's arithmetic reads an offset. */
 export const integer = (raw: string | undefined, fallback: number): number =>
   raw !== undefined && /^-?\d+$/.test(raw) ? Number(raw) : fallback;
+
+/**
+ * A positive amount in dollars, or `null` where the key is absent — unlike
+ * {@link count}/{@link positive}/{@link integer}, this takes no fallback:
+ * `Slice max spend` and `Agent max spend` have none, an absent key means no
+ * limit rather than a limit of `0`.
+ */
+export const dollarsOrUnset = (raw: string | undefined): number | null => {
+  if (raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
 /**
  * The ref a desk reset cuts a new branch from: `origin/<default branch>`, the
@@ -1918,6 +1969,7 @@ export const main = async (
       checksWaitSeconds: count(env.PLOT_CHECKS_WAIT_SECONDS, count(configKey(worktree, 'Checks wait'), 1800)),
       correctionBudget: count(env.PLOT_CORRECTION_BUDGET, count(configKey(worktree, 'Correction budget'), 2)),
       sliceMaxRuns: positive(configKey(worktree, 'Slice max runs'), DEFAULT_SLICE_MAX_RUNS),
+      sliceMaxSpendUsd: dollarsOrUnset(configKey(worktree, 'Slice max spend')),
       base,
     },
     limitMarginSeconds: integer(env.PLOT_LIMIT_MARGIN_SECONDS, 60),

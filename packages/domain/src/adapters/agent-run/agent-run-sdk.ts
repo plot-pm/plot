@@ -411,13 +411,13 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
     // channel to ask at all, answers with neither field: a budget entry with
     // no account is better than a run that fails for having asked.
     const info =
-      typeof (stream as { accountInfo?: () => Promise<{ email?: string; organization?: string }> }).accountInfo ===
-      'function'
-        ? await (stream as { accountInfo: () => Promise<{ email?: string; organization?: string }> })
+      typeof (stream as { accountInfo?: () => Promise<{ email?: string; organization?: string } | undefined> })
+        .accountInfo === 'function'
+        ? await (stream as { accountInfo: () => Promise<{ email?: string; organization?: string } | undefined> })
             .accountInfo()
-            .catch(() => ({ email: undefined, organization: undefined }))
-        : { email: undefined, organization: undefined };
-    const account = info.email ?? info.organization ?? null;
+            .catch(() => undefined)
+        : undefined;
+    const account = info?.email ?? info?.organization ?? null;
 
     return answered({
       sessionId: seen.sessionId,

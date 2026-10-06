@@ -5,10 +5,14 @@ import {
   SliceSpendSealSchema,
   decodeSliceSpend,
   encodeSliceSpend,
+  type SliceSpend,
   type SliceSpendRun,
   type SliceSpendSeal,
 } from '../src/entities/slice-spend.js';
+import type { AgentRunResult } from '../src/ports/agent-run.js';
+import type { SliceSpendRecord } from '../src/ports/slice-spend.js';
 import { readSpend, spendSummary } from '../src/rules/slice-spend-record.js';
+import { recordSliceRun } from '../src/workflows/slice-spend.js';
 
 const record = (over: Partial<SliceSpendSeal> = {}): SliceSpendSeal => ({
   branch: 'feature/a',
@@ -60,6 +64,124 @@ const zeroedRun = (over: Partial<SliceSpendRun> = {}): SliceSpendRun =>
     costUsd: 0,
     ...over,
   });
+
+/** One SDK connector result, as `recordSliceRun`'s caller hands it over. */
+const runResult = (over: Partial<AgentRunResult> = {}): AgentRunResult => ({
+  sessionId: 'session-1',
+  end: { answer: 'ran', handBack: null },
+  usageByModel: {
+    'claude-opus-5': { inputTokens: 10, outputTokens: 20, cacheCreationTokens: 30, cacheReadTokens: 40 },
+  },
+  costUsd: 10,
+  turns: 3,
+  limitReadings: [],
+  account: null,
+  ...over,
+});
+
+/** A fake record port — one in-memory list, appended to and nothing else. */
+const fakeRecord = (overAppend: SliceSpendRecord['append'] | null = null): SliceSpendRecord & { appended: SliceSpend[] } => {
+  const appended: SliceSpend[] = [];
+  return {
+    appended,
+    location: () => ({ ok: true, value: '/fake/slice-spend.jsonl' }),
+    sessions: async () => ({ ok: true, value: [] }),
+    lines: async () => ({ ok: true, value: [] }),
+    append: overAppend ?? (async (entry: SliceSpend) => {
+      appended.push(entry);
+      return { ok: true, value: undefined };
+    }),
+  };
+};
+
+describe('recordSliceRun', () => {
+  it('appends one run line carrying the result’s figures verbatim', async () => {
+    const port = fakeRecord();
+
+    const written = await recordSliceRun(
+      port,
+      { branch: 'feature/a', role: 'worker', at: '2026-09-15T18:00:00.000Z' },
+      runResult(),
+    );
+
+    expect(written).toEqual({
+      ok: true,
+      record: {
+        kind: 'run',
+        branch: 'feature/a',
+        at: '2026-09-15T18:00:00.000Z',
+        sessionId: 'session-1',
+        role: 'worker',
+        models: {
+          'claude-opus-5': {
+            inputTokens: 10,
+            outputTokens: 20,
+            cacheCreationTokens: 30,
+            cacheReadTokens: 40,
+            costUsd: 10,
+          },
+        },
+        costUsd: 10,
+        turns: 3,
+      },
+    });
+    expect(port.appended).toEqual([written.ok ? written.record : null]);
+  });
+
+  it('fills every model’s costUsd from the run’s one total, never a per-model figure', async () => {
+    const port = fakeRecord();
+
+    const written = await recordSliceRun(
+      port,
+      { branch: 'feature/a', role: 'worker', at: '2026-09-15T18:00:00.000Z' },
+      runResult({
+        usageByModel: {
+          'claude-opus-5': { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 3, cacheReadTokens: 4 },
+          'claude-sonnet-5': { inputTokens: 5, outputTokens: 6, cacheCreationTokens: 7, cacheReadTokens: 8 },
+        },
+        costUsd: 42,
+      }),
+    );
+
+    const models = written.ok ? written.record.models : {};
+    expect(models['claude-opus-5']?.costUsd).toBe(42);
+    expect(models['claude-sonnet-5']?.costUsd).toBe(42);
+  });
+
+  it('refuses a run that names no branch', async () => {
+    const port = fakeRecord();
+
+    const written = await recordSliceRun(port, { branch: '', role: 'worker', at: '2026-09-15T18:00:00.000Z' }, runResult());
+
+    expect(written).toEqual({ ok: false, refusal: 'no-branch' });
+    expect(port.appended).toEqual([]);
+  });
+
+  it('refuses a run the connector reported no cost for, rather than writing a zero', async () => {
+    const port = fakeRecord();
+
+    const written = await recordSliceRun(
+      port,
+      { branch: 'feature/a', role: 'worker', at: '2026-09-15T18:00:00.000Z' },
+      runResult({ costUsd: null }),
+    );
+
+    expect(written).toEqual({ ok: false, refusal: 'no-cost' });
+    expect(port.appended).toEqual([]);
+  });
+
+  it('reports a write failure rather than claiming the line was recorded', async () => {
+    const port = fakeRecord(async () => ({ ok: false, why: 'failed' }));
+
+    const written = await recordSliceRun(
+      port,
+      { branch: 'feature/a', role: 'worker', at: '2026-09-15T18:00:00.000Z' },
+      runResult(),
+    );
+
+    expect(written).toEqual({ ok: false, refusal: 'write-failed' });
+  });
+});
 
 describe('SliceSpendSchema', () => {
   it('holds exactly four token counters and refuses a summed fifth', () => {

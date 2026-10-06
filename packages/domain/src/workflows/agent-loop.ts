@@ -5,6 +5,7 @@ import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
 import type { MonitorVerdict } from '../rules/sample.js';
 import { runLimitRefusal } from '../rules/run-limit.js';
+import { sliceSpendRefusal } from '../rules/slice-spend-refusal.js';
 import type { EndingActor, EndingReason } from '../entities/ending.js';
 import { type Decision, type Write, decide } from './decision.js';
 
@@ -123,6 +124,15 @@ export interface AgentLoopReadings {
   readonly sliceRuns: number;
   /** `Slice max runs` — the run count at which no further run starts. */
   readonly sliceMaxRuns: number;
+  /**
+   * What the slice-spend record reads for this branch, from `readSliceSpend`.
+   * `null` where `Slice max spend` is unconfigured — the caller's job, same as
+   * {@link sliceMaxSpendUsd}, so a project naming no limit asks this rule
+   * nothing rather than passing a sentinel through it.
+   */
+  readonly sliceCostUsd: number | null;
+  /** `Slice max spend`, in dollars; `null` where the key is absent — no default stands in for it. */
+  readonly sliceMaxSpendUsd: number | null;
   /**
    * Why this desk may not be reset — empty when nothing holds it. Read at
    * take-up and after a `ran` exit. At either point, `uncommitted-changes` or
@@ -260,6 +270,29 @@ const runLimitEnding = (readings: AgentLoopReadings, branch: string): Decision<A
   ]);
 };
 
+/**
+ * The `spend-limit` ending where this slice may start no further run because
+ * its recorded cost reached `Slice max spend`, or `null` where the next run
+ * may start.
+ *
+ * **ASKS NOTHING WHERE THE LIMIT IS UNCONFIGURED.** `sliceMaxSpendUsd` is
+ * `null` for a project naming no `Slice max spend` key, and `sliceSpendRefusal`
+ * must not be called with a sentinel standing in for that absence — so this
+ * returns `null` before reaching the rule at all.
+ *
+ * @param readings - this pass's readings.
+ * @param branch - the branch the slice is on.
+ * @returns the ending, with a `blocked` declaration, or `null`.
+ */
+const spendLimitEnding = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> | null => {
+  if (readings.sliceMaxSpendUsd === null) return null;
+  if (!sliceSpendRefusal({ costUsd: readings.sliceCostUsd }, readings.sliceMaxSpendUsd)) return null;
+  const summary = `the slice's recorded cost reached the Slice max spend limit of $${readings.sliceMaxSpendUsd}`;
+  return end(readings.worktree, branch, 'spend-limit', 'agent', summary, 0, [
+    blockedDeclaration(readings.worktree, branch, summary),
+  ]);
+};
+
 /** A `worker-finding` write about this pass's branch, holding from {@link AgentLoopReadings.passAt}. */
 const finding = (
   readings: AgentLoopReadings,
@@ -302,9 +335,11 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
 
   if (readings.correctionAttempts < readings.correctionBudget) {
     // ROW 14 — checks fail, correction budget left. The correction is a run,
-    // so `Slice max runs` is asked first.
+    // so `Slice max runs` and `Slice max spend` are asked first.
     const limited = runLimitEnding(readings, branch);
     if (limited !== null) return limited;
+    const overspent = spendLimitEnding(readings, branch);
+    if (overspent !== null) return overspent;
     return decide(
       'agent-loop',
       [
@@ -429,6 +464,8 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     }
     const limited = runLimitEnding(readings, branch);
     if (limited !== null) return limited;
+    const overspent = spendLimitEnding(readings, branch);
+    if (overspent !== null) return overspent;
     return decide(
       'agent-loop',
       [
@@ -607,7 +644,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
  *
  * @param readings - this pass's readings.
  * @param branch - the branch the slice is on.
- * @returns a `checks` write, an `agent-resume` write, or the `run-limit` ending.
+ * @returns a `checks` write, an `agent-resume` write, or the `run-limit`/`spend-limit` ending.
  */
 const checksHandBack = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
   const { worktree } = readings;
@@ -622,6 +659,8 @@ const checksHandBack = (readings: AgentLoopReadings, branch: string): Decision<A
 
   const limited = runLimitEnding(readings, branch);
   if (limited !== null) return limited;
+  const overspent = spendLimitEnding(readings, branch);
+  if (overspent !== null) return overspent;
 
   const correction = result.passed
     ? `local checks passed: ${readings.handBackSummary}`

@@ -155,6 +155,9 @@ const rig = (
     recordSpend: async (worktree: string, branch: string) => {
       spends.push({ worktree, branch });
     },
+    recordRun: async () => undefined,
+    recordLimits: async () => undefined,
+    sliceCostUsd: async () => null,
     ...portOver,
   };
 
@@ -173,7 +176,7 @@ const rig = (
     worktree: wt,
     agent: '',
     harness: 'claude',
-    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, checksPollMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, base: 'origin/main' },
+    config: { boundSeconds: 28_800, waitBudgetSeconds: 28_800, passIntervalMs: PASS_INTERVAL_MS, checksPollMs: PASS_INTERVAL_MS, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, sliceMaxSpendUsd: null, base: 'origin/main' },
     limitMarginSeconds: 60,
     monitorEndsWorker: true,
     outFile,
@@ -245,6 +248,7 @@ const rigConfig = () => ({
   checksWaitSeconds: 1_800,
   correctionBudget: 2,
   sliceMaxRuns: 12,
+  sliceMaxSpendUsd: null,
   base: 'origin/main',
 });
 
@@ -1014,7 +1018,15 @@ describe('main — configuration', () => {
       return key === 'Worker bound' ? '1' : undefined;
     };
     expect(await driven(main({}, r.dir, config, noStop))).toBe(124);
-    expect(asked).toEqual(['Worker bound', 'Agent runner', 'Worker command', 'Checks wait', 'Correction budget', 'Slice max runs']);
+    expect(asked).toEqual([
+      'Worker bound',
+      'Agent runner',
+      'Worker command',
+      'Checks wait',
+      'Correction budget',
+      'Slice max runs',
+      'Slice max spend',
+    ]);
     asked.length = 0;
     expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config, noStop))).toBe(124);
     cwd.mockRestore();

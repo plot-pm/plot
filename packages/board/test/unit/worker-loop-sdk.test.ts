@@ -115,6 +115,9 @@ const rig = (
     host: hostFixture({ prs: [{ number: 7, head: BRANCH, state: 'OPEN' } as Pr] }),
     transcriptQuietSeconds: async () => 5000,
     recordSpend: async () => undefined,
+    recordRun: async () => undefined,
+    recordLimits: async () => undefined,
+    sliceCostUsd: async () => null,
   };
   const sdk: SdkRunDeps = {
     agentRun: () => ({
@@ -151,6 +154,7 @@ const rig = (
       checksWaitSeconds: 1_800,
       correctionBudget: 2,
       sliceMaxRuns: 12,
+      sliceMaxSpendUsd: null,
       base: 'origin/main',
     },
     limitMarginSeconds: 60,
