@@ -1376,8 +1376,8 @@ jobs:
           echo "All changeset bumps references are valid."
 
   # THE LOOP'S OWN TESTS, RUN ON THE JS LOOP. From the slice that adds the JS
-  # loop to the slice that removes the shell one, `validate` drives the default
-  # (`shell`) loop and this job drives `Worker loop: js` through the same
+  # loop to the slice that removes the shell one, `validate` drives
+  # `Worker loop: shell` and this job drives `Worker loop: js` through the same
   # fixtures: `PLOT_TEST_WORKER_LOOP` makes each test helper write the line into
   # its sandbox's `## Plot Config`, and `plot-worker-loop.sh` reads it like any
   # adopting repository's launcher would.
