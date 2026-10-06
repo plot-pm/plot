@@ -369,6 +369,14 @@ export interface Refs {
   hashFilesSync(paths: readonly string[]): PortResult<ReadonlyMap<string, string>>;
 
   /**
+   * The newest commit on `HEAD` that changed a path.
+   *
+   * @param path - the path, relative to the repository root.
+   * @returns the full sha; `''` where no commit on `HEAD` changed the path.
+   */
+  lastCommitTouching(path: string): Promise<PortResult<string>>;
+
+  /**
    * Whether a ref holds an object at a path.
    *
    * `cat-file -e`, which answers without reading the content — the question is

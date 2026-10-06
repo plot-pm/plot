@@ -55,6 +55,7 @@ import {
   type LoopDeps,
   type RestartDeps,
   type WorkerLoopPorts,
+  BUNDLE_RELATIVE_PATH,
 } from '../../src/server/entry/worker-loop.js';
 
 const ZURICH_NOON = Date.parse('2026-10-01T10:00:00Z');
@@ -710,26 +711,36 @@ describe('runWorkerLoop — after the prompt', () => {
   });
 });
 
-describe('runWorkerLoop — the memory ceiling outside a free wait', () => {
-  it('restarts nothing at 301 MB while a prompt runs and a checks wait polls', async () => {
-    const replaced: string[] = [];
-    const reexec = { replace: async (command: string) => (replaced.push(command), { ok: false as const, why: 'failed' as const }) };
-    const r = rig(ASSIGNED, [{}], {}, { reexec });
-    const restart: RestartDeps = {
-      pinned: { checkout: r.dir, bundlePath: path.join(r.dir, 'main.mjs'), loadedCommit: '', refs: refsFixture() },
-      runningBundle: path.join(r.dir, 'desk.mjs'),
-      loadedHash: 'desk-hash',
+describe('runWorkerLoop — a restart', () => {
+  /** Restart deps whose only due restart is the memory ceiling, on an unchanged running bundle. */
+  const overCeiling = (r: ReturnType<typeof rig>): RestartDeps => {
+    const runningBundle = path.join(r.dir, 'desk.mjs');
+    return {
+      pinned: { checkout: r.dir, bundlePath: path.join(r.dir, 'main.mjs'), refs: refsFixture({ oids: { [BUNDLE_RELATIVE_PATH]: 'h', [runningBundle]: 'h' } }) },
+      runningBundle,
+      loadedHash: 'h',
+      runningCommit: '',
       residentBytes: () => 301 * 1024 * 1024,
       execveAvailable: true,
       exec: { path: '/bin/node', options: [], args: [] },
-      rejected: new Set<string>(),
+      selfCheckFailures: new Map<string, number>(),
       logOnce: (line) => r.logs.push(line),
       log: (line) => r.logs.push(line),
       env: {},
     };
+  };
+  const recording = () => {
+    const envs: NodeJS.ProcessEnv[] = [];
+    const reexec = { replace: async (_c: string, _a: readonly string[], env: NodeJS.ProcessEnv) => (envs.push(env), { ok: false as const, why: 'failed' as const }) };
+    return { envs, reexec };
+  };
+
+  it('restarts nothing at 301 MB while a prompt runs and a checks wait polls', async () => {
+    const { envs, reexec } = recording();
+    const r = rig(ASSIGNED, [{}], {}, { reexec });
     r.deps = {
       ...r.deps,
-      restart,
+      restart: overCeiling(r),
       ports: {
         ...r.ports,
         build: buildFixture({ shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'in_progress', conclusion: null, url: 'u', startedAt: '' }] } }),
@@ -739,7 +750,52 @@ describe('runWorkerLoop — the memory ceiling outside a free wait', () => {
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(r.sleeps.filter((s) => s === 7_000).length).toBeGreaterThanOrEqual(1);
     expect(r.runs.filter((run) => run.args.includes('--self-check'))).toEqual([]);
-    expect(replaced).toEqual([]);
+    expect(envs).toEqual([]);
+  });
+
+  it('carries the pending hop of a sealed slice into the restart (#1324 H1)', async () => {
+    const { envs, reexec } = recording();
+    const r = rig(ASSIGNED, [{}], {}, { reexec });
+    r.deps = { ...r.deps, restart: overCeiling(r) };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.calls.clearedAssignments).toEqual(['sess-1']);
+    expect(envs.map((env) => env.PLOT_HOP_FROM)).toEqual([BRANCH]);
+  });
+
+  it('a restarted loop takes up the next slice with a fresh handle and a reset count (#1324 H1)', async () => {
+    const r = rig({ ...ASSIGNED, branch: 'feature/next', resumeId: 'h-prev', correctionAttempts: 2 }, [{}], {
+      hopFrom: BRANCH,
+      mintHandle: () => 'H-New',
+    });
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.runs[0].env).toMatchObject({ PLOT_BRANCH: 'feature/next', PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
+    expect(r.read()).toMatchObject({ resumeId: 'h-new', correctionAttempts: 0, wavesCount: 2 });
+  });
+
+  it('keeps the carried hop through a slice cleared before its prompt (#1324 M-A)', async () => {
+    let handed = false;
+    let resets = 0;
+    const r = rig({ ...ASSIGNED, resumeId: 'h-prev', correctionAttempts: 2 }, [{}], {
+      hopFrom: 'feature/prev',
+      mintHandle: () => 'H-New',
+      config: { ...rigConfig(), waitBudgetSeconds: 100 },
+      sleep: async (ms) => {
+        if (!handed && r.read().branch === '') {
+          handed = true;
+          r.write({ ...r.read(), branch: 'feature/next' });
+        }
+        vi.setSystemTime(Date.now() + ms);
+      },
+    });
+    const trees: Trees = {
+      ...r.ports.trees,
+      resetOnto: async (...args) => (resets++ === 0 ? { ok: false, why: 'failed' } : r.ports.trees.resetOnto(...args)),
+    };
+    r.deps = { ...r.deps, ports: { ...r.ports, trees } };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.calls.clearedAssignments[0]).toBe('sess-1');
+    expect(r.runs[0].env).toMatchObject({ PLOT_BRANCH: 'feature/next', PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
+    expect(r.read()).toMatchObject({ resumeId: 'h-new', correctionAttempts: 0 });
   });
 });
 

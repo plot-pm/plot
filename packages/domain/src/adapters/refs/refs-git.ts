@@ -458,6 +458,9 @@ export const refsGit = (context: ShellContext): Refs => {
         inRepo,
       ),
 
+    lastCommitTouching: (path) =>
+      runScript('git', ['log', '-1', '--format=%H', 'HEAD', '--', path], asText, inRepo),
+
     hashFilesSync: (paths) => {
       if (paths.length === 0) {
         return answered<ReadonlyMap<string, string>>(new Map());

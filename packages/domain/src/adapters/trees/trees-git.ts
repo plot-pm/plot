@@ -195,6 +195,14 @@ export const treesGit = (context: ShellContext): Trees => {
         inRepo,
       ),
 
+    changedUnder: (path, pathspecs) =>
+      runScript(
+        'git',
+        ['--no-optional-locks', '-C', path, 'status', '--porcelain', '--untracked-files=all', '--', ...pathspecs],
+        // Not `asLines`, which trims the status column's leading space.
+        (stdout) => stdout.split('\n').filter((line) => line.length > 3).map((line) => line.slice(3).split(' -> ').at(-1) ?? ''),
+        inRepo,
+      ),
     // `plot_worker_dirty` is SOURCED and called, never reimplemented here. The
     // three exclusion patterns it applies are stated once in
     // `plot-worker-state.sh`, where `plot-fleet-scan.sh` and the loop's own
