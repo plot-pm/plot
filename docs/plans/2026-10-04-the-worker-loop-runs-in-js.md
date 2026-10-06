@@ -270,7 +270,7 @@ The rest of `plot-worker-state.sh` stays, `plot_worker_idle_now` included, becau
 
 ### JS is the default loop
 
-- `infra/js-is-the-default-loop` — after 20 `js` slices at or under the shell baseline's failure rate, `Worker loop` defaults to `js` <!-- builds: the js default for Worker loop -->
+- `infra/js-is-the-default-loop` — after 20 `js` slices at or under the shell baseline's failure rate, `Worker loop` defaults to `js` → #1330 <!-- builds: the js default for Worker loop -->
 
 ### The shell loop goes
 
