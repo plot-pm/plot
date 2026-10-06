@@ -99,11 +99,16 @@ export default defineConfig({
      * fixture answers synchronously, with no process, no port and no browser
      * of its own — the whole file is reachable from a plain call, exactly
      * like a domain workflow.
+     *
+     * `worker-loop.ts` joins it on the same terms: the prompt is a function the
+     * test supplies and the ports are fixtures, so the loop's every row runs
+     * without a process. Only the run-as-a-process guard at its foot is
+     * excluded, by an annotation that says why.
      */
     coverage: {
       provider: 'v8',
       all: false,
-      include: ['src/server/entry/loop-writes.ts'],
+      include: ['src/server/entry/loop-writes.ts', 'src/server/entry/worker-loop.ts'],
       thresholds: {
         lines: 100,
         branches: 100,

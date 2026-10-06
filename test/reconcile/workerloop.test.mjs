@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 
 // TESTS IN THIS FILE RUN ONE AT A TIME, and that is a correctness requirement
 // rather than tidiness. Every test here spawns a loop that sleeps, and several
@@ -36,7 +37,12 @@ import path from 'node:path';
 // `--test-concurrency` would have to be set by whoever invokes the suite, which
 // puts a correctness requirement of THIS file in `package.json` where the next
 // person to add a test cannot see it. The option travels with the test.
-const serial = { concurrency: false };
+// Most tests here hand the loop its branch through `PLOT_BRANCH` with no
+// manifest and no remote. The JS loop takes its assignment from the registry's
+// manifest, so those run on the shell loop only. The two checks-wait tests that
+// read a failed build run on both loops: their fixture has a manifest and an
+// origin, and the JS loop reads the build through a `BuildPort` fixture.
+const serial = { concurrency: false, skip: testWorkerLoop() === 'js' && 'the JS loop takes its branch from the manifest, not PLOT_BRANCH' };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -76,8 +82,8 @@ function fixture(label, boundSeconds, bodySh) {
   // which is the only way to assert what the repo actually ships.
   fs.writeFileSync(path.join(t, 'CLAUDE.md'),
     boundSeconds === ''
-      ? `# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n`
-      : `# t\n\n## Plot Config\n\n- **Worker bound:** ${boundSeconds}\n`);
+      ? `# t\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n${workerLoopLine()}`
+      : `# t\n\n## Plot Config\n\n- **Worker bound:** ${boundSeconds}\n${workerLoopLine()}`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), bodySh);
   // A fixture prompt proves it ran by touching a `*.marker` file in the desk.
   // The file is ignored, so that proof is not unlanded work: an uncommitted
@@ -1423,7 +1429,7 @@ test('worker-loop: a hop on the create path moves the watcher to the new desk', 
   git(dir, 'config', 'user.name', 'Plot Test');
   git(dir, 'config', 'commit.gpgsign', 'false');
   fs.mkdirSync(path.join(dir, '.plot'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 900\n');
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# t\n\n## Plot Config\n\n- **Worker bound:** 900\n${workerLoopLine()}`);
   // `bug/x` finishes AT ONCE, which is what makes `clear_manifest_branch` run
   // promptly and open the hand-over window. `bug/y` — the hop target — makes a
   // REAL file-touching commit, the same shape `makeIdleDeskReady` gives every
@@ -1747,7 +1753,7 @@ test('worker-loop: unpushed commits after a ran prompt end holding-work, exit 0'
   git(t, 'config', 'user.name', 'Plot Test');
   git(t, 'config', 'commit.gpgsign', 'false');
   fs.mkdirSync(path.join(t, '.plot'), { recursive: true });
-  fs.writeFileSync(path.join(t, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 30\n');
+  fs.writeFileSync(path.join(t, 'CLAUDE.md'), `# t\n\n## Plot Config\n\n- **Worker bound:** 30\n${workerLoopLine()}`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'),
     'echo ran >&2; echo committed > "$PLOT_WORKTREE/committed.txt"; ' +
     'git -C "$PLOT_WORKTREE" add -A; git -C "$PLOT_WORKTREE" commit -qm work\n');
@@ -1855,15 +1861,20 @@ const checksFixture = (label, prompt) => {
   git(t, 'config', 'commit.gpgsign', 'false');
   git(t, 'checkout', '-q', '-b', 'bug/x');
   fs.mkdirSync(path.join(t, '.plot'), { recursive: true });
-  fs.writeFileSync(path.join(t, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker bound:** 120\n');
+  // THE JS LOOP ASKS `BuildPort.runForSha`, which `CI: github-actions` routes
+  // to `plot-host.sh run-for-sha`; the shell loop reads the BuildMonitor line.
+  const ci = testWorkerLoop() === 'js' ? '- **CI:** github-actions\n' : '';
+  fs.writeFileSync(path.join(t, 'CLAUDE.md'), `# t\n\n## Plot Config\n\n- **Worker bound:** 120\n${ci}${workerLoopLine()}`);
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), prompt);
   git(t, 'add', '-A');
   git(t, 'commit', '-qm', 'init');
   git(t, 'push', '-q', '-u', 'origin', 'bug/x');
+  // The JS loop's take-up resets the desk onto `origin/main`, which a real desk's origin holds.
+  if (testWorkerLoop() === 'js') git(t, 'push', '-q', 'origin', 'bug/x:main');
   const dir = path.join(parent, 'scripts');
   fs.cpSync(scripts, dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'plot-host.sh'),
-    `#!/usr/bin/env bash\ncase "$1" in pr-state) touch ${JSON.stringify(path.join(parent, 'pr-asked'))}; printf '{"state":"OPEN"}\\n' ;; *) exit 1 ;; esac\n`,
+    `#!/usr/bin/env bash\ncase "$1" in pr-state) touch ${JSON.stringify(path.join(parent, 'pr-asked'))}; printf '{"state":"OPEN"}\\n' ;; run-for-sha) f=${JSON.stringify(path.join(parent, 'runs'))}/"$3"; [ -f "$f" ] && cat "$f"; exit 0 ;; *) exit 1 ;; esac\n`,
     { mode: 0o755 });
   return { parent, t, script: path.join(dir, 'plot-worker-loop.sh') };
 };
@@ -1883,7 +1894,34 @@ const failedBuildLine = [
   'printf \'{"monitor":"BuildMonitor","branch":"bug/x","worktree":"/x","finding":"build failed","since":"2026-10-05T00:00:00Z","evidence":"the run at https://ci/run/1 for %s concluded failure","measuredAt":"2026-10-05T00:00:00Z"}\\n\' "$sha" >> "$PLOT_WORKTREE/.plot-worker.monitor.build.jsonl"',
 ].join('\n');
 
-test('worker-loop: a corrected prompt that pushes its fix reaches the checks wait, not holding-work', serial, async () => {
+/**
+ * Shell that records the build's run for the desk's HEAD where the fixture's
+ * `plot-host.sh run-for-sha` answers from — the `BuildPort` fixture the JS
+ * loop reads in place of a BuildMonitor line.
+ */
+const buildRunLine = (conclusion) => [
+  'sha=$(git -C "$PLOT_WORKTREE" rev-parse HEAD)',
+  'mkdir -p "$PLOT_WORKTREE/../runs"',
+  `printf '{"sha":"%s","status":"completed","conclusion":"${conclusion}","url":"https://ci/run/1"}\\n' "$sha" > "$PLOT_WORKTREE/../runs/$sha"`,
+].join('\n');
+
+/** The failed build, as the loop under test reads it. */
+const failedBuild = () => (testWorkerLoop() === 'js' ? buildRunLine('failure') : failedBuildLine);
+
+/**
+ * The manifest for a checks fixture, named by its session as dispatch names
+ * it: the JS loop clears a sealed slice's assignment in `<session>.json`.
+ */
+const checksManifest = (parent, t) => {
+  const manifest = path.join(parent, 'checks-session.json');
+  fs.writeFileSync(manifest, JSON.stringify({ session: 'checks-session', branch: 'bug/x', worktree: t }));
+  return manifest;
+};
+
+/** These two run on both loops: the JS loop reads the build through the `BuildPort` fixture. */
+const bothLoops = { concurrency: false };
+
+test('worker-loop: a corrected prompt that pushes its fix reaches the checks wait, not holding-work', bothLoops, async () => {
   // PASS 1 commits and pushes, and the build fails for that head: the loop
   // writes `PLOT-CORRECTION.md` untracked into the desk and runs the prompt
   // again. PASS 2 commits and pushes a fix and leaves the correction file
@@ -1895,7 +1933,9 @@ test('worker-loop: a corrected prompt that pushes its fix reaches the checks wai
     `[ -f "$PLOT_WORKTREE/PLOT-CORRECTION.md" ] && cp "$PLOT_WORKTREE/PLOT-CORRECTION.md" ${JSON.stringify(parent)}/correction-seen-$n.md`,
     'echo "pass $n" > "$PLOT_WORKTREE/work.txt"',
     'git -C "$PLOT_WORKTREE" add work.txt && git -C "$PLOT_WORKTREE" commit -qm "pass $n" && git -C "$PLOT_WORKTREE" push -q origin bug/x',
-    `if [ "$n" = 1 ]; then\n${failedBuildLine}\nfi`,
+    `if [ "$n" = 1 ]; then\n${failedBuild()}\nfi`,
+    // The JS loop seals on a passing run; the shell loop seals once the wait expires.
+    testWorkerLoop() === 'js' ? `if [ "$n" = 2 ]; then\n${buildRunLine('success')}\nfi` : '',
     '',
   ].join('\n');
   // The prompt names the fixture's own parent, which exists only once the
@@ -1904,8 +1944,7 @@ test('worker-loop: a corrected prompt that pushes its fix reaches the checks wai
   fs.writeFileSync(path.join(t, '.plot', 'worker-prompt.sh'), prompt(parent));
   git(t, 'commit', '-qam', 'the prompt');
   git(t, 'push', '-q', 'origin', 'bug/x');
-  const manifest = path.join(parent, 'manifest.json');
-  fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/x', worktree: t }));
+  const manifest = checksManifest(parent, t);
   const spend = spendHomes(t, 'bug/x');
 
   try {
@@ -1915,8 +1954,13 @@ test('worker-loop: a corrected prompt that pushes its fix reaches the checks wai
     assert.match(fs.readFileSync(path.join(parent, 'correction-seen-2.md'), 'utf8'), /Correction 1 of 2/,
       'the corrected prompt found the correction in its desk');
     assert.doesNotMatch(r.stderr, /held by /, `the correction file is not unlanded work: ${r.stderr}`);
-    assert.equal(fs.existsSync(path.join(t, '.plot-worker.ending.json')), false, 'no ending is written');
-    assert.match(r.stderr, /waiting for the checks on bug\/x/, `the loop waits for the fix's checks: ${r.stderr}`);
+    if (testWorkerLoop() === 'js') {
+      assert.match(fs.readFileSync(path.join(parent, 'correction-seen-2.md'), 'utf8'),
+        /the run at https:\/\/ci\/run\/1 for [0-9a-f]+ concluded failure/, 'the correction names the failed run');
+    } else {
+      assert.equal(fs.existsSync(path.join(t, '.plot-worker.ending.json')), false, 'no ending is written');
+      assert.match(r.stderr, /waiting for the checks on bug\/x/, `the loop waits for the fix's checks: ${r.stderr}`);
+    }
     assert.equal(declarationOf(t)?.branch, 'bug/x', 'the slice is sealed after the wait');
     assert.ok(fs.existsSync(spend.record), 'the slice-spend record is written on this path');
   } finally {
@@ -1925,7 +1969,7 @@ test('worker-loop: a corrected prompt that pushes its fix reaches the checks wai
   }
 });
 
-test('worker-loop: a spent correction budget ends corrections-spent, not unstarted, and leaves the marker', serial, async () => {
+test('worker-loop: a spent correction budget ends corrections-spent, not unstarted, and leaves the marker', bothLoops, async () => {
   // A BUDGET OF 0 SPENDS ON THE FIRST FAILURE, so one pass reaches the arm: the
   // prompt pushes, the build fails for that head, and the loop ends. The
   // ending's reason is what `freshAgentAfterCorrections` reads; `unstarted`
@@ -1935,11 +1979,10 @@ test('worker-loop: a spent correction budget ends corrections-spent, not unstart
     [
       'echo work > "$PLOT_WORKTREE/work.txt"',
       'git -C "$PLOT_WORKTREE" add work.txt && git -C "$PLOT_WORKTREE" commit -qm work && git -C "$PLOT_WORKTREE" push -q origin bug/x',
-      failedBuildLine,
+      failedBuild(),
       '',
     ].join('\n'));
-  const manifest = path.join(parent, 'manifest.json');
-  fs.writeFileSync(manifest, JSON.stringify({ branch: 'bug/x', worktree: t }));
+  const manifest = checksManifest(parent, t);
   const spend = spendHomes(t, 'bug/x');
 
   try {
@@ -1948,11 +1991,16 @@ test('worker-loop: a spent correction budget ends corrections-spent, not unstart
       env: checksEnv(manifest, { ...spend.env, PLOT_CORRECTION_BUDGET: '0' }),
     });
 
-    assert.equal(r.code, 1, `a spent budget exits 1\n--- stderr ---\n${r.stderr}`);
+    // THE JS LOOP ENDS A SPENT BUDGET WITH EXIT 0, a contract change the plan
+    // makes on purpose (#1250): the wrapper reads 0 as `clear`, not `gone`.
+    const spentCode = testWorkerLoop() === 'js' ? 0 : 1;
+    assert.equal(r.code, spentCode, `a spent budget exits ${spentCode}\n--- stderr ---\n${r.stderr}`);
     const ending = JSON.parse(fs.readFileSync(path.join(t, '.plot-worker.ending.json'), 'utf8'));
     assert.equal(ending.reason, 'corrections-spent', 'the reason names the spent budget, not a prompt that never started');
     assert.equal(ending.actor, 'agent');
-    assert.match(ending.detail, /the run at https:\/\/ci\/run\/1 for [0-9a-f]+ concluded failure/);
+    if (testWorkerLoop() === 'shell') {
+      assert.match(ending.detail, /the run at https:\/\/ci\/run\/1 for [0-9a-f]+ concluded failure/);
+    }
     assert.match(fs.readFileSync(path.join(t, 'PLOT-BLOCKED.md'), 'utf8'), /failed after 0 corrections/);
   } finally {
     fs.rmSync(spend.root, { recursive: true, force: true });

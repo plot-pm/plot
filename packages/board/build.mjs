@@ -410,6 +410,30 @@ await esbuild.build({
 fs.copyFileSync(registrydArtifact, shippedRegistryd);
 fs.chmodSync(shippedRegistryd, 0o755);
 
+// The agent's own loop: `plot-worker-loop.mjs`, one process for an agent's
+// whole life, behind `Worker loop: js`. The launcher at the top of
+// `plot-worker-loop.sh` `exec`s this bundle; `shell` remains the default and
+// runs no Node at all. See `entry/worker-loop.ts` for what it decides and
+// what it does not.
+const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
+const shippedWorkerLoop = path.join(here, '../../skills/plot/scripts/board/plot-worker-loop.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/worker-loop.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: workerLoopArtifact,
+  define: { PLOT_EMBEDDED: 'true' },
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(workerLoopArtifact, shippedWorkerLoop);
+fs.chmodSync(shippedWorkerLoop, 0o755);
+
 // Did this branch's work land, reachable from the four scripts that gate on it.
 //
 // A NINTH artifact, for the reason the third through eighth ones give:

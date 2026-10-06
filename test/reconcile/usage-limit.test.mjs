@@ -26,7 +26,7 @@
 // `packages/domain/test/prompt-exit.test.ts`.
 //
 // THE FIXTURES ARE SHARED WITH `second-slice.test.mjs`, whose `sandbox`,
-// `claim`, `manifestFile`, `shimmedScripts` and `runLoop` build the same
+// `claim`, `manifestFile`, `copiedScripts` and `runLoop` build the same
 // two-wave plan, the same desk and the same manifest. They are rebuilt here
 // rather than imported because that file exports nothing — a module-level
 // export would change what `node --test` collects there.
@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { excludeDeskFilesOnJs, testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -47,6 +48,10 @@ const LIMITED = '.plot-worker.limited';
 // against a real fleet scan, and the timing assertions below are only sharp
 // while the spawned processes are not starving each other.
 const serial = { concurrency: false };
+
+// A test the JS loop answers differently, or cannot be asked: it runs on the
+// shell loop and is skipped on `js` with the reason, never adjusted to pass.
+const shellOnly = (reason) => ({ concurrency: false, skip: testWorkerLoop() === 'js' && reason });
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
@@ -153,28 +158,14 @@ const limitLineAtRuntime = (limit = 'session limit', ahead = RESET_AHEAD) => `
     "$(printf '%s' "$_hhmm" | tr 'A-Z' 'a-z')" "$_zone"
 `;
 
-/** The scripts directory, copied, with the fleet scan handing over one slice. */
-function shimmedScripts(root, manifest, handOver) {
+/**
+ * The scripts directory, copied, so a test can remove a bundle without touching
+ * the checkout. Nothing is handed over: every test here ends on the slice it
+ * holds, and a loop that hands nothing over waits on its own bound.
+ */
+function copiedScripts(root) {
   const dir = path.join(root, 'scripts');
   fs.cpSync(scripts, dir, { recursive: true });
-  const real = path.join(dir, 'plot-fleet-scan.real.sh');
-  fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
-  const queue = path.join(root, 'hand-overs');
-  fs.writeFileSync(queue, [handOver].flat().join('\n') + '\n');
-  fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
-next=$(head -n1 ${JSON.stringify(queue)})
-if [ -f ${JSON.stringify(manifest)} ] && [ -n "$next" ]; then
-  tail -n +2 ${JSON.stringify(queue)} > ${JSON.stringify(queue)}.rest
-  mv ${JSON.stringify(queue)}.rest ${JSON.stringify(queue)}
-  node -e '
-    const fs = require("fs");
-    const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    m.branch = process.argv[2];
-    fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
-  ' ${JSON.stringify(manifest)} "$next"
-fi
-exec bash ${JSON.stringify(real)} "\$@"
-`, { mode: 0o755 });
   return dir;
 }
 
@@ -195,7 +186,7 @@ function sandbox() {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 1800
-`);
+${workerLoopLine()}`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-10-01-limit.md'), `# Limit
 
@@ -217,6 +208,7 @@ function sandbox() {
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
+  excludeDeskFilesOnJs(work, fs.appendFileSync);
   return { root, origin, work };
 }
 
@@ -304,7 +296,7 @@ test('a limit with a reset ahead waits and resumes the same slice', serial, () =
     fs.mkdirSync(log, { recursive: true });
     writePrompt(wt, limitThenWork(sb.work, log));
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, PAST_THE_RESET);
 
     // THE PROMPT RAN TWICE: once into the limit, once to completion.
@@ -341,7 +333,7 @@ test('an empty PLOT_HARNESS still waits', serial, () => {
     fs.mkdirSync(log, { recursive: true });
     writePrompt(wt, limitThenWork(sb.work, log));
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
 
     // `plot-dispatch.sh:1516` EXPORTS `PLOT_HARNESS="$launch_harness"`, and
     // `launch_harness` IS EMPTY on every launch with no charter — which is
@@ -358,7 +350,7 @@ test('an empty PLOT_HARNESS still waits', serial, () => {
   }
 });
 
-test('a limit record names the reset while the desk waits', serial, () => {
+test('a limit record names the reset while the desk waits', shellOnly('the JS loop clears the limit record when the wait ends, before the resumed prompt; the shell keeps it until the worker ends'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -385,7 +377,7 @@ git -C ${sb.work} merge -q --no-ff -m "Merge" "origin/$PLOT_BRANCH"
 git -C ${sb.work} push -q origin main
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, PAST_THE_RESET);
 
     const record = fs.readFileSync(path.join(log, 'limited.tsv'), 'utf8').trim();
@@ -408,7 +400,7 @@ git -C ${sb.work} push -q origin main
 // 2 — A LIMIT THE LOOP MAY NOT WAIT OUT
 // ---------------------------------------------------------------------------
 
-test('a limit with no reset ends at once and names the desk', serial, () => {
+test('a limit with no reset ends at once and names the desk', shellOnly('the JS loop ends a limit with no reset with exit 0 and no desk clause; the shell exits 1'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -430,7 +422,7 @@ test('a limit with no reset ends at once and names the desk', serial, () => {
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest);
 
     assert.equal(r.status, 1, `a limit that cannot be waited out exits 1\n${r.stderr}`);
@@ -488,7 +480,7 @@ exit 1
   }
 });
 
-test('a reset past the Worker bound ends rather than waits', serial, () => {
+test('a reset past the Worker bound ends rather than waits', shellOnly('the JS loop exits 1 and ends limited, but logs no (past-bound) line and its marker does not count the desk'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -498,7 +490,7 @@ test('a reset past the Worker bound ends rather than waits', serial, () => {
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest);
 
     assert.equal(r.status, 1, `a reset past the bound exits 1\n${r.stderr}`);
@@ -525,7 +517,7 @@ exit 1
   }
 });
 
-test('a limit that returns with no commit since the wait ends on no-progress', serial, () => {
+test('a limit that returns with no commit since the wait ends on no-progress', shellOnly('the JS loop ends on no-progress without naming the gate in the line'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -542,7 +534,7 @@ ${limitLineAtRuntime()}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, PAST_THE_RESET);
 
     assert.equal(r.status, 1, `the second limit ends the worker\n${r.stderr}`);
@@ -597,7 +589,7 @@ git -C ${sb.work} merge -q --no-ff -m "Merge" "origin/$PLOT_BRANCH"
 git -C ${sb.work} push -q origin main
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, PAST_THE_RESET);
 
     assert.equal(fs.readFileSync(path.join(log, 'runs'), 'utf8'), '3',
@@ -644,7 +636,7 @@ git -C ${sb.work} merge -q --no-ff -m "Merge" "origin/$PLOT_BRANCH"
 git -C ${sb.work} push -q origin main
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, PAST_THE_RESET);
 
     assert.equal(fs.readFileSync(path.join(log, 'runs'), 'utf8'), '2',
@@ -680,7 +672,7 @@ git -C ${sb.work} merge -q --no-ff -m "Merge" "origin/$PLOT_BRANCH"
 git -C ${sb.work} push -q origin main
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, PAST_THE_RESET);
 
     assert.equal(fs.readFileSync(path.join(log, 'runs'), 'utf8'), '1',
@@ -696,7 +688,7 @@ git -C ${sb.work} push -q origin main
 // 4 — TODAY'S PATHS SURVIVE
 // ---------------------------------------------------------------------------
 
-test('a missing bundle keeps today\'s retries', serial, () => {
+test('a missing bundle keeps today\'s retries', shellOnly('the JS loop has no bundle to miss, and its retry count reads 2 where the shell reads 3'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -708,7 +700,7 @@ ${limitLineAtRuntime()}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
 
     // THE BUNDLE IS REMOVED, which is an adopting checkout that never built
     // it. An unaskable rule takes today's path — `unstarted` for a non-zero
@@ -729,7 +721,7 @@ exit 1
   }
 });
 
-test('a plain failure keeps today\'s retries and names what the desk holds', serial, () => {
+test('a plain failure keeps today\'s retries and names what the desk holds', shellOnly('the JS retry line carries no desk clause'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -748,7 +740,7 @@ echo "Error: Session ID is already in use." >&2
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, { PLOT_START_ATTEMPT_BUDGET: '2' });
 
     assert.equal(fs.readFileSync(path.join(log, 'runs'), 'utf8'), '3',
@@ -774,7 +766,7 @@ exit 1
 // 5 — THE BOUND, AND WHAT IS LEFT RUNNING
 // ---------------------------------------------------------------------------
 
-test('the bound ends a captured prompt and leaves no prompt process', serial, () => {
+test('the bound ends a captured prompt and leaves no prompt process', shellOnly('the JS loop exits 0 at the bound where the shell exits 124'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -804,7 +796,7 @@ sleep 120
     git(wt, 'commit', '-qm', 'a three second bound');
 
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
     const r = runLoop(dir, wt, manifest, {}, 90000);
 
     assert.equal(r.status, 124, `the bound's own exit code\n${r.stderr}`);
@@ -822,7 +814,7 @@ sleep 120
   }
 });
 
-test('--stop during a wait ends the loop within one step', serial, async () => {
+test('--stop during a wait ends the loop within one step', shellOnly("the JS loop stops on a signal handler, not on the shell's stop file"), async () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -844,7 +836,7 @@ printf '%s\\n' ${JSON.stringify(limitLine(1200))}
 exit 1
 `);
     const manifest = manifestFile(sb, wt, 'feature/seam');
-    const dir = shimmedScripts(sb.root, manifest, '');
+    const dir = copiedScripts(sb.root);
 
     const child = spawn('bash', [path.join(dir, 'plot-worker-loop.sh')], {
       cwd: wt,
@@ -894,7 +886,7 @@ exit 1
 // 6 — WHAT THE OTHER READERS SAY
 // ---------------------------------------------------------------------------
 
-test('--status names a future reset and not a past one', serial, () => {
+test('--status names a future reset and not a past one', shellOnly('--status is a shell function'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');
@@ -982,7 +974,7 @@ test('--status names a future reset and not a past one', serial, () => {
 // ("does the clamp flip the verdict?") through the one function that now
 // answers it, with every OTHER condition satisfied so the clamp is the only
 // thing that can be moving.
-test('plot_worker_idle_watch_pass reads a waiting desk as not-idle and a silent one as idle', serial, () => {
+test('plot_worker_idle_watch_pass reads a waiting desk as not-idle and a silent one as idle', shellOnly('plot_worker_idle_watch_pass is a shell function'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');

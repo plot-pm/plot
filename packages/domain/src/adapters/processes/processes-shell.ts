@@ -39,6 +39,81 @@ export const parseEtime = (raw: string): number | null => {
   return days * 86_400 + hours * 3_600 + Number(min) * 60 + Number(s);
 };
 
+/** The leading number of a field the way `awk` reads it: `12abc` is 12, `abc` is 0. */
+const leadingNumber = (text: string): number => {
+  const m = /^\s*[+-]?(\d+\.?\d*|\.\d+)/.exec(text);
+  return m ? Number(m[0]) : 0;
+};
+
+/**
+ * `ps -o time=` output (`[[HH:]MM:]SS.ss`) → integer centiseconds.
+ *
+ * Parsed field by field from the right, as `plot_worker_cpu_centis` does, so a
+ * process past an hour of CPU still totals correctly. The fraction is cut to
+ * two digits and a missing one counts as zero.
+ *
+ * @param clock - one `time=` field.
+ * @returns the CPU time in centiseconds.
+ */
+export const centisOf = (clock: string): number => {
+  const parts = clock.split(':');
+  let total = 0;
+  let multiplier = 1;
+  for (let at = parts.length - 1; at >= 0; at -= 1) {
+    const part = parts[at] ?? '';
+    if (at === parts.length - 1) {
+      const [whole = '', fraction = ''] = part.split('.');
+      total += leadingNumber(whole) * 100 + leadingNumber(`${fraction}00`.slice(0, 2));
+    } else {
+      total += leadingNumber(part) * 60 * 100 * multiplier;
+      multiplier *= 60;
+    }
+  }
+  return total;
+};
+
+/**
+ * The CPU centiseconds of a pid and every process descended from it, from one
+ * `ps -o pid=,ppid=,time= -ax` snapshot.
+ *
+ * @param table - the snapshot's text.
+ * @param root - the subtree's root pid.
+ * @returns the total, or null where the root is not in the snapshot.
+ */
+export const subtreeCentis = (table: string, root: string): number | null => {
+  const parent = new Map<string, string>();
+  const clock = new Map<string, string>();
+  for (const line of table.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(\S.*)$/.exec(line);
+    if (m === null) continue;
+    parent.set(m[1] as string, m[2] as string);
+    clock.set(m[1] as string, (m[3] as string).trim());
+  }
+  if (!parent.has(root)) return null;
+  const inSet = new Set<string>([root]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [pid, ppid] of parent) {
+      if (!inSet.has(pid) && inSet.has(ppid)) {
+        inSet.add(pid);
+        grew = true;
+      }
+    }
+  }
+  let total = 0;
+  for (const pid of inSet) {
+    const c = clock.get(pid);
+    if (c !== undefined) total += centisOf(c);
+  }
+  return total;
+};
+
+/** Milliseconds between the two CPU samples, as `plot_worker_activity` reads `PLOT_ACTIVITY_INTERVAL`. */
+const sampleIntervalMs = (): number => {
+  const seconds = Number(process.env.PLOT_ACTIVITY_INTERVAL ?? '0.4');
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : 400;
+};
+
 /**
  * Reads the tab-separated fields `plot_worker_state` prints.
  *
@@ -137,6 +212,23 @@ export const processesShell = (context: ShellContext): Processes => {
       // running, and *nothing is running under this pid* is the answer the
       // panel renders as an absent uptime.
       return answered<number | null>(run.code === 0 ? parseEtime(run.stdout) : null);
+    },
+    // TWO SAMPLES OF THE WHOLE SUBTREE, matching `plot_worker_activity`: the
+    // child is where the work is, and only the DELTA separates a worker in a
+    // long build from one whose child died. A pid naming no process answers
+    // `''` — nothing to measure is not an idle child.
+    activity: async (pid): Promise<PortResult<WorkerActivity>> => {
+      if (!Number.isInteger(pid) || pid <= 0) return answered<WorkerActivity>('');
+      const sample = async (): Promise<number | null> => {
+        const run = await runProcess('ps', ['-o', 'pid=,ppid=,time=', '-ax'], inRepo);
+        return run.code === 0 ? subtreeCentis(run.stdout, String(pid)) : null;
+      };
+      const first = await sample();
+      if (first === null) return answered<WorkerActivity>('');
+      await new Promise((resolve) => setTimeout(resolve, sampleIntervalMs()));
+      const second = await sample();
+      if (second === null) return answered<WorkerActivity>('');
+      return answered<WorkerActivity>(second > first ? 'working' : 'idle');
     },
   };
 };

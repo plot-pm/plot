@@ -36,6 +36,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeSandbox, runScript, SCRIPTS, sh } from './helpers.mjs';
+import { registryWatcher } from '../reconcile/registry-watcher.mjs';
+import { testWorkerLoop } from '../reconcile/loop-switch.mjs';
 
 const CONFIG = [
   '- **Plan directory:** docs/plans/',
@@ -93,10 +95,14 @@ function claimAsDispatcher(sb, branch) {
   fs.mkdirSync(wtRoot, { recursive: true });
   fs.mkdirSync(registry, { recursive: true });
   const wt = path.join(wtRoot, `plot-wt-${branch.replace(/\//g, '-')}`);
+  // A real desk's `.plot/` is gitignored; here it holds the fixture prompt, which is not unlanded work.
+  fs.mkdirSync(path.join(sb.work, '.git', 'info'), { recursive: true });
+  fs.appendFileSync(path.join(sb.work, '.git', 'info', 'exclude'), '.plot/\n');
   sh(sb.work, `git worktree add -q -b ${branch} ${wt} origin/main`);
   sh(wt, `git commit -q --allow-empty -m "plot: claim ${branch}"`);
   sh(wt, `git push -qu origin ${branch}`);
-  const manifest = path.join(registry, 'worker-hop.json');
+  // Named by its session, as the registry names a manifest: the JS loop clears a slice's assignment by that name.
+  const manifest = path.join(registry, 'hop-session.json');
   fs.writeFileSync(manifest, `${JSON.stringify({
     session: 'hop-session',
     pid: process.pid,
@@ -106,54 +112,6 @@ function claimAsDispatcher(sb, branch) {
     wavesCount: 1,
   }, null, 2)}\n`);
   return { wt, manifest, wtRoot };
-}
-
-/**
- * The scripts directory, copied, with `plot-fleet-scan.sh` wrapped in a shim
- * that HANDS OVER the next slice.
- *
- * IT IS THE REGISTRY, ACTING WHERE THE REGISTRY ACTS. Since
- * `the-registry-queues-a-brief` the agent selects nothing: it reads the branch
- * the registry wrote into its manifest. The loop reaches this script exactly
- * once per free window — `--why-nothing`, asked on the way into a wait — which
- * is the same instant a daemon tick would find this agent free and match it.
- * So the shim writes `branch`, which is the whole of a hand-over: no second
- * file, no socket, one field.
- *
- * THAT MAKES THE HOP A STRONGER ASSERTION THAN IT WAS. The agent cannot pick
- * `feature/api` for itself any more, so a second line in `ran.txt` can only
- * mean the slice was handed over and read back.
- *
- * IT HANDS OVER ONCE. A shim that wrote the assignment on every call would
- * re-hand a slice the agent already holds — the double assignment the registry
- * is the single lock against — so it refuses itself the second time, as the
- * pool does.
- *
- * THE COPY IS THE WHOLE DIRECTORY because `script_dir` is the loop's own
- * location and every helper resolves from it; shimming one script in place
- * would edit the tree under test.
- */
-function shimmedScripts(root, manifest, handOver) {
-  const dir = path.join(root, 'scripts');
-  fs.cpSync(SCRIPTS, dir, { recursive: true });
-  const real = path.join(dir, 'plot-fleet-scan.real.sh');
-  fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
-  const once = path.join(root, 'handed-over');
-  fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
-if [ -n "\${PLOT_MANIFEST_FILE:-}" ] && [ -f "\$PLOT_MANIFEST_FILE" ]; then
-  if [ ! -f ${JSON.stringify(once)} ]; then
-    touch ${JSON.stringify(once)}
-    node -e '
-      const fs = require("fs");
-      const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      m.branch = process.argv[2];
-      fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
-    ' "\$PLOT_MANIFEST_FILE" ${JSON.stringify(handOver)}
-  fi
-fi
-exec bash ${JSON.stringify(real)} "\$@"
-`, { mode: 0o755 });
-  return dir;
 }
 
 /**
@@ -261,11 +219,15 @@ test('flow: a worker finishes one slice and starts the next — one agent, two b
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'),
       fixturePrompt({ ranFile, snapshotDir, work: sb.work, manifest }));
 
-    // THE REGISTRY HANDS THE SECOND SLICE OVER, in the free window. The agent
-    // selects nothing now, so without this it waits out its bound and never
-    // hops — and `feature/api` in `ran.txt` is proof the hand-over was taken.
-    const scripts = shimmedScripts(sb.root, manifest, 'feature/api');
-    runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopflow', scripts });
+    // THE REGISTRY HANDS THE SECOND SLICE OVER, in the free window: the watcher
+    // writes the branch into the manifest as the registry does. The agent
+    // selects nothing, so `feature/api` in `ran.txt` is proof it was taken.
+    const registry = registryWatcher(manifest, 'feature/api');
+    try {
+      runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopflow' });
+    } finally {
+      registry.kill();
+    }
 
     // THE HOP: one worker, two branches, in that order.
     const ran = fs.readFileSync(ranFile, 'utf8').trim().split('\n');
@@ -306,8 +268,12 @@ test('flow: the manifest after the hop names the second branch and its worktree'
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'),
       fixturePrompt({ ranFile, snapshotDir, work: sb.work, manifest }));
 
-    const scripts = shimmedScripts(sb.root, manifest, 'feature/api');
-    runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopmanifest', scripts });
+    const registry = registryWatcher(manifest, 'feature/api');
+    try {
+      runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopmanifest' });
+    } finally {
+      registry.kill();
+    }
 
     const first = JSON.parse(fs.readFileSync(path.join(snapshotDir, 'manifest-seam.json'), 'utf8'));
     const after = JSON.parse(fs.readFileSync(path.join(snapshotDir, 'manifest-api.json'), 'utf8'));
@@ -374,8 +340,11 @@ test('flow: a worker with no next branch reports itself free and waits', () => {
     // difference between waiting and stalling.
     assert.match(r.stderr, /free on nonext/,
       'a worker offered nothing reports itself free rather than exiting on the silence');
-    assert.match(r.stderr, /feature\/seam has still to land/,
-      'the wait names the branch whose landing would open the blocked slice');
+    // THE JS LOOP NEVER ASKS THE FLEET SCAN, so it cannot name the blocker.
+    if (testWorkerLoop() === 'shell') {
+      assert.match(r.stderr, /feature\/seam has still to land/,
+        'the wait names the branch whose landing would open the blocked slice');
+    }
 
     // AND IT ENDED ON ITS BOUND, not on the silence. The two are different
     // endings and the message keeps them apart: this one says nothing was cut

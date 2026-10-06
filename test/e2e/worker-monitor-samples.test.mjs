@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeSandbox, sh, SCRIPTS, staffDesk } from './helpers.mjs';
+import { workerLoopLine } from '../reconcile/loop-switch.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -75,7 +76,7 @@ function dispatchOne(name, { workerCommand, prompt, monitorInterval = '1', env =
   const command = typeof workerCommand === 'function' ? workerCommand(sb) : workerCommand;
   fs.writeFileSync(
     path.join(sb.work, 'CLAUDE.md'),
-    `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${command}\n`,
+    `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${command}\n${workerLoopLine()}`,
   );
   // THE PROMPT IS COMMITTED, so the desk cut from `origin/main` holds it and
   // the loop reads it from the desk's own root. Committed rather than written

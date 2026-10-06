@@ -2,6 +2,7 @@ import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
+import type { CommitReading } from '../../rules/sample.js';
 
 /** The desks a fixture `Trees` answers from. */
 export interface TreesFixture {
@@ -65,6 +66,17 @@ export interface TreesFixture {
    * takes for a path it was told about.
    */
   statuses?: Readonly<Record<string, string>>;
+  /**
+   * Seconds since the newest change in each tree, keyed by path. A path absent
+   * from the table reads `null` — nothing to read — and `null` is also how a
+   * test states an unreadable tree.
+   */
+  quiet?: Readonly<Record<string, number | null>>;
+  /**
+   * What `hasCommits` answers, keyed by path. A path absent from the table
+   * reads `unanswerable`, the direction the git adapter fails in.
+   */
+  commits?: Readonly<Record<string, CommitReading>>;
   /** Paths where `resetOnto` refuses — the checkout-failure case. */
   resetRefusedAt?: readonly string[];
   /** Paths where `commit` fails. */
@@ -132,6 +144,11 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       answered((markers[path] ?? []).filter((name) => name.startsWith(prefix))),
 
     dirtyPaths: async (path) => answered(dirty[path] ?? []),
+
+    quietSeconds: async (path) => answered<number | null>(fixture.quiet?.[path] ?? null),
+
+    hasCommits: async (path) =>
+      answered<CommitReading>(fixture.commits?.[path] ?? 'unanswerable'),
 
     currentBranch: async (path) => {
       const branch = branches[path];

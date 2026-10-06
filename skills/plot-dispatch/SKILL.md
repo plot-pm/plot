@@ -204,6 +204,8 @@ effectively hardcoded a tool it is not supposed to know (Principle 5).
 | yes | `- **Worker command:** PLOT_UNATTENDED=1 plot-worker-loop.sh` | dispatch starts the loop, which runs `.plot/worker-prompt.sh` |
 | no | `- **Worker command:** none` | asked; this repo starts them by hand |
 
+**`Worker loop`, default `shell`.** `plot-worker-loop.sh`'s first lines read this key: `js` `exec`s `board/plot-worker-loop.mjs` beside the script, one long-running process for the agent's whole life; `shell` runs the loop's own body, as it always has. No adopting repository needs to set it — the default runs no Node at all — and `Worker command` keeps naming `plot-worker-loop.sh` on either value. The key and the launcher's read of it are removed once `js` is the default (`the-worker-loop-runs-in-js`, slice 6).
+
 The value is the loop's bare name: `plot-dispatch.sh` puts its own directory
 first on `PATH` when it launches the command, so the name resolves to the loop
 shipped beside it, and a plugin path's version and an absolute path's machine

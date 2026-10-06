@@ -1292,7 +1292,7 @@ jobs:
       # uncovered line there is a line nobody specified. Scoped to one path —
       # `vitest.config.ts`'s own `coverage.include` — rather than the whole
       # package, which cannot meet 100% today.
-      - name: Board loop-writes coverage gate
+      - name: Board loop coverage gate
         timeout-minutes: 10
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run --project parallel --coverage
 
@@ -1374,3 +1374,75 @@ jobs:
           done
 
           echo "All changeset bumps references are valid."
+
+  # THE LOOP'S OWN TESTS, RUN ON THE JS LOOP. From the slice that adds the JS
+  # loop to the slice that removes the shell one, `validate` drives the default
+  # (`shell`) loop and this job drives `Worker loop: js` through the same
+  # fixtures: `PLOT_TEST_WORKER_LOOP` makes each test helper write the line into
+  # its sandbox's `## Plot Config`, and `plot-worker-loop.sh` reads it like any
+  # adopting repository's launcher would.
+  #
+  # NOT PART OF `validate`, BECAUSE THE CONTRACT STEP IS FULL. It takes 408 to
+  # 502 s against its 720 s limit, so the loop's files do not join it. They run
+  # here, in parallel, with their own 20 minutes.
+  #
+  # PULL REQUESTS ONLY, AND ONLY ONES THAT TOUCH THE LOOP. The organisation runs
+  # at most 20 jobs at once and peaked at 21 over the 24 hours to 2026-10-04T20:45Z;
+  # jobs from pushes to `main` queued up to 1,077 s while PR jobs queued at most
+  # 39 s. A PR that does not touch the loop starts the runner, finds nothing to
+  # run and ends in seconds; a push to `main` never starts the job.
+  #
+  # THE FILE LIST IS DERIVED, NOT WRITTEN. A test file that names
+  # `plot-worker-loop` drives the loop; one that also sets
+  # `PLOT_WORKER_LOOP_SOURCED` tests shell functions and stays out until slice 6
+  # removes it with the body.
+  loop-js:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Does this pull request touch the loop
+        id: touched
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -Eq '^(skills/plot/scripts/plot-worker-loop\.sh|skills/plot/scripts/board/plot-worker-loop\.mjs|packages/board/src/server/entry/|packages/domain/src/(ports|adapters|rules|workflows)/|test/reconcile/|test/e2e/|\.github/workflows/ci\.yml)'; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+            echo "This pull request does not touch the worker loop; nothing to run."
+          fi
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.touched.outputs.touched == 'true'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.touched.outputs.touched == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.touched.outputs.touched == 'true'
+
+      - run: pnpm run build:board
+        if: steps.touched.outputs.touched == 'true'
+
+      - name: Loop tests on the JS loop
+        if: steps.touched.outputs.touched == 'true'
+        env:
+          PLOT_TEST_WORKER_LOOP: js
+        run: |
+          set -euo pipefail
+          files=$(git grep -l 'plot-worker-loop' -- test/reconcile test/e2e | while IFS= read -r f; do
+            grep -q 'PLOT_WORKER_LOOP_SOURCED' "$f" || echo "$f"
+          done)
+          echo "$files"
+          # shellcheck disable=SC2086
+          ./scripts/owned-run.sh node --test --test-reporter=tap --test-timeout=300000 $files

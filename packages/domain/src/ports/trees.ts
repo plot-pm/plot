@@ -1,6 +1,7 @@
 import type { PortResult } from '../port-result.js';
 import type { Worktree } from '../entities/worktree.js';
 import type { TreePresence } from '../rules/reapable.js';
+import type { CommitReading } from '../rules/sample.js';
 
 /**
  * Reads the worktrees on this machine — the DERIVED source of truth about desks.
@@ -96,6 +97,34 @@ export interface Trees {
    * @returns the paths, relative to the worktree, without their status codes.
    */
   dirtyPaths(path: string): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Seconds since the newest thing in a desk's tree changed.
+   *
+   * The newest of HEAD's committer time, each dirty path's mtime, and the
+   * mtime of each dirty path's parent below the desk root. The root's own
+   * mtime is never read: the loop rewrites its `.plot-worker.*` records there,
+   * so reading it would make the loop's bookkeeping look like tree activity.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns the quiet seconds, never negative; null where there is nothing to
+   *   read — no directory, or no commit and nothing on the floor. A failure to
+   *   observe is not a long silence.
+   */
+  quietSeconds(path: string): Promise<PortResult<number | null>>;
+
+  /**
+   * Whether the branch carries work the agent committed.
+   *
+   * Counts commits that touched a file between the local `origin/<default>`
+   * ref and HEAD. The empty claim commit the dispatcher writes before the
+   * agent starts therefore never counts. No network call is made.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns `yes` or `no`; `unanswerable` where the directory is missing, no
+   *   `origin/<default>` ref exists, or git cannot count.
+   */
+  hasCommits(path: string): Promise<PortResult<CommitReading>>;
 
   /**
    * Names the branch a checkout is on.

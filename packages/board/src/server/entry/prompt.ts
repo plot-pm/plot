@@ -205,6 +205,14 @@ export const run = (
 // `process.argv[1]` is neither, so on macOS — where `/tmp` is a symlink — a
 // bundle invoked from a sandbox compared two spellings of one path, the block
 // never ran, and the process exited 0 having written nothing.
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+// `PLOT_EMBEDDED` is defined by the build of a bundle that imports this module,
+// whose own `import.meta.url` would otherwise match `argv[1]` and run this
+// entry instead of the importer's.
+declare const PLOT_EMBEDDED: boolean | undefined;
+if (
+  typeof PLOT_EMBEDDED === 'undefined' &&
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
   process.exit(run(process.argv.slice(2)));
 }

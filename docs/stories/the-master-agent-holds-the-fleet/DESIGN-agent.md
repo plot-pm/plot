@@ -746,6 +746,7 @@ that, read as agent failure. `machineAtDeath` (§3) is the proposed fix.
 | `Agent registry` | `.plot/agents` | **where manifests are written and read** |
 | `Worker command` | — | what a dispatched agent runs |
 | `Worker bound` | 28800 | the loop's FLOOR under the WorkerMonitor's reading |
+| `Worker loop` | `shell` | `js` `exec`s `board/plot-worker-loop.mjs`; the launcher's one decision, removed with the key once `js` is the default (`the-worker-loop-runs-in-js`, slice 6) |
 
 **`Agent registry` exists because a shared checkout needs one place** — the
 board may be served from a different worktree than the dispatcher writes to.

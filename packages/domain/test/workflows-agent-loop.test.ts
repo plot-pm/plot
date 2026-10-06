@@ -24,6 +24,7 @@ const freeLoop: AgentLoopReadings = {
   boundSeconds: 28800,
   registration: 'unset',
   claim: null,
+  takeUpRefused: null,
   base: 'origin/main',
   running: null,
   exit: null,
@@ -152,6 +153,16 @@ describe('agentLoop — row 4: an assignment', () => {
   it('reports the claim read as unknown when the caller supplied none', () => {
     const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, claim: null });
     expect(result.detail.note).toContain('unknown');
+  });
+
+  it.each(['desk-reset', 'commit', 'push'] as const)('clears the assignment and writes nothing else when the %s was refused', (refused) => {
+    const claim = refused === 'push' ? 'held-by-agent' : null;
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: refused, claim });
+    expect(result.writes).toEqual([{ kind: 'assignment-clear', session: SESSION }]);
+    expect(result.detail.exitCode).toBeNull();
+    expect(result.detail.note).toBe(
+      `the ${refused} at take-up was refused, claim: ${claim ?? 'unknown'}; the assignment is cleared`,
+    );
   });
 });
 

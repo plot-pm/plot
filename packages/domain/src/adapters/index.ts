@@ -128,6 +128,9 @@ export {
 export { treesGit } from './trees/trees-git.js';
 export { treesFixture, type TreesFixture } from './trees/trees-fixture.js';
 
+export { transcriptFs, type TranscriptFsOptions } from './transcript/transcript-fs.js';
+export { transcriptFixture, type TranscriptFixture } from './transcript/transcript-fixture.js';
+
 export {
   startChannel,
   type ChannelOptions,

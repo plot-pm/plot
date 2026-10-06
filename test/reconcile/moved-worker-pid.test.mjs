@@ -25,32 +25,13 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
+import { registryWatcher } from './registry-watcher.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
-
-const shimmedScripts = (root, manifest, handOver) => {
-  const dir = path.join(root, 'scripts');
-  fs.cpSync(scripts, dir, { recursive: true });
-  const real = path.join(dir, 'plot-fleet-scan.real.sh');
-  fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
-  const once = path.join(root, 'handed-over');
-  fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
-if [ -f ${JSON.stringify(manifest)} ] && [ ! -f ${JSON.stringify(once)} ]; then
-  touch ${JSON.stringify(once)}
-  node -e '
-    const fs = require("fs");
-    const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    m.branch = process.argv[2];
-    fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
-  ' ${JSON.stringify(manifest)} ${JSON.stringify(handOver)}
-fi
-exec bash ${JSON.stringify(real)} "\$@"
-`, { mode: 0o755 });
-  return dir;
-};
 
 const sandbox = (leave) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-movedpid-'));
@@ -68,7 +49,7 @@ const sandbox = (leave) => {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 600
-`);
+${workerLoopLine()}`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-10-02-movedpid.md'), `# Moved pid
 
@@ -149,7 +130,8 @@ const runHop = (sb, agentPid) => {
     attempts: 0,
     startedAt: '2026-10-02T09:00:00Z',
   }, null, 2) + '\n');
-  const dir = shimmedScripts(sb.root, manifest, 'feature/api');
+  const dir = scripts;
+  const watcher = registryWatcher(manifest, 'feature/api');
 
   // AN OLD MTIME, so a same-desk reset can be shown not to rewrite the file.
   const old = new Date('2026-01-01T00:00:00Z');
@@ -173,6 +155,8 @@ const runHop = (sb, agentPid) => {
   } catch (err) {
     assert.equal(err.status, 124,
       `the loop may only end on its own bound here: ${err.stderr}`);
+  } finally {
+    watcher.kill();
   }
   return { wt, newWt: path.join(wtRoot, 'plot-wt-feature-api'), manifestDir, mtime: old.getTime() };
 };
@@ -188,7 +172,12 @@ const read = (file) => fs.readFileSync(file, 'utf8');
 
 const sleeper = () => spawn('sleep', ['300'], { stdio: 'ignore' });
 
-test('moved worker: the new desk names the pid and the old desk names none', () => {
+// SHELL-BOUND: a held desk after a finished slice needs a `PLOT-BLOCKED.md` the
+// agent left AND a hand-over after it. `agentLoop` row 10 ends the worker on that
+// marker before any seal, so the JS loop never reaches the hop this test measures.
+test('moved worker: the new desk names the pid and the old desk names none', {
+  skip: testWorkerLoop() === 'js' && 'the JS loop ends on the marker before it hops (agentLoop row 10)',
+}, () => {
   const sb = sandbox(true);
   const agent = sleeper();
   try {

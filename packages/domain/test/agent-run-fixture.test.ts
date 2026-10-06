@@ -30,6 +30,7 @@ const freeLoop: AgentLoopReadings = {
   boundSeconds: 28800,
   registration: 'unset',
   claim: 'held-by-agent',
+  takeUpRefused: null,
   base: 'origin/main',
   running: null,
   exit: null,

@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -77,7 +78,7 @@ function sandbox() {
 
 - **Plan directory:** docs/plans/
 - **Worker bound:** 20
-`);
+${workerLoopLine()}`);
   fs.mkdirSync(path.join(work, '.plot'), { recursive: true });
   // The loop sources this and the hop must complete before the prompt
   // matters, so it only needs to exist and exit cleanly.
@@ -336,7 +337,9 @@ test('claim push: the manifest naming the rejected branch is cleared, and PLOT_B
     const runsLog = path.join(wt, 'prompt-runs.log');
     const runs = fs.existsSync(runsLog) ? fs.readFileSync(runsLog, 'utf8').trim().split('\n').filter(Boolean) : [];
     assert.deepEqual(runs, [], 'the previous slice\'s prompt must not run again after a rejected hop');
-    assert.equal(git(wt, 'log', '-1', '--format=%s').trim(), 'finished work',
+    // THE PREVIOUS SLICE'S BRANCH, NOT `HEAD`: the JS loop resets the desk onto
+    // the handed branch before its claim push, so `HEAD` moves off it.
+    assert.equal(git(wt, 'log', '-1', '--format=%s', 'feature/previous').trim(), 'finished work',
       'no declaration is sealed for the previous slice — its last commit is still its last');
     assert.ok(fs.existsSync(snapshot), 'the manifest existed at some point for the watcher to copy');
     assert.equal(JSON.parse(fs.readFileSync(snapshot, 'utf8')).branch, '',

@@ -44,13 +44,20 @@ export interface AgentLoopReadings {
   readonly registration: LoopRegistration;
 
   /**
-   * What the branch's remote ref says about the claim, read once an
-   * assignment is found and the loop is about to push it. Carried through to
-   * the decision's own `detail`, the way `claimAnswer` reports it elsewhere;
-   * the push itself is unconditional; whether it lands is a later pass's and
-   * a performer's question.
+   * What `claimAnswer` (`rules/claim.ts`) says about the branch, read after
+   * origin rejected the claim push. `null` before a push and after any other
+   * refusal. Carried into the decision's `detail`; the push itself is
+   * unconditional.
    */
   readonly claim: ClaimHolderAnswer | null;
+  /**
+   * Which take-up write was refused this pass: the `desk-reset`, the claim
+   * `commit`, or the claim `push`. `null` before the take-up writes are
+   * applied and when every one of them landed. A refusal clears the
+   * assignment, as the shell's `clear_manifest_branch` does after a rejected
+   * claim push, so the loop goes free instead of retrying the take-up.
+   */
+  readonly takeUpRefused: TakeUpRefusal | null;
   /**
    * The ref a desk reset cuts the branch from when it does not exist locally:
    * `origin/<default branch>`, as the shell's `reset_desk` uses. Read at
@@ -194,6 +201,9 @@ export type LocalChecksReading =
       /** The last lines of that command's output. */
       readonly tail: string;
     };
+
+/** The take-up write that was refused, as {@link AgentLoopReadings.takeUpRefused} names it. */
+export type TakeUpRefusal = 'desk-reset' | 'commit' | 'push';
 
 /** What `agentLoop` reports beyond its writes. */
 export interface AgentLoopDetail {
@@ -381,6 +391,15 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   // ROW 4 — an assignment was just read: reset the desk onto it, commit and
   // push the claim, then run the first prompt.
   if (readings.running === null && readings.exit === null) {
+    // A REFUSED TAKE-UP WRITE gives the assignment back. The ref on origin
+    // still locks the slice, so the slice does not return to the queue.
+    if (readings.takeUpRefused !== null) {
+      return decide('agent-loop', [{ kind: 'assignment-clear', session: readings.session }], {
+        branch,
+        exitCode: null,
+        note: `the ${readings.takeUpRefused} at take-up was refused, claim: ${readings.claim ?? 'unknown'}; the assignment is cleared`,
+      });
+    }
     // A desk holding unlanded work ends the loop before anything is written
     // over it, the same `holding-work` ending row 11 gives after a prompt.
     const unlanded = readings.resetRefusals.filter((r) => r !== 'blocked-marker');

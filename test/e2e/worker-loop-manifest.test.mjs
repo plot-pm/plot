@@ -19,6 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { workerLoopLine } from '../reconcile/loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, '..', '..');
@@ -33,12 +34,14 @@ function makeTestEnv({ name }) {
   // Create a mock registry directory and manifest file
   const registryDir = path.join(tmp, 'registry');
   fs.mkdirSync(registryDir, { recursive: true });
-  const manifestFile = path.join(registryDir, 'worker-test.json');
+  // Named by its session, as `plot-dispatch.sh` names it: the JS loop clears
+  // the assignment in `<registry>/<session>.json`.
+  const manifestFile = path.join(registryDir, 'test-session.json');
   fs.writeFileSync(manifestFile, JSON.stringify({
     session: 'test-session',
     pid: process.pid,
     branch: 'test/branch',
-    worktree: tmp,
+    worktree: path.join(tmp, 'worktree'),
     startedAt: new Date().toISOString(),
     wavesCount: 1,
   }, null, 2));
@@ -52,6 +55,17 @@ function makeTestEnv({ name }) {
   execFileSync('git', ['config', 'user.email', 't@t'], { cwd: worktreeDir });
   execFileSync('git', ['config', 'user.name', 't'], { cwd: worktreeDir });
   execFileSync('git', ['commit', '--allow-empty', '-m', 'init'], { cwd: worktreeDir });
+  // The JS loop resets a taken-up desk onto `origin/main` and pushes to `origin`,
+  // which a real desk always has: a remote holding the base and the slice's branch.
+  const remote = path.join(tmp, 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', remote]);
+  execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: worktreeDir });
+  execFileSync('git', ['checkout', '-q', '-b', 'test/branch'], { cwd: worktreeDir });
+  execFileSync('git', ['push', '-q', '-u', 'origin', 'test/branch:test/branch', 'HEAD:main'], { cwd: worktreeDir });
+  execFileSync('git', ['fetch', '-q', 'origin'], { cwd: worktreeDir });
+  // The config and the prompt file are the desk's own, as a real desk's `.plot/` is: not unlanded work.
+  fs.mkdirSync(path.join(worktreeDir, '.git', 'info'), { recursive: true });
+  fs.appendFileSync(path.join(worktreeDir, '.git', 'info', 'exclude'), 'CLAUDE.md\n.plot/\n');
 
   // Create .plot directory
   const plotDir = path.join(worktreeDir, '.plot');
@@ -78,7 +92,7 @@ function makeTestEnv({ name }) {
  * Run the worker loop in a controlled environment.
  * Returns the exit code.
  */
-function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000 }) {
+function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000, extraEnv = {} }) {
   const loopScript = path.join(SCRIPTS, 'plot-worker-loop.sh');
 
   // Write the prompt file
@@ -90,7 +104,7 @@ function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000
 ## Plot Config
 
 - **Worker bound:** ${boundSeconds}
-`);
+${workerLoopLine()}`);
 
   const envVars = {
     ...process.env,
@@ -100,6 +114,7 @@ function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000
     PLOT_SLUG: 'test-slug',
     // Put our stub first in PATH so --next uses our stub
     PATH: `${env.stubBin}:${process.env.PATH}`,
+    ...extraEnv,
   };
 
   const result = spawnSync('bash', [loopScript], {
@@ -118,8 +133,16 @@ test('manifest removed on normal exit (--next returns no more work)', () => {
     // Verify manifest exists before
     assert.ok(fs.existsSync(env.manifestFile), 'precondition: manifest must exist before loop runs');
 
-    // Prompt exits immediately; then --next returns 1 (our stub), triggering normal exit
-    runWorkerLoop(env, { promptContent: 'exit 0\n' });
+    // Prompt exits immediately; then --next returns 1 (our stub), triggering
+    // normal exit. The JS loop asks no --next: it seals the slice and waits
+    // free, so a 1s wait budget ends it by its own exit rather than by the
+    // spawn timeout's signal.
+    const exitCode = runWorkerLoop(env, {
+      promptContent: 'exit 0\n',
+      timeout: 20000,
+      extraEnv: { PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' },
+    });
+    assert.notEqual(exitCode, null, 'the loop must end by its own exit, not by the spawn timeout');
 
     // The manifest should be gone
     assert.ok(!fs.existsSync(env.manifestFile),

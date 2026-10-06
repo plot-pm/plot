@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeSandbox, runScript, sh, REPO_ROOT, SCRIPTS, staffDesk } from './helpers.mjs';
+import { workerLoopLine } from '../reconcile/loop-switch.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -100,7 +101,7 @@ function launchAndCaptureEnv(name, prefix) {
   const dump = path.join(sb.root, 'worker-env.txt');
   fs.writeFileSync(
     path.join(sb.work, 'CLAUDE.md'),
-    `# Sandbox\n\n## Plot Config\n\n${recorderConfig(dump, prefix)}\n`,
+    `# Sandbox\n\n## Plot Config\n\n${recorderConfig(dump, prefix)}\n${workerLoopLine()}`,
   );
   // dispatchablePlan commits and pushes; the config edit rides along with it.
   dispatchablePlan(sb.work);
