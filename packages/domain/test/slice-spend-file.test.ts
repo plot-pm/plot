@@ -465,6 +465,15 @@ describe('an SDK run’s records, through the file adapters', () => {
     ]);
   });
 
+  it('names the account unknown where the run reported none', async () => {
+    const record = budgetFile({ home: join(root, 'budget-unknown') });
+
+    await recordRunLimits(record, { ...sdkResult('session-anon', 1, 1), account: null }, 0);
+
+    const lines = await record.lines();
+    expect((lines.ok ? lines.value : []).map((line) => decodeEntry(line)?.key.account)).toEqual(['unknown', 'unknown']);
+  });
+
   it('counts an append the record refuses and still writes the next reading', async () => {
     let calls = 0;
     const refusing = {

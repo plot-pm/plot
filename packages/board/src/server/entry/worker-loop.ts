@@ -1765,6 +1765,9 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
   };
 };
 
+/** A thrown value's message, or its text where it is not an `Error`. */
+const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
 /**
  * Writes one SDK run's run line and its budget entries, and logs what could
  * not be written. A record that cannot be written costs a reading, never the
@@ -1783,13 +1786,13 @@ const recordRunRecords = async (deps: LoopDeps, worktree: string, branch: string
       deps.log(`plot-worker-loop: no run line for ${branch} (${refusal})`);
     }
   } catch (error) {
-    deps.log(`plot-worker-loop: no run line for ${branch} (${error instanceof Error ? error.message : String(error)})`);
+    deps.log(`plot-worker-loop: no run line for ${branch} (${reasonOf(error)})`);
   }
   try {
     const failed = await deps.ports.recordLimits(result, deps.now());
     if (failed > 0) deps.log(`plot-worker-loop: ${failed} usage-limit reading(s) not recorded`);
   } catch (error) {
-    deps.log(`plot-worker-loop: usage-limit readings not recorded (${error instanceof Error ? error.message : String(error)})`);
+    deps.log(`plot-worker-loop: usage-limit readings not recorded (${reasonOf(error)})`);
   }
 };
 

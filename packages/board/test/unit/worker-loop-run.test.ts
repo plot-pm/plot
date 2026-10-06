@@ -25,6 +25,7 @@ import {
   count,
   defaultBase,
   failureLines,
+  dollarsOrUnset,
   integer,
   liveHolders,
   positive,
@@ -965,6 +966,11 @@ describe('configuration readers', () => {
   it('reads a positive count, falling back for zero', () => {
     expect(positive('5', 60)).toBe(5);
     for (const raw of [undefined, '', '0', '-5', '0.5']) expect(positive(raw, 60)).toBe(60);
+  });
+
+  it('reads a dollar amount, and an absent or unusable one as no limit rather than 0', () => {
+    expect(dollarsOrUnset('12.5')).toBe(12.5);
+    for (const raw of [undefined, '', '0', '-3', 'x']) expect(dollarsOrUnset(raw)).toBeNull();
   });
 
   it('reads an integer of either sign for an offset', () => {
