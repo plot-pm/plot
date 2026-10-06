@@ -1,5 +1,5 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
+import { realpathSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { constants, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -35,6 +35,7 @@ import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@p
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
+import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { answer as promptAnswer } from './prompt.js';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
@@ -694,6 +695,11 @@ export interface LoopDeps {
   readonly log: (line: string) => void;
   /** Resolves which prompt file runs: `<resolution>\t<prompt>\t<detail>`. */
   readonly resolvePrompt?: (repoRoot: string, agent: string) => string;
+  /**
+   * The settings file every prompt receives as `PLOT_AGENT_SETTINGS`; `''` or
+   * absent runs the prompt with the variable unset, as the shell does.
+   */
+  readonly agentSettings?: string;
 }
 
 /**
@@ -782,7 +788,12 @@ const runPrompt = async (
     return new Promise<never>(() => undefined);
   })();
 
-  const run = deps.ports.boundedRun.run('env', ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1"', '_', file], {
+  // THE SETTINGS FILE, OR THE VARIABLE UNSET: an inherited value must not
+  // reach a prompt this loop resolved no settings file for.
+  const settings = deps.agentSettings ?? '';
+  if (settings !== '') env.PLOT_AGENT_SETTINGS = settings;
+  const unset = settings === '' ? ['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS'] : ['-u', 'PLOT_REPO_ROOT'];
+  const run = deps.ports.boundedRun.run('env', [...unset, 'bash', '-c', '. "$1"', '_', file], {
     cwd: worktree,
     env,
     boundSeconds: deps.config.boundSeconds,
@@ -961,21 +972,68 @@ export interface StopTarget {
  * trap does for `plot-dispatch.sh --stop`: a stopped agent leaves the registry
  * at once rather than waiting for a sweep.
  *
+ * `cleanupNow` runs before the listener returns. A stop during a prompt also
+ * reaches `boundedRun`'s own listener, which exits the process synchronously,
+ * so only what `cleanupNow` removes is certain to be gone.
+ *
  * @param target - the process; a fake in tests.
- * @param cleanup - what a leaving agent removes.
+ * @param cleanupNow - what a leaving agent removes before anything else runs.
+ * @param cleanup - what it removes afterwards, before the exit.
  */
-export const onStop = (target: StopTarget, cleanup: () => Promise<void>): void => {
+export const onStop = (target: StopTarget, cleanupNow: () => void, cleanup: () => Promise<void>): void => {
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
     target.once(signal, () => {
+      cleanupNow();
       void cleanup().finally(() => target.exit(128 + constants.signals[signal]));
     });
   }
 };
 
-/** The shell's own defaults for the loop's configuration, read from the environment. */
-const num = (raw: string | undefined, fallback: number): number => {
-  const n = Number(raw);
-  return raw !== undefined && raw !== '' && Number.isFinite(n) ? n : fallback;
+/**
+ * A whole number of zero or more, as the shell's `case … (*[!0-9]*|'')` reads
+ * one: anything else is the fallback.
+ */
+export const count = (raw: string | undefined, fallback: number): number =>
+  raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : fallback;
+
+/** A whole number above zero, as the shell's `case … (*[!0-9]*|''|0)` reads one. */
+export const positive = (raw: string | undefined, fallback: number): number => {
+  const n = count(raw, 0);
+  return n > 0 ? n : fallback;
+};
+
+/** A whole number of either sign, as the shell's arithmetic reads an offset. */
+export const integer = (raw: string | undefined, fallback: number): number =>
+  raw !== undefined && /^-?\d+$/.test(raw) ? Number(raw) : fallback;
+
+/**
+ * The ref a desk reset cuts a new branch from: `origin/<default branch>`, the
+ * default read from `origin/HEAD` as the shell reads `main_branch`.
+ *
+ * @param refs - where the default branch is read.
+ * @returns `origin/<name>`; `origin/main` where `origin/HEAD` names none.
+ */
+export const defaultBase = async (refs: Pick<Refs, 'defaultBranch'>): Promise<string> => {
+  const name = await refs.defaultBranch();
+  return `origin/${name.ok && name.value !== '' ? name.value : 'main'}`;
+};
+
+/**
+ * The settings file the loop's prompts receive, resolved once per agent start
+ * through `plot-agent-settings.sh`, as the shell loop resolves it.
+ *
+ * @param scripts - the scripts adapter that runs the resolver.
+ * @param log - where a refusal's reason goes.
+ * @returns the absolute path; `''` where the key is absent or the file is refused.
+ */
+export const resolveAgentSettings = async (
+  scripts: Pick<Scripts, 'agentSettings'>,
+  log: (line: string) => void,
+): Promise<string> => {
+  const { stdout, stderr, code } = await scripts.agentSettings();
+  if (code === 0) return stdout.trim();
+  for (const line of stderr.split('\n').filter((l) => l !== '')) log(`plot-worker-loop: ${line}`);
+  return '';
 };
 
 /** Waits on the real clock — the loop's `sleep` when run as a process. */
@@ -1027,7 +1085,7 @@ export const harnessName = (env: NodeJS.ProcessEnv): string => env.PLOT_HARNESS 
 
 /** The wall clock in ms, moved by `PLOT_CLOCK_OFFSET_SECONDS` as the shell's `clock_now` is. */
 export const offsetClock = (env: NodeJS.ProcessEnv): (() => number) =>
-  () => Date.now() + num(env.PLOT_CLOCK_OFFSET_SECONDS, 0) * 1000;
+  () => Date.now() + integer(env.PLOT_CLOCK_OFFSET_SECONDS, 0) * 1000;
 
 export const main = async (
   env: NodeJS.ProcessEnv,
@@ -1037,7 +1095,7 @@ export const main = async (
 ): Promise<number> => {
   const worktree = env.PLOT_WORKTREE ?? process.cwd();
   const repoRoot = env.PLOT_REPO_ROOT ?? worktree;
-  const boundSeconds = num(env.PLOT_WORKER_BOUND, num(configKey(worktree, 'Worker bound'), 28800));
+  const boundSeconds = count(env.PLOT_WORKER_BOUND, count(configKey(worktree, 'Worker bound'), 28800));
   const manifestFile = env.PLOT_MANIFEST_FILE ?? '';
   const ports = await workerLoopPorts(
     { repoRoot: worktree, scriptDir },
@@ -1045,19 +1103,25 @@ export const main = async (
   );
   const transcript = transcriptFs();
   const outFile = join(tmpdir(), `plot-worker-loop-${process.pid}.out`);
+  const leaveNow = (): void => {
+    if (manifestFile !== '') rmSync(manifestFile, { force: true });
+    rmSync(outFile, { force: true });
+  };
   const leave = async (): Promise<void> => {
     if (manifestFile !== '') await rm(manifestFile, { force: true });
     await rm(outFile, { force: true });
     await ports.desk.clearLimitedRecord(worktree);
   };
-  onStop(target, leave);
+  onStop(target, leaveNow, leave);
   await stampManifestLoopJs(manifestFile);
+  const agentSettings = await resolveAgentSettings(scriptsShell({ repoRoot: worktree, scriptDir }), stderrLog);
+  const base = env.PLOT_BASE ?? (await defaultBase(ports.refs));
   const code = await runWorkerLoop({
     ports,
     idle: {
       selfPid: process.pid,
-      windowSeconds: num(env.PLOT_MONITOR_QUIET_SECONDS, IDLE_WINDOW_SECONDS),
-      intervalMs: num(env.PLOT_MONITOR_INTERVAL, 30) * 1000,
+      windowSeconds: count(env.PLOT_MONITOR_QUIET_SECONDS, IDLE_WINDOW_SECONDS),
+      intervalMs: positive(env.PLOT_MONITOR_INTERVAL, 30) * 1000,
       transcript,
     },
     manifestFile,
@@ -1067,20 +1131,21 @@ export const main = async (
     harness: harnessName(env),
     config: {
       boundSeconds,
-      waitBudgetSeconds: num(env.PLOT_WAIT_BUDGET_SECONDS, boundSeconds),
-      passIntervalMs: num(env.PLOT_WAIT_POLL_SECONDS, PASS_INTERVAL_MS / 1000) * 1000,
-      checksPollMs: num(env.PLOT_CHECKS_POLL_SECONDS, PASS_INTERVAL_MS / 1000) * 1000,
-      maxStartRetries: num(env.PLOT_START_ATTEMPT_BUDGET, 3),
-      checksWaitSeconds: num(env.PLOT_CHECKS_WAIT_SECONDS, num(configKey(worktree, 'Checks wait'), 1800)),
-      correctionBudget: num(env.PLOT_CORRECTION_BUDGET, num(configKey(worktree, 'Correction budget'), 2)),
-      sliceMaxRuns: num(configKey(worktree, 'Slice max runs'), DEFAULT_SLICE_MAX_RUNS),
-      base: env.PLOT_BASE ?? 'origin/main',
+      waitBudgetSeconds: count(env.PLOT_WAIT_BUDGET_SECONDS, boundSeconds),
+      passIntervalMs: positive(env.PLOT_WAIT_POLL_SECONDS, PASS_INTERVAL_MS / 1000) * 1000,
+      checksPollMs: positive(env.PLOT_CHECKS_POLL_SECONDS, PASS_INTERVAL_MS / 1000) * 1000,
+      maxStartRetries: count(env.PLOT_START_ATTEMPT_BUDGET, 3),
+      checksWaitSeconds: count(env.PLOT_CHECKS_WAIT_SECONDS, count(configKey(worktree, 'Checks wait'), 1800)),
+      correctionBudget: count(env.PLOT_CORRECTION_BUDGET, count(configKey(worktree, 'Correction budget'), 2)),
+      sliceMaxRuns: positive(configKey(worktree, 'Slice max runs'), DEFAULT_SLICE_MAX_RUNS),
+      base,
     },
-    limitMarginSeconds: num(env.PLOT_LIMIT_MARGIN_SECONDS, 60),
+    limitMarginSeconds: integer(env.PLOT_LIMIT_MARGIN_SECONDS, 60),
     monitorEndsWorker: (env.PLOT_MONITOR_ENDS_WORKER ?? '1') === '1',
     outFile,
     sessionId: env.PLOT_SESSION_ID ?? '',
     slug: env.PLOT_SLUG ?? '',
+    agentSettings,
     now: offsetClock(env),
     sleep: systemSleep,
     log: stderrLog,

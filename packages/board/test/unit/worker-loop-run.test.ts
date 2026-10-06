@@ -21,8 +21,13 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   PASS_INTERVAL_MS,
+  count,
+  defaultBase,
+  integer,
   liveHolders,
+  positive,
   readClaimAnswer,
+  resolveAgentSettings,
   takeUpLine,
   takeUpRefusalOf,
   idleVerdict,
@@ -248,7 +253,7 @@ describe('runWorkerLoop — a prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(r.runs).toHaveLength(1);
     expect(r.runs[0].command).toBe('env');
-    expect(r.runs[0].args.slice(0, 3)).toEqual(['-u', 'PLOT_REPO_ROOT', 'bash']);
+    expect(r.runs[0].args.slice(0, 5)).toEqual(['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS', 'bash']);
     expect(r.runs[0].env?.PLOT_SESSION_FLAG).toBe('--session-id');
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
   });
@@ -312,6 +317,18 @@ describe('runWorkerLoop — a prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('unreadable');
     expect(r.logs.join('\n')).toContain(`nobody could tell on ${BRANCH} — no transcript could be read for this worktree`);
+  });
+
+  it('runs the prompt with the resolved settings file, and unsets the variable where none resolved', async () => {
+    const marker = (r: { wt: string }) => () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n');
+    const withSettings = rig(ASSIGNED, [{ during: () => marker(withSettings)() }], { agentSettings: '/repo/.plot/agent-settings.json' });
+    await runWorkerLoop(withSettings.deps);
+    expect(withSettings.runs[0].env?.PLOT_AGENT_SETTINGS).toBe('/repo/.plot/agent-settings.json');
+    expect(withSettings.runs[0].args).not.toContain('PLOT_AGENT_SETTINGS');
+    const without = rig(ASSIGNED, [{ during: () => marker(without)() }]);
+    await runWorkerLoop(without.deps);
+    expect(without.runs[0].env?.PLOT_AGENT_SETTINGS).toBeUndefined();
+    expect(without.runs[0].args.slice(0, 4)).toEqual(['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS']);
   });
 
   it('reads a run killed by a signal the bound did not send (status null) as 124', async () => {
@@ -794,6 +811,7 @@ describe('onStop', () => {
     let cleaned = 0;
     onStop(
       { once: (signal, listener) => handlers.set(signal, listener), exit: (code) => exits.push(code) },
+      () => undefined,
       async () => {
         cleaned += 1;
       },
@@ -804,6 +822,52 @@ describe('onStop', () => {
     handlers.get('SIGHUP')?.();
     await vi.waitFor(() => expect(exits).toEqual([143, 130, 129]));
     expect(cleaned).toBe(3);
+  });
+
+  it('removes what cleanupNow removes before the listener returns, ahead of an exit another listener makes', () => {
+    const r = rig(ASSIGNED, []);
+    const handlers = new Map<string, () => void>();
+    onStop(
+      { once: (signal, listener) => handlers.set(signal, listener), exit: () => undefined },
+      () => fs.rmSync(r.manifestFile, { force: true }),
+      () => new Promise<void>(() => undefined),
+    );
+    handlers.get('SIGTERM')?.();
+    expect(fs.existsSync(r.manifestFile)).toBe(false);
+  });
+});
+
+describe('configuration readers', () => {
+  it('reads a count as the shell does: digits only, otherwise the fallback', () => {
+    expect(count('0', 9)).toBe(0);
+    expect(count('42', 9)).toBe(42);
+    for (const raw of [undefined, '', '-1', '1.5', '1e3', ' 2', 'x']) expect(count(raw, 9)).toBe(9);
+  });
+
+  it('reads a positive count, falling back for zero', () => {
+    expect(positive('5', 60)).toBe(5);
+    for (const raw of [undefined, '', '0', '-5', '0.5']) expect(positive(raw, 60)).toBe(60);
+  });
+
+  it('reads an integer of either sign for an offset', () => {
+    expect(integer('-630', 0)).toBe(-630);
+    expect(integer('630', 0)).toBe(630);
+    for (const raw of [undefined, '', '1.5', 'x']) expect(integer(raw, 7)).toBe(7);
+  });
+
+  it('cuts from origin/<default branch>, and from origin/main where none is named', async () => {
+    expect(await defaultBase(refsFixture({ defaultBranch: 'trunk' }))).toBe('origin/trunk');
+    expect(await defaultBase(refsFixture({ defaultBranch: '' }))).toBe('origin/main');
+    expect(await defaultBase({ defaultBranch: async () => ({ ok: false, why: 'failed' }) })).toBe('origin/main');
+  });
+
+  it('resolves the settings path, nothing for an absent key, and logs a refusal', async () => {
+    const logs: string[] = [];
+    const answer = (stdout: string, stderr: string, code: number) => ({ agentSettings: async () => ({ stdout, stderr, code }) });
+    expect(await resolveAgentSettings(answer('/repo/s.json\n', '', 0), (l) => logs.push(l))).toBe('/repo/s.json');
+    expect(await resolveAgentSettings(answer('', '', 0), (l) => logs.push(l))).toBe('');
+    expect(await resolveAgentSettings(answer('', 'plot-agent-settings: no file\n', 3), (l) => logs.push(l))).toBe('');
+    expect(logs).toEqual(['plot-worker-loop: plot-agent-settings: no file']);
   });
 });
 
@@ -984,6 +1048,26 @@ describe('workerLoopPorts and main', () => {
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(r.wt);
     expect(await driven(main({ PLOT_WORKER_BOUND: '1' }, r.dir, shippedConfig(r.dir), noStop))).toBe(124);
     cwd.mockRestore();
+  });
+
+  it('removes the manifest before a stop signal\'s listener returns, and exits 128 plus the signal', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    vi.setSystemTime(ZURICH_NOON);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    for (const manifest of [true, false]) {
+      const r = rig({ ...ASSIGNED, branch: '' }, []);
+      const handlers = new Map<string, () => void>();
+      const exits: number[] = [];
+      const target: StopTarget = { once: (signal, listener) => handlers.set(signal, listener), exit: (code) => exits.push(code) };
+      const env = { PLOT_WORKTREE: r.wt, PLOT_WORKER_BOUND: '1', ...(manifest ? { PLOT_MANIFEST_FILE: r.manifestFile } : {}) };
+      const done = main(env, r.dir, shippedConfig(r.dir), target);
+      await vi.waitFor(() => expect(handlers.has('SIGTERM')).toBe(true));
+      handlers.get('SIGTERM')?.();
+      expect(fs.existsSync(r.manifestFile)).toBe(!manifest);
+      await driven(done);
+      await vi.waitFor(() => expect(exits).toEqual([143]));
+    }
+    stderr.mockRestore();
   });
 
   it('stamps, runs from the environment, and removes the manifest', async () => {
