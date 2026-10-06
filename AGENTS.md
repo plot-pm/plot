@@ -56,6 +56,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Worktree root:** .worktrees
 - **People:** jwloka = Jan Wloka; eins78 = Max Albrecht
 - **Worker command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 PLOT_MODEL=sonnet skills/plot/scripts/plot-worker-loop.sh
+- **Worker loop:** js
 <!-- The loop script implements, then asks `--next` for the next wave, claims
      it, and moves to its worktree — repeating until the plan has no more
      claimable branches. The prompt itself lives in `.plot/worker-prompt.sh`,
