@@ -1468,29 +1468,16 @@ desk_holding_clause() { # $1=worktree → " The desk holds N commit(s) and M …
 # existed — `unstarted` for a non-zero status, `ran` for 0. A classification
 # that cannot be made is not a reason to stop a worker.
 ask_prompt_exit() { # $1=status $2=ran seconds $3=commits since wait → the answer line
-  local status="$1" ran="$2" commits="$3" bundle answer
-  bundle="$script_dir/board/plot-prompt-exit.mjs"
-  # TODAY'S PATH, named once and used by both refusals below. An `a && b || c`
-  # would print BOTH words if `b` ever failed, and the caller reads the first
-  # tab-separated field — so two words joined would read as neither.
-  by_status() { if [ "$status" -eq 0 ]; then printf 'ran'; else printf 'unstarted'; fi; }
-
-  if [ -z "$_prompt_out_file" ] || [ ! -r "$_prompt_out_file" ] || \
-     [ ! -r "$bundle" ] || ! command -v node >/dev/null 2>&1; then
-    by_status
-    return 0
-  fi
-  answer=$(tail -n 200 "$_prompt_out_file" 2>/dev/null | node "$bundle" \
+  local status="$1" answer
+  # ONE FALLBACK FOR EVERY UNASKABLE CASE. A missing capture, bundle or `node`
+  # and a bundle that refuses its arguments all leave the answer empty, so
+  # each takes today's path below rather than a guard of its own.
+  answer=$(tail -n 200 "$_prompt_out_file" 2>/dev/null | node "$script_dir/board/plot-prompt-exit.mjs" \
     "$status" "${PLOT_HARNESS:-claude}" "$(clock_now)" "$WORKER_BOUND_SECONDS" \
-    "$ran" "$_after_wait" "$commits" 2>/dev/null) || answer=""
-  # AN EMPTY ANSWER IS A REFUSAL, not an empty verdict. The bundle exits 2 on
-  # an argument it cannot read and writes nothing, which is the case a misread
-  # reading would otherwise turn into a decision.
-  if [ -z "$answer" ]; then
-    by_status
-    return 0
-  fi
-  printf '%s' "$answer"
+    "$2" "$_after_wait" "$3" 2>/dev/null) || answer=""
+  if [ -n "$answer" ]; then printf '%s' "$answer"
+  elif [ "$status" -eq 0 ]; then printf 'ran'
+  else printf 'unstarted'; fi
 }
 
 # Sleep until the reset, in steps, comparing the clock after each one.
@@ -2743,9 +2730,7 @@ while true; do
   # the loop with `$PLOT_BRANCH` unchanged, so the agent resumes the same slice
   # with its work still on the floor.
   if [ "$_exit_verdict" = "wait" ]; then
-    _limit_reset=$(printf '%s' "$_exit_answer" | cut -f2)
-    _limit_iso=$(printf '%s' "$_exit_answer" | cut -f3)
-    _limit_line=$(printf '%s' "$_exit_answer" | cut -f4-)
+    IFS=$'\t' read -r _ _limit_reset _limit_iso _limit_line <<< "$_exit_answer"
     write_limited_record "${PLOT_WORKTREE:-$PWD}" "$_limit_reset" "$_limit_iso" "$_limit_line"
     # THE DESK'S `HEAD` AT THE START OF THE WAIT, which is what makes the next
     # exit's progress reading possible: a limit that returns with no commit
@@ -2769,10 +2754,9 @@ while true; do
   # here: the invocation worked. The marker asks for time and names
   # `--restart`, which is what resumes the slice once the limit lifts.
   if [ "$_exit_verdict" = "end-limited" ]; then
-    _limit_reset=$(printf '%s' "$_exit_answer" | cut -f2)
-    _limit_iso=$(printf '%s' "$_exit_answer" | cut -f3)
-    _limit_cause=$(printf '%s' "$_exit_answer" | cut -f4)
-    _limit_line=$(printf '%s' "$_exit_answer" | cut -f5-)
+    # EVERY FIELD IS NON-EMPTY (`unknown` and `-` stand in for no reset), so
+    # one `read` splits the line; the last field keeps any tab the line holds.
+    IFS=$'\t' read -r _ _limit_reset _limit_iso _limit_cause _limit_line <<< "$_exit_answer"
     _limit_until="with no reset time"
     [ "$_limit_reset" != "unknown" ] && _limit_until="until $_limit_iso"
     clear_limited_record "${PLOT_WORKTREE:-$PWD}"
