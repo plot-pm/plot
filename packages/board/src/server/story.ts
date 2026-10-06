@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { spawn } from 'node:child_process';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { agentRunFor, readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { usableCommand, readIssue, lastLines, BODY_MAX, type IssueDetail } from './idea.js';
 import { localCapability } from './controllers/caller.js';
+import { writtenPathResolution } from '@plot-pm/domain/rules/written-path';
 
 /**
  * Turning a ticket into a story — the issue row's SECOND action, and the twin
@@ -478,72 +478,104 @@ export async function handleStory(
 
   const log = storyLogPath(opts.repoRoot, number);
   const statePath = storyStatePath(opts.repoRoot, number);
-  let out: number;
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
+    // `agentRunCommand`/`agentRunSdk` truncate `request.logFile` again
+    // themselves; this write is also the 500-on-unwritable-log check.
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
+    fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }
 
-  // Through `sh -c` because `Story command` is a shell FRAGMENT, the same
-  // interpretation `Idea command` and `Worker command` get. NOTHING from the
-  // issue is interpolated into that string: the brief reached the disk as a
-  // file, and its PATH travels in the environment. The prompt is passed as ONE
-  // argument via `"$@"` — already the shape `idea.ts` uses, and here it carries
-  // only a path this server itself composed.
-  //
   // `cwd: opts.repoRoot`, and NOT a worktree of its own. `/api/idea` needs one
   // because `/plot-idea` checks out the branch it creates, so the board's own
   // checkout is the one that would move. `/story-tracking` writes a directory
   // of markdown and commits it on the branch already checked out; it moves HEAD
   // nowhere. This is the same choice approve, deliver and reslice make.
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-story', `Read ${promptPath} and follow it.`],
-    {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch. There is nobody at this board to
-        // answer `AskUserQuestion`, and under `claude -p` that tool is not even
-        // registered — so a skill that improvises here exits 0 having written
-        // nothing. Setting it makes each skipped question take the shape its
-        // author chose and name itself in the log. This is the contract that
-        // makes the whole route possible: `/story-tracking` is run this way
-        // several times a day from the prompt.
-        PLOT_UNATTENDED: '1',
-        [STORY_PROMPT_ENV]: promptPath,
-        PLOT_ISSUE: String(number),
-      },
-    },
-  );
-  child.on('exit', (code, signal) => {
+  const choice = await agentRunFor(opts, 'story', STORY_COMMAND_KEY);
+  const writeState = (value: string) => {
     try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+      fs.writeFileSync(statePath, value, 'utf8');
     } catch {
       /* the state file is a convenience; the log is the record */
     }
-  });
-  child.on('error', (err) => {
-    console.error('story failed to spawn:', err);
+  };
+  const appendLog = (message: string) => {
     try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
+      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
     } catch {
       /* nothing further to do */
     }
-  });
-  // `detached` WITHOUT `unref`, exactly as `idea.ts` is and for its reason:
-  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
-  // the handle keeps the exit listener above alive — dropping it would make
-  // every creation read as `running` forever.
-  fs.closeSync(out);
+  };
+
+  if (choice.runner === 'refused' || choice.agentRun === undefined) {
+    appendLog(choice.reason);
+    writeState('1');
+  } else {
+    const agentRun = choice.agentRun;
+    void agentRun
+      .run({
+        worktree: opts.repoRoot,
+        prompt: `Read ${promptPath} and follow it.`,
+        resumeId: '',
+        role: 'story',
+        harness: '',
+        model: '',
+        effort: '',
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: 0,
+        contextWindow: 0,
+        capabilities: [],
+        env: {
+          // THE DECLARATION, not a switch. There is nobody at this board to
+          // answer `AskUserQuestion`, and under `claude -p` that tool is not
+          // even registered — so a skill that improvises here exits 0 having
+          // written nothing. Setting it makes each skipped question take the
+          // shape its author chose and name itself in the log. This is the
+          // contract that makes the whole route possible: `/story-tracking`
+          // is run this way several times a day from the prompt.
+          PLOT_UNATTENDED: '1',
+          [STORY_PROMPT_ENV]: promptPath,
+          PLOT_ISSUE: String(number),
+        },
+        logFile: log,
+      })
+      .then((result) => {
+        if (!result.ok) {
+          appendLog(`story run failed: ${result.why}`);
+          writeState('1');
+          return;
+        }
+        const end = result.value.end;
+        if (end.answer !== 'ran') {
+          appendLog(`story run ended without running: ${end.answer}`);
+          writeState('1');
+          return;
+        }
+        const handBack = end.handBack;
+        if (handBack === null || !('written' in handBack)) {
+          appendLog('story run ended with no written hand-back');
+          writeState('1');
+          return;
+        }
+        const resolution = writtenPathResolution(handBack.written, opts.repoRoot);
+        if (!resolution.inside) {
+          appendLog(`story run's written path was refused: ${resolution.reason}`);
+          writeState('1');
+          return;
+        }
+        writeState('0');
+      })
+      .catch((err) => {
+        console.error('story run failed:', err);
+        appendLog(err instanceof Error ? err.message : String(err));
+        writeState('1');
+      });
+  }
 
   json(202, { ok: true, number, prompt: promptPath, log });
 }
