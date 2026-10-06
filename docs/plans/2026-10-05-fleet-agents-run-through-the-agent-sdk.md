@@ -12,6 +12,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-10-05, jwloka, in-session
 - **Started:** 2026-10-05, jwloka, `infra/an-agent-run-is-a-port`
+- **Started:** 2026-10-06, jwloka, `infra/the-loop-waits-not-the-model`
 
 ## Changelog
 
