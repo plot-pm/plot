@@ -134,6 +134,11 @@ test('capabilities: the default prompt line is unchanged by the new subcommand',
   assert.equal(out, 'declared\tp.sh\treviewer\n');
 });
 
+test('background gate: the bundle prints export lines that bash evaluates into the gate (#1322)', () => {
+  const out = execFileSync('bash', ['-c', 'eval "$(node "$1" --background-gate)" && printf "%s|%s" "$CLAUDE_CODE_DISABLE_BACKGROUND_TASKS" "$PLOT_BACKGROUND_DENY"', '_', bundle], { encoding: 'utf8' });
+  assert.equal(out, '1|Monitor,ScheduleWakeup,CronCreate,TaskStop,ListAgents');
+});
+
 // ---------------------------------------------------------------------------
 // THE EXPORT
 // ---------------------------------------------------------------------------

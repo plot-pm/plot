@@ -9,8 +9,8 @@
  * chooses. Every run carries the three parts of the no-background gate:
  *
  *   1. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in the child's `env`.
- *   2. `disallowedTools` names `Monitor`, `ScheduleWakeup`, `CronCreate`,
- *      `TaskStop` and `ListAgents`.
+ *   2. `disallowedTools` names `BACKGROUND_DISALLOWED_TOOLS`, the list the
+ *      `command` runner's prompt file receives as `PLOT_BACKGROUND_DENY`.
  *   3. A `PreToolUse` hook that asks `pollRefusal` and denies what it refuses.
  *
  * A foreground `Bash` call stays allowed.
@@ -41,19 +41,18 @@ import type {
 } from '../../ports/agent-run.js';
 import type { Processes } from '../../ports/processes.js';
 import { agentSettingsRefusal } from '../../rules/agent-settings.js';
-import { agentRunEnv, backgroundSwitchRefusal, type SettingsEnvReading } from '../../rules/agent-run-env.js';
+import {
+  agentRunEnv,
+  BACKGROUND_DISALLOWED_TOOLS,
+  backgroundSwitchRefusal,
+  type SettingsEnvReading,
+} from '../../rules/agent-run-env.js';
 import { pollRefusal } from '../../rules/poll-refusal.js';
 import { asBoardHandBack, sdkRunExit, type SdkBoardHandBack, type SdkHandBack, type SdkRunReading } from '../../rules/sdk-run-exit.js';
 import { killTree, killTreeSync } from '../bounded-run/bounded-run-process.js';
 
-/** The tools a fleet run disallows outright: each exists only to wait on or manage background work. */
-export const BACKGROUND_DISALLOWED_TOOLS: readonly string[] = [
-  'Monitor',
-  'ScheduleWakeup',
-  'CronCreate',
-  'TaskStop',
-  'ListAgents',
-];
+/** The tools a fleet run disallows outright; the one list both runners read, from `rules/agent-run-env.ts`. */
+export { BACKGROUND_DISALLOWED_TOOLS };
 
 /** The tools a `read-only` capability disallows where the prompt file names no list; `PLOT_READ_ONLY_DENY`'s default. */
 export const DEFAULT_READ_ONLY_DENY: readonly string[] = ['Write', 'Edit', 'NotebookEdit', 'Bash', 'Agent', 'Task'];

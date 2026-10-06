@@ -7,6 +7,7 @@ export interface DeskFixtureCalls {
   blockedMarkers: { worktree: string; text: string }[];
   declarations: { worktree: string; branch: string; status?: 'ok' | 'blocked' }[];
   corrections: { worktree: string; branch: string; text: string; attempt: number; budget: number }[];
+  appendedCorrections: { worktree: string; correction: string }[];
   limitedRecords: { worktree: string; resetEpoch: number; resetIso: string; limitLine: string }[];
   limitedClears: string[];
   moves: { from: string; to: string }[];
@@ -29,6 +30,7 @@ export const deskFixtureCalls = (): DeskFixtureCalls => ({
   blockedMarkers: [],
   declarations: [],
   corrections: [],
+  appendedCorrections: [],
   limitedRecords: [],
   limitedClears: [],
   moves: [],
@@ -74,6 +76,11 @@ export const deskFixture = (fixture: DeskFixture = {}): Desk => {
 
     writeCorrection: async (worktree, branch, text, attempt, budget): Promise<PortResult<void>> => {
       calls.corrections?.push({ worktree, branch, text, attempt, budget });
+      return answered(undefined);
+    },
+
+    appendCorrection: async (worktree, correction): Promise<PortResult<void>> => {
+      calls.appendedCorrections?.push({ worktree, correction });
       return answered(undefined);
     },
 

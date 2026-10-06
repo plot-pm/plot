@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { agentLoop, type AgentLoopReadings } from '../src/workflows/agent-loop.js';
+import { backgroundDropCorrection } from '../src/rules/background-drop.js';
 import type { Write } from '../src/workflows/decision.js';
 import { supervise } from '../src/workflows/supervise.js';
 import { checksFromRuns } from '../src/rules/checks-verdict.js';
@@ -38,6 +39,7 @@ const freeLoop: AgentLoopReadings = {
   localChecks: null,
   sliceRuns: 0,
   sliceMaxRuns: 12,
+  backgroundDropResumed: false,
   sliceCostUsd: null,
   sliceMaxSpendUsd: null,
   resetRefusals: [],
@@ -494,6 +496,49 @@ describe('agentLoop — row 10: prompt exit ran, the agent wrote a PLOT-BLOCKED 
       cleanLifecycleDesk({ blockedMarker: true, markerRecordsWork: true, fileChangingCommits: 2 }),
     );
     expect(lifecycle.state).toBe('refused-with-work');
+  });
+});
+
+describe('agentLoop — row 10c: the turn ended with its background work dropped', () => {
+  const LINE = 'Background tasks still running after 600s; terminating.';
+  const dropped = { ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'dropped' as const, line: LINE }, resumeId: 'sess-7' };
+
+  it('the first time, resumes the session once with the correction that names the line', () => {
+    const result = agentLoop(dropped);
+    expect(kindsOf(result.writes)).toEqual(['agent-resume']);
+    const resume = result.writes[0] as Extract<Write, { kind: 'agent-resume' }>;
+    expect(resume.resumeId).toBe('sess-7');
+    expect(resume.correction).toBe(backgroundDropCorrection(LINE));
+    expect(result.detail.exitCode).toBeNull();
+  });
+
+  it('the second time, ends blocked with a marker naming the line and a blocked declaration', () => {
+    const result = agentLoop({ ...dropped, backgroundDropResumed: true });
+    expect(kindsOf(result.writes)).toEqual(['blocked-marker', 'declaration', 'loop-end']);
+    const marker = result.writes[0] as Extract<Write, { kind: 'blocked-marker' }>;
+    expect(marker.question).toMatch(/^PLOT-BLOCKED: /);
+    expect(marker.question).toContain(LINE);
+    expect(endWrite(result.writes)?.reason).toBe('blocked');
+    expect(endWrite(result.writes)?.exitCode).toBe(0);
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it('at Slice max runs, starts no resume and ends run-limit', () => {
+    const result = agentLoop({ ...dropped, sliceRuns: 12, sliceMaxRuns: 12 });
+    expect(endWrite(result.writes)?.reason).toBe('run-limit');
+    expect(kindsOf(result.writes)).not.toContain('agent-resume');
+  });
+
+  it('at Slice max spend, starts no resume and ends spend-limit', () => {
+    const result = agentLoop({ ...dropped, sliceCostUsd: 5, sliceMaxSpendUsd: 5 });
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
+    expect(kindsOf(result.writes)).not.toContain('agent-resume');
+  });
+
+  it('a marker the agent wrote answers before the drop does', () => {
+    const result = agentLoop({ ...dropped, markerWritten: true, markerText: 'PLOT-BLOCKED: which API?' });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    expect(endWrite(result.writes)?.reason).toBe('blocked');
   });
 });
 

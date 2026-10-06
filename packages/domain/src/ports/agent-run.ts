@@ -142,6 +142,8 @@ export type AgentRunEnd =
   | { readonly answer: 'bound' }
   | { readonly answer: 'turn-limit' }
   | { readonly answer: 'spend-limit' }
+  /** The turn ended with its background work dropped; `line` is the output line that shows it. */
+  | { readonly answer: 'dropped'; readonly line: string }
   | { readonly answer: 'ran'; readonly handBack: AgentHandBack | BoardHandBack | null };
 
 /**

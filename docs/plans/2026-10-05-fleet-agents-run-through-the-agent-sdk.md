@@ -240,7 +240,7 @@ So the default derives from what the project wrote, as `MANIFESTO.md` Principle 
 
 ### The board runs through the port
 
-- `infra/the-board-commands-run-through-the-port` — the ten board routes in the table above start their agent through `agentRun`, each with its hand-back schema; the SDK in `board-server.mjs`; the spawn ratchet set to the measured count <!-- builds: the board's agent starts through agentRun --> <!-- waits: infra/the-loop-waits-not-the-model -->
+- `infra/the-board-commands-run-through-the-port` — the ten board routes in the table above start their agent through `agentRun`, each with its hand-back schema; the SDK in `board-server.mjs`; the spawn ratchet set to the measured count → #1331 <!-- builds: the board's agent starts through agentRun --> <!-- waits: infra/the-loop-waits-not-the-model -->
 
 ### The SDK is the default runner
 
