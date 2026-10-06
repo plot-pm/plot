@@ -65,7 +65,8 @@ export function waitingLabel(days: number): string {
  * Reads the server's `unbegun` field rather than `pr === null && ageMinutes ===
  * null`. Those are SYMPTOMS of a branch that does not exist, and they are also
  * true of a branch that exists with no commits — a claim pushed as a bare ref.
- * The server sets `unbegun` for `open`, `waiting` and `blocked` (`hasNoWork`).
+ * The server sets `unbegun` for `open`, and for `waiting` or `blocked` over
+ * `open` (`hasNoWork`).
  * A row without the field comes from an older server, and `state === 'open'`
  * answers for it.
  *

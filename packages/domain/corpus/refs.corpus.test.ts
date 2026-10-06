@@ -119,6 +119,10 @@ const UNCARRIED_BRANCH = ['evidence', 'subjectIgnored'];
 const BRANCH_FIELDS = [
   'branch',
   'state',
+  // The state before the plan's `waits:` prerequisite. The adapter's pulse
+  // parses the scan through `BranchSchema`, which declares the field, so the
+  // adapter carries it as the wire does.
+  'own_state',
   'deferred',
   'deferred_reason',
   'claimed',

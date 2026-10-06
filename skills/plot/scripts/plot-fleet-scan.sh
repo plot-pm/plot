@@ -4109,7 +4109,7 @@ branch_readings() { # $1=branch $2=deferred $3=plan-base → readings
 # There is no shell fallback: a second implementation kept "just in case" is
 # the duplication this adoption removes, and it would be the copy nobody tests.
 # `plot-deliver.sh` fails the same way for the same reason.
-ask_branch_states() { # stdin=readings → one `state<TAB>needs` line per branch
+ask_branch_states() { # stdin=readings → one `state<TAB>needs<TAB>own` line per branch
   node "$script_dir/board/plot-branch-state.mjs" 2>/dev/null \
     || { echo "error: cannot read branch states — run 'pnpm build:board'." >&2; exit 2; }
 }
@@ -4417,7 +4417,7 @@ for plan in "${plans[@]}"; do
   while IFS= read -r rd_line; do
     [ -n "$rd_line" ] || continue
     answer_i=$((answer_i + 1))
-    IFS=$'\t' read -r _st needs \
+    IFS=$'\t' read -r _st needs _ \
       <<< "$(printf '%s\n' "$branch_answers" | sed -n "${answer_i}p")"
     waits_br=$(printf '%s' "$rd_line" | cut -f9)
     if [ "$needs" = "1" ] && [ "$waits_br" != "-" ]; then
@@ -4454,13 +4454,14 @@ for plan in "${plans[@]}"; do
   # record is re-read by two more `read` loops below, and an EMPTY middle
   # column collapses its tab into its neighbour's and shifts every later
   # field left. `$claim` is the only field allowed to be last and optional.
+  # `$own` is the branch's state before its prerequisite, the third answer column.
   states=""
   answer_i=0
   while IFS=$'\t' read -r idx br deferred why waits wname claim; do
     [ -n "$br" ] || continue
     answer_i=$((answer_i + 1))
-    st=$(printf '%s\n' "$branch_answers" | sed -n "${answer_i}p" | cut -f1)
-    states+="$idx	$br	$st	$deferred	$why	$waits	$wname	$claim"$'\n'
+    IFS=$'\t' read -r st _ own <<< "$(printf '%s\n' "$branch_answers" | sed -n "${answer_i}p")"
+    states+="$idx	$br	$st	$deferred	$why	$waits	$wname	${own:-$st}	$claim"$'\n'
   done <<< "$order"
 
   # PASS 1e: A DELIVERY CANDIDATE ASKS THE HOST about its subject-proven branches.
@@ -4519,7 +4520,7 @@ for plan in "${plans[@]}"; do
     outstanding=0
     _loose_degraded_branches=""
     wave_states=""
-    while IFS=$'\t' read -r idx br st deferred why waits nm claim; do
+    while IFS=$'\t' read -r idx br st deferred why waits nm _ claim; do
       [ "$idx" = "$wid" ] || continue
       # EVERY branch, including the deferred ones, and in the order the render
       # loop below will walk them — the claimable flags come back positionally,
@@ -4618,7 +4619,7 @@ for plan in "${plans[@]}"; do
     # `deferred` to tell a branch that will never move from one that has not
     # moved yet.
     outlook_branches=""
-    while IFS=$'\t' read -r idx br st deferred why waits nm claim; do
+    while IFS=$'\t' read -r idx br st deferred why waits nm own claim; do
       [ "$idx" = "$wid" ] || continue
       outlook_branches+="${outlook_branches:+|}$br:$st"
       [ "$claim" = "-" ] && claim=""
@@ -4683,7 +4684,7 @@ for plan in "${plans[@]}"; do
         # The INTERNAL state ($st), never the prose label ($note): the board
         # must not parse a string that exists for humans to read.
         json_branches+="${json_branches:+,}{\"branch\":\"$(json_str "$br")\""
-        json_branches+=",\"state\":\"$st\",\"deferred\":$deferred"
+        json_branches+=",\"state\":\"$st\",\"own_state\":\"$own\",\"deferred\":$deferred"
         # WHAT PROVED THE LANDING, where the proof is weaker than the host's.
         #
         # EMITTED ONLY WHERE THE BRANCH READS `merged` AND THE HOST HAS NOT

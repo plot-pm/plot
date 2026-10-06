@@ -2,7 +2,7 @@ import {
   describe,
   it,
   expect } from 'vitest';
-import { groupByPlan, headSliceNames, planWaitingDays, sectionTally, showsSliceFold, slicesElsewhere, sortByWaiting, type PlanGroup, ungroupedRows, sliceGroupsFor, sliceSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
+import { groupByPlan, headSliceNames, planWaitingDays, showsSliceFold, slicesElsewhere, sortByWaiting, type PlanGroup, ungroupedRows, sliceGroupsFor, sliceSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
 import { groupBySlice } from '../../src/app/lib/agent-rows/slices.js';
 import { isUnbegun } from '../../src/app/lib/agent-rows/row-identity.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Slice } from '../../src/contract/schema.js';
@@ -699,14 +699,26 @@ describe('a plan head counts here and elsewhere from one set', () => {
   });
 
   it('sums to the plan\'s slice count', () => {
-    const here = slices.filter((w) => headSliceNames(group).has(w.name)).length;
+    const here = Number.parseInt(sliceSummaryFor(group, slices), 10);
     const elsewhere = slicesElsewhere(slices, PLAN, 'not-started', headSliceNames(group));
     expect(here + elsewhere).toBe(slices.length);
   });
 
-  it('gives the section header the same slice count', () => {
-    const tally = sectionTally(notStartedRows, 'not-started', slices, { tickets: 0, drafts: 0, agents: 0 });
-    expect(tally.slices).toBe(3);
-    expect(tally.plans).toBe(1);
+  it('counts a WAITING ON YOU head\'s own slice, not the plan\'s unfinished ones', () => {
+    // One slice in DONE, and two unfinished: one whose PR waits for review and
+    // one nobody started. The WAITING ON YOU head shows only the reviewable one.
+    const plan: Slice[] = [
+      slice({ plan: PLAN, name: 'One', section: 'done', complete: true, verdict: 'complete' }),
+      slice({ plan: PLAN, name: 'Two', verdict: 'eligible' }),
+      slice({ plan: PLAN, name: 'Three', verdict: 'blocked' }),
+    ];
+    const reviewable = groupOf(row({
+      plan: PLAN, wave: 'Two', branch: 'infra/two', state: 'wip', group: 'waiting-on-you',
+      ageMinutes: 30, waitingDays: null, startability: 'someone-is-on-it',
+    }));
+    const elsewhere = slicesElsewhere(plan, PLAN, 'waiting-on-you', headSliceNames(reviewable));
+    expect(sliceSummaryFor(reviewable, plan)).toBe('1 slice');
+    expect(elsewhere).toBe(2);
+    expect(Number.parseInt(sliceSummaryFor(reviewable, plan), 10) + elsewhere).toBe(plan.length);
   });
 });

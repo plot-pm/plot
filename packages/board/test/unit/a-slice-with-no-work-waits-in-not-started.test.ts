@@ -183,7 +183,9 @@ describe('a waiting or blocked branch reads as unbegun on its row', () => {
   const DAY = 86_400_000;
   const NOW = Date.parse('2026-10-06T12:00:00Z');
 
-  const pulseWith = (state: BranchState): FleetReading => ({
+  const pulseWith = (
+    state: BranchState, ownState: BranchState | null, verdict: string,
+  ): FleetReading => ({
     generated: new Date(NOW).toISOString(),
     root: '/repo',
     main: 'main',
@@ -202,9 +204,9 @@ describe('a waiting or blocked branch reads as unbegun on its row', () => {
         },
         {
           name: 'Second',
-          verdict: 'blocked',
+          verdict,
           branches: [{
-            branch: 'feature/second', state, deferred: false, claimed: '',
+            branch: 'feature/second', state, own_state: ownState ?? undefined, deferred: false, claimed: '',
             worker: 'none', worker_pid: '', worker_exit: '', waits_on: ['feature/first'],
           }],
         },
@@ -213,9 +215,11 @@ describe('a waiting or blocked branch reads as unbegun on its row', () => {
     summary: { plans: 1, waves: 2, branches: 2, claimed: 0, eligible: 1, blocked: 1, deferred: 0 },
   } as never);
 
-  const secondRow = (state: BranchState): AgentRow => {
+  const secondRow = (
+    state: BranchState, ownState: BranchState | null = 'open', verdict = 'blocked',
+  ): AgentRow => {
     const row = rowsFromPulse(
-      pulseWith(state), new Map(), 'plot', QUIET, new Map(), '',
+      pulseWith(state, ownState, verdict), new Map(), 'plot', QUIET, new Map(), '',
       new Map([[PLAN, NOW - 4 * DAY]]), NOW,
     ).find((r) => r.branch === 'feature/second');
     if (!row) throw new Error('no row built for feature/second');
@@ -245,8 +249,29 @@ describe('a waiting or blocked branch reads as unbegun on its row', () => {
     expect(row.note).not.toContain('waits for');
   });
 
+  for (const state of ['waiting', 'blocked'] as const) {
+    it(`${state} over unknown: is not unbegun, because the host could not say the branch is empty`, () => {
+      const row = secondRow(state, 'unknown');
+      expect(row.unbegun).toBe(false);
+      expect(row.waitingDays).toBeNull();
+      expect(row.waitingOn).toBeNull();
+    });
+
+    it(`${state} with no own_state from an older scan: is not unbegun`, () => {
+      expect(secondRow(state, null).unbegun).toBe(false);
+    });
+
+    it(`${state} in an eligible slice: waits on time and names no blocking slice`, () => {
+      const row = secondRow(state, 'open', 'eligible');
+      expect(row.unbegun).toBe(true);
+      expect(row.waitingOn).toBe('time');
+      expect(row.blockedBy).toBeNull();
+      expect(row.note).toContain('waits for feature/first');
+    });
+  }
+
   it('unknown: is not unbegun, because the host could not say the branch is empty', () => {
-    const row = secondRow('unknown');
+    const row = secondRow('unknown', 'unknown');
     expect(row.unbegun).toBe(false);
     expect(row.waitingDays).toBeNull();
     expect(row.waitingOn).toBeNull();
