@@ -835,11 +835,17 @@ describe('workerLoopPorts and main', () => {
   });
 });
 
-/** Advances the fake clock a pass at a time until the promise settles. */
+/**
+ * Advances the fake clock a pass at a time until the promise settles, for up
+ * to 20 s of real time: `main` awaits real processes (`plot-config.sh`, the
+ * build connector), which a loaded runner answers slower than a fixed count of
+ * passes allows.
+ */
 const driven = async (done: Promise<number>): Promise<number | null> => {
   let settled: number | null = null;
   void done.then((c) => (settled = c));
-  for (let i = 0; i < 200 && settled === null; i += 1) {
+  const deadline = performance.now() + 20_000;
+  while (settled === null && performance.now() < deadline) {
     await vi.advanceTimersByTimeAsync(PASS_INTERVAL_MS);
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
