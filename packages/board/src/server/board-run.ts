@@ -13,6 +13,7 @@
  *   or whose run this board does not hold, as stopped.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 
 import { boardRunEnd, type BoardRunRecord } from '@plot-pm/domain/rules/board-run-end';
 import { agentRunFor, readConfig, type BuildBoardOptions } from './board.js';
@@ -46,6 +47,27 @@ export interface BoardRunSpec {
 const held = new Map<string, string>();
 
 let exitListenerInstalled = false;
+let signalExitInstalled = false;
+
+/** The signals that end the board. */
+const ENDING_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const;
+
+/**
+ * Makes each ending signal exit this process with `128 + signal number`, for
+ * the rest of its life.
+ *
+ * The adapters add a listener for these signals while a run lives and remove
+ * it when the run ends. A signal that arrives while a listener exists is
+ * caught, and when the run ends before the signal is dispatched, nothing
+ * exits: measured on Linux 2026-10-06, a board stopped during a `sleep 3`
+ * approve run kept serving for 300 s. A listener that never goes away closes
+ * that window.
+ */
+const installSignalExit = (): void => {
+  if (signalExitInstalled) return;
+  signalExitInstalled = true;
+  for (const signal of ENDING_SIGNALS) process.on(signal, () => process.exit(128 + os.constants.signals[signal]));
+};
 
 /** Every run this process started and has not yet recorded. */
 const unsettled = new Set<Promise<void>>();
@@ -149,6 +171,7 @@ export const startBoardRun = async (
     }
   };
   const failed = (line: string): BoardRunRecord => ({ code: 1, line, outcome: null, written: null });
+  installSignalExit();
 
   let choice;
   try {
