@@ -33,7 +33,7 @@ const readings = (over: Partial<BranchReadings>): BranchReadings => ({
 const tempRoot = branchState(readings({ refTip: 'old111' }));
 // No ref anywhere; its prerequisite has no pull request.
 const declaresBound = branchState(
-  readings({ waits: [{ branch: 'bug/a-missing-prerequisite', pr: 'none' }] }),
+  readings({ waits: [{ branch: 'bug/a-missing-prerequisite', pr: 'none', namedSlice: false }] }),
 );
 // Two file-touching commits beyond main and a PR it closed itself.
 const stateSweep = branchState(

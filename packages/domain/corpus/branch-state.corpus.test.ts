@@ -6,6 +6,7 @@ import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js'
 import { mergeSubjectForms } from '../src/adapters/host/merge-subjects.js';
 import {
   branchState,
+  namedSlices,
   type BranchReadings,
   type HostReach,
   type PrReading,
@@ -14,11 +15,13 @@ import { mergedBySubject } from '../src/rules/merge-subject.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
 import {
   readCommitsBeyond,
+  readEstatePlanSlices,
   readFleetScan,
   readMainBranch,
   readMergeSubjects,
   readPrList,
   readRemoteRefs,
+  readSliceNames,
   type Estate,
   type PrRow,
 } from './production.js';
@@ -179,6 +182,21 @@ const bestPrPerBranch = (rows: readonly PrRow[]): Map<string, string> => {
 let prByBranch: Map<string, string>;
 
 /**
+ * The set a `waits:` name is looked up in, computed by the rule.
+ *
+ * `namedSlices` over every plan of the estate, enumerated as the scan
+ * enumerates it (`readEstatePlanSlices`): the plan directory of the default
+ * branch plus the plans carried only on prefixed branches. Never the working
+ * tree, which the scan does not read.
+ *
+ * @returns the branch names.
+ */
+const readNamedSlices = (): Set<string> =>
+  namedSlices(readEstatePlanSlices(estate, mainBranch));
+
+let sliceNames: Set<string>;
+
+/**
  * How far the host got — `HOST_VERDICT`'s own word, classified in
  * `production.ts` from the same exit code and stderr text the scan reads.
  *
@@ -281,7 +299,11 @@ const readingsFor = (
     prListComplete: prList.complete,
     commitsAhead: counts.total,
     realCommitsAhead: counts.real,
-    waits: waitsOn.map((branch) => ({ branch, pr: prFor(branch) })),
+    waits: waitsOn.map((branch) => ({
+      branch,
+      pr: prFor(branch),
+      namedSlice: sliceNames.has(branch),
+    })),
   };
 };
 
@@ -313,6 +335,7 @@ interface Pass {
  * @returns the count walked and every disagreement found.
  */
 const comparePass = (reading: FleetReading): Pass => {
+  sliceNames = readNamedSlices();
   const disagreements: Disagreement[] = [];
   let compared = 0;
   for (const plan of reading.plans) {
@@ -381,6 +404,30 @@ describe('the estate is really being read', () => {
   });
 });
 
+describe('the named-slice set', () => {
+  it('is the same set in the scan and in the rule', () => {
+    // A DECLARED DUPLICATE. `plot-fleet-scan.sh` builds `SLICE_NAMES` in shell
+    // and `namedSlices` states the rule; both read the estate the scan reads.
+    // The set is read once more on a disagreement, for a plan that landed
+    // between the two readings.
+    const compare = () => ({ shell: [...readSliceNames(estate)].sort(), rule: [...readNamedSlices()].sort() });
+    const differ = (read: { shell: string[]; rule: string[] }) => ({
+      shellOnly: read.shell.filter((b) => !read.rule.includes(b)),
+      ruleOnly: read.rule.filter((b) => !read.shell.includes(b)),
+    });
+    const first = compare();
+    const second = first.shell.join() === first.rule.join() ? first : compare();
+    expect(second.rule.length).toBeGreaterThan(0);
+    // The failure names the FIRST reading too: a difference that changed
+    // between the reads is a plan that landed mid-run, one that held is the
+    // rule against the shell.
+    expect(differ(second), `first read: ${JSON.stringify(differ(first))}`).toEqual({
+      shellOnly: [],
+      ruleOnly: [],
+    });
+  });
+});
+
 describe('the rule reproduces the shell for every branch on the estate', () => {
   it('derives the same state the scan reports', () => {
     // TWO PASSES, AND THE SECOND IS THE ARBITER — because the two sides read
@@ -423,8 +470,11 @@ describe('the rule reproduces the shell for every branch on the estate', () => {
     console.log(
       `pass 1 disagreed on ${first.disagreements.length}; re-reading both sides`,
     );
+    // SCAN FIRST, THEN THE READINGS, as in `beforeAll`: the scan fetches, and
+    // the refs and merge subjects read after it come from that one fetch.
+    const secondPulse = FleetReadingSchema.parse(readFleetScan(estate));
     refreshReadings();
-    const second = comparePass(FleetReadingSchema.parse(readFleetScan(estate)));
+    const second = comparePass(secondPulse);
 
     // ONLY WHAT SURVIVED BOTH PASSES. Keyed by subject and field, so a branch
     // that disagreed differently in each pass — the shape a race takes — is not
@@ -568,6 +618,7 @@ describe('the bundle answers the zero-ahead table as the rule does', () => {
       '-',
       '?',
       String(r.prListComplete),
+      '?',
     ].join('\t');
 
   const runBundle = (input: string): { status: number | null; stdout: string } => {
@@ -587,8 +638,8 @@ describe('the bundle answers the zero-ahead table as the rule does', () => {
     expect(disagreements).toEqual([]);
   });
 
-  it('refuses a ten-field line with exit 2', () => {
-    const ten = lineFor(behind).split('\t').slice(0, 10).join('\t');
-    expect(runBundle(`${ten}\n`).status).toBe(2);
+  it('refuses an eleven-field line with exit 2', () => {
+    const eleven = lineFor(behind).split('\t').slice(0, 11).join('\t');
+    expect(runBundle(`${eleven}\n`).status).toBe(2);
   });
 });

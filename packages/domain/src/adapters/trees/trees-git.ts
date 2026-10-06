@@ -170,6 +170,19 @@ export const treesGit = (context: ShellContext): Trees => {
     currentBranch: (path) =>
       runScript('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
 
+    // No upstream makes git exit non-zero, which is the `failed` answer.
+    aheadOfUpstream: (path) =>
+      runScript(
+        'git',
+        ['-C', path, 'rev-list', '--count', '@{upstream}..HEAD'],
+        (stdout) => {
+          const raw = asText(stdout);
+          if (!/^\d+$/.test(raw)) throw new Error(`git rev-list: unreadable count ${raw}`);
+          return Number(raw);
+        },
+        inRepo,
+      ),
+
     // `git config` exits 1 for an unset key, which is the `failed` answer.
     userEmail: (path) =>
       runScript('git', ['-C', path, 'config', '--get', 'user.email'], asText, inRepo),

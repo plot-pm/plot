@@ -43,7 +43,7 @@ function git(cwd, ...args) {
 // annotation. `Worker command: none` so nothing is ever launched: this file
 // tests a REFUSAL, and a test that starts a detached agent to prove one did not
 // happen is a test that leaks processes.
-function makeRepo({ waitsOn = null, deferred = null, branch = 'feature/dependent' } = {}) {
+function makeRepo({ waitsOn = null, deferred = null, branch = 'feature/dependent', sibling = null, siblingNote = '', otherPlan = null } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waits-'));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -67,7 +67,15 @@ function makeRepo({ waitsOn = null, deferred = null, branch = 'feature/dependent
     '# Dependent plan\n\n## Status\n\n- **Phase:** Approved\n- **Type:** feature\n'
     + '- **Impl:** own branches\n\n'
     + '## Branches\n\n### Only\n\n'
+    + (sibling ? `- \`${sibling}\` ${siblingNote} — a slice nobody has started\n` : '')
     + `- \`${branch}\` ${notes} — the dependent work\n`);
+  // A SECOND PLAN, holding the prerequisite as one of ITS slices.
+  if (otherPlan) {
+    fs.writeFileSync(path.join(repo, 'plans', '2026-09-02-another-plan.md'),
+      `# Another plan\n\n## Status\n\n- **Phase:** ${otherPlan.phase}\n- **Type:** feature\n`
+      + '- **Impl:** own branches\n\n## Branches\n\n### Only\n\n'
+      + `- \`${otherPlan.slice}\` — a slice nobody has started\n`);
+  }
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'init');
   git(repo, 'push', '-q', 'origin', 'main');
@@ -219,6 +227,85 @@ test('waits: a prerequisite the host has never seen a PR for reads BLOCKED', () 
   // file, `waiting` to the calendar. Collapsing them wastes one of the trips.
   assert.doesNotMatch(stdout, /waiting on/,
     `and it must not be reported as a wait:\n${stdout}`);
+});
+
+test('waits: a sibling slice the host has no PR for reads WAITING, not blocked (#1305)', () => {
+  // The plan names the prerequisite as a slice, so `NONE` means nobody started
+  // it yet. Only a name the plan does not contain is a typo.
+  const repo = makeRepo({ waitsOn: 'feature/first', sibling: 'feature/first' });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'], { gh: ghShim({ prereq: 'feature/first', state: null }) });
+
+  assert.match(stdout, /skipped feature\/dependent \(waiting on feature\/first\)/,
+    `a named sibling with no PR is a wait:\n${stdout}`);
+  assert.doesNotMatch(stdout, /blocked/, `and never a typo:\n${stdout}`);
+});
+
+// The scan's own line for the dependent branch, from a slug run of its plan.
+const scanSlug = (repo, gh) => {
+  const env = { ...process.env, PATH: `${gh}:${process.env.PATH}` };
+  return execFileSync('bash', [path.join(scripts, 'plot-fleet-scan.sh'), 'dependent'],
+    { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+};
+
+test('waits: a slice of ANOTHER plan with no PR reads WAITING in dispatch and in the slug scan', () => {
+  // A slug run reads one plan; the set a `waits:` name is looked up in is the
+  // whole estate's, as on the board's full scan.
+  const repo = makeRepo({ waitsOn: 'feature/other-slice', otherPlan: { phase: 'Approved', slice: 'feature/other-slice' } });
+  const gh = ghShim({ prereq: 'feature/other-slice', state: null });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'], { gh });
+
+  assert.match(stdout, /skipped feature\/dependent \(waiting on feature\/other-slice\)/,
+    `a slice of another plan with no PR is a wait:\n${stdout}`);
+  assert.doesNotMatch(stdout, /blocked/, `and never a typo:\n${stdout}`);
+  const scan = scanSlug(repo, gh);
+  assert.match(scan, /feature\/dependent — waiting on feature\/other-slice/, scan);
+  assert.doesNotMatch(scan, /no PR found/, scan);
+});
+
+test('waits: a slice of a DELIVERED plan with no PR reads BLOCKED — nobody will start it', () => {
+  const repo = makeRepo({ waitsOn: 'feature/other-slice', otherPlan: { phase: 'Delivered', slice: 'feature/other-slice' } });
+  const gh = ghShim({ prereq: 'feature/other-slice', state: null });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'], { gh });
+
+  assert.match(stdout, /skipped feature\/dependent \(blocked — no PR found for feature\/other-slice\)/, stdout);
+  assert.match(scanSlug(repo, gh), /feature\/dependent — blocked — no PR found for feature\/other-slice/);
+});
+
+test('waits: a DEFERRED sibling with no PR reads BLOCKED — nobody will start it', () => {
+  const repo = makeRepo({ waitsOn: 'feature/first', sibling: 'feature/first', siblingNote: '<!-- deferred: given up -->' });
+  const gh = ghShim({ prereq: 'feature/first', state: null });
+  const { stdout } = run(repo, ['--dry-run', 'dependent'], { gh });
+
+  assert.match(stdout, /skipped feature\/dependent \(blocked — no PR found for feature\/first\)/, stdout);
+  assert.match(scanSlug(repo, gh), /feature\/dependent — blocked — no PR found for feature\/first/);
+});
+
+test('waits: a slice set that cannot be read HOLDS the slice at waiting, and does not block it', () => {
+  // ABSENT IS NOT FALSE. A copy of the scripts whose scan fails `--slice-names`
+  // and answers every other question as the real one does.
+  const repo = makeRepo({ waitsOn: 'feature/other-slice', otherPlan: { phase: 'Approved', slice: 'feature/other-slice' } });
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waits-scripts-'));
+  ctx.push(copy);
+  fs.cpSync(scripts, copy, { recursive: true });
+  fs.renameSync(path.join(copy, 'plot-fleet-scan.sh'), path.join(copy, 'plot-fleet-scan.real.sh'));
+  fs.writeFileSync(path.join(copy, 'plot-fleet-scan.sh'),
+    '#!/usr/bin/env bash\n'
+    + 'for a in "$@"; do [ "$a" = --slice-names ] && { echo "scan unavailable" >&2; exit 3; }; done\n'
+    + 'exec bash "$(dirname "$0")/plot-fleet-scan.real.sh" "$@"\n');
+  fs.chmodSync(path.join(copy, 'plot-fleet-scan.sh'), 0o755);
+  const env = { ...process.env, PATH: `${ghShim({ prereq: 'feature/other-slice', state: null })}:${process.env.PATH}` };
+  let stdout = '';
+  try {
+    stdout = execFileSync('bash', [path.join(copy, 'plot-dispatch.sh'), '--dry-run', 'dependent'],
+      { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    stdout = (e.stdout ?? '') + (e.stderr ?? '');
+  }
+
+  assert.match(stdout, /skipped feature\/dependent \(waiting on feature\/other-slice\)/,
+    `an unread slice set must hold the branch:\n${stdout}`);
+  assert.match(stdout, /--slice-names gave no answer/, `and the refusal names why:\n${stdout}`);
+  assert.doesNotMatch(stdout, /blocked/, `and must never accuse the plan of a typo:\n${stdout}`);
 });
 
 test('waits: an unreachable host HOLDS the slice, and does not block it', () => {

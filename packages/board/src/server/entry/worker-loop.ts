@@ -260,7 +260,7 @@ export const registrationOf = async (manifestFile: string): Promise<LoopRegistra
  * @returns the refusals that hold; empty where none do.
  */
 export const readResetRefusals = async (
-  ports: Pick<WorkerLoopPorts, 'trees' | 'refs'>,
+  ports: Pick<WorkerLoopPorts, 'trees'>,
   worktree: string,
 ): Promise<ResetRefusal[]> => {
   const out: ResetRefusal[] = [];
@@ -268,11 +268,11 @@ export const readResetRefusals = async (
   if (markers.ok && markers.value.length > 0) out.push('blocked-marker');
   const dirty = await ports.trees.dirtyPaths(worktree);
   if (dirty.ok && dirty.value.length > 0) out.push('uncommitted-changes');
-  const branch = await ports.trees.currentBranch(worktree);
-  if (branch.ok && branch.value !== '') {
-    const ahead = ports.refs.countAheadSync(branch.value);
-    if (ahead.ok && ahead.value > 0) out.push('unpushed-commits');
-  }
+  // AGAINST THE CONFIGURED UPSTREAM, as `desk_reset_refusal` counts it. A
+  // rejected claim push leaves its claim commit on a branch with no upstream,
+  // and no upstream reads as nothing to refuse.
+  const ahead = await ports.trees.aheadOfUpstream(worktree);
+  if (ahead.ok && ahead.value > 0) out.push('unpushed-commits');
   return out;
 };
 

@@ -265,7 +265,7 @@ The rest of `plot-worker-state.sh` stays, `plot_worker_idle_now` included, becau
 
 ### The loop restarts on new code
 
-- `infra/the-loop-restarts-on-new-code` — `restartAnswer` and the `reexec` port; the loop restarts on a newer main-checkout bundle that passes its self-check, or past its memory ceiling, keeping its pid and its free wait's `Worker bound` <!-- builds: the loop's self-restart -->
+- `infra/the-loop-restarts-on-new-code` — `restartAnswer` and the `reexec` port; the loop restarts on a newer main-checkout bundle that passes its self-check, or past its memory ceiling, keeping its pid and its free wait's `Worker bound` → #1314 <!-- builds: the loop's self-restart -->
 
 ### JS is the default loop
 

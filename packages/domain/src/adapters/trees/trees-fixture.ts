@@ -53,6 +53,11 @@ export interface TreesFixture {
    */
   branches?: Readonly<Record<string, string>>;
   /**
+   * What `aheadOfUpstream` answers, keyed by path. A path absent from the
+   * table has no upstream, which `aheadOfUpstream` answers as `failed`.
+   */
+  ahead?: Readonly<Record<string, number>>;
+  /**
    * The `user.email` each checkout reports, keyed by path. A path absent from
    * the table has none configured, which `userEmail` answers as `failed`.
    */
@@ -153,6 +158,11 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     currentBranch: async (path) => {
       const branch = branches[path];
       return branch === undefined ? failed<string>() : answered(branch);
+    },
+
+    aheadOfUpstream: async (path) => {
+      const count = fixture.ahead?.[path];
+      return count === undefined ? failed<number>() : answered(count);
     },
 
     userEmail: async (path) => {

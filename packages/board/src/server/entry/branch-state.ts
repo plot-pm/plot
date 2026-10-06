@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
  * The `node` entry point `plot-fleet-scan.sh` runs, once per plan.
  *
  * ```
- * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\n' | node plot-branch-state.mjs
+ * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\t?\n' | node plot-branch-state.mjs
  * wip	0	wip
  * ```
  *
@@ -60,7 +60,7 @@ import { pathToFileURL } from 'node:url';
 /**
  * One branch's readings, as the scan writes them.
  *
- * Eleven tab-separated fields, and every one is spelled rather than implied:
+ * Twelve tab-separated fields, and every one is spelled rather than implied:
  * `-` is the absent marker the scan already uses everywhere a middle column may
  * be empty, because a run of tabs collapses into one separator under bash's
  * `read`.
@@ -78,6 +78,7 @@ import { pathToFileURL } from 'node:url';
  * | `waitsBranch` | every prerequisite, comma-separated, or `-` where the plan names none |
  * | `waitsPr` | the prerequisites' PR words, comma-separated and in the same order, `?` where none was asked |
  * | `prListComplete` | `true` where the host's PR list held every PR, anything else otherwise |
+ * | `waitsNamed` | per prerequisite, `true` where some plan names it as a slice and `false` where none does, comma-separated in field 9's order; `?` exactly where field 10 is `?` |
  *
  * **TWO PARALLEL COLUMNS, NOT ONE PER PREREQUISITE.** The scan still asks one
  * round trip per BRANCH, not per prerequisite, so field 10 is `?` for the whole
@@ -102,7 +103,7 @@ import { pathToFileURL } from 'node:url';
  * `REPLACEABLE_BY_PREREQUISITE` flag depends on to tell *nothing declared* from
  * *declared, not yet read*.
  */
-const FIELDS = 11;
+const FIELDS = 12;
 
 /**
  * The scan's PR words, in the rule's vocabulary.
@@ -135,6 +136,20 @@ const reachFrom = (word: string): HostReach => {
     return word;
   }
   return 'failed';
+};
+
+/**
+ * Whether each prerequisite is a slice some plan names, refusing any other word.
+ *
+ * NOT DEFAULTED. A missing `true` reads a named slice as a typo and answers
+ * `blocked`; a missing `false` reads a typo as a wait and answers `waiting`.
+ * Both are wrong, so an unparsable word refuses the batch.
+ *
+ * @throws when a word is not `true` or `false`.
+ */
+const namedFrom = (word: string, line: number): boolean => {
+  if (word === 'true' || word === 'false') return word === 'true';
+  throw new Error(`line ${line}: waitsNamed is not true or false: '${word}'`);
 };
 
 /**
@@ -206,8 +221,9 @@ const parsedFrom = (text: string): ParsedLine[] =>
       }
       const [
         deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete,
+        waitsNamed,
       ] = fields as [
-        string, string, string, string, string, string, string, string, string, string, string,
+        string, string, string, string, string, string, string, string, string, string, string, string,
       ];
       const names = waitsBranch === '-' ? [] : waitsBranch.split(',');
       // `?` IS A SINGLE FLAG FOR THE WHOLE BRANCH, NEVER PER-ITEM: the scan asks
@@ -217,6 +233,14 @@ const parsedFrom = (text: string): ParsedLine[] =>
       if (waitsPr !== '?' && names.length !== states.length) {
         throw new Error(
           `line ${i + 1}: waitsBranch names ${names.length} prerequisite(s) but waitsPr carries ${states.length}: '${waitsBranch}' / '${waitsPr}'`,
+        );
+      }
+      // Field 12 is answered together with field 10: both `?`, or both a list
+      // of one word per named prerequisite.
+      const named = waitsNamed === '?' ? [] : waitsNamed.split(',');
+      if ((waitsPr === '?') !== (waitsNamed === '?') || named.length !== states.length) {
+        throw new Error(
+          `line ${i + 1}: waitsNamed carries ${waitsNamed === '?' ? '?' : named.length} for ${waitsPr === '?' ? '?' : states.length} prerequisite reading(s): '${waitsPr}' / '${waitsNamed}'`,
         );
       }
       const readings: BranchReadings = {
@@ -229,7 +253,11 @@ const parsedFrom = (text: string): ParsedLine[] =>
         prListComplete: listComplete === 'true',
         commitsAhead: countFrom(ahead, i + 1, 'commitsAhead'),
         realCommitsAhead: countFrom(real, i + 1, 'realCommitsAhead'),
-        waits: waitsPr === '?' ? [] : names.map((branch, index) => ({ branch, pr: prFrom(states[index] as string) })),
+        waits: waitsPr === '?' ? [] : names.map((branch, index) => ({
+          branch,
+          pr: prFrom(states[index] as string),
+          namedSlice: namedFrom(named[index] as string, i + 1),
+        })),
       };
       return { readings, waitsBranch: names };
     });
