@@ -306,6 +306,50 @@ describe('POST /api/dispatch: the brief gate (wave 2 of a-dispatch-hands-over-a-
   });
 });
 
+describe('POST /api/dispatch: the runner gate (Agent runner: sdk needs Worker loop: js)', () => {
+  let tmp, server, stub;
+
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
+    stub = makeStubScripts();
+    writeImplementCommand(tmp, { bin: path.join(stub.dir, 'implement.sh') });
+    const claude = path.join(tmp, 'CLAUDE.md');
+    fs.appendFileSync(
+      claude,
+      '\n- **Agent runner:** sdk\n- **Worker loop:** shell\n',
+      'utf8',
+    );
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(() => {
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('refuses with 409 naming the SDK/loop mismatch, ahead of the brief gate', async () => {
+    const res = await request(server.port, {
+      method: 'POST',
+      path: '/api/dispatch',
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ slug: 'ship-the-widget' }),
+    });
+    assert.equal(res.status, 409);
+    const body = JSON.parse(res.body);
+    assert.equal(body.ok, false);
+    assert.equal(body.reason, 'sdk-needs-js-loop');
+    assert.match(body.detail, /Worker loop: js/);
+    assert.equal(body.slug, 'ship-the-widget');
+  });
+
+  it('and started neither implement nor dispatch', async () => {
+    await settle();
+    assert.deepEqual(stub.implementRuns(), []);
+    assert.deepEqual(stub.runs(), []);
+  });
+});
+
 describe('POST /api/dispatch: implement failure stops dispatch', () => {
   let tmp, server, stub;
 

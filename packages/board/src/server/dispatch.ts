@@ -13,6 +13,13 @@ import {
 import { usableCommand } from './idea.js';
 import { localCapability } from './controllers/caller.js';
 import { recordActionReceipt } from './action-receipt.js';
+import { runnerChoice } from '@plot-pm/domain';
+
+/** The config key naming which runner starts an agent: the shell fragment, or the Agent SDK. */
+export const AGENT_RUNNER_KEY = 'Agent runner';
+
+/** The config key naming which loop implementation runs a dispatched worker. */
+export const WORKER_LOOP_KEY = 'Worker loop';
 
 /**
  * The board's ONE state-changing route.
@@ -374,6 +381,36 @@ export async function handleDispatch(
       slug,
       reason: 'no-implement-command',
       detail: `no \`${IMPLEMENT_COMMAND_KEY}\` in Plot Config — starting work requires a brief, and the brief requires the /plot-implement SKILL; add the key or run /plot-implement yourself first`,
+    });
+    return;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // THE RUNNER GATE: `Agent runner: sdk` needs `Worker loop: js`.
+  //
+  // The JS loop is the only caller that reads the SDK port today — the shell
+  // loop still runs a worker through `boundedRun` with no concept of a
+  // connector to ask. Starting a worker on `sdk` under the shell loop would
+  // not run the SDK at all; it would run `plot-dispatch.sh`'s own `Worker
+  // command` fragment regardless, silently ignoring the configured runner.
+  // Refusing here names the mismatch instead.
+  // ──────────────────────────────────────────────────────────────────────────
+  const agentRunnerReading = readCfg(opts, AGENT_RUNNER_KEY, '');
+  const workerLoopReading = readCfg(opts, WORKER_LOOP_KEY, '');
+  const runner = runnerChoice({
+    agentRunner: agentRunnerReading === 'sdk' || agentRunnerReading === 'command' ? agentRunnerReading : '',
+    isWorker: true,
+    workerLoop: workerLoopReading === 'js' || workerLoopReading === 'shell' ? workerLoopReading : '',
+    fragment: '',
+    charterHarness: '',
+    defaultsToSdkWhenNamed: false,
+  });
+  if (runner.runner === 'refused') {
+    json(409, {
+      ok: false,
+      slug,
+      reason: 'sdk-needs-js-loop',
+      detail: runner.reason,
     });
     return;
   }

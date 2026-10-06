@@ -683,8 +683,31 @@ describe('what cannot be continued is refused, never spawned', () => {
     );
   });
 
+  it('refuses a worker under Agent runner: sdk + Worker loop: shell, the same mismatch /api/dispatch refuses', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const configDeps: ContinueDeps = {
+      pulse: () => pulseWith(wt),
+      config: (_o, key, fallback) => {
+        if (key === 'Worker command') return 'true';
+        if (key === 'Agent runner') return 'sdk';
+        if (key === 'Worker loop') return 'shell';
+        return fallback;
+      },
+    };
+    const out = await post({ branch: BRANCH, answer: 'go' }, configDeps, wt);
+    assert.equal(out.status, 409);
+    assert.equal(refusal(out), 'sdk-needs-js-loop');
+    assert.match((out.body as { detail: string }).detail, /Worker loop: js/);
+    assert.equal(
+      fs.existsSync(path.join(wt, CONTINUATION_NAME)),
+      false,
+      'a refusal must not leave a prompt behind',
+    );
+  });
+
   it('gives each refusal its own reason', async () => {
-    // Five distinct reasons, five different next moves. Collapsing any two into
+    // Six distinct reasons, six different next moves. Collapsing any two into
     // one message is the defect the three-way answers elsewhere in this server
     // exist to prevent.
     const reasons: ContinueRefusal[] = [
@@ -693,6 +716,7 @@ describe('what cannot be continued is refused, never spawned', () => {
       'no-question',
       'no-worker-command',
       'no-manifest',
+      'sdk-needs-js-loop',
     ];
     assert.equal(new Set(reasons).size, reasons.length);
   });

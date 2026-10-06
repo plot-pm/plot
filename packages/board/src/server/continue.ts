@@ -13,6 +13,7 @@ import { deskManifestFor, writeManifestStamp, writeResumeId } from './manifest-s
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell } from '@plot-pm/domain/adapters';
+import { runnerChoice } from '@plot-pm/domain';
 import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
 
 /**
@@ -127,7 +128,16 @@ export type ContinueRefusal =
    * one worktree. Neither is tie-broken: a first match would hide the defect,
    * and the plan's second Open Point keeps this refusal rather than a guess.
    */
-  | 'no-manifest';
+  | 'no-manifest'
+  /**
+   * `Agent runner: sdk` is set under `Worker loop: shell`.
+   *
+   * The same mismatch `/api/dispatch` refuses, and for the same reason: the
+   * shell loop has no concept of the SDK port, so a continuation started this
+   * way would silently run the `Worker command` fragment regardless of the
+   * configured runner.
+   */
+  | 'sdk-needs-js-loop';
 
 export interface ContinueOptions extends BuildBoardOptions {
   host: string;
@@ -623,6 +633,24 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       'no-worker-command',
       'no `Worker command` in Plot Config — start the continuation yourself in the worktree',
     );
+  }
+
+  // THE RUNNER GATE: the same mismatch `/api/dispatch` refuses. The shell loop
+  // has no concept of the SDK port, so a continuation started under
+  // `Agent runner: sdk` + `Worker loop: shell` would silently fall back to the
+  // `Worker command` fragment rather than running the configured runner.
+  const agentRunnerReading = readCfg(opts, 'Agent runner', '');
+  const workerLoopReading = readCfg(opts, 'Worker loop', '');
+  const runner = runnerChoice({
+    agentRunner: agentRunnerReading === 'sdk' || agentRunnerReading === 'command' ? agentRunnerReading : '',
+    isWorker: true,
+    workerLoop: workerLoopReading === 'js' || workerLoopReading === 'shell' ? workerLoopReading : '',
+    fragment: '',
+    charterHarness: '',
+    defaultsToSdkWhenNamed: false,
+  });
+  if (runner.runner === 'refused') {
+    return refused(409, 'sdk-needs-js-loop', runner.reason);
   }
 
   // ASKED BEFORE ANY WRITE, and that is the decision: a refused continuation
