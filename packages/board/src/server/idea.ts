@@ -724,7 +724,7 @@ export async function handleIdea(
   // for the length of somebody else's click, exactly as the detached spawn
   // avoided before. The consequence named in the PR rather than worked
   // around: a board stop or restart now ends this run.
-  const choice = await agentRunFor(opts, 'idea', IDEA_COMMAND_KEY);
+  const choice = await agentRunFor(opts, 'idea', IDEA_COMMAND_KEY, readCfg);
   const writeState = (value: string) => {
     try {
       fs.writeFileSync(statePath, value, 'utf8');
@@ -780,7 +780,21 @@ export async function handleIdea(
           return;
         }
         const handBack = end.handBack;
-        if (handBack === null || !('written' in handBack)) {
+        // The `command` runner never parses a hand-back — it answers `null` on
+        // every exit-0 run, same as before this route carried a port at all.
+        // Only the `sdk` runner's structured protocol makes a `null` hand-back
+        // a failure: that runner promised a `{written, summary}` shape and
+        // produced nothing.
+        if (handBack === null) {
+          if (choice.runner === 'sdk') {
+            appendLog('idea run ended with no written hand-back');
+            writeState('1');
+            return;
+          }
+          writeState('0');
+          return;
+        }
+        if (!('written' in handBack)) {
           appendLog('idea run ended with no written hand-back');
           writeState('1');
           return;

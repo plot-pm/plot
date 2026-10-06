@@ -1,20 +1,21 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { agentLogPath } from './agent-log.js';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { agentRunFor, readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { readPhase } from './transition.js';
 import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './idea.js';
+import { writtenPathResolution } from '@plot-pm/domain/rules/written-path';
 
 /**
  * Interrogating a Draft plan: `POST /api/interrogate` runs the configured
  * `Interrogate command` with a prompt asking for `/challenge-the-plan <plan path>`.
  *
- * The shape is `commission.ts`'s: slug-scoped, Draft-only, a detached plot
- * agent answered 202, and a slug-keyed status read-back. The guards are
- * imported from `dispatch.ts` and `idea.ts`, not copied.
+ * The shape is `commission.ts`'s: slug-scoped, Draft-only, a plot agent
+ * started through the `agentRun` port and answered 202, and a slug-keyed
+ * status read-back. The guards are imported from `dispatch.ts` and `idea.ts`,
+ * not copied.
  *
  * The route decides nothing. The skill writes five artifacts: the verdict
  * files, `panel.md`, the plan's `Rounds:` increment, the Open Points section in
@@ -60,8 +61,8 @@ export const interrogateLogPath = (repoRoot: string, slug: string): string =>
   agentLogPath(repoRoot, 'interrogate', slug, 'log');
 
 /**
- * Where the run's state goes: `running <pid>` from spawn until exit, then the
- * exit code (`0`, `1`, `signal SIGTERM`).
+ * Where the run's state goes: absent while running, then `0` or `1` once the
+ * `agentRun` port's promise settles.
  */
 const interrogateStatePath = (repoRoot: string, slug: string): string =>
   agentLogPath(repoRoot, 'interrogate', slug, 'state');
@@ -134,23 +135,12 @@ export interface InterrogateStatus {
   log: string;
 }
 
-/** Whether a process with this pid exists. */
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM: the process exists and belongs to someone else.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-};
-
 /**
  * Read back what an earlier POST started. Never spawns, never blocks.
  *
- * `running` holds only while the recorded pid is alive. A `running <pid>` state
- * whose process is gone reads `failed`: the board that held the exit listener
- * stopped before the command ended, so no exit code was recorded.
+ * The port writes no `running <pid>` state: its promise settles the state
+ * file to `0` or `1` only once the run ends. A log with no state file yet is
+ * the running case, the same reading {@link ideaStatus} uses.
  */
 export const interrogateStatus = (opts: BuildBoardOptions, slug: string): InterrogateStatus => {
   const log = interrogateLogPath(opts.repoRoot, slug);
@@ -158,16 +148,9 @@ export const interrogateStatus = (opts: BuildBoardOptions, slug: string): Interr
   try {
     recorded = fs.readFileSync(interrogateStatePath(opts.repoRoot, slug), 'utf8').trim();
   } catch {
-    return { state: 'unknown', message: '', log };
-  }
-  const running = /^running (\d+)$/.exec(recorded);
-  if (running) {
-    if (alive(Number(running[1]))) return { state: 'running', message: '', log };
-    return {
-      state: 'failed',
-      message: 'the interrogate command stopped without recording an exit code — see its log',
-      log,
-    };
+    return fs.existsSync(log)
+      ? { state: 'running', message: '', log }
+      : { state: 'unknown', message: '', log };
   }
   if (recorded === '0') return { state: 'done', message: '', log };
   let text = '';
@@ -193,7 +176,8 @@ export interface InterrogateDeps {
 
 /**
  * Handle `POST /api/interrogate` with body `{ slug }`: refuse, or write the
- * prompt and spawn the configured command detached, answering 202.
+ * prompt and start the configured command through the `agentRun` port,
+ * answering 202.
  *
  * Refusals, each with a `detail` sentence:
  *
@@ -306,58 +290,103 @@ export const handleInterrogate = async (
 
   const log = interrogateLogPath(opts.repoRoot, slug);
   const statePath = interrogateStatePath(opts.repoRoot, slug);
-  let out: number;
   try {
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
-  } catch (err) {
-    json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
-    return;
+  } catch {
+    /* no prior state to clear */
   }
 
-  // `Interrogate command` is a shell fragment. Nothing from the request is
-  // interpolated into it: the prompt travels as a file, its path as one "$@"
-  // argument and in the environment.
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-interrogate', `Read ${promptPath} and follow it.`],
-    {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        PLOT_UNATTENDED: '1',
-        PLOT_INTERROGATE_PROMPT: promptPath,
-        PLOT_PLAN_SLUG: slug,
-      },
-    },
-  );
-  if (child.pid !== undefined) {
+  const writeState = (value: string) => {
     try {
-      fs.writeFileSync(statePath, `running ${child.pid}`, 'utf8');
-    } catch {
-      /* without it the status reads unknown, and the log still records the run */
-    }
-  }
-  child.on('exit', (code, signal) => {
-    try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+      fs.writeFileSync(statePath, value, 'utf8');
     } catch {
       /* the state file is a convenience; the log is the record */
     }
-  });
-  child.on('error', (err) => {
-    console.error('interrogate failed to spawn:', err);
+  };
+  const appendLog = (message: string) => {
     try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
+      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
     } catch {
       /* nothing further to do */
     }
-  });
-  // Detached without `unref`: the handle keeps the exit listener alive.
-  fs.closeSync(out);
+  };
+
+  // ROUTED THROUGH THE `agentRun` PORT, never a raw `spawn` — the same shape
+  // `idea.ts` established. STAYS IN THE BOARD'S PROCESS GROUP: no `detached`,
+  // and `run(...)`'s promise is deliberately not awaited before the 202
+  // answers.
+  const choice = await agentRunFor(opts, 'interrogate', INTERROGATE_COMMAND_KEY, readCfg);
+  if (choice.runner === 'refused' || choice.agentRun === undefined) {
+    appendLog(choice.reason);
+    writeState('1');
+  } else {
+    const agentRun = choice.agentRun;
+    void agentRun
+      .run({
+        worktree: opts.repoRoot,
+        prompt: `Read ${promptPath} and follow it.`,
+        resumeId: '',
+        role: 'interrogate',
+        harness: '',
+        model: '',
+        effort: '',
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: 0,
+        contextWindow: 0,
+        capabilities: [],
+        env: {
+          ...process.env,
+          PLOT_UNATTENDED: '1',
+          PLOT_INTERROGATE_PROMPT: promptPath,
+          PLOT_PLAN_SLUG: slug,
+        },
+        logFile: log,
+      })
+      .then((result) => {
+        if (!result.ok) {
+          appendLog(`interrogate run failed: ${result.why}`);
+          writeState('1');
+          return;
+        }
+        const end = result.value.end;
+        if (end.answer !== 'ran') {
+          appendLog(`interrogate run ended without running: ${end.answer}`);
+          writeState('1');
+          return;
+        }
+        const handBack = end.handBack;
+        // The `command` runner never parses a hand-back — a `null` answer on
+        // exit 0 is the pre-port success case. Only the `sdk` runner's
+        // structured protocol makes `null` a failure.
+        if (handBack === null) {
+          if (choice.runner === 'sdk') {
+            appendLog('interrogate run ended with no written hand-back');
+            writeState('1');
+            return;
+          }
+          writeState('0');
+          return;
+        }
+        if (!('written' in handBack)) {
+          appendLog('interrogate run ended with no written hand-back');
+          writeState('1');
+          return;
+        }
+        const resolution = writtenPathResolution(handBack.written, opts.repoRoot);
+        if (!resolution.inside) {
+          appendLog(`interrogate run's written path was refused: ${resolution.reason}`);
+          writeState('1');
+          return;
+        }
+        writeState('0');
+      })
+      .catch((err) => {
+        console.error('interrogate run failed:', err);
+        appendLog(err instanceof Error ? err.message : String(err));
+        writeState('1');
+      });
+  }
 
   json(202, { ok: true, slug, prompt: promptPath, log });
 };

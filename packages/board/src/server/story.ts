@@ -495,7 +495,7 @@ export async function handleStory(
   // checkout is the one that would move. `/story-tracking` writes a directory
   // of markdown and commits it on the branch already checked out; it moves HEAD
   // nowhere. This is the same choice approve, deliver and reslice make.
-  const choice = await agentRunFor(opts, 'story', STORY_COMMAND_KEY);
+  const choice = await agentRunFor(opts, 'story', STORY_COMMAND_KEY, readCfg);
   const writeState = (value: string) => {
     try {
       fs.writeFileSync(statePath, value, 'utf8');
@@ -558,7 +558,19 @@ export async function handleStory(
           return;
         }
         const handBack = end.handBack;
-        if (handBack === null || !('written' in handBack)) {
+        // The `command` runner never parses a hand-back — a `null` answer on
+        // exit 0 is the pre-port success case. Only the `sdk` runner's
+        // structured protocol makes `null` a failure.
+        if (handBack === null) {
+          if (choice.runner === 'sdk') {
+            appendLog('story run ended with no written hand-back');
+            writeState('1');
+            return;
+          }
+          writeState('0');
+          return;
+        }
+        if (!('written' in handBack)) {
           appendLog('story run ended with no written hand-back');
           writeState('1');
           return;

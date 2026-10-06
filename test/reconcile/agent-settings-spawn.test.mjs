@@ -53,11 +53,11 @@ const serverDir = path.join(repoRoot, 'packages', 'board', 'src', 'server');
 
 const source = (file) => readFileSync(path.join(serverDir, `${file}.ts`), 'utf8');
 
-/** The four sites that still spawn directly and spread `process.env` into an explicit `env`. */
-const SPAWN_SPREADING = ['implement', 'interrogate', 'auto-deliver'];
+/** The three sites that still spawn directly and spread `process.env` into an explicit `env`. */
+const SPAWN_SPREADING = ['implement', 'auto-deliver'];
 
-/** The five sites that run through `agentRunFor` and spread `process.env` into `agentRun.run`'s `env`. */
-const PORT_SPREADING = ['idea', 'story', 'commission', 'deliver', 'reslice', 'approve'];
+/** The six sites that run through `agentRunFor` and spread `process.env` into `agentRun.run`'s `env`. */
+const PORT_SPREADING = ['idea', 'story', 'commission', 'deliver', 'reslice', 'approve', 'interrogate'];
 
 /** The one site that passes no `env` and inherits the whole environment. */
 const INHERITING = ['brief-ask'];

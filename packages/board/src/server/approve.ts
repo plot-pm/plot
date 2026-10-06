@@ -409,7 +409,19 @@ export async function handleApprove(
           return;
         }
         const handBack = end.handBack;
-        if (handBack === null || !('outcome' in handBack)) {
+        // The `command` runner never parses a hand-back — a `null` answer on
+        // exit 0 is the pre-port success case. Only the `sdk` runner's
+        // structured protocol makes `null` a failure.
+        if (handBack === null) {
+          if (choice.runner === 'sdk') {
+            appendLog('approve run ended with no outcome hand-back');
+            writeState('1');
+            return;
+          }
+          writeState('0');
+          return;
+        }
+        if (!('outcome' in handBack)) {
           appendLog('approve run ended with no outcome hand-back');
           writeState('1');
           return;

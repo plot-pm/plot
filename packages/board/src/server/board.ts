@@ -335,6 +335,10 @@ export const buildPortFor = async (opts: BuildBoardOptions): Promise<BuildPort> 
  * @param role - the role asked about, such as `idea` or `brief`.
  * @param fragmentKey - the `## Plot Config` key naming that role's command,
  *   such as `Idea command`.
+ * @param readCfg - the config reader, defaulting to {@link readConfig}. A
+ *   route that accepts its own `deps.config` override for testing must pass
+ *   that same reader here — otherwise this call reads the real
+ *   `## Plot Config` regardless of what the caller's own refusal checks saw.
  * @returns which runner this role starts on, and the connector for it; a
  *   `refused` choice carries no connector — the caller answers its own
  *   `unaskable`/no-command refusal exactly as today.
@@ -343,9 +347,10 @@ export const agentRunFor = async (
   opts: BuildBoardOptions,
   role: string,
   fragmentKey: string,
+  readCfg: (opts: BuildBoardOptions, key: string, fallback: string) => string = readConfig,
 ): Promise<{ readonly runner: 'command' | 'sdk' | 'refused'; readonly reason: string; readonly agentRun?: AgentRun }> => {
-  const fragment = readConfig(opts, fragmentKey, '');
-  const agentRunner = readConfig(opts, 'Agent runner', '');
+  const fragment = readCfg(opts, fragmentKey, '');
+  const agentRunner = readCfg(opts, 'Agent runner', '');
   const choice = runnerChoice({
     agentRunner: agentRunner === 'sdk' || agentRunner === 'command' ? agentRunner : '',
     isWorker: false,
@@ -367,7 +372,7 @@ export const agentRunFor = async (
     };
   }
 
-  const settings = boardAgentModel(role, { agentModels: readConfig(opts, 'Agent models', ''), roleCommand: fragment });
+  const settings = boardAgentModel(role, { agentModels: readCfg(opts, 'Agent models', ''), roleCommand: fragment });
   const inheritedEnv = Object.fromEntries(
     Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== 'PLOT_REPO_ROOT'),
   );

@@ -458,7 +458,7 @@ export async function handleReslice(
     return;
   }
 
-  const choice = await agentRunFor(opts, 'reslice', IDEA_COMMAND_KEY);
+  const choice = await agentRunFor(opts, 'reslice', IDEA_COMMAND_KEY, readCfg);
   const writeState = (value: string) => {
     try {
       fs.writeFileSync(statePath, value, 'utf8');
@@ -520,7 +520,19 @@ export async function handleReslice(
           return;
         }
         const handBack = end.handBack;
-        if (handBack === null || !('written' in handBack)) {
+        // The `command` runner never parses a hand-back — a `null` answer on
+        // exit 0 is the pre-port success case. Only the `sdk` runner's
+        // structured protocol makes `null` a failure.
+        if (handBack === null) {
+          if (choice.runner === 'sdk') {
+            appendLog('reslice run ended with no written hand-back');
+            writeState('1');
+            return;
+          }
+          writeState('0');
+          return;
+        }
+        if (!('written' in handBack)) {
           appendLog('reslice run ended with no written hand-back');
           writeState('1');
           return;
