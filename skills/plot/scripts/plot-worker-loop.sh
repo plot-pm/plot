@@ -78,8 +78,9 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 # THE LAUNCHER. `js` `exec`s the bundle beside this script and never falls
 # back to the body below — a silent fallback is how a fleet runs the wrong
 # loop for a week. No bundle on `js` is a loud exit 2, never a start of `node`
-# on the `shell` path, which is the default and runs no Node at all.
-if [ "$(cfg "Worker loop" shell)" = "js" ]; then bundle="$script_dir/board/plot-worker-loop.mjs"
+# on the `shell` path. `js` is the default since the-worker-loop-runs-in-js
+# slice 5; an explicit `shell` still runs the body below.
+if [ "$(cfg "Worker loop" js)" = "js" ]; then bundle="$script_dir/board/plot-worker-loop.mjs"
   [ -f "$bundle" ] || { echo "plot-worker-loop: Worker loop is js and $bundle is missing — the-shell-shrinks-into-the-domain" >&2; exit 2; }; rm -f "$PLOT_TMP_REGISTRY"; exec node "$bundle"; fi
 
 # THE TRANSCRIPT READER. Until `bug/the-loop-reports-idle` this was sourced for

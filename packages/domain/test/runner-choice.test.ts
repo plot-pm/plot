@@ -47,6 +47,12 @@ describe('runnerChoice', () => {
     });
   });
 
+  it('runs the SDK for a worker under an absent Worker loop with Agent runner: sdk — absent reads js', () => {
+    expect(runnerChoice(workerReading({ agentRunner: 'sdk', workerLoop: '' }))).toMatchObject({
+      runner: 'sdk',
+    });
+  });
+
   it('runs command for a worker whose charter names another harness, even with Agent runner: sdk', () => {
     const result = runnerChoice(workerReading({ agentRunner: 'sdk', charterHarness: 'codex' }));
     expect(result.runner).toBe('command');
@@ -139,6 +145,16 @@ describe('runnerChoice', () => {
           agentRunner: '',
           workerLoop: 'js',
           charterHarness: 'claude',
+          defaultsToSdkWhenNamed: true,
+        });
+        expect(runnerChoice(reading)).toMatchObject({ runner: 'sdk' });
+      });
+
+      it('the worker role with an absent Worker loop answers sdk — absent reads js', () => {
+        const reading = workerReading({
+          agentRunner: '',
+          workerLoop: '',
+          charterHarness: '',
           defaultsToSdkWhenNamed: true,
         });
         expect(runnerChoice(reading)).toMatchObject({ runner: 'sdk' });
