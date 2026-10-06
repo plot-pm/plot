@@ -461,8 +461,11 @@ describe('the rule reproduces the shell for every branch on the estate', () => {
     console.log(
       `pass 1 disagreed on ${first.disagreements.length}; re-reading both sides`,
     );
+    // SCAN FIRST, THEN THE READINGS, as in `beforeAll`: the scan fetches, and
+    // the refs and merge subjects read after it come from that one fetch.
+    const secondPulse = FleetReadingSchema.parse(readFleetScan(estate));
     refreshReadings();
-    const second = comparePass(FleetReadingSchema.parse(readFleetScan(estate)));
+    const second = comparePass(secondPulse);
 
     // ONLY WHAT SURVIVED BOTH PASSES. Keyed by subject and field, so a branch
     // that disagreed differently in each pass — the shape a race takes — is not
