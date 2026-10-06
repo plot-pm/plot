@@ -771,6 +771,32 @@ describe('runWorkerLoop — a restart', () => {
     expect(r.runs[0].env).toMatchObject({ PLOT_BRANCH: 'feature/next', PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
     expect(r.read()).toMatchObject({ resumeId: 'h-new', correctionAttempts: 0, wavesCount: 2 });
   });
+
+  it('keeps the carried hop through a slice cleared before its prompt (#1324 M-A)', async () => {
+    let handed = false;
+    let resets = 0;
+    const r = rig({ ...ASSIGNED, resumeId: 'h-prev', correctionAttempts: 2 }, [{}], {
+      hopFrom: 'feature/prev',
+      mintHandle: () => 'H-New',
+      config: { ...rigConfig(), waitBudgetSeconds: 100 },
+      sleep: async (ms) => {
+        if (!handed && r.read().branch === '') {
+          handed = true;
+          r.write({ ...r.read(), branch: 'feature/next' });
+        }
+        vi.setSystemTime(Date.now() + ms);
+      },
+    });
+    const trees: Trees = {
+      ...r.ports.trees,
+      resetOnto: async (...args) => (resets++ === 0 ? { ok: false, why: 'failed' } : r.ports.trees.resetOnto(...args)),
+    };
+    r.deps = { ...r.deps, ports: { ...r.ports, trees } };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.calls.clearedAssignments[0]).toBe('sess-1');
+    expect(r.runs[0].env).toMatchObject({ PLOT_BRANCH: 'feature/next', PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
+    expect(r.read()).toMatchObject({ resumeId: 'h-new', correctionAttempts: 0 });
+  });
 });
 
 describe('runWorkerLoop — the idle watch', () => {

@@ -195,20 +195,20 @@ export const treesGit = (context: ShellContext): Trees => {
         inRepo,
       ),
 
+    changedUnder: (path, pathspecs) =>
+      runScript(
+        'git',
+        ['--no-optional-locks', '-C', path, 'status', '--porcelain', '--untracked-files=all', '--', ...pathspecs],
+        // Not `asLines`, which trims the status column's leading space.
+        (stdout) => stdout.split('\n').filter((line) => line.length > 3).map((line) => line.slice(3).split(' -> ').at(-1) ?? ''),
+        inRepo,
+      ),
     // `plot_worker_dirty` is SOURCED and called, never reimplemented here. The
     // three exclusion patterns it applies are stated once in
     // `plot-worker-state.sh`, where `plot-fleet-scan.sh` and the loop's own
     // watcher already read them; a second copy in TypeScript is a second thing
     // to keep in step, and the drift would show up as a watcher that reads its
     // own findings file as the agent working.
-    changedUnder: (path, pathspecs) =>
-      runScript(
-        'git',
-        ['-C', path, 'status', '--porcelain', '--untracked-files=all', '--', ...pathspecs],
-        // Not `asLines`, which trims the status column's leading space.
-        (stdout) => stdout.split('\n').filter((line) => line.length > 3).map((line) => line.slice(3).split(' -> ').at(-1) ?? ''),
-        inRepo,
-      ),
     dirtyPaths: (path) =>
       runScript(
         'bash',

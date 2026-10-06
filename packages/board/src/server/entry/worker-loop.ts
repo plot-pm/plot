@@ -1341,7 +1341,9 @@ const runPrompt = async (
 export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
   const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null };
   let held: Held = { ...FRESH };
-  let previousBranch = '';
+  // A carried hop names the branch the last prompt ran on, so it seeds
+  // `previousBranch` too: a clear before the next prompt keeps the hop.
+  let previousBranch = deps.hopFrom ?? '';
   let hopFrom = deps.hopFrom ?? '';
   let announcedFree = false;
   if (deps.restart !== undefined) await checkRestart(deps.ports, deps.restart, 'first', { waitStartedAt: clock.since, hopFrom });
