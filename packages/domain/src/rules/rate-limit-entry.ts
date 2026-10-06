@@ -16,8 +16,8 @@ import type { BudgetEntry } from '../entities/budget.js';
  * the window is modelled as one unit and `remaining` is what fraction of it is
  * left, `1 − utilization`. A `rejected` status means the window is spent
  * regardless of what `utilization` says, so `remaining` is `0` on that path
- * unconditionally — `utilization` can under-report right at the boundary and
- * the status is the connector's own word for *no room left*.
+ * unconditionally. An event that names no utilization gives `remaining: null`:
+ * unknown, never full.
  *
  * **`account` PRECEDENCE IS THE CALLER'S TO RESOLVE, NOT THIS RULE'S.** The
  * brief names `accountInfo().email`, then `organization`, then `'unknown'`;
@@ -25,11 +25,11 @@ import type { BudgetEntry } from '../entities/budget.js';
  * function of its readings, like every other rule here.
  *
  * **`resetAt` CONVERTS SECONDS TO MILLISECONDS.** `AgentRunLimitReading`
- * carries the SDK's `resetsAt` unconverted (epoch seconds, as the event sends
- * it); `BudgetEntry.resetAt` is epoch milliseconds, the unit every other
- * budget writer already uses. This is the one place that conversion happens —
- * see the port's own doc for why guessing the scale here was this wave's open
- * question rather than this rule's.
+ * carries the SDK's `resetsAt` unconverted, and a live event recorded on
+ * 2026-10-06 sent `1791302400` for a window resetting at 16:00 UTC that day:
+ * epoch seconds. `BudgetEntry.resetAt` is epoch milliseconds, the unit every
+ * other budget writer uses. The same event fixes `utilization` at 0 to 1
+ * (`0.14`).
  *
  * @param info - one `rate_limit_event`, unconverted, from `AgentRunResult.limitReadings`.
  * @param account - the account this reading belongs to, already resolved.
@@ -49,7 +49,7 @@ export const rateLimitEntry = (
   at,
   spent: 0,
   limit: 1,
-  remaining: info.status === 'rejected' ? 0 : 1 - info.utilization,
+  remaining: info.status === 'rejected' ? 0 : info.utilization === null ? null : 1 - info.utilization,
   resetAt: info.resetsAt === null ? null : info.resetsAt * 1000,
   basis: 'actual',
 });

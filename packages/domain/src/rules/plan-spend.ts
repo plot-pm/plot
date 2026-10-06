@@ -12,7 +12,7 @@ export interface PlanSpendSlice {
   branch: string;
   /** Whether this branch was measured on this machine. */
   state: SpendReadState;
-  /** What it spent on its newest run, or null where it was not measured. */
+  /** What it spent over its sessions and its newest seal line, or null where it was not measured. */
   tokens: TokenCountsRecord | null;
 }
 
@@ -42,6 +42,12 @@ export interface PlanSpend {
   absent: number;
   /** How many could not be read at all. */
   unreadable: number;
+  /**
+   * How many of the `measured` slices carry SDK run lines. A run line counts
+   * subagents and compaction and a seal line does not, so the sum changes
+   * definition where this is above 0.
+   */
+  fromRuns: number;
   /** Every branch the plan named, in the order it named them. */
   slices: readonly PlanSpendSlice[];
 }
@@ -88,6 +94,7 @@ export const planSpend = (
   let measured = 0;
   let absent = 0;
   let unreadable = 0;
+  let fromRuns = 0;
 
   for (const branch of branches) {
     const read = readSpend(lines, branch);
@@ -102,6 +109,7 @@ export const planSpend = (
       continue;
     }
     measured += 1;
+    if (read.runCount > 0) fromRuns += 1;
     total.inputTokens += tokens.inputTokens;
     total.outputTokens += tokens.outputTokens;
     total.cacheCreationTokens += tokens.cacheCreationTokens;
@@ -110,7 +118,7 @@ export const planSpend = (
 
   // NO TOTAL RATHER THAN A ZERO. `reduce(…, 0)` over nothing is correct
   // arithmetic and a lie: it reports a plan nobody measured as a free one.
-  return { tokens: measured === 0 ? null : total, measured, absent, unreadable, slices };
+  return { tokens: measured === 0 ? null : total, measured, absent, unreadable, fromRuns, slices };
 };
 
 /**

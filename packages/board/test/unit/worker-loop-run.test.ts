@@ -155,8 +155,8 @@ const rig = (
     recordSpend: async (worktree: string, branch: string) => {
       spends.push({ worktree, branch });
     },
-    recordRun: async () => undefined,
-    recordLimits: async () => undefined,
+    recordRun: async () => null,
+    recordLimits: async () => 0,
     sliceCostUsd: async () => null,
     ...portOver,
   };

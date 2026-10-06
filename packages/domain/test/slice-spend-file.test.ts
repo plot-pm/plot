@@ -13,9 +13,13 @@ import { join, resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { budgetFile } from '../src/adapters/budget/budget-file.js';
 import { sliceSpendFile, transcriptDirFor } from '../src/adapters/slice-spend/slice-spend-file.js';
+import { decodeEntry } from '../src/entities/budget.js';
 import type { SliceSpendRun, SliceSpendSeal } from '../src/entities/slice-spend.js';
-import { recordSliceSpend, readSliceSpend } from '../src/workflows/slice-spend.js';
+import type { AgentRunResult } from '../src/ports/agent-run.js';
+import { recordRunLimits } from '../src/workflows/run-limits.js';
+import { recordSliceRun, recordSliceSpend, readSliceSpend } from '../src/workflows/slice-spend.js';
 
 /** Runs git quietly in a directory. */
 const git = (cwd: string, ...args: string[]): string =>
@@ -374,5 +378,90 @@ describe('the read-back path', () => {
     );
     expect(read.state).toBe('measured');
     expect(read.history).toHaveLength(1);
+  });
+});
+
+describe('an SDK run’s records, through the file adapters', () => {
+  /** One SDK result whose session has spent `costUsd` so far. */
+  const sdkResult = (sessionId: string, costUsd: number, inputTokens: number): AgentRunResult => ({
+    sessionId,
+    end: { answer: 'ran', handBack: null },
+    usageByModel: {
+      'claude-opus-5': { inputTokens, outputTokens: 1, cacheCreationTokens: 2, cacheReadTokens: 3 },
+    },
+    costUsd,
+    costUsdByModel: { 'claude-opus-5': costUsd },
+    turns: 4,
+    limitReadings: [
+      { status: 'allowed', resetsAt: 1791302400, rateLimitType: 'five_hour', utilization: 0.14 },
+      { status: 'rejected', resetsAt: 1791475200, rateLimitType: 'seven_day', utilization: 0.66 },
+    ],
+    account: 'jan@example.com',
+  });
+
+  it('appends one run line per run, read back from the main checkout', async () => {
+    const sdkDesk = join(root, 'desks', 'feature-sdk-run');
+    git(main, 'worktree', 'add', '--quiet', '-b', 'feature/sdk-run', sdkDesk);
+
+    const written = await recordSliceRun(
+      sliceSpendFile({ cwd: sdkDesk, transcriptHome: home }),
+      { branch: 'feature/sdk-run', role: 'worker', at: '2026-10-06T10:00:00.000Z' },
+      sdkResult('session-run', 2.5, 100),
+    );
+
+    expect(written.ok).toBe(true);
+    const read = await readSliceSpend(sliceSpendFile({ cwd: main, transcriptHome: home }), 'feature/sdk-run');
+    expect(read.history).toHaveLength(1);
+    expect(read.costUsd).toBe(2.5);
+    expect(read.runCount).toBe(1);
+  });
+
+  it('reads one checks resume and two corrections of one session as the session’s cost, once', async () => {
+    const resumed = join(root, 'desks', 'feature-resumed');
+    git(main, 'worktree', 'add', '--quiet', '-b', 'feature/resumed', resumed);
+    const record = sliceSpendFile({ cwd: resumed, transcriptHome: home });
+    const at = '2026-10-06T11:00:00.000Z';
+    // The first run, the `checks` resume and two corrections: four runs of ONE
+    // session, each line carrying the session's cumulative figure.
+    for (const [cost, tokens] of [[3, 100], [4, 150], [6, 210], [7, 260]] as const) {
+      await recordSliceRun(record, { branch: 'feature/resumed', role: 'worker', at }, sdkResult('session-resumed', cost, tokens));
+    }
+
+    const read = await readSliceSpend(sliceSpendFile({ cwd: main, transcriptHome: home }), 'feature/resumed');
+    expect(read.runCount).toBe(1);
+    expect(read.costUsd).toBe(7);
+    expect(read.tokens?.inputTokens).toBe(260);
+    expect(read.turns).toBe(16);
+  });
+
+  it('appends one budget entry per rate_limit_event the run observed', async () => {
+    const budgetHome = join(root, 'budget-home');
+    const record = budgetFile({ home: budgetHome });
+
+    const outcome = await recordRunLimits(record, sdkResult('session-limits', 1, 1), 1_791_300_000_000);
+
+    expect(outcome).toEqual({ written: 2, failed: 0 });
+    const lines = await record.lines();
+    const entries = (lines.ok ? lines.value : []).map(decodeEntry);
+    expect(entries).toEqual([
+      {
+        key: { connector: 'claude', account: 'jan@example.com', bucket: 'five_hour' },
+        at: 1_791_300_000_000,
+        spent: 0,
+        limit: 1,
+        remaining: 0.86,
+        resetAt: 1_791_302_400_000,
+        basis: 'actual',
+      },
+      {
+        key: { connector: 'claude', account: 'jan@example.com', bucket: 'seven_day' },
+        at: 1_791_300_000_000,
+        spent: 0,
+        limit: 1,
+        remaining: 0,
+        resetAt: 1_791_475_200_000,
+        basis: 'actual',
+      },
+    ]);
   });
 });

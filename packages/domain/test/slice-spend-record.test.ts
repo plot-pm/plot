@@ -73,6 +73,7 @@ const runResult = (over: Partial<AgentRunResult> = {}): AgentRunResult => ({
     'claude-opus-5': { inputTokens: 10, outputTokens: 20, cacheCreationTokens: 30, cacheReadTokens: 40 },
   },
   costUsd: 10,
+  costUsdByModel: { 'claude-opus-5': 10 },
   turns: 3,
   limitReadings: [],
   account: null,
@@ -128,7 +129,7 @@ describe('recordSliceRun', () => {
     expect(port.appended).toEqual([written.ok ? written.record : null]);
   });
 
-  it('fills every model’s costUsd from the run’s one total, never a per-model figure', async () => {
+  it('writes each model’s own costUsd, and the run’s total on the line', async () => {
     const port = fakeRecord();
 
     const written = await recordSliceRun(
@@ -140,12 +141,27 @@ describe('recordSliceRun', () => {
           'claude-sonnet-5': { inputTokens: 5, outputTokens: 6, cacheCreationTokens: 7, cacheReadTokens: 8 },
         },
         costUsd: 42,
+        costUsdByModel: { 'claude-opus-5': 40, 'claude-sonnet-5': 2 },
       }),
     );
 
-    const models = written.ok ? written.record.models : {};
-    expect(models['claude-opus-5']?.costUsd).toBe(42);
-    expect(models['claude-sonnet-5']?.costUsd).toBe(42);
+    const record = written.ok ? written.record : null;
+    expect(record?.models['claude-opus-5']?.costUsd).toBe(40);
+    expect(record?.models['claude-sonnet-5']?.costUsd).toBe(2);
+    expect(record?.costUsd).toBe(42);
+  });
+
+  it('refuses a run whose model carries no cost, rather than writing a zero', async () => {
+    const port = fakeRecord();
+
+    const written = await recordSliceRun(
+      port,
+      { branch: 'feature/a', role: 'worker', at: '2026-09-15T18:00:00.000Z' },
+      runResult({ costUsdByModel: {} }),
+    );
+
+    expect(written).toEqual({ ok: false, refusal: 'no-cost' });
+    expect(port.appended).toEqual([]);
   });
 
   it('refuses a run that names no branch', async () => {

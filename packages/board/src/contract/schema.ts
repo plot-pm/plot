@@ -469,6 +469,12 @@ export const CardSchema = z.object({
       absent: z.number(),
       /** How many could not be read at all. */
       unreadable: z.number(),
+      /**
+       * How many measured slices carry SDK run lines, which count subagents
+       * and compaction where a seal line does not. Optional: a server older
+       * than the run line sends none.
+       */
+      fromRuns: z.number().optional(),
       /** How many slices the plan names — the denominator a reader needs. */
       slices: z.number(),
     })

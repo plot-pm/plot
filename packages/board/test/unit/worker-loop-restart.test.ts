@@ -539,8 +539,8 @@ const loopPorts = (trees: Trees, boundedRun: BoundedRun, reexec: Reexec): Worker
   host: hostFixture({ prs: [] as Pr[] }),
   transcriptQuietSeconds: async () => 5000,
   recordSpend: async () => undefined,
-  recordRun: async () => undefined,
-  recordLimits: async () => undefined,
+  recordRun: async () => null,
+  recordLimits: async () => 0,
   sliceCostUsd: async () => null,
   reexec,
 });

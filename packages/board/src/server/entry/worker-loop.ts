@@ -41,7 +41,6 @@ import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
 import { parsePromptFile, promptCandidates, renderPrompt } from '@plot-pm/domain/rules/worker-prompt-text';
 import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
-import { rateLimitEntry } from '@plot-pm/domain/rules/rate-limit-entry';
 import {
   agentLoop,
   type AgentLoopReadings,
@@ -49,7 +48,8 @@ import {
   type TakeUpRefusal,
 } from '@plot-pm/domain/workflows/agent-loop';
 import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
-import { readSliceSpend, recordSliceRun, recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
+import { readSliceSpend, recordSliceRun, recordSliceSpend, type RunWriteRefusal } from '@plot-pm/domain/workflows/slice-spend';
+import { recordRunLimits } from '@plot-pm/domain/workflows/run-limits';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
 import type { AgentHandBack, AgentRun, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
@@ -129,15 +129,24 @@ export interface WorkerLoopPorts extends LoopWritePorts {
   readonly recordSpend: (worktree: string, branch: string, at: string) => Promise<void>;
   /**
    * Appends one SDK run's line to the checkout's slice-spend record, right
-   * after the run that produced it ends. Best effort, the same as
-   * {@link recordSpend}: a write failure is logged and does not fail the run.
+   * after the run that produced it ends.
+   *
+   * @returns `null` where the line was written, else why it was not.
    */
-  readonly recordRun: (worktree: string, branch: string, role: string, at: string, result: AgentRunResult) => Promise<void>;
+  readonly recordRun: (
+    worktree: string,
+    branch: string,
+    role: string,
+    at: string,
+    result: AgentRunResult,
+  ) => Promise<RunWriteRefusal | null>;
   /**
    * Appends one budget entry per `rate_limit_event` the run observed, to this
-   * computer's budget record. Best effort, the same as {@link recordSpend}.
+   * computer's budget record.
+   *
+   * @returns how many entries could not be appended.
    */
-  readonly recordLimits: (result: AgentRunResult, at: number) => Promise<void>;
+  readonly recordLimits: (result: AgentRunResult, at: number) => Promise<number>;
   /** What the slice-spend record reads for this branch, for `Slice max spend`. */
   readonly sliceCostUsd: (worktree: string, branch: string) => Promise<number | null>;
   /** Replaces this process's own image — {@link runWorkerLoop}'s one path to a self-restart. */
@@ -179,15 +188,10 @@ export const workerLoopPorts = async (
       await recordSliceSpend(sliceSpendFile({ cwd: worktree }), { worktree, branch, at });
     },
     recordRun: async (worktree: string, branch: string, role: string, at: string, result: AgentRunResult) => {
-      await recordSliceRun(sliceSpendFile({ cwd: worktree }), { branch, role, at }, result);
+      const written = await recordSliceRun(sliceSpendFile({ cwd: worktree }), { branch, role, at }, result);
+      return written.ok ? null : written.refusal;
     },
-    recordLimits: async (result: AgentRunResult, at: number) => {
-      const account = result.account ?? 'unknown';
-      const record = budgetFile();
-      for (const reading of result.limitReadings) {
-        await record.append(rateLimitEntry(reading, account, at));
-      }
-    },
+    recordLimits: async (result: AgentRunResult, at: number) => (await recordRunLimits(budgetFile(), result, at)).failed,
     sliceCostUsd: async (worktree: string, branch: string) => {
       const read = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
       return read.costUsd;
@@ -1062,6 +1066,8 @@ export interface SdkRunDeps {
   readonly effort: string;
   /** `Agent max turns`. */
   readonly maxTurns: number;
+  /** `Agent max spend`, in dollars; `0` where the key is absent, which the port reads as no limit. */
+  readonly maxSpendUsd: number;
   /** `Agent context window`, capped by the charter. */
   readonly contextWindow: number;
   /** The charter's capabilities. */
@@ -1294,7 +1300,7 @@ const runPrompt = async (
       model: sdk.model,
       effort: sdk.effort,
       maxTurns: sdk.maxTurns,
-      maxSpendUsd: 0,
+      maxSpendUsd: sdk.maxSpendUsd,
       boundSeconds: deps.config.boundSeconds,
       contextWindow: sdk.contextWindow,
       capabilities: sdk.capabilities,
@@ -1307,8 +1313,7 @@ const runPrompt = async (
     ended = true;
     if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
     const result = raced.run.value;
-    await deps.ports.recordRun(worktree, manifest.branch, 'worker', new Date().toISOString(), result);
-    await deps.ports.recordLimits(result, Date.now());
+    await recordRunRecords(deps, worktree, manifest.branch, result);
     const end = result.end;
     if (end.answer === 'unstarted') deps.log(`plot-worker-loop: the SDK run did not start on ${manifest.branch} — ${end.detail}`);
     const outcome = sdkOutcome(end);
@@ -1752,11 +1757,40 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
       model: settings.model,
       effort: settings.effort,
       maxTurns: positive(cfg('Agent max turns'), DEFAULT_AGENT_MAX_TURNS),
+      maxSpendUsd: dollarsOrUnset(cfg('Agent max spend')) ?? 0,
       contextWindow: settings.contextWindow,
       capabilities: charter?.capabilities ?? [],
       runChecks: localChecksRunner(input.ports.boundedRun, input.scriptDir, input.boundSeconds, input.checksOutFile),
     },
   };
+};
+
+/**
+ * Writes one SDK run's run line and its budget entries, and logs what could
+ * not be written. A record that cannot be written costs a reading, never the
+ * run: neither a refusal nor a throw reaches the caller. A `no-cost` refusal is
+ * the `command` runner's answer and is not logged.
+ *
+ * @param deps - the loop's ports and log.
+ * @param worktree - the desk the run worked in.
+ * @param branch - the branch the run worked on.
+ * @param result - what the run produced.
+ */
+const recordRunRecords = async (deps: LoopDeps, worktree: string, branch: string, result: AgentRunResult): Promise<void> => {
+  try {
+    const refusal = await deps.ports.recordRun(worktree, branch, 'worker', new Date(deps.now()).toISOString(), result);
+    if (refusal !== null && refusal !== 'no-cost') {
+      deps.log(`plot-worker-loop: no run line for ${branch} (${refusal})`);
+    }
+  } catch (error) {
+    deps.log(`plot-worker-loop: no run line for ${branch} (${error instanceof Error ? error.message : String(error)})`);
+  }
+  try {
+    const failed = await deps.ports.recordLimits(result, deps.now());
+    if (failed > 0) deps.log(`plot-worker-loop: ${failed} usage-limit reading(s) not recorded`);
+  } catch (error) {
+    deps.log(`plot-worker-loop: usage-limit readings not recorded (${error instanceof Error ? error.message : String(error)})`);
+  }
 };
 
 /** A file's text, or `null` where it cannot be read. */

@@ -57,6 +57,7 @@ export const agentRunFixture = (
           end: { answer: 'ran', handBack: null },
           usageByModel: {},
           costUsd: null,
+          costUsdByModel: {},
           turns: 0,
           limitReadings: [],
           account: null,

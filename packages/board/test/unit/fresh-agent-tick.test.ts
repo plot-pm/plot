@@ -491,6 +491,29 @@ describe('the tick starts one fresh session through continue', () => {
     expect(starts).toEqual([]);
   });
 
+  it('starts one fresh session for a turn-limit desk, and none on the next tick', async () => {
+    const { starts, sealed, tickOver } = rig(started);
+    const turnLimit = (_w: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('turn-limit', 'the run reached Agent max turns') : null;
+    const first = await tickOver(turnLimit);
+    const second = await tickOver(turnLimit);
+    expect(first.map((a) => a.outcome)).toEqual(['started']);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]?.answer).toContain('Agent max turns');
+    expect(second.map((a) => a.outcome)).toEqual(['escalated']);
+    expect(sealed).toHaveLength(1);
+  });
+
+  it('starts no fresh session for a spend-limit or run-limit desk, whatever the record holds', async () => {
+    for (const reason of ['spend-limit', 'run-limit']) {
+      const { starts, sealed, tickOver } = rig(started);
+      const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile(reason) : null));
+      expect(applied).toEqual([]);
+      expect(starts).toEqual([]);
+      expect(sealed).toEqual([]);
+    }
+  });
+
   it('reports a thrown non-Error by its text', async () => {
     const { tickOver } = rig(async () => {
       throw 'plain string';

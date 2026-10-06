@@ -111,6 +111,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       // exactly this adapter's situation — it never asked.
       usageByModel: {},
       costUsd: null,
+      costUsdByModel: {},
       turns: 0,
       limitReadings: [],
       // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.

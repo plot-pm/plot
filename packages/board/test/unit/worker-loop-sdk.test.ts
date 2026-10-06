@@ -50,8 +50,10 @@ const ran = (next: 'checks' | 'pushed' | 'blocked' | 'done' | null, summary = 's
   end: { answer: 'ran', handBack: next === null ? null : { next, summary } },
   usageByModel: {},
   costUsd: null,
+  costUsdByModel: {},
   turns: 1,
   limitReadings: [],
+  account: null,
 });
 
 interface Rig {
@@ -115,8 +117,8 @@ const rig = (
     host: hostFixture({ prs: [{ number: 7, head: BRANCH, state: 'OPEN' } as Pr] }),
     transcriptQuietSeconds: async () => 5000,
     recordSpend: async () => undefined,
-    recordRun: async () => undefined,
-    recordLimits: async () => undefined,
+    recordRun: async () => null,
+    recordLimits: async () => 0,
     sliceCostUsd: async () => null,
   };
   const sdk: SdkRunDeps = {
@@ -130,6 +132,7 @@ const rig = (
     model: 'sonnet',
     effort: '',
     maxTurns: 150,
+    maxSpendUsd: 0,
     contextWindow: 200_000,
     capabilities: [],
     runChecks: async (worktree) => {
@@ -180,6 +183,65 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   for (const dir of made.splice(0)) rmTree(dir);
+});
+
+describe('runWorkerLoop on the SDK runner — the run records', () => {
+  it('hands each run’s result to the run line and the budget record, and passes Agent max spend', async () => {
+    const r = rig([ran('checks'), ran('pushed')], async () => ({ passed: true }));
+    const recorded: string[] = [];
+    Object.assign(r.deps.ports, {
+      recordRun: async (_w: string, branch: string, role: string, _at: string, result: AgentRunResult) => {
+        recorded.push(`run ${branch} ${role} ${result.sessionId}`);
+        return null;
+      },
+      recordLimits: async (result: AgentRunResult) => {
+        recorded.push(`limits ${result.sessionId}`);
+        return 0;
+      },
+    });
+    Object.assign(r.deps.sdk!, { maxSpendUsd: 7.5 });
+
+    await runWorkerLoop(r.deps);
+
+    expect(recorded).toEqual([`run ${BRANCH} worker h-1`, 'limits h-1', `run ${BRANCH} worker h-1`, 'limits h-1']);
+    expect(r.requests.map((request) => request.maxSpendUsd)).toEqual([7.5, 7.5]);
+  });
+
+  it('logs a record that throws or refuses, and the run’s hand-back still holds', async () => {
+    const r = rig([ran('pushed')], async () => ({ passed: true }));
+    const logs: string[] = [];
+    Object.assign(r.deps, { log: (line: string) => logs.push(line) });
+    Object.assign(r.deps.ports, {
+      recordRun: async () => 'write-failed',
+      recordLimits: async () => {
+        throw new Error('disk full');
+      },
+    });
+
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(logs).toContain(`plot-worker-loop: no run line for ${BRANCH} (write-failed)`);
+    expect(logs).toContain('plot-worker-loop: usage-limit readings not recorded (disk full)');
+  });
+
+  it('starts no run on a slice whose recorded cost reached Slice max spend, and ends spend-limit', async () => {
+    const r = rig([ran('pushed')], async () => ({ passed: true }));
+    Object.assign(r.deps.config, { sliceMaxSpendUsd: 5 });
+    Object.assign(r.deps.ports, { sliceCostUsd: async () => 5 });
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.requests).toHaveLength(0);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('spend-limit');
+  });
+
+  it('starts the run where Slice max spend is unset, whatever the record holds', async () => {
+    const r = rig([ran('pushed')], async () => ({ passed: true }));
+    Object.assign(r.deps.ports, { sliceCostUsd: async () => 1_000 });
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.requests).toHaveLength(1);
+  });
 });
 
 describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
@@ -261,7 +323,7 @@ describe('runWorkerLoop on the SDK runner — how a run ends', () => {
   it('ends 124 on the bound', async () => {
     const bound = withRun(rig([], async () => ({ passed: true })), async (request) => ({
       ok: true,
-      value: { sessionId: request.sessionId, end: { answer: 'bound' }, usageByModel: {}, costUsd: null, turns: 0, limitReadings: [] },
+      value: { sessionId: request.sessionId, end: { answer: 'bound' }, usageByModel: {}, costUsd: null, costUsdByModel: {}, turns: 0, limitReadings: [], account: null },
     }));
     expect(await runWorkerLoop(bound.deps)).toBe(124);
   });

@@ -31,6 +31,23 @@ describe('rateLimitEntry', () => {
     expect(actual.remaining).toBe(0.75);
   });
 
+  it('reads utilization named nowhere as unknown remaining, never a full window', () => {
+    const actual = rateLimitEntry(reading({ utilization: null }), 'jan@example.com', 0);
+
+    expect(actual.remaining).toBeNull();
+  });
+
+  it('maps the live event recorded 2026-10-06: 14% used, resets 2026-10-06T16:00:00Z', () => {
+    const actual = rateLimitEntry(
+      { status: 'allowed', resetsAt: 1791302400, rateLimitType: 'five_hour', utilization: 0.14 },
+      'jan@example.com',
+      0,
+    );
+
+    expect(actual.remaining).toBeCloseTo(0.86);
+    expect(new Date(actual.resetAt!).toISOString()).toBe('2026-10-06T16:00:00.000Z');
+  });
+
   it('converts resetsAt from epoch seconds to epoch milliseconds', () => {
     const actual = rateLimitEntry(reading({ resetsAt: 1_700_000_000 }), 'jan@example.com', 0);
 

@@ -877,7 +877,7 @@ export const applyFreshAgentDecisions = async (
             ? {
                 branch: decision.branch,
                 outcome: 'escalated',
-                detail: 'a second spent budget: declared blocked for a person',
+                detail: 'the slice already had its fresh session: declared blocked for a person',
               }
             : {
                 branch: decision.branch,

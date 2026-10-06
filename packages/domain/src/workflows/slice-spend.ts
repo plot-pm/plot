@@ -1,4 +1,9 @@
-import { decodeSliceSpend, type SliceSpendRun, type SliceSpendSeal } from '../entities/slice-spend.js';
+import {
+  decodeSliceSpend,
+  type RunModelSpend,
+  type SliceSpendRun,
+  type SliceSpendSeal,
+} from '../entities/slice-spend.js';
 import type { SliceSpendRecord } from '../ports/slice-spend.js';
 import type { AgentRunResult } from '../ports/agent-run.js';
 import { planSpend, type PlanSpend } from '../rules/plan-spend.js';
@@ -129,9 +134,10 @@ export const recordSliceSpend = async (
  *
  * - `no-branch` — the caller named no branch; a line is ABOUT a branch, the
  *   same refusal {@link recordSliceSpend} makes.
- * - `no-cost` — the connector reported no cost for this run. Writing `0` in
- *   its place would read as "this run was free" to every later summer, the
- *   same failure a recorded zero causes everywhere else in this record.
+ * - `no-cost` — the connector reported no cost for this run, or no cost for
+ *   one of its models. Writing `0` in its place would read as "this run was
+ *   free" to every later summer, the same failure a recorded zero causes
+ *   everywhere else in this record.
  * - `write-failed` — the record could not be appended.
  */
 export type RunWriteRefusal = 'no-branch' | 'no-cost' | 'write-failed';
@@ -154,12 +160,8 @@ export type RunWriteOutcome = { ok: true; record: SliceSpendRun } | { ok: false;
  * the one field that is this run's own count, not cumulative, because the SDK
  * reports no cumulative turn figure.
  *
- * **PER-MODEL `costUsd` REPEATS THE RUN'S TOTAL, NOT A PER-MODEL FIGURE.** The
- * SDK's `modelUsage` carries no per-model cost, only per-model tokens — and
- * `readSpend`'s reducer never reads a run line's `models[model].costUsd`, only
- * its token counts and the line's own top-level `costUsd`. The schema still
- * requires the field per model, so it is filled from the one total the
- * connector did report, and no reader is misled by it because none looks.
+ * Each model's `costUsd` is the connector's per-model figure
+ * (`AgentRunResult.costUsdByModel`), and the line's `costUsd` is its total.
  *
  * @param record - the port that keeps the record.
  * @param input - the branch and role the run worked under, and when it ended.
@@ -173,6 +175,12 @@ export const recordSliceRun = async (
 ): Promise<RunWriteOutcome> => {
   if (input.branch === '') return { ok: false, refusal: 'no-branch' };
   if (result.costUsd === null) return { ok: false, refusal: 'no-cost' };
+  const models: Record<string, RunModelSpend> = {};
+  for (const [model, usage] of Object.entries(result.usageByModel)) {
+    const costUsd = result.costUsdByModel[model];
+    if (costUsd === undefined) return { ok: false, refusal: 'no-cost' };
+    models[model] = { ...usage, costUsd };
+  }
 
   const written: SliceSpendRun = {
     kind: 'run',
@@ -180,9 +188,7 @@ export const recordSliceRun = async (
     at: input.at,
     sessionId: result.sessionId,
     role: input.role,
-    models: Object.fromEntries(
-      Object.entries(result.usageByModel).map(([model, usage]) => [model, { ...usage, costUsd: result.costUsd! }]),
-    ),
+    models,
     costUsd: result.costUsd,
     turns: result.turns,
   };
