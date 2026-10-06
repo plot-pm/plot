@@ -98,6 +98,8 @@ export interface RefsFixture {
   ahead?: Readonly<Record<string, number>>;
   /** Path to the object name a hash of that file would produce. */
   oids?: Readonly<Record<string, string>>;
+  /** The newest commit that changed each path, keyed by path; an absent path reads `''`. */
+  lastCommits?: Readonly<Record<string, string>>;
   /** Branch name to its tip's committer date, as epoch seconds. */
   committedAt?: Readonly<Record<string, number>>;
   /** Remote name to its configured URL. */
@@ -312,6 +314,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       const count = ahead[branch];
       return count === undefined ? failed<number>() : answered(count);
     },
+
+    lastCommitTouching: async (path) => answered(fixture.lastCommits?.[path] ?? ''),
 
     hashFilesSync: (paths) => {
       const found = new Map<string, string>();

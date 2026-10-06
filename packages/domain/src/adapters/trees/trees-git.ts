@@ -201,6 +201,14 @@ export const treesGit = (context: ShellContext): Trees => {
     // watcher already read them; a second copy in TypeScript is a second thing
     // to keep in step, and the drift would show up as a watcher that reads its
     // own findings file as the agent working.
+    changedUnder: (path, pathspecs) =>
+      runScript(
+        'git',
+        ['-C', path, 'status', '--porcelain', '--untracked-files=all', '--', ...pathspecs],
+        // Not `asLines`, which trims the status column's leading space.
+        (stdout) => stdout.split('\n').filter((line) => line.length > 3).map((line) => line.slice(3).split(' -> ').at(-1) ?? ''),
+        inRepo,
+      ),
     dirtyPaths: (path) =>
       runScript(
         'bash',

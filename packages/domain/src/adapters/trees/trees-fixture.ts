@@ -43,6 +43,12 @@ export interface TreesFixture {
    */
   dirty?: Readonly<Record<string, readonly string[]>>;
   /**
+   * The unfiltered changed paths each checkout holds, keyed by path; read by
+   * `changedUnder`, which answers those under a given pathspec. A path absent
+   * from the table holds none.
+   */
+  changed?: Readonly<Record<string, readonly string[]>>;
+  /**
    * The branch each checkout is on, keyed by path.
    *
    * A path absent from the table cannot be read at all, which is a FAILURE
@@ -149,6 +155,8 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       answered((markers[path] ?? []).filter((name) => name.startsWith(prefix))),
 
     dirtyPaths: async (path) => answered(dirty[path] ?? []),
+    changedUnder: async (path, pathspecs) =>
+      answered((fixture.changed?.[path] ?? []).filter((file) => pathspecs.some((spec) => file.startsWith(spec)))),
 
     quietSeconds: async (path) => answered<number | null>(fixture.quiet?.[path] ?? null),
 

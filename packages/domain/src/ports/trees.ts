@@ -99,6 +99,20 @@ export interface Trees {
   dirtyPaths(path: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Lists the changed and untracked paths a checkout holds under the given
+   * pathspecs, with nothing filtered out.
+   *
+   * {@link dirtyPaths} drops generated bundles and leftovers; this operation
+   * reads `git status --porcelain --untracked-files=all` as it stands, so a
+   * modified generated bundle is listed.
+   *
+   * @param path - the checkout's absolute path.
+   * @param pathspecs - the paths to read, relative to the checkout.
+   * @returns the paths, relative to the checkout, without their status codes.
+   */
+  changedUnder(path: string, pathspecs: readonly string[]): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Seconds since the newest thing in a desk's tree changed.
    *
    * The newest of HEAD's committer time, each dirty path's mtime, and the
