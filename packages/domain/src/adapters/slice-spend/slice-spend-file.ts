@@ -135,9 +135,10 @@ export const sliceSpendFile = (options: SliceSpendFileOptions = {}): SliceSpendR
 
     sessions: async (
       worktree: string,
-    ): Promise<PortResult<readonly (readonly TranscriptLine[])[]>> => {
+    ): Promise<PortResult<readonly { sessionId: string; lines: readonly TranscriptLine[] }[]>> => {
+      type Session = { sessionId: string; lines: readonly TranscriptLine[] };
       const home = transcriptHome();
-      if (home === null) return failed<readonly (readonly TranscriptLine[])[]>();
+      if (home === null) return failed<readonly Session[]>();
       const dir = transcriptDirFor(worktree, home);
       let entries: string[];
       try {
@@ -148,9 +149,9 @@ export const sliceSpendFile = (options: SliceSpendFileOptions = {}): SliceSpendR
         // Every other error is a failure, so an unreadable directory is never
         // read as an empty one.
         if (isMissing(error)) return answered([]);
-        return failed<readonly (readonly TranscriptLine[])[]>();
+        return failed<readonly Session[]>();
       }
-      const sessions: TranscriptLine[][] = [];
+      const sessions: Session[] = [];
       // SORTED so the read is deterministic. Order across sessions does not
       // change a sum, but it does decide `models` ordering, and a record whose
       // field order shifts between runs is one nobody can diff.
@@ -181,7 +182,9 @@ export const sliceSpendFile = (options: SliceSpendFileOptions = {}): SliceSpendR
             continue;
           }
         }
-        if (lines.length > 0) sessions.push(lines);
+        // The filename stem IS the session id the SDK's run lines name —
+        // Claude Code writes one `<sessionId>.jsonl` per session.
+        if (lines.length > 0) sessions.push({ sessionId: entry.slice(0, -'.jsonl'.length), lines });
       }
       return answered(sessions);
     },

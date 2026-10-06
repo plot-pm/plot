@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { encodeSliceSpend, type SliceSpend } from '../src/entities/slice-spend.js';
+import { encodeSliceSpend, type SliceSpendSeal } from '../src/entities/slice-spend.js';
 import { planSpend, planSpendSummary } from '../src/rules/plan-spend.js';
 
 /**
@@ -9,7 +9,7 @@ import { planSpend, planSpendSummary } from '../src/rules/plan-spend.js';
  * @param branch - the branch the record is about.
  * @param over - fields to vary; `tokens` is replaced wholesale.
  */
-const line = (branch: string, over: Partial<SliceSpend> = {}): string =>
+const line = (branch: string, over: Partial<SliceSpendSeal> = {}): string =>
   encodeSliceSpend({
     branch,
     at: '2026-09-15T10:00:00.000Z',

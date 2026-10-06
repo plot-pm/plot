@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { sliceSpendFile, transcriptDirFor } from '../src/adapters/slice-spend/slice-spend-file.js';
+import type { SliceSpendRun, SliceSpendSeal } from '../src/entities/slice-spend.js';
 import { recordSliceSpend, readSliceSpend } from '../src/workflows/slice-spend.js';
 
 /** Runs git quietly in a directory. */
@@ -115,7 +116,7 @@ describe('the record path', () => {
     const read = await readSliceSpend(sliceSpendFile({ cwd: main, transcriptHome: home }), 'feature/a');
 
     expect(read.state).toBe('measured');
-    expect(read.latest?.tokens.inputTokens).toBe(100);
+    expect(read.tokens?.inputTokens).toBe(100);
   });
 
   it('survives the desk being removed', async () => {
@@ -138,7 +139,7 @@ describe('the record path', () => {
     );
 
     expect(read.state).toBe('measured');
-    expect(read.latest?.tokens.inputTokens).toBe(55);
+    expect(read.tokens?.inputTokens).toBe(55);
   });
 
   it('writes exactly four counters to the FILE and no summed fifth', async () => {
@@ -188,8 +189,9 @@ describe('reading a desk’s sessions', () => {
       at: '2026-09-15T12:00:00.000Z',
     });
 
-    expect(written.ok && written.record.tokens.inputTokens).toBe(111);
-    expect(written.ok && written.record.turns).toBe(3);
+    const seal = written.ok ? (written.record as SliceSpendSeal) : null;
+    expect(seal?.tokens.inputTokens).toBe(111);
+    expect(seal?.turns).toBe(3);
   });
 
   it('records NOTHING for a desk whose transcripts do not exist', async () => {
@@ -223,6 +225,97 @@ describe('reading a desk’s sessions', () => {
     expect(written).toEqual({ ok: false, refusal: 'no-branch' });
   });
 
+  it('writes NO seal line for an SDK-only slice — every session already has a run line', async () => {
+    // Build item 3: an SDK run writes its own line per run. Summing its
+    // transcript again into a seal would double-count the session.
+    const sdkOnly = join(root, 'desks', 'feature-sdk-only');
+    git(main, 'worktree', 'add', '--quiet', '-b', 'feature/sdk-only', sdkOnly);
+    writeSession(sdkOnly, 'session-sdk.jsonl', [turn('feature/sdk-only', 10)]);
+    const record = sliceSpendFile({ cwd: sdkOnly, transcriptHome: home });
+    const run: SliceSpendRun = {
+      kind: 'run',
+      branch: 'feature/sdk-only',
+      at: '2026-09-15T17:00:00.000Z',
+      sessionId: 'session-sdk',
+      role: 'worker',
+      models: {
+        'claude-opus-5': {
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheCreationTokens: 2,
+          cacheReadTokens: 3,
+          costUsd: 1,
+        },
+      },
+      costUsd: 1,
+      turns: 1,
+    };
+    await record.append(run);
+
+    const written = await recordSliceSpend(record, {
+      worktree: sdkOnly,
+      branch: 'feature/sdk-only',
+      at: '2026-09-15T17:05:00.000Z',
+    });
+
+    expect(written).toEqual({ ok: false, refusal: 'run-lines-only' });
+  });
+
+  it('writes its seal line as before for a command-only slice', async () => {
+    // The unchanged path: no run line exists for any session, so the seal
+    // covers the whole desk exactly as it always has.
+    const commandOnly = join(root, 'desks', 'feature-command-only');
+    git(main, 'worktree', 'add', '--quiet', '-b', 'feature/command-only', commandOnly);
+    writeSession(commandOnly, 'session-cmd.jsonl', [turn('feature/command-only', 20)]);
+
+    const written = await recordSliceSpend(
+      sliceSpendFile({ cwd: commandOnly, transcriptHome: home }),
+      { worktree: commandOnly, branch: 'feature/command-only', at: '2026-09-15T17:10:00.000Z' },
+    );
+
+    const seal = written.ok ? (written.record as SliceSpendSeal) : null;
+    expect(seal?.tokens.inputTokens).toBe(20);
+  });
+
+  it('seals only the command sessions of a slice that changed runner', async () => {
+    // A slice that ran one `command` session and then one SDK session gets
+    // one seal line for the `command` session only — the SDK session already
+    // has its own run line and must not be summed twice.
+    const changed = join(root, 'desks', 'feature-changed-runner');
+    git(main, 'worktree', 'add', '--quiet', '-b', 'feature/changed-runner', changed);
+    writeSession(changed, 'session-cmd.jsonl', [turn('feature/changed-runner', 30)]);
+    writeSession(changed, 'session-sdk.jsonl', [turn('feature/changed-runner', 999)]);
+    const record = sliceSpendFile({ cwd: changed, transcriptHome: home });
+    const run: SliceSpendRun = {
+      kind: 'run',
+      branch: 'feature/changed-runner',
+      at: '2026-09-15T17:15:00.000Z',
+      sessionId: 'session-sdk',
+      role: 'worker',
+      models: {
+        'claude-opus-5': {
+          inputTokens: 999,
+          outputTokens: 1,
+          cacheCreationTokens: 2,
+          cacheReadTokens: 3,
+          costUsd: 5,
+        },
+      },
+      costUsd: 5,
+      turns: 1,
+    };
+    await record.append(run);
+
+    const written = await recordSliceSpend(record, {
+      worktree: changed,
+      branch: 'feature/changed-runner',
+      at: '2026-09-15T17:20:00.000Z',
+    });
+
+    const seal = written.ok ? (written.record as SliceSpendSeal) : null;
+    expect(seal?.tokens.inputTokens).toBe(30);
+  });
+
   it('writes a SECOND record on a second run rather than mutating the first', async () => {
     const twice = join(root, 'desks', 'feature-twice');
     git(main, 'worktree', 'add', '--quiet', '-b', 'feature/twice', twice);
@@ -247,7 +340,7 @@ describe('reading a desk’s sessions', () => {
     );
 
     expect(read.history).toHaveLength(2);
-    expect(read.history.map((entry) => entry.tokens.inputTokens)).toEqual([7, 77]);
+    expect(read.history.map((entry) => (entry as SliceSpendSeal).tokens.inputTokens)).toEqual([7, 77]);
     expect(read.latest?.at).toBe('2026-09-15T16:00:00.000Z');
   });
 });
@@ -266,7 +359,7 @@ describe('the read-back path', () => {
     );
 
     expect(read.state).toBe('measured');
-    expect(read.latest?.tokens.inputTokens).toBe(100);
+    expect(read.tokens?.inputTokens).toBe(100);
   });
 
   it('holds every branch in one file, each readable on its own', async () => {

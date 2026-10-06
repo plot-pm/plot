@@ -150,6 +150,12 @@
 #   Agent max turns     turns one SDK run may take. Absent = 150.
 #   Slice max runs      SDK runs one slice may start. Absent = 12.
 #   Agent context window  an SDK run's `autoCompactWindow`. Absent = 200000.
+#   Agent max spend     dollars one SDK run may spend before the loop refuses
+#                       to start the next one. No default: absent = no limit,
+#                       never a limit of 0.
+#   Slice max spend     dollars one slice's runs may total, read from the
+#                       slice-spend record rather than a single run. No
+#                       default, for the same reason as `Agent max spend`.
 # Plot 2 posture keys (repo-declared ceremony bounds; all optional):
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none

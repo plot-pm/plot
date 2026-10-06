@@ -91,21 +91,21 @@ export const planSpend = (
 
   for (const branch of branches) {
     const read = readSpend(lines, branch);
-    const latest = read.state === 'measured' ? read.latest : null;
-    slices.push({ branch, state: read.state, tokens: latest?.tokens ?? null });
+    const tokens = read.state === 'measured' ? read.tokens : null;
+    slices.push({ branch, state: read.state, tokens });
     if (read.state === 'unreadable') {
       unreadable += 1;
       continue;
     }
-    if (latest === null) {
+    if (tokens === null) {
       absent += 1;
       continue;
     }
     measured += 1;
-    total.inputTokens += latest.tokens.inputTokens;
-    total.outputTokens += latest.tokens.outputTokens;
-    total.cacheCreationTokens += latest.tokens.cacheCreationTokens;
-    total.cacheReadTokens += latest.tokens.cacheReadTokens;
+    total.inputTokens += tokens.inputTokens;
+    total.outputTokens += tokens.outputTokens;
+    total.cacheCreationTokens += tokens.cacheCreationTokens;
+    total.cacheReadTokens += tokens.cacheReadTokens;
   }
 
   // NO TOTAL RATHER THAN A ZERO. `reduce(…, 0)` over nothing is correct

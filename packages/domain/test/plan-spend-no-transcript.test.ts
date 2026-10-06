@@ -109,7 +109,9 @@ afterEach(() => {
  */
 const trapRecord = (lines: readonly string[]): SliceSpendRecord => ({
   location: () => answered('/tmp/nowhere/slice-spend.jsonl'),
-  sessions: (): Promise<PortResult<readonly (readonly TranscriptLine[])[]>> => {
+  sessions: (): Promise<
+    PortResult<readonly { sessionId: string; lines: readonly TranscriptLine[] }[]>
+  > => {
     throw new Error('sessions() was called — a read path opened a transcript');
   },
   append: async () => {
@@ -219,6 +221,6 @@ describe('the per-slice read opens no transcript either', () => {
     );
 
     expect(actual.state).toBe('measured');
-    expect(actual.latest?.tokens.outputTokens).toBe(6);
+    expect(actual.tokens?.outputTokens).toBe(6);
   });
 });

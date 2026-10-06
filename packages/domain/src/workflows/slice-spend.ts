@@ -1,4 +1,4 @@
-import type { SliceSpend } from '../entities/slice-spend.js';
+import { decodeSliceSpend, type SliceSpendSeal } from '../entities/slice-spend.js';
 import type { SliceSpendRecord } from '../ports/slice-spend.js';
 import { planSpend, type PlanSpend } from '../rules/plan-spend.js';
 import { tokensForBranch } from '../rules/slice-tokens.js';
@@ -19,17 +19,21 @@ import { readSpend, type SpendRead } from '../rules/slice-spend-record.js';
  *   read. Distinct from finding nothing in it.
  * - `no-turns` — the transcripts were read and this branch contributed no
  *   recognised turn. The honest absence.
+ * - `run-lines-only` — every session that carried this branch's turns already
+ *   has a run line in the record. An SDK-only slice gets no seal line; writing
+ *   one would double-count a session's cost under two different line shapes.
  * - `write-failed` — the record could not be appended.
  */
 export type SpendWriteRefusal =
   | 'no-branch'
   | 'transcripts-unreadable'
   | 'no-turns'
+  | 'run-lines-only'
   | 'write-failed';
 
 /** What {@link recordSliceSpend} did. */
 export type SpendWriteOutcome =
-  | { ok: true; record: SliceSpend }
+  | { ok: true; record: SliceSpendSeal }
   | { ok: false; refusal: SpendWriteRefusal };
 
 /**
@@ -58,6 +62,17 @@ export type SpendWriteOutcome =
  * so. It is not fixed here: a write on the bound path is a second write site
  * with its own failure modes.
  *
+ * **SKIPS A SESSION THE RECORD ALREADY HOLDS A RUN LINE FOR.** An SDK run
+ * writes its own line per run, carrying more than this sum can see (subagents,
+ * compaction) — summing its transcript again into a seal would both
+ * double-count that session's cost and under-report it against the run line's
+ * own figure. So this reads the record FIRST, collects every `sessionId` this
+ * branch already has a run line for, and excludes those sessions before
+ * summing. A `command`-only slice has none to exclude and is sealed exactly as
+ * before; an SDK-only slice excludes every session and gets no seal line at
+ * all (`run-lines-only`); a slice that changed runner mid-flight seals only
+ * its remaining `command` sessions.
+ *
  * @param record - the port that reads transcripts and keeps the record.
  * @param input - the desk that finished, the branch it held, and the time.
  * @returns the record written, or why nothing was.
@@ -68,15 +83,35 @@ export const recordSliceSpend = async (
 ): Promise<SpendWriteOutcome> => {
   if (input.branch === '' || input.worktree === '') return { ok: false, refusal: 'no-branch' };
 
+  const existing = await record.lines();
+  const runSessions = new Set<string>();
+  if (existing.ok) {
+    for (const line of existing.value) {
+      const decoded = decodeSliceSpend(line);
+      if (decoded === null) continue;
+      if (decoded.branch !== input.branch) continue;
+      if (!('kind' in decoded) || decoded.kind !== 'run') continue;
+      runSessions.add(decoded.sessionId);
+    }
+  }
+
   const sessions = await record.sessions(input.worktree);
   // READ THE EXIT CODE, NOT THE EMPTINESS. An unreadable directory and an empty
   // one are different answers, and only one of them says the run was free.
   if (!sessions.ok) return { ok: false, refusal: 'transcripts-unreadable' };
 
-  const totals = tokensForBranch(sessions.value, input.branch);
+  const sealable = sessions.value.filter((session) => !runSessions.has(session.sessionId));
+  if (sessions.value.length > 0 && sealable.length === 0) {
+    return { ok: false, refusal: 'run-lines-only' };
+  }
+
+  const totals = tokensForBranch(
+    sealable.map((session) => session.lines),
+    input.branch,
+  );
   if (totals === null) return { ok: false, refusal: 'no-turns' };
 
-  const written: SliceSpend = {
+  const written: SliceSpendSeal = {
     branch: totals.branch,
     at: input.at,
     tokens: totals.tokens,
