@@ -464,4 +464,19 @@ describe('an SDK run’s records, through the file adapters', () => {
       },
     ]);
   });
+
+  it('counts an append the record refuses and still writes the next reading', async () => {
+    let calls = 0;
+    const refusing = {
+      ...budgetFile({ home: join(root, 'budget-refusing') }),
+      append: async () => {
+        calls += 1;
+        return calls === 1 ? ({ ok: false, why: 'failed' } as const) : ({ ok: true, value: undefined } as const);
+      },
+    };
+
+    const outcome = await recordRunLimits(refusing, sdkResult('session-refused', 1, 1), 0);
+
+    expect(outcome).toEqual({ written: 1, failed: 1 });
+  });
 });

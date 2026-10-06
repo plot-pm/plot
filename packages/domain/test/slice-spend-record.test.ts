@@ -212,6 +212,29 @@ describe('SliceSpendSchema', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('holds a run line’s per-model figures to the four counters and the cost, refusing a fifth counter', () => {
+    const model = run().models['claude-opus-5']!;
+    expect(Object.keys(model).sort()).toEqual([
+      'cacheCreationTokens',
+      'cacheReadTokens',
+      'costUsd',
+      'inputTokens',
+      'outputTokens',
+    ]);
+    const parsed = SliceSpendSchema.safeParse({
+      ...run(),
+      models: { 'claude-opus-5': { ...model, totalTokens: 93_654 } },
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(Object.keys(readSpend([encodeSliceSpend(run())], 'feature/a').tokens!).sort()).toEqual([
+      'cacheCreationTokens',
+      'cacheReadTokens',
+      'inputTokens',
+      'outputTokens',
+    ]);
+  });
+
   it('round-trips through the record line format', () => {
     expect(decodeSliceSpend(encodeSliceSpend(record()))).toEqual(record());
   });

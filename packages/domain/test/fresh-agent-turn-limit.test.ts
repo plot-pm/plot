@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   freshAgentAfterTurnLimit,
+  freshAgentTurnLimitAnswer,
   type FreshAgentTurnLimitReadings,
 } from '../src/rules/fresh-agent-turn-limit.js';
 
@@ -51,5 +52,14 @@ describe('freshAgentAfterTurnLimit', () => {
 
   it('a missing record reads as no prior session, never as one already spent', () => {
     expect(freshAgentAfterTurnLimit(readings({ priorFreshSessions: 0 }))).toBe('start-fresh');
+  });
+});
+
+describe('freshAgentTurnLimitAnswer', () => {
+  it('names the branch and the turn limit, and no correction budget', () => {
+    const answer = freshAgentTurnLimitAnswer('infra/x');
+    expect(answer).toContain('`infra/x`');
+    expect(answer).toContain('Agent max turns');
+    expect(answer).not.toContain('correction');
   });
 });

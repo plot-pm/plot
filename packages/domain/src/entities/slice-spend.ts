@@ -25,7 +25,7 @@ export const TokenCountsSchema = z
  *
  * **NO `kind` FIELD, AND THAT IS DELIBERATE.** Every seal line already on disk
  * before this slice was written this way, so the field cannot be made
- * required without breaking every line a prior Plot wrote. `sliceSpendKindOf`
+ * required without breaking every line a prior Plot wrote. `isRunLine`
  * is where a bare object is told apart from a run line — never a literal
  * schema discriminant, which an old line cannot carry.
  *
@@ -169,13 +169,9 @@ export const decodeSliceSpend = (line: string): SliceSpend | null => {
 export const encodeSliceSpend = (record: SliceSpend): string => JSON.stringify(record);
 
 /**
- * Whether a decoded line is a seal line or a run line.
- *
- * A TINY HELPER RATHER THAN A REPEATED `'kind' in record` AT EVERY CALL SITE —
- * the union's whole discrimination rule lives here once.
+ * Whether a decoded line is a run line. Only a run line carries `kind`.
  *
  * @param record - a line {@link decodeSliceSpend} already parsed.
- * @returns `'run'` where the line carries `kind: 'run'`, `'seal'` otherwise.
+ * @returns `true` for a run line, `false` for a seal line.
  */
-export const sliceSpendKindOf = (record: SliceSpend): 'seal' | 'run' =>
-  'kind' in record && record.kind === 'run' ? 'run' : 'seal';
+export const isRunLine = (record: SliceSpend): record is SliceSpendRun => 'kind' in record;

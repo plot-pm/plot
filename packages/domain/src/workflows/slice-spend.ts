@@ -1,5 +1,6 @@
 import {
   decodeSliceSpend,
+  isRunLine,
   type RunModelSpend,
   type SliceSpendRun,
   type SliceSpendSeal,
@@ -96,7 +97,7 @@ export const recordSliceSpend = async (
       const decoded = decodeSliceSpend(line);
       if (decoded === null) continue;
       if (decoded.branch !== input.branch) continue;
-      if (!('kind' in decoded) || decoded.kind !== 'run') continue;
+      if (!isRunLine(decoded)) continue;
       runSessions.add(decoded.sessionId);
     }
   }

@@ -1,8 +1,9 @@
 import {
   decodeSliceSpend,
-  sliceSpendKindOf,
+  isRunLine,
   type SliceSpend,
   type SliceSpendRun,
+  type SliceSpendSeal,
   type TokenCountsRecord,
 } from '../entities/slice-spend.js';
 
@@ -139,7 +140,7 @@ export interface SpendRead {
    * measured.
    */
   tokens: TokenCountsRecord | null;
-  /** The branch's total cost across every session and the seal line, or null. */
+  /** The branch's cost over its run lines' sessions; `null` where it has no run line, because a seal line records no cost. */
   costUsd: number | null;
   /** How many distinct SDK sessions (run lines) contributed to `tokens`. */
   runCount: number;
@@ -189,7 +190,7 @@ export const readSpend = (lines: readonly string[] | null, branch: string): Spen
   const history: SliceSpend[] = [];
   let unreadable = 0;
   const bySession = new Map<string, SliceSpendRun[]>();
-  let sealLatest: SliceSpend | null = null;
+  let sealLatest: SliceSpendSeal | null = null;
   for (const line of lines) {
     if (line.trim() === '') continue;
     const record = decodeSliceSpend(line);
@@ -199,17 +200,17 @@ export const readSpend = (lines: readonly string[] | null, branch: string): Spen
     }
     if (record.branch !== branch) continue;
     history.push(record);
-    if (sliceSpendKindOf(record) === 'run') {
-      const run = record as SliceSpendRun;
-      const existing = bySession.get(run.sessionId);
-      if (existing === undefined) bySession.set(run.sessionId, [run]);
-      else existing.push(run);
+    if (isRunLine(record)) {
+      const existing = bySession.get(record.sessionId);
+      if (existing === undefined) bySession.set(record.sessionId, [record]);
+      else existing.push(record);
     } else {
       sealLatest = record;
     }
   }
 
-  if (history.length === 0) {
+  const latest = history.at(-1);
+  if (latest === undefined) {
     return {
       state: 'absent',
       latest: null,
@@ -226,7 +227,6 @@ export const readSpend = (lines: readonly string[] | null, branch: string): Spen
   const combined = noTokens();
   let totalCost = 0;
   let totalTurns = 0;
-  let measuredAny = false;
   const models: string[] = [];
   const seenModels = new Set<string>();
   const addModel = (model: string): void => {
@@ -242,28 +242,21 @@ export const readSpend = (lines: readonly string[] | null, branch: string): Spen
     }
     totalCost += increase.costUsd;
     totalTurns += runs.reduce((sum, r) => sum + r.turns, 0);
-    measuredAny = true;
   }
-  if (sealLatest !== null && sliceSpendKindOf(sealLatest) === 'seal') {
-    const seal = sealLatest as Extract<SliceSpend, { tokens: TokenCountsRecord; turns: number }>;
-    addModelTokens(combined, seal.tokens);
-    totalTurns += seal.turns;
-    for (const model of seal.models) addModel(model);
-    measuredAny = true;
+  if (sealLatest !== null) {
+    addModelTokens(combined, sealLatest.tokens);
+    totalTurns += sealLatest.turns;
+    for (const model of sealLatest.models) addModel(model);
   }
 
   return {
     state: 'measured',
-    // `.at(-1) ?? null` RATHER THAN A LENGTH TEST AND AN INDEX. Both spellings
-    // answer the same, and only this one has two reachable branches: guarded by
-    // `history.length === 0` the fallback can never be taken, so it is a branch
-    // no test can enter — dead code appeasing `noUncheckedIndexedAccess` rather
-    // than handling a case. Here the empty record IS the fallback.
-    latest: history.at(-1) ?? null,
+    latest,
     history,
     unreadable,
-    tokens: measuredAny ? combined : null,
-    costUsd: measuredAny ? totalCost : null,
+    tokens: combined,
+    // A SEAL LINE RECORDS NO COST, so a branch with no run line has none.
+    costUsd: bySession.size > 0 ? totalCost : null,
     runCount: bySession.size,
     turns: totalTurns,
     models,

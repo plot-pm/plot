@@ -16,6 +16,7 @@ import {
   treesFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Pr, Trees } from '@plot-pm/domain';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -1146,6 +1147,27 @@ describe('workerLoopPorts and main', () => {
     expect(await ports.transcriptQuietSeconds(r.wt)).toBe('unavailable');
     // A desk with no transcripts records nothing, and the seal is not failed for it.
     await expect(ports.recordSpend(r.wt, BRANCH, '2026-10-06T00:00:00Z')).resolves.toBeUndefined();
+  });
+
+  it('composes the run records: a run line read back as the slice cost, a no-cost refusal, no budget entry for no reading', async () => {
+    const r = rig(null, []);
+    execFileSync('git', ['init', '--quiet'], { cwd: r.wt });
+    const ports = await workerLoopPorts({ repoRoot: r.wt, scriptDir: r.dir });
+    const result = {
+      sessionId: 'session-1',
+      end: { answer: 'ran', handBack: null },
+      usageByModel: { opus: { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 3, cacheReadTokens: 4 } },
+      costUsd: 1.5,
+      costUsdByModel: { opus: 1.5 },
+      turns: 2,
+      limitReadings: [],
+      account: null,
+    } as const;
+    expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBeNull();
+    expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', result)).toBeNull();
+    expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBe(1.5);
+    expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', { ...result, costUsd: null })).toBe('no-cost');
+    expect(await ports.recordLimits(result, 0)).toBe(0);
   });
 
   it('reads a transcript answer as quiet seconds, or unavailable', () => {
