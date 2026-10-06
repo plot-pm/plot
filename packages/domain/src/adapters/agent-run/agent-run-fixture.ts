@@ -59,6 +59,7 @@ export const agentRunFixture = (
           costUsd: null,
           turns: 0,
           limitReadings: [],
+          account: null,
         });
       }
       return answered(answer(request));

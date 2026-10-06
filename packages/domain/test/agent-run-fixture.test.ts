@@ -111,6 +111,7 @@ describe('agentRunFixture — a worker that hands back checks then pushed', () =
           costUsd: null,
           turns: 12,
           limitReadings: [],
+          account: null,
         }),
         (resumed): AgentRunResult => {
           // The agent's second run pushes and opens its PR.
@@ -123,6 +124,7 @@ describe('agentRunFixture — a worker that hands back checks then pushed', () =
             costUsd: null,
             turns: 3,
             limitReadings: [],
+            account: null,
           };
         },
       ],

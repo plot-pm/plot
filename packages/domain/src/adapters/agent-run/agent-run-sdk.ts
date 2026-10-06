@@ -221,6 +221,7 @@ const unstarted = (request: AgentRunRequest, detail: string): PortResult<AgentRu
     costUsd: null,
     turns: 0,
     limitReadings: [],
+    account: null,
   });
 
 /** The signals that end the caller; each ends the run's tree, then the caller exits `128 + n`. */
@@ -403,6 +404,20 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       await log(`plot-agent-run: ${exit.answer}: ${exit.detail}`);
     }
     const end: AgentRunResult['end'] = exit.answer === 'ran' ? { answer: 'ran', handBack: exit.handBack } : exit;
+    // `accountInfo()` IS A SEPARATE CONTROL CALL, NEVER A STREAMED MESSAGE: no
+    // `SDKMessage` variant carries the account, so this is the one await the
+    // adapter makes outside the `for await` loop above. Best effort — a stream
+    // already closed by an abort or a startup failure, or one with no control
+    // channel to ask at all, answers with neither field: a budget entry with
+    // no account is better than a run that fails for having asked.
+    const info =
+      typeof (stream as { accountInfo?: () => Promise<{ email?: string; organization?: string }> }).accountInfo ===
+      'function'
+        ? await (stream as { accountInfo: () => Promise<{ email?: string; organization?: string }> })
+            .accountInfo()
+            .catch(() => ({ email: undefined, organization: undefined }))
+        : { email: undefined, organization: undefined };
+    const account = info.email ?? info.organization ?? null;
 
     return answered({
       sessionId: seen.sessionId,
@@ -411,6 +426,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       costUsd: seen.costUsd,
       turns: seen.turns,
       limitReadings,
+      account,
     });
   },
 });

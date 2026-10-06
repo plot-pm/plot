@@ -281,6 +281,7 @@ describe('agentRunSdk: how a run ends', () => {
       costUsd: 0.42,
       turns: 2,
       limitReadings: [],
+      account: null,
     });
     expect(await readFile(join(dir, 'out.log'), 'utf8')).toContain('"type":"result"');
   });

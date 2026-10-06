@@ -113,6 +113,8 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       costUsd: null,
       turns: 0,
       limitReadings: [],
+      // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.
+      account: null,
     });
   },
 });

@@ -147,4 +147,10 @@ export interface AgentRunResult {
   readonly turns: number;
   /** Every usage-limit reading this run observed, in order. */
   readonly limitReadings: readonly AgentRunLimitReading[];
+  /**
+   * The authenticated account's email, then organization, then `null` where
+   * the connector reports neither — the precedence `rateLimitEntry`'s caller
+   * resolves a budget entry's account from.
+   */
+  readonly account: string | null;
 }
