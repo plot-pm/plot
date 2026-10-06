@@ -52,6 +52,8 @@ export interface AgentRunRequest {
   readonly maxSpendUsd: number;
   /** How long this run may take before it is ended, in seconds; `0` disables the bound. */
   readonly boundSeconds: number;
+  /** The context-window cap this run is asked to keep, in tokens; `0` for no cap. */
+  readonly contextWindow: number;
   /** What this run may do — the capability list a charter or a default names. */
   readonly capabilities: readonly string[];
   /** Extra environment on top of the run's own inherited one; merged, never a replacement. */
