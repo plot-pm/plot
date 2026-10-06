@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
-import { execFileSync, spawn } from 'node:child_process';
-import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import { execFileSync } from 'node:child_process';
+import { agentRunFor, readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { localCapability } from './controllers/caller.js';
+import { writtenPathResolution } from '@plot-pm/domain/rules/written-path';
 
 /**
  * Turning an issue into a plan — the row's one action, and the board's FOURTH
@@ -608,13 +609,15 @@ export async function handleIdea(
 
   const log = ideaLogPath(opts.repoRoot, number);
   const statePath = ideaStatePath(opts.repoRoot, number);
-  let out: number;
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later
     // success. The same choice `approve.ts` makes, for the same reason.
+    // `agentRunCommand`/`agentRunSdk` truncate `request.logFile` again
+    // themselves; this write is also the 500-on-unwritable-log check, run
+    // before the worktree gets created.
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
+    fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
@@ -708,47 +711,93 @@ export async function handleIdea(
     return;
   }
 
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-idea', `Read ${promptPath} and follow it.`],
-    {
-      cwd: ideaTree,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch. There is nobody at this board to
-        // answer `AskUserQuestion`, and under `claude -p` that tool is not even
-        // registered — so a skill that improvises here exits 0 having written
-        // nothing. Setting it makes each skipped question take the shape its
-        // author chose and name itself in the log.
-        PLOT_UNATTENDED: '1',
-        [IDEA_PROMPT_ENV]: promptPath,
-        PLOT_ISSUE: String(number),
-      },
-    },
-  );
-  child.on('exit', (code, signal) => {
+  // ROUTED THROUGH THE `agentRun` PORT, never a raw `spawn`. `choice.runner`
+  // decides `command` (today's fragment start, now via the
+  // `agentRun-command` adapter) or `sdk`; a `refused` choice cannot happen
+  // here — that refusal is for `Agent runner: sdk` with no fragment, and the
+  // `no-idea-command` guard above already refused an unusable fragment on
+  // EITHER runner.
+  //
+  // STAYS IN THE BOARD'S PROCESS GROUP — no `detached`. `run(...)`'s promise
+  // is deliberately NOT awaited before the 202 answers: this server is
+  // single-threaded, and awaiting an agent would freeze every viewer's board
+  // for the length of somebody else's click, exactly as the detached spawn
+  // avoided before. The consequence named in the PR rather than worked
+  // around: a board stop or restart now ends this run.
+  const choice = await agentRunFor(opts, 'idea', IDEA_COMMAND_KEY);
+  const writeState = (value: string) => {
     try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+      fs.writeFileSync(statePath, value, 'utf8');
     } catch {
       /* the state file is a convenience; the log is the record */
     }
-  });
-  child.on('error', (err) => {
-    console.error('idea failed to spawn:', err);
+  };
+  const appendLog = (message: string) => {
     try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
+      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
     } catch {
       /* nothing further to do */
     }
-  });
-  // `detached` WITHOUT `unref`, exactly as `approve.ts` is and for its reason:
-  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
-  // the handle keeps the exit listener above alive — dropping it would make
-  // every creation read as `running` forever.
-  fs.closeSync(out);
+  };
+
+  if (choice.runner === 'refused' || choice.agentRun === undefined) {
+    appendLog(choice.reason);
+    writeState('1');
+  } else {
+    const agentRun = choice.agentRun;
+    void agentRun
+      .run({
+        worktree: ideaTree,
+        prompt: `Read ${promptPath} and follow it.`,
+        resumeId: '',
+        role: 'idea',
+        harness: '',
+        model: '',
+        effort: '',
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: 0,
+        contextWindow: 0,
+        capabilities: [],
+        env: {
+          PLOT_UNATTENDED: '1',
+          [IDEA_PROMPT_ENV]: promptPath,
+          PLOT_ISSUE: String(number),
+        },
+        logFile: log,
+      })
+      .then((result) => {
+        if (!result.ok) {
+          appendLog(`idea run failed: ${result.why}`);
+          writeState('1');
+          return;
+        }
+        const end = result.value.end;
+        if (end.answer !== 'ran') {
+          appendLog(`idea run ended without running: ${end.answer}`);
+          writeState('1');
+          return;
+        }
+        const handBack = end.handBack;
+        if (handBack === null || !('written' in handBack)) {
+          appendLog('idea run ended with no written hand-back');
+          writeState('1');
+          return;
+        }
+        const resolution = writtenPathResolution(handBack.written, opts.repoRoot);
+        if (!resolution.inside) {
+          appendLog(`idea run's written path was refused: ${resolution.reason}`);
+          writeState('1');
+          return;
+        }
+        writeState('0');
+      })
+      .catch((err) => {
+        console.error('idea run failed:', err);
+        appendLog(err instanceof Error ? err.message : String(err));
+        writeState('1');
+      });
+  }
 
   json(202, { ok: true, number, prompt: promptPath, log });
 }

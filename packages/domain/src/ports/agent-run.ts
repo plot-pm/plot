@@ -115,6 +115,19 @@ export type AgentHandBack =
   | { readonly next: 'done'; readonly summary: string };
 
 /**
+ * The hand-back a board role's turn ended with.
+ *
+ * Distinguished from {@link AgentHandBack} by shape rather than by a shared
+ * discriminant field: a board role's vocabulary (a written path, or a
+ * done/refused outcome) has nothing in common with the worker's `next` enum,
+ * so a reader tells the two apart with `'next' in handBack` /
+ * `'written' in handBack` / `'outcome' in handBack`.
+ */
+export type BoardHandBack =
+  | { readonly written: string; readonly summary: string }
+  | { readonly outcome: 'done' | 'refused'; readonly summary: string };
+
+/**
  * Why a run ended, mapped to the loop's existing vocabulary.
  *
  * `sdkRunExit` is what classifies an SDK result into one of these; a
@@ -129,7 +142,7 @@ export type AgentRunEnd =
   | { readonly answer: 'bound' }
   | { readonly answer: 'turn-limit' }
   | { readonly answer: 'spend-limit' }
-  | { readonly answer: 'ran'; readonly handBack: AgentHandBack | null };
+  | { readonly answer: 'ran'; readonly handBack: AgentHandBack | BoardHandBack | null };
 
 /**
  * What one agent run produced.

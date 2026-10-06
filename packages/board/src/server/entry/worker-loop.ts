@@ -1194,8 +1194,13 @@ export const sdkOutcome = (
   switch (end.answer) {
     case 'bound':
       return 'bound';
-    case 'ran':
-      return { exit: { answer: 'ran' }, handBack: end.handBack };
+    case 'ran': {
+      // THE WORKER LOOP RUNS ONLY `role: 'worker'`, so a hand-back here is
+      // always the worker's `{ next, summary }` shape; a board role's
+      // `{ written, ... }` / `{ outcome, ... }` never reaches this loop.
+      const handBack = end.handBack !== null && 'next' in end.handBack ? end.handBack : null;
+      return { exit: { answer: 'ran' }, handBack };
+    }
     case 'wait':
       return {
         exit: { answer: 'wait', reset: { epoch: end.resetEpoch, iso: new Date(end.resetEpoch * 1000).toISOString() }, line: SDK_LIMIT_LINE },

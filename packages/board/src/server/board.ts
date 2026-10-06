@@ -51,11 +51,25 @@ import {
   buildShell,
   hostShell,
   planStoreShell,
+  processesShell,
+  boundedRunProcess,
   refsGit,
   scriptsShell,
   sliceSpendFile,
   treesGit,
 } from '@plot-pm/domain/adapters';
+import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
+import {
+  agentRunSdk,
+  claudeOnPath,
+  DEFAULT_READ_ONLY_DENY,
+  settingsFilesOf,
+  spawnAttached,
+} from '@plot-pm/domain/adapters/agent-run/agent-run-sdk';
+import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
+import { boardAgentModel } from '@plot-pm/domain/rules/board-agent-models';
+import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
+import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics } from './topics.js';
@@ -303,6 +317,79 @@ export const hostFor = (opts: BuildBoardOptions): Host =>
  */
 export const buildPortFor = async (opts: BuildBoardOptions): Promise<BuildPort> =>
   opts.buildAdapter ?? buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * Which runner starts one board role's agent, and the `AgentRun` connector
+ * built for that choice.
+ *
+ * Built per call for the same reason as {@link refsFor}: the expense is never
+ * in constructing the adapter. A board role has no charter and no worker
+ * loop, so the choice reads only `Agent runner`, the role's own fragment and
+ * `Worker loop` ({@link runnerChoice} with `isWorker: false`) — never a
+ * charter harness, which is worker-only. **`agentRunSdk` is imported from its
+ * own direct path, never through the `@plot-pm/domain/adapters` barrel**, so
+ * that bringing a board role onto the SDK does not put the SDK in every other
+ * bundle the barrel feeds.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @param role - the role asked about, such as `idea` or `brief`.
+ * @param fragmentKey - the `## Plot Config` key naming that role's command,
+ *   such as `Idea command`.
+ * @returns which runner this role starts on, and the connector for it; a
+ *   `refused` choice carries no connector — the caller answers its own
+ *   `unaskable`/no-command refusal exactly as today.
+ */
+export const agentRunFor = async (
+  opts: BuildBoardOptions,
+  role: string,
+  fragmentKey: string,
+): Promise<{ readonly runner: 'command' | 'sdk' | 'refused'; readonly reason: string; readonly agentRun?: AgentRun }> => {
+  const fragment = readConfig(opts, fragmentKey, '');
+  const agentRunner = readConfig(opts, 'Agent runner', '');
+  const choice = runnerChoice({
+    agentRunner: agentRunner === 'sdk' || agentRunner === 'command' ? agentRunner : '',
+    isWorker: false,
+    workerLoop: '',
+    fragment,
+    charterHarness: '',
+    defaultsToSdkWhenNamed: false,
+  });
+  if (choice.runner === 'refused') return { runner: 'refused', reason: choice.reason };
+
+  if (choice.runner === 'command') {
+    const now = () => Math.floor(Date.now() / 1000);
+    const processes = processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+    const boundedRun = boundedRunProcess(processes);
+    return {
+      runner: 'command',
+      reason: choice.reason,
+      agentRun: agentRunCommand({ boundedRun, limitPatterns: HARNESS_LIMIT_LINES.claude, now }),
+    };
+  }
+
+  const settings = boardAgentModel(role, { agentModels: readConfig(opts, 'Agent models', ''), roleCommand: fragment });
+  const inheritedEnv = Object.fromEntries(
+    Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== 'PLOT_REPO_ROOT'),
+  );
+  const pathToClaudeCodeExecutable = await claudeOnPath(process.env.PATH ?? '');
+  return {
+    runner: 'sdk',
+    reason: `${choice.reason}; model ${settings.model || 'the CLI default'} (${settings.modelSource})`,
+    agentRun: agentRunSdk({
+      inheritedEnv,
+      readSettingsFiles: settingsFilesOf(process.env.HOME || os.homedir()),
+      agentSettings: undefined,
+      agentSettingsPath: '',
+      pathToClaudeCodeExecutable,
+      spawnClaudeCodeProcess: spawnAttached,
+      processes: processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+      now: () => Math.floor(Date.now() / 1000),
+      afterWait: false,
+      commitsSinceWait: () => 0,
+      readOnlyDeny: DEFAULT_READ_ONLY_DENY,
+    }),
+  };
+};
 
 /**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so
