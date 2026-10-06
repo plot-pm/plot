@@ -20,10 +20,10 @@ export type QuietReading = { readonly quiet: 'seconds'; readonly seconds: number
  * reads the newest write any of a worktree's own transcript files has made,
  * which is what a desk's silence actually means.
  *
- * **ONE OPERATION, MATCHING THE SHELL'S OWN SCOPE.** `plot-transcript-quiet.sh`
- * also answers `plot_transcript_exists` (a session-flag question `boundedRun`'s
- * caller asks once per prompt start, not once per pass) — that reading is
- * outside this port, which exists for the per-pass idle watch alone.
+ * **TWO OPERATIONS.** {@link Transcript.quietSeconds} answers the idle
+ * watch's per-pass silence; {@link Transcript.spoken} answers whether one
+ * conversation has written yet, which the loop reads to choose `--session-id`
+ * or `--resume` and the idle watch reads before it calls a quiet desk idle.
  */
 export interface Transcript {
   /**

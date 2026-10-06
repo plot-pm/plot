@@ -23,6 +23,7 @@ import {
   PASS_INTERVAL_MS,
   count,
   defaultBase,
+  failureLines,
   integer,
   liveHolders,
   positive,
@@ -415,15 +416,31 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.logs.filter((l) => l.includes(line))).toHaveLength(1);
   });
 
-  it('logs the applier reason for a refused write', async () => {
+  it('logs a write the port refused', async () => {
     const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }]);
+    const desk = { ...r.ports.desk, sealDeclaration: async () => ({ ok: false as const, why: 'failed' as const }) };
+    r.deps = { ...r.deps, ports: { ...r.ports, desk } };
     expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.logs).toContain('plot-worker-loop: declaration failed');
   });
 });
 
 describe('a refused take-up', () => {
   const write = { kind: 'push', branch: BRANCH, onto: '' } as const;
 
+  it('names the applier reason for a refused write, and only the kind where none was given', () => {
+    const commit = { kind: 'commit', message: 'm', paths: ['a'] } as const;
+    expect(
+      failureLines([
+        { write: commit, result: { ok: false, why: 'failed' }, reason: 'a loop commit stages no paths; refused 1 path(s)' },
+        { write, result: { ok: false, why: 'failed' } },
+        { write, result: { ok: true, value: undefined } },
+      ]),
+    ).toEqual([
+      'plot-worker-loop: commit failed — a loop commit stages no paths; refused 1 path(s)',
+      'plot-worker-loop: push failed',
+    ]);
+  });
 
   it('names the refused take-up write, and nothing where every write landed or another kind failed', () => {
     expect(takeUpRefusalOf([])).toBeNull();
@@ -535,12 +552,14 @@ describe('runWorkerLoop — a hop', () => {
 });
 
 describe('runWorkerLoop — after the prompt', () => {
-  it('holds unlanded work and re-prompts, ending when nothing lands (row 11)', async () => {
-    const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'x.txt'), 'x') }]);
-    const trees: Trees = { ...r.ports.trees, dirtyPaths: async () => ({ ok: true, value: ['x.txt'] }) };
+  it('ends holding-work, exit 0, when the prompt leaves unlanded work (row 11)', async () => {
+    let dirty = false;
+    const r = rig(ASSIGNED, [{ during: () => void (dirty = true) }]);
+    const trees: Trees = { ...r.ports.trees, dirtyPaths: async () => ({ ok: true, value: dirty ? ['x.txt'] : [] }) };
     r.deps = { ...r.deps, ports: { ...r.ports, trees } };
-    const code = await runWorkerLoop(r.deps);
-    expect([0, 1]).toContain(code);
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.runs).toHaveLength(1);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('holding-work');
   });
 
   it('settles green checks and seals the slice (rows 12-18)', async () => {
@@ -609,6 +628,8 @@ describe('runWorkerLoop — after the prompt', () => {
       ports: { ...r.ports, refs: refsFixture({ ahead: { [BRANCH]: 0 }, shas: { HEAD: 'sha-1' }, remoteBranches: [BRANCH], remoteTips: { [BRANCH]: 'sha-2' } }) },
     };
     expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.deskCalls.endings.at(-1)?.record).toMatchObject({ reason: 'checks-unanswered' });
+    expect(r.deskCalls.endings.at(-1)?.record.detail).toContain('tip-moved');
   });
 
   it('keeps the pushed sha it had when HEAD cannot be read', async () => {

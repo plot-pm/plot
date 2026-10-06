@@ -480,7 +480,7 @@ exit 1
   }
 });
 
-test('a reset past the Worker bound ends rather than waits', shellOnly('the JS loop ends on the bound with exit 143 where the shell exits 1'), () => {
+test('a reset past the Worker bound ends rather than waits', shellOnly('the JS loop exits 1 and ends limited, but logs no (past-bound) line and its marker does not count the desk'), () => {
   const sb = sandbox();
   try {
     const { wt } = claim(sb, 'feature/seam');

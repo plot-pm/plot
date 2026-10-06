@@ -542,6 +542,18 @@ export const readClaimAnswer = async (
 };
 
 /**
+ * The operator's line for each write that did not land.
+ *
+ * @param applied - what `performLoopWrites` answered.
+ * @returns one line per failed write, naming its kind and the applier's
+ *   reason where it gave one.
+ */
+export const failureLines = (applied: readonly AppliedWrite[]): string[] =>
+  applied
+    .filter((a) => !a.result.ok)
+    .map((a) => [`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
+
+/**
  * The take-up write a pass's applied writes stopped on, if any.
  *
  * @param applied - what `performLoopWrites` answered; it stops on the first
@@ -867,7 +879,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     }
     const worktree = readings.worktree || deps.worktree;
     const applied = await performLoopWrites(loopWritesOf(decision.writes), deps.ports, worktree);
-    for (const a of applied) if (!a.result.ok) deps.log([`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
+    for (const line of failureLines(applied)) deps.log(line);
     const spend = decision.writes.find((w) => w.kind === 'slice-spend');
     if (spend !== undefined && spend.kind === 'slice-spend') await deps.ports.recordSpend(spend.worktree, spend.branch, readings.passAt);
     // THE OPERATOR'S LINES ABOUT A PROMPT THAT NEVER RAN, as the shell prints them.

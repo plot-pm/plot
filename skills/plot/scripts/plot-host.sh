@@ -500,7 +500,7 @@ die3() { echo "plot-host: $*" >&2; exit 3; }
 # `throttled` for every match of one regex until 2026-09-02, so *"API rate
 # limit exceeded"* and *"You have exceeded a secondary rate limit"* came back
 # the same word and nothing downstream could tell them apart. `secondary` is
-# now its own answer: `die6` carries it, and the board names which limit was
+# now its own answer: `pr_list_failed` exits 6 for it, and the board names which limit was
 # hit rather than printing one reset over both.
 #
 # THE SECONDARY TEST RUNS FIRST, AND THE ORDER IS THE CLASSIFICATION. GitHub's
@@ -637,7 +637,7 @@ pr_list_failed() { # $1=stderr text
 #
 # EVERY CALL SITE MUST WRITE `|| exit $?`, AND IT IS NOT OPTIONAL. This is
 # invoked as `_raw="$(pr_list_call …)"` — a COMMAND SUBSTITUTION, which is a
-# subshell — so the `exit` inside `die5`/`die3` leaves that subshell only. The
+# subshell — so the `exit` inside `pr_list_failed`/`die3` leaves that subshell only. The
 # outer script would carry on with `_raw` empty and `jq` would emit nothing:
 # the silent empty list this whole helper exists to remove, rebuilt one layer
 # further in and harder to see. The same trap `bb_states_for` documents a few
