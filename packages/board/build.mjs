@@ -127,6 +127,10 @@ await esbuild.build({
   target: 'node20',
   outfile: distArtifact,
   loader: { '.html': 'text' },
+  // A board role can run `Agent runner: sdk` too, through the same
+  // agentRunFor/agentRunSdk path the worker loop uses — see the worker loop's
+  // own `external` below for why its platform binaries stay out.
+  external: ['@anthropic-ai/claude-agent-sdk-*'],
   minify: true,
   legalComments: 'none',
   banner: { js: '#!/usr/bin/env node' },
@@ -416,12 +420,13 @@ fs.chmodSync(shippedRegistryd, 0o755);
 // runs no Node at all. See `entry/worker-loop.ts` for what it decides and
 // what it does not.
 //
-// THE ONE BUNDLE THAT CARRIES `@anthropic-ai/claude-agent-sdk`, for the SDK
-// runner (`Agent runner: sdk`). Its optional per-platform packages hold a
-// 229-246 MB `claude` binary each and stay out: the SDK runs the operator's
-// `claude` from PATH. No other bundle imports `agent-run-sdk.ts`, and
-// `test/worker-loop-bundle.test.mjs` proves `plot-registryd.mjs` and the rest
-// carry none of it.
+// ONE OF TWO BUNDLES THAT CARRY `@anthropic-ai/claude-agent-sdk`, for the SDK
+// runner (`Agent runner: sdk`) — `board-server.mjs` above is the other, for a
+// board role configured onto the same runner. Both exclude the SDK's optional
+// per-platform packages, which hold a 229-246 MB `claude` binary each: the SDK
+// runs the operator's `claude` from PATH instead. No other bundle imports
+// `agent-run-sdk.ts`, and `test/worker-loop-bundle.test.mjs` proves
+// `plot-registryd.mjs` and the rest carry none of it.
 const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
 const shippedWorkerLoop = path.join(here, '../../skills/plot/scripts/board/plot-worker-loop.mjs');
 

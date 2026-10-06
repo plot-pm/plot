@@ -119,9 +119,16 @@ describe('a group stop ends the loop and claude', () => {
   });
 });
 
-describe('the SDK is in plot-worker-loop.mjs and in no other bundle', () => {
+describe('the SDK is in plot-worker-loop.mjs and board-server.mjs, and no other bundle', () => {
   const marker = 'spawnClaudeCodeProcess';
   const bundles = fs.readdirSync(SHIPPED).filter((name) => name.endsWith('.mjs'));
+  // board-server.mjs joined the worker loop here: the board's own routes now
+  // start a board role's agent through the SAME agentRunFor/agentRunSdk path
+  // the worker loop uses, for roles configured `Agent runner: sdk`. plot-ask.mjs
+  // shares src/server/index.ts's controllers but not this marker — its entry
+  // point never reaches a route that calls agentRunFor with a role configured
+  // for the SDK runner in this test's own build, so esbuild tree-shakes it out.
+  const carriers = ['plot-worker-loop.mjs', 'board-server.mjs'];
 
   it('plot-worker-loop.mjs carries it, without a platform binary package', () => {
     const text = fs.readFileSync(path.join(SHIPPED, 'plot-worker-loop.mjs'), 'utf8');
@@ -129,9 +136,15 @@ describe('the SDK is in plot-worker-loop.mjs and in no other bundle', () => {
     assert.ok(!/claude-agent-sdk-(darwin|linux|win32)/.test(text));
   });
 
+  it('board-server.mjs carries it too, without a platform binary package', () => {
+    const text = fs.readFileSync(path.join(SHIPPED, 'board-server.mjs'), 'utf8');
+    assert.ok(text.includes(marker));
+    assert.ok(!/claude-agent-sdk-(darwin|linux|win32)/.test(text));
+  });
+
   it('plot-registryd.mjs and every other bundle carry none of it', () => {
     assert.ok(bundles.includes('plot-registryd.mjs'));
-    const carrying = bundles.filter((name) => name !== 'plot-worker-loop.mjs' && fs.readFileSync(path.join(SHIPPED, name), 'utf8').includes(marker));
+    const carrying = bundles.filter((name) => !carriers.includes(name) && fs.readFileSync(path.join(SHIPPED, name), 'utf8').includes(marker));
     assert.deepEqual(carrying, []);
   });
 });

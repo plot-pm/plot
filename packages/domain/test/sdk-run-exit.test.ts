@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sdkRunExit, type SdkRunReading } from '../src/rules/sdk-run-exit.js';
+import { asBoardHandBack, sdkRunExit, type SdkRunReading } from '../src/rules/sdk-run-exit.js';
 
 const NOW = 1790863200;
 
@@ -194,5 +194,62 @@ describe('sdkRunExit', () => {
   it('reads no hand-back from an error_during_execution result that is not marked is_error', () => {
     const result = sdkRunExit(base({ subtype: 'error_during_execution', numTurns: 3 }));
     expect(result).toEqual({ answer: 'ran', handBack: null, detail: 'success with no structured_output' });
+  });
+
+  it("answers ran with a board written hand-back when sdkRunExit is given asBoardHandBack as its parser", () => {
+    const result = sdkRunExit(
+      base({ structuredOutput: { written: 'docs/plans/x.md', summary: 'drafted' } }),
+      asBoardHandBack,
+    );
+    expect(result.answer).toBe('ran');
+    if (result.answer !== 'ran') return;
+    expect(result.handBack).toEqual({ written: 'docs/plans/x.md', summary: 'drafted' });
+  });
+
+  it('answers ran with a board outcome hand-back when sdkRunExit is given asBoardHandBack as its parser', () => {
+    const result = sdkRunExit(
+      base({ structuredOutput: { outcome: 'refused', summary: 'reviewer unnamed' } }),
+      asBoardHandBack,
+    );
+    expect(result.answer).toBe('ran');
+    if (result.answer !== 'ran') return;
+    expect(result.handBack).toEqual({ outcome: 'refused', summary: 'reviewer unnamed' });
+  });
+});
+
+describe('asBoardHandBack', () => {
+  it('parses the written shape, and reads a missing summary as an empty string', () => {
+    expect(asBoardHandBack({ written: 'docs/plans/x.md', summary: 'drafted' })).toEqual({
+      written: 'docs/plans/x.md',
+      summary: 'drafted',
+    });
+    expect(asBoardHandBack({ written: 'docs/plans/x.md' })).toEqual({ written: 'docs/plans/x.md', summary: '' });
+  });
+
+  it('parses the done and refused outcomes, and no other outcome value', () => {
+    expect(asBoardHandBack({ outcome: 'done', summary: 'merged' })).toEqual({ outcome: 'done', summary: 'merged' });
+    expect(asBoardHandBack({ outcome: 'refused', summary: 'reviewer unnamed' })).toEqual({
+      outcome: 'refused',
+      summary: 'reviewer unnamed',
+    });
+    expect(asBoardHandBack({ outcome: 'something-else', summary: 'x' })).toBeNull();
+  });
+
+  it('prefers written over outcome when a value somehow carries both', () => {
+    expect(asBoardHandBack({ written: 'docs/plans/x.md', outcome: 'done', summary: 's' })).toEqual({
+      written: 'docs/plans/x.md',
+      summary: 's',
+    });
+  });
+
+  it('rejects an empty written string rather than treating it as a path', () => {
+    expect(asBoardHandBack({ written: '', summary: 'x' })).toBeNull();
+  });
+
+  it('answers null for a value matching neither shape, or no value at all', () => {
+    expect(asBoardHandBack({ next: 'done', summary: 'x' })).toBeNull();
+    expect(asBoardHandBack({ summary: 'x' })).toBeNull();
+    expect(asBoardHandBack(null)).toBeNull();
+    expect(asBoardHandBack('a string')).toBeNull();
   });
 });
