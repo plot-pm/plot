@@ -1541,10 +1541,7 @@ merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
 # backend, a host returning 503 all afternoon — must not manufacture the state
 # that tells a reader to stop looking. It falls through to the local signals,
 # so a branch with work on the floor reads `stalled`: go and look. That is the
-# safe direction for an answer nobody could verify.
-reached_review() { # $1=branch → 0 when an open or merged PR exists
-  case "$(host_pr_state "$1")" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
-}
+# safe direction for an answer nobody could verify. `worker_of` asks it.
 
 # ---------------------------------------------------------------------------
 # A SLICE THAT WAITS ON ANOTHER PLAN'S BRANCH
@@ -2145,10 +2142,10 @@ worker_of() { # $1=branch → "state\tpid\texit"
   #
   # `$st` IS NOT THIS FACT. It answers a ref/ancestry question — a branch under
   # review reads `wip` — and `merged` there can come from a merge subject with
-  # no PR behind it at all. `reached_review` asks the one question that
+  # no PR behind it at all. The PR state below is the one question that
   # outranks the local signals: has this work left the worker's hands?
   local pr_fact=""
-  reached_review "$br" && pr_fact="pr"
+  case "$(host_pr_state "$br")" in OPEN|MERGED) pr_fact="pr" ;; esac
   plot_worker_state "$wt" "$pr_fact"
 }
 
@@ -4348,7 +4345,7 @@ for plan in "${plans[@]}"; do
   # not evidence in either direction. The two were one marker until CI ran the
   # corpus with no token, where every prerequisite answers `-` and every waiting
   # branch read `open`. Reading it
-  # costs a host round trip (`waits_pr_state` passes `--ask`, because a delivered
+  # costs a host round trip (`host_pr_state … --ask`, because a delivered
   # prerequisite's ref is gone and only its PR outlives it), and the scan spends
   # that only where the answer could change the branch's state. Which states
   # those are IS the precedence, so the rule reports it rather than this loop
@@ -4437,7 +4434,7 @@ for plan in "${plans[@]}"; do
       # run, never one per pass.
       #
       # FIELD 9 IS A LIST, comma-joined, so field 10 answers each prerequisite
-      # IN THE SAME ORDER — one `waits_pr_state` call per name, joined the same
+      # IN THE SAME ORDER — one `host_pr_state … --ask` call per name, joined the same
       # way. `entry/branch-state.ts` reads the two columns as parallel lists of
       # equal length and throws otherwise, so a single answer for several names
       # would desync them. Field 11 is carried, unreplaced. Field 12 says, in

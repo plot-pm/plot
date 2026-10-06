@@ -280,6 +280,34 @@ test('waits: a DEFERRED sibling with no PR reads BLOCKED — nobody will start i
   assert.match(scanSlug(repo, gh), /feature\/dependent — blocked — no PR found for feature\/first/);
 });
 
+test('waits: a slice set that cannot be read HOLDS the slice at waiting, and does not block it', () => {
+  // ABSENT IS NOT FALSE. A copy of the scripts whose scan fails `--slice-names`
+  // and answers every other question as the real one does.
+  const repo = makeRepo({ waitsOn: 'feature/other-slice', otherPlan: { phase: 'Approved', slice: 'feature/other-slice' } });
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waits-scripts-'));
+  ctx.push(copy);
+  fs.cpSync(scripts, copy, { recursive: true });
+  fs.renameSync(path.join(copy, 'plot-fleet-scan.sh'), path.join(copy, 'plot-fleet-scan.real.sh'));
+  fs.writeFileSync(path.join(copy, 'plot-fleet-scan.sh'),
+    '#!/usr/bin/env bash\n'
+    + 'for a in "$@"; do [ "$a" = --slice-names ] && { echo "scan unavailable" >&2; exit 3; }; done\n'
+    + 'exec bash "$(dirname "$0")/plot-fleet-scan.real.sh" "$@"\n');
+  fs.chmodSync(path.join(copy, 'plot-fleet-scan.sh'), 0o755);
+  const env = { ...process.env, PATH: `${ghShim({ prereq: 'feature/other-slice', state: null })}:${process.env.PATH}` };
+  let stdout = '';
+  try {
+    stdout = execFileSync('bash', [path.join(copy, 'plot-dispatch.sh'), '--dry-run', 'dependent'],
+      { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    stdout = (e.stdout ?? '') + (e.stderr ?? '');
+  }
+
+  assert.match(stdout, /skipped feature\/dependent \(waiting on feature\/other-slice\)/,
+    `an unread slice set must hold the branch:\n${stdout}`);
+  assert.match(stdout, /--slice-names gave no answer/, `and the refusal names why:\n${stdout}`);
+  assert.doesNotMatch(stdout, /blocked/, `and must never accuse the plan of a typo:\n${stdout}`);
+});
+
 test('waits: an unreachable host HOLDS the slice, and does not block it', () => {
   // Silence is never permission to start, and it is equally not proof of a
   // typo. `blocked` here would tell an operator to go and fix a plan that is

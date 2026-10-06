@@ -3868,7 +3868,7 @@ test('fleet: a failed list does not answer for branches the join never covered',
   // because both arrive as "this branch is not in my table".
   //
   // Here the list FAILS and the branch has a ref, so nothing may be concluded
-  // about its PR at all. `worker_of` asks `reached_review`, whose contract is
+  // about its PR at all. `worker_of` asks `host_pr_state`, and its contract is
   // that an unanswerable host falls through to the LOCAL signals rather than
   // manufacturing the state that tells a reader to stop looking.
   //
@@ -5012,7 +5012,7 @@ test('fleet: a truncation report never licenses the marker', () => {
 
 // THE CALL COUNT IS ASSERTED ON A BRANCH WITH NO REF, which is the population
 // `--ask` is reached for at all. `host_pr_state --ask` fires from `branch_merged`
-// (`:1399`) for a branch whose ref is gone and from `waits_pr_state` (`:1465`)
+// (`:1399`) for a branch whose ref is gone and from the prerequisite refill
 // for a prerequisite; a branch whose ref is pushed answers from the join or from
 // git and asks nothing either way.
 //

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
+import type { PlanSlices } from '../src/rules/branch-state.js';
+
 /**
  * PRODUCTION'S OWN READING, taken the way production takes it.
  *
@@ -444,6 +446,22 @@ export const readEstatePlanMeta = (estate: Estate, mainBranch: string): Record<s
     rmSync(dir, { recursive: true, force: true });
   }
 };
+
+/**
+ * Every plan of the estate as `namedSlices` reads it: `readEstatePlanMeta`,
+ * with each plan's phase and every slice of its `waves` wire field.
+ *
+ * @param estate - the repository to read.
+ * @param mainBranch - the default branch's name.
+ * @returns one entry per plan.
+ */
+export const readEstatePlanSlices = (estate: Estate, mainBranch: string): PlanSlices[] =>
+  readEstatePlanMeta(estate, mainBranch).map((meta) => ({
+    phase: String(meta.phase ?? ''),
+    slices: ((meta.waves ?? []) as { branches?: { branch?: string; deferred?: boolean }[] }[]).flatMap(
+      (slice) => (slice.branches ?? []).map((b) => ({ branch: b.branch ?? '', deferred: b.deferred === true })),
+    ),
+  }));
 
 /**
  * Runs `plot-fleet-scan.sh --slice-names`: the set a `waits:` name is looked

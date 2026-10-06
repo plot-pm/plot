@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { branchState, namedSlices, type BranchReadings } from '../src/rules/branch-state.js';
-import { readEstatePlanMeta, readFleetScan, readSliceNames, type Estate } from './production.js';
+import { readEstatePlanSlices, readFleetScan, readSliceNames, type Estate } from './production.js';
 
 /**
  * A `waits:` PREREQUISITE WITH NO PULL REQUEST, on a sandbox estate (#1305).
@@ -149,14 +149,7 @@ afterAll(() => {
 
 /** The set the rule reads, from the estate as the scan enumerates it. */
 const ruleNames = (): Set<string> =>
-  namedSlices(
-    readEstatePlanMeta(sandbox, 'main').map((meta) => ({
-      phase: String(meta.phase ?? ''),
-      slices: ((meta.waves ?? []) as { branches?: { branch?: string; deferred?: boolean }[] }[]).flatMap(
-        (wave) => (wave.branches ?? []).map((b) => ({ branch: b.branch ?? '', deferred: b.deferred === true })),
-      ),
-    })),
-  );
+  namedSlices(readEstatePlanSlices(sandbox, 'main'));
 
 /** An unstarted branch whose own pull request the host has never seen. */
 const unstarted: BranchReadings = {

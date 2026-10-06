@@ -3184,8 +3184,17 @@ run_waits_preflight() { # → prints refusals; fills waits_held, adds to n_skipp
       # wait, not a typo (#1305). The set is the scan's, of the whole estate,
       # so a slice of ANOTHER plan reads as it does on the board. Asked once,
       # and only when the host answered `none`.
-      none)   [ -n "$slice_names" ] || slice_names=$'\n'"$("$script_dir/plot-fleet-scan.sh" --slice-names 2>/dev/null)"$'\n'
-              case "$slice_names" in *$'\n'"$prereq"$'\n'*) held=waiting ;; *) held=blocked ;; esac ;;
+      # ABSENT IS NOT FALSE. A scan that failed or printed nothing leaves the
+      # set unread, and an unread set holds the branch at `waiting` exactly as
+      # an unaskable host does: telling an operator to fix a correct plan is its
+      # own defect. stderr stays visible, and the refusal names the failure.
+      none)   [ -n "$slice_names" ] || slice_names=$'\n'"$("$script_dir/plot-fleet-scan.sh" --slice-names)"$'\n' || slice_names=$'\n\n'
+              case "$slice_names" in
+                $'\n\n') held=waiting
+                          echo "plot-fleet-scan.sh --slice-names gave no answer: $prereq has no PR, held as waiting rather than called a typo" ;;
+                *$'\n'"$prereq"$'\n'*) held=waiting ;;
+                *) held=blocked ;;
+              esac ;;
       *)      held=waiting ;;
     esac
     # `--allow-waiting` SAYS SO ON THE LINE IT OVERRIDES, ONCE PER PREREQUISITE
@@ -3274,9 +3283,7 @@ worker_state_field() {
 #
 # `worker=` still travels in the footer. It says how this repo is configured,
 # which remains a fact about the repo even where it no longer explains a count.
-print_summary() { # $1=dispatched $2=reused $3=skipped $4=started
-  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$(worker_state_field) brief_asked=${n_brief_asked:-0}"
-}
+# The line is printed once, at the end of the run.
 
 # ---------------------------------------------------------------------------
 # Parallel-agents cap: warn and raise when exceeded
@@ -4232,7 +4239,7 @@ book_started ${claimed_now[@]+"${claimed_now[@]}"} || true
 # appears before the footer.
 check_and_update_cap "$n_started"
 
-print_summary "$n_dispatched" "$n_reused" "$n_skipped" "$n_started"
+echo "summary: dispatched=$n_dispatched reused=$n_reused skipped=$n_skipped started=$n_started brief=missing worker=$(worker_state_field) brief_asked=${n_brief_asked:-0}"
 
 # THE RECEIPT IS SPENT HERE, on the fan-out COMPLETING — never at the gate.
 # `plot-controller-gate.sh` clears on a receipt and LEAVES it, so a run that

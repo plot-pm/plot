@@ -15,7 +15,7 @@ import { mergedBySubject } from '../src/rules/merge-subject.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
 import {
   readCommitsBeyond,
-  readEstatePlanMeta,
+  readEstatePlanSlices,
   readFleetScan,
   readMainBranch,
   readMergeSubjects,
@@ -185,21 +185,14 @@ let prByBranch: Map<string, string>;
  * The set a `waits:` name is looked up in, computed by the rule.
  *
  * `namedSlices` over every plan of the estate, enumerated as the scan
- * enumerates it (`readEstatePlanMeta`): the plan directory of the default
+ * enumerates it (`readEstatePlanSlices`): the plan directory of the default
  * branch plus the plans carried only on prefixed branches. Never the working
  * tree, which the scan does not read.
  *
  * @returns the branch names.
  */
 const readNamedSlices = (): Set<string> =>
-  namedSlices(
-    readEstatePlanMeta(estate, mainBranch).map((meta) => ({
-      phase: String(meta.phase ?? ''),
-      slices: ((meta.waves ?? []) as { branches?: { branch?: string; deferred?: boolean }[] }[]).flatMap(
-        (wave) => (wave.branches ?? []).map((b) => ({ branch: b.branch ?? '', deferred: b.deferred === true })),
-      ),
-    })),
-  );
+  namedSlices(readEstatePlanSlices(estate, mainBranch));
 
 let sliceNames: Set<string>;
 
@@ -418,11 +411,20 @@ describe('the named-slice set', () => {
     // The set is read once more on a disagreement, for a plan that landed
     // between the two readings.
     const compare = () => ({ shell: [...readSliceNames(estate)].sort(), rule: [...readNamedSlices()].sort() });
+    const differ = (read: { shell: string[]; rule: string[] }) => ({
+      shellOnly: read.shell.filter((b) => !read.rule.includes(b)),
+      ruleOnly: read.rule.filter((b) => !read.shell.includes(b)),
+    });
     const first = compare();
-    const { shell, rule } = first.shell.join() === first.rule.join() ? first : compare();
-    expect(rule.length).toBeGreaterThan(0);
-    expect(shell.filter((b) => !rule.includes(b))).toEqual([]);
-    expect(rule.filter((b) => !shell.includes(b))).toEqual([]);
+    const second = first.shell.join() === first.rule.join() ? first : compare();
+    expect(second.rule.length).toBeGreaterThan(0);
+    // The failure names the FIRST reading too: a difference that changed
+    // between the reads is a plan that landed mid-run, one that held is the
+    // rule against the shell.
+    expect(differ(second), `first read: ${JSON.stringify(differ(first))}`).toEqual({
+      shellOnly: [],
+      ruleOnly: [],
+    });
   });
 });
 
