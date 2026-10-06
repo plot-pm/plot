@@ -98,6 +98,14 @@ export const runnerChoice = (reading: RunnerChoiceReading): RunnerChoiceAnswer =
     if (reading.isWorker && reading.workerLoop === 'shell') {
       return { runner: 'refused', reason: SDK_NEEDS_JS_LOOP_REASON };
     }
+    // THE CHARTER WINS OVER THE KEY: the SDK runs only `claude`, so a worker
+    // whose charter names another harness keeps its configured fragment.
+    if (reading.isWorker && reading.charterHarness !== '' && reading.charterHarness !== 'claude') {
+      return {
+        runner: 'command',
+        reason: `the charter names the harness \`${reading.charterHarness}\`, and the SDK runs only \`claude\``,
+      };
+    }
     if (hasNoFragment(reading.fragment)) {
       return { runner: 'refused', reason: SDK_NEEDS_FRAGMENT_REASON };
     }

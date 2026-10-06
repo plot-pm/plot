@@ -80,6 +80,7 @@ describe('readManifestFields', () => {
       attempts: 0,
       correctionAttempts: 0,
       resumeId: '',
+      sliceRuns: 0,
     });
   });
 
@@ -91,6 +92,7 @@ describe('readManifestFields', () => {
       attempts: 0,
       correctionAttempts: 0,
       resumeId: '',
+      sliceRuns: 0,
     });
   });
 
@@ -110,7 +112,15 @@ describe('readManifestFields', () => {
       attempts: 2,
       correctionAttempts: 1,
       resumeId: 'resume-1',
+      sliceRuns: 0,
     });
+  });
+
+  it('reads the slice runs recorded for the assigned branch, and none recorded for another', async () => {
+    const mine = writeManifest({ branch: 'infra/x', sliceRuns: { branch: 'infra/x', runs: 3 } });
+    expect((await readManifestFields(mine)).sliceRuns).toBe(3);
+    const other = writeManifest({ branch: 'infra/y', sliceRuns: { branch: 'infra/x', runs: 3 } });
+    expect((await readManifestFields(other)).sliceRuns).toBe(0);
   });
 });
 
@@ -385,12 +395,24 @@ describe('readPass — ROWS 12-18, the CI wait', () => {
 describe('loopWritesOf', () => {
   it('answers the writes unchanged where none is checks', () => {
     const writes = [{ kind: 'assignment-clear', session: 's' }] as const;
-    expect(loopWritesOf(writes)).toBe(writes);
+    expect(loopWritesOf(writes)).toEqual(writes);
   });
 
-  it('refuses a checks write, naming its branch', () => {
+  it('leaves a checks write out where the SDK runner runs the checks', () => {
+    expect(
+      loopWritesOf(
+        [
+          { kind: 'checks', branch: 'infra/x', worktree: '/w', resumeId: 'r', summary: 's' },
+          { kind: 'assignment-clear', session: 's' },
+        ],
+        true,
+      ),
+    ).toEqual([{ kind: 'assignment-clear', session: 's' }]);
+  });
+
+  it('refuses a checks write without the SDK runner, naming its branch', () => {
     expect(() =>
       loopWritesOf([{ kind: 'checks', branch: 'infra/x', worktree: '/w', resumeId: 'r', summary: 's' }]),
-    ).toThrow('a checks write on infra/x is not applied by this loop yet');
+    ).toThrow('a checks write on infra/x without the SDK runner');
   });
 });

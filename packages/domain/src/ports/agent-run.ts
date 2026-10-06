@@ -38,6 +38,11 @@ export interface AgentRunRequest {
   readonly prompt: string;
   /** The session to resume, or `''` to start a fresh one. */
   readonly resumeId: string;
+  /**
+   * The id a fresh session takes, so the loop's transcript readings find it;
+   * absent or `''` lets the connector choose. Ignored where `resumeId` is set.
+   */
+  readonly sessionId?: string;
   /** The role running — `worker`, or a board role such as `idea` or `brief`. */
   readonly role: string;
   /** The harness this run is asked to use; `''` when unstated. */
@@ -52,6 +57,8 @@ export interface AgentRunRequest {
   readonly maxSpendUsd: number;
   /** How long this run may take before it is ended, in seconds; `0` disables the bound. */
   readonly boundSeconds: number;
+  /** The context-window cap this run is asked to keep, in tokens; `0` for no cap. */
+  readonly contextWindow: number;
   /** What this run may do — the capability list a charter or a default names. */
   readonly capabilities: readonly string[];
   /** Extra environment on top of the run's own inherited one; merged, never a replacement. */

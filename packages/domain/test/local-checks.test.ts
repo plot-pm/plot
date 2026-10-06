@@ -5,6 +5,7 @@ import {
   parseList,
   parseLocalChecks,
   searchTerms,
+  shellWord,
   type LocalChecksReadings,
 } from '../src/rules/local-checks.js';
 
@@ -183,5 +184,18 @@ describe('localChecks', () => {
       readings({ changed: ['packages/domain/src/a.ts', 'packages/domain/src/b.ts'], checks: [CHECKS[2]] }),
     );
     expect(answer.commands).toEqual(['pnpm --filter @plot-pm/domain exec tsc --noEmit']);
+  });
+});
+
+describe('shellWord', () => {
+  it('keeps a plain path as written and single-quotes one the shell would split or expand', () => {
+    expect(shellWord('packages/domain/src/a-b_c.ts')).toBe('packages/domain/src/a-b_c.ts');
+    expect(shellWord('docs/a b.md')).toBe("'docs/a b.md'");
+    expect(shellWord("docs/it's $HOME.md")).toBe("'docs/it'\\''s $HOME.md'");
+  });
+
+  it('quotes a changed path with a space where {changed} fills it', () => {
+    const answer = localChecks(readings({ changed: ['packages/domain/src/a b.ts'] }));
+    expect(answer.commands[0]).toBe("pnpm --filter @plot-pm/domain exec vitest related --run 'packages/domain/src/a b.ts'");
   });
 });

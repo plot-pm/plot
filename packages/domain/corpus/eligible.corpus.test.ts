@@ -1,4 +1,7 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
 import { isClaimable, sliceVerdicts } from '../src/rules/eligible.js';
@@ -6,6 +9,7 @@ import { planQueue } from '../src/rules/queue.js';
 import type { PlanRecord } from '../src/ports/plan-store.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
 import { readFleetScan, readListEligible, type Estate } from './production.js';
+import { git, planPath, planText, sandboxWith, type Sandbox } from './sandbox.js';
 
 /**
  * THE CORPUS TIER FOR ELIGIBILITY: do `--next` and the board agree about every
@@ -46,6 +50,16 @@ import { readFleetScan, readListEligible, type Estate } from './production.js';
  * so the count is asserted against the pulse's own `summary.waves` and against a
  * floor, and a zero-slice run fails.
  *
+ * ## One comparison reads one fetch
+ *
+ * The pulse scan fetches `origin/<main>`; the `--list-eligible` scan after it
+ * runs with `--offline`, so both read the same plans. `--offline` skips the
+ * fetch only: `--list-eligible` still asks the host (`plot-fleet-scan.sh:577`).
+ * Two fetches split one comparison when main moves between them. Measured on
+ * PR #1303's CI run 37389527145 (23:39:33Z–23:40:01Z): main delivered a plan
+ * at 23:39:52Z, so the pulse read it `Approved` and offered its branch, and
+ * `--list-eligible` read it `Delivered` and did not (#1308).
+ *
  * ## On a disagreement: stop, do not adjust
  *
  * Which side is wrong is judgement, exactly as the plan-store tier says. Every
@@ -85,6 +99,36 @@ const TERMINAL_PHASES: ReadonlySet<string> = new Set(['delivered', 'released']);
 const outstandingIn = (slice: FleetReading['plans'][number]['slices'][number]): number =>
   slice.branches.filter((b) => !b.deferred && b.state !== 'merged').length;
 
+/**
+ * Reads both surfaces over one fetch: the pulse scan fetches, and the list scan
+ * reads the refs that fetch wrote.
+ *
+ * @param at - the repository to read.
+ * @param between - runs after the pulse and before the list; a test moves the
+ *   upstream here.
+ * @returns the pulse and the branches `--list-eligible` names.
+ */
+const readBothSurfaces = (
+  at: Estate,
+  between: () => void = () => {},
+): { pulse: FleetReading; offered: string[] } => {
+  const read = FleetReadingSchema.parse(readFleetScan(at));
+  between();
+  return { pulse: read, offered: readListEligible(at, { fetch: false }) };
+};
+
+/**
+ * The branches the pulse offers under a non-terminal plan.
+ *
+ * @param read - the pulse.
+ * @returns the claimable branch names.
+ */
+const offeredByPulse = (read: FleetReading): string[] =>
+  read.plans
+    .filter((plan) => !TERMINAL_PHASES.has(plan.phase))
+    .flatMap((plan) => plan.slices.flatMap((slice) =>
+      slice.branches.filter((b) => isClaimable(slice.verdict, b.state)).map((b) => b.branch)));
+
 let pulse: FleetReading;
 let offered: string[];
 
@@ -93,8 +137,44 @@ beforeAll(() => {
   // round rather than derived from each other: the whole question is whether
   // two emissions of one rule agree, and a list computed from the pulse in this
   // file would agree by construction.
-  pulse = FleetReadingSchema.parse(readFleetScan(estate));
-  offered = readListEligible(estate);
+  ({ pulse, offered } = readBothSurfaces(estate));
+});
+
+describe('one comparison reads one fetch', () => {
+  // A sandbox whose upstream delivers the plan between the two readings: the
+  // shape of #1308, built instead of waited for.
+  let sandbox: Sandbox;
+  const LIVE = 'a-live-thing';
+  const BRANCH = 'feature/live';
+
+  beforeAll(() => {
+    sandbox = sandboxWith([[LIVE, 'Approved', BRANCH]], 'plot-one-fetch-');
+  }, 120_000);
+
+  afterAll(() => {
+    rmSync(sandbox.dir, { recursive: true, force: true });
+  });
+
+  /** Pushes the plan as Delivered from a second clone; the sandbox's refs stay. */
+  const deliverUpstream = (): void => {
+    const other = join(sandbox.dir, 'other');
+    git(sandbox.dir, 'clone', '-q', '-b', 'main', sandbox.upstream, other);
+    git(other, 'config', 'user.email', 'corpus@example.invalid');
+    git(other, 'config', 'user.name', 'Corpus');
+    writeFileSync(join(other, planPath(LIVE)), planText(LIVE, 'Delivered', BRANCH));
+    git(other, 'commit', '-qam', 'deliver');
+    git(other, 'push', '-q', 'origin', 'main');
+  };
+
+  it('agrees when main moves between the readings, and a second fetch would split it', () => {
+    const { pulse: read, offered: list } = readBothSurfaces(sandbox, deliverUpstream);
+
+    expect(offeredByPulse(read)).toEqual([BRANCH]);
+    expect(list).toEqual([BRANCH]);
+    // THE CONTROL: the same list read with its own fetch sees the delivery and
+    // offers nothing, which is the split #1308 reported.
+    expect(readListEligible(sandbox)).toEqual([]);
+  });
 });
 
 describe('the estate is really being read', () => {

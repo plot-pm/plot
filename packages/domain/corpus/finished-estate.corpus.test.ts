@@ -1,10 +1,8 @@
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { readFleetScan, type Estate } from './production.js';
+import { sandboxWith, type SandboxPlan } from './sandbox.js';
 
 /**
  * THE FINISHED ESTATE, BUILT RATHER THAN WAITED FOR.
@@ -32,54 +30,11 @@ import { readFleetScan, type Estate } from './production.js';
  * not a broken scan.
  */
 
-const REPO = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
-
-const PLAN = (slug: string, state: string, branch: string): string =>
-  `# ${slug}\n\n## Status\n\n- **State:** ${state}\n- **Type:** feature\n- **Review:** pr\n`
-  + `- **Impl:** own branches\n\n## Slices\n\n### The slice (Branch: ${branch})\n\n**Done when** merged.\n`;
-
-/** Builds a sandbox estate carrying exactly the plans named. */
-const estateWith = (plans: ReadonlyArray<readonly [string, string, string]>): Estate => {
-  const root = mkdtempSync(join(tmpdir(), 'plot-finished-'));
-  const upstream = join(root, 'upstream');
-  const work = join(root, 'work');
-  mkdirSync(upstream);
-  mkdirSync(work);
-  const git = (cwd: string, ...args: string[]): string =>
-    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-
-  git(upstream, 'init', '-q', '--bare', '.');
-  git(work, 'init', '-q', '.');
-  git(work, 'remote', 'add', 'origin', upstream);
-  git(work, 'config', 'user.email', 'corpus@example.invalid');
-  git(work, 'config', 'user.name', 'Corpus');
-
-  mkdirSync(join(work, 'docs', 'plans'), { recursive: true });
-  // The estate runs ITS OWN scripts (`production.ts`'s `scriptIn`), so the
-  // sandbox carries the ones under test rather than a copy that could drift.
-  cpSync(join(REPO, 'skills', 'plot', 'scripts'), join(work, 'skills', 'plot', 'scripts'), { recursive: true });
-  writeFileSync(join(work, 'CLAUDE.md'),
-    '# Sandbox\n\n## Plot Config\n\n- **Branch prefixes:** feature/\n- **Plan directory:** docs/plans/\n');
-  for (const [slug, state, branch] of plans) {
-    writeFileSync(join(work, 'docs', 'plans', `2026-09-01-${slug}.md`), PLAN(slug, state, branch));
-  }
-  git(work, 'add', '-A');
-  git(work, 'commit', '-qm', 'sandbox');
-  git(work, 'branch', '-M', 'main');
-  git(work, 'push', '-q', '-u', 'origin', 'main');
-  try {
-    git(work, 'remote', 'set-head', 'origin', 'main');
-  } catch {
-    git(work, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
-  }
-  return { root: work };
-};
-
-const roots: string[] = [];
-const build = (plans: ReadonlyArray<readonly [string, string, string]>): Estate => {
-  const estate = estateWith(plans);
-  roots.push(estate.root);
-  return estate;
+const dirs: string[] = [];
+const build = (plans: ReadonlyArray<SandboxPlan>): Estate => {
+  const sandbox = sandboxWith(plans, 'plot-finished-');
+  dirs.push(sandbox.dir);
+  return sandbox;
 };
 
 let finished: Record<string, unknown>;
@@ -94,7 +49,7 @@ beforeAll(() => {
 }, 120_000);
 
 afterAll(() => {
-  for (const root of roots) rmSync(join(root, '..'), { recursive: true, force: true });
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
 describe('a finished estate is a reading, not a broken scan', () => {
