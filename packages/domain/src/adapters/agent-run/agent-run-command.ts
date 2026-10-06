@@ -12,17 +12,12 @@
  *
  * **THE FRAGMENT RUNS WITH `request.prompt` AS ITS OWN ARGUMENT, NEVER
  * INTERPOLATED INTO A SHELL STRING.** `deps.fragment` is a shell FRAGMENT
- * (e.g. `claude -p`), sourced as `. "$1" "$2"` with `$1` the fragment's own
- * scratch file and `$2` the prompt text — the two-argument shape
- * `spawn('sh', ['-c', '<fragment> "$@"', …, request.prompt])` used before this
- * adapter existed, carried over rather than redesigned. Passing the prompt as
- * a real positional argument (not string-concatenated into the sourced file)
- * is what keeps a prompt containing a quote or a `$` from being read as shell
- * syntax.
+ * (e.g. `claude -p`) from the project's own config, run as
+ * `bash -c '<fragment> "$@"' _ <prompt>` — the shape the board routes used
+ * before this adapter existed. The prompt is a positional argument, so a
+ * prompt containing a quote or a `$` is never read as shell syntax.
  */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { AgentRun, AgentRunRequest, AgentRunResult } from '../../ports/agent-run.js';
@@ -57,25 +52,19 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
   run: async (request: AgentRunRequest): Promise<PortResult<AgentRunResult>> => {
     // APPENDED, NEVER TRUNCATED, as the SDK adapter appends: the caller owns
     // the log, and a board log shared by two entrances is appended to.
-    const scratchDir = await mkdtemp(join(tmpdir(), 'plot-agent-run-command-'));
-    const fragmentFile = join(scratchDir, 'fragment.sh');
-    await writeFile(fragmentFile, `${deps.fragment} "$@"`, 'utf8');
-
-    let result;
-    try {
-      result = await deps.boundedRun.run(
-        'env',
-        ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1" "$2"', '_', fragmentFile, request.prompt],
-        {
-          cwd: request.worktree,
-          env: { ...request.env, ...backgroundGateEnv() },
-          boundSeconds: request.boundSeconds,
-          outFile: request.logFile,
-        },
-      );
-    } finally {
-      await rm(scratchDir, { recursive: true, force: true });
-    }
+    //
+    // NO SCRATCH FILE: a file this run wrote would outlive a caller that is
+    // killed mid-run, because nothing then reaches the code that removes it.
+    const result = await deps.boundedRun.run(
+      'env',
+      ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', `${deps.fragment} "$@"`, '_', request.prompt],
+      {
+        cwd: request.worktree,
+        env: { ...request.env, ...backgroundGateEnv() },
+        boundSeconds: request.boundSeconds,
+        outFile: request.logFile,
+      },
+    );
     if (!result.ok) return failed();
     if (result.value.timedOut) return answered(unasked(request, { answer: 'bound' }));
 

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -40,18 +40,11 @@ describe('agentRunCommand', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('writes deps.fragment to a scratch file and sources it, passing request.prompt as that script\'s own argument', async () => {
-    let sourcedFile = '';
-    let fragmentFileContent = '';
-    let promptArg = '';
+  it('runs deps.fragment as the bash script, passing request.prompt as its own argument', async () => {
+    let args: readonly string[] = [];
     const boundedRun: BoundedRun = {
-      run: async (_command, args) => {
-        // args: ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1" "$2"', '_', <fragmentFile>, <prompt>]
-        sourcedFile = args[args.length - 2] ?? '';
-        promptArg = args[args.length - 1] ?? '';
-        // Read it NOW — the adapter removes its scratch directory once this
-        // call returns, so a read after `adapter.run` resolves finds nothing.
-        fragmentFileContent = await readFile(sourcedFile, 'utf8');
+      run: async (_command, given) => {
+        args = given;
         return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
       },
     };
@@ -61,18 +54,14 @@ describe('agentRunCommand', () => {
     const result = await adapter.run(request({ prompt: promptText }, dir, logFile));
 
     expect(result.ok).toBe(true);
-    expect(fragmentFileContent).toBe('claude -p "$@"');
-    expect(promptArg).toBe(promptText);
+    expect(args).toEqual(['-u', 'PLOT_REPO_ROOT', 'bash', '-c', 'claude -p "$@"', '_', promptText]);
   });
 
-  it('never interpolates request.prompt into the sourced fragment file, even when the prompt contains shell metacharacters', async () => {
-    let fragmentFileContent = '';
-    let promptArg = '';
+  it('never interpolates request.prompt into the script, even when the prompt contains shell metacharacters', async () => {
+    let args: readonly string[] = [];
     const boundedRun: BoundedRun = {
-      run: async (_command, args) => {
-        const sourcedFile = args[args.length - 2] ?? '';
-        promptArg = args[args.length - 1] ?? '';
-        fragmentFileContent = await readFile(sourcedFile, 'utf8');
+      run: async (_command, given) => {
+        args = given;
         return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
       },
     };
@@ -81,8 +70,8 @@ describe('agentRunCommand', () => {
     const dangerousPrompt = `Read "$(rm -rf /)" and follow it; echo pwned`;
     await adapter.run(request({ prompt: dangerousPrompt }, dir, logFile));
 
-    expect(fragmentFileContent).not.toContain('rm -rf');
-    expect(promptArg).toBe(dangerousPrompt);
+    expect(args[4]).not.toContain('rm -rf');
+    expect(args[args.length - 1]).toBe(dangerousPrompt);
   });
 
   it('answers ran with a null hand-back on a zero exit status', async () => {

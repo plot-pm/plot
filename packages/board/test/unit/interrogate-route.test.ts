@@ -347,16 +347,10 @@ describe('a run records one round, and the board writes none', () => {
     // as it found it (so the test can see whether the board touched it first),
     // then increments `Rounds:`.
     //
-    // `agentRunCommand` sources the fragment file via `. "$1" "$2"`, where the
-    // `.` builtin's OWN arguments after the file become the SOURCED script's
-    // positional params — not the sourcing shell's. So inside the fragment
-    // body (`<command> "$@"`), `$1` is the real prompt (the route's
-    // `Read <promptPath> and follow it.`) and `$2` is empty; the fragment
-    // scratch file's own path never appears as a positional param at all.
-    // The command this test configures (`sh ${stub}`) therefore receives the
-    // prompt as ITS `$1`, never the prompt FILE's content directly — so the
-    // stub takes one more step than the file itself does: read the path out
-    // of `$1`, then read THAT file's first line (`/challenge-the-plan
+    // `agentRunCommand` runs `bash -c '<command> "$@"' _ <prompt>`, so the
+    // command this test configures (`sh ${stub}`) receives the route's
+    // `Read <promptPath> and follow it.` as ITS `$1`. The stub reads the path
+    // out of `$1`, then that file's first line (`/challenge-the-plan
     // <planPath>`) for the plan.
     const seen = path.join(dir, '..', 'plan-as-the-runner-found-it.md');
     const stub = path.join(dir, '..', 'stub-panel.sh');
