@@ -60,6 +60,7 @@ import {
 
 const ZURICH_NOON = Date.parse('2026-10-01T10:00:00Z');
 const LIMIT_LINE = "You've hit your session limit · resets 5:20pm (Europe/Zurich)";
+const TERMINATED = 'Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.';
 const BRANCH = 'infra/x';
 
 /** What one scripted prompt does: write output, change the desk, and exit. */
@@ -266,6 +267,38 @@ describe('runWorkerLoop — a prompt', () => {
     r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) } };
     await runWorkerLoop(r.deps);
     expect(r.runs[0].env).toMatchObject({ PLOT_SESSION_FLAG: '--resume', PLOT_SESSION_ID: 'h-1' });
+  });
+
+  it('runs the prompt with the background gate: the switch and the disallowed tools (#1322)', async () => {
+    const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }]);
+    await runWorkerLoop(r.deps);
+    expect(r.runs[0].env).toMatchObject({
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+      PLOT_BACKGROUND_DENY: 'Monitor,ScheduleWakeup,CronCreate,TaskStop,ListAgents',
+    });
+  });
+
+  it('resumes a turn that dropped its background work once, then ends blocked when it drops again (row 10c)', async () => {
+    const r = rig(ASSIGNED, [{ output: `work\n${TERMINATED}\n` }, { output: `${TERMINATED}\n` }]);
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.runs).toHaveLength(2);
+    expect(r.deskCalls.appendedCorrections).toHaveLength(1);
+    expect(r.deskCalls.appendedCorrections[0]?.correction).toContain(TERMINATED);
+    expect(r.deskCalls.corrections).toHaveLength(0);
+    expect(r.logs).toContain(`plot-worker-loop: the turn on ${BRANCH} ended with its background work dropped; resuming the session once`);
+    expect(r.deskCalls.blockedMarkers.at(-1)?.text).toContain(TERMINATED);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
+    expect(r.read().sliceRuns).toEqual({ branch: BRANCH, runs: 2 });
+  });
+
+  it('ends blocked on the marker of an agent whose dropped turn asked a person, with no resume', async () => {
+    const r = rig(ASSIGNED, [
+      { output: TERMINATED, during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') },
+    ]);
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.runs).toHaveLength(1);
+    expect(r.deskCalls.appendedCorrections).toHaveLength(0);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
   });
 
   it('refuses a prompt the charter refused (exit 1, nothing run)', async () => {

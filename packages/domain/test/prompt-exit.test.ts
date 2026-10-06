@@ -436,11 +436,12 @@ describe('promptExit', () => {
   });
 
   describe('the harness table', () => {
-    it('names the prefix, the five limits and the reset separator measured in #1141', () => {
+    it('names the prefix, the five limits and the reset separator measured in #1141, and the #1322 drop prefix', () => {
       expect(claude).toEqual({
         prefix: "You've hit your ",
         names: ['session limit', 'weekly limit', 'Opus limit', 'fast limit', 'monthly spend limit'],
         resetSeparator: ' · resets ',
+        dropped: 'Background tasks still running after ',
       });
     });
 

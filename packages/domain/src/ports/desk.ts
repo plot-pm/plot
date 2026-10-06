@@ -128,6 +128,17 @@ export interface Desk {
   ): Promise<PortResult<void>>;
 
   /**
+   * Appends one correction the caller already wrote, followed by the `---`
+   * separator {@link writeCorrection} also ends with, to `PLOT-CORRECTION.md`.
+   *
+   * @param worktree - the worktree the correction lands in, absolute.
+   * @param correction - the correction as Markdown, verbatim.
+   * @returns nothing; always answers rather than failing, matching
+   *   {@link writeCorrection}.
+   */
+  appendCorrection(worktree: string, correction: string): Promise<PortResult<void>>;
+
+  /**
    * Records the usage limit a desk is waiting out, OVERWRITING any earlier
    * record.
    *

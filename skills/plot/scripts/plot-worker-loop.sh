@@ -1945,6 +1945,16 @@ else
 fi
 unset _settings_path
 
+# THE BACKGROUND GATE, exported once for every prompt this loop starts (#1322):
+# `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, and `PLOT_BACKGROUND_DENY` for the
+# prompt file's `--disallowedTools`. The values are `backgroundGateEnv`'s, the
+# definition the SDK runner and the JS loop read, asked through the bundle so
+# the shell holds no copy. A bundle that does not answer starts the agent
+# without the gate, and the log says so.
+if _gate=$(node "$script_dir/board/plot-prompt.mjs" --background-gate 2>/dev/null) && [ -n "$_gate" ]; then
+  while IFS='=' read -r _name _value; do export "$_name=$_value"; done <<< "$_gate"
+else echo "plot-worker-loop: no background gate — $script_dir/board/plot-prompt.mjs did not answer, so a turn can end with its background work still running" >&2; fi
+
 # Determine the main branch for worktree creation.
 main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 [ -z "$main_branch" ] && main_branch=main
@@ -2778,6 +2788,31 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
     exit 1
   fi
 
+  # ---------------------------------------------------------------------------
+  # THE TURN DROPPED ITS BACKGROUND WORK — resumed once, then a person (#1322)
+  # ---------------------------------------------------------------------------
+  #
+  # `promptExit` answers `dropped` for a status-0 run whose output carries the
+  # harness's termination line or a closing line that waits on background
+  # work, and the bundle hands back `backgroundDropCorrection`'s text. The
+  # first drop on a slice appends that text to the correction file and runs the
+  # prompt again, which resumes the session; a second drop on the same slice
+  # ends `blocked` with a marker. `agentLoop`'s row 10c decides the same for
+  # the JS loop, and `test/reconcile/loop-prompt-launch.test.mjs` runs on both.
+  # A marker the agent wrote answers first, through today's path below.
+  if [ "$_exit_verdict" = "dropped" ] && ! plot_worker_blocked "${PLOT_WORKTREE:-$PWD}"; then
+    if [ "${_dropped_on:-}" != "${PLOT_BRANCH:-}" ]; then
+      _dropped_on=${PLOT_BRANCH:-}
+      printf '%s\n\n---\n\n' "${_exit_answer#*$'\t'}" >> "${PLOT_WORKTREE:-$PWD}/$(correction_file_name)"
+      echo "plot-worker-loop: the turn on ${PLOT_BRANCH:-?} ended with its background work dropped; resuming the session once" >&2
+      continue
+    fi
+    echo "plot-worker-loop: the turn on ${PLOT_BRANCH:-?} ended with its background work dropped again after one resume. The slice stays claimed and a person is asked; ending worker.$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}")" >&2
+    write_ending "${PLOT_WORKTREE:-$PWD}" blocked agent "${PLOT_BRANCH:-}" "the turn ended with its background work dropped, twice"
+    write_blocked_marker "${PLOT_WORKTREE:-$PWD}" "PLOT-BLOCKED: \`${PLOT_BRANCH:-?}\`'s turn ended with its background work dropped again after one resume. \`$(correction_file_name)\` in this worktree holds what the run reported. A person decides how the slice finishes, then restarts this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
+    exit 0
+  fi
+
   if [ "$_exit_verdict" = "unstarted" ]; then
     _start_attempts=$(manifest_attempts "${PLOT_MANIFEST_FILE:-}")
     if [ "$_start_attempts" -lt "$START_ATTEMPT_BUDGET" ]; then
@@ -3195,6 +3230,7 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   clear_limited_record "${PLOT_WORKTREE:-$PWD}"
   _after_wait=0
   _wait_head=""
+  _dropped_on=""
 
   # The pid records follow the loop, so the desk it leaves names no live worker.
   # After the claim push, because a rejected push leaves the loop where it is.

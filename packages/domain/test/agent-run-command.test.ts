@@ -1,8 +1,10 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { agentRunCommand } from '../src/adapters/agent-run/agent-run-command.js';
+import { HARNESS_LIMIT_LINES } from '../src/adapters/harness/limit-lines.js';
+import { backgroundGateEnv } from '../src/rules/agent-run-env.js';
 import { answered, failed } from '../src/port-result.js';
 import type { BoundedRun, BoundedRunResult } from '../src/ports/bounded-run.js';
 import type { AgentRunRequest } from '../src/ports/agent-run.js';
@@ -71,6 +73,23 @@ describe('agentRunCommand', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.end).toEqual({ answer: 'ran', handBack: null });
+  });
+
+  it('runs the command with the background gate, and answers dropped for a run that printed the termination line', async () => {
+    const line = 'Background tasks still running after 600s; terminating.';
+    let env: Readonly<Record<string, string>> | undefined;
+    const boundedRun: BoundedRun = {
+      run: async (_command, _args, options) => {
+        env = options.env;
+        await writeFile(options.outFile, `${line}\n`, 'utf8');
+        return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 600 });
+      },
+    };
+    const adapter = agentRunCommand({ boundedRun, limitPatterns: HARNESS_LIMIT_LINES.claude, now: () => 0 });
+
+    const result = await adapter.run(request({}, dir, logFile));
+    expect(env).toMatchObject(backgroundGateEnv());
+    expect(result.ok && result.value.end).toEqual({ answer: 'dropped', line });
   });
 
   it('answers unstarted on a non-zero exit with no limit line', async () => {

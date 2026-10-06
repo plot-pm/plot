@@ -4,6 +4,7 @@ import type { LoopRegistration } from '../rules/desk-manifest.js';
 import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
 import type { MonitorVerdict } from '../rules/sample.js';
+import { backgroundDropCorrection } from '../rules/background-drop.js';
 import { runLimitRefusal } from '../rules/run-limit.js';
 import type { EndingActor, EndingReason } from '../entities/ending.js';
 import { type Decision, type Write, decide } from './decision.js';
@@ -123,6 +124,11 @@ export interface AgentLoopReadings {
   readonly sliceRuns: number;
   /** `Slice max runs` — the run count at which no further run starts. */
   readonly sliceMaxRuns: number;
+  /**
+   * Whether this slice was already resumed once after a turn that dropped
+   * its background work. Read only where {@link exit}`.answer` is `dropped`.
+   */
+  readonly backgroundDropResumed: boolean;
   /**
    * Why this desk may not be reset — empty when nothing holds it. Read at
    * take-up and after a `ran` exit. At either point, `uncommitted-changes` or
@@ -541,11 +547,14 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
 
   // ROW 10 — the agent wrote its own PLOT-BLOCKED marker. Read before every
   // hand-back: a marker on the desk answers whatever the agent handed back.
-  if (exit !== null && exit.answer === 'ran' && readings.markerWritten) {
+  if (exit !== null && (exit.answer === 'ran' || exit.answer === 'dropped') && readings.markerWritten) {
     return end(worktree, branch, 'blocked', 'agent', 'the agent declared itself blocked', 0, [
       blockedDeclaration(worktree, branch, readings.markerText),
     ]);
   }
+
+  // ROW 10c — the turn ended with its background work dropped.
+  if (exit !== null && exit.answer === 'dropped') return droppedTurn(readings, branch, exit.line);
 
   // ROW 10a — the agent handed back `blocked`.
   if (exit !== null && exit.answer === 'ran' && readings.handBack === 'blocked') {
@@ -596,6 +605,36 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   }
 
   return ciWait(readings, branch);
+};
+
+/**
+ * ROW 10c — a turn that ended with its background work dropped. The first
+ * time on a slice, the loop resumes the session with
+ * {@link backgroundDropCorrection}, unless `Slice max runs` is reached. The
+ * second time, the slice ends `blocked` with a marker naming the line.
+ *
+ * @param readings - this pass's readings.
+ * @param branch - the branch the slice is on.
+ * @param line - the output line that shows the drop.
+ * @returns an `agent-resume` write, the `run-limit` ending, or the `blocked` ending.
+ */
+const droppedTurn = (readings: AgentLoopReadings, branch: string, line: string): Decision<AgentLoopDetail> => {
+  const { worktree } = readings;
+  if (readings.backgroundDropResumed) {
+    const question = `PLOT-BLOCKED: \`${branch}\`'s turn ended with its background work dropped again after one resume. The run reported: ${line} — a person decides how the slice finishes.`;
+    return end(worktree, branch, 'blocked', 'agent', 'the turn ended with its background work dropped, twice', 0, [
+      { kind: 'blocked-marker', worktree, branch, question },
+      blockedDeclaration(worktree, branch, 'the turn ended with its background work dropped, twice'),
+    ]);
+  }
+
+  const limited = runLimitEnding(readings, branch);
+  if (limited !== null) return limited;
+  return decide(
+    'agent-loop',
+    [{ kind: 'agent-resume', branch, worktree, resumeId: readings.resumeId, correction: backgroundDropCorrection(line) }],
+    { branch, exitCode: null, note: 'the turn dropped its background work, resuming once' },
+  );
 };
 
 /**

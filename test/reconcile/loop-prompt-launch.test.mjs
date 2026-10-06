@@ -133,3 +133,53 @@ test('a SIGTERM while the prompt runs leaves no manifest behind', async () => {
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
 });
+
+// THE BACKGROUND GATE (#1322). The prompt is the fixture `claude`: it records
+// what it received, and the loop's answer is read from the desk.
+test('the loop runs its prompt with the background gate: the switch and the disallowed tools', () => {
+  const sb = sandbox(
+    'echo "$CLAUDE_CODE_DISABLE_BACKGROUND_TASKS $PLOT_BACKGROUND_DENY" > "$PLOT_WORKTREE/../gate-seen"\n' +
+      'echo "PLOT-BLOCKED: stop here" > "$PLOT_WORKTREE/PLOT-BLOCKED.md"\n',
+  );
+  try {
+    try {
+      execFileSync('bash', [loop], { cwd: sb.wt, env: loopEnv(sb), timeout: 60_000, stdio: 'ignore' });
+    } catch {
+      // The ending is not this test's question.
+    }
+    const seen = fs.readFileSync(path.join(sb.root, 'gate-seen'), 'utf8').trim();
+    assert.equal(seen, '1 Monitor,ScheduleWakeup,CronCreate,TaskStop,ListAgents');
+  } finally {
+    fs.rmSync(sb.root, { recursive: true, force: true });
+  }
+});
+
+const TERMINATED =
+  'Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.';
+
+test('a turn that drops its background work is resumed once, then handed to a person when it drops again', () => {
+  // Each run counts itself, prints the harness's termination line to stderr
+  // as `claude -p` does, and exits 0.
+  const sb = sandbox(
+    'echo run >> "$PLOT_WORKTREE/../runs"\n' +
+      `echo '${TERMINATED}' >&2\n`,
+  );
+  try {
+    let status = 0;
+    try {
+      execFileSync('bash', [loop], { cwd: sb.wt, env: loopEnv(sb), timeout: 120_000, stdio: 'ignore' });
+    } catch (err) {
+      status = err.status ?? -1;
+    }
+    const runs = fs.readFileSync(path.join(sb.root, 'runs'), 'utf8').trim().split('\n');
+    assert.equal(runs.length, 2, 'the prompt ran, was resumed once, and was not run a third time');
+    const correction = fs.readFileSync(path.join(sb.wt, 'PLOT-CORRECTION.md'), 'utf8');
+    assert.match(correction, /^## The last turn ended with its background work dropped/);
+    assert.ok(correction.includes(TERMINATED), 'the correction names the line');
+    const marker = fs.readFileSync(path.join(sb.wt, 'PLOT-BLOCKED.md'), 'utf8');
+    assert.match(marker, /^PLOT-BLOCKED: `feature\/x`'s turn ended with its background work dropped again after one resume/);
+    assert.equal(status, 0);
+  } finally {
+    fs.rmSync(sb.root, { recursive: true, force: true });
+  }
+});

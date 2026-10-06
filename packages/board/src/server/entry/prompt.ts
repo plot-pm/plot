@@ -5,6 +5,7 @@
 // worker, to answer which file to source.
 import { readCharter, charterPath, type CharterReading } from '@plot-pm/domain/entities/charter';
 import { resolveLaunch, resolvePrompt } from '@plot-pm/domain/rules/prompt';
+import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -151,6 +152,18 @@ export const capabilities = (repoRoot: string, name: string): { text: string; re
 };
 
 /**
+ * The background gate every prompt run receives, as `NAME=VALUE` lines for
+ * `plot-worker-loop.sh` to export: `backgroundGateEnv`, the definition the SDK
+ * runner and the JS loop read.
+ *
+ * @returns one line per variable.
+ */
+export const backgroundGate = (): string =>
+  Object.entries(backgroundGateEnv())
+    .map(([name, value]) => `${name}=${value}\n`)
+    .join('');
+
+/**
  * Print the answer.
  *
  * `--launch` ASKS THE SECOND QUESTION, and it is a flag rather than a
@@ -164,6 +177,9 @@ export const capabilities = (repoRoot: string, name: string): { text: string; re
  * printed exactly as before, because `plot-worker-loop.sh` parses that line
  * positionally and takes the whole tail as its last field.
  *
+ * `--background-gate` takes no further argument and prints
+ * {@link backgroundGate}.
+ *
  * @param argv - the flag, if any, then the repo root and the agent name.
  * @param write - where the answer goes.
  * @returns the process exit code — 0 resolved, 2 bad arguments, 3 refused.
@@ -172,6 +188,10 @@ export const run = (
   argv: readonly string[],
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): number => {
+  if (argv[0] === '--background-gate') {
+    write(backgroundGate());
+    return 0;
+  }
   const wantsLaunch = argv[0] === '--launch';
   const asked = argv[0] === '--capabilities';
   const [repoRoot, name = ''] = wantsLaunch || asked ? argv.slice(1) : argv;
