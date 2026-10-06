@@ -83,11 +83,11 @@ interface WaitClock {
   /** The wait's start, epoch ms; `null` outside one. */
   since: number | null;
   /**
-   * The PR number the checks wait read once, on entry; `null` where none was
-   * read or the host could not answer. The host is not asked again inside the
-   * wait, as the shell asks `pr_is_open` once per finished prompt.
+   * The open PR's number, read once on entry to the checks wait. The host is
+   * not asked again inside the wait, as the shell asks `pr_is_open` once per
+   * finished prompt.
    */
-  pr?: number | null;
+  pr: number | null;
 }
 
 /** Every port this entry reads or writes through, composed once at start. */
@@ -439,20 +439,19 @@ export const readPass = async (
     const pr = prAnswer.ok ? prAnswer.value : null;
     const prOpen = pr !== null && pr.state === 'OPEN';
     const prNumber = pr !== null ? pr.number : null;
-    // AN UNREADABLE PR STATE STARTS THE WAIT. Only a host that answered with
-    // no open PR seals the slice; `Checks wait` bounds the wait either way.
-    if (!pushed || (prAnswer.ok && !prOpen)) {
+    // ON ENTRY, A HOST THAT CANNOT BE ASKED READS AS NO PR, as the shell's
+    // `pr_is_open` reads it: no CI answer can be waited for without one.
+    if (!pushed || !prOpen) {
       return { ...base, pushed, prOpen, pr: prNumber };
     }
     clock.since = Date.now();
     clock.pr = prNumber;
   }
 
-  // ROWS 12-18 — work is pushed and a PR is open, or the host could not say:
-  // the CI wait.
+  // ROWS 12-18 — work is pushed and a PR is open: the CI wait.
   const pushed = true;
-  const prOpen = clock.pr !== null && clock.pr !== undefined;
-  const prNumber = clock.pr ?? null;
+  const prOpen = true;
+  const prNumber = clock.pr;
   const waitedSeconds = Math.floor((Date.now() - clock.since) / 1000);
 
   if (config.checksWaitSeconds <= 0) {
@@ -860,7 +859,7 @@ const runPrompt = async (
  * @returns the process exit code the decision named.
  */
 export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
-  const clock: WaitClock = { since: null };
+  const clock: WaitClock = { since: null, pr: null };
   let held: Held = { ...FRESH };
   let previousBranch = '';
   let hopFrom = '';

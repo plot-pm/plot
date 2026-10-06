@@ -687,17 +687,14 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.declarations).toHaveLength(1);
   });
 
-  it('starts the checks wait when the PR state cannot be read on entry', async () => {
+  it('seals without a checks wait when the PR state cannot be read on entry, as the shell does', async () => {
     const r = rig(ASSIGNED, [{}]);
-    r.deps = {
-      ...r.deps,
-      ports: { ...r.ports, host: { prState: async () => ({ ok: false, why: 'failed' }) } as WorkerLoopPorts['host'] },
-    };
-    const clock = { since: null };
+    const ports = { ...r.ports, host: { prState: async () => ({ ok: false, why: 'failed' }) } as WorkerLoopPorts['host'] };
+    const clock = { since: null, pr: null };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
-    const readings = await readPass(r.deps.ports, r.manifestFile, ran, rigConfig(), clock);
-    expect(readings.checks).toBe('settled');
-    expect(readings.pr).toBeNull();
+    const readings = await readPass(ports, r.manifestFile, ran, rigConfig(), clock);
+    expect(readings).toMatchObject({ pushed: true, prOpen: false, checks: null });
+    expect(clock.since).toBeNull();
   });
 
   it('does not wait for checks when Checks wait is 0', async () => {
@@ -1022,17 +1019,16 @@ describe('readPass — unreadable host readings', () => {
       ...r.ports,
       host: { ...r.ports.host, prState: fail } as WorkerLoopPorts['host'],
     };
-    const clock = { since: null };
+    const clock = { since: null, pr: null };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const a = await readPass(ports, r.manifestFile, ran, rigConfig(), clock);
     expect(a.prOpen).toBe(false);
-    expect(a.checks).not.toBeNull();
     const b = await readPass(
       { ...r.ports, refs: { ...r.ports.refs, remoteTip: fail } as WorkerLoopPorts['refs'], build: { ...r.ports.build, runForSha: fail } as WorkerLoopPorts['build'] },
       r.manifestFile,
       ran,
       rigConfig(),
-      { since: null },
+      { since: null, pr: null },
     );
     expect(b.tip).toBe('unknown');
     expect(b.checks).toBeDefined();
