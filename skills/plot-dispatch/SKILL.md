@@ -218,6 +218,8 @@ absent, say so and name the command that writes it from the shipped template:
 ../plot/scripts/plot-install-prompt.sh
 ```
 
+**Where `Agent runner` reads `sdk`, the prompt file is `.plot/worker-prompt.md`.** The JS loop sends its text as one agent turn through the Agent SDK, fills `{branch}`, `{brief}` and `{scripts}`, and appends the `next` hand-back protocol. Where it is absent, say so: the loop reads Plot's shipped `../plot/templates/worker-prompt.md` and logs that once, and a project copies that file to `.plot/worker-prompt.md` to change the text. The `.md` and the `.sh` hold the same project text for the two runners, a declared duplicate. `Agent runner: sdk` needs `Worker loop: js`: the `dispatch` and `continue` controllers refuse a worker under `Worker loop: shell` with `sdk-needs-js-loop`.
+
 > **Unattended (`PLOT_UNATTENDED=1`):** stop, and write **nothing** to
 > `## Plot Config`. Both answers above are durable configuration, so an
 > unattended default would not merely act unasked — it would record a choice

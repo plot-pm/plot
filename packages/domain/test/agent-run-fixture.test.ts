@@ -18,6 +18,7 @@ const request = (over: Partial<AgentRunRequest> = {}): AgentRunRequest => ({
   maxTurns: 150,
   maxSpendUsd: 0,
   boundSeconds: 28800,
+  contextWindow: 0,
   capabilities: [],
   env: {},
   logFile: `${WORKTREE}/.plot-worker.log`,

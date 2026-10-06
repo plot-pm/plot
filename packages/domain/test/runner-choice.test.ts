@@ -47,6 +47,18 @@ describe('runnerChoice', () => {
     });
   });
 
+  it('runs command for a worker whose charter names another harness, even with Agent runner: sdk', () => {
+    const result = runnerChoice(workerReading({ agentRunner: 'sdk', charterHarness: 'codex' }));
+    expect(result.runner).toBe('command');
+    expect(result.reason).toContain('codex');
+  });
+
+  it('runs the SDK for a worker whose charter names claude', () => {
+    expect(runnerChoice(workerReading({ agentRunner: 'sdk', charterHarness: 'claude' }))).toMatchObject({
+      runner: 'sdk',
+    });
+  });
+
   it('a board role is unaffected by Worker loop — sdk runs regardless', () => {
     expect(
       runnerChoice(boardReading({ agentRunner: 'sdk', isWorker: false, workerLoop: 'shell' })),

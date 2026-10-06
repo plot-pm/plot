@@ -31,3 +31,11 @@ supportedArchitectures:
     - current
     - glibc
     - musl
+
+# THE AGENT SDK'S PLATFORM PACKAGES ARE NOT INSTALLED. Each holds a 229-246 MB
+# `claude` binary, and `supportedArchitectures` above would fetch six of them
+# on every install: measured 2026-10-06, 1,368 MB of a 1,739 MB node_modules.
+# The SDK runner starts the operator's `claude` from PATH
+# (`pathToClaudeCodeExecutable`), and `plot-worker-loop.mjs` bundles none.
+ignoredOptionalDependencies:
+  - '@anthropic-ai/claude-agent-sdk-*'

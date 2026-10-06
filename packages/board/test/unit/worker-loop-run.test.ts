@@ -512,8 +512,11 @@ describe('runWorkerLoop — a hop', () => {
 
   it('mints a handle for a different branch, runs --session-id on it, and counts the wave', async () => {
     const { r, minted } = hopRig('feature/next', 'h-1');
+    r.write({ ...r.read(), correctionAttempts: 2 });
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(minted).toEqual(['M']);
+    // THE COUNT BELONGS TO THE BRANCH: the next slice does not inherit it.
+    expect(r.read().correctionAttempts).toBe(0);
     expect(r.runs[1].env).toMatchObject({ PLOT_BRANCH: 'feature/next', PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
     expect(r.read()).toMatchObject({ resumeId: 'h-new', wavesCount: 2 });
   });
@@ -527,8 +530,10 @@ describe('runWorkerLoop — a hop', () => {
 
   it('keeps the handle when the hop lands on the same branch, and still counts the wave', async () => {
     const { r, minted } = hopRig(BRANCH, 'h-1');
+    r.write({ ...r.read(), correctionAttempts: 1 });
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(minted).toEqual([]);
+    expect(r.read().correctionAttempts).toBe(1);
     expect(r.runs[1].env?.PLOT_SESSION_ID).toBe('h-1');
     expect(r.read()).toMatchObject({ resumeId: 'h-1', wavesCount: 2 });
   });
@@ -919,7 +924,7 @@ describe('main — configuration', () => {
       return key === 'Worker bound' ? '1' : undefined;
     };
     expect(await driven(main({}, r.dir, config, noStop))).toBe(124);
-    expect(asked).toEqual(['Worker bound', 'Checks wait', 'Correction budget', 'Slice max runs']);
+    expect(asked).toEqual(['Worker bound', 'Agent runner', 'Worker command', 'Checks wait', 'Correction budget', 'Slice max runs']);
     asked.length = 0;
     expect(await driven(main({ PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' }, r.dir, config, noStop))).toBe(124);
     cwd.mockRestore();
@@ -956,9 +961,9 @@ describe('manifest and marker readers', () => {
     fs.writeFileSync(f, '{not json');
     expect((await readManifestFields(f)).session).toBe('');
     fs.writeFileSync(f, JSON.stringify({ session: 1, worktree: 2, branch: 3, attempts: 1.5, correctionAttempts: 'x', resumeId: 4 }));
-    expect(await readManifestFields(f)).toEqual({ session: '', worktree: '', branch: '', attempts: 0, correctionAttempts: 0, resumeId: '' });
+    expect(await readManifestFields(f)).toEqual({ session: '', worktree: '', branch: '', attempts: 0, correctionAttempts: 0, resumeId: '', sliceRuns: 0 });
     fs.writeFileSync(f, JSON.stringify({ session: 's', worktree: 'w', branch: 'b', attempts: 2, correctionAttempts: 1, resumeId: 'h' }));
-    expect(await readManifestFields(f)).toEqual({ session: 's', worktree: 'w', branch: 'b', attempts: 2, correctionAttempts: 1, resumeId: 'h' });
+    expect(await readManifestFields(f)).toEqual({ session: 's', worktree: 'w', branch: 'b', attempts: 2, correctionAttempts: 1, resumeId: 'h', sliceRuns: 0 });
   });
 
   it('stamps loop: js, and leaves an absent, empty-path or non-object manifest alone', async () => {

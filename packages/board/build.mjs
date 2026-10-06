@@ -415,6 +415,13 @@ fs.chmodSync(shippedRegistryd, 0o755);
 // `plot-worker-loop.sh` `exec`s this bundle; `shell` remains the default and
 // runs no Node at all. See `entry/worker-loop.ts` for what it decides and
 // what it does not.
+//
+// THE ONE BUNDLE THAT CARRIES `@anthropic-ai/claude-agent-sdk`, for the SDK
+// runner (`Agent runner: sdk`). Its optional per-platform packages hold a
+// 229-246 MB `claude` binary each and stay out: the SDK runs the operator's
+// `claude` from PATH. No other bundle imports `agent-run-sdk.ts`, and
+// `test/worker-loop-bundle.test.mjs` proves `plot-registryd.mjs` and the rest
+// carry none of it.
 const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
 const shippedWorkerLoop = path.join(here, '../../skills/plot/scripts/board/plot-worker-loop.mjs');
 
@@ -425,6 +432,7 @@ await esbuild.build({
   format: 'esm',
   target: 'node20',
   outfile: workerLoopArtifact,
+  external: ['@anthropic-ai/claude-agent-sdk-*'],
   define: { PLOT_EMBEDDED: 'true' },
   minify: true,
   legalComments: 'none',

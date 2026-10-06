@@ -144,6 +144,12 @@
 #                       it does today and names `no-brief-command` as the
 #                       reason, so a project that has never set the key behaves
 #                       exactly as before.
+#   Agent runner        command | sdk: how the JS loop runs a worker's prompt;
+#                       `sdk` needs `Worker loop: js`. Absent = command.
+#   Agent models        `role = model` list (`worker = sonnet`); a charter wins.
+#   Agent max turns     turns one SDK run may take. Absent = 150.
+#   Slice max runs      SDK runs one slice may start. Absent = 12.
+#   Agent context window  an SDK run's `autoCompactWindow`. Absent = 200000.
 # Plot 2 posture keys (repo-declared ceremony bounds; all optional):
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none
@@ -202,10 +208,7 @@ cmd="${1:?Usage: plot-config.sh get <key> [default]}"
 key="${2:?Usage: plot-config.sh get <key> [default]}"
 default="${3:-}"
 
-if [ "$cmd" != "get" ]; then
-  echo "plot-config: unknown subcommand '$cmd' (only 'get' is supported)" >&2
-  exit 1
-fi
+[ "$cmd" = "get" ] || { echo "plot-config: unknown subcommand '$cmd' (only 'get' is supported)" >&2; exit 1; }
 
 # THE CALLER'S ROOT IS TAKEN WHERE IT OFFERS ONE. `git rev-parse` is ~5 ms and
 # this script runs once per config key, so a caller reading several keys pays
@@ -219,11 +222,8 @@ fi
 # exported stale path would otherwise make every config read answer from a
 # repository that is not this one, silently. Asking git is the safe answer and
 # stays the default for every caller that offers nothing.
-if [ -n "${PLOT_REPO_ROOT:-}" ] && [ -d "$PLOT_REPO_ROOT" ]; then
-  root="$PLOT_REPO_ROOT"
-else
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || root="."
-fi
+root="${PLOT_REPO_ROOT:-}"
+[ -n "$root" ] && [ -d "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null) || root="."
 
 # Find the first repo-root file that contains a ## Plot Config section.
 # CLAUDE.md wins for backwards compatibility; AGENTS.md is the modern fallback.
@@ -261,8 +261,4 @@ if [ -n "$config_file" ]; then
         s/^[[:space:]]+//; s/[[:space:]]+$//')  # trim ends
 fi
 
-if [ -n "$value" ]; then
-  printf '%s\n' "$value"
-else
-  printf '%s\n' "$default"
-fi
+printf '%s\n' "${value:-$default}"

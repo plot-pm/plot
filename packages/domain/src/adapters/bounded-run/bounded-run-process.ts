@@ -21,7 +21,7 @@ import type { Processes } from '../../ports/processes.js';
  * @param processes - where to read descendants from.
  * @param pid - the root to end.
  */
-const killTree = async (processes: Processes, pid: number): Promise<void> => {
+export const killTree = async (processes: Processes, pid: number): Promise<void> => {
   const kids = await processes.childrenOf(pid);
   try {
     process.kill(pid, 'SIGKILL');
@@ -51,7 +51,7 @@ const killTree = async (processes: Processes, pid: number): Promise<void> => {
  *
  * @param pid - the root to end.
  */
-const killTreeSync = (pid: number): void => {
+export const killTreeSync = (pid: number): void => {
   let kids: readonly number[] = [];
   try {
     kids = execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' })
