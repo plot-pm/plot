@@ -4,6 +4,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rmTree } from '../helpers.mjs';
 import {
+  agentDesk,
+  agentManifest,
   agentsFixture,
   buildFixture,
   deskFixture,
@@ -19,6 +21,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   PASS_INTERVAL_MS,
+  liveHolders,
+  readClaimAnswer,
+  takeUpLine,
+  takeUpRefusalOf,
   idleVerdict,
   main,
   offsetClock,
@@ -335,22 +341,105 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.runs.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('waits a pass and re-reads when a take-up write fails', async () => {
-    const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }]);
-    let fail = true;
-    const trees: Trees = {
-      ...r.ports.trees,
-      resetOnto: async (...a) => (fail ? ((fail = false), { ok: false, why: 'failed' }) : r.ports.trees.resetOnto(...a)),
-    };
+  it('clears the assignment and goes free when the desk reset is refused, running no prompt', async () => {
+    const r = rig(ASSIGNED, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
+    const trees: Trees = { ...r.ports.trees, resetOnto: async () => ({ ok: false, why: 'failed' }) };
     r.deps = { ...r.deps, ports: { ...r.ports, trees } };
-    expect(await runWorkerLoop(r.deps)).toBe(0);
-    expect(r.sleeps[0]).toBe(PASS_INTERVAL_MS);
-    expect(r.logs.join('\n')).toContain('desk-reset failed');
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.runs).toHaveLength(0);
+    expect(r.calls.clearedAssignments).toEqual(['sess-1']);
+    expect(r.read().branch).toBe('');
+    expect(r.logs).toContain(`plot-worker-loop: could not reset the desk at ${r.wt} onto ${BRANCH}; the assignment is cleared and the agent goes free`);
+  });
+
+  it.each([
+    ['held-by-agent', 'REGISTRY LOCK VIOLATION'],
+    ['stale-claim', `release it with plot-dispatch.sh --release ${BRANCH}`],
+    ['work-on-ref', 'carries work that no live agent holds'],
+    ['absent', 'origin has no such branch'],
+  ] as const)('names a rejected claim push read as %s, clears the assignment and runs no prompt', async (answer, line) => {
+    const r = rig(ASSIGNED, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
+    const holder = '/desks/other';
+    const claimOnly = { at: 1, subject: `plot: claim ${BRANCH}`, tree: 't', parentTree: 't' };
+    const work = { at: 2, subject: 'feat: real work', tree: 't2', parentTree: 't' };
+    const agents = {
+      ...r.ports.agents,
+      declared: async () => ({
+        ok: true as const,
+        value: answer === 'held-by-agent' ? [agentManifest({ session: 'sess-other', branch: BRANCH, worktree: holder, pid: '4242' })] : [],
+      }),
+      desk: async () => ({ ok: true as const, value: agentDesk() }),
+    };
+    const refs = refsFixture({
+      remoteBranches: answer === 'absent' ? [] : [BRANCH],
+      commitSubjects: { [`origin/main..origin/${BRANCH}`]: answer === 'work-on-ref' ? [work, claimOnly] : [claimOnly] },
+    });
+    const trees: Trees = { ...r.ports.trees, push: async () => ({ ok: false, why: 'failed' }) };
+    r.deps = { ...r.deps, ports: { ...r.ports, agents, refs, trees } };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.runs).toHaveLength(0);
+    expect(r.calls.clearedAssignments).toEqual(['sess-1']);
+    expect(r.logs.filter((l) => l.includes(line))).toHaveLength(1);
   });
 
   it('logs the applier reason for a refused write', async () => {
     const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }]);
     expect(await runWorkerLoop(r.deps)).toBe(0);
+  });
+});
+
+describe('a refused take-up', () => {
+  const write = { kind: 'push', branch: BRANCH, onto: '' } as const;
+
+
+  it('names the refused take-up write, and nothing where every write landed or another kind failed', () => {
+    expect(takeUpRefusalOf([])).toBeNull();
+    expect(takeUpRefusalOf([{ write, result: { ok: true, value: undefined } }])).toBeNull();
+    expect(takeUpRefusalOf([{ write, result: { ok: false, why: 'failed' } }])).toBe('push');
+    const other = { kind: 'declaration', worktree: '/w', branch: BRANCH, status: 'ok', summary: '' } as const;
+    expect(takeUpRefusalOf([{ write: other, result: { ok: false, why: 'failed' } }])).toBeNull();
+  });
+
+  it('words a refused claim commit, and an unknown claim as the absent-branch line', () => {
+    expect(takeUpLine('commit', null, BRANCH, '/w')).toBe(`plot-worker-loop: could not commit the claim for ${BRANCH} at /w; the assignment is cleared and the agent goes free`);
+    expect(takeUpLine('push', 'unknown', BRANCH, '/w')).toContain('origin has no such branch');
+  });
+
+  it('counts a holder whose pid is alive or whose desk holds a marker, and never this agent, a missing desk or a dead pid', async () => {
+    const declared = [
+      agentManifest({ session: 'me', branch: BRANCH, worktree: '/me', pid: '1' }),
+      agentManifest({ session: 'live', branch: BRANCH, worktree: '/live', pid: '2' }),
+      agentManifest({ session: 'waiting', branch: BRANCH, worktree: '/waiting', pid: '3' }),
+      agentManifest({ session: 'dead', branch: BRANCH, worktree: '/dead', pid: '4' }),
+      agentManifest({ session: 'gone', branch: BRANCH, worktree: '/gone', pid: '2' }),
+      agentManifest({ session: 'nopid', branch: BRANCH, worktree: '/nopid' }),
+      agentManifest({ session: 'elsewhere', branch: 'feature/other', worktree: '/live', pid: '2' }),
+    ];
+    const agents = agentsFixture({
+      declared,
+      desks: {
+        '/me': agentDesk(),
+        '/live': agentDesk(),
+        '/waiting': agentDesk({ markers: ['PLOT-BLOCKED.md'] }),
+        '/dead': agentDesk(),
+        '/nopid': agentDesk(),
+      },
+    });
+    const processes = { ...rig(null, []).ports.processes, isAlive: async (pid: number) => ({ ok: true as const, value: pid === 2 }) };
+    expect(await liveHolders({ agents, processes }, BRANCH, 'me')).toEqual(['live', 'waiting']);
+    expect(await liveHolders({ agents: agentsFixture({}), processes }, BRANCH, 'me')).toEqual([]);
+  });
+
+  it('reads the claim from the fetched ref, its commits from the base, and the holders', async () => {
+    const r = rig(null, []);
+    const claimOnly = { at: 1, subject: `plot: claim ${BRANCH}`, tree: 't', parentTree: 't' };
+    const ports = { ...r.ports, agents: agentsFixture({ declared: [] }) };
+    const present = refsFixture({ remoteBranches: [BRANCH], commitSubjects: { [`origin/trunk..origin/${BRANCH}`]: [claimOnly] } });
+    expect(await readClaimAnswer({ ...ports, refs: present }, BRANCH, 'origin/trunk', 'me')).toBe('stale-claim');
+    const unreadable = refsFixture({ remoteBranches: [BRANCH], failing: ['commitSubjects'] });
+    expect(await readClaimAnswer({ ...ports, refs: unreadable }, BRANCH, 'origin/trunk', 'me')).toBe('unknown');
+    const failedFetch = { ...present, fetchRemoteHead: async () => ({ ok: false as const, why: 'failed' as const }) };
+    expect(await readClaimAnswer({ ...ports, refs: failedFetch }, BRANCH, 'origin/trunk', 'me')).toBe('unknown');
   });
 });
 

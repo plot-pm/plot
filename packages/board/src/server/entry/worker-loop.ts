@@ -27,15 +27,17 @@ import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
 import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
 import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
-import { agentLoop, type AgentLoopReadings } from '@plot-pm/domain/workflows/agent-loop';
+import { agentLoop, type AgentLoopReadings, type TakeUpRefusal } from '@plot-pm/domain/workflows/agent-loop';
+import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
 import { recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
+import type { RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
 
 import { answer as promptAnswer } from './prompt.js';
-import { performLoopWrites, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
+import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 
 /**
  * `plot-worker-loop.mjs` — the JS loop, one process for an agent's whole life.
@@ -342,6 +344,7 @@ export const readPass = async (
     boundSeconds: config.waitBudgetSeconds,
     registration: 'registered',
     claim: null,
+    takeUpRefused: null,
     base: config.base,
     running: prompt.running,
     exit: prompt.exit,
@@ -460,6 +463,108 @@ export const readPass = async (
     correctionText: checksPassed === false && run !== null ? runEvidence(run, pushedSha) : '',
     waitedSeconds,
   };
+};
+
+/**
+ * The agents other than `session` that hold `branch` with a live worker, as
+ * `live_holders_of_branch` (`plot-agent-manifest.sh`) answers them.
+ *
+ * A holder is a declared agent whose manifest names the branch, whose desk
+ * exists, and whose recorded pid answers alive or whose desk holds a
+ * `PLOT-BLOCKED` marker — the shell's `running` and `waiting`.
+ *
+ * @param ports - where the registry, the desks and the processes are read.
+ * @param branch - the branch the claim push was refused for.
+ * @param session - this agent's own session, which never counts.
+ * @returns the holders' sessions; empty where the registry cannot be read.
+ */
+export const liveHolders = async (
+  ports: Pick<WorkerLoopPorts, 'agents' | 'processes'>,
+  branch: string,
+  session: string,
+): Promise<string[]> => {
+  const declared = await ports.agents.declared();
+  if (!declared.ok) return [];
+  const holders: string[] = [];
+  for (const agent of declared.value) {
+    if (agent.branch !== branch || agent.session === session || agent.worktree === '') continue;
+    const desk = await ports.agents.desk(agent.worktree);
+    if (!desk.ok) continue;
+    const pid = Number(desk.value.pid || agent.pid);
+    const alive = Number.isInteger(pid) && pid > 0 ? await ports.processes.isAlive(pid) : null;
+    if ((alive !== null && alive.ok && alive.value) || desk.value.markers.length > 0) holders.push(agent.session);
+  }
+  return holders;
+};
+
+/**
+ * What origin and the registry say about a branch whose claim push was
+ * rejected, through {@link claimAnswer}.
+ *
+ * @param ports - where the ref, its commits and the holders are read.
+ * @param branch - the branch the claim push was refused for.
+ * @param base - the ref the branch's commits are counted from, such as `origin/main`.
+ * @param session - this agent's own session, excluded from the holders.
+ * @returns one of `claimAnswer`'s five answers.
+ */
+export const readClaimAnswer = async (
+  ports: Pick<WorkerLoopPorts, 'refs' | 'agents' | 'processes'>,
+  branch: string,
+  base: string,
+  session: string,
+): Promise<ClaimHolderAnswer> => {
+  const fetched = await ports.refs.fetchRemoteHead(branch);
+  const ref: RemoteHeadAnswer = fetched.ok ? fetched.value : 'unknown';
+  const commits =
+    ref === 'present'
+      ? await ports.refs.commitSubjects(`${base}..origin/${branch}`)
+      : ({ ok: false, why: 'unaskable' } as const);
+  return claimAnswer({ ref, commits, holders: await liveHolders(ports, branch, session) });
+};
+
+/**
+ * The take-up write a pass's applied writes stopped on, if any.
+ *
+ * @param applied - what `performLoopWrites` answered; it stops on the first
+ *   refused take-up write, so that write is the last entry.
+ * @returns the refused write's kind, or `null` where none was refused.
+ */
+export const takeUpRefusalOf = (applied: readonly AppliedWrite[]): TakeUpRefusal | null => {
+  const last = applied.at(-1);
+  if (last === undefined || last.result.ok) return null;
+  const kind = last.write.kind;
+  return kind === 'desk-reset' || kind === 'commit' || kind === 'push' ? kind : null;
+};
+
+/**
+ * The operator's line for a refused take-up write, in the shell's words where
+ * the shell has them (`plot-worker-loop.sh`, the claim push's `case`).
+ *
+ * @param refused - the refused write.
+ * @param claim - what `claimAnswer` said; read for a refused push only.
+ * @param branch - the branch the take-up was for.
+ * @param worktree - the desk.
+ * @returns one line.
+ */
+export const takeUpLine = (
+  refused: TakeUpRefusal,
+  claim: ClaimHolderAnswer | null,
+  branch: string,
+  worktree: string,
+): string => {
+  const free = 'the assignment is cleared and the agent goes free';
+  if (refused === 'desk-reset') return `plot-worker-loop: could not reset the desk at ${worktree} onto ${branch}; ${free}`;
+  if (refused === 'commit') return `plot-worker-loop: could not commit the claim for ${branch} at ${worktree}; ${free}`;
+  switch (claim) {
+    case 'held-by-agent':
+      return `plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for ${branch} was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Going free, but the estate needs the double assignment found.`;
+    case 'stale-claim':
+      return `plot-worker-loop: origin/${branch} holds only an empty claim and no live agent names it; release it with plot-dispatch.sh --release ${branch}`;
+    case 'work-on-ref':
+      return `plot-worker-loop: origin/${branch} carries work that no live agent holds; a person decides`;
+    default:
+      return `plot-worker-loop: the claim push for ${branch} was rejected and origin has no such branch; ${free}`;
+  }
 };
 
 /**
@@ -749,13 +854,19 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       deps.log(`plot-worker-loop: the wait ran out on ${deps.slug || '?'} — free for ${readings.waitedSeconds}s with no slice offered, past the ${deps.config.waitBudgetSeconds}s wait bound; ending worker. Nothing was cut short: no prompt was running, the agent holds no branch, and its work is pushed.`);
     }
     if (decision.detail.exitCode !== null) return decision.detail.exitCode;
-    if (applied.length < decision.writes.length) {
-      await deps.sleep(deps.config.passIntervalMs);
-      continue;
+    // A REFUSED TAKE-UP gives the assignment back, read again through
+    // `agentLoop` with the refusal and, for a push, what origin holds.
+    const refused = takeUpRefusalOf(applied);
+    if (refused !== null) {
+      const branch = readings.assignedBranch;
+      const claim = refused === 'push' ? await readClaimAnswer(deps.ports, branch, deps.config.base, readings.session) : null;
+      deps.log(takeUpLine(refused, claim, branch, worktree));
+      const cleared = agentLoop({ ...readings, takeUpRefused: refused, claim });
+      await performLoopWrites(loopWritesOf(cleared.writes), deps.ports, worktree);
     }
 
     const kinds = new Set(decision.writes.map((w) => w.kind));
-    if (kinds.has('assignment-clear')) {
+    if (refused !== null || kinds.has('assignment-clear')) {
       held = { ...FRESH };
       hopFrom = previousBranch;
       continue;

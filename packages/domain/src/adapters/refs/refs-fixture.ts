@@ -383,6 +383,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       return date === undefined ? failed<string>() : answered(date);
     },
 
+    fetchRemoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> =>
+      unknownRemoteHead.has(branch)
+        ? answered<RemoteHeadAnswer>('unknown')
+        : answered<RemoteHeadAnswer>(remoteBranchSet.has(branch) ? 'present' : 'absent'),
+
     remoteTip: async (branch, pushedSha): Promise<PortResult<RemoteTipReading>> => {
       const tip = fixture.remoteTips?.[branch];
       if (tip === undefined) return answered<RemoteTipReading>('unknown');

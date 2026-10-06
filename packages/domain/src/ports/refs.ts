@@ -550,4 +550,21 @@ export interface Refs {
    *   not evidence the tip moved.
    */
   remoteTip(branch: string, pushedSha: string): Promise<PortResult<RemoteTipReading>>;
+
+  /**
+   * Fetches a branch from `origin`, then answers whether origin holds it.
+   *
+   * `git fetch -q origin <branch>`; where the fetch fails,
+   * `git ls-remote --heads origin refs/heads/<branch>`. The order is the one
+   * `plot-worker-loop.sh` uses after a rejected claim push. A successful fetch
+   * also updates `refs/remotes/origin/<branch>`, so a later
+   * {@link Refs.commitSubjects} over it reads what origin holds now.
+   *
+   * @param branch - the branch to ask about, without a remote prefix.
+   * @returns `unaskable` from the board's instance, which holds no network
+   *   call; otherwise `present` where the fetch succeeded, `absent` where it
+   *   failed and `ls-remote` answered with no such ref, and `unknown` where
+   *   neither call answered.
+   */
+  fetchRemoteHead(branch: string): Promise<PortResult<RemoteHeadAnswer>>;
 }

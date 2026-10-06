@@ -110,10 +110,45 @@ describe('refsRemoteGit with a stubbed command', () => {
   });
 });
 
+describe('refsRemoteGit.fetchRemoteHead', () => {
+  it('answers present for a branch origin holds, and updates its remote-tracking ref', async () => {
+    expect(await refs().fetchRemoteHead('main')).toEqual({ ok: true, value: 'present' });
+    expect(git(clone, ['rev-parse', 'refs/remotes/origin/main']).trim()).toBe(git(origin, ['rev-parse', 'main']).trim());
+  });
+
+  it('answers absent for a branch origin does not hold', async () => {
+    expect(await refs().fetchRemoteHead('feature/never-pushed')).toEqual({ ok: true, value: 'absent' });
+  });
+
+  it('answers unknown when origin cannot be reached', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-remote-head-unreachable-'));
+    try {
+      const unreachable = refsRemoteGit({ repoRoot: dir, scriptDir: '/nonexistent/scripts' });
+      expect(await unreachable.fetchRemoteHead('main')).toEqual({ ok: true, value: 'unknown' });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks ls-remote only after the fetch failed, and reads a listed ref as unknown', async () => {
+    const seen: (readonly string[])[] = [];
+    const remote = refsRemoteGit({ repoRoot: '/nowhere', scriptDir: '/nowhere/scripts' }, async (_c, args) => {
+      seen.push(args);
+      return args[0] === 'fetch' ? { code: 1, stdout: '', stderr: '' } : { code: 0, stdout: 'abc\trefs/heads/x\n', stderr: '' };
+    });
+    expect(await remote.fetchRemoteHead('x')).toEqual({ ok: true, value: 'unknown' });
+    expect(seen).toEqual([
+      ['fetch', '-q', 'origin', 'x'],
+      ['ls-remote', '--heads', 'origin', 'refs/heads/x'],
+    ]);
+  });
+});
+
 describe('the board refs adapter carries no network-backed remoteTip', () => {
   it('answers unaskable and the file names no ls-remote', async () => {
     const board = refsGit({ repoRoot: clone, scriptDir: path.join(clone, 'scripts') });
     expect(await board.remoteTip('main', pushedSha)).toEqual({ ok: false, why: 'unaskable' });
+    expect(await board.fetchRemoteHead('main')).toEqual({ ok: false, why: 'unaskable' });
     const source = fs.readFileSync(new URL('../src/adapters/refs/refs-git.ts', import.meta.url), 'utf8');
     expect(source).not.toMatch(/ls-remote/);
   });

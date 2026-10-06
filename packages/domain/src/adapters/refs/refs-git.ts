@@ -602,9 +602,11 @@ export const refsGit = (context: ShellContext): Refs => {
     tagDate: (tag) =>
       runScript('git', ['log', '-1', '--format=%as', tag], asText, inRepo),
 
-    // The board's adapter holds no network call: `remoteTip` is composed from
-    // `refs-remote-git.ts` at the loop's own wiring, and a poll path that asks
-    // this instance gets `unaskable` rather than a read over the wire.
+    // The board's adapter holds no network call: `remoteTip` and
+    // `fetchRemoteHead` are composed from `refs-remote-git.ts` at the loop's
+    // own wiring, and a poll path that asks this instance gets `unaskable`
+    // rather than a read over the wire.
     remoteTip: async () => unaskable<RemoteTipReading>(),
+    fetchRemoteHead: async () => unaskable<RemoteHeadAnswer>(),
   };
 };
