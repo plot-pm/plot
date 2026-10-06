@@ -34,7 +34,9 @@ function makeTestEnv({ name }) {
   // Create a mock registry directory and manifest file
   const registryDir = path.join(tmp, 'registry');
   fs.mkdirSync(registryDir, { recursive: true });
-  const manifestFile = path.join(registryDir, 'worker-test.json');
+  // Named by its session, as `plot-dispatch.sh` names it: the JS loop clears
+  // the assignment in `<registry>/<session>.json`.
+  const manifestFile = path.join(registryDir, 'test-session.json');
   fs.writeFileSync(manifestFile, JSON.stringify({
     session: 'test-session',
     pid: process.pid,
@@ -90,7 +92,7 @@ function makeTestEnv({ name }) {
  * Run the worker loop in a controlled environment.
  * Returns the exit code.
  */
-function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000 }) {
+function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000, extraEnv = {} }) {
   const loopScript = path.join(SCRIPTS, 'plot-worker-loop.sh');
 
   // Write the prompt file
@@ -112,6 +114,7 @@ ${workerLoopLine()}`);
     PLOT_SLUG: 'test-slug',
     // Put our stub first in PATH so --next uses our stub
     PATH: `${env.stubBin}:${process.env.PATH}`,
+    ...extraEnv,
   };
 
   const result = spawnSync('bash', [loopScript], {
@@ -130,8 +133,16 @@ test('manifest removed on normal exit (--next returns no more work)', () => {
     // Verify manifest exists before
     assert.ok(fs.existsSync(env.manifestFile), 'precondition: manifest must exist before loop runs');
 
-    // Prompt exits immediately; then --next returns 1 (our stub), triggering normal exit
-    runWorkerLoop(env, { promptContent: 'exit 0\n' });
+    // Prompt exits immediately; then --next returns 1 (our stub), triggering
+    // normal exit. The JS loop asks no --next: it seals the slice and waits
+    // free, so a 1s wait budget ends it by its own exit rather than by the
+    // spawn timeout's signal.
+    const exitCode = runWorkerLoop(env, {
+      promptContent: 'exit 0\n',
+      timeout: 20000,
+      extraEnv: { PLOT_WAIT_BUDGET_SECONDS: '1', PLOT_WAIT_POLL_SECONDS: '1' },
+    });
+    assert.notEqual(exitCode, null, 'the loop must end by its own exit, not by the spawn timeout');
 
     // The manifest should be gone
     assert.ok(!fs.existsSync(env.manifestFile),

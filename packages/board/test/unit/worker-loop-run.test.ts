@@ -27,6 +27,7 @@ import {
   readMarkerText,
   quietReading,
   readPass,
+  runEvidence,
   stderrLog,
   systemSleep,
   readResetRefusals,
@@ -74,6 +75,7 @@ const rig = (
   const read = (): Record<string, unknown> => JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
   write(manifest === null ? null : { ...manifest, worktree: manifest.worktree === '' ? wt : manifest.worktree });
 
+  const spends: { worktree: string; branch: string }[] = [];
   const calls = {
     attempts: [] as { worktree: string; attempts: number }[],
     corrections: [] as { worktree: string; correctionAttempts: number }[],
@@ -131,6 +133,9 @@ const rig = (
     }),
     host: hostFixture({ prs: [pr] }),
     transcriptQuietSeconds: async () => 5000,
+    recordSpend: async (worktree: string, branch: string) => {
+      spends.push({ worktree, branch });
+    },
     ...portOver,
   };
 
@@ -163,7 +168,7 @@ const rig = (
     resolvePrompt: () => 'declared\t.plot/worker-prompt.sh\tx',
     ...over,
   };
-  return { dir, wt, deps, ports, calls, deskCalls, runs, sleeps, logs, write, read, manifestFile };
+  return { dir, wt, deps, ports, calls, deskCalls, runs, sleeps, logs, write, read, manifestFile, spends };
 };
 
 const ASSIGNED = { session: 'sess-1', worktree: '', branch: BRANCH, attempts: 0, correctionAttempts: 0, resumeId: '' };
@@ -412,6 +417,7 @@ describe('runWorkerLoop — after the prompt', () => {
     const r = rig(ASSIGNED, [{}]);
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.deskCalls.declarations).toHaveLength(1);
+    expect(r.spends.map((x) => x.branch)).toEqual([BRANCH]);
     expect(r.calls.clearedAssignments).toEqual(['sess-1']);
   });
 
@@ -448,6 +454,7 @@ describe('runWorkerLoop — after the prompt', () => {
     };
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.deskCalls.corrections).toHaveLength(1);
+    expect(r.deskCalls.corrections[0]?.text).toMatch(/^the run at u for \S* concluded failure$/);
     expect(r.calls.corrections.map((c) => c.correctionAttempts)).toEqual([1]);
     expect(r.runs).toHaveLength(2);
   });
@@ -578,6 +585,17 @@ describe('idleVerdict', () => {
     fs.writeFileSync(path.join(r.wt, '.plot-worker.limited'), '9990\tiso\tline\n');
     const p = { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' } }) };
     expect(await idleVerdict(p, idle(), r.wt, 'h', 5000, 10_000)).toBe('silent');
+  });
+});
+
+describe('runEvidence', () => {
+  it('words the run as the BuildMonitor does, naming an unknown url and a run with no conclusion', () => {
+    expect(runEvidence({ url: 'https://ci/run/1', conclusion: 'failure' }, 'abc1234')).toBe(
+      'the run at https://ci/run/1 for abc1234 concluded failure',
+    );
+    expect(runEvidence({ url: '', conclusion: null }, 'abc1234')).toBe(
+      'the run at an unknown url for abc1234 concluded nothing yet',
+    );
   });
 });
 
@@ -765,6 +783,8 @@ describe('workerLoopPorts and main', () => {
     const r = rig(null, []);
     const ports = await workerLoopPorts({ repoRoot: r.wt, scriptDir: r.dir });
     expect(await ports.transcriptQuietSeconds(r.wt)).toBe('unavailable');
+    // A desk with no transcripts records nothing, and the seal is not failed for it.
+    await expect(ports.recordSpend(r.wt, BRANCH, '2026-10-06T00:00:00Z')).resolves.toBeUndefined();
   });
 
   it('reads a transcript answer as quiet seconds, or unavailable', () => {

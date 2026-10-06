@@ -16,6 +16,7 @@ import {
   processesShell,
   refsGit,
   refsRemoteGit,
+  sliceSpendFile,
   transcriptFs,
   treesGit,
   type ShellContext,
@@ -27,6 +28,7 @@ import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
 import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
 import { agentLoop, type AgentLoopReadings } from '@plot-pm/domain/workflows/agent-loop';
+import { recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
@@ -82,6 +84,12 @@ export interface WorkerLoopPorts extends LoopWritePorts {
   readonly build: BuildPort;
   readonly host: Pick<Host, 'prState'>;
   readonly transcriptQuietSeconds: (worktree: string) => Promise<number | 'unavailable'>;
+  /**
+   * Appends a sealed slice's spend to the checkout's slice-spend record — the
+   * `slice-spend` write `performLoopWrites` leaves to its caller. Best effort:
+   * a refusal leaves the seal as it is, as `record_slice_spend` does.
+   */
+  readonly recordSpend: (worktree: string, branch: string, at: string) => Promise<void>;
 }
 
 /**
@@ -115,6 +123,9 @@ export const workerLoopPorts = async (
     build,
     host,
     transcriptQuietSeconds: async (worktree: string) => quietReading(await transcript.quietSeconds(worktree)),
+    recordSpend: async (worktree: string, branch: string, at: string) => {
+      await recordSliceSpend(sliceSpendFile({ cwd: worktree }), { worktree, branch, at });
+    },
   };
 };
 
@@ -446,9 +457,22 @@ export const readPass = async (
     tip,
     checks,
     checksPassed,
+    correctionText: checksPassed === false && run !== null ? runEvidence(run, pushedSha) : '',
     waitedSeconds,
   };
 };
+
+/**
+ * The sentence a correction hands the agent about a run, in the BuildMonitor's
+ * own words: *"the run at <url> for <sha> concluded <conclusion>"*.
+ * `evidenceSha` (`rules/checks-verdict.ts`) reads the sha back out of it.
+ *
+ * @param run - the run `BuildPort.runForSha` answered for the pushed commit.
+ * @param sha - the pushed commit.
+ * @returns the sentence; the url reads `an unknown url` where the run has none.
+ */
+export const runEvidence = (run: { readonly url: string; readonly conclusion: string | null }, sha: string): string =>
+  `the run at ${run.url || 'an unknown url'} for ${sha} concluded ${run.conclusion ?? 'nothing yet'}`;
 
 /** What a `.plot-worker.limited` record says, first field: the reset instant in epoch seconds; `null` where absent or unreadable. */
 export const readLimitedReset = async (worktree: string): Promise<number | null> => {
@@ -710,6 +734,8 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     const worktree = readings.worktree || deps.worktree;
     const applied = await performLoopWrites(loopWritesOf(decision.writes), deps.ports, worktree);
     for (const a of applied) if (!a.result.ok) deps.log([`plot-worker-loop: ${a.write.kind} failed`, a.reason].filter(Boolean).join(' — '));
+    const spend = decision.writes.find((w) => w.kind === 'slice-spend');
+    if (spend !== undefined && spend.kind === 'slice-spend') await deps.ports.recordSpend(spend.worktree, spend.branch, readings.passAt);
     // THE OPERATOR'S LINES ABOUT A PROMPT THAT NEVER RAN, as the shell prints them.
     const attempt = decision.writes.find((w) => w.kind === 'agent-attempt');
     if (attempt !== undefined && attempt.kind === 'agent-attempt') {

@@ -48,6 +48,7 @@ const ports = (over: Partial<WorkerLoopPorts> = {}): WorkerLoopPorts => ({
   build: buildFixture(),
   host: hostFixture(),
   transcriptQuietSeconds: async () => 'unavailable',
+  recordSpend: async () => undefined,
   ...over,
 });
 
