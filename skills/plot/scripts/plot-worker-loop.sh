@@ -1492,14 +1492,12 @@ ask_prompt_exit() { # $1=status $2=ran seconds $3=commits since wait → the ans
 # and a prompt started in the same second has been measured meeting it again;
 # `PLOT_LIMIT_MARGIN_SECONDS` is the grace, defaulting to a minute.
 sleep_until_reset() { # $1=reset epoch
-  local target="$1" now remaining step
+  local target="$1" remaining step
   target=$(( target + ${PLOT_LIMIT_MARGIN_SECONDS-60} ))
   while :; do
-    now=$(clock_now)
-    remaining=$(( target - now ))
+    remaining=$(( target - $(clock_now) ))
     [ "$remaining" -gt 0 ] || return 0
-    step=$remaining
-    [ "$step" -gt 60 ] && step=60
+    step=$(( remaining > 60 ? 60 : remaining ))
     sleep "$step" &
     _wait_sleep_pid=$!
     wait "$_wait_sleep_pid" 2>/dev/null
@@ -1938,9 +1936,8 @@ unset _settings_path
 # definition the SDK runner and the JS loop read, asked through the bundle so
 # the shell holds no copy. A bundle that does not answer starts the agent
 # without the gate, and the log says so.
-if _gate=$(node "$script_dir/board/plot-prompt.mjs" --background-gate 2>/dev/null) && [ -n "$_gate" ]; then
-  while IFS='=' read -r _name _value; do export "$_name=$_value"; done <<< "$_gate"
-else echo "plot-worker-loop: no background gate — $script_dir/board/plot-prompt.mjs did not answer, so a turn can end with its background work still running" >&2; fi
+_gate=$(node "$script_dir/board/plot-prompt.mjs" --background-gate 2>/dev/null) && [ -n "$_gate" ] && eval "$_gate" ||
+  echo "plot-worker-loop: no background gate — $script_dir/board/plot-prompt.mjs did not answer, so a turn can end with its background work still running" >&2
 
 # Determine the main branch for worktree creation.
 main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')

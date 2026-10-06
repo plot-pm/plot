@@ -152,15 +152,15 @@ export const capabilities = (repoRoot: string, name: string): { text: string; re
 };
 
 /**
- * The background gate every prompt run receives, as `NAME=VALUE` lines for
- * `plot-worker-loop.sh` to export: `backgroundGateEnv`, the definition the SDK
- * runner and the JS loop read.
+ * The background gate every prompt run receives, as `export` lines that
+ * `plot-worker-loop.sh` evaluates: `backgroundGateEnv`, the definition the SDK
+ * runner and the JS loop read. Each value is single-quoted for the shell.
  *
- * @returns one line per variable.
+ * @returns one `export NAME='VALUE'` line per variable.
  */
 export const backgroundGate = (): string =>
   Object.entries(backgroundGateEnv())
-    .map(([name, value]) => `${name}=${value}\n`)
+    .map(([name, value]) => `export ${name}='${value.replace(/'/g, `'\\''`)}'\n`)
     .join('');
 
 /**
