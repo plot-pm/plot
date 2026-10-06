@@ -167,3 +167,5 @@ export { boundedRunFixture, type BoundedRunFixture } from './bounded-run/bounded
 
 export { deskFs } from './desk/desk-fs.js';
 export { deskFixture, deskFixtureCalls, type DeskFixture, type DeskFixtureCalls } from './desk/desk-fixture.js';
+
+export { processExec, type ExecveHost } from './reexec/process-exec.js';

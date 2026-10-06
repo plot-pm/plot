@@ -53,6 +53,7 @@ import {
   workerLoopPorts,
   type IdleDeps,
   type LoopDeps,
+  type RestartDeps,
   type WorkerLoopPorts,
 } from '../../src/server/entry/worker-loop.js';
 
@@ -706,6 +707,39 @@ describe('runWorkerLoop — after the prompt', () => {
     const r = rig(ASSIGNED, [{}]);
     r.deps = { ...r.deps, config: { ...rigConfig(), checksWaitSeconds: 0 } };
     expect(await runWorkerLoop(r.deps)).toBe(124);
+  });
+});
+
+describe('runWorkerLoop — the memory ceiling outside a free wait', () => {
+  it('restarts nothing at 301 MB while a prompt runs and a checks wait polls', async () => {
+    const replaced: string[] = [];
+    const reexec = { replace: async (command: string) => (replaced.push(command), { ok: false as const, why: 'failed' as const }) };
+    const r = rig(ASSIGNED, [{}], {}, { reexec });
+    const restart: RestartDeps = {
+      pinned: { checkout: r.dir, bundlePath: path.join(r.dir, 'main.mjs'), loadedCommit: '', refs: refsFixture() },
+      runningBundle: path.join(r.dir, 'desk.mjs'),
+      loadedHash: 'desk-hash',
+      residentBytes: () => 301 * 1024 * 1024,
+      execveAvailable: true,
+      exec: { path: '/bin/node', options: [], args: [] },
+      rejected: new Set<string>(),
+      logOnce: (line) => r.logs.push(line),
+      log: (line) => r.logs.push(line),
+      env: {},
+    };
+    r.deps = {
+      ...r.deps,
+      restart,
+      ports: {
+        ...r.ports,
+        build: buildFixture({ shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'in_progress', conclusion: null, url: 'u', startedAt: '' }] } }),
+      },
+      config: { ...rigConfig(), checksWaitSeconds: 120, checksPollMs: 7_000 },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.sleeps.filter((s) => s === 7_000).length).toBeGreaterThanOrEqual(1);
+    expect(r.runs.filter((run) => run.args.includes('--self-check'))).toEqual([]);
+    expect(replaced).toEqual([]);
   });
 });
 
