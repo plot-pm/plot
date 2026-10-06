@@ -122,12 +122,11 @@ describe('a group stop ends the loop and claude', () => {
 describe('the SDK is in plot-worker-loop.mjs and board-server.mjs, and no other bundle', () => {
   const marker = 'spawnClaudeCodeProcess';
   const bundles = fs.readdirSync(SHIPPED).filter((name) => name.endsWith('.mjs'));
-  // board-server.mjs joined the worker loop here: the board's own routes now
-  // start a board role's agent through the SAME agentRunFor/agentRunSdk path
-  // the worker loop uses, for roles configured `Agent runner: sdk`. plot-ask.mjs
-  // shares src/server/index.ts's controllers but not this marker — its entry
-  // point never reaches a route that calls agentRunFor with a role configured
-  // for the SDK runner in this test's own build, so esbuild tree-shakes it out.
+  // board-server.mjs joined the worker loop here: a board role on
+  // `Agent runner: sdk` starts from the board's own process. The SDK connector
+  // reaches board.ts only through `sdk-runner.ts`, which `index.ts` imports and
+  // no other entry does, so `plot-ask.mjs` and the rest start no SDK run and
+  // carry none of it.
   const carriers = ['plot-worker-loop.mjs', 'board-server.mjs'];
 
   it('plot-worker-loop.mjs carries it, without a platform binary package', () => {

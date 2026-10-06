@@ -3,10 +3,10 @@ import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
 import { execFileSync } from 'node:child_process';
-import { agentRunFor, readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { localCapability } from './controllers/caller.js';
-import { writtenPathResolution } from '@plot-pm/domain/rules/written-path';
 
 /**
  * Turning an issue into a plan — the row's one action, and the board's FOURTH
@@ -371,15 +371,8 @@ export function lastLines(text: string, max = 3, maxChars = 400): string {
 export function ideaStatus(opts: BuildBoardOptions, number: number): IdeaStatus {
   const log = ideaLogPath(opts.repoRoot, number);
   const statePath = ideaStatePath(opts.repoRoot, number);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -613,8 +606,7 @@ export async function handleIdea(
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later
     // success. The same choice `approve.ts` makes, for the same reason.
-    // `agentRunCommand`/`agentRunSdk` truncate `request.logFile` again
-    // themselves; this write is also the 500-on-unwritable-log check, run
+    // The run appends to it; this write is also the 500-on-unwritable-log check, run
     // before the worktree gets created.
     fs.rmSync(statePath, { force: true });
     fs.writeFileSync(log, '', 'utf8');
@@ -711,108 +703,34 @@ export async function handleIdea(
     return;
   }
 
-  // ROUTED THROUGH THE `agentRun` PORT, never a raw `spawn`. `choice.runner`
-  // decides `command` (today's fragment start, now via the
-  // `agentRun-command` adapter) or `sdk`; a `refused` choice cannot happen
-  // here — that refusal is for `Agent runner: sdk` with no fragment, and the
-  // `no-idea-command` guard above already refused an unusable fragment on
-  // EITHER runner.
+  // THROUGH THE `agentRun` PORT, never a raw `spawn`: `startBoardRun` asks
+  // `runnerChoice` for the role and starts the `command` or `sdk` connector.
   //
-  // STAYS IN THE BOARD'S PROCESS GROUP — no `detached`. `run(...)`'s promise
-  // is deliberately NOT awaited before the 202 answers: this server is
-  // single-threaded, and awaiting an agent would freeze every viewer's board
-  // for the length of somebody else's click, exactly as the detached spawn
-  // avoided before. The consequence named in the PR rather than worked
-  // around: a board stop or restart now ends this run.
-  const choice = await agentRunFor(opts, 'idea', IDEA_COMMAND_KEY, readCfg);
-  const writeState = (value: string) => {
-    try {
-      fs.writeFileSync(statePath, value, 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
-  };
-  const appendLog = (message: string) => {
-    try {
-      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  };
-
-  if (choice.runner === 'refused' || choice.agentRun === undefined) {
-    appendLog(choice.reason);
-    writeState('1');
-  } else {
-    const agentRun = choice.agentRun;
-    void agentRun
-      .run({
-        worktree: ideaTree,
-        prompt: `Read ${promptPath} and follow it.`,
-        resumeId: '',
-        role: 'idea',
-        harness: '',
-        model: '',
-        effort: '',
-        maxTurns: 0,
-        maxSpendUsd: 0,
-        boundSeconds: 0,
-        contextWindow: 0,
-        capabilities: [],
-        env: {
-          ...process.env,
-          PLOT_UNATTENDED: '1',
-          [IDEA_PROMPT_ENV]: promptPath,
-          PLOT_ISSUE: String(number),
-        },
-        logFile: log,
-      })
-      .then((result) => {
-        if (!result.ok) {
-          appendLog(`idea run failed: ${result.why}`);
-          writeState('1');
-          return;
-        }
-        const end = result.value.end;
-        if (end.answer !== 'ran') {
-          appendLog(`idea run ended without running: ${end.answer}`);
-          writeState('1');
-          return;
-        }
-        const handBack = end.handBack;
-        // The `command` runner never parses a hand-back — it answers `null` on
-        // every exit-0 run, same as before this route carried a port at all.
-        // Only the `sdk` runner's structured protocol makes a `null` hand-back
-        // a failure: that runner promised a `{written, summary}` shape and
-        // produced nothing.
-        if (handBack === null) {
-          if (choice.runner === 'sdk') {
-            appendLog('idea run ended with no written hand-back');
-            writeState('1');
-            return;
-          }
-          writeState('0');
-          return;
-        }
-        if (!('written' in handBack)) {
-          appendLog('idea run ended with no written hand-back');
-          writeState('1');
-          return;
-        }
-        const resolution = writtenPathResolution(handBack.written, opts.repoRoot);
-        if (!resolution.inside) {
-          appendLog(`idea run's written path was refused: ${resolution.reason}`);
-          writeState('1');
-          return;
-        }
-        writeState('0');
-      })
-      .catch((err) => {
-        console.error('idea run failed:', err);
-        appendLog(err instanceof Error ? err.message : String(err));
-        writeState('1');
-      });
+  // STAYS IN THE BOARD'S PROCESS GROUP — no `detached`. The run is NOT awaited
+  // before the 202 answers: this server is single-threaded, and awaiting an
+  // agent would freeze every viewer's board for the length of somebody else's
+  // click. A board stop or restart now ends this run, and the state file then
+  // reads failed rather than running.
+  try {
+    markBoardRun(statePath, log);
+  } catch (err) {
+    json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
+    return;
   }
+  await startBoardRun(opts, {
+    role: 'idea',
+    fragmentKey: IDEA_COMMAND_KEY,
+    readCfg,
+    tree: ideaTree,
+    prompt: `Read ${promptPath} and follow it.`,
+    env: {
+      PLOT_UNATTENDED: '1',
+      [IDEA_PROMPT_ENV]: promptPath,
+      PLOT_ISSUE: String(number),
+    },
+    logFile: log,
+    statePath,
+  });
 
   json(202, { ok: true, number, prompt: promptPath, log });
 }

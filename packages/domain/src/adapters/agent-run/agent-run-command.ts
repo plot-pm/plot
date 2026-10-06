@@ -55,7 +55,8 @@ export interface AgentRunCommandDeps {
  */
 export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
   run: async (request: AgentRunRequest): Promise<PortResult<AgentRunResult>> => {
-    await writeFile(request.logFile, '', 'utf8');
+    // APPENDED, NEVER TRUNCATED, as the SDK adapter appends: the caller owns
+    // the log, and a board log shared by two entrances is appended to.
     const scratchDir = await mkdtemp(join(tmpdir(), 'plot-agent-run-command-'));
     const fragmentFile = join(scratchDir, 'fragment.sh');
     await writeFile(fragmentFile, `${deps.fragment} "$@"`, 'utf8');
@@ -76,6 +77,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       await rm(scratchDir, { recursive: true, force: true });
     }
     if (!result.ok) return failed();
+    if (result.value.timedOut) return answered(unasked(request, { answer: 'bound' }));
 
     let output = '';
     try {
@@ -84,6 +86,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       /* an unreadable output is an exit with no limit line */
     }
 
+    const signalled = result.value.status === null;
     const status = result.value.status ?? 124;
     const exit = promptExit(
       {
@@ -105,7 +108,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
         case 'end-limited':
           return { answer: 'end-limited', cause: exit.cause };
         case 'unstarted':
-          return { answer: 'unstarted', detail: 'the command exited without the agent doing any work' };
+          return { answer: 'unstarted', detail: `the command exited ${signalled ? 'on a signal' : `with status ${status}`}` };
         case 'dropped':
           return { answer: 'dropped', line: exit.line };
         case 'ran':
@@ -115,20 +118,30 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       }
     })();
 
-    return answered({
-      sessionId: request.resumeId,
-      end,
-      // UNASKABLE, NOT EMPTY-AS-ZERO: a shell command's stdout is free-form
-      // text this adapter does not parse for usage. `{}` means "none
-      // reported" on this port (see AgentRunResult's own doc), which is
-      // exactly this adapter's situation — it never asked.
-      usageByModel: {},
-      costUsd: null,
-      costUsdByModel: {},
-      turns: 0,
-      limitReadings: [],
-      // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.
-      account: null,
-    });
+    return answered(unasked(request, end));
   },
+});
+
+/**
+ * A result carrying only the end: a shell command reports no session, usage,
+ * cost, turns, limit readings or account.
+ *
+ * @param request - the request, for the session it named.
+ * @param end - why the run ended.
+ * @returns the result.
+ */
+const unasked = (request: AgentRunRequest, end: AgentRunResult['end']): AgentRunResult => ({
+  sessionId: request.resumeId,
+  end,
+  // UNASKABLE, NOT EMPTY-AS-ZERO: a shell command's stdout is free-form
+  // text this adapter does not parse for usage. `{}` means "none
+  // reported" on this port (see AgentRunResult's own doc), which is
+  // exactly this adapter's situation — it never asked.
+  usageByModel: {},
+  costUsd: null,
+  costUsdByModel: {},
+  turns: 0,
+  limitReadings: [],
+  // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.
+  account: null,
 });

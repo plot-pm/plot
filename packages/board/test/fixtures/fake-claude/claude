@@ -7,6 +7,8 @@
 //
 // FAKE_CLAUDE_LOG receives one JSON line: the argv and the environment names
 // the SDK runner must pass. FAKE_CLAUDE_PIDS receives "<own pid> <grandchild pid>".
+// FAKE_CLAUDE_OUTPUT, where set, is the JSON the structured hand-back carries;
+// FAKE_CLAUDE_PROMPT_LOG receives the first user message's text.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
@@ -20,7 +22,12 @@ const sessionArg = process.argv.slice(2).find((a) => a.startsWith('--session-id=
 const sessionId = sessionArg ? sessionArg.slice('--session-id='.length) : 'fake-session';
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 
-const onUser = () => {
+const onUser = (message) => {
+  if (process.env.FAKE_CLAUDE_PROMPT_LOG) {
+    const content = message.message?.content;
+    const text = typeof content === 'string' ? content : (content ?? []).map((c) => c.text ?? '').join('');
+    fs.appendFileSync(process.env.FAKE_CLAUDE_PROMPT_LOG, `${JSON.stringify(text)}\n`);
+  }
   if (mode === 'hang') {
     const grandchild = spawn('sleep', ['600'], { stdio: 'ignore' });
     fs.writeFileSync(process.env.FAKE_CLAUDE_PIDS, `${process.pid} ${grandchild.pid}\n`);
@@ -41,7 +48,9 @@ const onUser = () => {
     usage: {},
     modelUsage: { fake: { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0, costUSD: 0.01, contextWindow: 200000 } },
     permission_denials: [],
-    structured_output: { next: process.env.FAKE_CLAUDE_NEXT ?? 'checks', summary: 'fixture run' },
+    structured_output: process.env.FAKE_CLAUDE_OUTPUT
+      ? JSON.parse(process.env.FAKE_CLAUDE_OUTPUT)
+      : { next: process.env.FAKE_CLAUDE_NEXT ?? 'checks', summary: 'fixture run' },
     uuid: '00000000-0000-4000-8000-000000000003',
   });
 };
@@ -59,7 +68,7 @@ process.stdin.on('data', (chunk) => {
       send({ type: 'control_response', response: { subtype: 'success', request_id: message.request_id, response: {} } });
     } else if (message.type === 'user' && !answered) {
       answered = true;
-      onUser();
+      onUser(message);
     }
   }
 });

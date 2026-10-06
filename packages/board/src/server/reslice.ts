@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { agentRunFor, readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
 import {
@@ -13,7 +14,6 @@ import {
   usableCommand,
   type IdeaState,
 } from './idea.js';
-import { writtenPathResolution } from '@plot-pm/domain/rules/written-path';
 
 /**
  * Reslicing a plan whose slice holds several branches — the board's SIXTH
@@ -275,15 +275,8 @@ export interface ResliceStatus {
 export function resliceStatus(opts: BuildBoardOptions, slug: string): ResliceStatus {
   const log = resliceLogPath(opts.repoRoot, slug);
   const statePath = resliceStatePath(opts.repoRoot, slug);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -448,9 +441,8 @@ export async function handleReslice(
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
-    // The same choice `commission.ts` makes, for the same reason. `agentRunCommand`/
-    // `agentRunSdk` truncate `request.logFile` again themselves; this write is
-    // also the 500-on-unwritable-log check.
+    // The same choice `commission.ts` makes, for the same reason.
+    // The run appends to it; this write is also the 500-on-unwritable-log check.
     fs.rmSync(statePath, { force: true });
     fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
@@ -458,99 +450,32 @@ export async function handleReslice(
     return;
   }
 
-  const choice = await agentRunFor(opts, 'reslice', IDEA_COMMAND_KEY, readCfg);
-  const writeState = (value: string) => {
-    try {
-      fs.writeFileSync(statePath, value, 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
-  };
-  const appendLog = (message: string) => {
-    try {
-      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  };
-
-  if (choice.runner === 'refused' || choice.agentRun === undefined) {
-    appendLog(choice.reason);
-    writeState('1');
-  } else {
-    const agentRun = choice.agentRun;
-    void agentRun
-      .run({
-        worktree: opts.repoRoot,
-        prompt: `Read ${promptPath} and follow it.`,
-        resumeId: '',
-        role: 'reslice',
-        harness: '',
-        model: '',
-        effort: '',
-        maxTurns: 0,
-        maxSpendUsd: 0,
-        boundSeconds: 0,
-        contextWindow: 0,
-        capabilities: [],
-        env: {
-          ...process.env,
-          // THE DECLARATION, not a switch — the same one `commission.ts` sets.
-          // /plot-reslice unattended must STOP at the order it cannot choose
-          // alone; setting this makes that skipped question name itself in the
-          // log rather than the agent improvising a slice.
-          PLOT_UNATTENDED: '1',
-          // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
-          // same runner reads the same variable to find its prompt file.
-          [IDEA_PROMPT_ENV]: promptPath,
-          PLOT_PLAN_SLUG: slug,
-        },
-        logFile: log,
-      })
-      .then((result) => {
-        if (!result.ok) {
-          appendLog(`reslice run failed: ${result.why}`);
-          writeState('1');
-          return;
-        }
-        const end = result.value.end;
-        if (end.answer !== 'ran') {
-          appendLog(`reslice run ended without running: ${end.answer}`);
-          writeState('1');
-          return;
-        }
-        const handBack = end.handBack;
-        // The `command` runner never parses a hand-back — a `null` answer on
-        // exit 0 is the pre-port success case. Only the `sdk` runner's
-        // structured protocol makes `null` a failure.
-        if (handBack === null) {
-          if (choice.runner === 'sdk') {
-            appendLog('reslice run ended with no written hand-back');
-            writeState('1');
-            return;
-          }
-          writeState('0');
-          return;
-        }
-        if (!('written' in handBack)) {
-          appendLog('reslice run ended with no written hand-back');
-          writeState('1');
-          return;
-        }
-        const resolution = writtenPathResolution(handBack.written, opts.repoRoot);
-        if (!resolution.inside) {
-          appendLog(`reslice run's written path was refused: ${resolution.reason}`);
-          writeState('1');
-          return;
-        }
-        writeState('0');
-      })
-      .catch((err) => {
-        console.error('reslice run failed:', err);
-        appendLog(err instanceof Error ? err.message : String(err));
-        writeState('1');
-      });
+  try {
+    markBoardRun(statePath, log);
+  } catch (err) {
+    json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
+    return;
   }
+  await startBoardRun(opts, {
+    role: 'reslice',
+    fragmentKey: IDEA_COMMAND_KEY,
+    readCfg,
+    tree: opts.repoRoot,
+    prompt: `Read ${promptPath} and follow it.`,
+    env: {
+      // THE DECLARATION, not a switch — the same one `commission.ts` sets.
+      // /plot-reslice unattended must STOP at the order it cannot choose
+      // alone; setting this makes that skipped question name itself in the
+      // log rather than the agent improvising a slice.
+      PLOT_UNATTENDED: '1',
+      // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
+      // same runner reads the same variable to find its prompt file.
+      [IDEA_PROMPT_ENV]: promptPath,
+      PLOT_PLAN_SLUG: slug,
+    },
+    logFile: log,
+    statePath,
+  });
 
   json(202, { ok: true, slug, prompt: promptPath, log });
 }

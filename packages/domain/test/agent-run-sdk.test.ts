@@ -198,6 +198,27 @@ describe('agentRunSdk: the options it passes', () => {
     expect(HAND_BACK_PROTOCOL).toContain('next: checks');
   });
 
+  it("gives a board role its own protocol and schema, never the worker's next", async () => {
+    captured.messages = [resultMessage({ structured_output: { written: 'docs/plans/a.md', summary: 'wrote it' } })];
+    const idea = await ended({ role: 'idea' });
+    expect(captured.prompt).not.toContain('next: pushed');
+    expect(captured.prompt).toContain('{ written, summary }');
+    const ideaSchema = (captured.options as { outputFormat: { schema: { required: string[] } } }).outputFormat.schema;
+    expect(ideaSchema.required).toEqual(['written', 'summary']);
+    expect(idea.end).toEqual({ answer: 'ran', handBack: { written: 'docs/plans/a.md', summary: 'wrote it' } });
+
+    captured.messages = [resultMessage({ structured_output: { outcome: 'refused', summary: 'still a draft' } })];
+    const approve = await ended({ role: 'approve' });
+    expect(captured.prompt).not.toContain('next: pushed');
+    const approveSchema = (captured.options as { outputFormat: { schema: { required: string[] } } }).outputFormat.schema;
+    expect(approveSchema.required).toEqual(['outcome', 'summary']);
+    expect(approve.end).toEqual({ answer: 'ran', handBack: { outcome: 'refused', summary: 'still a draft' } });
+
+    captured.messages = [resultMessage()];
+    await ended({ role: 'worker' });
+    expect(captured.prompt).toContain('next: pushed');
+  });
+
   it('maps a read-only capability to the deny list and logs one it cannot map', async () => {
     captured.messages = [resultMessage()];
     await ended({ capabilities: ['read-only', 'network'] });

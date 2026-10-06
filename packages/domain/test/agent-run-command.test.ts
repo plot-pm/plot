@@ -126,6 +126,32 @@ describe('agentRunCommand', () => {
     expect(result.value.end.answer).toBe('unstarted');
   });
 
+  it('answers bound when the run was ended on its bound, and names the status of an unstarted run', async () => {
+    const timedOut: BoundedRun = {
+      run: async () => answered<BoundedRunResult>({ status: null, timedOut: true, ranSeconds: 5 }),
+    };
+    const bound = await agentRunCommand({ boundedRun: timedOut, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 }).run(
+      request({}, dir, logFile),
+    );
+    expect(bound.ok && bound.value.end).toEqual({ answer: 'bound' });
+
+    const exited: BoundedRun = {
+      run: async () => answered<BoundedRunResult>({ status: 3, timedOut: false, ranSeconds: 1 }),
+    };
+    const three = await agentRunCommand({ boundedRun: exited, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 }).run(
+      request({}, dir, logFile),
+    );
+    expect(three.ok && three.value.end).toEqual({ answer: 'unstarted', detail: 'the command exited with status 3' });
+
+    const signalled: BoundedRun = {
+      run: async () => answered<BoundedRunResult>({ status: null, timedOut: false, ranSeconds: 1 }),
+    };
+    const killed = await agentRunCommand({ boundedRun: signalled, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 }).run(
+      request({}, dir, logFile),
+    );
+    expect(killed.ok && killed.value.end).toEqual({ answer: 'unstarted', detail: 'the command exited on a signal' });
+  });
+
   it('fails when boundedRun itself fails to start', async () => {
     const boundedRun: BoundedRun = {
       run: async () => failed<BoundedRunResult>(),

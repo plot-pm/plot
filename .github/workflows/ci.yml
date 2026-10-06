@@ -652,18 +652,15 @@ jobs:
       # The count moved 65 -> 54 between this slice being written and being
       # built, entirely through `production-calls` and `the-read-path` work,
       # then 54 -> 28 when `one-place-reaches-a-script` moved every `plot-*.sh`
-      # invocation behind the `Scripts` port, then 28 -> 14 when
-      # `the-board-commands-run-through-the-port` moved seven of the board's
-      # agent-starting routes onto the `agentRun` port. What is left of the 14
-      # is `git` (`idea.ts`, `continue.ts`), a caller-supplied command
-      # (`registry.ts`, `fleet.ts`), and the `sh -c` starts for a project's
-      # configured command in three routes — `brief-ask.ts` and `auto-deliver.ts`
-      # spawn `detached`, which the port's contract refuses, and `implement.ts`'s
-      # spawn is shared with `dispatch.ts`, outside this slice's scope. The gate
-      # records the migration; it does not perform it.
+      # invocation behind the `Scripts` port, then 28 -> 11 when
+      # `the-board-commands-run-through-the-port` moved the ten agent-starting
+      # board routes onto the `agentRun` port. What is left of the 11 is `git`
+      # (`idea.ts`, `continue.ts`, `entry/deliver.ts`), a caller-supplied
+      # command (`registry.ts`, `fleet.ts`), and the `/api/continue` agent start
+      # (`continue.ts`). The gate records the migration; it does not perform it.
       - name: One place reaches a process
         run: |
-          allowed=14
+          allowed=11
           hits=$(grep -rEn '^[^*/]*\b(spawn|spawnSync|execFile|execFileSync)\s*\(' \
                    --include='*.ts' packages/board/src packages/domain/src \
                  | grep -v '/adapters/' || true)

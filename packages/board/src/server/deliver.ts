@@ -5,11 +5,11 @@ import { agentLogPath } from './agent-log.js';
 import {
   readConfig,
   allSlicesConfirmed,
-  agentRunFor,
   deliveryPulse,
   scriptsFor,
   type BuildBoardOptions,
 } from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
@@ -341,15 +341,8 @@ export interface DeliverStatus {
 export function deliverStatus(opts: BuildBoardOptions, slug: string): DeliverStatus {
   const log = deliverLogPath(opts.repoRoot, slug);
   const statePath = deliverStatePath(opts.repoRoot, slug);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -534,9 +527,8 @@ export async function handleDeliver(
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
-    // The same choice `reslice.ts` makes, for the same reason. `agentRunCommand`/
-    // `agentRunSdk` truncate `request.logFile` again themselves; this write is
-    // also the 500-on-unwritable-log check.
+    // The same choice `reslice.ts` makes, for the same reason.
+    // The run appends to it; this write is also the 500-on-unwritable-log check.
     fs.rmSync(statePath, { force: true });
     fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
@@ -551,97 +543,32 @@ export async function handleDeliver(
   // authorised the action here; the receipt is what says so.
   recordActionReceipt(opts.repoRoot, 'deliver', slug);
 
-  const choice = await agentRunFor(opts, 'deliver', IDEA_COMMAND_KEY, readCfg);
-  const writeState = (value: string) => {
-    try {
-      fs.writeFileSync(statePath, value, 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
-  };
-  const appendLog = (message: string) => {
-    try {
-      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  };
-
-  if (choice.runner === 'refused' || choice.agentRun === undefined) {
-    appendLog(choice.reason);
-    writeState('1');
-  } else {
-    const agentRun = choice.agentRun;
-    void agentRun
-      .run({
-        worktree: opts.repoRoot,
-        prompt: `Read ${promptPath} and follow it.`,
-        resumeId: '',
-        role: 'deliver',
-        harness: '',
-        model: '',
-        effort: '',
-        maxTurns: 0,
-        maxSpendUsd: 0,
-        boundSeconds: 0,
-        contextWindow: 0,
-        capabilities: [],
-        env: {
-          ...process.env,
-          // THE DECLARATION, not a switch — the same one `reslice.ts` sets.
-          // /plot-deliver unattended must STOP at a branch it cannot confirm
-          // merged rather than delivering anyway; setting this makes a skipped
-          // check name itself in the log rather than the agent improvising.
-          PLOT_UNATTENDED: '1',
-          // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
-          // same runner reads the same variable to find its prompt file.
-          [IDEA_PROMPT_ENV]: promptPath,
-          PLOT_PLAN_SLUG: slug,
-        },
-        logFile: log,
-      })
-      .then((result) => {
-        if (!result.ok) {
-          appendLog(`deliver run failed: ${result.why}`);
-          writeState('1');
-          return;
-        }
-        const end = result.value.end;
-        if (end.answer !== 'ran') {
-          appendLog(`deliver run ended without running: ${end.answer}`);
-          writeState('1');
-          return;
-        }
-        const handBack = end.handBack;
-        // The `command` runner never parses a hand-back — a `null` answer on
-        // exit 0 is the pre-port success case. Only the `sdk` runner's
-        // structured protocol makes `null` a failure.
-        if (handBack === null) {
-          if (choice.runner === 'sdk') {
-            appendLog('deliver run ended with no outcome hand-back');
-            writeState('1');
-            return;
-          }
-          writeState('0');
-          return;
-        }
-        if (!('outcome' in handBack)) {
-          appendLog('deliver run ended with no outcome hand-back');
-          writeState('1');
-          return;
-        }
-        // The plan's state is read from git, not from this field — see
-        // `approve.ts`. A refusal still completes the run; its summary
-        // surfaces through the log and the status route's message.
-        if (handBack.outcome === 'refused') appendLog(handBack.summary);
-        writeState('0');
-      })
-      .catch((err) => {
-        console.error('deliver run failed:', err);
-        appendLog(err instanceof Error ? err.message : String(err));
-        writeState('1');
-      });
+  try {
+    markBoardRun(statePath, log);
+  } catch (err) {
+    json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
+    return;
   }
+  await startBoardRun(opts, {
+    role: 'deliver',
+    fragmentKey: IDEA_COMMAND_KEY,
+    readCfg,
+    tree: opts.repoRoot,
+    prompt: `Read ${promptPath} and follow it.`,
+    env: {
+      // THE DECLARATION, not a switch — the same one `reslice.ts` sets.
+      // /plot-deliver unattended must STOP at a branch it cannot confirm
+      // merged rather than delivering anyway; setting this makes a skipped
+      // check name itself in the log rather than the agent improvising.
+      PLOT_UNATTENDED: '1',
+      // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
+      // same runner reads the same variable to find its prompt file.
+      [IDEA_PROMPT_ENV]: promptPath,
+      PLOT_PLAN_SLUG: slug,
+    },
+    logFile: log,
+    statePath,
+  });
 
   json(202, { ok: true, slug, prompt: promptPath, log });
 }

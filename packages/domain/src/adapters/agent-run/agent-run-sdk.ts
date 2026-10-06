@@ -41,6 +41,7 @@ import type {
 } from '../../ports/agent-run.js';
 import type { Processes } from '../../ports/processes.js';
 import { agentSettingsRefusal } from '../../rules/agent-settings.js';
+import { boardHandBackKind } from '../../rules/board-run-end.js';
 import {
   agentRunEnv,
   BACKGROUND_DISALLOWED_TOOLS,
@@ -140,16 +141,13 @@ const WORKER_HAND_BACK: HandBackProtocol = {
 const WRITTEN_HAND_BACK: HandBackProtocol = { text: WRITTEN_PROTOCOL, schema: WRITTEN_SCHEMA, parse: asBoardHandBack };
 const OUTCOME_HAND_BACK: HandBackProtocol = { text: OUTCOME_PROTOCOL, schema: OUTCOME_SCHEMA, parse: asBoardHandBack };
 
-/** Roles that hand back `{ outcome, summary }`; every other non-worker role hands back `{ written, summary }`. */
-const OUTCOME_ROLES = new Set(['approve', 'deliver', 'auto-deliver']);
-
 /**
  * The hand-back protocol for one role: the worker's `{ next, summary }` for
- * `'worker'`, `{ outcome, summary }` for {@link OUTCOME_ROLES}, and
- * `{ written, summary }` for every other board role.
+ * `'worker'`, and the board role's own schema ({@link boardHandBackKind})
+ * for every other role.
  */
 const handBackProtocolFor = (role: string): HandBackProtocol =>
-  role === 'worker' ? WORKER_HAND_BACK : OUTCOME_ROLES.has(role) ? OUTCOME_HAND_BACK : WRITTEN_HAND_BACK;
+  role === 'worker' ? WORKER_HAND_BACK : boardHandBackKind(role) === 'outcome' ? OUTCOME_HAND_BACK : WRITTEN_HAND_BACK;
 
 /** What this adapter needs beyond the request itself. */
 export interface AgentRunSdkDeps {

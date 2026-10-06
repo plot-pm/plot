@@ -1,12 +1,10 @@
-// `POST /api/interrogate` and its read-back: the four refusals and the prompt.
+// `POST /api/interrogate` and its read-back: the four refusals, the prompt, the
+// running-state read after a board stop, a run on each runner, and a full run
+// against a stub runner that records a round the way `/challenge-the-plan` does.
 //
 // Every refusal is asserted on state the handler writes before it answers.
-// The run itself goes through the `agentRun` port — the same port `idea.ts`
-// uses — so its mechanics (the hand-back protocol, the written-path check,
-// the model precedence) are tested once at the domain/adapter level rather
-// than per role; this file stays with the route's own contract, the shape
-// `idea-route.test.ts` already settled on.
-import { afterEach, describe, it } from 'vitest';
+// Every test that starts a run waits for it to record its end before cleanup.
+import { afterEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -25,6 +23,8 @@ import {
   type InterrogateRefusal,
 } from '../../src/server/interrogate.js';
 import { agentLogPath } from '../../src/server/agent-log.js';
+import { boardRunsSettled, endHeldRuns } from '../../src/server/board-run.js';
+import { lastModel, settled, useFakeClaude } from './fake-claude.js';
 import { rmTree } from '../helpers.mjs';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
@@ -32,7 +32,8 @@ const SLUG = 'the-card-asks-the-jury';
 const PLAN_NAME = `2026-09-26-${SLUG}.md`;
 
 const made: string[] = [];
-afterEach(() => {
+afterEach(async () => {
+  await boardRunsSettled();
   while (made.length) {
     const dir = made.pop();
     if (dir) rmTree(dir);
@@ -92,11 +93,16 @@ const post = async (opts: {
   body?: unknown;
   command?: string;
   phase?: () => string | null;
+  runner?: string;
 }): Promise<Captured> => {
   const { res, got } = response();
   const deps: InterrogateDeps = {
     config: (_o, key, fallback) =>
-      key === INTERROGATE_COMMAND_KEY ? (opts.command ?? 'true') : fallback,
+      key === INTERROGATE_COMMAND_KEY
+        ? (opts.command ?? 'true')
+        : key === 'Agent runner' && opts.runner
+          ? opts.runner
+          : fallback,
     phase: () => (opts.phase ? opts.phase() : 'draft'),
   };
   await handleInterrogate(
@@ -139,17 +145,52 @@ describe('the four refusals', () => {
   });
 
   it('refuses a second panel while the first is running', async () => {
-    // A log with no state file yet: the `agentRun` port writes no `running`
-    // marker, only the log, until its promise settles.
+    // A live pid in the state file that is not this board's own.
     const dir = repo();
     draftPlan(dir);
-    fs.mkdirSync(path.dirname(interrogateLogPath(dir, SLUG)), { recursive: true });
-    fs.writeFileSync(interrogateLogPath(dir, SLUG), '', 'utf8');
+    fs.mkdirSync(path.dirname(statePath(dir)), { recursive: true });
+    fs.writeFileSync(statePath(dir), `running ${process.ppid}`, 'utf8');
     const got = await post({ repoRoot: dir });
     assert.equal(got.status, 409);
     assert.equal(refusal(got), 'already-running');
     assert.ok(String(got.body.detail).length > 0, 'a refusal carries a sentence');
     assert.equal(fs.existsSync(interrogatePromptPath(dir, SLUG)), false);
+  });
+
+  it('answers 202 only once the log exists, and refuses a second POST at once', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const first = await post({ repoRoot: dir, command: `sh -c 'sleep 1' _` });
+    assert.equal(first.status, 202);
+    assert.equal(fs.existsSync(interrogateLogPath(dir, SLUG)), true);
+    assert.equal(interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).state, 'running');
+    const second = await post({ repoRoot: dir, command: `sh -c 'sleep 1' _` });
+    assert.equal(second.status, 409);
+    assert.equal(refusal(second), 'already-running');
+    await boardRunsSettled();
+    assert.equal(interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).state, 'done');
+  });
+
+  it('answers 500 when the run cannot be recorded', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    // A directory where the state file goes: the route cannot clear it.
+    fs.mkdirSync(statePath(dir), { recursive: true });
+    const got = await post({ repoRoot: dir });
+    assert.equal(got.status, 500);
+    assert.match(String(got.body.error), /cannot open/);
+  });
+
+  it('accepts a panel after a board restart left a running marker behind', async () => {
+    // A board that stopped mid-run leaves `running <its pid>`; that board is
+    // gone, so the slug is not locked.
+    const dir = repo();
+    draftPlan(dir);
+    fs.mkdirSync(path.dirname(statePath(dir)), { recursive: true });
+    fs.writeFileSync(statePath(dir), 'running 4194305', 'utf8');
+    const got = await post({ repoRoot: dir });
+    assert.equal(got.status, 202);
+    await boardRunsSettled();
   });
 
   it('answers the binding off localhost, and names the key when it is absent', () => {
@@ -238,14 +279,61 @@ describe('the read-back', () => {
     assert.match(failed.message, /the panel refused/);
   });
 
-  it('reads running from the log alone while no state file exists yet', () => {
-    // The `agentRun` port writes no `running <pid>` marker — only the log,
-    // until its promise settles and writes `0` or `1`.
+  it('reads a running state whose process is gone as failed, not running forever', () => {
+    // A board restarted mid-run never records the exit code.
     const dir = repo();
-    assert.equal(interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).state, 'unknown');
-    fs.mkdirSync(path.dirname(interrogateLogPath(dir, SLUG)), { recursive: true });
-    fs.writeFileSync(interrogateLogPath(dir, SLUG), '', 'utf8');
+    fs.mkdirSync(path.dirname(statePath(dir)), { recursive: true });
+    fs.writeFileSync(statePath(dir), `running ${process.ppid}`, 'utf8');
     assert.equal(interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).state, 'running');
+    // 2^22 + 1 exceeds the pid range on macOS and Linux defaults.
+    fs.writeFileSync(statePath(dir), 'running 4194305', 'utf8');
+    const stopped = interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG);
+    assert.equal(stopped.state, 'failed');
+    assert.match(stopped.message, /stopped without recording an exit code/);
+  });
+
+  it('records the board exit code for a run it still holds when it exits', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const pidFile = path.join(dir, '..', 'panel.pid');
+    const got = await post({ repoRoot: dir, command: `sh -c 'echo $$ > "${pidFile}"; exec sleep 30' _` });
+    assert.equal(got.status, 202);
+    endHeldRuns(143);
+    assert.equal(fs.readFileSync(statePath(dir), 'utf8'), '143');
+    const status = interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG);
+    assert.equal(status.state, 'failed');
+    assert.match(status.message, /the board exited with code 143/);
+    for (let i = 0; i < 100 && !fs.existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 20));
+    process.kill(Number(fs.readFileSync(pidFile, 'utf8').trim()), 'SIGKILL');
+    await boardRunsSettled();
+  });
+});
+
+describe('the panel on the SDK runner', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('runs on the model its fragment names, and reads a panel that exists as done', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    fs.writeFileSync(path.join(dir, 'panel.md'), '# panel\n', 'utf8');
+    const argvLog = useFakeClaude(path.dirname(dir), { written: 'panel.md', summary: 'the panel sat' });
+    const got = await post({ repoRoot: dir, command: 'claude -p --model haiku', runner: 'sdk' });
+    assert.equal(got.status, 202);
+    const status = await settled(() => interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG));
+    assert.equal(status.state, 'done', status.message);
+    assert.equal(lastModel(argvLog), 'haiku');
+  });
+
+  it('reads a panel path that does not exist as failed', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    useFakeClaude(path.dirname(dir), { written: 'panel.md', summary: '' });
+    await post({ repoRoot: dir, command: 'claude -p', runner: 'sdk' });
+    const status = await settled(() => interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG));
+    assert.equal(status.state, 'failed');
+    assert.match(status.message, /written path does not exist: 'panel.md'/);
   });
 });
 

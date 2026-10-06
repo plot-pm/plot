@@ -2,7 +2,7 @@
 'plot': patch
 ---
 
-Seven of the board's agent-starting routes — idea, commission, reslice, deliver, story, interrogate, and approve — now start their agent through the `agentRun` port instead of a raw `spawn`, so a role configured `Agent runner: sdk` hands back structured output (a written-file path, or a done/refused outcome) instead of a bare exit code. `brief-ask.ts`, `implement.ts` and `auto-deliver.ts` stay on raw `spawn`: each starts its agent `detached`, which the port's contract refuses, and `implement.ts`'s spawn is shared with `dispatch.ts`, outside this slice. The CI spawn ratchet moves from `allowed=28` to `allowed=14`, and `board-server.mjs` joins `plot-worker-loop.mjs` as a bundle carrying the SDK.
+The board's ten agent-starting routes — idea, commission, reslice, deliver, story, brief, implement, interrogate, approve and auto-deliver — start their agent through the `agentRun` port instead of a raw `spawn`. A role on `Agent runner: sdk` runs on its `Agent models` entry or its fragment's `--model`, starts with the `Agent settings` file, and hands back a written path or a done/refused outcome; a missing or outside path and a `refused` outcome record a failed run. The agent now runs in the board's process group, so a board stop or restart ends a running board role: the board writes its exit code into the run's state file, and a `running <pid>` marker whose board is gone reads as failed instead of locking the slug. `board-server.mjs` carries the SDK; `plot-ask.mjs` waits for the agents its scan started before it exits. The CI spawn ratchet moves from `allowed=28` to `allowed=11`.
 
 <!--
 plan: docs/plans/2026-10-05-fleet-agents-run-through-the-agent-sdk.md

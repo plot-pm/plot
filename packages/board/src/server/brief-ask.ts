@@ -14,11 +14,11 @@
  * `auto-dispatch.ts` leaves that file's own rule intact — every read and write
  * in `maybeAutoDispatch`, and `planAutoDispatch` pure.
  */
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { readConfig, type BuildBoardOptions } from './board.js';
+import { startBoardRun } from './board-run.js';
 import { usableCommand } from './idea.js';
 import { briefPath } from './brief-path.js';
 
@@ -78,30 +78,27 @@ export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
   path.join(repoRoot, `.plot-brief-${slug}.log`);
 
 /**
- * Runs the configured brief command for one plan, detached, and returns.
+ * Starts the configured brief command for one plan through the `agentRun`
+ * port, and returns without waiting for it.
  *
- * **THE COMMAND IS A SHELL FRAGMENT AND THE PROMPT IS AN ARGUMENT.** The shape
- * is `approve.ts:294`'s, and the safety is in the shape rather than in the
- * input: the configured command is interpolated because a fragment is what the
- * key holds, while the prompt travels through `"$@"` and so cannot be read as
- * shell however it is spelt.
+ * **THE COMMAND IS A SHELL FRAGMENT AND THE PROMPT IS AN ARGUMENT.** The
+ * configured fragment is the key's value; the prompt is its own argument, so
+ * it cannot be read as shell however it is spelt.
  *
- * **`detached` WITH `unref`, and that differs from `approve.ts` deliberately.**
- * That one keeps its handle because its card is waiting on the exit code —
- * dropping it would make every approval read `running` forever. Nothing waits on
- * this one: the next pulse reads `origin/<main>` for the brief, not this
- * process's status, so the board must be free to exit without taking a brief
- * session down with it.
+ * **NOTHING WAITS ON IT.** The next pulse reads `origin/<main>` for the brief,
+ * not this run's outcome, so the run records no state file. It stays in the
+ * process group of the process that started it: a board stop ends it, and the
+ * next pass asks again.
  *
- * **A spawn failure is reported and never thrown.** This runs inside the scan's
- * success path, and an unspawnable command must not take a pulse down with it —
- * the plan stays `no-brief` and the next pass asks again.
+ * **A start failure is reported and never thrown.** This runs inside the
+ * scan's success path, and an unstartable command must not take a pulse down
+ * with it — the plan stays `no-brief` and the next pass asks again.
  *
  * @param opts - the board's options; the command runs from the repo root.
  * @param command - the configured fragment, already checked usable.
  * @param slug - the plan slug, for the prompt and the log path.
  * @param prompt - the assembled prompt, passed as one argument.
- * @returns the log path the session writes to, or `''` when the spawn failed.
+ * @returns the log path the session writes to, or `''` when the log cannot be opened.
  */
 export const askForBrief = (
   opts: BuildBoardOptions,
@@ -111,25 +108,7 @@ export const askForBrief = (
 ): string => {
   const log = askForBriefLogPath(opts.repoRoot, slug);
   try {
-    const out = fs.openSync(log, 'a');
-    try {
-      const child = spawn('sh', ['-c', `${command} "$@"`, 'plot-brief', prompt], {
-        cwd: opts.repoRoot,
-        detached: true,
-        stdio: ['ignore', out, out],
-      });
-      // A LISTENER SO A FAILED SPAWN CANNOT BECOME AN UNCAUGHT `error` EVENT.
-      // Nothing acts on it — the pulse has already moved on and the next one
-      // re-reads git — but an unhandled `error` on a child process takes the
-      // board's process down, which is the one outcome worse than no brief.
-      child.on('error', (err) => {
-        console.log(`auto-dispatch: brief command for ${slug} failed to start: ${err.message}`);
-      });
-      child.unref();
-    } finally {
-      fs.closeSync(out);
-    }
-    return log;
+    fs.appendFileSync(log, '', 'utf8');
   } catch (err) {
     console.log(
       `auto-dispatch: could not ask for ${slug}'s brief: ` +
@@ -137,4 +116,21 @@ export const askForBrief = (
     );
     return '';
   }
+  void startBoardRun(
+    opts,
+    {
+      role: 'brief',
+      fragmentKey: BRIEF_COMMAND_KEY,
+      readCfg: (o, key, fallback) => (key === BRIEF_COMMAND_KEY ? command : readConfig(o, key, fallback)),
+      tree: opts.repoRoot,
+      prompt,
+      env: {},
+      logFile: log,
+      statePath: null,
+    },
+    (record) => {
+      if (record.code !== 0) console.log(`auto-dispatch: the brief command for ${slug} ended: ${record.line || `code ${record.code}`}`);
+    },
+  );
+  return log;
 };

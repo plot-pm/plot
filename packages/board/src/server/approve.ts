@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
-import { agentRunFor, readConfig, type BuildBoardOptions } from './board.js';
+import { readConfig, type BuildBoardOptions } from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import {
   dispatchAvailability,
   isSameOrigin,
@@ -220,17 +221,8 @@ export function lastLines(text: string, max = 3, maxChars = 400): string {
 export function approveStatus(opts: BuildBoardOptions, slug: string): ApproveStatus {
   const log = approveLogPath(opts.repoRoot, slug);
   const statePath = approveStatePath(opts.repoRoot, slug);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    // No state file at all: either nothing was ever started for this slug, or a
-    // run is in flight and has not written one yet. The log tells them apart.
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -343,23 +335,15 @@ export async function handleApprove(
   // interpolated into a shell string. The script case never builds one at all.
   //
   // THE OUTCOME HAND-BACK DOES NOT CHANGE STATE. `outcome: 'done'` or
-  // `'refused'` is read only for the card's message; the plan's phase is
+  // `'refused'` decides only the code the card reads; the plan's phase is
   // still read from git exactly as before — this route asserts nothing about
   // the host from the agent's own claim.
-  const writeState = (value: string) => {
-    try {
-      fs.writeFileSync(statePath, value, 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
-  };
-  const appendLog = (message: string) => {
-    try {
-      fs.appendFileSync(log, `\n${message}\n`, 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  };
+  //
+  // A BOARD STOP ENDS THE AGENT ARM, which runs in the board's process group.
+  // A stop between the PR merge and the `Approved:` record leaves the plan
+  // merged and unrecorded; `plot-approve.sh` finds each step already done and
+  // writes only what is missing, so approving again is the repair.
+  //
   // ABOVE BOTH ARMS, because both are this controller acting.
   // `plot-controller-gate.sh` refuses `plot-approve.sh` invoked with no
   // receipt, and the agent arm reaches it too: a spawned `claude -p` inherits
@@ -367,73 +351,25 @@ export async function handleApprove(
   // agent's own script call is gated exactly as a master agent's is.
   recordActionReceipt(opts.repoRoot, 'approve', slug);
   if (command) {
-    const choice = await agentRunFor(opts, 'approve', APPROVE_COMMAND_KEY);
     fs.closeSync(out);
-    if (choice.runner === 'refused' || choice.agentRun === undefined) {
-      appendLog(choice.reason);
-      writeState('1');
-      json(202, { slug, log });
+    // A REFUSED OUTCOME IS NOT DONE. `startBoardRun` records `outcome:
+    // 'refused'` as code 1 with the summary, so the card reports the refusal;
+    // the plan's phase is still read from git, never from the hand-back.
+    try {
+      markBoardRun(statePath, log);
+    } catch (err) {
+      json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
       return;
     }
-    const agentRun = choice.agentRun;
-    void agentRun
-      .run({
-        worktree: opts.repoRoot,
-        prompt: approvePrompt(slug),
-        resumeId: '',
-        role: 'approve',
-        harness: '',
-        model: '',
-        effort: '',
-        maxTurns: 0,
-        maxSpendUsd: 0,
-        boundSeconds: 0,
-        contextWindow: 0,
-        capabilities: [],
-        // `process.env`'s index signature is `string | undefined`; nothing here
-        // adds a literal key to narrow it back, so the cast is explicit rather
-        // than relying on TS's inference of an adjacent computed key to do it.
-        env: { ...process.env } as Record<string, string>,
-        logFile: log,
-      })
-      .then((result) => {
-        if (!result.ok) {
-          appendLog(`approve run failed: ${result.why}`);
-          writeState('1');
-          return;
-        }
-        const end = result.value.end;
-        if (end.answer !== 'ran') {
-          appendLog(`approve run ended without running: ${end.answer}`);
-          writeState('1');
-          return;
-        }
-        const handBack = end.handBack;
-        // The `command` runner never parses a hand-back — a `null` answer on
-        // exit 0 is the pre-port success case. Only the `sdk` runner's
-        // structured protocol makes `null` a failure.
-        if (handBack === null) {
-          if (choice.runner === 'sdk') {
-            appendLog('approve run ended with no outcome hand-back');
-            writeState('1');
-            return;
-          }
-          writeState('0');
-          return;
-        }
-        if (!('outcome' in handBack)) {
-          appendLog('approve run ended with no outcome hand-back');
-          writeState('1');
-          return;
-        }
-        if (handBack.outcome === 'refused') appendLog(handBack.summary);
-        writeState('0');
-      })
-      .catch((err) => {
-        console.error('approve run failed:', err);
-        appendLog(err instanceof Error ? err.message : String(err));
-        writeState('1');
-      });
+    await startBoardRun(opts, {
+      role: 'approve',
+      fragmentKey: APPROVE_COMMAND_KEY,
+      tree: opts.repoRoot,
+      prompt: approvePrompt(slug),
+      env: {},
+      logFile: log,
+      statePath,
+    });
   } else {
     // `--who` TRAVELS AS AN ARGUMENT, not folded into a shell string: this arm
     // never builds one at all, and `plot-approve.sh` itself refuses an empty

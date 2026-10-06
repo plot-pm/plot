@@ -63,7 +63,7 @@ export interface AgentRunRequest {
   readonly capabilities: readonly string[];
   /** Extra environment on top of the run's own inherited one; merged, never a replacement. */
   readonly env: Readonly<Record<string, string>>;
-  /** Where this run's combined output is written as it runs. */
+  /** Where this run's combined output is appended as it runs; the caller truncates it where it wants a fresh log. */
   readonly logFile: string;
 }
 
