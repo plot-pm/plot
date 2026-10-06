@@ -14,6 +14,7 @@
 - **Started:** 2026-10-04, jwloka, `infra/the-loop-has-a-workflow`
 - **Started:** 2026-10-05, jwloka, `infra/the-loop-writes-through-ports`
 - **Started:** 2026-10-05, jwloka, `infra/the-loop-runs-in-one-process`
+- **Started:** 2026-10-06, jwloka, `infra/the-loop-restarts-on-new-code`
 
 ## Changelog
 
