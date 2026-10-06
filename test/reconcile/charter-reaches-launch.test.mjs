@@ -79,7 +79,7 @@ const argv = (file, vars) => {
     // A dispatched worker runs this suite, so its OWN launch variables are in
     // the environment; deleting them is what makes the absent cases observable.
     for (const v of ['PLOT_HARNESS', 'PLOT_MODEL', 'PLOT_EFFORT', 'PLOT_CAPABILITIES',
-      'PLOT_SESSION_ID', 'PLOT_SESSION_FLAG']) delete env[v];
+      'PLOT_SESSION_ID', 'PLOT_SESSION_FLAG', 'PLOT_BACKGROUND_DENY']) delete env[v];
     Object.assign(env, vars);
     const out = execFileSync('bash', ['-c', 'set -uo pipefail; . "$1"', '_', file],
       { encoding: 'utf8', env, timeout: 30_000 });
@@ -155,6 +155,18 @@ for (const [label, file] of [['template', template], ["this repo's file", localP
       `the probe must not print the prompt body it would have passed\n${got.join(' ')}`);
     assert.equal(got.includes('--permission-mode'), false,
       `nor the flags that follow it\n${got.join(' ')}`);
+  });
+
+  test(`${label}: the loop's background deny list reaches --disallowedTools (#1322)`, () => {
+    const got = argv(file, { PLOT_BACKGROUND_DENY: 'Monitor,TaskStop' });
+    const at = got.indexOf('--disallowedTools');
+    assert.notEqual(at, -1, `the deny list must reach the command\n${got.join(' ')}`);
+    assert.equal(got[at + 1], 'Monitor,TaskStop', `and carry its value\n${got.join(' ')}`);
+  });
+
+  test(`${label}: no deny list, or another harness, passes no --disallowedTools`, () => {
+    assert.equal(argv(file, {}).includes('--disallowedTools'), false);
+    assert.equal(argv(file, { PLOT_BACKGROUND_DENY: 'Monitor', PLOT_HARNESS: 'some-other-harness' }).includes('--disallowedTools'), false);
   });
 }
 

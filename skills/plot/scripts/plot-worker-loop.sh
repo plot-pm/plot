@@ -79,8 +79,9 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 # back to the body below — a silent fallback is how a fleet runs the wrong
 # loop for a week. No bundle on `js` is a loud exit 2, never a start of `node`
 # on the `shell` path. `js` is the default since the-worker-loop-runs-in-js
-# slice 5; an explicit `shell` still runs the body below.
-if [ "$(cfg "Worker loop" js)" = "js" ]; then bundle="$script_dir/board/plot-worker-loop.mjs"
+# slice 5; an explicit `shell` still runs the body below. A SOURCED loop
+# (`PLOT_WORKER_LOOP_SOURCED`) only defines functions and never `exec`s.
+if [ -z "${PLOT_WORKER_LOOP_SOURCED:-}" ] && [ "$(cfg "Worker loop" js)" = "js" ]; then bundle="$script_dir/board/plot-worker-loop.mjs"
   [ -f "$bundle" ] || { echo "plot-worker-loop: Worker loop is js and $bundle is missing — the-shell-shrinks-into-the-domain" >&2; exit 2; }; rm -f "$PLOT_TMP_REGISTRY"; exec node "$bundle"; fi
 
 # THE TRANSCRIPT READER. Until `bug/the-loop-reports-idle` this was sourced for
@@ -1469,29 +1470,16 @@ desk_holding_clause() { # $1=worktree → " The desk holds N commit(s) and M …
 # existed — `unstarted` for a non-zero status, `ran` for 0. A classification
 # that cannot be made is not a reason to stop a worker.
 ask_prompt_exit() { # $1=status $2=ran seconds $3=commits since wait → the answer line
-  local status="$1" ran="$2" commits="$3" bundle answer
-  bundle="$script_dir/board/plot-prompt-exit.mjs"
-  # TODAY'S PATH, named once and used by both refusals below. An `a && b || c`
-  # would print BOTH words if `b` ever failed, and the caller reads the first
-  # tab-separated field — so two words joined would read as neither.
-  by_status() { if [ "$status" -eq 0 ]; then printf 'ran'; else printf 'unstarted'; fi; }
-
-  if [ -z "$_prompt_out_file" ] || [ ! -r "$_prompt_out_file" ] || \
-     [ ! -r "$bundle" ] || ! command -v node >/dev/null 2>&1; then
-    by_status
-    return 0
-  fi
-  answer=$(tail -n 200 "$_prompt_out_file" 2>/dev/null | node "$bundle" \
+  local status="$1" answer
+  # ONE FALLBACK FOR EVERY UNASKABLE CASE. A missing capture, bundle or `node`
+  # and a bundle that refuses its arguments all leave the answer empty, so
+  # each takes today's path below rather than a guard of its own.
+  answer=$(tail -n 200 "$_prompt_out_file" 2>/dev/null | node "$script_dir/board/plot-prompt-exit.mjs" \
     "$status" "${PLOT_HARNESS:-claude}" "$(clock_now)" "$WORKER_BOUND_SECONDS" \
-    "$ran" "$_after_wait" "$commits" 2>/dev/null) || answer=""
-  # AN EMPTY ANSWER IS A REFUSAL, not an empty verdict. The bundle exits 2 on
-  # an argument it cannot read and writes nothing, which is the case a misread
-  # reading would otherwise turn into a decision.
-  if [ -z "$answer" ]; then
-    by_status
-    return 0
-  fi
-  printf '%s' "$answer"
+    "$2" "$_after_wait" "$3" 2>/dev/null) || answer=""
+  if [ -n "$answer" ]; then printf '%s' "$answer"
+  elif [ "$status" -eq 0 ]; then printf 'ran'
+  else printf 'unstarted'; fi
 }
 
 # Sleep until the reset, in steps, comparing the clock after each one.
@@ -1506,14 +1494,12 @@ ask_prompt_exit() { # $1=status $2=ran seconds $3=commits since wait → the ans
 # and a prompt started in the same second has been measured meeting it again;
 # `PLOT_LIMIT_MARGIN_SECONDS` is the grace, defaulting to a minute.
 sleep_until_reset() { # $1=reset epoch
-  local target="$1" now remaining step
+  local target="$1" remaining step
   target=$(( target + ${PLOT_LIMIT_MARGIN_SECONDS-60} ))
   while :; do
-    now=$(clock_now)
-    remaining=$(( target - now ))
+    remaining=$(( target - $(clock_now) ))
     [ "$remaining" -gt 0 ] || return 0
-    step=$remaining
-    [ "$step" -gt 60 ] && step=60
+    step=$(( remaining > 60 ? 60 : remaining ))
     sleep "$step" &
     _wait_sleep_pid=$!
     wait "$_wait_sleep_pid" 2>/dev/null
@@ -1945,6 +1931,15 @@ else
   sed 's/^/plot-worker-loop: /' "$_settings_reason_file" >&2 || true
 fi
 unset _settings_path
+
+# THE BACKGROUND GATE, exported once for every prompt this loop starts (#1322):
+# `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, and `PLOT_BACKGROUND_DENY` for the
+# prompt file's `--disallowedTools`. The values are `backgroundGateEnv`'s, the
+# definition the SDK runner and the JS loop read, asked through the bundle so
+# the shell holds no copy. A bundle that does not answer starts the agent
+# without the gate, and the log says so.
+_gate=$(node "$script_dir/board/plot-prompt.mjs" --background-gate 2>/dev/null) && [ -n "$_gate" ] && eval "$_gate" ||
+  echo "plot-worker-loop: no background gate — $script_dir/board/plot-prompt.mjs did not answer, so a turn can end with its background work still running" >&2
 
 # Determine the main branch for worktree creation.
 main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
@@ -2734,9 +2729,7 @@ while true; do
   # the loop with `$PLOT_BRANCH` unchanged, so the agent resumes the same slice
   # with its work still on the floor.
   if [ "$_exit_verdict" = "wait" ]; then
-    _limit_reset=$(printf '%s' "$_exit_answer" | cut -f2)
-    _limit_iso=$(printf '%s' "$_exit_answer" | cut -f3)
-    _limit_line=$(printf '%s' "$_exit_answer" | cut -f4-)
+    IFS=$'\t' read -r _ _limit_reset _limit_iso _limit_line <<< "$_exit_answer"
     write_limited_record "${PLOT_WORKTREE:-$PWD}" "$_limit_reset" "$_limit_iso" "$_limit_line"
     # THE DESK'S `HEAD` AT THE START OF THE WAIT, which is what makes the next
     # exit's progress reading possible: a limit that returns with no commit
@@ -2760,10 +2753,9 @@ while true; do
   # here: the invocation worked. The marker asks for time and names
   # `--restart`, which is what resumes the slice once the limit lifts.
   if [ "$_exit_verdict" = "end-limited" ]; then
-    _limit_reset=$(printf '%s' "$_exit_answer" | cut -f2)
-    _limit_iso=$(printf '%s' "$_exit_answer" | cut -f3)
-    _limit_cause=$(printf '%s' "$_exit_answer" | cut -f4)
-    _limit_line=$(printf '%s' "$_exit_answer" | cut -f5-)
+    # EVERY FIELD IS NON-EMPTY (`unknown` and `-` stand in for no reset), so
+    # one `read` splits the line; the last field keeps any tab the line holds.
+    IFS=$'\t' read -r _ _limit_reset _limit_iso _limit_cause _limit_line <<< "$_exit_answer"
     _limit_until="with no reset time"
     [ "$_limit_reset" != "unknown" ] && _limit_until="until $_limit_iso"
     clear_limited_record "${PLOT_WORKTREE:-$PWD}"
@@ -2777,6 +2769,31 @@ while true; do
 
 Nothing is broken and there is nothing to fix in the prompt — the invocation worked and the account is out of capacity.$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}") The slice is still claimed by this agent and its work is still in the desk. Once the limit lifts, restart this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
     exit 1
+  fi
+
+  # ---------------------------------------------------------------------------
+  # THE TURN DROPPED ITS BACKGROUND WORK — resumed once, then a person (#1322)
+  # ---------------------------------------------------------------------------
+  #
+  # `promptExit` answers `dropped` for a status-0 run whose output carries the
+  # harness's termination line or a closing line that waits on background
+  # work, and the bundle hands back `backgroundDropCorrection`'s text. The
+  # first drop on a slice appends that text to the correction file and runs the
+  # prompt again, which resumes the session; a second drop on the same slice
+  # ends `blocked` with a marker. `agentLoop`'s row 10c decides the same for
+  # the JS loop, and `test/reconcile/loop-prompt-launch.test.mjs` runs on both.
+  # A marker the agent wrote answers first, through today's path below.
+  if [ "$_exit_verdict" = "dropped" ] && ! plot_worker_blocked "${PLOT_WORKTREE:-$PWD}"; then
+    if [ "${_dropped_on:-}" != "${PLOT_BRANCH:-}" ]; then
+      _dropped_on=${PLOT_BRANCH:-}
+      printf '%s\n\n---\n\n' "${_exit_answer#*$'\t'}" >> "${PLOT_WORKTREE:-$PWD}/$(correction_file_name)"
+      echo "plot-worker-loop: the turn on ${PLOT_BRANCH:-?} ended with its background work dropped; resuming the session once" >&2
+      continue
+    fi
+    echo "plot-worker-loop: the turn on ${PLOT_BRANCH:-?} ended with its background work dropped again after one resume. The slice stays claimed and a person is asked; ending worker.$(desk_holding_clause "${PLOT_WORKTREE:-$PWD}")" >&2
+    write_ending "${PLOT_WORKTREE:-$PWD}" blocked agent "${PLOT_BRANCH:-}" "the turn ended with its background work dropped, twice"
+    write_blocked_marker "${PLOT_WORKTREE:-$PWD}" "PLOT-BLOCKED: \`${PLOT_BRANCH:-?}\`'s turn ended with its background work dropped again after one resume. \`$(correction_file_name)\` in this worktree holds what the run reported. A person decides how the slice finishes, then restarts this agent with \`/plot-dispatch --restart ${PLOT_BRANCH:-<branch>}\`."
+    exit 0
   fi
 
   if [ "$_exit_verdict" = "unstarted" ]; then
@@ -3196,6 +3213,7 @@ Nothing is broken and there is nothing to fix in the prompt — the invocation w
   clear_limited_record "${PLOT_WORKTREE:-$PWD}"
   _after_wait=0
   _wait_head=""
+  _dropped_on=""
 
   # The pid records follow the loop, so the desk it leaves names no live worker.
   # After the claim push, because a rejected push leaves the loop where it is.

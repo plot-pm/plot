@@ -20,6 +20,8 @@
  * a date.
  */
 
+import { droppedBackgroundLine } from './background-drop.js';
+
 /**
  * What a harness prints when it stops on a usage limit.
  *
@@ -34,6 +36,12 @@ export interface LimitPatterns {
   readonly names: readonly string[];
   /** What separates the limit from its reset time on the same line. */
   readonly resetSeparator: string;
+  /**
+   * The text the harness's line opens with when it ended a turn by
+   * terminating background work that still ran; absent where the harness
+   * prints none.
+   */
+  readonly dropped?: string;
 }
 
 /** What the caller measured about the exit it is asking about. */
@@ -87,6 +95,8 @@ export interface ResetReading {
  * - `wait`: a limit, a known reset at or after now, and the wait is allowed.
  * - `end-limited`: a limit, and no wait is allowed; `cause` says which gate.
  * - `unstarted`: no limit, and a non-zero status — the retry path.
+ * - `dropped`: no limit, a status of 0, and an output that shows the turn
+ *   ended with its background work dropped; `line` is the line that shows it.
  * - `ran`: no limit, and a status of 0.
  */
 export type PromptExit =
@@ -98,6 +108,7 @@ export type PromptExit =
       readonly cause: LimitCause;
     }
   | { readonly answer: 'unstarted' }
+  | { readonly answer: 'dropped'; readonly line: string }
   | { readonly answer: 'ran' };
 
 /**
@@ -348,7 +359,10 @@ export const limitAnswer = (
 /**
  * Classifies one prompt exit.
  *
- * Four answers, and `cause` on `end-limited` says which gate refused the wait:
+ * A status-0 exit with no limit answers `dropped` where
+ * {@link droppedBackgroundLine} finds a line, and `ran` otherwise.
+ *
+ * `cause` on `end-limited` says which gate refused the wait:
  *
  * - `no-reset` — the line named a limit whose reset could not be read. A `fast
  *   limit` and a `monthly spend limit` land here until their shapes are
@@ -375,8 +389,11 @@ export const promptExit = (
   input: PromptExitInput,
   patterns: LimitPatterns | undefined,
 ): PromptExit => {
-  const byStatus = (): PromptExit =>
-    input.status === 0 ? { answer: 'ran' } : { answer: 'unstarted' };
+  const byStatus = (): PromptExit => {
+    if (input.status !== 0) return { answer: 'unstarted' };
+    const dropped = droppedBackgroundLine(input.output, patterns?.dropped);
+    return dropped === undefined ? { answer: 'ran' } : { answer: 'dropped', line: dropped };
+  };
 
   if (!patterns || patterns.names.length === 0) {
     return byStatus();

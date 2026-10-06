@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   agentRunEnv,
+  backgroundGateEnv,
   backgroundSwitchRefusal,
+  BACKGROUND_DENY_ENV_VAR,
+  BACKGROUND_DISALLOWED_TOOLS,
   BACKGROUND_TASKS_ENV_VAR,
   type SettingsEnvReading,
 } from '../src/rules/agent-run-env.js';
@@ -46,6 +49,21 @@ describe('agentRunEnv', () => {
     // assertion — the test exists to catch that, not to describe behaviour
     // this rule doesn't have.
     expect(Object.keys(result).length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('backgroundGateEnv', () => {
+  it('sets the switch and carries the disallowed tools, comma-separated', () => {
+    expect(backgroundGateEnv()).toEqual({
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+      PLOT_BACKGROUND_DENY: 'Monitor,ScheduleWakeup,CronCreate,TaskStop,ListAgents',
+    });
+    expect(backgroundGateEnv()[BACKGROUND_DENY_ENV_VAR]).toBe(BACKGROUND_DISALLOWED_TOOLS.join(','));
+  });
+
+  it('is what agentRunEnv puts last, so neither input overrides it', () => {
+    const result = agentRunEnv({ [BACKGROUND_DENY_ENV_VAR]: '' }, { [BACKGROUND_TASKS_ENV_VAR]: '0' });
+    expect(result).toMatchObject(backgroundGateEnv());
   });
 });
 

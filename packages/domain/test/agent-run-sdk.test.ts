@@ -33,6 +33,11 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   },
 }));
 
+import {
+  backgroundGateEnv,
+  BACKGROUND_DISALLOWED_TOOLS as RULE_DISALLOWED_TOOLS,
+} from '../src/rules/agent-run-env.js';
+
 const sdk = await import('../src/adapters/agent-run/agent-run-sdk.js');
 const { agentRunSdk, BACKGROUND_DISALLOWED_TOOLS, DEFAULT_READ_ONLY_DENY, HAND_BACK_PROTOCOL } = sdk;
 
@@ -131,6 +136,10 @@ describe('agentRunSdk: the options it passes', () => {
     expect(env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
     expect(options.disallowedTools).toEqual([...BACKGROUND_DISALLOWED_TOOLS]);
     expect(BACKGROUND_DISALLOWED_TOOLS).toEqual(['Monitor', 'ScheduleWakeup', 'CronCreate', 'TaskStop', 'ListAgents']);
+    // ONE DEFINITION FOR BOTH RUNNERS: the list the `command` runner's prompt
+    // file receives as PLOT_BACKGROUND_DENY is this same array.
+    expect(BACKGROUND_DISALLOWED_TOOLS).toBe(RULE_DISALLOWED_TOOLS);
+    expect(env).toMatchObject(backgroundGateEnv());
     expect((options.hooks as { PreToolUse: unknown[] }).PreToolUse).toHaveLength(1);
     expect(options.settingSources).toEqual(['user', 'project', 'local']);
     expect(options.pathToClaudeCodeExecutable).toBe('/usr/local/bin/claude');
@@ -270,7 +279,7 @@ describe('agentRunSdk: how a run ends', () => {
       { type: 'assistant', session_id: 'session-abc' },
       resultMessage({
         num_turns: 40,
-        modelUsage: { sonnet: { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4 } },
+        modelUsage: { sonnet: { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4, costUSD: 0.42 } },
       }),
     ];
     const run = await ended();
@@ -279,8 +288,10 @@ describe('agentRunSdk: how a run ends', () => {
       end: { answer: 'ran', handBack: { next: 'pushed', summary: 'done' } },
       usageByModel: { sonnet: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheCreationTokens: 4 } },
       costUsd: 0.42,
+      costUsdByModel: { sonnet: 0.42 },
       turns: 2,
       limitReadings: [],
+      account: null,
     });
     expect(await readFile(join(dir, 'out.log'), 'utf8')).toContain('"type":"result"');
   });
@@ -293,6 +304,43 @@ describe('agentRunSdk: how a run ends', () => {
     const run = await ended({ boundSeconds: 28_800 });
     expect(run.end).toEqual({ answer: 'wait', resetEpoch: 1_700_003_600 });
     expect(run.limitReadings).toEqual([{ status: 'rejected', resetsAt: 1_700_003_600, rateLimitType: 'five_hour', utilization: 1 }]);
+  });
+
+  it('reads a live allowed event: utilization from its own window, resetsAt in epoch seconds', async () => {
+    // RECORDED 2026-10-06 from `claude -p --output-format stream-json --verbose`
+    // (CLI 2.1.291, a claude.ai subscription account), verbatim. The top-level
+    // `utilization` is absent; the figure sits in `unifiedWindows`, 0 to 1.
+    // `resetsAt` 1791302400 is 2026-10-06T16:00:00Z, so it is epoch seconds.
+    const live = {
+      type: 'rate_limit_event',
+      rate_limit_info: {
+        status: 'allowed',
+        resetsAt: 1791302400,
+        rateLimitType: 'five_hour',
+        overageStatus: 'allowed',
+        overageResetsAt: 1793491200,
+        isUsingOverage: false,
+        unifiedWindows: {
+          five_hour: { utilization: 0.14, resetsAt: 1791302400 },
+          seven_day: { utilization: 0.66, resetsAt: 1791475200 },
+        },
+      },
+      uuid: '94d64941-bf8b-4d49-8f59-5d46c734c9b9',
+      session_id: '42ce1c05-c6b9-4938-a87d-e4bccbf88363',
+    };
+    captured.messages = [live, resultMessage()];
+    const run = await ended();
+    expect(run.limitReadings).toEqual([{ status: 'allowed', resetsAt: 1791302400, rateLimitType: 'five_hour', utilization: 0.14 }]);
+  });
+
+  it('reads an event that names no utilization anywhere as null, never 0', async () => {
+    captured.messages = [
+      { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' }, session_id: 's' },
+      { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', rateLimitType: 'seven_day', unifiedWindows: {} }, session_id: 's' },
+      resultMessage(),
+    ];
+    const run = await ended();
+    expect(run.limitReadings.map((reading) => reading.utilization)).toEqual([null, null]);
   });
 
   it('ends unstarted on a zeroed result, and on a stream with no result at all', async () => {

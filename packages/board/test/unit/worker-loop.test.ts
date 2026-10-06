@@ -34,6 +34,7 @@ const CONFIG: PassConfig = {
   checksWaitSeconds: 1_800,
   correctionBudget: 2,
   sliceMaxRuns: 12,
+  sliceMaxSpendUsd: null,
   base: 'origin/main',
 };
 
@@ -50,6 +51,9 @@ const ports = (over: Partial<WorkerLoopPorts> = {}): WorkerLoopPorts => ({
   host: hostFixture(),
   transcriptQuietSeconds: async () => 'unavailable',
   recordSpend: async () => undefined,
+  recordRun: async () => null,
+  recordLimits: async () => 0,
+  sliceCostUsd: async () => null,
   ...over,
 });
 

@@ -9,8 +9,8 @@
  * chooses. Every run carries the three parts of the no-background gate:
  *
  *   1. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in the child's `env`.
- *   2. `disallowedTools` names `Monitor`, `ScheduleWakeup`, `CronCreate`,
- *      `TaskStop` and `ListAgents`.
+ *   2. `disallowedTools` names `BACKGROUND_DISALLOWED_TOOLS`, the list the
+ *      `command` runner's prompt file receives as `PLOT_BACKGROUND_DENY`.
  *   3. A `PreToolUse` hook that asks `pollRefusal` and denies what it refuses.
  *
  * A foreground `Bash` call stays allowed.
@@ -41,19 +41,18 @@ import type {
 } from '../../ports/agent-run.js';
 import type { Processes } from '../../ports/processes.js';
 import { agentSettingsRefusal } from '../../rules/agent-settings.js';
-import { agentRunEnv, backgroundSwitchRefusal, type SettingsEnvReading } from '../../rules/agent-run-env.js';
+import {
+  agentRunEnv,
+  BACKGROUND_DISALLOWED_TOOLS,
+  backgroundSwitchRefusal,
+  type SettingsEnvReading,
+} from '../../rules/agent-run-env.js';
 import { pollRefusal } from '../../rules/poll-refusal.js';
 import { sdkRunExit, type SdkRunReading } from '../../rules/sdk-run-exit.js';
 import { killTree, killTreeSync } from '../bounded-run/bounded-run-process.js';
 
-/** The tools a fleet run disallows outright: each exists only to wait on or manage background work. */
-export const BACKGROUND_DISALLOWED_TOOLS: readonly string[] = [
-  'Monitor',
-  'ScheduleWakeup',
-  'CronCreate',
-  'TaskStop',
-  'ListAgents',
-];
+/** The tools a fleet run disallows outright; the one list both runners read, from `rules/agent-run-env.ts`. */
+export { BACKGROUND_DISALLOWED_TOOLS };
 
 /** The tools a `read-only` capability disallows where the prompt file names no list; `PLOT_READ_ONLY_DENY`'s default. */
 export const DEFAULT_READ_ONLY_DENY: readonly string[] = ['Write', 'Edit', 'NotebookEdit', 'Bash', 'Agent', 'Task'];
@@ -204,12 +203,27 @@ const usageOf = (usage: ModelUsage): AgentRunUsage => ({
   cacheReadTokens: usage.cacheReadInputTokens,
 });
 
+/**
+ * The window's utilization: the event's top-level figure, else the figure the
+ * event's `unifiedWindows` holds for its own `rateLimitType`, else `null`.
+ *
+ * A live `allowed` event (CLI 2.1.291, 2026-10-06) carried no top-level
+ * `utilization` and carried `unifiedWindows.five_hour.utilization: 0.14`;
+ * `sdk.d.ts` does not type `unifiedWindows`, so it is read defensively.
+ */
+const utilizationOf = (info: Extract<SDKMessage, { type: 'rate_limit_event' }>['rate_limit_info']): number | null => {
+  if (typeof info.utilization === 'number') return info.utilization;
+  const windows = (info as { unifiedWindows?: Record<string, { utilization?: unknown } | undefined> }).unifiedWindows;
+  const own = info.rateLimitType === undefined ? undefined : windows?.[info.rateLimitType]?.utilization;
+  return typeof own === 'number' ? own : null;
+};
+
 /** Reads one `rate_limit_event`, unconverted. */
 const limitReadingOf = (message: Extract<SDKMessage, { type: 'rate_limit_event' }>): AgentRunLimitReading => ({
   status: message.rate_limit_info.status,
   resetsAt: message.rate_limit_info.resetsAt ?? null,
   rateLimitType: message.rate_limit_info.rateLimitType ?? '',
-  utilization: message.rate_limit_info.utilization ?? 0,
+  utilization: utilizationOf(message.rate_limit_info),
 });
 
 /** A result for a run that never started. */
@@ -219,8 +233,10 @@ const unstarted = (request: AgentRunRequest, detail: string): PortResult<AgentRu
     end: { answer: 'unstarted', detail },
     usageByModel: {},
     costUsd: null,
+    costUsdByModel: {},
     turns: 0,
     limitReadings: [],
+    account: null,
   });
 
 /** The signals that end the caller; each ends the run's tree, then the caller exits `128 + n`. */
@@ -330,6 +346,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
     };
     const seen = { sessionId: request.resumeId, costUsd: null as number | null, turns: 0 };
     let usageByModel: Record<string, AgentRunUsage> = {};
+    let costUsdByModel: Record<string, number> = {};
     const limitReadings: AgentRunLimitReading[] = [];
 
     // THE CHILD'S TREE ENDS WITH THE CALLER: an `exit` listener cannot await,
@@ -375,6 +392,9 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
           usageByModel = Object.fromEntries(
             Object.entries(message.modelUsage ?? {}).map(([model, usage]) => [model, usageOf(usage)]),
           );
+          costUsdByModel = Object.fromEntries(
+            Object.entries(message.modelUsage ?? {}).map(([model, usage]) => [model, usage.costUSD]),
+          );
           if (message.subtype === 'success') reading.structuredOutput = message.structured_output;
           else reading.startupFailureReason = message.startup_failure_reason ?? null;
         }
@@ -403,14 +423,30 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       await log(`plot-agent-run: ${exit.answer}: ${exit.detail}`);
     }
     const end: AgentRunResult['end'] = exit.answer === 'ran' ? { answer: 'ran', handBack: exit.handBack } : exit;
+    // `accountInfo()` IS A SEPARATE CONTROL CALL, NEVER A STREAMED MESSAGE: no
+    // `SDKMessage` variant carries the account, so this is the one await the
+    // adapter makes outside the `for await` loop above. Best effort — a stream
+    // already closed by an abort or a startup failure, or one with no control
+    // channel to ask at all, answers with neither field: a budget entry with
+    // no account is better than a run that fails for having asked.
+    const info =
+      typeof (stream as { accountInfo?: () => Promise<{ email?: string; organization?: string } | undefined> })
+        .accountInfo === 'function'
+        ? await (stream as { accountInfo: () => Promise<{ email?: string; organization?: string } | undefined> })
+            .accountInfo()
+            .catch(() => undefined)
+        : undefined;
+    const account = info?.email ?? info?.organization ?? null;
 
     return answered({
       sessionId: seen.sessionId,
       end,
       usageByModel,
       costUsd: seen.costUsd,
+      costUsdByModel,
       turns: seen.turns,
       limitReadings,
+      account,
     });
   },
 });

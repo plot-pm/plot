@@ -18,6 +18,7 @@ import {
   agentsFs,
   boundedRunProcess,
   buildShell,
+  budgetFile,
   deskFs,
   hostShell,
   processExec,
@@ -32,6 +33,7 @@ import {
 import { checksFromRuns, type RemoteTipReading } from '@plot-pm/domain/rules/checks-verdict';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
+import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
 import { restartAnswer, type LoopRestartReadings } from '@plot-pm/domain/rules/loop-restart';
 import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
 import { DEFAULT_AGENT_CONTEXT_WINDOW, DEFAULT_AGENT_MAX_TURNS, agentRunSettings } from '@plot-pm/domain/rules/agent-models';
@@ -47,10 +49,11 @@ import {
   type TakeUpRefusal,
 } from '@plot-pm/domain/workflows/agent-loop';
 import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
-import { recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
+import { readSliceSpend, recordSliceRun, recordSliceSpend, type RunWriteRefusal } from '@plot-pm/domain/workflows/slice-spend';
+import { recordRunLimits } from '@plot-pm/domain/workflows/run-limits';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
-import type { AgentHandBack, AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
+import type { AgentHandBack, AgentRun, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
@@ -125,6 +128,28 @@ export interface WorkerLoopPorts extends LoopWritePorts {
    * a refusal leaves the seal as it is, as `record_slice_spend` does.
    */
   readonly recordSpend: (worktree: string, branch: string, at: string) => Promise<void>;
+  /**
+   * Appends one SDK run's line to the checkout's slice-spend record, right
+   * after the run that produced it ends.
+   *
+   * @returns `null` where the line was written, else why it was not.
+   */
+  readonly recordRun: (
+    worktree: string,
+    branch: string,
+    role: string,
+    at: string,
+    result: AgentRunResult,
+  ) => Promise<RunWriteRefusal | null>;
+  /**
+   * Appends one budget entry per `rate_limit_event` the run observed, to this
+   * computer's budget record.
+   *
+   * @returns how many entries could not be appended.
+   */
+  readonly recordLimits: (result: AgentRunResult, at: number) => Promise<number>;
+  /** What the slice-spend record reads for this branch, for `Slice max spend`. */
+  readonly sliceCostUsd: (worktree: string, branch: string) => Promise<number | null>;
   /** Replaces this process's own image — {@link runWorkerLoop}'s one path to a self-restart. */
   readonly reexec: Reexec;
 }
@@ -162,6 +187,15 @@ export const workerLoopPorts = async (
     transcriptQuietSeconds: async (worktree: string) => quietReading(await transcript.quietSeconds(worktree)),
     recordSpend: async (worktree: string, branch: string, at: string) => {
       await recordSliceSpend(sliceSpendFile({ cwd: worktree }), { worktree, branch, at });
+    },
+    recordRun: async (worktree: string, branch: string, role: string, at: string, result: AgentRunResult) => {
+      const written = await recordSliceRun(sliceSpendFile({ cwd: worktree }), { branch, role, at }, result);
+      return written.ok ? null : written.refusal;
+    },
+    recordLimits: async (result: AgentRunResult, at: number) => (await recordRunLimits(budgetFile(), result, at)).failed,
+    sliceCostUsd: async (worktree: string, branch: string) => {
+      const read = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
+      return read.costUsd;
     },
     reexec: processExec(),
   };
@@ -593,6 +627,8 @@ export interface PromptState {
   readonly sessionId?: string;
   /** What the local checks answered for a `checks` hand-back; `null` while they have not run. */
   readonly localChecks?: LocalChecksReading | null;
+  /** The branch the loop already resumed once after a turn that dropped its background work; `''` for none. */
+  readonly droppedOn?: string;
 }
 
 /** What one pass is told about the repository's config, read once at start. */
@@ -609,6 +645,8 @@ export interface PassConfig {
   readonly correctionBudget: number;
   /** `Slice max runs`; {@link DEFAULT_SLICE_MAX_RUNS} where the key is absent. */
   readonly sliceMaxRuns: number;
+  /** `Slice max spend`, in dollars; `null` where the key is absent — no default stands in for it. */
+  readonly sliceMaxSpendUsd: number | null;
   readonly base: string;
 }
 
@@ -634,6 +672,9 @@ export const readPass = async (
 ): Promise<AgentLoopReadings> => {
   const manifest = await readManifestFields(manifestFile);
   const passAt = new Date().toISOString();
+  // ASKED ONLY WHEN A BRANCH IS ASSIGNED — a reading for a place the pass is
+  // not in is never asked of the world, `readPass`'s own doc comment.
+  const sliceCostUsd = manifest.branch === '' ? null : await ports.sliceCostUsd(manifest.worktree, manifest.branch);
 
   const base: AgentLoopReadings = {
     assignedBranch: manifest.branch,
@@ -655,7 +696,10 @@ export const readPass = async (
     handBackSummary: prompt.handBack?.summary ?? '',
     localChecks: prompt.localChecks ?? null,
     sliceRuns: manifest.sliceRuns,
+    backgroundDropResumed: manifest.branch !== '' && prompt.droppedOn === manifest.branch,
     sliceMaxRuns: config.sliceMaxRuns,
+    sliceCostUsd,
+    sliceMaxSpendUsd: config.sliceMaxSpendUsd,
     resetRefusals: [],
     pushed: false,
     prOpen: false,
@@ -703,11 +747,13 @@ export const readPass = async (
 
   // ROWS 7-9 — the prompt exited `unstarted`, `wait` or `end-limited`. None of
   // these reads anything about the desk or the host.
-  if (exit.answer !== 'ran') return base;
+  if (exit.answer !== 'ran' && exit.answer !== 'dropped') return base;
 
   // ROW 10 — the agent may have written its own marker.
   const markerText = await readMarkerText(worktree);
   if (markerText !== '') return { ...base, markerWritten: true, markerText };
+  // ROW 10c — a dropped turn reads nothing further.
+  if (exit.answer === 'dropped') return base;
 
   // ROW 11 — unlanded work with no marker.
   const refusals = await readResetRefusals(ports, worktree);
@@ -1026,6 +1072,8 @@ export interface SdkRunDeps {
   readonly effort: string;
   /** `Agent max turns`. */
   readonly maxTurns: number;
+  /** `Agent max spend`, in dollars; `0` where the key is absent, which the port reads as no limit. */
+  readonly maxSpendUsd: number;
   /** `Agent context window`, capped by the charter. */
   readonly contextWindow: number;
   /** The charter's capabilities. */
@@ -1112,6 +1160,8 @@ interface Held {
   sessionId: string;
   /** What the local checks answered for the last `checks` hand-back; `null` before they ran. */
   localChecks: LocalChecksReading | null;
+  /** The branch already resumed once after a turn that dropped its background work; `''` for none. */
+  droppedOn: string;
 }
 
 const FRESH: Held = {
@@ -1123,6 +1173,7 @@ const FRESH: Held = {
   handBack: null,
   sessionId: '',
   localChecks: null,
+  droppedOn: '',
 };
 
 /** How one run ended, for {@link runWorkerLoop}. */
@@ -1218,6 +1269,7 @@ const runPrompt = async (
     PLOT_SESSION_FLAG: spoken.ok && spoken.value === true ? '--resume' : '--session-id',
     PLOT_SESSION_ID: handle,
     PLOT_CORRECTION_FILE: join(worktree, 'PLOT-CORRECTION.md'),
+    ...backgroundGateEnv(),
   };
 
   // A FRESH OUTPUT FILE PER PROMPT, as the shell's `rm -f` before each run: the
@@ -1258,7 +1310,7 @@ const runPrompt = async (
       model: sdk.model,
       effort: sdk.effort,
       maxTurns: sdk.maxTurns,
-      maxSpendUsd: 0,
+      maxSpendUsd: sdk.maxSpendUsd,
       boundSeconds: deps.config.boundSeconds,
       contextWindow: sdk.contextWindow,
       capabilities: sdk.capabilities,
@@ -1270,7 +1322,9 @@ const runPrompt = async (
     if ('idle' in raced) return { ended: 'idle' };
     ended = true;
     if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
-    const end = raced.run.value.end;
+    const result = raced.run.value;
+    await recordRunRecords(deps, worktree, manifest.branch, result);
+    const end = result.end;
     if (end.answer === 'unstarted') deps.log(`plot-worker-loop: the SDK run did not start on ${manifest.branch} — ${end.detail}`);
     const outcome = sdkOutcome(end);
     if (outcome === 'bound') return { ended: 'bound' };
@@ -1279,7 +1333,7 @@ const runPrompt = async (
       status: outcome.exit.answer === 'unstarted' ? 1 : 0,
       exit: outcome.exit,
       handBack: outcome.handBack,
-      sessionId: raced.run.value.sessionId || handle,
+      sessionId: result.sessionId || handle,
     };
   }
 
@@ -1355,6 +1409,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       handBack: held.handBack,
       sessionId: held.sessionId,
       localChecks: held.localChecks,
+      droppedOn: held.droppedOn,
     };
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
     const decision = agentLoop(readings);
@@ -1414,9 +1469,16 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     }
 
     const resume = decision.writes.find((w) => w.kind === 'agent-resume');
+    // A DROPPED TURN'S CORRECTION IS WRITTEN AS THE DOMAIN BUILT IT, and the
+    // branch is held so the next drop on it ends the slice.
+    if (resume !== undefined && resume.kind === 'agent-resume' && readings.exit?.answer === 'dropped') {
+      await deps.ports.desk.appendCorrection(resume.worktree, resume.correction);
+      held = { ...held, droppedOn: resume.branch };
+      deps.log(`plot-worker-loop: the turn on ${resume.branch} ended with its background work dropped; resuming the session once`);
+    }
     // A CI CORRECTION IS WRITTEN TO THE DESK; a `checks` resume carries its
     // answer in the resumed turn alone.
-    if (resume !== undefined && resume.kind === 'agent-resume' && readings.handBack !== 'checks') {
+    else if (resume !== undefined && resume.kind === 'agent-resume' && readings.handBack !== 'checks') {
       await deps.ports.desk.writeCorrection(
         resume.worktree,
         resume.branch,
@@ -1536,6 +1598,18 @@ export const positive = (raw: string | undefined, fallback: number): number => {
 /** A whole number of either sign, as the shell's arithmetic reads an offset. */
 export const integer = (raw: string | undefined, fallback: number): number =>
   raw !== undefined && /^-?\d+$/.test(raw) ? Number(raw) : fallback;
+
+/**
+ * A positive amount in dollars, or `null` where the key is absent — unlike
+ * {@link count}/{@link positive}/{@link integer}, this takes no fallback:
+ * `Slice max spend` and `Agent max spend` have none, an absent key means no
+ * limit rather than a limit of `0`.
+ */
+export const dollarsOrUnset = (raw: string | undefined): number | null => {
+  if (raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
 /**
  * The ref a desk reset cuts a new branch from: `origin/<default branch>`, the
@@ -1701,11 +1775,43 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
       model: settings.model,
       effort: settings.effort,
       maxTurns: positive(cfg('Agent max turns'), DEFAULT_AGENT_MAX_TURNS),
+      maxSpendUsd: dollarsOrUnset(cfg('Agent max spend')) ?? 0,
       contextWindow: settings.contextWindow,
       capabilities: charter?.capabilities ?? [],
       runChecks: localChecksRunner(input.ports.boundedRun, input.scriptDir, input.boundSeconds, input.checksOutFile),
     },
   };
+};
+
+/** A thrown value's message, or its text where it is not an `Error`. */
+const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Writes one SDK run's run line and its budget entries, and logs what could
+ * not be written. A record that cannot be written costs a reading, never the
+ * run: neither a refusal nor a throw reaches the caller. A `no-cost` refusal is
+ * the `command` runner's answer and is not logged.
+ *
+ * @param deps - the loop's ports and log.
+ * @param worktree - the desk the run worked in.
+ * @param branch - the branch the run worked on.
+ * @param result - what the run produced.
+ */
+const recordRunRecords = async (deps: LoopDeps, worktree: string, branch: string, result: AgentRunResult): Promise<void> => {
+  try {
+    const refusal = await deps.ports.recordRun(worktree, branch, 'worker', new Date(deps.now()).toISOString(), result);
+    if (refusal !== null && refusal !== 'no-cost') {
+      deps.log(`plot-worker-loop: no run line for ${branch} (${refusal})`);
+    }
+  } catch (error) {
+    deps.log(`plot-worker-loop: no run line for ${branch} (${reasonOf(error)})`);
+  }
+  try {
+    const failed = await deps.ports.recordLimits(result, deps.now());
+    if (failed > 0) deps.log(`plot-worker-loop: ${failed} usage-limit reading(s) not recorded`);
+  } catch (error) {
+    deps.log(`plot-worker-loop: usage-limit readings not recorded (${reasonOf(error)})`);
+  }
 };
 
 /** A file's text, or `null` where it cannot be read. */
@@ -1918,6 +2024,7 @@ export const main = async (
       checksWaitSeconds: count(env.PLOT_CHECKS_WAIT_SECONDS, count(configKey(worktree, 'Checks wait'), 1800)),
       correctionBudget: count(env.PLOT_CORRECTION_BUDGET, count(configKey(worktree, 'Correction budget'), 2)),
       sliceMaxRuns: positive(configKey(worktree, 'Slice max runs'), DEFAULT_SLICE_MAX_RUNS),
+      sliceMaxSpendUsd: dollarsOrUnset(configKey(worktree, 'Slice max spend')),
       base,
     },
     limitMarginSeconds: integer(env.PLOT_LIMIT_MARGIN_SECONDS, 60),

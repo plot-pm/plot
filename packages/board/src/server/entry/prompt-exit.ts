@@ -5,6 +5,7 @@
 // rather than through `adapters/index.js`, which pulls the whole adapter barrel.
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit, type PromptExit } from '@plot-pm/domain/rules/prompt-exit';
+import { backgroundDropCorrection } from '@plot-pm/domain/rules/background-drop';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -67,8 +68,10 @@ export const EXIT = {
  * — or `unknown` and `-` where none could be read — then the cause and the
  * line. **The cause sits before the line** because a limit line may itself
  * contain anything, so a field after it could not be found by position.
- * `unstarted` and `ran` carry nothing: they are today's two paths, and a field
- * would invent a reading.
+ * `dropped` carries the correction `backgroundDropCorrection` builds from the
+ * line, which may span several lines: the caller takes everything after the
+ * first tab. `unstarted` and `ran` carry nothing: they are today's two paths,
+ * and a field would invent a reading.
  */
 export const line = (answer: PromptExit): string => {
   if (answer.answer === 'wait') {
@@ -78,6 +81,9 @@ export const line = (answer: PromptExit): string => {
     const epoch = answer.reset ? String(answer.reset.epoch) : 'unknown';
     const iso = answer.reset ? answer.reset.iso : '-';
     return `end-limited\t${epoch}\t${iso}\t${answer.cause}\t${answer.line}\n`;
+  }
+  if (answer.answer === 'dropped') {
+    return `dropped\t${backgroundDropCorrection(answer.line)}\n`;
   }
   return `${answer.answer}\n`;
 };

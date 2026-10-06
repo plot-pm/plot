@@ -422,6 +422,16 @@ describe('deskFs: ending, marker, declaration, correction, limited record, moved
     fs.rmSync(path.join(desk, 'PLOT-CORRECTION.md'));
   });
 
+  it('appendCorrection appends the text with the separator, after an earlier correction', async () => {
+    const port = deskPort();
+    await port.writeCorrection(desk, 'infra/x', 'first failure', 1, 2);
+    await port.appendCorrection(desk, '## Dropped\n\nthe line');
+    const text = fs.readFileSync(path.join(desk, 'PLOT-CORRECTION.md'), 'utf8');
+    expect(text).toContain('first failure');
+    expect(text.endsWith('## Dropped\n\nthe line\n\n---\n\n')).toBe(true);
+    fs.rmSync(path.join(desk, 'PLOT-CORRECTION.md'));
+  });
+
   it('writeLimitedRecord overwrites on a second limit, and clearLimitedRecord removes it', async () => {
     const port = deskPort();
     await port.writeLimitedRecord(desk, 100, '1970-01-01T00:01:40Z', 'first limit');
