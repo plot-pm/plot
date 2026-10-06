@@ -167,164 +167,174 @@ export const workerLoopPorts = async (
   };
 };
 
-/**
- * The bundle's own path relative to any checkout's root — fixed, as
- * `plot-worker-loop.sh` names it beside itself (`$script_dir/board/…`) and
- * `shippedConfig` names `scriptDir` one level above it.
- */
+/** The bundle's path relative to a checkout's root, as `plot-worker-loop.sh` names it beside itself. */
 export const BUNDLE_RELATIVE_PATH = join('skills', 'plot', 'scripts', 'board', 'plot-worker-loop.mjs');
 
-/** How long a candidate bundle's `--self-check` may run before it is treated as a failing check. */
+/** The bundle paths: a dirty path under this directory of the main checkout blocks a restart onto its bundle. */
+export const BUNDLE_DIRECTORY = 'skills/plot/scripts/board/';
+
+/** How long a candidate bundle's `--self-check` may run, in seconds. */
 export const SELF_CHECK_BOUND_SECONDS = 10;
 
+/** The main checkout as this process found it at start. */
+export interface PinnedCheckout {
+  /** The main checkout's root, as `trees.list()` names it. */
+  readonly checkout: string;
+  /** The absolute path of the main checkout's bundle. */
+  readonly bundlePath: string;
+  /** The main checkout's `HEAD` at start; `''` where it could not be resolved. */
+  readonly loadedCommit: string;
+  /** Refs read in the main checkout. */
+  readonly refs: Refs;
+}
+
 /**
- * Reads the main checkout's candidate bundle — what {@link LoopRestartReadings}
- * compares the running loop against.
+ * Pins the main checkout: the entry `trees.list()` marks as main.
  *
- * `null` where `trees.list()` names no main checkout, or its bundle's hash
- * cannot be read — both leave the pass with nothing to compare against, so the
- * caller treats a `null` the same as "no newer bundle": stay.
- *
- * @param ports - where the main checkout and its cleanliness are read.
- * @param scriptDir - this process's own `scriptDir`, passed to the main
- *   checkout's scoped {@link Refs} so its helper-script calls resolve there.
- * @returns the checkout's absolute bundle path, branch, cleanliness, bundle
- *   hash and a {@link Refs} scoped to it; `null` where any reading failed.
+ * @param trees - the worktree listing of the loop's repository.
+ * @param scriptDir - this process's `scriptDir`, for the main checkout's {@link Refs}.
+ * @returns the pinned checkout; `null` where the listing fails or names no main checkout.
  */
-export const mainCheckoutReading = async (
-  ports: Pick<WorkerLoopPorts, 'trees'>,
-  scriptDir: string,
-): Promise<{ bundlePath: string; branch: string; clean: boolean; refs: Refs; hash: string } | null> => {
-  const list = await ports.trees.list();
+export const pinMainCheckout = async (trees: Trees, scriptDir: string): Promise<PinnedCheckout | null> => {
+  const list = await trees.list();
   if (!list.ok) return null;
   const main = list.value.find((tree) => tree.isMain);
   if (main === undefined) return null;
   const refs = refsGit({ repoRoot: main.path, scriptDir });
-  const clean = await ports.trees.isClean(main.path);
-  const hashed = refs.hashFilesSync([BUNDLE_RELATIVE_PATH]);
-  if (!clean.ok || !hashed.ok) return null;
-  const hash = hashed.value.get(BUNDLE_RELATIVE_PATH);
-  if (hash === undefined) return null;
-  return { bundlePath: join(main.path, BUNDLE_RELATIVE_PATH), branch: main.branch, clean: clean.value, refs, hash };
+  const head = await refs.resolve('HEAD');
+  return {
+    checkout: main.path,
+    bundlePath: join(main.path, BUNDLE_RELATIVE_PATH),
+    loadedCommit: head.ok ? head.value : '',
+    refs,
+  };
 };
 
-/** Everything {@link checkRestart} needs beyond the pass's own ports. */
+/** Everything {@link checkRestart} reads beyond the loop's ports. */
 export interface RestartDeps {
-  /** This process's own `scriptDir`, passed through so the main checkout's `Refs` resolves its helper scripts there. */
-  readonly scriptDir: string;
-  /** The content hash of the bundle THIS process loaded at start. */
+  readonly pinned: PinnedCheckout;
+  /** The absolute path of the bundle this process runs. */
+  readonly runningBundle: string;
+  /** The content hash of {@link runningBundle} at start. */
   readonly loadedHash: string;
-  /** This process's own resident memory, in bytes — never another process's. */
+  /** This process's resident memory, in bytes. */
   readonly residentBytes: () => number;
   /** Whether `process.execve` exists on this Node. */
   readonly execveAvailable: boolean;
-  /** Logs the no-`execve` gap; the caller de-duplicates so it runs once per process life, not once per pass. */
-  readonly logExecveGapOnce: (reason: string) => void;
+  /** The Node binary, its options before the bundle, and the arguments after it, for the restarted process. */
+  readonly exec: { readonly path: string; readonly options: readonly string[]; readonly args: readonly string[] };
+  /** Content hashes whose `--self-check` failed in this process; each is checked once. */
+  readonly rejected: Set<string>;
+  /** Logs a line once per process; a repeated line is dropped. */
+  readonly logOnce: (line: string) => void;
   readonly log: (line: string) => void;
   readonly env: NodeJS.ProcessEnv;
 }
 
 /**
- * Asks {@link restartAnswer} whether to replace this process's image, and
- * carries out `restart` or `stay-and-log`.
+ * Reads the main checkout's side of {@link LoopRestartReadings}.
  *
- * Gathers every {@link LoopRestartReadings} field through the given ports,
- * including the main checkout's `HEAD` ancestry over the loaded commit for the
- * LATER phase only — `plot-ancestry: evidence`, handed to `restartAnswer`
- * rather than treated as a verdict here; `restartAnswer` is what decides, and
- * `unknown` is one of the values it decides with.
+ * A reading that fails reads as the side that blocks a restart onto the main
+ * checkout: not the default branch, dirty, `unknown` ancestry, or an empty
+ * hash.
  *
- * A `restart` verdict runs the candidate bundle's own `--self-check` through
- * `boundedRun` first, bounded to {@link SELF_CHECK_BOUND_SECONDS}: an exit
- * other than 0 is read the same as "no newer bundle" and this pass stays,
- * because a bundle that cannot even load must never replace one that is
- * already running.
+ * @param trees - the worktree port.
+ * @param pinned - the main checkout pinned at start.
+ * @param phase - the check's phase; ancestry is read for `later` only.
+ * @returns the four main-checkout readings.
+ */
+export const mainCheckoutReading = async (
+  trees: Trees,
+  pinned: PinnedCheckout,
+  phase: 'first' | 'later',
+): Promise<Pick<LoopRestartReadings, 'onDefaultBranch' | 'bundlePathsClean' | 'headContainsLoaded' | 'pinnedHash'>> => {
+  const [list, dirty, defaultBranch] = await Promise.all([
+    trees.list(),
+    trees.dirtyPaths(pinned.checkout),
+    pinned.refs.defaultBranch(),
+  ]);
+  const branch = list.ok ? list.value.find((tree) => tree.path === pinned.checkout)?.branch ?? '' : '';
+  const hashed = pinned.refs.hashFilesSync([BUNDLE_RELATIVE_PATH]);
+  return {
+    onDefaultBranch: defaultBranch.ok && defaultBranch.value !== '' && defaultBranch.value === branch,
+    bundlePathsClean: dirty.ok && !dirty.value.some((path) => path.startsWith(BUNDLE_DIRECTORY)),
+    headContainsLoaded: phase === 'later' ? await headContainsLoaded(pinned) : 'unknown',
+    pinnedHash: (hashed.ok && hashed.value.get(BUNDLE_RELATIVE_PATH)) || '',
+  };
+};
+
+const headContainsLoaded = async (pinned: PinnedCheckout): Promise<'yes' | 'no' | 'unknown'> => {
+  if (pinned.loadedCommit === '') return 'unknown';
+  const head = await pinned.refs.resolve('HEAD');
+  if (!head.ok) return 'unknown';
+  // plot-ancestry: evidence — handed to `restartAnswer` as a reading, which
+  //                restarts on `yes` only. A wrong `no` or `unknown` keeps old
+  //                code one more pass; nothing is merged, delivered or removed.
+  const contains = await pinned.refs.contains(pinned.loadedCommit, head.value);
+  return contains.ok ? contains.value : 'unknown';
+};
+
+const selfCheckFailure = (check: Awaited<ReturnType<BoundedRun['run']>>): string =>
+  !check.ok ? `could not run (${check.why})` : check.value.timedOut ? `ran past ${SELF_CHECK_BOUND_SECONDS}s` : `exited ${check.value.status}`;
+
+/**
+ * Asks {@link restartAnswer} whether to replace this process, and carries the
+ * answer out.
  *
- * @param ports - this loop's own ports.
- * @param deps - the loaded hash, the platform and memory readings, and the logger.
- * @param phase - `'first'` before the loop's first pass; `'later'` during a pass.
- * @param wait - the running loop's own wait clock state; `null` outside a free
- *   wait (the `'first'` phase always passes `null` — it runs before any wait).
- *   Carried into the restarted process as `PLOT_WAIT_STARTED` so a restart
- *   never gives the new process a fresh `Worker bound` clock.
- * @returns `true` only where this call replaced the process image — which
- *   never returns to the caller, so in practice the function either returns
- *   `false` or the process is already a different one.
+ * Before a restart, the candidate bundle runs `--self-check` through
+ * `boundedRun`, bounded to {@link SELF_CHECK_BOUND_SECONDS}. A candidate that
+ * does not exit 0 is logged and added to `rejected`, and this process keeps
+ * running. A restart replaces the process through `reexec` with the same
+ * arguments, the candidate bundle, and `PLOT_WAIT_STARTED` set to `wait`.
+ *
+ * @param ports - the loop's `trees`, `boundedRun` and `reexec`.
+ * @param deps - the pinned checkout, the running bundle and the platform readings.
+ * @param phase - `first` before the first pass; `later` between passes.
+ * @param wait - the free wait's start, epoch ms; `null` outside a free wait.
+ * @returns when this process stays. On a restart it does not return.
  */
 export const checkRestart = async (
   ports: Pick<WorkerLoopPorts, 'trees' | 'boundedRun' | 'reexec'>,
   deps: RestartDeps,
   phase: 'first' | 'later',
   wait: number | null,
-): Promise<boolean> => {
-  const main = await mainCheckoutReading(ports, deps.scriptDir);
-  if (main === null) return false;
-
-  const headContainsLoaded =
-    phase === 'later' ? await answerContains(main.refs, deps.loadedHash) : 'unknown';
-
+): Promise<void> => {
   const readings: LoopRestartReadings = {
     phase,
     inFreeWait: wait !== null,
-    onDefaultBranch: await isDefaultBranch(main.refs, main.branch),
-    bundlePathsClean: main.clean,
-    headContainsLoaded,
-    pinnedHash: main.hash,
+    ...(await mainCheckoutReading(ports.trees, deps.pinned, phase)),
     loadedHash: deps.loadedHash,
     residentBytes: deps.residentBytes(),
     execveAvailable: deps.execveAvailable,
   };
-
   const verdict = restartAnswer(readings);
-  if (verdict.verdict === 'stay') return false;
+  if (verdict.verdict === 'stay') return;
   if (verdict.verdict === 'stay-and-log') {
-    deps.logExecveGapOnce(verdict.reason);
-    return false;
+    deps.logOnce(`plot-worker-loop: ${verdict.reason}`);
+    return;
   }
-
+  const [bundle, hash] =
+    verdict.bundle === 'pinned' ? [deps.pinned.bundlePath, readings.pinnedHash] : [deps.runningBundle, deps.loadedHash];
+  if (deps.rejected.has(hash)) return;
   const outFile = join(tmpdir(), `plot-worker-loop-self-check-${process.pid}.out`);
-  const check = await ports.boundedRun.run('node', [main.bundlePath, '--self-check'], {
-    cwd: dirname(main.bundlePath),
+  const check = await ports.boundedRun.run(deps.exec.path, [bundle, '--self-check'], {
+    cwd: dirname(bundle),
     boundSeconds: SELF_CHECK_BOUND_SECONDS,
     outFile,
   });
   await rm(outFile, { force: true });
-  if (!check.ok || check.value.status !== 0) {
-    deps.log(`plot-worker-loop: restart candidate failed --self-check — staying on the running bundle`);
-    return false;
+  if (!check.ok || check.value.timedOut || check.value.status !== 0) {
+    deps.rejected.add(hash);
+    deps.log(`plot-worker-loop: ${bundle} failed its --self-check (${selfCheckFailure(check)}); staying on the running bundle`);
+    return;
   }
-
-  deps.log(`plot-worker-loop: restarting — ${verdict.reason}`);
-  // `argv[0]` is the program name by POSIX `execve` convention — Node reads
-  // the array starting at index 1 as its own argv, so omitting this makes the
-  // restarted process treat its own entry script path as an unrecognized
-  // flag and exit immediately. Measured directly against a real Node 24
-  // process: with `process.execPath` prepended the pid and env carry across
-  // the replace; without it the new image never reaches its own code.
-  await ports.reexec.replace(process.execPath, [process.execPath, ...process.argv.slice(1)], {
-    ...deps.env,
-    PLOT_WAIT_STARTED: wait !== null ? String(wait) : '',
-  });
-  return true;
-};
-
-/**
- * Whether the main checkout's `HEAD` contains the loaded commit.
- *
- * `plot-ancestry: evidence` — handed to {@link restartAnswer} as a reading,
- * including `unknown`, rather than decided here.
- */
-const answerContains = async (refs: Refs, loadedHash: string): Promise<'yes' | 'no' | 'unknown'> => {
-  const head = await refs.resolve('HEAD');
-  if (!head.ok) return 'unknown';
-  const contains = await refs.contains(loadedHash, head.value);
-  return contains.ok ? contains.value : 'unknown';
-};
-
-/** Whether a checkout's current branch is the repository's default. */
-const isDefaultBranch = async (refs: Refs, branch: string): Promise<boolean> => {
-  const name = await refs.defaultBranch();
-  return name.ok && name.value !== '' && name.value === branch;
+  deps.log(`plot-worker-loop: restarting on ${bundle} — ${verdict.reason}`);
+  const replaced = await ports.reexec.replace(
+    deps.exec.path,
+    [deps.exec.path, ...deps.exec.options, bundle, ...deps.exec.args],
+    { ...deps.env, PLOT_WAIT_STARTED: wait === null ? '' : String(wait) },
+  );
+  if (!replaced.ok) deps.logOnce(`plot-worker-loop: the restart did not happen (${replaced.why}); staying on the running bundle`);
 };
 
 /** The manifest fields this loop reads, at the shapes the dispatcher and the supervisor write them. */
@@ -959,13 +969,9 @@ export interface LoopDeps {
    * absent runs the prompt with the variable unset, as the shell does.
    */
   readonly agentSettings?: string;
-  /**
-   * What {@link checkRestart} needs to ask `restartAnswer` and act on it;
-   * absent skips the restart check entirely — a test exercising the rest of
-   * the loop need not also stand up a main checkout.
-   */
+  /** What {@link checkRestart} reads; absent, the loop never restarts itself. */
   readonly restart?: RestartDeps;
-  /** The wait's start read back from `PLOT_WAIT_STARTED`, so a restart never extends `Worker bound`. */
+  /** The free wait's start carried over a restart in `PLOT_WAIT_STARTED`, epoch ms. */
   readonly waitStartedAt?: number;
   /** `Agent runner` as {@link runnerChoice} answered it; absent reads `command`. */
   readonly runner?: 'command' | 'sdk';
@@ -1303,16 +1309,12 @@ const runPrompt = async (
  * @returns the process exit code the decision named.
  */
 export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
-  // `waitStartedAt` carries a restarted process's wait start across the
-  // replace — a restart must never give a loop a fresh `Worker bound` clock.
   const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null };
   let held: Held = { ...FRESH };
   let previousBranch = '';
   let hopFrom = '';
   let announcedFree = false;
-  if (deps.restart !== undefined) {
-    await checkRestart(deps.ports, deps.restart, 'first', null);
-  }
+  if (deps.restart !== undefined) await checkRestart(deps.ports, deps.restart, 'first', clock.since);
   for (;;) {
     const prompt: PromptState = {
       running: null,
@@ -1403,7 +1405,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       await deps.ports.desk.clearLimitedRecord(worktree);
     } else if (!kinds.has('prompt-run') && !kinds.has('agent-attempt') && resume === undefined) {
       const onChecks = readings.assignedBranch !== '' && readings.exit?.answer === 'ran';
-      if (!onChecks && deps.restart !== undefined) {
+      if (readings.assignedBranch === '' && deps.restart !== undefined) {
         await checkRestart(deps.ports, deps.restart, 'later', clock.since);
       }
       await deps.sleep(onChecks ? deps.config.checksPollMs : deps.config.passIntervalMs);
@@ -1699,9 +1701,62 @@ export const harnessName = (env: NodeJS.ProcessEnv): string => env.PLOT_HARNESS 
 export const offsetClock = (env: NodeJS.ProcessEnv): (() => number) =>
   () => Date.now() + integer(env.PLOT_CLOCK_OFFSET_SECONDS, 0) * 1000;
 
-/** `PLOT_WAIT_STARTED` as epoch ms, where a restarted process's launcher carried one forward; `undefined` on an empty or absent value. */
+/** `PLOT_WAIT_STARTED` as epoch ms; `undefined` where it is empty or absent. */
 const waitStartedFromEnv = (raw: string | undefined): number | undefined =>
   raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : undefined;
+
+/** The parts of `process` {@link restartDeps} reads. */
+export interface RestartPlatform {
+  readonly execPath: string;
+  readonly execArgv: readonly string[];
+  readonly argv: readonly string[];
+  readonly execve?: unknown;
+  readonly memoryUsage: () => { rss: number };
+}
+
+/**
+ * Builds this process's {@link RestartDeps}: pins the main checkout and hashes
+ * the running bundle, `<scriptDir>/board/plot-worker-loop.mjs`.
+ *
+ * @param trees - the worktree port of the loop's repository.
+ * @param scriptDir - this process's `scriptDir`.
+ * @param env - the environment the restarted process inherits.
+ * @param log - where the restart's lines go.
+ * @param platform - the running process.
+ * @returns the restart's dependencies; `undefined` where no main checkout is
+ *   pinned or the running bundle cannot be hashed, and the loop never restarts.
+ */
+export const restartDeps = async (
+  trees: Trees,
+  scriptDir: string,
+  env: NodeJS.ProcessEnv,
+  log: (line: string) => void,
+  platform: RestartPlatform = process,
+): Promise<RestartDeps | undefined> => {
+  const pinned = await pinMainCheckout(trees, scriptDir);
+  if (pinned === null) return undefined;
+  const runningBundle = join(scriptDir, 'board', 'plot-worker-loop.mjs');
+  const hashed = pinned.refs.hashFilesSync([runningBundle]);
+  const loadedHash = hashed.ok ? hashed.value.get(runningBundle) : undefined;
+  if (loadedHash === undefined) return undefined;
+  const logged = new Set<string>();
+  return {
+    pinned,
+    runningBundle,
+    loadedHash,
+    residentBytes: () => platform.memoryUsage().rss,
+    execveAvailable: typeof platform.execve === 'function',
+    exec: { path: platform.execPath, options: platform.execArgv, args: platform.argv.slice(2) },
+    rejected: new Set<string>(),
+    logOnce: (line: string) => {
+      if (logged.has(line)) return;
+      logged.add(line);
+      log(line);
+    },
+    log,
+    env,
+  };
+};
 
 /**
  * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
@@ -1742,25 +1797,12 @@ export const main = async (
   await stampManifestLoopJs(manifestFile);
   const agentSettings = await resolveAgentSettings(scriptsShell({ repoRoot: worktree, scriptDir }), stderrLog);
   const base = env.PLOT_BASE ?? (await defaultBase(ports.refs));
-  const loadedHashes = ports.refs.hashFilesSync([BUNDLE_RELATIVE_PATH]);
-  const loadedHash = loadedHashes.ok ? loadedHashes.value.get(BUNDLE_RELATIVE_PATH) ?? '' : '';
-  let loggedExecveGap = false;
-  const restart: RestartDeps | undefined =
-    loadedHash === ''
-      ? undefined
-      : {
-          scriptDir,
-          loadedHash,
-          residentBytes: () => process.memoryUsage().rss,
-          execveAvailable: typeof process.execve === 'function',
-          logExecveGapOnce: (reason: string) => {
-            if (loggedExecveGap) return;
-            loggedExecveGap = true;
-            stderrLog(`plot-worker-loop: ${reason}`);
-          },
-          log: stderrLog,
-          env,
-        };
+  const restart = await restartDeps(ports.trees, scriptDir, env, stderrLog);
+  const waitStartedAt = waitStartedFromEnv(env.PLOT_WAIT_STARTED);
+  if (env.PLOT_WAIT_STARTED !== undefined) {
+    const wait = waitStartedAt === undefined ? 'no free wait' : `the free wait from ${new Date(waitStartedAt).toISOString()}`;
+    stderrLog(`plot-worker-loop: restarted as pid ${process.pid} on ${join(scriptDir, 'board', 'plot-worker-loop.mjs')}, keeping ${wait}`);
+  }
   const now = offsetClock(env);
   const runner = await runnerDeps({
     env,
@@ -1780,7 +1822,7 @@ export const main = async (
     ...runner,
     ports,
     restart,
-    waitStartedAt: waitStartedFromEnv(env.PLOT_WAIT_STARTED),
+    waitStartedAt,
     idle: {
       selfPid: process.pid,
       windowSeconds: count(env.PLOT_MONITOR_QUIET_SECONDS, IDLE_WINDOW_SECONDS),

@@ -42,6 +42,7 @@ describe('restartAnswer — the later check, during a free wait', () => {
   it('restarts when the checkout moved forward onto a newer, clean bundle', () => {
     expect(restartAnswer(later())).toEqual({
       verdict: 'restart',
+      bundle: 'pinned',
       reason: "the main checkout's HEAD moved forward onto a newer, clean bundle",
     });
   });
@@ -77,10 +78,27 @@ describe('restartAnswer — the later check, during a free wait', () => {
   });
 });
 
+describe('restartAnswer — failure 5: a process that runs old code', () => {
+  it('restarts a loop whose bundle main has since rebuilt, once main moved forward', () => {
+    const running = later({ loadedHash: 'bundle-at-start', pinnedHash: 'bundle-after-merge', headContainsLoaded: 'yes' });
+    expect(restartAnswer(running)).toMatchObject({ verdict: 'restart', bundle: 'pinned' });
+  });
+
+  it('restarts on the pinned bundle when memory is also over the ceiling', () => {
+    const both = later({ residentBytes: MEMORY_CEILING_BYTES + 1 });
+    expect(restartAnswer(both)).toMatchObject({ verdict: 'restart', bundle: 'pinned' });
+  });
+
+  it('stays when the pinned hash could not be read', () => {
+    expect(restartAnswer(first({ pinnedHash: '' })).verdict).toBe('stay');
+  });
+});
+
 describe('restartAnswer — the first check, before the first pass', () => {
   it('restarts on a differing hash with a clean default-branch checkout', () => {
     expect(restartAnswer(first())).toEqual({
       verdict: 'restart',
+      bundle: 'pinned',
       reason: "the main checkout's bundle differs from the one this loop loaded",
     });
   });
@@ -116,6 +134,7 @@ describe('restartAnswer — the memory ceiling', () => {
     });
     expect(restartAnswer(over)).toEqual({
       verdict: 'restart',
+      bundle: 'running',
       reason: `resident memory ${MEMORY_CEILING_BYTES + 1} bytes passed the ${MEMORY_CEILING_BYTES} byte ceiling`,
     });
   });

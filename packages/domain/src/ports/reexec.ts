@@ -23,7 +23,7 @@ export interface Reexec {
    * it cannot be asked at all rather than having been asked and broken.
    *
    * @param command - the executable path to run in the new image.
-   * @param args - its arguments, matching `process.argv.slice(1)`'s shape.
+   * @param args - the new image's whole argument vector, the program name first, as `execve` takes it.
    * @param env - the environment the new image starts with.
    * @returns a `failed` result where the platform has `process.execve` but it
    *   refused to start the replacement; never returns at all on success.
