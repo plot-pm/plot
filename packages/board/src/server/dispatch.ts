@@ -13,13 +13,7 @@ import {
 import { usableCommand } from './idea.js';
 import { localCapability } from './controllers/caller.js';
 import { recordActionReceipt } from './action-receipt.js';
-import { runnerChoice } from '@plot-pm/domain';
-
-/** The config key naming which runner starts an agent: the shell fragment, or the Agent SDK. */
-export const AGENT_RUNNER_KEY = 'Agent runner';
-
-/** The config key naming which loop implementation runs a dispatched worker. */
-export const WORKER_LOOP_KEY = 'Worker loop';
+import { sdkLoopRefusal } from './runner-gate.js';
 
 /**
  * The board's ONE state-changing route.
@@ -395,22 +389,13 @@ export async function handleDispatch(
   // command` fragment regardless, silently ignoring the configured runner.
   // Refusing here names the mismatch instead.
   // ──────────────────────────────────────────────────────────────────────────
-  const agentRunnerReading = readCfg(opts, AGENT_RUNNER_KEY, '');
-  const workerLoopReading = readCfg(opts, WORKER_LOOP_KEY, '');
-  const runner = runnerChoice({
-    agentRunner: agentRunnerReading === 'sdk' || agentRunnerReading === 'command' ? agentRunnerReading : '',
-    isWorker: true,
-    workerLoop: workerLoopReading === 'js' || workerLoopReading === 'shell' ? workerLoopReading : '',
-    fragment: '',
-    charterHarness: '',
-    defaultsToSdkWhenNamed: false,
-  });
-  if (runner.runner === 'refused') {
+  const runnerRefusal = sdkLoopRefusal((key, fallback) => readCfg(opts, key, fallback));
+  if (runnerRefusal !== null) {
     json(409, {
       ok: false,
       slug,
       reason: 'sdk-needs-js-loop',
-      detail: runner.reason,
+      detail: runnerRefusal,
     });
     return;
   }

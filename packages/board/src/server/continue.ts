@@ -13,7 +13,7 @@ import { deskManifestFor, writeManifestStamp, writeResumeId } from './manifest-s
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell } from '@plot-pm/domain/adapters';
-import { runnerChoice } from '@plot-pm/domain';
+import { sdkLoopRefusal } from './runner-gate.js';
 import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
 
 /**
@@ -639,18 +639,9 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   // has no concept of the SDK port, so a continuation started under
   // `Agent runner: sdk` + `Worker loop: shell` would silently fall back to the
   // `Worker command` fragment rather than running the configured runner.
-  const agentRunnerReading = readCfg(opts, 'Agent runner', '');
-  const workerLoopReading = readCfg(opts, 'Worker loop', '');
-  const runner = runnerChoice({
-    agentRunner: agentRunnerReading === 'sdk' || agentRunnerReading === 'command' ? agentRunnerReading : '',
-    isWorker: true,
-    workerLoop: workerLoopReading === 'js' || workerLoopReading === 'shell' ? workerLoopReading : '',
-    fragment: '',
-    charterHarness: '',
-    defaultsToSdkWhenNamed: false,
-  });
-  if (runner.runner === 'refused') {
-    return refused(409, 'sdk-needs-js-loop', runner.reason);
+  const runnerRefusal = sdkLoopRefusal((key, fallback) => readCfg(opts, key, fallback));
+  if (runnerRefusal !== null) {
+    return refused(409, 'sdk-needs-js-loop', runnerRefusal);
   }
 
   // ASKED BEFORE ANY WRITE, and that is the decision: a refused continuation
