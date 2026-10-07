@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { scriptsFor, primeAgentSettings, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
-import { boardRunsSettled } from '../board-run.js';
+import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 
 /**
@@ -98,6 +98,12 @@ export const run = async (
   here: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): Promise<number> => {
+  // A ONE-SHOT PROCESS STARTS NO BOARD-ROLE AGENT. `maybeAutoDispatch` can ask
+  // for a brief and `maybeAutoDeliver` can start a delivery; here either would
+  // run in this process's group and end with it, and waiting for it would hold
+  // the caller for the agent's whole run. The running board starts them on its
+  // next pass.
+  leaveBoardRunsToTheBoard(true);
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write('usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file>\n');
@@ -155,16 +161,8 @@ export const run = async (
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   // `run` awaits ports now, so the exit code arrives as a promise. Awaiting it
   // at the entry keeps the contract a NUMBER for every other caller.
-  //
-  // THE AGENTS A SCAN STARTED END WITH THIS PROCESS, so it waits for them
-  // after the answer is written: `maybeAutoDispatch` can ask for a brief and
-  // `maybeAutoDeliver` can start a delivery, and both run in this process's
-  // group. Exiting first would end a delivery between its merge and its record.
   void run(process.argv.slice(2), path.dirname(fileURLToPath(import.meta.url)))
-    .then(async (code) => {
-      await boardRunsSettled();
-      process.exit(code);
-    });
+    .then((code) => process.exit(code));
 }
 
 export { askOnce, askOncePerEstate, newMemory };

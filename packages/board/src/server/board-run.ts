@@ -75,8 +75,7 @@ const unsettled = new Set<Promise<void>>();
 /**
  * Resolves once every run this process started has recorded its end.
  *
- * A one-shot process awaits it before it exits: its runs share its process
- * group, and an exit ends them.
+ * A test awaits it before it removes the directories its runs write to.
  *
  * @returns a promise that resolves when no run is left unrecorded.
  */
@@ -140,13 +139,29 @@ export const markBoardRun = (statePath: string, logFile: string): void => {
   held.set(statePath, logFile);
 };
 
+let leftToTheBoard = false;
+
+/**
+ * Sets whether this process leaves board-role agents to the running board.
+ *
+ * A one-shot process sets it: its agents would share its process group and
+ * end when it exits, and nothing waits on a brief or a delivery it would start.
+ * The running board's next pass starts them instead.
+ *
+ * @param on - `true` to start no board-role agent in this process.
+ */
+export const leaveBoardRunsToTheBoard = (on: boolean): void => {
+  leftToTheBoard = on;
+};
+
 /**
  * Starts one board role through `agentRun` and records its end. Resolves once
  * the run is started; the run itself is not awaited.
  *
  * A `refused` runner choice, a run that cannot start, and every end
  * {@link boardRunEnd} reads as a failure append their reason to the log and
- * record a non-zero code.
+ * record a non-zero code. In a process that {@link leaveBoardRunsToTheBoard},
+ * the role starts nothing, appends that to the log, and calls no `onEnd`.
  *
  * @param opts - the board's options.
  * @param spec - the role, its command key, tree, prompt, environment, log and state file.
@@ -171,6 +186,13 @@ export const startBoardRun = async (
     }
   };
   const failed = (line: string): BoardRunRecord => ({ code: 1, line, outcome: null, written: null });
+  if (leftToTheBoard) {
+    const line = `the ${spec.role} run was left to the running board: this process starts no board-role agent`;
+    appendLine(spec.logFile, line);
+    writeState(spec.statePath, 1);
+    console.error(line);
+    return 'refused';
+  }
   installSignalExit();
 
   let choice;

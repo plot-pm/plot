@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -101,6 +101,21 @@ describe('agentRunCommand', () => {
     const result = await adapter.run(request({}, dir, logFile));
     expect(env).toMatchObject(backgroundGateEnv());
     expect(result.ok && result.value.end).toEqual({ answer: 'dropped', line });
+  });
+
+  it('classifies only what this run appended, never a line an earlier run left in the log', async () => {
+    const line = 'Background tasks still running after 600s; terminating.';
+    await writeFile(logFile, `an earlier run\n${line}\n`, 'utf8');
+    const boundedRun: BoundedRun = {
+      run: async (_command, _args, options) => {
+        await appendFile(options.outFile, 'this run finished cleanly\n', 'utf8');
+        return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 5 });
+      },
+    };
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: HARNESS_LIMIT_LINES.claude, now: () => 0 });
+
+    const result = await adapter.run(request({}, dir, logFile));
+    expect(result.ok && result.value.end).toEqual({ answer: 'ran', handBack: null });
   });
 
   it('answers unstarted on a non-zero exit with no limit line', async () => {

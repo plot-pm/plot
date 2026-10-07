@@ -17,7 +17,7 @@
  * before this adapter existed. The prompt is a positional argument, so a
  * prompt containing a quote or a `$` is never read as shell syntax.
  */
-import { readFile } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { AgentRun, AgentRunRequest, AgentRunResult } from '../../ports/agent-run.js';
@@ -55,6 +55,9 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
     //
     // NO SCRATCH FILE: a file this run wrote would outlive a caller that is
     // killed mid-run, because nothing then reaches the code that removes it.
+    // THIS RUN'S BYTES ONLY: the log is appended to, and a line an earlier
+    // run left in it must not classify this one.
+    const startOffset = await stat(request.logFile).then((s) => s.size, () => 0);
     const result = await deps.boundedRun.run(
       'env',
       ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', `${deps.fragment} "$@"`, '_', request.prompt],
@@ -70,7 +73,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
 
     let output = '';
     try {
-      output = (await readFile(request.logFile, 'utf8')).split('\n').slice(-200).join('\n');
+      output = (await appendedSince(request.logFile, startOffset)).split('\n').slice(-200).join('\n');
     } catch {
       /* an unreadable output is an exit with no limit line */
     }
@@ -134,3 +137,23 @@ const unasked = (request: AgentRunRequest, end: AgentRunResult['end']): AgentRun
   // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.
   account: null,
 });
+
+/**
+ * Reads what a file gained after `offset`.
+ *
+ * @param file - the file.
+ * @param offset - the size the file had before the run.
+ * @returns the bytes from `offset` to the end, as UTF-8.
+ */
+const appendedSince = async (file: string, offset: number): Promise<string> => {
+  const handle = await open(file, 'r');
+  try {
+    const { size } = await handle.stat();
+    const length = Math.max(0, size - offset);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, Math.min(offset, size));
+    return buffer.toString('utf8');
+  } finally {
+    await handle.close();
+  }
+};
